@@ -9,6 +9,12 @@ export type BaseBody = {
   participantPk?: Uint8Array;
   beaconAddress?: string;
   cohortKeys?: Array<Uint8Array>;
+  sessionId?: string;
+  aggregatedNonce?: Array<string>;
+  nonceContribution?: Array<string>;
+  partialSignature?: number;
+  pendingTx?: string;
+  data?: string;
 };
 
 export type Base = {
@@ -16,7 +22,7 @@ export type Base = {
   to: string;
   from: string;
   threadId?: string;
-  body: BaseBody;
+  body?: BaseBody;
 };
 
 export class BaseMessage {
@@ -24,7 +30,7 @@ export class BaseMessage {
   public to: string;
   public from: string;
   public threadId?: string;
-  public body: BaseBody;
+  public body?: BaseBody;
 
   constructor({ type, to, from, threadId, body }: Base) {
     this.type = type;
@@ -36,7 +42,7 @@ export class BaseMessage {
 
   /**
    * Creates a BaseMessage from a JSON object.
-   * @param {Maybe<Base>} data - The JSON object to initialize the BaseMessage.
+   * @param {Maybe<Base>} data The JSON object to initialize the BaseMessage.
    * @returns {BaseMessage} The initialized BaseMessage.
    */
   public static fromJSON(data: Maybe<Base>): BaseMessage {
@@ -53,7 +59,7 @@ export class BaseMessage {
       to       : this.to,
       from     : this.from,
       threadId : this.threadId,
-      body     : this.body ?? {}
+      body     : this.body
     };
   }
 }
