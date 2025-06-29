@@ -171,10 +171,7 @@ export class SchnorrKeyPair implements KeyPair {
    * @returns {SchnorrKeyPairObject} The Keys as a JSON object
    */
   public json(): SchnorrKeyPairObject {
-    return {
-      secretKey : this.secretKey.json(),
-      publicKey : this.publicKey.json()
-    };
+    return Object.json(this) as SchnorrKeyPairObject;
   }
 
   /**
@@ -272,10 +269,7 @@ export class SchnorrKeyPair implements KeyPair {
     // Construct a new Secp256k1SecretKey object
     const secretKey = new Secp256k1SecretKey(sk);
 
-    // Compute the public key from the secret key
-    const publicKey = secretKey.computePublicKey();
-
     // Return a new Keys object
-    return new SchnorrKeyPair({ secretKey, publicKey });
+    return new SchnorrKeyPair(secretKey);
   }
 }

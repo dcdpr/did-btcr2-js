@@ -237,11 +237,7 @@ export class Secp256k1SecretKey implements SecretKey {
    * @returns {SecretKeyObject} The secret key as a JSON object
    */
   public json(): SecretKeyObject {
-    return {
-      bytes : this.bytes.toArray(),
-      seed  : this.seed.toString(),
-      hex   : this.hex,
-    };
+    return Object.json(this) as SecretKeyObject;
   }
 
   /**
@@ -323,11 +319,8 @@ export class Secp256k1SecretKey implements SecretKey {
     // Create a new Secp256k1SecretKey from the bytes
     const secretKey = new Secp256k1SecretKey(bytes);
 
-    // Compute the public key from the secret key
-    const publicKey = secretKey.computePublicKey();
-
     // Create a new Pair from the public key and secret key
-    return new SchnorrKeyPair({ publicKey, secretKey });
+    return new SchnorrKeyPair(secretKey);
   }
 
   /**

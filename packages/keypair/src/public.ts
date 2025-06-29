@@ -361,15 +361,7 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
    * @returns {PublicKeyObject} The CompressedSecp256k1PublicKey as a JSON object.
    */
   public json(): PublicKeyObject {
-    return {
-      hex       : this.hex,
-      multibase : this.multibase,
-      point     : {
-        x      : this.x.toArray(),
-        y      : this.y.toArray(),
-        parity : this.parity,
-      },
-    };
+    return Object.json(this) as PublicKeyObject;
   }
 
   /**

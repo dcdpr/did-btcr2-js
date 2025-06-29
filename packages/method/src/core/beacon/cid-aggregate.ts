@@ -98,7 +98,7 @@ export class CIDAggregateBeacon extends Beacon {
    * @param {RawTransactionV2} signal Bitcoin transaction representing a Beacon Signal.
    * @param {SignalsMetadata} signalsMetadata Optional sidecar data for the Beacon Signal.
    * @returns {Promise<DidUpdatePayload | undefined>} The DID Update payload announced by the Beacon Signal.
-   * @throws {DidError} if the signalTx is invalid or the signalsMetadata is invalid.
+   * @throws {CIDAggregateBeaconError} if the signalTx is invalid or the signalsMetadata is invalid.
    */
   processSignal(signal: RawTransactionV2, signalsMetadata: SignalsMetadata): Promise<DidUpdateInvocation | undefined> {
     throw new MethodError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`, {signal, signalsMetadata});
@@ -119,7 +119,7 @@ export class CIDAggregateBeacon extends Beacon {
    *
    * @param {DidUpdatePayload} didUpdatePayload The verificationMethod object to be used for signing.
    * @returns {SignalsMetadata} Successful output of a bitcoin transaction.
-   * @throws {SingletonBeaconError} if the bitcoin address is invalid or unfunded.
+   * @throws {CIDAggregateBeaconError} if the bitcoin address is invalid or unfunded.
    */
   broadcastSignal(didUpdatePayload: DidUpdatePayload): Promise<SignalsMetadata> {
     throw new MethodError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`, didUpdatePayload);

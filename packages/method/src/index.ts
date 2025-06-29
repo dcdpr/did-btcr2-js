@@ -16,6 +16,7 @@ export * from './interfaces/ibeacon.js';
 
 export * from './types/crud.js';
 
+// Utils Exports
 export * from './utils/appendix.js';
 export * from './utils/beacon.js';
 export * from './utils/general.js';

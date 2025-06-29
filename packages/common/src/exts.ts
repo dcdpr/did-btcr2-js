@@ -64,6 +64,11 @@ declare global {
       patch: Patch;
   }
 
+  /** Extend global Object interface */
+  interface ObjectConstructor {
+    /** Convert an object to a JSON object */
+    json(o: Object): JSONObject;
+  }
 
   /** Extend global Set interface */
   interface Set<T> {
@@ -250,6 +255,11 @@ JSON.sanitize = function (o: JSONObject): JSONObject {
 
 JSON.canonicalization = new Canonicalization();
 JSON.patch = new Patch();
+
+/** Object Interface Extensions */
+Object.json = function (o: Object): JSONObject {
+  return Object.fromEntries(Object.entries(o));
+};
 
 /** Set Interface Extensions */
 Set.prototype.difference = function <T>(other: Set<T>): Set<T> {

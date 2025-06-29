@@ -1,15 +1,29 @@
 import { TapRootMultiSig } from '@did-btcr2/bitcoin';
 import { COHORT_STATUS, COHORT_STATUS_TYPE } from './status.js';
+import { BeaconCoordinatorError } from '../../../error.js';
 
-export type Musig2CohortParams = {
-    id?: string;
+export type Musig2CohortObject = {
+    id: string;
+    coordinatorDid: string;
     minParticipants: number;
     status: COHORT_STATUS_TYPE;
     network: string;
-    coordinatorDid: string;
 }
 
-export class Musig2Cohort {
+export interface BeaconCohort {
+  id?: string;
+  coordinatorDid: string;
+  minParticipants: number;
+  status: COHORT_STATUS_TYPE;
+  network: string;
+  pendingSignatureRequests?: Record<string, string>;
+  participants?: Array<string>;
+  cohortKeys?: Array<Uint8Array>;
+  trMerkleRoot?: Uint8Array;
+  beaconAddress?: string;
+}
+
+export class Musig2Cohort implements BeaconCohort {
   /**
    * Unique identifier for the cohort.
    * @type {string}
@@ -53,7 +67,7 @@ export class Musig2Cohort {
   public participants: Array<string> = new Array<string>();
 
   /**
-   * List of cohort keys (public keys).
+   * List of cohort keys.
    * @type {Array<Uint8Array>}
    */
   public cohortKeys: Array<Uint8Array> = new Array<Uint8Array>();
@@ -72,24 +86,38 @@ export class Musig2Cohort {
 
   /**
    * Creates a new Musig2Cohort instance.
-   * @param {Musig2CohortParams} params Parameters for initializing the cohort.
+   * @param {Musig2CohortObject} params Parameters for initializing the cohort.
    * @param {string} [params.id] Optional unique identifier for the cohort. If not provided, a random UUID will be generated.
    * @param {number} params.minParticipants Minimum number of participants required to finalize the cohort.
    * @param {string} params.coordinatorDid DID of the coordinator managing the cohort.
    * @param {string} params.status Initial status of the cohort (e.g., 'PENDING', 'COHORT_SET').
    * @param {string} params.network Network on which the cohort operates (e.g., 'mainnet', 'testnet').
    */
-  constructor(params: Musig2CohortParams) {
-    this.id = params.id || crypto.randomUUID();
-    this.minParticipants = params.minParticipants;
-    this.coordinatorDid = params.coordinatorDid;
-    this.status = params.status as COHORT_STATUS_TYPE || COHORT_STATUS.COHORT_ADVERTISED;
-    this.network = params.network;
+  constructor({ id, minParticipants, coordinatorDid, status, network }: Musig2CohortObject) {
+    this.id = id || crypto.randomUUID();
+    this.minParticipants = minParticipants;
+    this.coordinatorDid = coordinatorDid;
+    this.status = status as COHORT_STATUS_TYPE || COHORT_STATUS.COHORT_ADVERTISED;
+    this.network = network;
   }
 
+  /**
+   * Finalizes the cohort by checking if the minimum number of participants is met.
+   * If the minimum is met, it sets the status to 'COHORT_SET_STATUS' and calculates the beacon address.
+   * @throws {BeaconCoordinatorError} If the number of participants is less than the minimum required.
+   * @returns {void}
+   */
   public finalize(): void {
     if(this.participants.length < this.minParticipants) {
-      throw new Error('Not enough participants to finalize the cohort');
+      throw new BeaconCoordinatorError(
+        'Not enough participants to finalize the cohort',
+        'FINALIZE_COHORT_ERROR',
+        {
+          cohortId        : this.id,
+          participants    : this.participants,
+          minParticipants : this.minParticipants
+        }
+      );
     }
     this.status = COHORT_STATUS.COHORT_SET_STATUS;
     this.beaconAddress = this.calulateBeaconAddress();
@@ -98,14 +126,22 @@ export class Musig2Cohort {
   /**
    * Calculates the beacon Taproot multisig address for the cohort using participant keys.
    * @returns {string} The Taproot address for the cohort.
-   * @throws {Error} If the Taproot address cannot be calculated.
+   * @throws {BeaconCoordinatorError} If the Taproot address cannot be calculated.
    */
   public calulateBeaconAddress(): string {
     const trMultisig = new TapRootMultiSig(this.cohortKeys, this.cohortKeys.length);
     const branch = trMultisig.musigTree();
     this.trMerkleRoot = branch.hash;
     if(!branch.address) {
-      throw new Error('Failed to calculate Taproot address');
+      throw new BeaconCoordinatorError(
+        'Failed to calculate Taproot address',
+        'CALCULATE_BEACON_ADDRESS_ERROR',
+        {
+          cohortId        : this.id,
+          cohortKeys      : this.cohortKeys,
+          minParticipants : this.minParticipants
+        }
+      );
     }
     return branch.address;
   }
@@ -118,7 +154,7 @@ export class Musig2Cohort {
    */
   public getCohortSetMessage(to: string, from: string): CohortSetMessage {
     if(this.status !== COHORT_STATUS.COHORT_SET_STATUS) {
-      throw new Error('Cohort status not "COHORT_SET".');
+      throw new BeaconCoordinatorError('Cohort status not "COHORT_SET".');
     }
     return new CohortSetMessage({
       to,
@@ -127,5 +163,44 @@ export class Musig2Cohort {
       beaconAddress : this.beaconAddress!,
       cohortKeys    : this.cohortKeys,
     });
+  }
+
+  /**
+   * Adds a signature request to the pending requests for the cohort.
+   * @param {RequestSignatureMessage} message The signature request message to add.
+   * @throws {Error} If a signature request from the same participant already exists.
+   */
+  public addSignatureRequest(message: RequestSignatureMessage): void {
+    if(!this.validateSignatureRequest(message)) {
+      throw new BeaconCoordinatorError(`No signature request from ${message.from} in cohort ${this.id}.`);
+    }
+    this.pendingSignatureRequests[message.from] = message.data;
+  }
+
+  /**
+   * Validates a signature request message to ensure it is from a participant in the cohort.
+   * @param {RequestSignatureMessage} message The signature request message to validate.
+   * @returns {boolean} True if the message is valid, false otherwise.
+   */
+  public validateSignatureRequest(message: RequestSignatureMessage): boolean {
+    if(message.cohortId !== this.id) {
+      Logger.info(`Signature request for wrong cohort: ${message.cohortId}.`);
+      return false;
+    }
+
+    if(!this.participants.includes(message.from)) {
+      Logger.info(`Participant ${message.from} not in cohort ${this.id}.`);
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
+   * Converts the cohort instance to a JSON object representation.
+   * @returns {BeaconCohort} The JSON object representation of the cohort.
+   */
+  public json(): BeaconCohort {
+    return Object.json(this) as BeaconCohort;
   }
 }

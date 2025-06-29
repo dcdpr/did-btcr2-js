@@ -1,12 +1,15 @@
-import { Base, BaseMessage } from './messages/base.js';
-import { OptInMessage } from './messages/opt-in.js';
-import { OPT_IN, SUBSCRIBE, SUBSCRIBE_ACCEPT } from './messages/keygen.js';
+
 import { Musig2Cohort } from './models/cohort/index.js';
 import { NostrAdapter } from './communication/nostr.js';
-import { ProtocolService } from './communication/service.js';
-import { NONCE_CONTRIBUTION, REQUEST_SIGNATURE, SIGNATURE_AUTHORIZATION } from './messages/constants.js';
+
+import { NONCE_CONTRIBUTION, OPT_IN, REQUEST_SIGNATURE, SIGNATURE_AUTHORIZATION, SUBSCRIBE, SUBSCRIBE_ACCEPT } from './messages/constants.js';
 import { Logger, Maybe } from '@did-btc1/common';
-import { RequestSignature, RequestSignatureMessage } from './messages/sign/request-signature.js';
+import { CommunicationService } from './communication/service.js';
+import { BaseMessage } from './messages/base.js';
+import { OptInMessage } from './messages/keygen/opt-in.js';
+import { RequestSignatureMessage } from './messages/sign/request-signature.js';
+import { NonceContributionMessage } from './messages/sign/nonce-contribution.js';
+import { SignatureAuthorizationSession } from './models/session/index.js';
 
 /**
  * The BeaconCoordinator class is responsible for managing the coordination of beacon aggregation.
@@ -27,10 +30,10 @@ export class BeaconCoordinator {
   public did: string = '';
 
   /**
-   * The protocol service used for communication.
-   * @type {ProtocolService}
+   * The communication protocol used by the BeaconCoordinator.
+   * @type {CommunicationService}
    */
-  public protocol: ProtocolService;
+  public protocol: CommunicationService;
 
   /**
    * List of subscribers to the BeaconCoordinator service.
@@ -45,22 +48,29 @@ export class BeaconCoordinator {
   private subscribers: string[] = [];
 
   /**
+   * Active signing sessions for the BeaconCoordinator.
+   * @type {Record<string, SignatureAuthorizationSession>}
+   */
+  public activeSigningSessions: Map<string, SignatureAuthorizationSession> = new Map();
+
+  /**
    * Constructs a new BeaconCoordinator instance.
-   * @param {ProtocolService} protocol The protocol service used for communication.
+   * @param {CommunicationService} protocol The protocol service used for communication.
    * @param {string} [did] Optional DID to use for the coordinator. If not provided, a new DID will be generated.
    */
 
-  constructor(protocol: ProtocolService, did?: string) {
+  constructor(protocol: CommunicationService, name?: string, did?: string) {
+    this.name = name ?? this.name;
     this.protocol = protocol ?? new NostrAdapter();
-    this.setup(did);
+    this.did = did || this.protocol.generateIdentity();
+    this.setup();
   }
 
   /**
-   * Sets up the BeaconCoordinator by registering message handlers and optionally generating a DID.
+   * Set up the BeaconCoordinator by registering message handlers.
    * @returns {void}
    */
-  public setup(did?: string): void {
-    this.did = did || this.protocol.generateIdentity();
+  public setup(): void {
     this.protocol.registerMessageHandler(SUBSCRIBE, this._handleSubscribe.bind(this));
     this.protocol.registerMessageHandler(OPT_IN, this._handleOptIn.bind(this));
     this.protocol.registerMessageHandler(REQUEST_SIGNATURE, this._handleRequestSignature.bind(this));
@@ -70,10 +80,10 @@ export class BeaconCoordinator {
   }
 
   /**
-   * Initializes the BeaconCoordinator by setting up the protocol and starting it.
+   * Start the BeaconCoordinator communication protocol.
    */
   async start(): Promise<void> {
-    Logger.info(`Starting BeaconCoordinator ...`);
+    Logger.info(`Starting BeaconCoordinator on ${this.protocol.name} ...`);
     await this.protocol.start();
   }
 
@@ -111,13 +121,14 @@ export class BeaconCoordinator {
       }
     }
   }
-\
-/**
- * Handles request signature messages from participants.
- * @param {RequestSignatureMessage} message The message containing the request signature.
- * @returns {Promise<void>}
- */
-  private async _handleRequestSignature(message: RequestSignatureMessage): Promise<void> {
+
+  /**
+   * Handles request signature messages from participants.
+   * @private
+   * @param {RequestSignatureMessage} message The message containing the request signature.
+   * @returns {Promise<void>}
+   */
+  private async _handleRequestSignature(message: Maybe<RequestSignatureMessage>): Promise<void> {
     const signatureRequest = RequestSignatureMessage.fromJSON(message);
     const cohort = this.cohorts.find(c => c.id === signatureRequest.cohortId);
     if (!cohort) {
@@ -125,11 +136,26 @@ export class BeaconCoordinator {
       return;
     }
     cohort.addSignatureRequest(signatureRequest);
+    Logger.info(`Received signature request from ${signatureRequest.from} for cohort ${signatureRequest.cohortId}.`);
   }
 
-  private async _handleNonceContribution(message: any): Promise<void> {}
+  /**
+   * Handles nonce contribution messages from participants.
+   * @param {NonceContributionMessage} message The message containing the nonce contribution.
+   * @returns {Promise<void>}
+   */
+  private async _handleNonceContribution(message: NonceContributionMessage): Promise<void> {
+    const nonceContribution = NonceContributionMessage.fromJSON(message);
+    const signingSession = this.activeSigningSessions.get(nonceContribution.cohortId);
+    if(!signingSession) {
+      Logger.error(`No active signing session found for cohort ID ${nonceContribution.cohortId}.`);
+      return;
+    }
+  }
 
-  private async _handleSignatureAuthorization(message: any): Promise<void> {}
+  private async _handleSignatureAuthorization(message: any): Promise<void> {
+    return message;
+  }
 
   /**
    * Starts the key generation process for a cohort once it has enough participants.
