@@ -278,11 +278,8 @@ export class SchnorrMultikey implements Multikey {
     // Create a new PrivateKey from the private key bytes
     const secretKey = new Secp256k1SecretKey(entropy);
 
-    // Compute the public key from the private key
-    const publicKey = secretKey.computePublicKey();
-
     // Create a new Keys from the private key
-    const keys = new SchnorrKeyPair({ publicKey, secretKey });
+    const keys = new SchnorrKeyPair(secretKey);
 
     // Return a new Multikey instance
     return new SchnorrMultikey({ id, controller, keys });
@@ -332,7 +329,7 @@ export class SchnorrMultikey implements Multikey {
     const publicKey = publicKeyMultibaseBytes.slice(2);
 
     // Construct a new Keys from the public key
-    const keys = new SchnorrKeyPair({ publicKey });
+    const keys = new SchnorrKeyPair(undefined, publicKey);
 
     // Return a new Multikey instance
     return new SchnorrMultikey({ id, controller, keys });
