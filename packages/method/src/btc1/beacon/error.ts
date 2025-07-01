@@ -18,6 +18,12 @@ export class SingletonBeaconError extends DidBtc1Error {
   }
 }
 
+export class AggregateBeaconError extends DidBtc1Error {
+  constructor(message: string, type: string = 'AggregateBeaconError', data?: Record<string, any>) {
+    super(message, { type, name: type, data });
+  }
+}
+
 export class CIDAggregateBeaconError extends DidBtc1Error {
   constructor(message: string, type: string = 'CIDAggregateBeaconError', data?: Record<string, any>) {
     super(message, { type, name: type, data });

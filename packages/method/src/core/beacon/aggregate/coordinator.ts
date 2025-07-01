@@ -1,15 +1,15 @@
-
-import { Musig2Cohort } from './models/cohort/index.js';
-import { NostrAdapter } from './communication/nostr.js';
-
-import { NONCE_CONTRIBUTION, OPT_IN, REQUEST_SIGNATURE, SIGNATURE_AUTHORIZATION, SUBSCRIBE, SUBSCRIBE_ACCEPT } from './messages/constants.js';
 import { Logger, Maybe } from '@did-btc1/common';
+import { BeaconCoordinatorError } from '../error.js';
+import { NostrAdapter } from './communication/nostr.js';
 import { CommunicationService } from './communication/service.js';
 import { BaseMessage } from './messages/base.js';
+import { NONCE_CONTRIBUTION, OPT_IN, REQUEST_SIGNATURE, SIGNATURE_AUTHORIZATION, SUBSCRIBE, SUBSCRIBE_ACCEPT } from './messages/constants.js';
 import { OptInMessage } from './messages/keygen/opt-in.js';
-import { RequestSignatureMessage } from './messages/sign/request-signature.js';
 import { NonceContributionMessage } from './messages/sign/nonce-contribution.js';
+import { RequestSignatureMessage } from './messages/sign/request-signature.js';
+import { Musig2Cohort } from './models/cohort/index.js';
 import { SignatureAuthorizationSession } from './models/session/index.js';
+import { SIGNING_SESSION_STATUS } from './models/session/status.js';
 
 /**
  * The BeaconCoordinator class is responsible for managing the coordination of beacon aggregation.
@@ -21,13 +21,13 @@ export class BeaconCoordinator {
    * The name of the BeaconCoordinator service.
    * @type {string}
    */
-  public name: string = 'BeaconCoordinator';
+  public name: string;
 
   /**
    * The DID of the BeaconCoordinator.
    * @type {Array<string>}
    */
-  public did: string = '';
+  public did: string;
 
   /**
    * The communication protocol used by the BeaconCoordinator.
@@ -58,10 +58,9 @@ export class BeaconCoordinator {
    * @param {CommunicationService} protocol The protocol service used for communication.
    * @param {string} [did] Optional DID to use for the coordinator. If not provided, a new DID will be generated.
    */
-
   constructor(protocol: CommunicationService, name?: string, did?: string) {
-    this.name = name ?? this.name;
-    this.protocol = protocol ?? new NostrAdapter();
+    this.name = name || 'BeaconCoordinator';
+    this.protocol = protocol || new NostrAdapter();
     this.did = did || this.protocol.generateIdentity();
     this.setup();
   }
@@ -83,7 +82,7 @@ export class BeaconCoordinator {
    * Start the BeaconCoordinator communication protocol.
    */
   async start(): Promise<void> {
-    Logger.info(`Starting BeaconCoordinator on ${this.protocol.name} ...`);
+    Logger.info(`Starting BeaconCoordinator ${this.name} on ${this.protocol.name} ...`);
     await this.protocol.start();
   }
 
@@ -145,12 +144,43 @@ export class BeaconCoordinator {
    * @returns {Promise<void>}
    */
   private async _handleNonceContribution(message: NonceContributionMessage): Promise<void> {
-    const nonceContribution = NonceContributionMessage.fromJSON(message);
-    const signingSession = this.activeSigningSessions.get(nonceContribution.cohortId);
+    // Cast message to NonceContributionMessage type.
+    const nonceContribMessage = NonceContributionMessage.fromJSON(message);
+
+    // Get the signing session using the cohort ID from the message.
+    const signingSession = this.activeSigningSessions.get(nonceContribMessage.cohortId);
+
+    // If the signing session does not exist, log an error and return.
     if(!signingSession) {
-      Logger.error(`No active signing session found for cohort ID ${nonceContribution.cohortId}.`);
+      Logger.error(`Session ${nonceContribMessage.sessionId} not found.`);
       return;
     }
+
+    // If the message.cohortId does not match the signingSession.cohortId, throw an error.
+    if(nonceContribMessage.cohortId !== signingSession.cohort.id) {
+      throw new BeaconCoordinatorError(
+        `Nonce contribution for wrong cohort: ${signingSession.cohort.id} != ${nonceContribMessage.cohortId}`,
+        'NONCE_CONTRIBUTION_ERROR', message
+      );
+    }
+
+    // Add the nonce contribution to the signing session.
+    signingSession.addNonceContribution(nonceContribMessage.from, nonceContribMessage.nonceContribution);
+    Logger.info(`Nonce contribution received from ${nonceContribMessage.from} for session ${nonceContribMessage.sessionId}.`);
+
+    if (signingSession.nonceContributionsReceived()) {
+      await this.sendAggregatedNonce(signingSession);
+    }
+  }
+
+  /**
+   * Sends the aggregated nonce to all participants in the session.
+   * @param {SignatureAuthorizationSession} session The session containing the aggregated nonce.
+   * @returns {Promise<void>}
+   */
+  public async sendAggregatedNonce(session: SignatureAuthorizationSession): Promise<void> {
+    const aggregatedNonces = session.generateAggregatedNonce();
+    session.status = SIGNING_SESSION_STATUS.AWAITING_PARTIAL_SIGNATURES;
   }
 
   private async _handleSignatureAuthorization(message: any): Promise<void> {
