@@ -1,8 +1,5 @@
 import {
-  BIP340_SECRET_KEY_MULTIBASE_PREFIX,
-  BIP340_SECRET_KEY_MULTIBASE_PREFIX_HASH,
   Bytes,
-  CURVE,
   Entropy,
   Hex,
   KeyBytes,
@@ -121,7 +118,7 @@ export class Secp256k1SecretKey implements SecretKey {
       );
     }
 
-    if(!this._seed || (this._seed < 1n || this._seed >= CURVE.n)) {
+    if(!this._seed || (this._seed < 1n || this._seed >= SECP256K1_CURVE.N)) {
       throw new SecretKeyError(
         'Invalid seed: must must be valid bigint',
         'CONSTRUCTOR_ERROR'
@@ -286,7 +283,7 @@ export class Secp256k1SecretKey implements SecretKey {
     const prefix = decoded.slice(0, 2);
 
     // Compute the prefix hash
-    const prefixHash = Buffer.from(sha256(prefix)).toString('hex');
+    const prefixHash = sha256(prefix).toHex();
 
     // If the prefix hash does not equal the BIP340 prefix hash, throw an error
     if (prefixHash !== BIP340_SECRET_KEY_MULTIBASE_PREFIX_HASH) {

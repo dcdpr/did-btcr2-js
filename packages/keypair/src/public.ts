@@ -1,7 +1,4 @@
 import {
-  BIP340_PUBLIC_KEY_MULTIBASE_PREFIX,
-  BIP340_PUBLIC_KEY_MULTIBASE_PREFIX_HASH,
-  CURVE,
   Hex,
   KeyBytes,
   MultibaseObject,
@@ -133,7 +130,12 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
    * @param {KeyBytes} bytes The public key byte array.
    * @throws {PublicKeyError} if the byte length is not 32 (x-only) or 33 (compressed)
    */
-  constructor(bytes: KeyBytes) {
+  constructor(bytes: KeyBytes | bigint) {
+    // If the bytes are a bigint, convert to Uint8Array
+    if(typeof bytes === 'bigint'){
+      bytes = KeyPairUtils.intToBigEndian(bytes, 33);
+    }
+
     // If the byte length is not 33, throw an error
     if(bytes.length !== 33) {
       throw new PublicKeyError(
@@ -438,16 +440,16 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
     }
 
     // Convert x from Uint8Array → BigInt
-    const x = BigInt('0x' + Buffer.from(this.x).toString('hex'));
-    if (x <= 0n || x >= CURVE.p) {
+    const x = BigInt(`0x${this.x.toHex()}`);
+    if (x <= 0n || x >= SECP256K1_CURVE.P) {
       throw new PublicKeyError('Invalid conversion: x out of range as BigInt', 'LIFT_X_ERROR');
     }
 
     // Compute y² = x³ + 7 mod p
-    const ySquared = BigInt((x ** 3n + CURVE.b) % CURVE.p);
+    const ySquared = BigInt((x ** 3n + SECP256K1_CURVE.b) % SECP256K1_CURVE.P);
 
     // Compute y (do not enforce parity)
-    const y = this.sqrtMod(ySquared, CURVE.p);
+    const y = this.sqrtMod(ySquared, SECP256K1_CURVE.P);
 
     // Convert x and y to Uint8Array
     const yBytes = Buffer.fromHex(y.toString(16).padStart(64, '0'));

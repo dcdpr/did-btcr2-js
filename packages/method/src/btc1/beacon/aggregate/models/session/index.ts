@@ -1,9 +1,10 @@
+import { Logger } from '@did-btc1/common';
+import { keyAggExport, keyAggregate } from '@scure/btc-signer/musig2';
 import { Transaction } from 'bitcoinjs-lib';
+import { AggregateBeaconError } from '../../../error.js';
+import { AuthorizationRequest, AuthorizationRequestMessage } from '../../messages/sign/authorization-request.js';
 import { Musig2Cohort } from '../cohort/index.js';
 import { SIGNING_SESSION_STATUS, SIGNING_SESSION_STATUS_TYPE } from './status.js';
-import { AuthorizationRequest, AuthorizationRequestMessage } from '../../messages/sign/authorization-request.js';
-import { Logger } from '@did-btc1/common';
-import { AggregateBeaconError } from '../../../error.js';
 
 export type SigningSessionObject = {
   id?: string;
@@ -165,8 +166,7 @@ export class SignatureAuthorizationSession implements SigningSession {
         'NONCE_CONTRIBUTION_ERROR', this.json()
       );
     }
-
-
+    return [keyAggExport(keyAggregate(this.cohort.cohortKeys))];
   }
 
   /**

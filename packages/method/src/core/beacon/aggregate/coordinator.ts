@@ -180,6 +180,7 @@ export class BeaconCoordinator {
    */
   public async sendAggregatedNonce(session: SignatureAuthorizationSession): Promise<void> {
     const aggregatedNonces = session.generateAggregatedNonce();
+    console.log(`Aggregated Nonces for session ${session.id}:`, aggregatedNonces);
     session.status = SIGNING_SESSION_STATUS.AWAITING_PARTIAL_SIGNATURES;
   }
 

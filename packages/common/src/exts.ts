@@ -89,7 +89,12 @@ declare global {
 
   /** Extend the global Uint8Array interface */
   interface Uint8Array {
+    /** Convert Uint8Array to a regular array of numbers */
     toArray(): number[];
+    /** Concatenate multiple Uint8Arrays into one */
+    concat(...items: Uint8Array[]): Uint8Array;
+    /** Convert Uint8Array to a hex string */
+    toHex(): string;
   }
 }
 
@@ -298,6 +303,10 @@ String.prototype.replaceEnd = function (e: string | RegExp, r?: string): string 
 /** Uint8Array Interface Extensions */
 Uint8Array.prototype.toArray = function (): number[] {
   return Array.from(this);
+};
+
+Uint8Array.prototype.toHex = function (): string  {
+  return Buffer.from(this).toString('hex');
 };
 
 export default global;

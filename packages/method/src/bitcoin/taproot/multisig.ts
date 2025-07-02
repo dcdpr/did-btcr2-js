@@ -58,7 +58,7 @@ function buildMusigLeafScript(pubkeys: Uint8Array[]): Uint8Array {
   const agg = aggregatePubkeys(pubkeys);
   const [xOnly] = new CompressedSecp256k1PublicKey(agg).xOnly;
   // In a taproot script path, OP_CHECKSIG runs schnorr
-  return script.compile([xOnly, opcodes.OP_CHECKSIG]);
+  return script.compile([agg, opcodes.OP_CHECKSIG]);
 }
 
 /**
@@ -116,7 +116,7 @@ export class TapRootMultiSig {
     this.points = points;
     this.k = k;
     // MuSig aggregation for default internal key
-    this.defaultInternalPubkey = aggregatePubkeys(points);
+    this.defaultInternalPubkey = keyAggExport(keyAggregate(points));
   }
 
   /**
@@ -158,6 +158,14 @@ export class TapRootMultiSig {
       internalPubkey : this.defaultInternalPubkey,
       scriptTree     : tree,
     });
+  }
+
+  /**
+   * Default address for this multisig, using the aggregated MuSig key.
+   * @type {string} Taproot address
+   */
+  public get defaultAddress(): string | undefined {
+    return payments.p2tr({ internalPubkey: this.defaultInternalPubkey }).address;
   }
 
   /**

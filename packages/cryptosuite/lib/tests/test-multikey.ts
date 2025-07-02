@@ -1,4 +1,8 @@
+<<<<<<< HEAD
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
+=======
+import { SchnorrKeyPair } from '../../../keypair/dist/types/secret/index.js';
+>>>>>>> 7878735 (rearranging various parts to adapt to taproot support)
 import { SchnorrMultikey } from '../../src/index.js';
 import data from '../data/test-data.js';
 

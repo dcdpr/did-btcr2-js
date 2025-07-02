@@ -1,9 +1,10 @@
 import { TapRootMultiSig } from '@did-btcr2/bitcoin';
 import { COHORT_STATUS, COHORT_STATUS_TYPE } from './status.js';
-import { BeaconCoordinatorError } from '../../../error.js';
+import { keyAggExport, keyAggregate } from '@scure/btc-signer/musig2';
+import { TapRootMultiSig } from '../../../../../bitcoin/taproot/multisig.js';
 
 export type Musig2CohortObject = {
-    id: string;
+    id?: string;
     coordinatorDid: string;
     minParticipants: number;
     status: COHORT_STATUS_TYPE;

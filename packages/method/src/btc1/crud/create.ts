@@ -3,8 +3,8 @@ import { PublicKey } from '@did-btc1/keypair';
 import { DidCreateOptions as IDidCreateOptions } from '@web5/dids';
 import { getNetwork } from '../../bitcoin/network.js';
 import { BeaconUtils } from '../../utils/beacon.js';
-import { Btc1DidDocument, IntermediateDidDocument } from '../did-document/index.js';
 import { Btc1Identifier } from '../../utils/identifier.js';
+import { Btc1DidDocument, IntermediateDidDocument } from '../did-document/index.js';
 import { Btc1KeyManager } from '../key-manager/index.js';
 
 export type Btc1CreateParams = Btc1CreateKeyParams | Btc1CreateExternalParams;
