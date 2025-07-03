@@ -8,13 +8,13 @@ export type AggregatedNonce = {
   threadId?: string;
   cohortId: string;
   sessionId: string;
-  aggregatedNonce: Array<string>;
+  aggregatedNonce: string;
 }
 
 export class AggregatedNonceMessage extends BaseMessage {
   public cohortId: string;
   public sessionId: string;
-  public aggregatedNonce: Array<string>;
+  public aggregatedNonce: string;
 
   constructor({ to, from, threadId, cohortId, sessionId, aggregatedNonce }: AggregatedNonce) {
     super({ type: AGGREGATED_NONCE, to, from, threadId, body: { cohortId, sessionId, aggregatedNonce } });

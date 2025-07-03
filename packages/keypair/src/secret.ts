@@ -155,7 +155,7 @@ export class Secp256k1SecretKey implements SecretKey {
    */
   get hex(): Hex {
     // Convert the raw secret key bytes to a hex string
-    return Buffer.from(this.bytes).toString('hex');
+    return this.bytes.toHex();
   }
 
 

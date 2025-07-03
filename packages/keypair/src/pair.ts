@@ -139,7 +139,7 @@ export class SchnorrKeyPair implements KeyPair {
    */
   get raw(): RawSchnorrKeyPair {
     return {
-      public : this.publicKey.x,
+      public : this.publicKey.compressed,
       secret : this.secretKey ? this.secretKey.bytes : undefined
     };
   }

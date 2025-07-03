@@ -1,5 +1,5 @@
 import { Logger } from '@did-btc1/common';
-import { keyAggExport, keyAggregate } from '@scure/btc-signer/musig2';
+import { nonceAggregate, nonceGen } from '@scure/btc-signer/musig2';
 import { Transaction } from 'bitcoinjs-lib';
 import { AggregateBeaconError } from '../../../error.js';
 import { AuthorizationRequest, AuthorizationRequestMessage } from '../../messages/sign/authorization-request.js';
@@ -19,7 +19,7 @@ export interface SigningSession {
   cohort?: Musig2Cohort;
   pendingTx?: Transaction;
   nonceContributions?: Map<string, Array<string>>;
-  aggregatedNonce?: Array<Uint8Array>;
+  aggregatedNonce?: Uint8Array;
   partialSignatures?: Record<string, Uint8Array>;
   signature?: Uint8Array;
   status: SIGNING_SESSION_STATUS_TYPE;
@@ -58,9 +58,9 @@ export class SignatureAuthorizationSession implements SigningSession {
 
   /**
    * Aggregated nonce from all participants.
-   * @type {Array<Uint8Array>}
+   * @type {Uint8Array}
    */
-  public aggregatedNonce?: Array<Uint8Array>;
+  public aggregatedNonce?: Uint8Array;
 
   /**
    * Map of partial signatures from participants.
@@ -154,9 +154,10 @@ export class SignatureAuthorizationSession implements SigningSession {
 
   /**
    * Generates the aggregated nonce from all nonce contributions for the session.
-   *
+   * @returns {Uint8Array} The aggregated nonce.
+   * @throws {AggregateBeaconError} If not all nonce contributions have been received.
    */
-  public generateAggregatedNonce(): Array<Uint8Array> {
+  public generateAggregatedNonce(): Uint8Array {
     if(!this.nonceContributionsReceived()) {
       const missing = this.cohort?.participants.length - this.nonceContributions.size;
       throw new AggregateBeaconError(
@@ -166,7 +167,9 @@ export class SignatureAuthorizationSession implements SigningSession {
         'NONCE_CONTRIBUTION_ERROR', this.json()
       );
     }
-    return [keyAggExport(keyAggregate(this.cohort.cohortKeys))];
+    const nonces = this.cohort.cohortKeys.map(key => nonceGen(key).public);
+    this.aggregatedNonce = nonceAggregate(nonces);
+    return this.aggregatedNonce;
   }
 
   /**

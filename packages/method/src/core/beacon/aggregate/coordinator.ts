@@ -1,10 +1,12 @@
 import { Logger, Maybe } from '@did-btc1/common';
 import { BeaconCoordinatorError } from '../error.js';
+import { CommunicationFactory } from './communication/factory.js';
 import { NostrAdapter } from './communication/nostr.js';
-import { CommunicationService } from './communication/service.js';
+import { CommunicationService, Service } from './communication/service.js';
 import { BaseMessage } from './messages/base.js';
 import { NONCE_CONTRIBUTION, OPT_IN, REQUEST_SIGNATURE, SIGNATURE_AUTHORIZATION, SUBSCRIBE, SUBSCRIBE_ACCEPT } from './messages/constants.js';
 import { OptInMessage } from './messages/keygen/opt-in.js';
+import { AggregatedNonceMessage } from './messages/sign/aggregated-nonce.js';
 import { NonceContributionMessage } from './messages/sign/nonce-contribution.js';
 import { RequestSignatureMessage } from './messages/sign/request-signature.js';
 import { Musig2Cohort } from './models/cohort/index.js';
@@ -36,7 +38,7 @@ export class BeaconCoordinator {
   public protocol: CommunicationService;
 
   /**
-   * List of subscribers to the BeaconCoordinator service.
+   * List of subscribers engaged in a Musig2 Cohort signing session with the BeaconCoordinator.
    * @type {Array<string>}
    */
   public cohorts: Array<Musig2Cohort> = [];
@@ -75,7 +77,6 @@ export class BeaconCoordinator {
     this.protocol.registerMessageHandler(REQUEST_SIGNATURE, this._handleRequestSignature.bind(this));
     this.protocol.registerMessageHandler(NONCE_CONTRIBUTION, this._handleNonceContribution.bind(this));
     this.protocol.registerMessageHandler(SIGNATURE_AUTHORIZATION, this._handleSignatureAuthorization.bind(this));
-    Logger.info(`BeaconCoordinator initialized with DID: ${this.did}. Run .start() to listen for messages.`);
   }
 
   /**
@@ -139,6 +140,22 @@ export class BeaconCoordinator {
   }
 
   /**
+   * Starts the key generation process for a cohort once it has enough participants.
+   * @param {Musig2Cohort} cohort The cohort for which to start key generation.
+   * @returns {Promise<void>}
+   */
+  private async _startKeyGeneration(cohort: Musig2Cohort): Promise<void> {
+    Logger.info(`Starting key generation for cohort ${cohort.id} with participants: ${cohort.participants.join(', ')}`);
+    cohort.finalize();
+    for(const participant of cohort.participants) {
+      const message = cohort.getCohortSetMessage(participant, this.did);
+      Logger.info(`Sending COHORT_SET message to ${participant}`);
+      await this.protocol.sendMessage(message, participant, this.did);
+    }
+    Logger.info(`Finished sending COHORT_SET message to ${cohort.participants.length} participants`);
+  }
+
+  /**
    * Handles nonce contribution messages from participants.
    * @param {NonceContributionMessage} message The message containing the nonce contribution.
    * @returns {Promise<void>}
@@ -179,29 +196,30 @@ export class BeaconCoordinator {
    * @returns {Promise<void>}
    */
   public async sendAggregatedNonce(session: SignatureAuthorizationSession): Promise<void> {
-    const aggregatedNonces = session.generateAggregatedNonce();
-    console.log(`Aggregated Nonces for session ${session.id}:`, aggregatedNonces);
+    const aggregatedNonce = session.generateAggregatedNonce().toHex();
+    Logger.info(`Aggregated Nonces for session ${session.id}:`, aggregatedNonce);
     session.status = SIGNING_SESSION_STATUS.AWAITING_PARTIAL_SIGNATURES;
-  }
-
-  private async _handleSignatureAuthorization(message: any): Promise<void> {
-    return message;
+    for (const participant of session.cohort.participants) {
+      const message = new AggregatedNonceMessage({
+        to              : participant,
+        from            : this.did,
+        cohortId        : session.cohort.id,
+        sessionId       : session.id,
+        aggregatedNonce : aggregatedNonce
+      });
+      Logger.info(`Sending AGGREGATED_NONCE message to ${participant}`);
+      await this.protocol.sendMessage(message, participant, this.did);
+    }
+    Logger.info(`Successfully sent aggregated nonce message to all participants in session ${session.id}.`);
   }
 
   /**
-   * Starts the key generation process for a cohort once it has enough participants.
-   * @param {Musig2Cohort} cohort The cohort for which to start key generation.
+   * Handles signature authorization messages from participants.
+   * @param {any} message The message containing the signature authorization request.
    * @returns {Promise<void>}
    */
-  private async _startKeyGeneration(cohort: Musig2Cohort): Promise<void> {
-    Logger.info(`Starting key generation for cohort ${cohort.id} with participants: ${cohort.participants.join(', ')}`);
-    cohort.finalize();
-    for(const participant of cohort.participants) {
-      const message = cohort.getCohortSetMessage(participant, this.did);
-      Logger.info(`Sending COHORT_SET message to ${participant}`);
-      await this.protocol.sendMessage(message, participant, this.did);
-    }
-    Logger.info(`Finished sending COHORT_SET message to ${cohort.participants.length} participants`);
+  private async _handleSignatureAuthorization(message: any): Promise<void> {
+    return message;
   }
 
   /**
@@ -217,5 +235,19 @@ export class BeaconCoordinator {
       from : this.did
     };
     await this.protocol.sendMessage(response, sender, this.did);
+  }
+
+  /**
+   * Static initialization method for the BeaconCoordinator.
+   * @param {Service} service The communication service configuration.
+   * @returns {BeaconCoordinator} Initialized BeaconCoordinator instance.
+   */
+  public static initialize(service: Service): BeaconCoordinator {
+    const communicationService = CommunicationFactory.establish(service);
+    const coordinator = new BeaconCoordinator(communicationService);
+    Logger.info(`BeaconCoordinator initialized with DID: ${coordinator.did}.`);
+    coordinator.setup();
+    Logger.info(`BeaconCoordinator ${coordinator.name} setup. Run .start() to listen for messages.`);
+    return coordinator;
   }
 }

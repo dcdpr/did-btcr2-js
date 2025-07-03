@@ -1,7 +1,5 @@
 import { TapRootMultiSig } from '@did-btcr2/bitcoin';
 import { COHORT_STATUS, COHORT_STATUS_TYPE } from './status.js';
-import { keyAggExport, keyAggregate } from '@scure/btc-signer/musig2';
-import { TapRootMultiSig } from '../../../../../bitcoin/taproot/multisig.js';
 
 export type Musig2CohortObject = {
     id?: string;

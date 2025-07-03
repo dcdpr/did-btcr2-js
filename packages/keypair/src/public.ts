@@ -240,7 +240,7 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
    * @returns {Hex} The public key as a hex string.
    */
   get hex(): Hex {
-    const hex = Buffer.from(this.compressed).toString('hex');
+    const hex = this.compressed.toHex();
     return hex;
   }
 

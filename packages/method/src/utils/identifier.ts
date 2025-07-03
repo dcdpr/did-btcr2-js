@@ -1,7 +1,14 @@
 import { BitcoinNetworkNames, MethodError, IdentifierTypes, Bytes, INVALID_DID, METHOD_NOT_SUPPORTED } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { bech32m } from '@scure/base';
-import { DidComponents } from './appendix.js';
+
+export interface DidComponents {
+    hrp: string;
+    idType: string;
+    version: number;
+    network: string;
+    genesisBytes: Bytes;
+};
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/#syntax | 3 Syntax}.
