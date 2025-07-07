@@ -1,10 +1,11 @@
 import { Logger } from '@did-btc1/common';
-import { nonceAggregate, nonceGen } from '@scure/btc-signer/musig2';
+import { nonceAggregate, nonceGen, Session } from '@scure/btc-signer/musig2';
 import { Transaction } from 'bitcoinjs-lib';
 import { AggregateBeaconError } from '../../../error.js';
 import { AuthorizationRequest, AuthorizationRequestMessage } from '../../messages/sign/authorization-request.js';
 import { Musig2Cohort } from '../cohort/index.js';
 import { SIGNING_SESSION_STATUS, SIGNING_SESSION_STATUS_TYPE } from './status.js';
+import { KeyPairUtils } from '@did-btc1/keypair';
 
 export type SigningSessionObject = {
   id?: string;
@@ -30,7 +31,6 @@ export interface SigningSession {
 type PublicKeyHex = string;
 type Nonce = string;
 type NonceContribution = Array<Nonce>;
-
 export class SignatureAuthorizationSession implements SigningSession {
   /**
    * Unique identifier for the signing session.
@@ -186,6 +186,35 @@ export class SignatureAuthorizationSession implements SigningSession {
     }
 
     this.partialSignatures.set(from, partialSignature);
+  }
+
+  /**
+   * Generates the final signature from all partial signatures.
+   * @returns {Uint8Array} The final aggregated signature.
+   */
+  public async generateFinalSignature(): Promise<Uint8Array> {
+    if(this.status !== SIGNING_SESSION_STATUS.PARTIAL_SIGNATURES_RECEIVED) {
+      throw new AggregateBeaconError(`Partial signatures not received. Current status: ${this.status}`);
+    }
+
+    const inputIdx = (this.pendingTx?.ins?.length || 0) - 1;
+    if (inputIdx < 0) {
+      throw new AggregateBeaconError('No inputs in the pending transaction to sign.');
+    }
+
+    const prevoutScript = this.pendingTx?.ins[inputIdx].script;
+    if (!prevoutScript) {
+      throw new AggregateBeaconError('Previous output script is missing for the input to sign.');
+    }
+
+    const sigSum = [...this.partialSignatures.values()].reduce((sum, sig) => sum + KeyPairUtils.bigEndianToInt(sig), 0n);
+    Logger.info(`Aggregated Signature computed: ${sigSum}`);
+
+    const sigHash = this.pendingTx?.hashForWitnessV1(inputIdx, prevoutScript, Transaction.SIGHASH_DEFAULT);
+
+    this.aggregatedNonce ??= this.generateAggregatedNonce();
+
+    const session = new Session(this.aggregatedNonce!, this.cohort.cohortKeys, this.cohort.trMerkleRoot);
   }
 
   /**

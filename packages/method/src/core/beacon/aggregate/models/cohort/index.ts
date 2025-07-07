@@ -75,7 +75,7 @@ export class Musig2Cohort implements BeaconCohort {
    * Taproot Merkle root for the cohort.
    * @type {Uint8Array}
    */
-  public trMerkleRoot?: Uint8Array;
+  public trMerkleRoot: Uint8Array = new Uint8Array();
 
   /**
    * Beacon address for the cohort, calculated from the Taproot multisig.
@@ -130,6 +130,17 @@ export class Musig2Cohort implements BeaconCohort {
   public calulateBeaconAddress(): string {
     const trMultisig = new TapRootMultiSig(this.cohortKeys, this.cohortKeys.length);
     const branch = trMultisig.musigTree();
+    if(!branch.hash) {
+      throw new BeaconCoordinatorError(
+        'Failed to calculate Taproot Merkle root',
+        'CALCULATE_BEACON_MERKLE_ROOT_ERROR',
+        {
+          cohortId        : this.id,
+          cohortKeys      : this.cohortKeys,
+          minParticipants : this.minParticipants
+        }
+      );
+    }
     this.trMerkleRoot = branch.hash;
     if(!branch.address) {
       throw new BeaconCoordinatorError(

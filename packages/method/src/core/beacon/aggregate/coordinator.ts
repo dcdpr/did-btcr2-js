@@ -65,7 +65,6 @@ export class BeaconCoordinator {
     this.name = name || 'BeaconCoordinator';
     this.protocol = protocol || new NostrAdapter();
     this.did = did || this.protocol.generateIdentity();
-
   }
 
   /**
@@ -206,7 +205,7 @@ export class BeaconCoordinator {
     }
 
     if (signingSession.status === SIGNING_SESSION_STATUS.PARTIAL_SIGNATURES_RECEIVED) {
-      await signingSession.generateFinalSignature(signingSession);
+      await signingSession.generateFinalSignature();
     }
   }
 
@@ -232,7 +231,8 @@ export class BeaconCoordinator {
    * @returns {Promise<void>}
    */
   public async sendAggregatedNonce(session: SignatureAuthorizationSession): Promise<void> {
-    const aggregatedNonce = session.generateAggregatedNonce().toHex();
+    session.generateAggregatedNonce();
+    const aggregatedNonce = session.aggregatedNonce!.toHex();
     Logger.info(`Aggregated Nonces for session ${session.id}:`, aggregatedNonce);
     session.status = SIGNING_SESSION_STATUS.AWAITING_PARTIAL_SIGNATURES;
     for (const participant of session.cohort.participants) {
