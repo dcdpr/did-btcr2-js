@@ -8,13 +8,13 @@ export type SignatureAuhtorization = {
   threadId?: string;
   cohortId: string;
   sessionId: string;
-  partialSignature: number;
+  partialSignature: Uint8Array;
 }
 
 export class SignatureAuthorizationMessage extends BaseMessage {
   public cohortId: string;
   public sessionId: string;
-  public partialSignature: number;
+  public partialSignature: Uint8Array;
 
   constructor({ to, from, threadId, cohortId, sessionId, partialSignature }: SignatureAuhtorization) {
     super({ type: SIGNATURE_AUTHORIZATION, to, from, threadId, body: { cohortId, sessionId, partialSignature } });

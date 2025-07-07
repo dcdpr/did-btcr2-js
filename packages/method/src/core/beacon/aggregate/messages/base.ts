@@ -12,7 +12,7 @@ export type BaseBody = {
   sessionId?: string;
   aggregatedNonce?: string;
   nonceContribution?: Array<string>;
-  partialSignature?: number;
+  partialSignature?: Uint8Array;
   pendingTx?: string;
   data?: string;
 };

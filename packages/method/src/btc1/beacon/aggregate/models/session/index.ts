@@ -20,7 +20,7 @@ export interface SigningSession {
   pendingTx?: Transaction;
   nonceContributions?: Map<string, Array<string>>;
   aggregatedNonce?: Uint8Array;
-  partialSignatures?: Record<string, Uint8Array>;
+  partialSignatures?: Map<string, Uint8Array>;
   signature?: Uint8Array;
   status: SIGNING_SESSION_STATUS_TYPE;
   processedRequests?: Record<string, string>;
@@ -64,9 +64,9 @@ export class SignatureAuthorizationSession implements SigningSession {
 
   /**
    * Map of partial signatures from participants.
-   * @type {Record<string, Uint8Array>}
+   * @type {Map<string, Uint8Array>}
    */
-  public partialSignatures: Record<string, Uint8Array> = {};
+  public partialSignatures: Map<string, Uint8Array> = new Map();
 
   /**
    * Final signature for the transaction.
@@ -158,7 +158,7 @@ export class SignatureAuthorizationSession implements SigningSession {
    * @throws {AggregateBeaconError} If not all nonce contributions have been received.
    */
   public generateAggregatedNonce(): Uint8Array {
-    if(!this.nonceContributionsReceived()) {
+    if(this.status !== SIGNING_SESSION_STATUS.NONCE_CONTRIBUTIONS_RECEIVED) {
       const missing = this.cohort?.participants.length - this.nonceContributions.size;
       throw new AggregateBeaconError(
         `Missing ${missing} nonce contributions. ` +
@@ -167,9 +167,25 @@ export class SignatureAuthorizationSession implements SigningSession {
         'NONCE_CONTRIBUTION_ERROR', this.json()
       );
     }
-    const nonces = this.cohort.cohortKeys.map(key => nonceGen(key).public);
-    this.aggregatedNonce = nonceAggregate(nonces);
+    this.aggregatedNonce = nonceAggregate(this.cohort.cohortKeys.map(key => nonceGen(key).public));
     return this.aggregatedNonce;
+  }
+
+  /**
+   * Adds a partial signature from a participant to the session.
+   * @param {string} from The public key of the participant contributing the partial signature.
+   * @param {Uint8Array} partialSignature The partial signature from the participant.
+   */
+  public addPartialSignature(from: string, partialSignature: Uint8Array): void {
+    if(this.status !== SIGNING_SESSION_STATUS.AWAITING_PARTIAL_SIGNATURES) {
+      throw new AggregateBeaconError(`Partial signatures not expected. Current status: ${this.status}`);
+    }
+
+    if(this.partialSignatures.get(from)) {
+      Logger.warn(`WARNING: Partial signature already received from ${from}.`);
+    }
+
+    this.partialSignatures.set(from, partialSignature);
   }
 
   /**
@@ -194,13 +210,5 @@ export class SignatureAuthorizationSession implements SigningSession {
    */
   public isFailed(): boolean {
     return this.status === SIGNING_SESSION_STATUS.FAILED;
-  }
-
-  /**
-   * Checks if the signing session is awaiting nonce contributions.
-   * @returns {boolean} True if the session is awaiting nonce contributions, false otherwise.
-   */
-  public nonceContributionsReceived(): boolean {
-    return this.status === SIGNING_SESSION_STATUS.NONCE_CONTRIBUTIONS_RECEIVED;
   }
 }

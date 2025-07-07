@@ -12,6 +12,7 @@ import { RequestSignatureMessage } from './messages/sign/request-signature.js';
 import { Musig2Cohort } from './models/cohort/index.js';
 import { SignatureAuthorizationSession } from './models/session/index.js';
 import { SIGNING_SESSION_STATUS } from './models/session/status.js';
+import { SignatureAuthorizationMessage } from './messages/sign/signature-authorization.js';
 
 /**
  * The BeaconCoordinator class is responsible for managing the coordination of beacon aggregation.
@@ -64,27 +65,22 @@ export class BeaconCoordinator {
     this.name = name || 'BeaconCoordinator';
     this.protocol = protocol || new NostrAdapter();
     this.did = did || this.protocol.generateIdentity();
-    this.setup();
+
   }
 
   /**
-   * Set up the BeaconCoordinator by registering message handlers.
+   * Sets up the and starts the BeaconCoordinator communication protocol.
    * @returns {void}
    */
-  public setup(): void {
+  public start(): void {
+    Logger.info(`Starting BeaconCoordinator ${this.name} on ${this.protocol.name} ...`);
     this.protocol.registerMessageHandler(SUBSCRIBE, this._handleSubscribe.bind(this));
     this.protocol.registerMessageHandler(OPT_IN, this._handleOptIn.bind(this));
     this.protocol.registerMessageHandler(REQUEST_SIGNATURE, this._handleRequestSignature.bind(this));
     this.protocol.registerMessageHandler(NONCE_CONTRIBUTION, this._handleNonceContribution.bind(this));
     this.protocol.registerMessageHandler(SIGNATURE_AUTHORIZATION, this._handleSignatureAuthorization.bind(this));
-  }
-
-  /**
-   * Start the BeaconCoordinator communication protocol.
-   */
-  async start(): Promise<void> {
-    Logger.info(`Starting BeaconCoordinator ${this.name} on ${this.protocol.name} ...`);
-    await this.protocol.start();
+    this.protocol.start();
+    Logger.info(`BeaconCoordinator ${this.name} started with DID: ${this.did}. Listening for messages...`);
   }
 
   /**
@@ -140,22 +136,6 @@ export class BeaconCoordinator {
   }
 
   /**
-   * Starts the key generation process for a cohort once it has enough participants.
-   * @param {Musig2Cohort} cohort The cohort for which to start key generation.
-   * @returns {Promise<void>}
-   */
-  private async _startKeyGeneration(cohort: Musig2Cohort): Promise<void> {
-    Logger.info(`Starting key generation for cohort ${cohort.id} with participants: ${cohort.participants.join(', ')}`);
-    cohort.finalize();
-    for(const participant of cohort.participants) {
-      const message = cohort.getCohortSetMessage(participant, this.did);
-      Logger.info(`Sending COHORT_SET message to ${participant}`);
-      await this.protocol.sendMessage(message, participant, this.did);
-    }
-    Logger.info(`Finished sending COHORT_SET message to ${cohort.participants.length} participants`);
-  }
-
-  /**
    * Handles nonce contribution messages from participants.
    * @param {NonceContributionMessage} message The message containing the nonce contribution.
    * @returns {Promise<void>}
@@ -185,9 +165,65 @@ export class BeaconCoordinator {
     signingSession.addNonceContribution(nonceContribMessage.from, nonceContribMessage.nonceContribution);
     Logger.info(`Nonce contribution received from ${nonceContribMessage.from} for session ${nonceContribMessage.sessionId}.`);
 
-    if (signingSession.nonceContributionsReceived()) {
+    if (signingSession.status !== SIGNING_SESSION_STATUS.NONCE_CONTRIBUTIONS_RECEIVED) {
       await this.sendAggregatedNonce(signingSession);
     }
+  }
+
+  /**
+   * Handles signature authorization messages from participants.
+   * @param {Maybe<SignatureAuthorizationMessage>} message The message containing the signature authorization request.
+   * @returns {Promise<void>}
+   */
+  private async _handleSignatureAuthorization(message: Maybe<SignatureAuthorizationMessage>): Promise<void> {
+    const sigAuthMessage = SignatureAuthorizationMessage.fromJSON(message);
+    const signingSession = this.activeSigningSessions.get(sigAuthMessage.cohortId);
+    if (!signingSession) {
+      Logger.error(`Session ${sigAuthMessage.sessionId} not found.`);
+      return;
+    }
+
+    if(signingSession.id !== sigAuthMessage.sessionId) {
+      throw new BeaconCoordinatorError(
+        `Signature authorization for wrong session: ${signingSession.id} != ${sigAuthMessage.sessionId}`,
+        'SIGNATURE_AUTHORIZATION_ERROR', message
+      );
+    }
+
+    if(signingSession.status !== SIGNING_SESSION_STATUS.AWAITING_PARTIAL_SIGNATURES) {
+      throw new BeaconCoordinatorError(
+        `Partial signature received but not expected. Current status: ${signingSession.status}`,
+        'SIGNATURE_AUTHORIZATION_ERROR', message
+      );
+    }
+
+    // Add the signature authorization to the signing session.
+    signingSession.addPartialSignature(sigAuthMessage.from, sigAuthMessage.partialSignature);
+    Logger.info(`Received partial signature from ${sigAuthMessage.from} for session ${sigAuthMessage.sessionId}.`);
+
+    if(signingSession.partialSignatures.size === signingSession.cohort.participants.length) {
+      signingSession.status = SIGNING_SESSION_STATUS.PARTIAL_SIGNATURES_RECEIVED;
+    }
+
+    if (signingSession.status === SIGNING_SESSION_STATUS.PARTIAL_SIGNATURES_RECEIVED) {
+      await signingSession.generateFinalSignature(signingSession);
+    }
+  }
+
+  /**
+   * Starts the key generation process for a cohort once it has enough participants.
+   * @param {Musig2Cohort} cohort The cohort for which to start key generation.
+   * @returns {Promise<void>}
+   */
+  private async _startKeyGeneration(cohort: Musig2Cohort): Promise<void> {
+    Logger.info(`Starting key generation for cohort ${cohort.id} with participants: ${cohort.participants.join(', ')}`);
+    cohort.finalize();
+    for(const participant of cohort.participants) {
+      const message = cohort.getCohortSetMessage(participant, this.did);
+      Logger.info(`Sending COHORT_SET message to ${participant}`);
+      await this.protocol.sendMessage(message, participant, this.did);
+    }
+    Logger.info(`Finished sending COHORT_SET message to ${cohort.participants.length} participants`);
   }
 
   /**
@@ -214,15 +250,6 @@ export class BeaconCoordinator {
   }
 
   /**
-   * Handles signature authorization messages from participants.
-   * @param {any} message The message containing the signature authorization request.
-   * @returns {Promise<void>}
-   */
-  private async _handleSignatureAuthorization(message: any): Promise<void> {
-    return message;
-  }
-
-  /**
    * Accepts a subscription request from a participant.
    * @param {string} sender The DID of the participant requesting the subscription.
    * @returns {Promise<void>}
@@ -245,9 +272,7 @@ export class BeaconCoordinator {
   public static initialize(service: Service): BeaconCoordinator {
     const communicationService = CommunicationFactory.establish(service);
     const coordinator = new BeaconCoordinator(communicationService);
-    Logger.info(`BeaconCoordinator initialized with DID: ${coordinator.did}.`);
-    coordinator.setup();
-    Logger.info(`BeaconCoordinator ${coordinator.name} setup. Run .start() to listen for messages.`);
+    Logger.info(`BeaconCoordinator ${coordinator.name} initialized with DID ${coordinator.did}. Run .start() to listen for messages`);
     return coordinator;
   }
 }
