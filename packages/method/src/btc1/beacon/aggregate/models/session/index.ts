@@ -1,5 +1,6 @@
 import { Logger } from '@did-btc1/common';
-import { nonceAggregate, nonceGen, Session } from '@scure/btc-signer/musig2';
+import { keyAggExport, keyAggregate, nonceAggregate, nonceGen, Session, sortKeys } from '@scure/btc-signer/musig2';
+import { schnorr } from '@noble/curves/secp256k1';
 import { Transaction } from 'bitcoinjs-lib';
 import { AggregateBeaconError } from '../../../error.js';
 import { AuthorizationRequest, AuthorizationRequestMessage } from '../../messages/sign/authorization-request.js';
@@ -167,7 +168,10 @@ export class SignatureAuthorizationSession implements SigningSession {
         'NONCE_CONTRIBUTION_ERROR', this.json()
       );
     }
-    this.aggregatedNonce = nonceAggregate(this.cohort.cohortKeys.map(key => nonceGen(key).public));
+    const sortedPubkeys = sortKeys(this.cohort.cohortKeys);
+    const keyAggContext = keyAggregate(sortedPubkeys);
+    const aggPubkey = keyAggExport(keyAggContext);
+    this.aggregatedNonce = nonceAggregate(this.cohort.cohortKeys.map(key => nonceGen(key, undefined, aggPubkey, this.cohort.trMerkleRoot).public));
     return this.aggregatedNonce;
   }
 
@@ -210,11 +214,12 @@ export class SignatureAuthorizationSession implements SigningSession {
     const sigSum = [...this.partialSignatures.values()].reduce((sum, sig) => sum + KeyPairUtils.bigEndianToInt(sig), 0n);
     Logger.info(`Aggregated Signature computed: ${sigSum}`);
 
-    const sigHash = this.pendingTx?.hashForWitnessV1(inputIdx, prevoutScript, Transaction.SIGHASH_DEFAULT);
-
     this.aggregatedNonce ??= this.generateAggregatedNonce();
 
     const session = new Session(this.aggregatedNonce!, this.cohort.cohortKeys, this.cohort.trMerkleRoot);
+    this.signature = session.partialSigAgg([...this.partialSignatures.values()]);
+
+    return this.signature;
   }
 
   /**

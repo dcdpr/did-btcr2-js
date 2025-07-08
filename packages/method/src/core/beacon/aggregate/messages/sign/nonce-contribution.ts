@@ -17,7 +17,13 @@ export class NonceContributionMessage extends BaseMessage {
   public nonceContribution: Array<string>;
 
   constructor({ to, from, threadId, cohortId, sessionId, nonceContribution }: NonceContribution) {
-    super({ type: NONCE_CONTRIBUTION, to, from, threadId, body: { cohortId, sessionId, nonceContribution } });
+    super({
+      to,
+      from,
+      threadId : threadId ?? crypto.randomUUID(),
+      type     : NONCE_CONTRIBUTION,
+      body     : { cohortId, sessionId, nonceContribution }
+    });
     this.cohortId = cohortId;
     this.sessionId = sessionId;
     this.nonceContribution = nonceContribution;

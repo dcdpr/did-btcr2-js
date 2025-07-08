@@ -18,7 +18,7 @@ async function runMusig2Example() {
   const carolPub = musig2.IndividualPubkey(carolSecret);
 
   console.log('Individual public keys:');
-  console.log(hex.encode(alicePub), bobPub, carolPub);
+  console.log(hex.encode(alicePub), hex.encode(bobPub), hex.encode(carolPub));
 
   // Step 2: Key Aggregation
   const pubkeys = [alicePub, bobPub, carolPub];
@@ -51,9 +51,9 @@ async function runMusig2Example() {
   const carolPartial = session.sign(carolNonces.secret, carolSecret);
 
   console.log('Partial signatures:',
-    alicePartial.toString('hex'),
-    bobPartial.toString('hex'),
-    carolPartial.toString('hex')
+    hex.encode(alicePartial),
+    hex.encode(bobPartial),
+    hex.encode(carolPartial)
   );
 
   // Step 7: Partial Signature Aggregation

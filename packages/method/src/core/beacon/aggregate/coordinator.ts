@@ -4,15 +4,16 @@ import { CommunicationFactory } from './communication/factory.js';
 import { NostrAdapter } from './communication/nostr.js';
 import { CommunicationService, Service } from './communication/service.js';
 import { BaseMessage } from './messages/base.js';
-import { NONCE_CONTRIBUTION, OPT_IN, REQUEST_SIGNATURE, SIGNATURE_AUTHORIZATION, SUBSCRIBE, SUBSCRIBE_ACCEPT } from './messages/constants.js';
+import { COHORT_ADVERT, NONCE_CONTRIBUTION, OPT_IN, REQUEST_SIGNATURE, SIGNATURE_AUTHORIZATION, SUBSCRIBE, SUBSCRIBE_ACCEPT } from './messages/constants.js';
+import { CohortAdvertMessage } from './messages/keygen/cohort-advert.js';
 import { OptInMessage } from './messages/keygen/opt-in.js';
 import { AggregatedNonceMessage } from './messages/sign/aggregated-nonce.js';
 import { NonceContributionMessage } from './messages/sign/nonce-contribution.js';
 import { RequestSignatureMessage } from './messages/sign/request-signature.js';
+import { SignatureAuthorizationMessage } from './messages/sign/signature-authorization.js';
 import { Musig2Cohort } from './models/cohort/index.js';
 import { SignatureAuthorizationSession } from './models/session/index.js';
 import { SIGNING_SESSION_STATUS } from './models/session/status.js';
-import { SignatureAuthorizationMessage } from './messages/sign/signature-authorization.js';
 
 /**
  * The BeaconCoordinator class is responsible for managing the coordination of beacon aggregation.
@@ -205,8 +206,82 @@ export class BeaconCoordinator {
     }
 
     if (signingSession.status === SIGNING_SESSION_STATUS.PARTIAL_SIGNATURES_RECEIVED) {
-      await signingSession.generateFinalSignature();
+      const signature = await signingSession.generateFinalSignature();
+      Logger.info(`Final signature ${signature.toHex()} generated for session ${signingSession.id}`);
     }
+  }
+
+  /**
+   * Accepts a subscription request from a participant.
+   * @param {string} sender The DID of the participant requesting the subscription.
+   * @returns {Promise<void>}
+   */
+  public async acceptSubscription(sender: string): Promise<void> {
+    Logger.info(`Accepting subscription from ${sender}`);
+    const response = {
+      type : SUBSCRIBE_ACCEPT,
+      to   : sender,
+      from : this.did
+    };
+    await this.protocol.sendMessage(response, sender, this.did);
+  }
+
+  /**
+   * Sends the aggregated nonce to all participants in the session.
+   * @param {SignatureAuthorizationSession} session The session containing the aggregated nonce.
+   * @returns {Promise<void>}
+   */
+  public async sendAggregatedNonce(session: SignatureAuthorizationSession): Promise<void> {
+    const aggregatedNonce = session.generateAggregatedNonce().toHex();
+    Logger.info(`Aggregated Nonces for session ${session.id}:`, aggregatedNonce);
+
+    session.status = SIGNING_SESSION_STATUS.AWAITING_PARTIAL_SIGNATURES;
+    for (const participant of session.cohort.participants) {
+      const message = new AggregatedNonceMessage({
+        to              : participant,
+        from            : this.did,
+        cohortId        : session.cohort.id,
+        sessionId       : session.id,
+        aggregatedNonce : aggregatedNonce
+      });
+      Logger.info(`Sending AGGREGATED_NONCE message to ${participant}`);
+      await this.protocol.sendMessage(message, participant, this.did);
+    }
+    Logger.info(`Successfully sent aggregated nonce message to all participants in session ${session.id}.`);
+  }
+
+  /**
+   * Announces a new cohort to all subscribers.
+   * @param {number} minParticipants The minimum number of participants required for the cohort.
+   * @param {string} [network='signet'] The network on which the cohort operates (default is 'signet').
+   * @param {string} [beaconType='SMTAggregateBeacon'] The type of beacon to be used (default is 'SMTAggregateBeacon').
+   * @returns {Promise<Musig2Cohort>} The newly created cohort.
+   */
+  public async announceNewCohort(
+    minParticipants: number,
+    network: string = 'signet',
+    beaconType: string = 'SMTAggregateBeacon'
+  ): Promise<Musig2Cohort> {
+    const cohort = new Musig2Cohort({ minParticipants, network, beaconType });
+    Logger.info(`Creating new cohort and announcing to ${this.subscribers.length} subscribers.`);
+    this.cohorts.push(cohort);
+    for (const subscriber of this.subscribers) {
+      const message = new CohortAdvertMessage({
+        to         : subscriber,
+        from       : this.did,
+        cohortId   : cohort.id,
+        cohortSize : cohort.minParticipants,
+        network    : network,
+        beaconType : beaconType
+      });
+      Logger.info(`Sending ${COHORT_ADVERT} message to ${subscriber}`);
+      await this.protocol.sendMessage(message, subscriber, this.did).catch(error => {
+        Logger.error(`Error sending cohort announcement to ${subscriber}: ${error.message}`);
+        const idx = this.subscribers.indexOf(subscriber);
+        this.subscribers.splice(idx, idx);
+      });
+    }
+    return cohort;
   }
 
   /**
@@ -226,42 +301,31 @@ export class BeaconCoordinator {
   }
 
   /**
-   * Sends the aggregated nonce to all participants in the session.
-   * @param {SignatureAuthorizationSession} session The session containing the aggregated nonce.
-   * @returns {Promise<void>}
+   * Starts a signing session for a given cohort.
+   * @param {string} cohortId The ID of the cohort for which to start a signing session.
+   * @returns {Promise<SignatureAuthorizationSession>} The started signing session.
+   * @throws {BeaconCoordinatorError} If the cohort with the given ID is not found.
    */
-  public async sendAggregatedNonce(session: SignatureAuthorizationSession): Promise<void> {
-    session.generateAggregatedNonce();
-    const aggregatedNonce = session.aggregatedNonce!.toHex();
-    Logger.info(`Aggregated Nonces for session ${session.id}:`, aggregatedNonce);
-    session.status = SIGNING_SESSION_STATUS.AWAITING_PARTIAL_SIGNATURES;
-    for (const participant of session.cohort.participants) {
-      const message = new AggregatedNonceMessage({
-        to              : participant,
-        from            : this.did,
-        cohortId        : session.cohort.id,
-        sessionId       : session.id,
-        aggregatedNonce : aggregatedNonce
-      });
-      Logger.info(`Sending AGGREGATED_NONCE message to ${participant}`);
-      await this.protocol.sendMessage(message, participant, this.did);
+  public async startSigningSession(cohortId: string): Promise<SignatureAuthorizationSession> {
+    Logger.info(`Attempting to start signing session for cohort ${cohortId}`);
+    const cohort = this.cohorts.find(c => c.id === cohortId);
+    if (!cohort) {
+      Logger.error(`Cohort with ID ${cohortId} not found.`);
+      throw new BeaconCoordinatorError(`Cohort with ID ${cohortId} not found.`, 'COHORT_NOT_FOUND');
     }
-    Logger.info(`Successfully sent aggregated nonce message to all participants in session ${session.id}.`);
-  }
-
-  /**
-   * Accepts a subscription request from a participant.
-   * @param {string} sender The DID of the participant requesting the subscription.
-   * @returns {Promise<void>}
-   */
-  public async acceptSubscription(sender: string): Promise<void> {
-    Logger.info(`Accepting subscription from ${sender}`);
-    const response = {
-      type : SUBSCRIBE_ACCEPT,
-      to   : sender,
-      from : this.did
-    };
-    await this.protocol.sendMessage(response, sender, this.did);
+    Logger.info(`Cohort ${cohortId} found. Starting signing session.`);
+    const signingSession = cohort.startSigningSession();
+    Logger.info(`Starting signing session ${signingSession.id} for cohort ${cohortId}`);
+    for (const participant of cohort.participants) {
+      const msg = signingSession.getAuthorizationRequest(participant, this.did);
+      Logger.info(`Sending authorization request to ${participant}`);
+      await this.protocol.sendMessage(msg, participant, this.did).catch(error => {
+        Logger.error(`Error sending authorization request to ${participant}: ${error.message}`);
+      });
+    }
+    this.activeSigningSessions.set(cohortId, signingSession);
+    Logger.info(`Signing session ${signingSession.id} started for cohort ${cohortId}`);
+    return signingSession;
   }
 
   /**

@@ -17,7 +17,13 @@ export class SignatureAuthorizationMessage extends BaseMessage {
   public partialSignature: Uint8Array;
 
   constructor({ to, from, threadId, cohortId, sessionId, partialSignature }: SignatureAuhtorization) {
-    super({ type: SIGNATURE_AUTHORIZATION, to, from, threadId, body: { cohortId, sessionId, partialSignature } });
+    super({
+      to,
+      from,
+      type     : SIGNATURE_AUTHORIZATION,
+      threadId : threadId ?? crypto.randomUUID(),
+      body     : { cohortId, sessionId, partialSignature }
+    });
     this.cohortId = cohortId;
     this.sessionId = sessionId;
     this.partialSignature = partialSignature;

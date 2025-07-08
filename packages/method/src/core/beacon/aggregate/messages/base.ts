@@ -14,6 +14,7 @@ export type BaseBody = {
   nonceContribution?: Array<string>;
   partialSignature?: Uint8Array;
   pendingTx?: string;
+  beaconType?: string;
   data?: string;
 };
 

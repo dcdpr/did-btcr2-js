@@ -17,7 +17,13 @@ export class AggregatedNonceMessage extends BaseMessage {
   public aggregatedNonce: string;
 
   constructor({ to, from, threadId, cohortId, sessionId, aggregatedNonce }: AggregatedNonce) {
-    super({ type: AGGREGATED_NONCE, to, from, threadId, body: { cohortId, sessionId, aggregatedNonce } });
+    super({
+      to,
+      from,
+      threadId : threadId ?? crypto.randomUUID(),
+      type     : AGGREGATED_NONCE,
+      body     : { cohortId, sessionId, aggregatedNonce }
+    });
     this.cohortId = cohortId;
     this.sessionId = sessionId;
     this.aggregatedNonce = aggregatedNonce;

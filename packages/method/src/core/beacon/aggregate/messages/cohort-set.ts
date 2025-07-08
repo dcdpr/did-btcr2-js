@@ -1,8 +1,8 @@
+import { Maybe } from '@did-btc1/common';
 import { BaseMessage } from '../base.js';
 import { COHORT_SET } from '../constants.js';
 
 export type CohortSet = {
-  type?: typeof COHORT_SET;
   to: string;
   from: string;
   cohortId: string;
@@ -16,8 +16,14 @@ export class CohortSetMessage extends BaseMessage {
   public beaconAddress: string;
   public cohortKeys: Array<Uint8Array>;
 
-  constructor({ type = COHORT_SET, to, from, cohortId, beaconAddress, cohortKeys, threadId }: CohortSet) {
-    super({ type, to, from, threadId, body: { cohortId, beaconAddress, cohortKeys }});
+  constructor({ to, from, cohortId, beaconAddress, cohortKeys, threadId }: CohortSet) {
+    super({
+      to,
+      from,
+      threadId,
+      type : COHORT_SET,
+      body : { cohortId, beaconAddress, cohortKeys }
+    });
     this.cohortId = cohortId;
     this.beaconAddress = beaconAddress;
     this.cohortKeys = cohortKeys;
@@ -25,10 +31,10 @@ export class CohortSetMessage extends BaseMessage {
 
   /**
    * Initializes an CohortSetMessage from a given OptIn object.
-   * @param {OptIn} data - The OptIn object to initialize the CohortSetMessage.
+   * @param {OptIn} data The OptIn object to initialize the CohortSetMessage.
    * @returns {object} The serialized CohortSetMessage.
    */
-  public static fromJSON(data: CohortSet): CohortSetMessage {
+  public static fromJSON(data: Maybe<CohortSet>): CohortSetMessage {
     if (data.type !== COHORT_SET) {
       throw new Error(`Invalid type: ${data.type}`);
     }

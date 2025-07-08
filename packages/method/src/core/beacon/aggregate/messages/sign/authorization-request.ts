@@ -17,7 +17,13 @@ export class AuthorizationRequestMessage extends BaseMessage {
   public pendingTx: string;
 
   constructor({ to, from, threadId, cohortId, sessionId, pendingTx }: AuthorizationRequest) {
-    super({ type: AUTHORIZATION_REQUEST, to, from, threadId, body: { cohortId, sessionId, pendingTx } });
+    super({
+      to,
+      from,
+      threadId : threadId ?? crypto.randomUUID(),
+      type     : AUTHORIZATION_REQUEST,
+      body     : { cohortId, sessionId, pendingTx }
+    });
     this.cohortId = cohortId;
     this.sessionId = sessionId;
     this.pendingTx = pendingTx;

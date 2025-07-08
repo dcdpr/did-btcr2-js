@@ -3,10 +3,11 @@ import { COHORT_STATUS, COHORT_STATUS_TYPE } from './status.js';
 
 export type Musig2CohortObject = {
     id?: string;
-    coordinatorDid: string;
+    coordinatorDid?: string;
     minParticipants: number;
-    status: COHORT_STATUS_TYPE;
+    status?: COHORT_STATUS_TYPE;
     network: string;
+    beaconType?: string;
 }
 
 export interface BeaconCohort {
@@ -84,20 +85,27 @@ export class Musig2Cohort implements BeaconCohort {
   public beaconAddress?: string;
 
   /**
+   * Type of beacon used in the cohort (default is 'SMTAggregateBeacon').
+   * @type {string}
+   */
+  public beaconType: string = 'SMTAggregateBeacon';
+
+  /**
    * Creates a new Musig2Cohort instance.
    * @param {Musig2CohortObject} params Parameters for initializing the cohort.
    * @param {string} [params.id] Optional unique identifier for the cohort. If not provided, a random UUID will be generated.
    * @param {number} params.minParticipants Minimum number of participants required to finalize the cohort.
-   * @param {string} params.coordinatorDid DID of the coordinator managing the cohort.
+   * @param {string} [params.coordinatorDid] DID of the coordinator managing the cohort.
    * @param {string} params.status Initial status of the cohort (e.g., 'PENDING', 'COHORT_SET').
    * @param {string} params.network Network on which the cohort operates (e.g., 'mainnet', 'testnet').
    */
-  constructor({ id, minParticipants, coordinatorDid, status, network }: Musig2CohortObject) {
+  constructor({ id, minParticipants, coordinatorDid, status, network, beaconType }: Musig2CohortObject) {
     this.id = id || crypto.randomUUID();
     this.minParticipants = minParticipants;
-    this.coordinatorDid = coordinatorDid;
+    this.coordinatorDid = coordinatorDid || '';
     this.status = status as COHORT_STATUS_TYPE || COHORT_STATUS.COHORT_ADVERTISED;
     this.network = network;
+    this.beaconType = beaconType || 'SMTAggregateBeacon';
   }
 
   /**
@@ -128,8 +136,12 @@ export class Musig2Cohort implements BeaconCohort {
    * @throws {BeaconCoordinatorError} If the Taproot address cannot be calculated.
    */
   public calulateBeaconAddress(): string {
-    const trMultisig = new TapRootMultiSig(this.cohortKeys, this.cohortKeys.length);
-    const branch = trMultisig.musigTree();
+    // const trMultisig = new TapRootMultiSig(this.cohortKeys, this.cohortKeys.length);
+    // const branch = trMultisig.musigTree();
+    const sortedPubkeys = sortKeys(this.cohortKeys);
+    const keyAggContext = keyAggregate(sortedPubkeys);
+    const aggPubkey = keyAggExport(keyAggContext);
+    const branch = payments.p2tr({ internalPubkey: aggPubkey });
     if(!branch.hash) {
       throw new BeaconCoordinatorError(
         'Failed to calculate Taproot Merkle root',
@@ -204,6 +216,20 @@ export class Musig2Cohort implements BeaconCohort {
     }
 
     return true;
+  }
+
+  /**
+   * Starts a signing session for the cohort.
+   * @returns {SignatureAuthorizationSession} The request signature message for the signing session.
+   */
+  public startSigningSession(): SignatureAuthorizationSession {
+    Logger.debug(`Starting signing session for cohort ${this.id} with status ${this.status}`);
+    if(this.status !== COHORT_STATUS.COHORT_SET_STATUS) {
+      throw new BeaconCoordinatorError(`Cohort ${this.id} is not set.`);
+    }
+    // const smtRootBytes = new Uint8Array(32).map(() => Math.floor(Math.random() * 256));
+    const cohort = new Musig2Cohort(this);
+    return new SignatureAuthorizationSession({ id: '', cohort,  });
   }
 
   /**

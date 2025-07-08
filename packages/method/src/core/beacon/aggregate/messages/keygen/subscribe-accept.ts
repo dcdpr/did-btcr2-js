@@ -2,15 +2,11 @@ import { Maybe } from '@did-btc1/common';
 import { BaseMessage } from '../base.js';
 import { SUBSCRIBE_ACCEPT } from '../constants.js';
 
-export type SubscribeAccept = {
-  type: typeof SUBSCRIBE_ACCEPT;
-  to: string;
-  from: string;
-}
+export type SubscribeAccept = { to: string; from: string; }
 
 export class SubscribeAcceptMessage extends BaseMessage {
-  constructor({ type = SUBSCRIBE_ACCEPT, to, from }: SubscribeAccept) {
-    super({ type, to, from });
+  constructor({ to, from }: SubscribeAccept) {
+    super({ type: SUBSCRIBE_ACCEPT, to, from });
   }
 
   /**

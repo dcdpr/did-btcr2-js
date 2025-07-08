@@ -17,8 +17,13 @@ export class RequestSignatureMessage extends BaseMessage {
   public data: string;
 
   constructor({ to, from, threadId, cohortId, sessionId, data }: RequestSignature) {
-    threadId ??= crypto.randomUUID();
-    super({ type: REQUEST_SIGNATURE, to, from, threadId, body: { cohortId, sessionId, data } });
+    super({
+      to,
+      from,
+      type     : REQUEST_SIGNATURE,
+      threadId : threadId ?? crypto.randomUUID(),
+      body     : { cohortId, sessionId, data }
+    });
     this.cohortId = cohortId;
     this.sessionId = sessionId;
     this.data = data;
