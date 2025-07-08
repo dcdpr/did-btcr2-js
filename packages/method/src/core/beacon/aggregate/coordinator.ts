@@ -73,14 +73,14 @@ export class BeaconCoordinator {
    * @returns {void}
    */
   public start(): void {
-    Logger.info(`Starting BeaconCoordinator ${this.name} on ${this.protocol.name} ...`);
+    Logger.info(`Starting BeaconCoordinator (${this.did}) on ${this.protocol.name}!`);
     this.protocol.registerMessageHandler(SUBSCRIBE, this._handleSubscribe.bind(this));
     this.protocol.registerMessageHandler(OPT_IN, this._handleOptIn.bind(this));
     this.protocol.registerMessageHandler(REQUEST_SIGNATURE, this._handleRequestSignature.bind(this));
     this.protocol.registerMessageHandler(NONCE_CONTRIBUTION, this._handleNonceContribution.bind(this));
     this.protocol.registerMessageHandler(SIGNATURE_AUTHORIZATION, this._handleSignatureAuthorization.bind(this));
     this.protocol.start();
-    Logger.info(`BeaconCoordinator ${this.name} started with DID: ${this.did}. Listening for messages...`);
+    Logger.info(`Started BeaconCoordinator (${this.did}) on ${this.protocol.name}, listening for messages ...`);
   }
 
   /**

@@ -1,6 +1,6 @@
 import { NostrAdapterConfig } from './nostr.js';
 
-export type MessageHandler = (msg: any) => Promise<void>;
+export type MessageHandler = (msg: any) => void | Promise<void>;
 
 export type CommunicationServiceType = 'nostr' | 'didcomm';
 export interface Service {
