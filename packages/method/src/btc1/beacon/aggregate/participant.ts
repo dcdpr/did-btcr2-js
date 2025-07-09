@@ -93,9 +93,34 @@ export class BeaconParticipant {
     }
   }
 
-  public _handleCohortAdvert(message: Maybe<CohortAdvertMessage>): void {
+  public async _handleCohortAdvert(message: Maybe<CohortAdvertMessage>): Promise<void> {
     const cohortAdvertMessage = CohortAdvertMessage.fromJSON(message);
     Logger.info(`BeaconParticipant ${this.did} received new cohort announcement from ${cohortAdvertMessage.from}.`);
+    const cohortId = cohortAdvertMessage.body?.cohortId;
+    const network = cohortAdvertMessage.body?.network;
+    const minParticipants = cohortAdvertMessage.body?.cohortSize;
+    if (!cohortId || !network) {
+      Logger.warn(`BeaconParticipant ${this.did} received malformed cohort advert message: ${JSON.stringify(cohortAdvertMessage)}`);
+      return;
+    }
+    const from = cohortAdvertMessage.from;
+    if (!this.coordinatorDids.includes(from)) {
+      Logger.warn(`BeaconParticipant ${this.did} received unsolicited new cohort announcement from ${from}`);
+      return;
+    }
+    const cohort = new Musig2Cohort({ id: cohortId, minParticipants, network, coordinatorDid: from });
+    this.cohorts.push(cohort);
+    await this.joinCohort(cohort.id, from);
+
+  }
+
+  public async joinCohort(cohortId: string, coordinatorDid: string): Promise<void> {
+    Logger.info(`BeaconParticipant ${this.did} joining cohort ${cohortId} with coordinator ${coordinatorDid}`);
+    const cohort = this.cohorts.find(c => c.id === cohortId);
+    if (!cohort) {
+      Logger.warn(`Cohort with ID ${cohortId} not found.`);
+      return;
+    }
   }
   public _handleCohortSet() {}
   public _handleAuthorizationRequest() {}

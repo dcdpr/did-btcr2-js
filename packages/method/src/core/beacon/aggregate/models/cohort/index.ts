@@ -4,7 +4,7 @@ import { COHORT_STATUS, COHORT_STATUS_TYPE } from './status.js';
 export type Musig2CohortObject = {
     id?: string;
     coordinatorDid?: string;
-    minParticipants: number;
+    minParticipants?: number;
     status?: COHORT_STATUS_TYPE;
     network: string;
     beaconType?: string;
@@ -101,7 +101,7 @@ export class Musig2Cohort implements BeaconCohort {
    */
   constructor({ id, minParticipants, coordinatorDid, status, network, beaconType }: Musig2CohortObject) {
     this.id = id || crypto.randomUUID();
-    this.minParticipants = minParticipants;
+    this.minParticipants = minParticipants || 2;
     this.coordinatorDid = coordinatorDid || '';
     this.status = status as COHORT_STATUS_TYPE || COHORT_STATUS.COHORT_ADVERTISED;
     this.network = network;
