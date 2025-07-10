@@ -1,12 +1,15 @@
 import { KeyBytes, Logger, Maybe } from '@did-btc1/common';
-import { SchnorrKeyPair } from '@did-btc1/keypair';
+import { HDKey } from '@scure/bip32';
 import { NostrAdapter } from './communication/nostr.js';
 import { CommunicationService } from './communication/service.js';
-import { AGGREGATED_NONCE, AUTHORIZATION_REQUEST, COHORT_ADVERT, COHORT_SET, SUBSCRIBE_ACCEPT } from './messages/constants.js';
+import { AGGREGATED_NONCE, AUTHORIZATION_REQUEST, COHORT_ADVERT, COHORT_SET, OPT_IN, SUBSCRIBE_ACCEPT } from './messages/constants.js';
 import { CohortAdvertMessage } from './messages/keygen/cohort-advert.js';
 import { SubscribeAcceptMessage } from './messages/keygen/subscribe-accept.js';
 import { Musig2Cohort } from './models/cohort/index.js';
 import { SignatureAuthorizationSession } from './models/session/index.js';
+import { OptInMessage } from './messages/keygen/opt-in.js';
+import { COHORT_STATUS } from './models/cohort/status.js';
+import { CohortSetMessage } from './messages/keygen/cohort-set.js';
 
 export class CohortKeyState {
   public cohortId: string;
@@ -22,28 +25,28 @@ export class CohortKeyState {
 
 export class BeaconParticipant {
   /**
-     * The name of the BeaconCoordinator service.
+     * The name of the BeaconParticipant service.
      * @type {string}
      */
   public name: string;
 
   /**
-     * The DID of the BeaconCoordinator.
+     * The DID of the BeaconParticipant.
      * @type {Array<string>}
      */
   public did: string;
 
   /**
-     * The communication protocol used by the BeaconCoordinator.
+     * The communication protocol used by the BeaconParticipant.
      * @type {CommunicationService}
      */
   public protocol: CommunicationService;
 
   /**
-   * The keys used by the BeaconCoordinator.
-   * @type {SchnorrKeyPair}
+   * The HD key used by the BeaconParticipant.
+   * @type {HDKey}
    */
-  public keys: SchnorrKeyPair;
+  public hdKey: HDKey;
 
   public nextBeaconKeyIndex: number = 0;
   public coordinatorDids: Array<string> = new Array<string>();
@@ -59,7 +62,7 @@ export class BeaconParticipant {
    * @param {string} [did] The decentralized identifier (DID) of the participant.
    */
   constructor(sk: KeyBytes, protocol: CommunicationService, name?: string, did?: string) {
-    this.keys = new SchnorrKeyPair(sk);
+    this.hdKey = HDKey.fromMasterSeed(sk);
     this.name = name || 'BeaconParticipant';
     this.protocol = protocol || new NostrAdapter();
     this.did = did || this.protocol.generateIdentity();
@@ -85,7 +88,7 @@ export class BeaconParticipant {
    * @param {SubscribeAcceptMessage} message The message containing the subscription acceptance.
    * @returns {Promise<void>}
    */
-  private async _handleSubscribeAccept(message: Maybe<SubscribeAcceptMessage>): void {
+  private async _handleSubscribeAccept(message: Maybe<SubscribeAcceptMessage>): Promise<void> {
     const subscribeAcceptMessage = SubscribeAcceptMessage.fromJSON(message);
     const coordinatorDid = subscribeAcceptMessage.from;
     if (!this.coordinatorDids.includes(coordinatorDid)) {
@@ -93,6 +96,11 @@ export class BeaconParticipant {
     }
   }
 
+  /**
+   * Handles a cohort advertisement message.
+   * @param {Maybe<CohortAdvertMessage>} message The cohort advertisement message.
+   * @returns {Promise<void>}
+   */
   public async _handleCohortAdvert(message: Maybe<CohortAdvertMessage>): Promise<void> {
     const cohortAdvertMessage = CohortAdvertMessage.fromJSON(message);
     Logger.info(`BeaconParticipant ${this.did} received new cohort announcement from ${cohortAdvertMessage.from}.`);
@@ -111,9 +119,28 @@ export class BeaconParticipant {
     const cohort = new Musig2Cohort({ id: cohortId, minParticipants, network, coordinatorDid: from });
     this.cohorts.push(cohort);
     await this.joinCohort(cohort.id, from);
-
   }
 
+
+  public async _handleCohortSet(message: Maybe<CohortSetMessage>) {
+    const cohortSetMessage = CohortSetMessage.fromJSON(message);
+    const cohortId = cohortSetMessage.cohortId;
+    const cohort = this.cohorts.find(c => c.id === cohortId);
+    const cohortKeyState = this.cohortKeyState.get(cohortId);
+    if (!cohort || !cohortKeyState) {
+      Logger.warn(`Cohort with ID ${cohortId} not found or not joined by participant ${this.did}.`);
+      return;
+    }
+  }
+  public _handleAuthorizationRequest() {}
+  public _handleAggregatedNonce() {}
+
+  /**
+   * Joins a cohort with the given ID and coordinator DID.
+   * @param {string} cohortId The ID of the cohort to join.
+   * @param {string} coordinatorDid The DID of the cohort coordinator.
+   * @returns {Promise<void>}
+   */
   public async joinCohort(cohortId: string, coordinatorDid: string): Promise<void> {
     Logger.info(`BeaconParticipant ${this.did} joining cohort ${cohortId} with coordinator ${coordinatorDid}`);
     const cohort = this.cohorts.find(c => c.id === cohortId);
@@ -121,8 +148,21 @@ export class BeaconParticipant {
       Logger.warn(`Cohort with ID ${cohortId} not found.`);
       return;
     }
+    const index = this.nextBeaconKeyIndex;
+    const participantPk = this.hdKey.deriveChild(index).publicKey?.toHex();
+    if(!participantPk) {
+      Logger.error(`Failed to derive public key for cohort ${cohortId} at index ${index}`);
+      return;
+    }
+    this.cohortKeyState.set(cohortId, new CohortKeyState(cohortId, index, this.did));
+    const optInMessage = OptInMessage.fromJSON({
+      cohortId,
+      participantPk,
+      from     : this.did,
+      to       : coordinatorDid,
+    });
+
+    await this.protocol.sendMessage(optInMessage, coordinatorDid, this.did);
+    cohort.status = COHORT_STATUS.COHORT_OPTED_IN;
   }
-  public _handleCohortSet() {}
-  public _handleAuthorizationRequest() {}
-  public _handleAggregatedNonce() {}
 }

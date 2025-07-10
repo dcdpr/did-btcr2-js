@@ -42,6 +42,7 @@ import { BeaconService, BeaconServiceAddress, BeaconSignal, CIDAggregateSidecar,
 import { SidecarData, SignalsMetadata } from '../beacon/types.js';
 import { BlockV3, RawTransactionV2 } from '../../bitcoin/rpc/types.js';
 import { DidResolutionOptions } from './interfaces.js';
+import { DidComponents } from '../../utils/identifier.js';
 
 export type FindNextSignalsRestParams = {
   connection: BitcoinRestClient;
