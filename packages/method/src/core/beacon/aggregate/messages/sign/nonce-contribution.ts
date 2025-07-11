@@ -8,13 +8,13 @@ export type NonceContribution = {
   threadId?: string;
   cohortId: string;
   sessionId: string;
-  nonceContribution: Array<string>;
+  nonceContribution: Uint8Array;
 }
 
 export class NonceContributionMessage extends BaseMessage {
   public cohortId: string;
   public sessionId: string;
-  public nonceContribution: Array<string>;
+  public nonceContribution: Uint8Array;
 
   constructor({ to, from, threadId, cohortId, sessionId, nonceContribution }: NonceContribution) {
     super({

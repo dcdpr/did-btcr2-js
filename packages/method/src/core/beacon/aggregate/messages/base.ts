@@ -10,8 +10,8 @@ export type BaseBody = {
   beaconAddress?: string;
   cohortKeys?: Array<Uint8Array>;
   sessionId?: string;
-  aggregatedNonce?: string;
-  nonceContribution?: Array<string>;
+  aggregatedNonce?: Uint8Array;
+  nonceContribution?: Uint8Array;
   partialSignature?: Uint8Array;
   pendingTx?: string;
   beaconType?: string;

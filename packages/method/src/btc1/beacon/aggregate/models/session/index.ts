@@ -1,37 +1,37 @@
 import { Logger } from '@did-btc1/common';
-import { keyAggExport, keyAggregate, nonceAggregate, nonceGen, Session, sortKeys } from '@scure/btc-signer/musig2';
-import { schnorr } from '@noble/curves/secp256k1';
+import { KeyPairUtils } from '@did-btc1/keypair';
+import * as musig2 from '@scure/btc-signer/musig2';
 import { Transaction } from 'bitcoinjs-lib';
 import { AggregateBeaconError } from '../../../error.js';
 import { AuthorizationRequest, AuthorizationRequestMessage } from '../../messages/sign/authorization-request.js';
 import { Musig2Cohort } from '../cohort/index.js';
 import { SIGNING_SESSION_STATUS, SIGNING_SESSION_STATUS_TYPE } from './status.js';
-import { KeyPairUtils } from '@did-btc1/keypair';
+
+type PublicKeyHex = string;
+type Nonce = Uint8Array;
+type NonceContributions = Map<PublicKeyHex, Nonce>;
+type PartialSignatures = Map<string, Uint8Array>;
+type ProcessedRequests = Record<string, string>;
 
 export type SigningSessionObject = {
-  id?: string;
   cohort: Musig2Cohort;
+  id?: string;
   pendingTx?: Transaction;
   processedRequests?: Record<string, string>;
   status?: SIGNING_SESSION_STATUS_TYPE;
 }
-
 export interface SigningSession {
   id?: string;
   cohort?: Musig2Cohort;
   pendingTx?: Transaction;
-  nonceContributions?: Map<string, Array<string>>;
+  nonceContributions?: NonceContributions;
   aggregatedNonce?: Uint8Array;
-  partialSignatures?: Map<string, Uint8Array>;
+  partialSignatures?: PartialSignatures;
   signature?: Uint8Array;
   status: SIGNING_SESSION_STATUS_TYPE;
-  processedRequests?: Record<string, string>;
-  nonceSecrets?: Array<string>;
+  processedRequests?: ProcessedRequests;
+  nonceSecrets?: bigint;
 }
-
-type PublicKeyHex = string;
-type Nonce = string;
-type NonceContribution = Array<Nonce>;
 export class SignatureAuthorizationSession implements SigningSession {
   /**
    * Unique identifier for the signing session.
@@ -53,9 +53,9 @@ export class SignatureAuthorizationSession implements SigningSession {
 
   /**
    * Map of nonce contributions from participants.
-   * @type {Map<string, Array<string>>}
+   * @type {Map<PublicKeyHex, Nonce>}
    */
-  public nonceContributions: Map<PublicKeyHex, NonceContribution> = new Map();
+  public nonceContributions: Map<PublicKeyHex, Nonce> = new Map();
 
   /**
    * Aggregated nonce from all participants.
@@ -89,9 +89,15 @@ export class SignatureAuthorizationSession implements SigningSession {
 
   /**
    * Secrets for nonces contributed by participants.
-   * @type {Array<string>}
+   * @type {Array<bigint>}
    */
-  public nonceSecrets?: Array<string>;
+  public nonceSecrets?: bigint;
+
+  /**
+   * Musig2 session for signing operations.
+   * @type {musig2.Session}
+   */
+  public musig2Session?: musig2.Session;
 
   /**
    * Creates a new instance of SignatureAuthorizationSession.
@@ -133,7 +139,7 @@ export class SignatureAuthorizationSession implements SigningSession {
    * @param {Array<string>} nonceContribution The nonce contribution from the participant.
    * @throws {Error} If the session is not awaiting nonce contributions or if the contribution is invalid.
    */
-  public addNonceContribution(from: string, nonceContribution: Array<string>): void {
+  public addNonceContribution(from: string, nonceContribution: Uint8Array): void {
     if(this.status !== SIGNING_SESSION_STATUS.AWAITING_NONCE_CONTRIBUTIONS) {
       throw new AggregateBeaconError(`Nonce contributions already received. Current status: ${this.status}`);
     }
@@ -168,10 +174,11 @@ export class SignatureAuthorizationSession implements SigningSession {
         'NONCE_CONTRIBUTION_ERROR', this.json()
       );
     }
-    const sortedPubkeys = sortKeys(this.cohort.cohortKeys);
-    const keyAggContext = keyAggregate(sortedPubkeys);
-    const aggPubkey = keyAggExport(keyAggContext);
-    this.aggregatedNonce = nonceAggregate(this.cohort.cohortKeys.map(key => nonceGen(key, undefined, aggPubkey, this.cohort.trMerkleRoot).public));
+    const sortedPubkeys = musig2.sortKeys(this.cohort.cohortKeys);
+    const keyAggContext = musig2.keyAggregate(sortedPubkeys);
+    const aggPubkey = musig2.keyAggExport(keyAggContext);
+    this.aggregatedNonce = musig2.nonceAggregate(this.cohort.cohortKeys.map(key => musig2.nonceGen(key, undefined, aggPubkey, this.cohort.trMerkleRoot).public));
+    this.musig2Session = new musig2.Session(this.aggregatedNonce, this.cohort.cohortKeys, this.cohort.trMerkleRoot);
     return this.aggregatedNonce;
   }
 
@@ -216,10 +223,27 @@ export class SignatureAuthorizationSession implements SigningSession {
 
     this.aggregatedNonce ??= this.generateAggregatedNonce();
 
-    const session = new Session(this.aggregatedNonce!, this.cohort.cohortKeys, this.cohort.trMerkleRoot);
+    const session = new musig2.Session(this.aggregatedNonce!, this.cohort.cohortKeys, this.cohort.trMerkleRoot);
     this.signature = session.partialSigAgg([...this.partialSignatures.values()]);
 
     return this.signature;
+  }
+
+  /**
+   * Generates a partial signature for the session using the participant's secret key.
+   * @param {Uint8Array} participantSk The secret key of the participant.
+   * @returns {Uint8Array} The partial signature generated by the participant.
+   */
+  public generatePartialSignature(participantSk: Uint8Array): Uint8Array {
+    if (!this.aggregatedNonce) {
+      throw new AggregateBeaconError('Aggregated nonce is not available. Please generate it first.');
+    }
+    const sigHash = this.pendingTx?.hashForSignature(0, this.pendingTx?.ins[0].script, Transaction.SIGHASH_DEFAULT);
+    if(!sigHash) {
+      throw new AggregateBeaconError('Signature hash is not available. Please ensure the transaction is properly set up.');
+    }
+    const session = new musig2.Session(this.aggregatedNonce!, this.cohort.cohortKeys, this.cohort.trMerkleRoot);
+    return session.sign(this.aggregatedNonce, participantSk);
   }
 
   /**

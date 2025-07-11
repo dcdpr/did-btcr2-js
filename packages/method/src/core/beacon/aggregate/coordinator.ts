@@ -232,7 +232,7 @@ export class BeaconCoordinator {
    * @returns {Promise<void>}
    */
   public async sendAggregatedNonce(session: SignatureAuthorizationSession): Promise<void> {
-    const aggregatedNonce = session.generateAggregatedNonce().toHex();
+    const aggregatedNonce = session.generateAggregatedNonce();
     Logger.info(`Aggregated Nonces for session ${session.id}:`, aggregatedNonce);
 
     session.status = SIGNING_SESSION_STATUS.AWAITING_PARTIAL_SIGNATURES;

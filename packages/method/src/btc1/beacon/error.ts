@@ -12,6 +12,13 @@ export class BeaconCoordinatorError extends DidBtc1Error {
   }
 }
 
+export class BeaconParticipantError extends DidBtc1Error {
+  constructor(message: string, type: string = 'BeaconParticipantError', data?: Record<string, any>) {
+    super(message, { type, name: type, data });
+  }
+}
+
+
 export class SingletonBeaconError extends DidBtc1Error {
   constructor(message: string, type: string = 'SingletonBeaconError', data?: Record<string, any>) {
     super(message, { type, name: type, data });

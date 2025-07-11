@@ -7,7 +7,7 @@ export type RequestSignature = {
   from: string;
   threadId?: string;
   cohortId: string;
-  sessionId: string;
+  sessionId?: string;
   data: string;
 }
 
@@ -25,7 +25,7 @@ export class RequestSignatureMessage extends BaseMessage {
       body     : { cohortId, sessionId, data }
     });
     this.cohortId = cohortId;
-    this.sessionId = sessionId;
+    this.sessionId = sessionId ?? crypto.randomUUID();
     this.data = data;
   }
 

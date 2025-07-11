@@ -70,7 +70,7 @@ export class Musig2Cohort implements BeaconCohort {
    * List of cohort keys.
    * @type {Array<Uint8Array>}
    */
-  public cohortKeys: Array<Uint8Array> = new Array<Uint8Array>();
+  public _cohortKeys: Array<Uint8Array> = new Array<Uint8Array>();
 
   /**
    * Taproot Merkle root for the cohort.
@@ -88,7 +88,7 @@ export class Musig2Cohort implements BeaconCohort {
    * Type of beacon used in the cohort (default is 'SMTAggregateBeacon').
    * @type {string}
    */
-  public beaconType: string = 'SMTAggregateBeacon';
+  public beaconType: string;
 
   /**
    * Creates a new Musig2Cohort instance.
@@ -106,6 +106,44 @@ export class Musig2Cohort implements BeaconCohort {
     this.status = status as COHORT_STATUS_TYPE || COHORT_STATUS.COHORT_ADVERTISED;
     this.network = network;
     this.beaconType = beaconType || 'SMTAggregateBeacon';
+  }
+
+  set cohortKeys(keys: Array<Uint8Array>) {
+    this.cohortKeys = sortKeys(keys);
+  }
+
+  public validateCohort(participantKeys: Array<string>, cohortKeys: Array<string>, beaconAddress: string): void {
+    for(const key of participantKeys){
+      if(!cohortKeys.includes(key)) {
+        this.status = COHORT_STATUS.COHORT_FAILED;
+        throw new BeaconCoordinatorError(
+          `Participant key ${key} not found in cohort ${this.id}.`,
+          'COHORT_VALIDATION_ERROR',
+          {
+            cohortId        : this.id,
+            participantKeys : participantKeys,
+            cohortKeys      : cohortKeys,
+            beaconAddress   : beaconAddress
+          }
+        );
+      }
+    }
+    this.cohortKeys = cohortKeys.map(key => Buffer.from(key, 'hex'));
+    const calculatedAddress = this.calulateBeaconAddress();
+    if (calculatedAddress !== beaconAddress) {
+      this.status = COHORT_STATUS.COHORT_FAILED;
+      throw new BeaconCoordinatorError(
+        `Calculated beacon address ${calculatedAddress} does not match provided address ${beaconAddress}.`,
+        'COHORT_ADDRESS_MISMATCH_ERROR',
+        {
+          cohortId        : this.id,
+          calculatedAddress,
+          providedAddress : beaconAddress
+        }
+      );
+    }
+    this.beaconAddress = beaconAddress;
+    this.status = COHORT_STATUS.COHORT_SET_STATUS;
   }
 
   /**
@@ -136,13 +174,10 @@ export class Musig2Cohort implements BeaconCohort {
    * @throws {BeaconCoordinatorError} If the Taproot address cannot be calculated.
    */
   public calulateBeaconAddress(): string {
-    // const trMultisig = new TapRootMultiSig(this.cohortKeys, this.cohortKeys.length);
-    // const branch = trMultisig.musigTree();
-    const sortedPubkeys = sortKeys(this.cohortKeys);
-    const keyAggContext = keyAggregate(sortedPubkeys);
+    const keyAggContext = keyAggregate(this.cohortKeys);
     const aggPubkey = keyAggExport(keyAggContext);
-    const branch = payments.p2tr({ internalPubkey: aggPubkey });
-    if(!branch.hash) {
+    const payment = payments.p2tr({ internalPubkey: aggPubkey });
+    if(!payment.hash) {
       throw new BeaconCoordinatorError(
         'Failed to calculate Taproot Merkle root',
         'CALCULATE_BEACON_MERKLE_ROOT_ERROR',
@@ -153,8 +188,8 @@ export class Musig2Cohort implements BeaconCohort {
         }
       );
     }
-    this.trMerkleRoot = branch.hash;
-    if(!branch.address) {
+    this.trMerkleRoot = payment.hash;
+    if(!payment.address) {
       throw new BeaconCoordinatorError(
         'Failed to calculate Taproot address',
         'CALCULATE_BEACON_ADDRESS_ERROR',
@@ -165,7 +200,7 @@ export class Musig2Cohort implements BeaconCohort {
         }
       );
     }
-    return branch.address;
+    return payment.address;
   }
 
   /**
@@ -229,7 +264,7 @@ export class Musig2Cohort implements BeaconCohort {
     }
     // const smtRootBytes = new Uint8Array(32).map(() => Math.floor(Math.random() * 256));
     const cohort = new Musig2Cohort(this);
-    return new SignatureAuthorizationSession({ id: '', cohort,  });
+    return new SignatureAuthorizationSession({ cohort });
   }
 
   /**
