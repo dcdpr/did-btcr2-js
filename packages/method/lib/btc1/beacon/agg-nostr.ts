@@ -11,7 +11,7 @@ const mnemonics = {
 };
 
 const nostr = new NostrAdapter();
-const coordinator = new BeaconCoordinator(nostr);
+const coordinator = new BeaconCoordinator(nostr, 'fred');
 
 const aliceSeed = await mnemonicToSeed(mnemonics.alice);
 const aliceHDKey = HDKey.fromMasterSeed(aliceSeed);

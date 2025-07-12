@@ -2,7 +2,7 @@ import { Logger, Maybe } from '@did-btc1/common';
 import { BeaconCoordinatorError } from '../error.js';
 import { CommunicationFactory } from './communication/factory.js';
 import { NostrAdapter } from './communication/nostr.js';
-import { CommunicationService, Service } from './communication/service.js';
+import { CommunicationService, Service, ServiceAdapter } from './communication/service.js';
 import { BaseMessage } from './messages/base.js';
 import { COHORT_ADVERT, NONCE_CONTRIBUTION, OPT_IN, REQUEST_SIGNATURE, SIGNATURE_AUTHORIZATION, SUBSCRIBE, SUBSCRIBE_ACCEPT } from './messages/constants.js';
 import { CohortAdvertMessage } from './messages/keygen/cohort-advert.js';
@@ -65,22 +65,21 @@ export class BeaconCoordinator {
   constructor(protocol: CommunicationService, name?: string, did?: string) {
     this.name = name || 'BeaconCoordinator';
     this.protocol = protocol || new NostrAdapter();
-    this.did = did || this.protocol.generateIdentity();
+    this.did = did || this.protocol.generateIdentity().did;
   }
 
   /**
    * Sets up the and starts the BeaconCoordinator communication protocol.
-   * @returns {void}
+   * @returns {ServiceAdapter<CommunicationService>} The started communication service adapter.
    */
-  public start(): void {
-    Logger.info(`Starting BeaconCoordinator (${this.did}) on ${this.protocol.name}!`);
+  public start(): ServiceAdapter<CommunicationService> {
+    Logger.info(`Starting BeaconCoordinator ${this.name} (${this.did}) on ${this.protocol.name} ...`);
     this.protocol.registerMessageHandler(SUBSCRIBE, this._handleSubscribe.bind(this));
     this.protocol.registerMessageHandler(OPT_IN, this._handleOptIn.bind(this));
     this.protocol.registerMessageHandler(REQUEST_SIGNATURE, this._handleRequestSignature.bind(this));
     this.protocol.registerMessageHandler(NONCE_CONTRIBUTION, this._handleNonceContribution.bind(this));
     this.protocol.registerMessageHandler(SIGNATURE_AUTHORIZATION, this._handleSignatureAuthorization.bind(this));
-    this.protocol.start();
-    Logger.info(`Started BeaconCoordinator (${this.did}) on ${this.protocol.name}, listening for messages ...`);
+    return this.protocol.start();
   }
 
   /**

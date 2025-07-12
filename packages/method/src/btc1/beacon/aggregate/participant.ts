@@ -109,7 +109,7 @@ export class BeaconParticipant {
     this.hdKey = HDKey.fromMasterSeed(sk);
     this.name = name || `btc1-beacon-participant-${crypto.randomUUID()}`;
     this.protocol = protocol || new NostrAdapter();
-    this.did = did || this.protocol.generateIdentity();
+    this.did = did || this.protocol.generateIdentity().did;
     this.beaconKeyIndex = this.cohortKeyStates.size;
   }
 
@@ -118,7 +118,7 @@ export class BeaconParticipant {
    * @returns {ServiceAdapter<CommunicationService>} The service adapter for the communication protocol.
    */
   public start(): ServiceAdapter<CommunicationService> {
-    Logger.info(`Starting ${this.name} (${this.did})! Listening for messages on ${this.protocol.name} ...`);
+    Logger.info(`Starting BeaconParticipant ${this.name} (${this.did}) on ${this.protocol.name} ...`);
     this.protocol.registerMessageHandler(SUBSCRIBE_ACCEPT, this._handleSubscribeAccept.bind(this));
     this.protocol.registerMessageHandler(COHORT_ADVERT, this._handleCohortAdvert.bind(this));
     this.protocol.registerMessageHandler(COHORT_SET, this._handleCohortSet.bind(this));
@@ -416,6 +416,14 @@ export class BeaconParticipant {
     Logger.info(`Partial signature sent for session ${session.id} in cohort ${session.cohort.id} by participant ${this.did}`);
   }
 
+  /**
+   * Initializes a new BeaconParticipant instance.
+   * @param {KeyBytes} sk The secret key used for signing.
+   * @param {CommunicationService} protocol The communication protocol used by the participant.
+   * @param {string} [name] The name of the participant.
+   * @param {string} [did] The decentralized identifier (DID) of the participant.
+   * @returns {BeaconParticipant} A new instance of BeaconParticipant.
+   */
   public static initialize(sk: KeyBytes, protocol: CommunicationService, name?: string, did?: string): BeaconParticipant {
     return new BeaconParticipant(sk, protocol, name, did);
   }
