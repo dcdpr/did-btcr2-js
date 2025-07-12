@@ -63,7 +63,7 @@ export class BeaconCoordinator {
    * @param {string} [did] Optional DID to use for the coordinator. If not provided, a new DID will be generated.
    */
   constructor(protocol: CommunicationService, name?: string, did?: string) {
-    this.name = name || 'BeaconCoordinator';
+    this.name = name || `btc1-beacon-coordinator-${crypto.randomUUID()}`;
     this.protocol = protocol || new NostrAdapter();
     this.did = did || this.protocol.generateIdentity().did;
   }
