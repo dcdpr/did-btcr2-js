@@ -1,3 +1,4 @@
+import { PublicKeyError } from '@did-btc1/common';
 import { expect } from 'chai';
 import { CompressedSecp256k1PublicKey } from '../src/public.js';
 import { BIP340_PUBLIC_KEY_MULTIBASE_PREFIX, PublicKeyError } from '@did-btcr2/common';

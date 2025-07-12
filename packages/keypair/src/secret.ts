@@ -10,6 +10,7 @@ import { sha256 } from '@noble/hashes/sha2';
 import { getRandomValues } from 'crypto';
 import { base58btc } from 'multiformats/bases/base58';
 import * as tinysecp from 'tiny-secp256k1';
+import { BIP340_SECRET_KEY_MULTIBASE_PREFIX, BIP340_SECRET_KEY_MULTIBASE_PREFIX_HASH, SECP256K1_CURVE } from './constants.js';
 import { SchnorrKeyPair } from './pair.js';
 import { CompressedSecp256k1PublicKey } from './public.js';
 
@@ -323,9 +324,9 @@ export class Secp256k1SecretKey implements SecretKey {
   /**
    * Convert a bigint secret to secret key bytes.
    * @param {KeyBytes} bytes The secret key bytes
-   * @returns {bigint} The secret key bytes as a bigint secret
+   * @returns {bigint} The secret key bytes as a bigint seed
    */
-  public static toSecret(bytes: KeyBytes): bigint {
+  public static toSeed(bytes: KeyBytes): bigint {
     return bytes.reduce((acc, byte) => (acc << 8n) | BigInt(byte), 0n);
   }
 
@@ -334,18 +335,18 @@ export class Secp256k1SecretKey implements SecretKey {
    * @param {bigint} secret The secret key secret.
    * @returns {KeyBytes} The secret key secret as secret key bytes.
    */
-  public static toBytes(secret: bigint): KeyBytes {
+  public static toBytes(seed: bigint): KeyBytes {
     // Ensure it’s a valid 32-byte value in [1, n-1] and convert bigint to Uint8Array
     const bytes = Uint8Array.from(
       { length: 32 },
-      (_, i) => Number(secret >> BigInt(8 * (31 - i)) & BigInt(0xff))
+      (_, i) => Number(seed >> BigInt(8 * (31 - i)) & BigInt(0xff))
     );
 
-    // If bytes are not a valid secp256k1 secret key, throw error
+    // If bytes are not a valid secp256k1 seed key, throw error
     if (!tinysecp.isPrivate(bytes)) {
       throw new SecretKeyError(
-        'Invalid secret key: secret out of valid range',
-        'SET_PRIVATE_KEY_ERROR'
+        'Invalid seed: out of valid range',
+        'SET_SECRET_KEY_ERROR'
       );
     }
     return new Uint8Array(bytes);

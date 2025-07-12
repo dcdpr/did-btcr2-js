@@ -2,6 +2,7 @@ import { KeyPairError, MultikeyError } from '@did-btcr2/common';
 import { SchnorrKeyPair, Secp256k1SecretKey, CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { expect } from 'chai';
 import { SchnorrMultikey } from '../src/index.js';
+import { PublicKey, SchnorrKeyPair, SecretKey } from '@did-btc1/keypair';
 
 /**
  * SchnorrMultikey Test Cases
@@ -11,13 +12,13 @@ import { SchnorrMultikey } from '../src/index.js';
  * 4. id, controller, privateKey, publicKey → should succeed
  */
 describe('SchnorrMultikey', () => {
-  const skBytes = new Uint8Array([
+  const sk = new Uint8Array([
     69, 112, 198, 176,  14, 103, 100,  73,
     35, 179, 169,  83,  80, 213, 189, 190,
     118, 200,   5,  43,  20,  46, 148,  60,
     109,  37, 134, 164, 162, 174, 185, 201
   ]);
-  const schnorrKeyPair = new SchnorrKeyPair({ secretKey: skBytes });
+  const schnorrKeyPair = new SchnorrKeyPair(sk);
   const publicKey = schnorrKeyPair.publicKey;
   // Multikey Constants
   const id = '#initialKey';
@@ -253,7 +254,7 @@ describe('SchnorrMultikey', () => {
       expect(multikey.secretKey).to.exist.and.to.be.instanceOf(Secp256k1SecretKey);
       expect(multikey.secretKey.equals(secretKey)).to.be.true;
       expect(multikey.publicKey.equals(publicKey)).to.be.true;
-      expect(multikey.secretKey.seed).to.equal(SECRET);
+      expect(multikey.secretKey.seed).to.equal(SEED);
     });
 
     it('should create a valid schnorr signature', () => {

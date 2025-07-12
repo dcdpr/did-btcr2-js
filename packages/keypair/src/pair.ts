@@ -83,6 +83,18 @@ export class SchnorrKeyPair implements KeyPair {
 
     this._publicKeyMultibase = this._publicKey.multibase.encoded;
     this._secretKeyMultibase = this._secretKey ? this._secretKey.multibase : '';
+
+    // If both keys are provided, validate the key pair
+    if(this._secretKey && this._publicKey) {
+      // If the secret key is not valid, throw an error
+      if(!this._secretKey.isValid()) {
+        throw new KeyPairError('Secret key is not valid', 'SECRET_KEY_ERROR');
+      }
+
+      if(!this._secretKey.isValidPair(this._publicKey)) {
+        throw new KeyPairError('Secret key and Public key are not a valid pair', 'KEY_PAIR_ERROR');
+      }
+    }
   }
 
   /**
@@ -94,10 +106,6 @@ export class SchnorrKeyPair implements KeyPair {
     // If the secret key is not available, throw an error
     if(!this._secretKey) {
       throw new KeyPairError('Secret key not available', 'SECRET_KEY_ERROR');
-    }
-    // If the secret key is not valid, throw an error
-    if(!this._secretKey.isValid()) {
-      throw new KeyPairError('Secret key is not valid', 'SECRET_KEY_ERROR');
     }
     // Return a copy of the secret key
     const secret = this._secretKey;
@@ -161,7 +169,7 @@ export class SchnorrKeyPair implements KeyPair {
    */
   get multibase(): MultibaseKeys {
     return {
-      publicKeyMultibase  : this._publicKeyMultibase,
+      publicKeyMultibase : this._publicKeyMultibase,
       secretKeyMultibase : this._secretKeyMultibase,
     };
   }
@@ -269,7 +277,7 @@ export class SchnorrKeyPair implements KeyPair {
     // Construct a new Secp256k1SecretKey object
     const secretKey = new Secp256k1SecretKey(sk);
 
-    // Return a new Keys object
+    // Return a new SchnorrKeyPair object
     return new SchnorrKeyPair(secretKey);
   }
 }

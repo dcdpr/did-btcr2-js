@@ -30,7 +30,7 @@ describe('SchnorrKeyPair instantiated', () => {
   });
 
   describe('with private key bytes', () => {
-    const keys = new SchnorrKeyPair({ secretKey: bytes.secretKey });
+    const keys = new SchnorrKeyPair(bytes.secretKey);
 
     it('should construct a new instanceOf SchnorrKeyPair', () => {
       expect(keys).to.be.instanceOf(SchnorrKeyPair);
@@ -48,7 +48,7 @@ describe('SchnorrKeyPair instantiated', () => {
   });
 
   describe('with public key bytes', () => {
-    const keys = new SchnorrKeyPair({ publicKey: bytes.publicKey });
+    const keys = new SchnorrKeyPair(undefined, bytes.publicKey);
 
     it('should construct a new instanceOf SchnorrKeyPair', () => {
       expect(keys).to.be.instanceOf(SchnorrKeyPair);
@@ -65,7 +65,8 @@ describe('SchnorrKeyPair instantiated', () => {
   });
 
   describe('with private and public key bytes', () => {
-    const keys = new SchnorrKeyPair(bytes);
+    const { secretKey, publicKey } = bytes;
+    const keys = new SchnorrKeyPair(secretKey, publicKey);
 
     it('should construct a new instanceOf SchnorrKeyPair', () => {
       expect(keys).to.be.instanceOf(SchnorrKeyPair);
