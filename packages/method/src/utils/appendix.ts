@@ -10,8 +10,13 @@ import {
 import { createHelia } from 'helia';
 import { CID } from 'multiformats';
 import { create as createDigest } from 'multiformats/hashes/digest';
+<<<<<<< HEAD
 import { RootCapability } from '../interfaces/crud.js';
 import { DidVerificationMethod } from './did-document.js';
+=======
+import { Btc1RootCapability } from '../btc1/crud/interfaces.js';
+import { Btc1VerificationMethod } from '../btc1/did-document/index.js';
+>>>>>>> e63c2d7 (align with main)
 
 export interface DidComponents {
     hrp: string;

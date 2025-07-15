@@ -6,26 +6,6 @@ export const OP_RETURN = 0x6a;
 export const OP_PUSH32 = 0x20;
 export const VALID_HRP = ['k', 'x'];
 export const MULTIBASE_URI_PREFIX = 'urn:mb:';
-export const INITIAL_BLOCK_REWARD = 50;
-export const HALVING_INTERVAL = 150;
-export const COINBASE_MATURITY_DELAY = 100;
-export const POLAR_BOB_CLIENT_CONFIG = {
-  username           : 'polaruser',
-  password           : 'polarpass',
-  host               : 'http://127.0.0.1:18443',
-  allowDefaultWallet : true,
-  version            : '28.1.0'
-};
-export const POLAR_ALICE_CLIENT_CONFIG = {
-  username           : 'polaruser',
-  password           : 'polarpass',
-  host               : 'http://127.0.0.1:18444',
-  allowDefaultWallet : true,
-  version            : '28.1.0'
-};
-export const DEFAULT_REST_CONFIG = { host: 'http://localhost:3000' };
-export const DEFAULT_RPC_CONFIG = POLAR_BOB_CLIENT_CONFIG;
-export const DEFAULT_BLOCK_CONFIRMATIONS = 7;
 
 // Fixed public key header bytes per the Data Integrity BIP340 Cryptosuite spec: [0xe7, 0x01] / [231, 1]
 export const BIP340_PUBLIC_KEY_MULTIBASE_PREFIX: Bytes = new Uint8Array([0xe7, 0x01]);

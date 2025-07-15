@@ -197,34 +197,6 @@ export interface DidUpdateBundle {
 }
 
 /**
- * A container for out-of-band data the resolver may need. This includes the
- * initial DID document if it isn't stored in IPFS, plus references for each
- * on-chain Beacon signal.
- *
- * DID BTCR2
- * {@link https://dcdpr.github.io/did-btcr2/#sidecar-initial-document-validation | 4.2.1.2.1 Sidecar Initial Document Validation},
- * {@link https://dcdpr.github.io/did-btcr2/#resolve-target-document | 4.2.2 Resolve Target Document},
- * {@link https://dcdpr.github.io/did-btcr2/#traverse-blockchain-history | 4.2.2.2 Traverse Blockchain History},
- * {@link https://dcdpr.github.io/did-btcr2/#find-next-signals | 4.2.2.3 Find Next Signals}.
- */
-export interface SidecarData {
-  /**
-   * The initial DID Document for an externally created did:btcr2,
-   * if not fetched from IPFS or another CAS.
-   */
-  initialDocument?: Record<string, any>; // or a typed DIDDocument from W3C DID Core
-
-  /**
-   * A map from Bitcoin transaction IDs to the sidecar info about that signal.
-   * Each signal might provide a single DID Update Payload, or (for aggregator beacons)
-   * a bundle or proofs.
-   */
-  signalsMetadata: {
-    [txid: string]: SignalSidecarData;
-  };
-}
-
-/**
  * Sidecar data for a specific Beacon Signal. Different Beacon types store different fields.
  * - SingletonBeacon might just store one `updatePayload`.
  * - CIDAggregateBeacon might store `updateBundle` + an `updatePayload`.
@@ -261,34 +233,7 @@ export type BeaconType =
   | 'SMTAggregateBeacon';
 
 /**
- * Represents a transaction discovered on the Bitcoin blockchain that
- * spends from a Beacon address, thus announcing DID updates.
- *
- * DID BTCR2
- * {@link https://dcdpr.github.io/did-btcr2/#find-next-signals | 4.2.2.3 Find Next Signals}
- * and
- * {@link https://dcdpr.github.io/did-btcr2/#process-beacon-signals | 4.2.2.4 Process Beacon Signals}.
- */
-export interface BeaconSignal {
-  /**
-   * The DID Document's `service` ID of the Beacon that produced this signal, e.g. "#cidAggregateBeacon".
-   */
-  beaconId: string;
-
-  /**
-   * The type of Beacon, e.g. "SingletonBeacon".
-   */
-  beaconType: BeaconType;
-
-  /**
-   * The Bitcoin transaction that is the actual on-chain Beacon Signal.
-   * Typically you'd store a minimal subset or a reference/ID for real usage.
-   */
-  tx: any;
-}
-
-/**
- * A ZCAP-LD root capability object that authorizes updates for a particular did:btcr2.
+ * A ZCAP-LD root capability object that authorizes updates for a particular did:btc1.
  *
  * DID BTCR2
  * {@link https://dcdpr.github.io/did-btcr2/#derive-root-capability-from-didbtcr2-identifier | 9.4.1 Derive Root Capability from did:btcr2 Identifier}.

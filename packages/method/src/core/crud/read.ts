@@ -38,6 +38,10 @@ import { Appendix, DidComponents } from '../../utils/appendix.js';
 import { BeaconUtils } from '../../utils/beacons.js';
 import { DidDocument } from '../../utils/did-document.js';
 import { BeaconFactory } from '../beacon/factory.js';
+import { BeaconService, BeaconServiceAddress, BeaconSignal, CIDAggregateSidecar, SingletonSidecar, SMTAggregateSidecar } from '../beacon/interfaces.js';
+import { SidecarData, SignalsMetadata } from '../beacon/types.js';
+import { BlockV3, RawTransactionV2 } from '../../bitcoin/rpc/types.js';
+import { DidResolutionOptions } from './interfaces.js';
 
 export type FindNextSignalsRestParams = {
   connection: BitcoinRestClient;

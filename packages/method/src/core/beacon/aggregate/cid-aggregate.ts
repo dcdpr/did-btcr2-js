@@ -1,9 +1,16 @@
 import { MethodError, DidUpdateInvocation, DidUpdatePayload } from '@did-btcr2/common';
 import { DidServiceEndpoint } from '@web5/dids';
+<<<<<<<< HEAD:packages/method/src/core/beacon/cid-aggregate.ts
 import { Beacon } from '../../interfaces/beacon.js';
 import { BeaconService, BeaconSignal } from '../../interfaces/ibeacon.js';
 import { RawTransactionV2 } from '@did-btcr2/bitcoin';
 import { BeaconSidecarData, CIDAggregateSidecar, SignalsMetadata } from '../../types/crud.js';
+========
+import { RawTransactionV2 } from '../../../bitcoin/rpc/types.js';
+import { BeaconService, BeaconSignal, CIDAggregateSidecar } from '../interfaces.js';
+import { SidecarData, SignalsMetadata } from '../types.js';
+import { UpdateBeacon } from '../beacon.js';
+>>>>>>>> e63c2d7 (align with main):packages/method/src/core/beacon/aggregate/cid-aggregate.ts
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/#cidaggregate-beacon | 5.2 CIDAggregate Beacon}.
@@ -21,7 +28,7 @@ import { BeaconSidecarData, CIDAggregateSidecar, SignalsMetadata } from '../../t
  * @type {CIDAggregateBeacon}
  * @extends {Beacon}
  */
-export class CIDAggregateBeacon extends Beacon {
+export class CIDAggregateBeacon extends UpdateBeacon {
   /**
    * Creates an instance of CIDAggregateBeacon.
    * @param {BeaconService} service The service of the Beacon.

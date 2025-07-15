@@ -1,6 +1,12 @@
+<<<<<<< HEAD:packages/method/src/utils/did-document-builder.ts
 import { DidDocumentError, INVALID_DID_DOCUMENT } from '@did-btcr2/common';
 import { BeaconService } from '../interfaces/ibeacon.js';
 import { DidDocument, DidVerificationMethod } from './did-document.js';
+=======
+import { DidDocumentError, INVALID_DID_DOCUMENT } from '@did-btc1/common';
+import { Btc1DidDocument, Btc1VerificationMethod } from './index.js';
+import { BeaconService } from '../beacon/interfaces.js';
+>>>>>>> e63c2d7 (align with main):packages/method/src/btc1/did-document/builder.ts
 
 export class DidDocumentBuilder {
   private document: Partial<DidDocument> = {};

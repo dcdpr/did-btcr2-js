@@ -1,9 +1,16 @@
 import { MethodError, DidUpdatePayload } from '@did-btcr2/common';
 import { DidServiceEndpoint } from '@web5/dids';
+<<<<<<<< HEAD:packages/method/src/core/beacon/smt-aggregate.ts
 import { Beacon } from '../../interfaces/beacon.js';
 import { BeaconService, BeaconSignal } from '../../interfaces/ibeacon.js';
 import { RawTransactionV2 } from '@did-btcr2/bitcoin';
 import { BeaconSidecarData, SignalsMetadata, SMTAggregateSidecar } from '../../types/crud.js';
+========
+import { RawTransactionV2 } from '../../../bitcoin/rpc/types.js';
+import { BeaconService, BeaconSignal, SMTAggregateSidecar } from '../interfaces.js';
+import { SidecarData, SignalsMetadata } from '../types.js';
+import { UpdateBeacon } from '../beacon.js';
+>>>>>>>> e63c2d7 (align with main):packages/method/src/core/beacon/aggregate/smt-aggregate.ts
 
 /**
  * TODO: Finish implementation
@@ -22,7 +29,7 @@ import { BeaconSidecarData, SignalsMetadata, SMTAggregateSidecar } from '../../t
  * @type {SMTAggregateBeacon}
  * @extends {Beacon}
  */
-export class SMTAggregateBeacon extends Beacon {
+export class SMTAggregateBeacon extends UpdateBeacon {
   /**
    * Creates an instance of SMTAggregateBeacon.
    * @param {BeaconService} service The Beacon service.

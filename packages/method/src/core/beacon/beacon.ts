@@ -29,10 +29,10 @@ import { BeaconService, BeaconSignal, IBeacon } from './ibeacon.js';
  * All resolvers of did:btcr2 DIDs MUST support the core Beacon Types defined in this specification.
  *
  * @abstract
- * @class Beacon
- * @type {Beacon}
+ * @class UpdateBeacon
+ * @type {UpdateBeacon}
  */
-export abstract class Beacon implements IBeacon {
+export abstract class UpdateBeacon implements Beacon {
   public id: string;
   public type: string;
   public serviceEndpoint: DidServiceEndpoint;

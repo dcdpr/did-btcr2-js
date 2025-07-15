@@ -8,6 +8,7 @@ import {
   JSONObject,
   KeyBytes,
   Logger
+<<<<<<< HEAD:packages/method/src/utils/did-document.ts
 } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { DidService, DidDocument as IIDidDocument, DidVerificationMethod as IIDidVerificationMethod } from '@web5/dids';
@@ -15,6 +16,14 @@ import { BeaconService } from '../interfaces/ibeacon.js';
 import { Appendix } from './appendix.js';
 import { BeaconUtils } from './beacons.js';
 import { Identifier } from './identifier.js';
+=======
+} from '@did-btc1/common';
+import { DidService, DidVerificationMethod, DidDocument as IDidDocument } from '@web5/dids';
+import { Btc1Appendix } from '../../utils/appendix.js';
+import { BeaconUtils } from '../../utils/beacon.js';
+import { Btc1Identifier } from '../../utils/identifier.js';
+import { BeaconService } from '../beacon/interfaces.js';
+>>>>>>> e63c2d7 (align with main):packages/method/src/btc1/did-document/index.ts
 
 export const BECH32M_CHARS = '';
 export const DID_REGEX = /did:btcr2:(x1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]*)/g;
