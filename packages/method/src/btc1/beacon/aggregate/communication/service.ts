@@ -1,6 +1,10 @@
+import { Maybe } from '@did-btc1/common';
+import { AggregateBeaconMessageType } from '../messages/index.js';
 import { NostrAdapterConfig } from './nostr.js';
 
-export type MessageHandler = (msg: any) => void | Promise<void>;
+export type SyncMessageHandler = (msg: any) => void;
+export type AsyncMessageHandler = (msg: any) => Promise<void>;
+export type MessageHandler = SyncMessageHandler | AsyncMessageHandler;
 
 export type CommunicationServiceType = 'nostr' | 'didcomm';
 export interface Service {
@@ -14,6 +18,6 @@ export interface CommunicationService {
   name: string;
   start(): ServiceAdapter<CommunicationService>;
   registerMessageHandler(messageType: string, handler: MessageHandler): void;
-  sendMessage(message: object, recipient: string, sender: string): Promise<void>;
+  sendMessage(message: Maybe<AggregateBeaconMessageType>, recipient: string, sender: string): Promise<void | Promise<string>[]>;
   generateIdentity(): ServiceAdapterConfig<any>
 }

@@ -19,7 +19,10 @@ import { SignatureAuthorizationMessage } from './messages/sign/signature-authori
 import { Musig2Cohort } from './models/cohort/index.js';
 import { COHORT_STATUS } from './models/cohort/status.js';
 import { SignatureAuthorizationSession } from './models/session/index.js';
+import { mnemonicToSeedSync } from '@scure/bip39';
 
+type Seed = KeyBytes;
+type Mnemonic = string;
 type ActiveSigningSessions = Map<string, SignatureAuthorizationSession>;
 type CohortKeyStates = Map<string, CohortKeyState>;
 
@@ -100,13 +103,17 @@ export class BeaconParticipant {
 
   /**
    * Creates an instance of BeaconParticipant.
-   * @param {KeyBytes} sk The secret key used for signing.
+   * @param {Seed | Mnemonic} ent The seed or mnemonic used for the participant's HD key.
    * @param {CommunicationService} protocol The communication protocol used by the participant.
    * @param {string} [name] The name of the participant.
    * @param {string} [did] The decentralized identifier (DID) of the participant.
    */
-  constructor(sk: KeyBytes, protocol: CommunicationService, name?: string, did?: string) {
-    this.hdKey = HDKey.fromMasterSeed(sk);
+  constructor(ent: Seed | Mnemonic, protocol: CommunicationService, name?: string, did?: string) {
+    this.hdKey = HDKey.fromMasterSeed(
+      ent instanceof Uint8Array
+        ? ent
+        : mnemonicToSeedSync(ent)
+    );
     this.name = name || `btc1-beacon-participant-${crypto.randomUUID()}`;
     this.protocol = protocol || new NostrAdapter();
     this.did = did || this.protocol.generateIdentity().did;

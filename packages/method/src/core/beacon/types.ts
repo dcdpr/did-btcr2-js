@@ -1,17 +1,7 @@
 import { DidUpdatePayload } from '@did-btc1/common';
-import { Btc1DidDocument } from '../did-document/index.js';
 import { BlockV3 } from '../../bitcoin/rpc/types.js';
+import { Btc1DidDocument } from '../did-document/index.js';
 import { BeaconService, CIDAggregateSidecar, SingletonSidecar, SMTAggregateSidecar } from './interfaces.js';
-import { CohortAdvertMessage } from './aggregate/messages/keygen/cohort-advert.js';
-import { CohortSetMessage } from './aggregate/messages/keygen/cohort-set.js';
-import { OptInMessage } from './aggregate/messages/keygen/opt-in.js';
-import { SubscribeAcceptMessage } from './aggregate/messages/keygen/subscribe-accept.js';
-import { SubscribeMessage } from './aggregate/messages/keygen/subscribe.js';
-import { AggregatedNonceMessage } from './aggregate/messages/sign/aggregated-nonce.js';
-import { AuthorizationRequestMessage } from './aggregate/messages/sign/authorization-request.js';
-import { NonceContributionMessage } from './aggregate/messages/sign/nonce-contribution.js';
-import { RequestSignatureMessage } from './aggregate/messages/sign/request-signature.js';
-import { SignatureAuthorizationMessage } from './aggregate/messages/sign/signature-authorization.js';
 
 export type FindNextSignals = {
   block: BlockV3;
@@ -65,19 +55,3 @@ export type GetSigningMethodParams = {
   didDocument: Btc1DidDocument;
   methodId?: string;
 };
-
-export type KeyGenMessageType =
-  | CohortAdvertMessage
-  | CohortSetMessage
-  | OptInMessage
-  | SubscribeAcceptMessage
-  | SubscribeMessage;
-
-export type SignMessageType =
-  | AggregatedNonceMessage
-  | AuthorizationRequestMessage
-  | NonceContributionMessage
-  | RequestSignatureMessage
-  | SignatureAuthorizationMessage;
-
-export type AggregateBeaconMessageType = KeyGenMessageType | SignMessageType;
