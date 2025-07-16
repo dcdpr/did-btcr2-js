@@ -17,39 +17,39 @@ const aliceSeed = await mnemonicToSeed(mnemonics.alice);
 const aliceHDKey = HDKey.fromMasterSeed(aliceSeed);
 const alice = new BeaconParticipant(aliceHDKey.privateExtendedKey, nostr, 'alice');
 
-const bobSeed = await mnemonicToSeed(mnemonics.bob);
-const bobHDKey = HDKey.fromMasterSeed(bobSeed);
-const bob = new BeaconParticipant(bobHDKey.privateExtendedKey, nostr, 'bob');
+// const bobSeed = await mnemonicToSeed(mnemonics.bob);
+// const bobHDKey = HDKey.fromMasterSeed(bobSeed);
+// const bob = new BeaconParticipant(bobHDKey.privateExtendedKey, nostr, 'bob');
 
-const charlieSeed = await mnemonicToSeed(mnemonics.charlie);
-const charlieHDKey = HDKey.fromMasterSeed(charlieSeed);
-const charlie = new BeaconParticipant(charlieHDKey.privateExtendedKey, nostr, 'charlie');
+// const charlieSeed = await mnemonicToSeed(mnemonics.charlie);
+// const charlieHDKey = HDKey.fromMasterSeed(charlieSeed);
+// const charlie = new BeaconParticipant(charlieHDKey.privateExtendedKey, nostr, 'charlie');
 
-const dinaSeed = await mnemonicToSeed(mnemonics.dina);
-const dinaHDKey = HDKey.fromMasterSeed(dinaSeed);
-const dina = new BeaconParticipant(dinaHDKey.privateExtendedKey, nostr, 'dina');
+// const dinaSeed = await mnemonicToSeed(mnemonics.dina);
+// const dinaHDKey = HDKey.fromMasterSeed(dinaSeed);
+// const dina = new BeaconParticipant(dinaHDKey.privateExtendedKey, nostr, 'dina');
 
 // Setup the coordinator
 coordinator.setup();
 
 // Setup the participants
 alice.setup();
-bob.setup();
-charlie.setup();
-dina.setup();
+// bob.setup();
+// charlie.setup();
+// dina.setup();
 
 // Subscribe participants to the coordinator
-await alice.subscribeToCoordinator(coordinator.did);
-await bob.subscribeToCoordinator(coordinator.did);
-await charlie.subscribeToCoordinator(coordinator.did);
-await dina.subscribeToCoordinator(coordinator.did);
+// await alice.subscribeToCoordinator(coordinator.did);
+// await bob.subscribeToCoordinator(coordinator.did);
+// await charlie.subscribeToCoordinator(coordinator.did);
+// await dina.subscribeToCoordinator(coordinator.did);
 
 // Announce the cohort
-await coordinator.announceNewCohort(4)
+// await coordinator.announceNewCohort(4)
 
 // Start the coordinator and participants listening for events
 coordinator.start();
 alice.start();
-bob.start();
-charlie.start();
-dina.start();
+// bob.start();
+// charlie.start();
+// dina.start();

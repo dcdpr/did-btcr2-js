@@ -4,7 +4,7 @@ import * as musig2 from '@scure/btc-signer/musig2';
 import { Transaction } from 'bitcoinjs-lib';
 import { BeaconParticipantError } from '../error.js';
 import { NostrAdapter } from './communication/nostr.js';
-import { CommunicationService, ServiceAdapter } from './communication/service.js';
+import { CommunicationService } from './communication/service.js';
 import { AGGREGATED_NONCE, AUTHORIZATION_REQUEST, COHORT_ADVERT, COHORT_SET, SUBSCRIBE_ACCEPT } from './messages/constants.js';
 import { CohortAdvertMessage } from './messages/keygen/cohort-advert.js';
 import { CohortSetMessage } from './messages/keygen/cohort-set.js';
@@ -19,10 +19,7 @@ import { SignatureAuthorizationMessage } from './messages/sign/signature-authori
 import { Musig2Cohort } from './models/cohort/index.js';
 import { COHORT_STATUS } from './models/cohort/status.js';
 import { SignatureAuthorizationSession } from './models/session/index.js';
-import { mnemonicToSeedSync } from '@scure/bip39';
 
-type Seed = KeyBytes;
-type Mnemonic = string;
 type ActiveSigningSessions = Map<string, SignatureAuthorizationSession>;
 type CohortKeyStates = Map<string, CohortKeyState>;
 
