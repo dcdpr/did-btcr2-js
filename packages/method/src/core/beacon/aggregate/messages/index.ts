@@ -52,12 +52,27 @@ export class AggregateBeaconMessage {
   static COHORT_SET = COHORT_SET;
   static SUBSCRIBE = SUBSCRIBE;
   static SUBSCRIBE_ACCEPT = SUBSCRIBE_ACCEPT;
+  static KEY_GEN_MESSAGES: Map<string, string> = new Map([
+    ['COHORT_ADVERT', 'COHORT_ADVERT'],
+    ['COHORT_INVITE', 'COHORT_INVITE'],
+    ['OPT_IN', 'OPT_IN'],
+    ['COHORT_SET', 'COHORT_SET'],
+    ['SUBSCRIBE', 'SUBSCRIBE'],
+    ['SUBSCRIBE_ACCEPT', 'SUBSCRIBE_ACCEPT'],
+  ]);
 
   static REQUEST_SIGNATURE = REQUEST_SIGNATURE;
   static AUTHORIZATION_REQUEST = AUTHORIZATION_REQUEST;
   static NONCE_CONTRIBUTION = NONCE_CONTRIBUTION;
   static AGGREGATED_NONCE = AGGREGATED_NONCE;
   static SIGNATURE_AUTHORIZATION = SIGNATURE_AUTHORIZATION;
+  static SIGN_MESSAGES: Map<string, string> = new Map([
+    ['REQUEST_SIGNATURE', 'REQUEST_SIGNATURE'],
+    ['AUTHORIZATION_REQUEST', 'AUTHORIZATION_REQUEST'],
+    ['NONCE_CONTRIBUTION', 'NONCE_CONTRIBUTION'],
+    ['AGGREGATED_NONCE', 'AGGREGATED_NONCE'],
+    ['SIGNATURE_AUTHORIZATION', 'SIGNATURE_AUTHORIZATION'],
+  ]);
 
   static ALL_MESSAGES: string[] = [
     COHORT_ADVERT,
@@ -74,53 +89,62 @@ export class AggregateBeaconMessage {
   ];
 
   /**
+   * Checks if the name provided is a valid message name.
+   * @param {string} type - The type of the message.
+   * @returns
+   */
+  static isValidType(type: string): boolean {
+    return this.KEY_GEN_MESSAGES.has(type) || this.SIGN_MESSAGES.has(type);
+  }
+
+  /**
+   * Get the message value based on the type.
+   * @param {string} type - The type (or name) of the message.
+   * @returns {string | undefined} - The corresponding type value.
+   */
+  static getMessageValueByType(type: string): string | undefined {
+    if(!this.isValidType(type)) {
+      return undefined;
+    }
+    return this.KEY_GEN_MESSAGES.get(type) || this.SIGN_MESSAGES.get(type);
+  }
+
+  /**
    * Checks if the provided type is a valid AggregateBeaconMessageType.
    * @param {string} type - The message type to check.
    * @returns {boolean} - Returns true if the type is valid, otherwise false.
    */
-  static isValidType(type: string): boolean {
+  static isValidValue(type: string): boolean {
     return this.ALL_MESSAGES.includes(type);
   }
 
   /**
    * Checks if the provided type is a valid KeyGenMessageType.
-   * @param {string} type - The message type to check.
+   * @param {string} value - The message type to check.
    * @returns {boolean} - Returns true if the type is a key generation message type, otherwise false.
    */
-  static isKeyGenMessageType(type: string): boolean {
-    return [
+  static isKeyGenMessageValue(value: string): boolean {
+    return this.isValidValue(value) && [
       COHORT_ADVERT,
       COHORT_SET,
       OPT_IN,
       SUBSCRIBE_ACCEPT,
       SUBSCRIBE
-    ].includes(type);
+    ].includes(value);
   }
 
   /**
    * Checks if the provided type is a valid SignMessageType.
-   * @param {string} type - The message type to check.
+   * @param {string} value - The message type to check.
    * @returns {boolean} - Returns true if the type is a sign message type, otherwise false.
    */
-  static isSignMessageType(type: string): boolean {
-    return [
+  static isSignMessageValue(value: string): boolean {
+    return this.isValidValue(value) && [
       AGGREGATED_NONCE,
       AUTHORIZATION_REQUEST,
       NONCE_CONTRIBUTION,
       REQUEST_SIGNATURE,
       SIGNATURE_AUTHORIZATION
-    ].includes(type);
-  }
-
-  /**
-   * Checks if the provided message is of a valid AggregateBeaconMessageType.
-   * @param {Object} message - The message object to check.
-   * @returns {AggregateBeaconMessageType | undefined} - Returns the message type if valid, otherwise undefined.
-   */
-  static getTypeFromMessage(message: { type: string }): AggregateBeaconMessageType | undefined {
-    if (this.isValidType(message.type)) {
-      return message as AggregateBeaconMessageType;
-    }
-    return undefined;
+    ].includes(value);
   }
 }

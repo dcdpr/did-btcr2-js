@@ -108,12 +108,8 @@ export class BeaconParticipant {
    * @param {string} [name] The name of the participant.
    * @param {string} [did] The decentralized identifier (DID) of the participant.
    */
-  constructor(ent: Seed | Mnemonic, protocol: CommunicationService, name?: string, did?: string) {
-    this.hdKey = HDKey.fromMasterSeed(
-      ent instanceof Uint8Array
-        ? ent
-        : mnemonicToSeedSync(ent)
-    );
+  constructor(ent: string, protocol: CommunicationService, name?: string, did?: string) {
+    this.hdKey = HDKey.fromExtendedKey(ent);
     this.name = name || `btc1-beacon-participant-${crypto.randomUUID()}`;
     this.protocol = protocol || new NostrAdapter();
     this.did = did || this.protocol.generateIdentity().did;
@@ -122,16 +118,19 @@ export class BeaconParticipant {
 
   /**
    * Starts the participant by registering message handlers for various message types.
-   * @returns {ServiceAdapter<CommunicationService>} The service adapter for the communication protocol.
+   * @returns {void} The service adapter for the communication protocol.
    */
-  public start(): ServiceAdapter<CommunicationService> {
+  public setup(): void {
     Logger.info(`Starting BeaconParticipant ${this.name} (${this.did}) on ${this.protocol.name} ...`);
     this.protocol.registerMessageHandler(SUBSCRIBE_ACCEPT, this._handleSubscribeAccept.bind(this));
     this.protocol.registerMessageHandler(COHORT_ADVERT, this._handleCohortAdvert.bind(this));
     this.protocol.registerMessageHandler(COHORT_SET, this._handleCohortSet.bind(this));
     this.protocol.registerMessageHandler(AUTHORIZATION_REQUEST, this._handleAuthorizationRequest.bind(this));
     this.protocol.registerMessageHandler(AGGREGATED_NONCE, this._handleAggregatedNonce.bind(this));
-    return this.protocol.start();
+  }
+
+  public start(): void {
+    this.protocol.start();
   }
 
   /**
@@ -199,7 +198,7 @@ export class BeaconParticipant {
     const cohortId = cohortAdvertMessage.body?.cohortId;
     const network = cohortAdvertMessage.body?.network;
     const minParticipants = cohortAdvertMessage.body?.cohortSize;
-    if (!cohortId || !network) {
+    if (!cohortId || !network || !minParticipants) {
       Logger.warn(`BeaconParticipant ${this.did} received malformed cohort advert message: ${JSON.stringify(cohortAdvertMessage)}`);
       return;
     }
@@ -208,7 +207,14 @@ export class BeaconParticipant {
       Logger.warn(`BeaconParticipant ${this.did} received unsolicited new cohort announcement from ${from}`);
       return;
     }
-    const cohort = new Musig2Cohort({ id: cohortId, minParticipants, network, coordinatorDid: from });
+    const cohort = new Musig2Cohort(
+      {
+        network,
+        minParticipants,
+        id             : cohortId,
+        coordinatorDid : from,
+      }
+    );
     this.cohorts.push(cohort);
     await this.joinCohort(cohort.id, from);
   }

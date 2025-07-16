@@ -70,16 +70,19 @@ export class BeaconCoordinator {
 
   /**
    * Sets up the and starts the BeaconCoordinator communication protocol.
-   * @returns {ServiceAdapter<CommunicationService>} The started communication service adapter.
+   * @returns {void} The started communication service adapter.
    */
-  public start(): ServiceAdapter<CommunicationService> {
+  public setup(): void {
     Logger.info(`Starting BeaconCoordinator ${this.name} (${this.did}) on ${this.protocol.name} ...`);
     this.protocol.registerMessageHandler(SUBSCRIBE, this._handleSubscribe.bind(this));
     this.protocol.registerMessageHandler(OPT_IN, this._handleOptIn.bind(this));
     this.protocol.registerMessageHandler(REQUEST_SIGNATURE, this._handleRequestSignature.bind(this));
     this.protocol.registerMessageHandler(NONCE_CONTRIBUTION, this._handleNonceContribution.bind(this));
     this.protocol.registerMessageHandler(SIGNATURE_AUTHORIZATION, this._handleSignatureAuthorization.bind(this));
-    return this.protocol.start();
+  }
+
+  public start(): void {
+    this.protocol.start();
   }
 
   /**
