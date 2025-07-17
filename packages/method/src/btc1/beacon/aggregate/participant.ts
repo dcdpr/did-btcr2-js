@@ -19,24 +19,17 @@ import { SignatureAuthorizationMessage } from './messages/sign/signature-authori
 import { Musig2Cohort } from './models/cohort/index.js';
 import { COHORT_STATUS } from './models/cohort/status.js';
 import { SignatureAuthorizationSession } from './models/session/index.js';
+import { mnemonicToSeedSync } from '@scure/bip39';
 
-type ActiveSigningSessions = Map<string, SignatureAuthorizationSession>;
-type CohortKeyStates = Map<string, CohortKeyState>;
+type Seed = KeyBytes;
+type Mnemonic = string;
 
-/**
- * Represents the state of a participants keys and dids tracked against each cohortId.
- * @class CohortKeyState
- * @type {CohortKeyState}
- */
-export class CohortKeyState {
-  public did: string;
-  public keyIndex: number;
+type SessionId = string;
+type ActiveSigningSessions = Map<SessionId, SignatureAuthorizationSession>;
 
-  constructor(did: string, keyIndex: number, ){
-    this.did = did;
-    this.keyIndex = keyIndex; // HD wallet key index
-  }
-}
+type CohortId = string;
+type KeyIndex = number;
+type CohortKeyState = Map<CohortId, KeyIndex>;
 
 /**
  * Represents a participant in the did:btc1 Beacon Aggregation protocol.
@@ -87,30 +80,42 @@ export class BeaconParticipant {
   public cohorts: Array<Musig2Cohort> = new Array<Musig2Cohort>();
 
   /**
-   * A mapping of cohortId => CohortKeyState.
-   * @type {CohortKeyStates}
+   * A mapping of Cohort IDs to HDKey indexes (CohortId => KeyIndex).
+   * @type {CohortKeyState}
    */
-  public cohortKeyStates: CohortKeyStates = new Map<string, CohortKeyState>();
+  public cohortKeyState: CohortKeyState = new Map<CohortId, KeyIndex>();
 
   /**
-   * A mapping of active signing sessions.
-   * @type {}
+   * A mapping of active Session IDs to their sessions (sessionId => SignatureAuthorizationSession).
+   * @type {ActiveSigningSessions}
    */
   public activeSigningSessions: ActiveSigningSessions = new Map<string, SignatureAuthorizationSession>();
 
   /**
    * Creates an instance of BeaconParticipant.
-   * @param {Seed | Mnemonic} ent The seed or mnemonic used for the participant's HD key.
+   * @param {Seed | Mnemonic} ent The seed bytes or mnemonic used for the participant's HD key.
    * @param {CommunicationService} protocol The communication protocol used by the participant.
    * @param {string} [name] The name of the participant.
    * @param {string} [did] The decentralized identifier (DID) of the participant.
    */
-  constructor(ent: string, protocol: CommunicationService, name?: string, did?: string) {
-    this.hdKey = HDKey.fromExtendedKey(ent);
+  constructor(ent: Seed | Mnemonic, protocol: CommunicationService, name?: string, did?: string) {
+    this.hdKey = ent instanceof Uint8Array
+      ? HDKey.fromMasterSeed(ent)
+      : HDKey.fromMasterSeed(mnemonicToSeedSync(ent));
+
     this.name = name || `btc1-beacon-participant-${crypto.randomUUID()}`;
     this.protocol = protocol || new NostrAdapter();
-    this.did = did || this.protocol.generateIdentity().did;
-    this.beaconKeyIndex = this.cohortKeyStates.size;
+    this.beaconKeyIndex = this.cohortKeyState.size;
+    const {publicKey: pk, privateKey: sk} = this.hdKey.deriveChild(this.beaconKeyIndex);
+    if(!pk || !sk) {
+      throw new BeaconParticipantError(
+        `Failed to derive HD key for participant ${this.name} at index ${this.beaconKeyIndex}`,
+        'CONSTRUCTOR_ERROR', {publicKey: pk, privateKey: sk}
+      );
+    }
+
+    this.did = did || this.protocol.generateIdentity({public: pk, secret: sk}).did;
+    this.setCohortKey('__UNSET__');
   }
 
   /**
@@ -118,7 +123,7 @@ export class BeaconParticipant {
    * @returns {void} The service adapter for the communication protocol.
    */
   public setup(): void {
-    Logger.info(`Starting BeaconParticipant ${this.name} (${this.did}) on ${this.protocol.name} ...`);
+    Logger.info(`Setting up BeaconParticipant ${this.name} (${this.did}) on ${this.protocol.name} ...`);
     this.protocol.registerMessageHandler(SUBSCRIBE_ACCEPT, this._handleSubscribeAccept.bind(this));
     this.protocol.registerMessageHandler(COHORT_ADVERT, this._handleCohortAdvert.bind(this));
     this.protocol.registerMessageHandler(COHORT_SET, this._handleCohortSet.bind(this));
@@ -126,7 +131,12 @@ export class BeaconParticipant {
     this.protocol.registerMessageHandler(AGGREGATED_NONCE, this._handleAggregatedNonce.bind(this));
   }
 
+  /**
+   * Starts the participant's communication protocol.
+   * @returns {void} The service adapter for the communication protocol.
+   */
   public start(): void {
+    Logger.info(`Starting BeaconParticipant ${this.name} (${this.did}) on ${this.protocol.name} ...`);
     this.protocol.start();
   }
 
@@ -137,39 +147,59 @@ export class BeaconParticipant {
    * @throws {BeaconParticipantError} If the cohort key state is not found for the given cohort ID.
    */
   public getCohortKey(cohortId: string): HDKey {
-    const cohortKeyState = this.getCohortKeyState(cohortId);
-    if(!cohortKeyState) {
-      throw new BeaconParticipantError(
-        `Cohort key state for cohort ${cohortId} not found.`,
-        'COHORT_KEY_NOT_FOUND', cohortKeyState
-      );
+    const keyIndex = this.cohortKeyState.get(cohortId);
+    if(!keyIndex) {
+      throw new BeaconParticipantError(`Cohort key state for cohort ${cohortId} not found.`, 'COHORT_KEY_NOT_FOUND');
     }
-    return this.hdKey.deriveChild(cohortKeyState.keyIndex);
+    return this.hdKey.deriveChild(keyIndex);
   }
 
   /**
    * Sets the state of the cohort key for a given cohort ID and key index.
    * @param {string} cohortId The ID of the cohort for which to set the key state.
+   * @returns {void}
    */
   public setCohortKey(cohortId: string): void {
-    if(this.beaconKeyIndex > 0) {
-      this.beaconKeyIndex = this.cohortKeyStates.size + 1;
+    if(this.cohortKeyState.size > 0) {
+      this.beaconKeyIndex = this.cohortKeyState.size + 1;
     }
-    if(this.getCohortKeyState(cohortId)) {
+    if(this.cohortKeyState.has(cohortId)) {
       Logger.warn(`Cohort key state for cohort ${cohortId} already exists. Updating key index.`);
     }
-    this.cohortKeyStates.set(cohortId, new CohortKeyState(this.did, this.beaconKeyIndex));
+    this.cohortKeyState.set(cohortId, this.beaconKeyIndex);
     Logger.info(`Cohort key state updated. Next beacon key index: ${this.beaconKeyIndex + 1}`);
   }
 
   /**
-   * Retrieves the CohortKeyState object for a given cohort ID.
-   * @param {string} cohortId The ID of the cohort for which to retrieve the key state.
-   * @returns {CohortKeyState | undefined} The CohortKeyState object for the specified cohort ID.
-   */
-  public getCohortKeyState(cohortId: string): CohortKeyState | undefined {
-    return this.cohortKeyStates.get(cohortId);
+ * Finalizes the placeholder "__UNSET__" key and assigns it to the provided cohortId.
+ * If no "__UNSET__" entry exists, throws an error.
+ * If cohortId already exists, logs a warning and does nothing.
+ * @param {string} cohortId The ID of the cohort to finalize the unset key for.
+ * @throws {BeaconParticipantError} If no "__UNSET__" cohort key state is found.
+ * @returns {void}
+ */
+  public finalizeUnsetCohortKey(cohortId: string): void {
+    const unsetKey = '__UNSET__';
+
+    if (!this.cohortKeyState.has(unsetKey)) {
+      throw new BeaconParticipantError(
+        `No '__UNSET__' cohort key to finalize for ${this.did}`,
+        'UNSET_KEY_NOT_FOUND'
+      );
+    }
+
+    if (this.cohortKeyState.has(cohortId)) {
+      Logger.warn(`Cohort key state already exists for ${cohortId}. Skipping migration from '__UNSET__'.`);
+      this.cohortKeyState.delete(unsetKey);
+      return;
+    }
+
+    this.setCohortKey(cohortId);
+    this.cohortKeyState.delete(unsetKey);
+
+    Logger.info(`Finalized '__UNSET__' CohortKeyState with ${cohortId} for ${this.did}`);
   }
+
 
   /**
    * Handle subscription acceptance from a coordinator.
@@ -229,9 +259,10 @@ export class BeaconParticipant {
       Logger.warn(`Cohort with ID ${cohortId} not found or not joined by participant ${this.did}.`);
       return;
     }
+    this.finalizeUnsetCohortKey(cohortId);
     const participantPk = this.getCohortKey(cohortId).publicKey?.toHex();
     if(!participantPk) {
-      Logger.error(`Failed to derive public key for cohort ${cohortId}`, this.cohortKeyStates);
+      Logger.error(`Failed to derive public key for cohort ${cohortId}`);
       return;
     }
     const beaconAddress = cohortSetMessage.beaconAddress;
@@ -276,14 +307,9 @@ export class BeaconParticipant {
       return;
     }
     session.aggregatedNonce = aggNonceMessage.aggregatedNonce;
-    const cohortKeyState = this.cohortKeyStates.get(session.cohort.id);
-    if (!cohortKeyState) {
-      Logger.error(`Cohort key state not found for cohort ${session.cohort.id}`);
-      return;
-    }
     const participantSk = this.getCohortKey(session.cohort.id).privateKey;
     if(!participantSk) {
-      Logger.error(`Failed to derive secret key for cohort ${session.cohort.id} at index ${cohortKeyState.keyIndex}`);
+      Logger.error(`Failed to derive secret key for cohort ${session.cohort.id}`);
       return;
     }
     const partialSig = session.generatePartialSignature(participantSk);
@@ -317,10 +343,9 @@ export class BeaconParticipant {
       Logger.warn(`Cohort with ID ${cohortId} not found.`);
       return;
     }
-    const index = this.beaconKeyIndex++;
     const participantPk = this.getCohortKey(cohortId).publicKey?.toHex();
     if(!participantPk) {
-      Logger.error(`Failed to derive public key for cohort ${cohortId} at index ${index}`);
+      Logger.error(`Failed to derive public key for cohort ${cohortId} at index ${this.beaconKeyIndex}`);
       return;
     }
     this.setCohortKey(cohortId);
@@ -368,21 +393,21 @@ export class BeaconParticipant {
    * @returns {Promise<string[]>} An array of nonce points in hexadecimal format.
    */
   public generateNonceContribution(cohort: Musig2Cohort, session: SignatureAuthorizationSession): Uint8Array {
-    const cohortKeyState = this.getCohortKeyState(cohort.id);
-    if (!cohortKeyState) {
+    const cohortKey = this.getCohortKey(cohort.id);
+    if (!cohortKey) {
       throw new BeaconParticipantError(
         `Cohort key state not found for cohort ${cohort.id}`,
-        'COHORT_KEY_NOT_FOUND', cohortKeyState
+        'COHORT_KEY_NOT_FOUND', cohortKey
+      );
+    }
+    const { publicKey, privateKey } = cohortKey;
+    if(!publicKey || !privateKey) {
+      throw new BeaconParticipantError(
+        `Failed to derive public key for cohort ${cohort.id}`,
+        'PARTICIPANT_PK_NOT_FOUND', cohortKey
       );
     }
     session.aggregatedNonce ??= session.generateAggregatedNonce();
-    const { publicKey, privateKey } = this.getCohortKey(cohort.id);
-    if(!publicKey || !privateKey) {
-      throw new BeaconParticipantError(
-        `Failed to derive public key for cohort ${cohort.id} at index ${cohortKeyState.keyIndex}`,
-        'PARTICIPANT_PK_NOT_FOUND', cohortKeyState
-      );
-    }
     return musig2.nonceGen(publicKey, privateKey, session.aggregatedNonce, cohort.trMerkleRoot).public;
   }
 
@@ -428,13 +453,13 @@ export class BeaconParticipant {
 
   /**
    * Initializes a new BeaconParticipant instance.
-   * @param {KeyBytes} sk The secret key used for signing.
+   * @param {Seed | Mnemonic} ent The secret key used for signing.
    * @param {CommunicationService} protocol The communication protocol used by the participant.
    * @param {string} [name] The name of the participant.
    * @param {string} [did] The decentralized identifier (DID) of the participant.
    * @returns {BeaconParticipant} A new instance of BeaconParticipant.
    */
-  public static initialize(sk: KeyBytes, protocol: CommunicationService, name?: string, did?: string): BeaconParticipant {
-    return new BeaconParticipant(sk, protocol, name, did);
+  public static initialize(ent: Seed | Mnemonic, protocol: CommunicationService, name?: string, did?: string): BeaconParticipant {
+    return new BeaconParticipant(ent, protocol, name, did);
   }
 }

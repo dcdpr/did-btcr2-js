@@ -2,7 +2,7 @@ import { Logger, Maybe } from '@did-btc1/common';
 import { BeaconCoordinatorError } from '../error.js';
 import { CommunicationFactory } from './communication/factory.js';
 import { NostrAdapter } from './communication/nostr.js';
-import { CommunicationService, Service, ServiceAdapter } from './communication/service.js';
+import { CommunicationService, Service } from './communication/service.js';
 import { BaseMessage } from './messages/base.js';
 import { COHORT_ADVERT, NONCE_CONTRIBUTION, OPT_IN, REQUEST_SIGNATURE, SIGNATURE_AUTHORIZATION, SUBSCRIBE, SUBSCRIBE_ACCEPT } from './messages/constants.js';
 import { CohortAdvertMessage } from './messages/keygen/cohort-advert.js';
@@ -73,7 +73,7 @@ export class BeaconCoordinator {
    * @returns {void} The started communication service adapter.
    */
   public setup(): void {
-    Logger.info(`Starting BeaconCoordinator ${this.name} (${this.did}) on ${this.protocol.name} ...`);
+    Logger.info(`Setting up BeaconCoordinator ${this.name} (${this.did}) on ${this.protocol.name} ...`);
     this.protocol.registerMessageHandler(SUBSCRIBE, this._handleSubscribe.bind(this));
     this.protocol.registerMessageHandler(OPT_IN, this._handleOptIn.bind(this));
     this.protocol.registerMessageHandler(REQUEST_SIGNATURE, this._handleRequestSignature.bind(this));
@@ -81,7 +81,13 @@ export class BeaconCoordinator {
     this.protocol.registerMessageHandler(SIGNATURE_AUTHORIZATION, this._handleSignatureAuthorization.bind(this));
   }
 
+  /**
+   * Starts the BeaconCoordinator service.
+   * This method initializes the communication protocol and begins listening for messages.
+   * @returns {void}
+   */
   public start(): void {
+    Logger.info(`Starting BeaconCoordinator ${this.name} (${this.did}) on ${this.protocol.name} ...`);
     this.protocol.start();
   }
 
