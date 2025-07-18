@@ -2,7 +2,6 @@ import {
   BEACON_COHORT_ADVERT,
   BEACON_COHORT_AGGREGATED_NONCE,
   BEACON_COHORT_AUTHORIZATION_REQUEST,
-  BEACON_COHORT_INVITE,
   BEACON_COHORT_NONCE_CONTRIBUTION,
   BEACON_COHORT_OPT_IN,
   BEACON_COHORT_READY,
@@ -14,7 +13,7 @@ import {
 import { CohortAdvertMessage } from './keygen/cohort-advert.js';
 import { CohortReadyMessage } from './keygen/cohort-ready.js';
 import { CohortOptInMessage } from './keygen/opt-in.js';
-import { CohortSubscribeAcceptMessage } from './keygen/subscribe-accept.js';
+import { CohortSubscribeAcceptMessage } from './keygen/opt-in-accept.js';
 import { CohortSubscribeMessage } from './keygen/subscribe.js';
 import { CohortAggregatedNonceMessage } from './sign/aggregated-nonce.js';
 import { CohortAuthorizationRequestMessage } from './sign/authorization-request.js';
@@ -47,14 +46,12 @@ export type AggregateBeaconMessageType = KeyGenMessageType | SignMessageType;
  */
 export class AggregateBeaconMessage {
   static BEACON_COHORT_ADVERT = BEACON_COHORT_ADVERT;
-  static BEACON_COHORT_INVITE = BEACON_COHORT_INVITE;
   static BEACON_COHORT_OPT_IN = BEACON_COHORT_OPT_IN;
   static BEACON_COHORT_READY = BEACON_COHORT_READY;
   static BEACON_COHORT_SUBSCRIBE = BEACON_COHORT_SUBSCRIBE;
   static BEACON_COHORT_SUBSCRIBE_ACCEPT = BEACON_COHORT_SUBSCRIBE_ACCEPT;
   static BEACON_COHORT_KEY_GEN_MESSAGES: Map<string, string> = new Map([
     ['BEACON_COHORT_ADVERT', 'BEACON_COHORT_ADVERT'],
-    ['BEACON_COHORT_INVITE', 'BEACON_COHORT_INVITE'],
     ['BEACON_COHORT_OPT_IN', 'BEACON_COHORT_OPT_IN'],
     ['COHORT_SET', 'COHORT_SET'],
     ['SUBSCRIBE', 'SUBSCRIBE'],
@@ -76,7 +73,6 @@ export class AggregateBeaconMessage {
 
   static ALL_MESSAGES: string[] = [
     BEACON_COHORT_ADVERT,
-    BEACON_COHORT_INVITE,
     BEACON_COHORT_OPT_IN,
     BEACON_COHORT_READY,
     BEACON_COHORT_SUBSCRIBE,

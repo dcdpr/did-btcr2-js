@@ -11,12 +11,12 @@ import {
   BEACON_COHORT_AGGREGATED_NONCE,
   BEACON_COHORT_AUTHORIZATION_REQUEST,
   BEACON_COHORT_READY,
-  BEACON_COHORT_SUBSCRIBE_ACCEPT
+  BEACON_COHORT_OPT_IN_ACCEPT
 } from './cohort/messages/constants.js';
 import { BeaconCohortAdvertMessage } from './cohort/messages/keygen/cohort-advert.js';
 import { BeaconCohortReadyMessage } from './cohort/messages/keygen/cohort-ready.js';
 import { BeaconCohortOptInMessage } from './cohort/messages/keygen/opt-in.js';
-import { BeaconCohortSubscribeAcceptMessage, CohortSubscribeAcceptMessage } from './cohort/messages/keygen/subscribe-accept.js';
+import { BeaconCohortOptInAcceptMessage, CohortOptInAcceptMessage } from './cohort/messages/keygen/opt-in-accept.js';
 import { BeaconCohortSubscribeMessage } from './cohort/messages/keygen/subscribe.js';
 import { BeaconCohortAggregatedNonceMessage, CohortAggregatedNonceMessage } from './cohort/messages/sign/aggregated-nonce.js';
 import { BeaconCohortAuthorizationRequestMessage, CohortAuthorizationRequestMessage } from './cohort/messages/sign/authorization-request.js';
@@ -133,9 +133,9 @@ export class BeaconParticipant {
    */
   public setup(): void {
     Logger.info(`Setting up BeaconParticipant ${this.name} (${this.did}) on ${this.protocol.name} ...`);
-    this.protocol.registerMessageHandler(BEACON_COHORT_SUBSCRIBE_ACCEPT, this._handleSubscribeAccept.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_ADVERT, this._handleCohortAdvert.bind(this));
-    this.protocol.registerMessageHandler(BEACON_COHORT_READY, this._handleCohortSet.bind(this));
+    this.protocol.registerMessageHandler(BEACON_COHORT_OPT_IN_ACCEPT, this._handleSubscribeAccept.bind(this));
+    this.protocol.registerMessageHandler(BEACON_COHORT_READY, this._handleCohortReady.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_AUTHORIZATION_REQUEST, this._handleAuthorizationRequest.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_AGGREGATED_NONCE, this._handleAggregatedNonce.bind(this));
   }
@@ -209,14 +209,13 @@ export class BeaconParticipant {
     Logger.info(`Finalized '__UNSET__' CohortKeyState with ${cohortId} for ${this.did}`);
   }
 
-
   /**
    * Handle subscription acceptance from a coordinator.
-   * @param {CohortSubscribeAcceptMessage} message The message containing the subscription acceptance.
+   * @param {CohortOptInAcceptMessage} message The message containing the subscription acceptance.
    * @returns {Promise<void>}
    */
-  private async _handleSubscribeAccept(message: Maybe<CohortSubscribeAcceptMessage>): Promise<void> {
-    const subscribeAcceptMessage = BeaconCohortSubscribeAcceptMessage.fromJSON(message);
+  private async _handleSubscribeAccept(message: Maybe<CohortOptInAcceptMessage>): Promise<void> {
+    const subscribeAcceptMessage = BeaconCohortOptInAcceptMessage.fromJSON(message);
     const coordinatorDid = subscribeAcceptMessage.from;
     if (!this.coordinatorDids.includes(coordinatorDid)) {
       this.coordinatorDids.push(coordinatorDid);
@@ -230,19 +229,32 @@ export class BeaconParticipant {
    */
   public async _handleCohortAdvert(message: Maybe<BeaconCohortAdvertMessage>): Promise<void> {
     const cohortAdvertMessage = BeaconCohortAdvertMessage.fromJSON(message);
-    Logger.info(`BeaconParticipant ${this.did} received new cohort announcement from ${cohortAdvertMessage.from}.`);
-    const cohortId = cohortAdvertMessage.body?.cohortId;
-    const network = cohortAdvertMessage.body?.network;
-    const minParticipants = cohortAdvertMessage.body?.cohortSize;
-    if (!cohortId || !network || !minParticipants) {
-      Logger.warn(`BeaconParticipant ${this.did} received malformed cohort advert message: ${JSON.stringify(cohortAdvertMessage)}`);
-      return;
-    }
+    Logger.info(`Received new cohort announcement from ${cohortAdvertMessage.from}`, cohortAdvertMessage);
+
     const from = cohortAdvertMessage.from;
     if (!this.coordinatorDids.includes(from)) {
-      Logger.warn(`BeaconParticipant ${this.did} received unsolicited new cohort announcement from ${from}`);
+      Logger.warn(`Received unsolicited new cohort announcement from ${from}`);
       return;
     }
+
+    const cohortId = cohortAdvertMessage.body?.cohortId;
+    if (!cohortId) {
+      Logger.warn('Received malformed cohort advert message: missing cohortId', cohortAdvertMessage);
+      return;
+    }
+
+    const network = cohortAdvertMessage.body?.network;
+    if (!network) {
+      Logger.warn('Received malformed cohort advert message: missing network', cohortAdvertMessage);
+      return;
+    }
+
+    const minParticipants = cohortAdvertMessage.body?.cohortSize;
+    if (!cohortId || !network || !minParticipants) {
+      Logger.warn('Received malformed cohort advert message: missing minParticipants', cohortAdvertMessage);
+      return;
+    }
+
     const cohort = new AggregateBeaconCohort(
       {
         network,
@@ -260,7 +272,7 @@ export class BeaconParticipant {
    * @param {Maybe<BeaconCohortReadyMessage>} message The cohort set message.
    * @returns {Promise<void>}
    */
-  public async _handleCohortSet(message: Maybe<BeaconCohortReadyMessage>): Promise<void> {
+  public async _handleCohortReady(message: Maybe<BeaconCohortReadyMessage>): Promise<void> {
     const cohortSetMessage = BeaconCohortReadyMessage.fromJSON(message);
     const cohortId = cohortSetMessage.cohortId;
     const cohort = this.cohorts.find(c => c.id === cohortId);

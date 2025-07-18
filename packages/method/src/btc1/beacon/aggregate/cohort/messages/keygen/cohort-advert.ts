@@ -4,7 +4,6 @@ import { BEACON_COHORT_ADVERT } from '../constants.js';
 
 export interface CohortAdvertMessage {
   advertId?: string;
-  to: string;
   from: string;
   body: {
     cohortId: string;

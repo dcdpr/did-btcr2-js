@@ -3,27 +3,25 @@ import { RawKeyPair } from '@did-btc1/keypair';
 import { Btc1Identifier } from '../../../utils/identifier.js';
 import { BeaconCoordinatorError } from '../error.js';
 import { AggregateBeaconCohort } from './cohort/index.js';
-import { BaseMessage } from './cohort/messages/base.js';
 import {
   BEACON_COHORT_ADVERT,
   BEACON_COHORT_NONCE_CONTRIBUTION,
   BEACON_COHORT_OPT_IN,
   BEACON_COHORT_REQUEST_SIGNATURE,
   BEACON_COHORT_SIGNATURE_AUTHORIZATION,
-  BEACON_COHORT_SUBSCRIBE,
   BEACON_COHORT_SUBSCRIBE_ACCEPT
 } from './cohort/messages/constants.js';
-import { BeaconCohortReadyMessage } from './cohort/messages/keygen/cohort-ready.js';
+import { BeaconCohortAdvertMessage } from './cohort/messages/keygen/cohort-advert.js';
 import { BeaconCohortOptInMessage, CohortOptInMessage } from './cohort/messages/keygen/opt-in.js';
 import { BeaconCohortAggregatedNonceMessage } from './cohort/messages/sign/aggregated-nonce.js';
+import { BeaconCohortNonceContributionMessage, CohortNonceContributionMessage } from './cohort/messages/sign/nonce-contribution.js';
+import { BeaconCohortRequestSignatureMessage, CohortRequestSignatureMessage } from './cohort/messages/sign/request-signature.js';
+import { BeaconCohortSignatureAuthorizationMessage, CohortSignatureAuthorizationMessage } from './cohort/messages/sign/signature-authorization.js';
 import { NostrAdapter } from './communication/adapter/nostr.js';
 import { CommunicationFactory } from './communication/factory.js';
 import { CommunicationService, Service, ServiceAdapterIdentity } from './communication/service.js';
-import { SIGNING_SESSION_STATUS } from './session/status.js';
-import { BeaconCohortRequestSignatureMessage, CohortRequestSignatureMessage } from './cohort/messages/sign/request-signature.js';
 import { BeaconCohortSigningSession } from './session/index.js';
-import { BeaconCohortNonceContributionMessage, CohortNonceContributionMessage } from './cohort/messages/sign/nonce-contribution.js';
-import { BeaconCohortSignatureAuthorizationMessage, CohortSignatureAuthorizationMessage } from './cohort/messages/sign/signature-authorization.js';
+import { SIGNING_SESSION_STATUS } from './session/status.js';
 
 /**
  * The BeaconCoordinator class is responsible for managing the coordination of beacon aggregation.
@@ -94,7 +92,7 @@ export class BeaconCoordinator {
    */
   public setup(): void {
     Logger.info(`Setting up BeaconCoordinator ${this.name} (${this.did}) on ${this.protocol.name} ...`);
-    this.protocol.registerMessageHandler(BEACON_COHORT_SUBSCRIBE, this._handleSubscribe.bind(this));
+    // this.protocol.registerMessageHandler(BEACON_COHORT_SUBSCRIBE, this._handleSubscribe.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_OPT_IN, this._handleOptIn.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_REQUEST_SIGNATURE, this._handleRequestSignature.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_NONCE_CONTRIBUTION, this._handleNonceContribution.bind(this));
@@ -116,13 +114,13 @@ export class BeaconCoordinator {
    * @param {BaseMessage} message The message containing the subscription request.
    * @returns {Promise<void>}
    */
-  private async _handleSubscribe(message: BaseMessage): Promise<void> {
-    const sender = message.from;
-    if (!this.subscribers.includes(sender)) {
-      this.subscribers.push(sender);
-      await this.acceptSubscription(sender);
-    }
-  }
+  // private async _handleSubscribe(message: BaseMessage): Promise<void> {
+  //   const sender = message.from;
+  //   if (!this.subscribers.includes(sender)) {
+  //     this.subscribers.push(sender);
+  //     await this.acceptSubscription(sender);
+  //   }
+  // }
 
   /**
    * Handles opt-in requests from participants to join a cohort.
@@ -240,18 +238,37 @@ export class BeaconCoordinator {
   }
 
   /**
-   * Accepts a subscription request from a participant.
-   * @param {string} sender The DID of the participant requesting the subscription.
+   * Starts the key generation process for a cohort once it has enough participants.
+   * @param {Musig2Cohort} cohort The cohort for which to start key generation.
    * @returns {Promise<void>}
    */
-  public async acceptSubscription(sender: string): Promise<void> {
-    Logger.info(`Accepting subscription from ${sender}`);
+  private async _startKeyGeneration(cohort: AggregateBeaconCohort): Promise<void> {
+    Logger.info(`Starting key generation for cohort ${cohort.id} with participants: ${cohort.participants.join(', ')}`);
+    cohort.finalize();
+    for(const participant of cohort.participants) {
+      const message = cohort.getCohortReadyMessage(participant, this.did);
+      Logger.info(`Sending BEACON_COHORT_READY message to ${participant}`);
+      const sender = Btc1Identifier.decode(participant).genesisBytes.toHex();
+      const recipient = Btc1Identifier.decode(this.did).genesisBytes.toHex();
+      await this.protocol.sendMessage(message, sender, recipient);
+    }
+    Logger.info(`Finished sending BEACON_COHORT_READY message to ${cohort.participants.length} participants`);
+  }
+
+  /**
+   * Accepts a subscription request from a participant.
+   * @param {string} participant The DID of the participant requesting the subscription.
+   * @returns {Promise<void>}
+   */
+  public async acceptSubscription(participant: string): Promise<void> {
+    Logger.info(`Accepting subscription from ${participant}`);
     const message = {
       type : BEACON_COHORT_SUBSCRIBE_ACCEPT,
-      to   : sender,
+      to   : participant,
       from : this.did
     };
-    const recipient = Btc1Identifier.decode(this.did).genesisBytes.toHex();
+    const sender = Btc1Identifier.decode(this.did).genesisBytes.toHex();
+    const recipient = Btc1Identifier.decode(participant).genesisBytes.toHex();
     await this.protocol.sendMessage(message, sender, recipient);
   }
 
@@ -276,7 +293,9 @@ export class BeaconCoordinator {
         }
       });
       Logger.info(`Sending AGGREGATED_NONCE message to ${participant}`);
-      await this.protocol.sendMessage(message, participant, this.did);
+      const sender = Btc1Identifier.decode(participant).genesisBytes.toHex();
+      const recipient = Btc1Identifier.decode(this.did).genesisBytes.toHex();
+      await this.protocol.sendMessage(message, sender, recipient);
     }
     Logger.info(`Successfully sent aggregated nonce message to all participants in session ${session.id}.`);
   }
@@ -284,52 +303,37 @@ export class BeaconCoordinator {
   /**
    * Announces a new cohort to all subscribers.
    * @param {number} minParticipants The minimum number of participants required for the cohort.
-   * @param {string} [network='signet'] The network on which the cohort operates (default is 'signet').
+   * @param {string} [network='mutinynet'] The network on which the cohort operates (default is 'signet').
    * @param {string} [beaconType='SMTAggregateBeacon'] The type of beacon to be used (default is 'SMTAggregateBeacon').
    * @returns {Promise<AggregateBeaconCohort>} The newly created cohort.
    */
-  public async announceNewCohort(
+  public async advertiseCohort(
     minParticipants: number,
-    network: string = 'signet',
+    network: string = 'mutinynet',
     beaconType: string = 'SMTAggregateBeacon'
   ): Promise<AggregateBeaconCohort> {
     const cohort = new AggregateBeaconCohort({ minParticipants, network, beaconType });
     Logger.info(`Creating new cohort and announcing to ${this.subscribers.length} subscribers.`);
     this.cohorts.push(cohort);
     for (const subscriber of this.subscribers) {
-      const message = new BeaconCohortReadyMessage({
-        to         : subscriber,
-        from       : this.did,
+      const message = new BeaconCohortAdvertMessage({
+        from : Btc1Identifier.decode(this.did).genesisBytes.toHex(),
         body : {
           cohortId      : cohort.id,
-          beaconAddress : cohort.beaconAddress,
-          cohortKeys    : cohort.cohortKeys,
+          cohortSize    : cohort.minParticipants,
+          network      : cohort.network
         }
       });
       Logger.info(`Sending ${BEACON_COHORT_ADVERT} message to ${subscriber}`);
-      await this.protocol.sendMessage(message, subscriber, this.did).catch(error => {
+      const sender = Btc1Identifier.decode(subscriber).genesisBytes.toHex();
+      const recipient = Btc1Identifier.decode(this.did).genesisBytes.toHex();
+      await this.protocol.sendMessage(message, sender, recipient).catch(error => {
         Logger.error(`Error sending cohort announcement to ${subscriber}: ${error.message}`);
         const idx = this.subscribers.indexOf(subscriber);
         this.subscribers.splice(idx, idx);
       });
     }
     return cohort;
-  }
-
-  /**
-   * Starts the key generation process for a cohort once it has enough participants.
-   * @param {Musig2Cohort} cohort The cohort for which to start key generation.
-   * @returns {Promise<void>}
-   */
-  private async _startKeyGeneration(cohort: AggregateBeaconCohort): Promise<void> {
-    Logger.info(`Starting key generation for cohort ${cohort.id} with participants: ${cohort.participants.join(', ')}`);
-    cohort.finalize();
-    for(const participant of cohort.participants) {
-      const message = cohort.getCohortReadyMessage(participant, this.did);
-      Logger.info(`Sending COHORT_SET message to ${participant}`);
-      await this.protocol.sendMessage(message, participant, this.did);
-    }
-    Logger.info(`Finished sending COHORT_SET message to ${cohort.participants.length} participants`);
   }
 
   /**
