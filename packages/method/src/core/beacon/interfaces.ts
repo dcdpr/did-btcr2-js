@@ -1,7 +1,7 @@
 import { DidUpdatePayload, ProofBytes, UnixTimestamp } from '@did-btc1/common';
 import { DidServiceEndpoint, DidService as IDidService } from '@web5/dids';
 import { RawTransactionRest } from '../../bitcoin/rest/index.js';
-import { Btc1DidDocument } from '../did-document/index.js';
+import { Btc1DidDocument } from '../../utils/did-document.js';
 import { RawTransactionV2 } from '../../bitcoin/rpc/types.js';
 import { SignalsMetadata } from './types.js';
 

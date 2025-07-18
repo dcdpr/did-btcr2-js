@@ -1,31 +1,38 @@
 import { KeyBytes, Logger, Maybe } from '@did-btc1/common';
 import { HDKey } from '@scure/bip32';
+import { mnemonicToSeedSync } from '@scure/bip39';
 import * as musig2 from '@scure/btc-signer/musig2';
 import { Transaction } from 'bitcoinjs-lib';
+import { Btc1Identifier } from '../../../utils/identifier.js';
 import { BeaconParticipantError } from '../error.js';
-import { NostrAdapter } from './communication/nostr.js';
+import { AggregateBeaconCohort } from './cohort/index.js';
+import {
+  BEACON_COHORT_ADVERT,
+  BEACON_COHORT_AGGREGATED_NONCE,
+  BEACON_COHORT_AUTHORIZATION_REQUEST,
+  BEACON_COHORT_READY,
+  BEACON_COHORT_SUBSCRIBE_ACCEPT
+} from './cohort/messages/constants.js';
+import { BeaconCohortAdvertMessage } from './cohort/messages/keygen/cohort-advert.js';
+import { BeaconCohortReadyMessage } from './cohort/messages/keygen/cohort-ready.js';
+import { BeaconCohortOptInMessage } from './cohort/messages/keygen/opt-in.js';
+import { BeaconCohortSubscribeAcceptMessage, CohortSubscribeAcceptMessage } from './cohort/messages/keygen/subscribe-accept.js';
+import { BeaconCohortSubscribeMessage } from './cohort/messages/keygen/subscribe.js';
+import { BeaconCohortAggregatedNonceMessage, CohortAggregatedNonceMessage } from './cohort/messages/sign/aggregated-nonce.js';
+import { BeaconCohortAuthorizationRequestMessage, CohortAuthorizationRequestMessage } from './cohort/messages/sign/authorization-request.js';
+import { BeaconCohortNonceContributionMessage } from './cohort/messages/sign/nonce-contribution.js';
+import { BeaconCohortRequestSignatureMessage } from './cohort/messages/sign/request-signature.js';
+import { BeaconCohortSignatureAuthorizationMessage } from './cohort/messages/sign/signature-authorization.js';
+import { COHORT_STATUS } from './cohort/status.js';
+import { NostrAdapter } from './communication/adapter/nostr.js';
 import { CommunicationService } from './communication/service.js';
-import { AGGREGATED_NONCE, AUTHORIZATION_REQUEST, COHORT_ADVERT, COHORT_SET, SUBSCRIBE_ACCEPT } from './messages/constants.js';
-import { CohortAdvertMessage } from './messages/keygen/cohort-advert.js';
-import { CohortSetMessage } from './messages/keygen/cohort-set.js';
-import { OptInMessage } from './messages/keygen/opt-in.js';
-import { SubscribeAcceptMessage } from './messages/keygen/subscribe-accept.js';
-import { SubscribeMessage } from './messages/keygen/subscribe.js';
-import { AggregatedNonceMessage } from './messages/sign/aggregated-nonce.js';
-import { AuthorizationRequestMessage } from './messages/sign/authorization-request.js';
-import { NonceContributionMessage } from './messages/sign/nonce-contribution.js';
-import { RequestSignatureMessage } from './messages/sign/request-signature.js';
-import { SignatureAuthorizationMessage } from './messages/sign/signature-authorization.js';
-import { Musig2Cohort } from './models/cohort/index.js';
-import { COHORT_STATUS } from './models/cohort/status.js';
-import { SignatureAuthorizationSession } from './models/session/index.js';
-import { mnemonicToSeedSync } from '@scure/bip39';
+import { BeaconCohortSigningSession } from './session/index.js';
 
 type Seed = KeyBytes;
 type Mnemonic = string;
 
 type SessionId = string;
-type ActiveSigningSessions = Map<SessionId, SignatureAuthorizationSession>;
+type ActiveSigningSessions = Map<SessionId, BeaconCohortSigningSession>;
 
 type CohortId = string;
 type KeyIndex = number;
@@ -75,9 +82,9 @@ export class BeaconParticipant {
 
   /**
    * The cohorts that the participant is part of.
-   * @type {Array<Musig2Cohort>}
+   * @type {Array<AggregateBeaconCohort>}
    */
-  public cohorts: Array<Musig2Cohort> = new Array<Musig2Cohort>();
+  public cohorts: Array<AggregateBeaconCohort> = new Array<AggregateBeaconCohort>();
 
   /**
    * A mapping of Cohort IDs to HDKey indexes (CohortId => KeyIndex).
@@ -86,10 +93,10 @@ export class BeaconParticipant {
   public cohortKeyState: CohortKeyState = new Map<CohortId, KeyIndex>();
 
   /**
-   * A mapping of active Session IDs to their sessions (sessionId => SignatureAuthorizationSession).
+   * A mapping of active Session IDs to their sessions (sessionId => BeaconCohortSigningSession).
    * @type {ActiveSigningSessions}
    */
-  public activeSigningSessions: ActiveSigningSessions = new Map<string, SignatureAuthorizationSession>();
+  public activeSigningSessions: ActiveSigningSessions = new Map<string, BeaconCohortSigningSession>();
 
   /**
    * Creates an instance of BeaconParticipant.
@@ -106,6 +113,7 @@ export class BeaconParticipant {
     this.name = name || `btc1-beacon-participant-${crypto.randomUUID()}`;
     this.protocol = protocol || new NostrAdapter();
     this.beaconKeyIndex = this.cohortKeyState.size;
+
     const {publicKey: pk, privateKey: sk} = this.hdKey.deriveChild(this.beaconKeyIndex);
     if(!pk || !sk) {
       throw new BeaconParticipantError(
@@ -114,8 +122,9 @@ export class BeaconParticipant {
       );
     }
 
-    this.did = did || this.protocol.generateIdentity({public: pk, secret: sk}).did;
-    this.setCohortKey('__UNSET__');
+    this.did = did || this.protocol.generateIdentity({ public: pk, secret: sk }).did;
+    this.cohortKeyState.set('__UNSET__', this.beaconKeyIndex);
+    Logger.debug(`BeaconParticipant initialized with DID: ${this.did}, Name: ${this.name}, Key Index: ${this.beaconKeyIndex}`);
   }
 
   /**
@@ -124,11 +133,11 @@ export class BeaconParticipant {
    */
   public setup(): void {
     Logger.info(`Setting up BeaconParticipant ${this.name} (${this.did}) on ${this.protocol.name} ...`);
-    this.protocol.registerMessageHandler(SUBSCRIBE_ACCEPT, this._handleSubscribeAccept.bind(this));
-    this.protocol.registerMessageHandler(COHORT_ADVERT, this._handleCohortAdvert.bind(this));
-    this.protocol.registerMessageHandler(COHORT_SET, this._handleCohortSet.bind(this));
-    this.protocol.registerMessageHandler(AUTHORIZATION_REQUEST, this._handleAuthorizationRequest.bind(this));
-    this.protocol.registerMessageHandler(AGGREGATED_NONCE, this._handleAggregatedNonce.bind(this));
+    this.protocol.registerMessageHandler(BEACON_COHORT_SUBSCRIBE_ACCEPT, this._handleSubscribeAccept.bind(this));
+    this.protocol.registerMessageHandler(BEACON_COHORT_ADVERT, this._handleCohortAdvert.bind(this));
+    this.protocol.registerMessageHandler(BEACON_COHORT_READY, this._handleCohortSet.bind(this));
+    this.protocol.registerMessageHandler(BEACON_COHORT_AUTHORIZATION_REQUEST, this._handleAuthorizationRequest.bind(this));
+    this.protocol.registerMessageHandler(BEACON_COHORT_AGGREGATED_NONCE, this._handleAggregatedNonce.bind(this));
   }
 
   /**
@@ -148,7 +157,7 @@ export class BeaconParticipant {
    */
   public getCohortKey(cohortId: string): HDKey {
     const keyIndex = this.cohortKeyState.get(cohortId);
-    if(!keyIndex) {
+    if(keyIndex === undefined) {
       throw new BeaconParticipantError(`Cohort key state for cohort ${cohortId} not found.`, 'COHORT_KEY_NOT_FOUND');
     }
     return this.hdKey.deriveChild(keyIndex);
@@ -203,11 +212,11 @@ export class BeaconParticipant {
 
   /**
    * Handle subscription acceptance from a coordinator.
-   * @param {SubscribeAcceptMessage} message The message containing the subscription acceptance.
+   * @param {CohortSubscribeAcceptMessage} message The message containing the subscription acceptance.
    * @returns {Promise<void>}
    */
-  private async _handleSubscribeAccept(message: Maybe<SubscribeAcceptMessage>): Promise<void> {
-    const subscribeAcceptMessage = SubscribeAcceptMessage.fromJSON(message);
+  private async _handleSubscribeAccept(message: Maybe<CohortSubscribeAcceptMessage>): Promise<void> {
+    const subscribeAcceptMessage = BeaconCohortSubscribeAcceptMessage.fromJSON(message);
     const coordinatorDid = subscribeAcceptMessage.from;
     if (!this.coordinatorDids.includes(coordinatorDid)) {
       this.coordinatorDids.push(coordinatorDid);
@@ -216,11 +225,11 @@ export class BeaconParticipant {
 
   /**
    * Handles a cohort advertisement message.
-   * @param {Maybe<CohortAdvertMessage>} message The cohort advertisement message.
+   * @param {Maybe<BeaconCohortAdvertMessage>} message The cohort advertisement message.
    * @returns {Promise<void>}
    */
-  public async _handleCohortAdvert(message: Maybe<CohortAdvertMessage>): Promise<void> {
-    const cohortAdvertMessage = CohortAdvertMessage.fromJSON(message);
+  public async _handleCohortAdvert(message: Maybe<BeaconCohortAdvertMessage>): Promise<void> {
+    const cohortAdvertMessage = BeaconCohortAdvertMessage.fromJSON(message);
     Logger.info(`BeaconParticipant ${this.did} received new cohort announcement from ${cohortAdvertMessage.from}.`);
     const cohortId = cohortAdvertMessage.body?.cohortId;
     const network = cohortAdvertMessage.body?.network;
@@ -234,7 +243,7 @@ export class BeaconParticipant {
       Logger.warn(`BeaconParticipant ${this.did} received unsolicited new cohort announcement from ${from}`);
       return;
     }
-    const cohort = new Musig2Cohort(
+    const cohort = new AggregateBeaconCohort(
       {
         network,
         minParticipants,
@@ -248,11 +257,11 @@ export class BeaconParticipant {
 
   /**
    * Handles a cohort set message.
-   * @param {Maybe<CohortSetMessage>} message The cohort set message.
+   * @param {Maybe<BeaconCohortReadyMessage>} message The cohort set message.
    * @returns {Promise<void>}
    */
-  public async _handleCohortSet(message: Maybe<CohortSetMessage>): Promise<void> {
-    const cohortSetMessage = CohortSetMessage.fromJSON(message);
+  public async _handleCohortSet(message: Maybe<BeaconCohortReadyMessage>): Promise<void> {
+    const cohortSetMessage = BeaconCohortReadyMessage.fromJSON(message);
     const cohortId = cohortSetMessage.cohortId;
     const cohort = this.cohorts.find(c => c.id === cohortId);
     if (!cohortId || !cohort) {
@@ -274,17 +283,17 @@ export class BeaconParticipant {
 
   /**
    * Handles an authorization request message.
-   * @param {Maybe<AuthorizationRequestMessage>} message The authorization request message.
+   * @param {Maybe<CohortAuthorizationRequestMessage>} message The authorization request message.
    * @returns {Promise<void>}
    */
-  public async _handleAuthorizationRequest(message: Maybe<AuthorizationRequestMessage>): Promise<void> {
-    const authRequest = AuthorizationRequestMessage.fromJSON(message);
+  public async _handleAuthorizationRequest(message: Maybe<CohortAuthorizationRequestMessage>): Promise<void> {
+    const authRequest = BeaconCohortAuthorizationRequestMessage.fromJSON(message);
     const cohort = this.cohorts.find(c => c.id === authRequest.cohortId);
     if (!cohort) {
       Logger.warn(`Authorization request for unknown cohort ${authRequest.cohortId} from ${authRequest.from}`);
       return;
     }
-    const session = new SignatureAuthorizationSession({
+    const session = new BeaconCohortSigningSession({
       cohort,
       id        : authRequest.sessionId,
       pendingTx : Transaction.fromHex(authRequest.pendingTx),
@@ -296,11 +305,11 @@ export class BeaconParticipant {
 
   /**
    * Handles an aggregated nonce message.
-   * @param {Maybe<AggregatedNonceMessage>} message The aggregated nonce message.
+   * @param {Maybe<CohortAggregatedNonceMessage>} message The aggregated nonce message.
    * @returns {Promise<void>}
    */
-  public async _handleAggregatedNonce(message: Maybe<AggregatedNonceMessage>): Promise<void> {
-    const aggNonceMessage = AggregatedNonceMessage.fromJSON(message);
+  public async _handleAggregatedNonce(message: Maybe<CohortAggregatedNonceMessage>): Promise<void> {
+    const aggNonceMessage = BeaconCohortAggregatedNonceMessage.fromJSON(message);
     const session = this.activeSigningSessions.get(aggNonceMessage.sessionId);
     if (!session) {
       Logger.warn(`Aggregated nonce message received for unknown session ${aggNonceMessage.sessionId}`);
@@ -321,13 +330,19 @@ export class BeaconParticipant {
    * @param {string} coordinatorDid The DID of the coordinator to subscribe to.
    * @returns {Promise<void>}
    */
-  public async subscribeToCoordinator(coordinatorDid: string): Promise<void> {
+  public async subscribeToCoordinator(coordinatorDid: string): Promise<any> {
     if(this.coordinatorDids.includes(coordinatorDid)) {
       Logger.info(`Already subscribed to coordinator ${coordinatorDid}`);
       return;
     }
-    const subMessage = new SubscribeMessage({ to: coordinatorDid, from: this.did });
-    await this.protocol.sendMessage(subMessage, coordinatorDid, this.did);
+    const subMessage = new BeaconCohortSubscribeMessage({ to: coordinatorDid, from: this.did });
+    const coordinatorComponents = Btc1Identifier.decode(coordinatorDid);
+    const participantPk = this.getCohortKey('__UNSET__').publicKey;
+    if(!participantPk) {
+      Logger.error(`Failed to derive public key for participant ${this.did} at index ${this.beaconKeyIndex}`);
+      return;
+    }
+    return await this.protocol.sendMessage(subMessage, coordinatorComponents.genesisBytes.toHex(), participantPk.toHex());
   }
 
   /**
@@ -349,7 +364,7 @@ export class BeaconParticipant {
       return;
     }
     this.setCohortKey(cohortId);
-    const optInMessage = OptInMessage.fromJSON({
+    const optInMessage = BeaconCohortOptInMessage.fromJSON({
       cohortId,
       participantPk,
       from     : this.did,
@@ -376,11 +391,14 @@ export class BeaconParticipant {
       Logger.warn(`Cohort ${cohortId} not in a set state. Current status: ${cohort.status}`);
       return false;
     }
-    const reqSigMessage = new RequestSignatureMessage({
-      data,
+    const reqSigMessage = new BeaconCohortRequestSignatureMessage({
       to       : cohort.coordinatorDid,
       from     : this.did,
-      cohortId : cohort.id,
+      body : {
+        data,
+        cohortId  : cohort.id,
+        sessionId : ''
+      }
     });
     await this.protocol.sendMessage(reqSigMessage, cohort.coordinatorDid, this.did);
     return true;
@@ -388,11 +406,11 @@ export class BeaconParticipant {
 
   /**
    * Generates a nonce contribution for the given cohort and session.
-   * @param {Musig2Cohort} cohort The cohort for which to generate the nonce contribution.
-   * @param {SignatureAuthorizationSession} session The session for which to generate the nonce contribution.
+   * @param {AggregateBeaconCohort} cohort The cohort for which to generate the nonce contribution.
+   * @param {BeaconCohortSigningSession} session The session for which to generate the nonce contribution.
    * @returns {Promise<string[]>} An array of nonce points in hexadecimal format.
    */
-  public generateNonceContribution(cohort: Musig2Cohort, session: SignatureAuthorizationSession): Uint8Array {
+  public generateNonceContribution(cohort: AggregateBeaconCohort, session: BeaconCohortSigningSession): Uint8Array {
     const cohortKey = this.getCohortKey(cohort.id);
     if (!cohortKey) {
       throw new BeaconParticipantError(
@@ -413,39 +431,43 @@ export class BeaconParticipant {
 
   /**
    * Sends a nonce contribution message to the cohort coordinator.
-   * @param {Musig2Cohort} cohort The cohort to which the nonce contribution is sent.
+   * @param {AggregateBeaconCohort} cohort The cohort to which the nonce contribution is sent.
    * @param {Uint8Array} nonceContribution The nonce contribution points in hexadecimal format.
-   * @param {SignatureAuthorizationSession} session The session associated with the nonce contribution.
+   * @param {BeaconCohortSigningSession} session The session associated with the nonce contribution.
    */
   public async sendNonceContribution(
-    cohort: Musig2Cohort,
+    cohort: AggregateBeaconCohort,
     nonceContribution: Uint8Array,
-    session: SignatureAuthorizationSession
+    session: BeaconCohortSigningSession
   ): Promise<void> {
-    const nonceContrbutionMessage = NonceContributionMessage.fromJSON({
+    const nonceContributionMessage = BeaconCohortNonceContributionMessage.fromJSON({
       to        : cohort.coordinatorDid,
       from      : this.did,
-      sessionId : session.id,
-      cohortId  : cohort.id,
-      nonceContribution
+      body : {
+        sessionId : session.id,
+        cohortId  : cohort.id,
+        nonceContribution
+      }
     });
-    await this.protocol.sendMessage(nonceContrbutionMessage, cohort.coordinatorDid, this.did);
+    await this.protocol.sendMessage(nonceContributionMessage, cohort.coordinatorDid, this.did);
     Logger.info(`Nonce contribution sent for session ${session.id} in cohort ${cohort.id} by participant ${this.did}`);
   }
 
   /**
    * Sends a partial signature for the given session.
-   * @param {SignatureAuthorizationSession} session The session for which the partial signature is sent.
+   * @param {BeaconCohortSigningSession} session The session for which the partial signature is sent.
    * @param {Uint8Array} partialSig The partial signature to send.
    * @returns {Promise<void>}
    */
-  public async sendPartialSignature(session: SignatureAuthorizationSession, partialSig: Uint8Array): Promise<void> {
-    const sigAuthMessage = new SignatureAuthorizationMessage({
+  public async sendPartialSignature(session: BeaconCohortSigningSession, partialSig: Uint8Array): Promise<void> {
+    const sigAuthMessage = new BeaconCohortSignatureAuthorizationMessage({
       to               : session.cohort.coordinatorDid,
       from             : this.did,
-      cohortId         : session.cohort.id,
-      sessionId        : session.id,
-      partialSignature : partialSig,
+      body : {
+        cohortId         : session.cohort.id,
+        sessionId        : session.id,
+        partialSignature : partialSig,
+      }
     });
     await this.protocol.sendMessage(sigAuthMessage, session.cohort.coordinatorDid, this.did);
     Logger.info(`Partial signature sent for session ${session.id} in cohort ${session.cohort.id} by participant ${this.did}`);

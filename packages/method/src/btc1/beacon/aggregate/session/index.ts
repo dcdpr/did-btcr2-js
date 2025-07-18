@@ -2,9 +2,9 @@ import { Logger } from '@did-btc1/common';
 import { KeyPairUtils } from '@did-btc1/keypair';
 import * as musig2 from '@scure/btc-signer/musig2';
 import { Transaction } from 'bitcoinjs-lib';
-import { AggregateBeaconError } from '../../../error.js';
-import { AuthorizationRequest, AuthorizationRequestMessage } from '../../messages/sign/authorization-request.js';
-import { Musig2Cohort } from '../cohort/index.js';
+import { AggregateBeaconError } from '../../error.js';
+import { AggregateBeaconCohort } from '../cohort/index.js';
+import { BeaconCohortAuthorizationRequestMessage } from '../cohort/messages/sign/authorization-request.js';
 import { SIGNING_SESSION_STATUS, SIGNING_SESSION_STATUS_TYPE } from './status.js';
 
 type PublicKeyHex = string;
@@ -13,26 +13,19 @@ type NonceContributions = Map<PublicKeyHex, Nonce>;
 type PartialSignatures = Map<string, Uint8Array>;
 type ProcessedRequests = Record<string, string>;
 
-export type SigningSessionObject = {
-  cohort: Musig2Cohort;
-  id?: string;
-  pendingTx?: Transaction;
-  processedRequests?: Record<string, string>;
-  status?: SIGNING_SESSION_STATUS_TYPE;
-}
 export interface SigningSession {
   id?: string;
-  cohort?: Musig2Cohort;
-  pendingTx?: Transaction;
+  cohort: AggregateBeaconCohort;
+  pendingTx: Transaction;
   nonceContributions?: NonceContributions;
   aggregatedNonce?: Uint8Array;
   partialSignatures?: PartialSignatures;
   signature?: Uint8Array;
-  status: SIGNING_SESSION_STATUS_TYPE;
+  status?: SIGNING_SESSION_STATUS_TYPE;
   processedRequests?: ProcessedRequests;
   nonceSecrets?: bigint;
 }
-export class SignatureAuthorizationSession implements SigningSession {
+export class BeaconCohortSigningSession implements SigningSession {
   /**
    * Unique identifier for the signing session.
    * @type {string}
@@ -41,15 +34,15 @@ export class SignatureAuthorizationSession implements SigningSession {
 
   /**
    * DID of the coordinator.
-   * @type {Musig2Cohort}
+   * @type {AggregateBeaconCohort}
    */
-  public cohort: Musig2Cohort;
+  public cohort: AggregateBeaconCohort;
 
   /**
    * Pending transaction to be signed.
    * @type {Transaction}
    */
-  public pendingTx?: Transaction;
+  public pendingTx: Transaction;
 
   /**
    * Map of nonce contributions from participants.
@@ -100,15 +93,15 @@ export class SignatureAuthorizationSession implements SigningSession {
   public musig2Session?: musig2.Session;
 
   /**
-   * Creates a new instance of SignatureAuthorizationSession.
-   * @param {SigningSessionObject} params Parameters to initialize the signing session.
+   * Creates a new instance of BeaconCohortSigningSession.
+   * @param {SigningSession} params Parameters to initialize the signing session.
+   * @param {Transaction} params.pendingTx The pending transaction to be signed.
    * @param {string} [params.id] Optional unique identifier for the signing session. If not provided, a new UUID will be generated.
-   * @param {Musig2Cohort} [params.cohort] The cohort associated with the signing session.
-   * @param {Transaction} [params.pendingTx] The pending transaction to be signed.
+   * @param {AggregateBeaconCohort} [params.cohort] The cohort associated with the signing session.
    * @param {Record<string, string>} [params.processedRequests] Map of processed requests from participants.
    * @param {SIGNING_SESSION_STATUS_TYPE} [params.status] The current status of the signing session. Defaults to AWAITING_NONCE_CONTRIBUTIONS.
    */
-  constructor({ id, cohort, pendingTx, processedRequests, status }: SigningSessionObject) {
+  constructor({ id, cohort, pendingTx, processedRequests, status }: SigningSession) {
     this.id = id || crypto.randomUUID();
     this.cohort = cohort;
     this.pendingTx = pendingTx;
@@ -122,14 +115,16 @@ export class SignatureAuthorizationSession implements SigningSession {
    * @param {string} from The public key of the participant sending the request.
    * @returns {AuthorizationRequest} The authorization request message.
    */
-  public getAuthorizationRequest(to: string, from: string): AuthorizationRequest {
-    const txHex = this.pendingTx?.toHex();
-    return new AuthorizationRequestMessage({
+  public getAuthorizationRequest(to: string, from: string): BeaconCohortAuthorizationRequestMessage {
+    const txHex = this.pendingTx instanceof Transaction ? this.pendingTx?.toHex() : this.pendingTx;
+    return new BeaconCohortAuthorizationRequestMessage({
       to,
       from,
-      sessionId : this.id,
-      cohortId  : this.cohort?.id || '',
-      pendingTx : txHex || '',
+      body : {
+        sessionId : this.id,
+        cohortId  : this.cohort?.id,
+        pendingTx : txHex,
+      }
     });
   }
 
@@ -248,10 +243,10 @@ export class SignatureAuthorizationSession implements SigningSession {
 
   /**
    * Converts the signing session instance to a JSON object representation.
-   * @returns {SignatureAuthorizationSession} The JSON object representation of the signing session.
+   * @returns {BeaconCohortSigningSession} The JSON object representation of the signing session.
    */
-  public json(): SignatureAuthorizationSession {
-    return Object.json(this) as SignatureAuthorizationSession;
+  public json(): BeaconCohortSigningSession {
+    return Object.json(this) as BeaconCohortSigningSession;
   }
 
   /**

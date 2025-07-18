@@ -1,6 +1,6 @@
 import { NotImplementedError } from '@did-btc1/common';
 import { CommunicationServiceError } from './error.js';
-import { NostrAdapter } from './nostr.js';
+import { NostrAdapter } from './adapter/nostr.js';
 import { CommunicationService, Service } from './service.js';
 
 /**

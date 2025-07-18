@@ -1,17 +1,10 @@
 import { MethodError, DidMethodError, Maybe, KeyBytes } from '@did-btcr2/common';
 import { DidService } from '@web5/dids';
 import { networks, payments } from 'bitcoinjs-lib';
-<<<<<<< HEAD:packages/method/src/utils/beacons.ts
 import { BeaconFactory } from '../core/beacon/factory.js';
 import { BeaconService, BeaconServiceAddress } from '../interfaces/ibeacon.js';
 import { Appendix } from './appendix.js';
 import { DidDocument } from './did-document.js';
-=======
-import { BeaconFactory } from '../btc1/beacon/factory.js';
-import { Btc1Appendix } from './appendix.js';
-import { Btc1DidDocument } from '../btc1/did-document/index.js';
-import { BeaconService, BeaconServiceAddress } from '../btc1/beacon/interfaces.js';
->>>>>>> e63c2d7 (align with main):packages/method/src/utils/beacon.ts
 export interface GenerateBeaconParams {
   identifier: string;
   publicKey: KeyBytes;

@@ -1,6 +1,6 @@
 import { DidUpdatePayload } from '@did-btc1/common';
 import { BlockV3 } from '../../bitcoin/rpc/types.js';
-import { Btc1DidDocument } from '../did-document/index.js';
+import { Btc1DidDocument } from '../../utils/did-document.js';
 import { BeaconService, CIDAggregateSidecar, SingletonSidecar, SMTAggregateSidecar } from './interfaces.js';
 
 export type FindNextSignals = {

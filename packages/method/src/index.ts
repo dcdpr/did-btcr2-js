@@ -19,7 +19,10 @@ export * from './types/crud.js';
 // Utils Exports
 export * from './utils/appendix.js';
 export * from './utils/beacon.js';
+export * from './utils/did-document-builder.js';
+export * from './utils/did-document.js';
 export * from './utils/general.js';
 export * from './utils/identifier.js';
+export * from './utils/key-manager.js';
 
 export * from './did-btcr2.js';
