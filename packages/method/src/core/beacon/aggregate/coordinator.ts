@@ -1,28 +1,33 @@
 import { Logger, Maybe } from '@did-btc1/common';
-import { RawKeyPair } from '@did-btc1/keypair';
-import { Btc1Identifier } from '../../../utils/identifier.js';
 import { BeaconCoordinatorError } from '../error.js';
 import { AggregateBeaconCohort } from './cohort/index.js';
 import {
   BEACON_COHORT_ADVERT,
   BEACON_COHORT_NONCE_CONTRIBUTION,
   BEACON_COHORT_OPT_IN,
+  BEACON_COHORT_OPT_IN_ACCEPT,
   BEACON_COHORT_REQUEST_SIGNATURE,
-  BEACON_COHORT_SIGNATURE_AUTHORIZATION,
-  BEACON_COHORT_SUBSCRIBE_ACCEPT
+  BEACON_COHORT_SIGNATURE_AUTHORIZATION
 } from './cohort/messages/constants.js';
 import { BeaconCohortAdvertMessage } from './cohort/messages/keygen/cohort-advert.js';
+import { BeaconCohortReadyMessage } from './cohort/messages/keygen/cohort-ready.js';
 import { BeaconCohortOptInMessage, CohortOptInMessage } from './cohort/messages/keygen/opt-in.js';
 import { BeaconCohortAggregatedNonceMessage } from './cohort/messages/sign/aggregated-nonce.js';
 import { BeaconCohortNonceContributionMessage, CohortNonceContributionMessage } from './cohort/messages/sign/nonce-contribution.js';
 import { BeaconCohortRequestSignatureMessage, CohortRequestSignatureMessage } from './cohort/messages/sign/request-signature.js';
 import { BeaconCohortSignatureAuthorizationMessage, CohortSignatureAuthorizationMessage } from './cohort/messages/sign/signature-authorization.js';
-import { NostrAdapter } from './communication/adapter/nostr.js';
+import { NostrAdapter, NostrKeys } from './communication/adapter/nostr.js';
 import { CommunicationFactory } from './communication/factory.js';
 import { CommunicationService, Service, ServiceAdapterIdentity } from './communication/service.js';
 import { BeaconCohortSigningSession } from './session/index.js';
 import { SIGNING_SESSION_STATUS } from './session/status.js';
 
+type BeaconCoordinatorParams = {
+  protocol?: CommunicationService;
+  did: string;
+  keys: ServiceAdapterIdentity<NostrKeys>
+  name?: string;
+}
 /**
  * The BeaconCoordinator class is responsible for managing the coordination of beacon aggregation.
  * @class BeaconCoordinator
@@ -44,9 +49,9 @@ export class BeaconCoordinator {
 
   /**
    * The keys used by the BeaconCoordinator for cryptographic operations.
-   * @type {RawKeyPair}
+   * @type {ServiceAdapterIdentity<NostrKeys>}
    */
-  public keys: RawKeyPair;
+  public keys: ServiceAdapterIdentity<NostrKeys>;
 
   /**
    * The communication protocol used by the BeaconCoordinator.
@@ -61,12 +66,6 @@ export class BeaconCoordinator {
   public cohorts: Array<AggregateBeaconCohort> = [];
 
   /**
-   * List of subscribers to the BeaconCoordinator service.
-   * @type {Array<string>}
-   */
-  private subscribers: string[] = [];
-
-  /**
    * Active signing sessions for the BeaconCoordinator.
    * @type {Record<string, BeaconCohortSigningSession>}
    */
@@ -74,16 +73,17 @@ export class BeaconCoordinator {
 
   /**
    * Constructs a new BeaconCoordinator instance.
-   * @param {CommunicationService} protocol The protocol service used for communication.
-   * @param {string} [did] Optional DID to use for the coordinator. If not provided, a new DID will be generated.
+   * @param {BeaconCoordinatorParams} params The parameters for the coordinator.
+   * @param {CommunicationService} params.protocol The protocol service used for communication.
+   * @param {string} [params.name] Optional name for the coordinator. If not provided, a default name will be generated.
+   * @param {string} [params.did] Optional DID to use for the coordinator. If not provided, a new DID will be generated.
+   * @param {ServiceAdapterIdentity<RawKeyPair>} params.keys The keys used for cryptographic operations.
    */
-  constructor(protocol: CommunicationService, name?: string, did?: string, keys?: ServiceAdapterIdentity<RawKeyPair>) {
-    this.name = name || `btc1-beacon-coordinator-${crypto.randomUUID()}`;
-    this.protocol = protocol || new NostrAdapter();
-    const identity = this.protocol.generateIdentity();
-    this.did = did || identity.did;
-    this.keys = keys || identity.keys;
-    Logger.info('did, keys', this.did, this.keys);
+  constructor(params: BeaconCoordinatorParams) {
+    this.name = params.name || `btc1-beacon-coordinator-${crypto.randomUUID()}`;
+    this.did = params.did;
+    this.keys = params.keys;
+    this.protocol = params.protocol || new NostrAdapter(this.keys);
   }
 
   /**
@@ -108,19 +108,6 @@ export class BeaconCoordinator {
     Logger.info(`Starting BeaconCoordinator ${this.name} (${this.did}) on ${this.protocol.name} ...`);
     this.protocol.start();
   }
-
-  /**
-   * Handles subscription requests from other participants.
-   * @param {BaseMessage} message The message containing the subscription request.
-   * @returns {Promise<void>}
-   */
-  // private async _handleSubscribe(message: BaseMessage): Promise<void> {
-  //   const sender = message.from;
-  //   if (!this.subscribers.includes(sender)) {
-  //     this.subscribers.push(sender);
-  //     await this.acceptSubscription(sender);
-  //   }
-  // }
 
   /**
    * Handles opt-in requests from participants to join a cohort.
@@ -248,9 +235,7 @@ export class BeaconCoordinator {
     for(const participant of cohort.participants) {
       const message = cohort.getCohortReadyMessage(participant, this.did);
       Logger.info(`Sending BEACON_COHORT_READY message to ${participant}`);
-      const sender = Btc1Identifier.decode(participant).genesisBytes.toHex();
-      const recipient = Btc1Identifier.decode(this.did).genesisBytes.toHex();
-      await this.protocol.sendMessage(message, sender, recipient);
+      await this.protocol.sendMessage(message, participant, this.did);
     }
     Logger.info(`Finished sending BEACON_COHORT_READY message to ${cohort.participants.length} participants`);
   }
@@ -263,13 +248,11 @@ export class BeaconCoordinator {
   public async acceptSubscription(participant: string): Promise<void> {
     Logger.info(`Accepting subscription from ${participant}`);
     const message = {
-      type : BEACON_COHORT_SUBSCRIBE_ACCEPT,
+      type : BEACON_COHORT_OPT_IN_ACCEPT,
       to   : participant,
       from : this.did
     };
-    const sender = Btc1Identifier.decode(this.did).genesisBytes.toHex();
-    const recipient = Btc1Identifier.decode(participant).genesisBytes.toHex();
-    await this.protocol.sendMessage(message, sender, recipient);
+    await this.protocol.sendMessage(message, this.did, participant);
   }
 
   /**
@@ -286,16 +269,12 @@ export class BeaconCoordinator {
       const message = new BeaconCohortAggregatedNonceMessage({
         to              : participant,
         from            : this.did,
-        body : {
-          cohortId        : session.cohort.id,
-          sessionId       : session.id,
-          aggregatedNonce : aggregatedNonce
-        }
+        cohortId        : session.cohort.id,
+        sessionId       : session.id,
+        aggregatedNonce : aggregatedNonce
       });
       Logger.info(`Sending AGGREGATED_NONCE message to ${participant}`);
-      const sender = Btc1Identifier.decode(participant).genesisBytes.toHex();
-      const recipient = Btc1Identifier.decode(this.did).genesisBytes.toHex();
-      await this.protocol.sendMessage(message, sender, recipient);
+      await this.protocol.sendMessage(message, participant, this.did);
     }
     Logger.info(`Successfully sent aggregated nonce message to all participants in session ${session.id}.`);
   }
@@ -313,25 +292,48 @@ export class BeaconCoordinator {
     beaconType: string = 'SMTAggregateBeacon'
   ): Promise<AggregateBeaconCohort> {
     const cohort = new AggregateBeaconCohort({ minParticipants, network, beaconType });
-    Logger.info(`Creating new cohort and announcing to ${this.subscribers.length} subscribers.`);
+    Logger.info(`Advertising new cohort ${cohort.id} ...`);
     this.cohorts.push(cohort);
-    for (const subscriber of this.subscribers) {
-      const message = new BeaconCohortAdvertMessage({
-        from : Btc1Identifier.decode(this.did).genesisBytes.toHex(),
-        body : {
-          cohortId      : cohort.id,
-          cohortSize    : cohort.minParticipants,
-          network      : cohort.network
-        }
+    const message = new BeaconCohortAdvertMessage({
+      from       : this.did,
+      cohortId   : cohort.id,
+      cohortSize : cohort.minParticipants,
+      network    : cohort.network
+    });
+    Logger.info(`Sending ${BEACON_COHORT_ADVERT} message to network ...`, message);
+    await this.protocol.sendMessage(message, this.did);
+    Logger.info(`Cohort ${cohort.id} advertised successfully.`);
+    return cohort;
+  }
+
+
+  /**
+   * Announces to all subscribers a cohort is ready for signing.
+   * @param {string} cohortId The minimum number of participants required for the cohort.
+   * @returns {Promise<AggregateBeaconCohort>} The newly created cohort.
+   */
+  public async announceCohortReady(cohortId: string): Promise<AggregateBeaconCohort> {
+    const cohort = this.cohorts.find(c => c.id === cohortId);
+    if (!cohort) {
+      Logger.error(`Cohort with ID ${cohortId} not found.`);
+      throw new BeaconCoordinatorError(
+        `Cohort with ID ${cohortId} not found.`,
+        'COHORT_NOT_FOUND', { cohortId }
+      );
+    }
+    Logger.info(`Announcing cohort ${cohort.id} to ${cohort.participants.length} subscribers...`);
+    this.cohorts.push(cohort);
+    for (const participant of cohort.participants) {
+      const message = new BeaconCohortReadyMessage({
+        to            : participant,
+        from          : this.did,
+        cohortId      : cohort.id,
+        beaconAddress : cohort.beaconAddress,
+        cohortKeys    : cohort.cohortKeys,
       });
-      Logger.info(`Sending ${BEACON_COHORT_ADVERT} message to ${subscriber}`);
-      const sender = Btc1Identifier.decode(subscriber).genesisBytes.toHex();
-      const recipient = Btc1Identifier.decode(this.did).genesisBytes.toHex();
-      await this.protocol.sendMessage(message, sender, recipient).catch(error => {
-        Logger.error(`Error sending cohort announcement to ${subscriber}: ${error.message}`);
-        const idx = this.subscribers.indexOf(subscriber);
-        this.subscribers.splice(idx, idx);
-      });
+      Logger.info(`Sending ${BEACON_COHORT_ADVERT} message to ${participant}`);
+
+      await this.protocol.sendMessage(message, this.did, participant);
     }
     return cohort;
   }
@@ -355,7 +357,7 @@ export class BeaconCoordinator {
     for (const participant of cohort.participants) {
       const msg = signingSession.getAuthorizationRequest(participant, this.did);
       Logger.info(`Sending authorization request to ${participant}`);
-      await this.protocol.sendMessage(msg, participant, this.did).catch(error => {
+      await this.protocol.sendMessage(msg, this.did, participant).catch(error => {
         Logger.error(`Error sending authorization request to ${participant}: ${error.message}`);
       });
     }
@@ -371,7 +373,11 @@ export class BeaconCoordinator {
    */
   public static initialize(service: Service): BeaconCoordinator {
     const communicationService = CommunicationFactory.establish(service);
-    const coordinator = new BeaconCoordinator(communicationService);
+    const coordinator = new BeaconCoordinator({
+      protocol : communicationService,
+      did      : service.did,
+      keys     : service.keys,
+    });
     Logger.info(`BeaconCoordinator ${coordinator.name} initialized with DID ${coordinator.did}. Run .start() to listen for messages`);
     return coordinator;
   }

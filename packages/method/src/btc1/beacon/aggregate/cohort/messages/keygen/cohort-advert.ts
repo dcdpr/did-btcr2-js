@@ -5,11 +5,9 @@ import { BEACON_COHORT_ADVERT } from '../constants.js';
 export interface CohortAdvertMessage {
   advertId?: string;
   from: string;
-  body: {
-    cohortId: string;
-    cohortSize: number;
-    network: string;
-  }
+  cohortId: string;
+  cohortSize: number;
+  network: string;
 }
 
 /**
@@ -26,10 +24,10 @@ export class BeaconCohortAdvertMessage extends BaseMessage {
 
   constructor(advertMessage: CohortAdvertMessage) {
     super({ ...advertMessage, type: BEACON_COHORT_ADVERT });
-    this.advertId = `${BEACON_COHORT_ADVERT}/${advertMessage.body.cohortId}`;
-    this.cohortId = advertMessage.body.cohortId;
-    this.cohortSize = advertMessage.body.cohortSize;
-    this.network = advertMessage.body.network;
+    this.advertId = `${BEACON_COHORT_ADVERT}/${advertMessage.cohortId}`;
+    this.cohortId = advertMessage.cohortId;
+    this.cohortSize = advertMessage.cohortSize;
+    this.network = advertMessage.network;
   }
 
   /**

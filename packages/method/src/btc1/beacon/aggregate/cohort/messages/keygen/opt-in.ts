@@ -5,10 +5,8 @@ import { BEACON_COHORT_OPT_IN } from '../constants.js';
 export interface CohortOptInMessage {
   to: string;
   from: string;
-  body: {
-    cohortId: string;
-    participantPk: Uint8Array;
-  };
+  cohortId: string;
+  participantPk: Uint8Array;
 }
 
 export class BeaconCohortOptInMessage extends BaseMessage {
@@ -17,8 +15,8 @@ export class BeaconCohortOptInMessage extends BaseMessage {
 
   constructor(optInMessage: CohortOptInMessage) {
     super({ ...optInMessage, type: BEACON_COHORT_OPT_IN });
-    this.cohortId = optInMessage.body.cohortId;
-    this.participantPk = optInMessage.body.participantPk;
+    this.cohortId = optInMessage.cohortId;
+    this.participantPk = optInMessage.participantPk;
   }
 
   /**

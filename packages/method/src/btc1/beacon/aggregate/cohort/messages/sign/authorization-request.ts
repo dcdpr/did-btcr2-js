@@ -5,11 +5,9 @@ import { BEACON_COHORT_AUTHORIZATION_REQUEST } from '../constants.js';
 export interface CohortAuthorizationRequestMessage {
   to: string;
   from: string;
-  body: {
-    cohortId: string;
-    sessionId: string;
-    pendingTx: string;
-  }
+  cohortId: string;
+  sessionId: string;
+  pendingTx: string;
 }
 
 /**
@@ -40,9 +38,9 @@ export class BeaconCohortAuthorizationRequestMessage extends BaseMessage {
 
   constructor(authRequestMessage: CohortAuthorizationRequestMessage) {
     super({ ...authRequestMessage, type: BEACON_COHORT_AUTHORIZATION_REQUEST });
-    this.cohortId = authRequestMessage.body.cohortId;
-    this.sessionId = authRequestMessage.body.sessionId;
-    this.pendingTx = authRequestMessage.body.pendingTx;
+    this.cohortId = authRequestMessage.cohortId;
+    this.sessionId = authRequestMessage.sessionId;
+    this.pendingTx = authRequestMessage.pendingTx;
   }
 
   /**

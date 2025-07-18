@@ -120,11 +120,9 @@ export class BeaconCohortSigningSession implements SigningSession {
     return new BeaconCohortAuthorizationRequestMessage({
       to,
       from,
-      body : {
-        sessionId : this.id,
-        cohortId  : this.cohort?.id,
-        pendingTx : txHex,
-      }
+      sessionId : this.id,
+      cohortId  : this.cohort?.id,
+      pendingTx : txHex,
     });
   }
 

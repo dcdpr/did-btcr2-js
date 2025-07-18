@@ -5,11 +5,9 @@ import { BEACON_COHORT_REQUEST_SIGNATURE } from '../constants.js';
 export type CohortRequestSignatureMessage = {
   to: string;
   from: string;
-  body: {
-    cohortId: string;
-    sessionId: string;
-    data: string;
-  }
+  cohortId: string;
+  sessionId?: string;
+  data: string;
 }
 
 /**
@@ -21,14 +19,14 @@ export type CohortRequestSignatureMessage = {
  */
 export class BeaconCohortRequestSignatureMessage extends BaseMessage {
   public cohortId: string;
-  public sessionId: string;
+  public sessionId?: string;
   public data: string;
 
   constructor(reqSigMessage: CohortRequestSignatureMessage) {
     super({ ...reqSigMessage, type: BEACON_COHORT_REQUEST_SIGNATURE });
-    this.cohortId = reqSigMessage.body.cohortId;
-    this.sessionId = reqSigMessage.body.sessionId;
-    this.data = reqSigMessage.body.data;
+    this.cohortId = reqSigMessage.cohortId;
+    this.sessionId = reqSigMessage.sessionId;
+    this.data = reqSigMessage.data;
   }
 
   /**

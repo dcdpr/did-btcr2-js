@@ -3,20 +3,19 @@ import { HDKey } from '@scure/bip32';
 import { mnemonicToSeedSync } from '@scure/bip39';
 import * as musig2 from '@scure/btc-signer/musig2';
 import { Transaction } from 'bitcoinjs-lib';
-import { Btc1Identifier } from '../../../utils/identifier.js';
 import { BeaconParticipantError } from '../error.js';
 import { AggregateBeaconCohort } from './cohort/index.js';
 import {
   BEACON_COHORT_ADVERT,
   BEACON_COHORT_AGGREGATED_NONCE,
   BEACON_COHORT_AUTHORIZATION_REQUEST,
-  BEACON_COHORT_READY,
-  BEACON_COHORT_OPT_IN_ACCEPT
+  BEACON_COHORT_OPT_IN_ACCEPT,
+  BEACON_COHORT_READY
 } from './cohort/messages/constants.js';
 import { BeaconCohortAdvertMessage } from './cohort/messages/keygen/cohort-advert.js';
 import { BeaconCohortReadyMessage } from './cohort/messages/keygen/cohort-ready.js';
-import { BeaconCohortOptInMessage } from './cohort/messages/keygen/opt-in.js';
 import { BeaconCohortOptInAcceptMessage, CohortOptInAcceptMessage } from './cohort/messages/keygen/opt-in-accept.js';
+import { BeaconCohortOptInMessage } from './cohort/messages/keygen/opt-in.js';
 import { BeaconCohortSubscribeMessage } from './cohort/messages/keygen/subscribe.js';
 import { BeaconCohortAggregatedNonceMessage, CohortAggregatedNonceMessage } from './cohort/messages/sign/aggregated-nonce.js';
 import { BeaconCohortAuthorizationRequestMessage, CohortAuthorizationRequestMessage } from './cohort/messages/sign/authorization-request.js';
@@ -38,6 +37,12 @@ type CohortId = string;
 type KeyIndex = number;
 type CohortKeyState = Map<CohortId, KeyIndex>;
 
+type BeaconParticipantParams = {
+  ent: Seed | Mnemonic;
+  protocol?: CommunicationService;
+  did: string;
+  name?: string
+}
 /**
  * Represents a participant in the did:btc1 Beacon Aggregation protocol.
  * @class BeaconParticipant
@@ -100,29 +105,29 @@ export class BeaconParticipant {
 
   /**
    * Creates an instance of BeaconParticipant.
-   * @param {Seed | Mnemonic} ent The seed bytes or mnemonic used for the participant's HD key.
-   * @param {CommunicationService} protocol The communication protocol used by the participant.
-   * @param {string} [name] The name of the participant.
-   * @param {string} [did] The decentralized identifier (DID) of the participant.
+   * @param {BeaconParticipantParams} params The parameters for the participant.
+   * @param {Seed | Mnemonic} params.ent The seed or mnemonic to derive the HD key.
+   * @param {CommunicationService} params.protocol The communication protocol to use.
+   * @param {string} params.did The DID of the participant.
+   * @param {string} [params.name] Optional name for the participant. If not provided, a random name will be generated.
    */
-  constructor(ent: Seed | Mnemonic, protocol: CommunicationService, name?: string, did?: string) {
+  constructor({ ent, protocol, did, name }: BeaconParticipantParams) {
+    this.did = did;
+    this.name = name || `btc1-beacon-participant-${crypto.randomUUID()}`;
+    this.beaconKeyIndex = this.cohortKeyState.size;
+
     this.hdKey = ent instanceof Uint8Array
       ? HDKey.fromMasterSeed(ent)
       : HDKey.fromMasterSeed(mnemonicToSeedSync(ent));
 
-    this.name = name || `btc1-beacon-participant-${crypto.randomUUID()}`;
-    this.protocol = protocol || new NostrAdapter();
-    this.beaconKeyIndex = this.cohortKeyState.size;
-
-    const {publicKey: pk, privateKey: sk} = this.hdKey.deriveChild(this.beaconKeyIndex);
-    if(!pk || !sk) {
+    const hdkey = this.hdKey.deriveChild(this.beaconKeyIndex);
+    if(!hdkey.publicKey || !hdkey.privateKey) {
       throw new BeaconParticipantError(
         `Failed to derive HD key for participant ${this.name} at index ${this.beaconKeyIndex}`,
-        'CONSTRUCTOR_ERROR', {publicKey: pk, privateKey: sk}
+        'CONSTRUCTOR_ERROR', hdkey
       );
     }
-
-    this.did = did || this.protocol.generateIdentity({ public: pk, secret: sk }).did;
+    this.protocol = protocol || new NostrAdapter({ public: hdkey.publicKey, secret: hdkey.privateKey });
     this.cohortKeyState.set('__UNSET__', this.beaconKeyIndex);
     Logger.debug(`BeaconParticipant initialized with DID: ${this.did}, Name: ${this.name}, Key Index: ${this.beaconKeyIndex}`);
   }
@@ -348,13 +353,7 @@ export class BeaconParticipant {
       return;
     }
     const subMessage = new BeaconCohortSubscribeMessage({ to: coordinatorDid, from: this.did });
-    const coordinatorComponents = Btc1Identifier.decode(coordinatorDid);
-    const participantPk = this.getCohortKey('__UNSET__').publicKey;
-    if(!participantPk) {
-      Logger.error(`Failed to derive public key for participant ${this.did} at index ${this.beaconKeyIndex}`);
-      return;
-    }
-    return await this.protocol.sendMessage(subMessage, coordinatorComponents.genesisBytes.toHex(), participantPk.toHex());
+    return await this.protocol.sendMessage(subMessage, this.did, coordinatorDid);
   }
 
   /**
@@ -383,7 +382,7 @@ export class BeaconParticipant {
       to       : coordinatorDid,
     });
 
-    await this.protocol.sendMessage(optInMessage, coordinatorDid, this.did);
+    await this.protocol.sendMessage(optInMessage, this.did, coordinatorDid);
     cohort.status = COHORT_STATUS.COHORT_OPTED_IN;
   }
 
@@ -406,13 +405,10 @@ export class BeaconParticipant {
     const reqSigMessage = new BeaconCohortRequestSignatureMessage({
       to       : cohort.coordinatorDid,
       from     : this.did,
-      body : {
-        data,
-        cohortId  : cohort.id,
-        sessionId : ''
-      }
+      data,
+      cohortId
     });
-    await this.protocol.sendMessage(reqSigMessage, cohort.coordinatorDid, this.did);
+    await this.protocol.sendMessage(reqSigMessage, this.did, cohort.coordinatorDid);
     return true;
   }
 
@@ -461,7 +457,7 @@ export class BeaconParticipant {
         nonceContribution
       }
     });
-    await this.protocol.sendMessage(nonceContributionMessage, cohort.coordinatorDid, this.did);
+    await this.protocol.sendMessage(nonceContributionMessage, this.did, cohort.coordinatorDid);
     Logger.info(`Nonce contribution sent for session ${session.id} in cohort ${cohort.id} by participant ${this.did}`);
   }
 
@@ -475,13 +471,11 @@ export class BeaconParticipant {
     const sigAuthMessage = new BeaconCohortSignatureAuthorizationMessage({
       to               : session.cohort.coordinatorDid,
       from             : this.did,
-      body : {
-        cohortId         : session.cohort.id,
-        sessionId        : session.id,
-        partialSignature : partialSig,
-      }
+      cohortId         : session.cohort.id,
+      sessionId        : session.id,
+      partialSignature : partialSig,
     });
-    await this.protocol.sendMessage(sigAuthMessage, session.cohort.coordinatorDid, this.did);
+    await this.protocol.sendMessage(sigAuthMessage, this.did, session.cohort.coordinatorDid);
     Logger.info(`Partial signature sent for session ${session.id} in cohort ${session.cohort.id} by participant ${this.did}`);
   }
 
@@ -493,7 +487,7 @@ export class BeaconParticipant {
    * @param {string} [did] The decentralized identifier (DID) of the participant.
    * @returns {BeaconParticipant} A new instance of BeaconParticipant.
    */
-  public static initialize(ent: Seed | Mnemonic, protocol: CommunicationService, name?: string, did?: string): BeaconParticipant {
-    return new BeaconParticipant(ent, protocol, name, did);
+  public static initialize(ent: Seed | Mnemonic, protocol: CommunicationService, did: string, name?: string): BeaconParticipant {
+    return new BeaconParticipant({ent, protocol, name, did});
   }
 }

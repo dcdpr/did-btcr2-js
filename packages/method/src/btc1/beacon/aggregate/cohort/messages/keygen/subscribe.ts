@@ -1,6 +1,6 @@
 import { Maybe } from '@did-btc1/common';
 import { BaseMessage } from '../base.js';
-import { BEACON_COHORT_SUBSCRIBE_ACCEPT } from '../constants.js';
+import { BEACON_COHORT_OPT_IN_ACCEPT } from '../constants.js';
 
 export interface CohortSubscribeMessage {
   to: string;
@@ -16,7 +16,7 @@ export interface CohortSubscribeMessage {
  */
 export class BeaconCohortSubscribeMessage extends BaseMessage {
   constructor({ to, from }: CohortSubscribeMessage) {
-    super({ to, from, type: BEACON_COHORT_SUBSCRIBE_ACCEPT });
+    super({ to, from, type: BEACON_COHORT_OPT_IN_ACCEPT });
   }
 
   /**
@@ -25,7 +25,7 @@ export class BeaconCohortSubscribeMessage extends BaseMessage {
    * @returns {BeaconCohortSubscribeMessage} The serialized SubscribeMessage.
    */
   public static fromJSON(data: Maybe<CohortSubscribeMessage>): BeaconCohortSubscribeMessage {
-    if (data.type != BEACON_COHORT_SUBSCRIBE_ACCEPT) {
+    if (data.type != BEACON_COHORT_OPT_IN_ACCEPT) {
       throw new Error(`Invalid type: ${data.type}`);
     }
     return new BeaconCohortSubscribeMessage(data);

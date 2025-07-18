@@ -5,11 +5,9 @@ import { BEACON_COHORT_AGGREGATED_NONCE } from '../constants.js';
 export interface CohortAggregatedNonceMessage {
   to: string;
   from: string;
-  body: {
-    cohortId: string;
-    sessionId: string;
-    aggregatedNonce: Uint8Array;
-  }
+  cohortId: string;
+  sessionId: string;
+  aggregatedNonce: Uint8Array;
 }
 
 /**
@@ -25,9 +23,9 @@ export class BeaconCohortAggregatedNonceMessage extends BaseMessage {
 
   constructor(aggNonceMessage: CohortAggregatedNonceMessage) {
     super({ ...aggNonceMessage, type: BEACON_COHORT_AGGREGATED_NONCE });
-    this.cohortId = aggNonceMessage.body.cohortId;
-    this.sessionId = aggNonceMessage.body.sessionId;
-    this.aggregatedNonce = aggNonceMessage.body.aggregatedNonce;
+    this.cohortId = aggNonceMessage.cohortId;
+    this.sessionId = aggNonceMessage.sessionId;
+    this.aggregatedNonce = aggNonceMessage.aggregatedNonce;
   }
 
   /**

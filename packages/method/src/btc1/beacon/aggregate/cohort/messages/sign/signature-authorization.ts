@@ -5,11 +5,9 @@ import { BEACON_COHORT_SIGNATURE_AUTHORIZATION } from '../constants.js';
 export type CohortSignatureAuthorizationMessage = {
   to: string;
   from: string;
-  body: {
-    cohortId: string;
-    sessionId: string;
-    partialSignature: Uint8Array;
-  }
+  cohortId: string;
+  sessionId: string;
+  partialSignature: Uint8Array;
 }
 
 /**
@@ -27,9 +25,9 @@ export class BeaconCohortSignatureAuthorizationMessage extends BaseMessage {
 
   constructor(sigAuthMessage: CohortSignatureAuthorizationMessage) {
     super({ ...sigAuthMessage, type: BEACON_COHORT_SIGNATURE_AUTHORIZATION });
-    this.cohortId = sigAuthMessage.body.cohortId;
-    this.sessionId = sigAuthMessage.body.sessionId;
-    this.partialSignature = sigAuthMessage.body.partialSignature;
+    this.cohortId = sigAuthMessage.cohortId;
+    this.sessionId = sigAuthMessage.sessionId;
+    this.partialSignature = sigAuthMessage.partialSignature;
   }
 
   /**

@@ -1,7 +1,7 @@
-import { BeaconCoordinator, NostrAdapter } from '../../../src/index.js';
+import { BeaconCoordinator } from '../../../src/index.js';
 
 const coordinatorDid = 'did:btc1:k1qyptw8fs2twdezay2epc39ytv4d432487d6f0mclexyzn7gertwglpgxeyp0l'
-const coordinationKeys = {
+const coordinatiorKeys = {
   public: new Uint8Array([
       2, 183,  29,  48,  82, 220, 220, 139,
     164,  86,  67, 136, 148, 139, 101,  91,
@@ -16,17 +16,18 @@ const coordinationKeys = {
     210, 148,  41, 23, 169,  10,  11, 208
   ])
 }
-const nostr = new NostrAdapter();
-nostr.config.relays = ['ws://127.0.0.1:7777']
-
-const coordinator = new BeaconCoordinator(nostr, 'fred', coordinatorDid, coordinationKeys);
+const coordinator = new BeaconCoordinator({
+  keys: coordinatiorKeys,
+  did: coordinatorDid,
+  name: 'fred'
+});
 
 // Setup the coordinator
 coordinator.setup();
 
 // Announce the cohort
-const cohort = await coordinator.announceNewCohort(4)
+const cohort = await coordinator.advertiseCohort(4)
 console.log(`Cohort announced with ID: ${cohort.id}`, cohort);
 
 // Start the coordinator and participants listening for events
-coordinator.start();
+// coordinator.start();

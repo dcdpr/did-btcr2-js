@@ -5,11 +5,9 @@ import { BEACON_COHORT_NONCE_CONTRIBUTION } from '../constants.js';
 export interface CohortNonceContributionMessage {
   to: string;
   from: string;
-  body: {
-    cohortId: string;
-    sessionId: string;
-    nonceContribution: Uint8Array;
-  }
+  cohortId: string;
+  sessionId: string;
+  nonceContribution: Uint8Array;
 }
 
 /**
@@ -26,9 +24,9 @@ export class BeaconCohortNonceContributionMessage extends BaseMessage {
 
   constructor(nonceContribMessage: CohortNonceContributionMessage) {
     super({ ...nonceContribMessage, type: BEACON_COHORT_NONCE_CONTRIBUTION });
-    this.cohortId = nonceContribMessage.body.cohortId;
-    this.sessionId = nonceContribMessage.body.sessionId;
-    this.nonceContribution = nonceContribMessage.body.nonceContribution;
+    this.cohortId = nonceContribMessage.cohortId;
+    this.sessionId = nonceContribMessage.sessionId;
+    this.nonceContribution = nonceContribMessage.nonceContribution;
   }
 
   /**

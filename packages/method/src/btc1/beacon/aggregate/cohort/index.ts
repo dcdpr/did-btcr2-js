@@ -26,7 +26,7 @@ export interface BeaconCohort {
   minParticipants: number;
   status: COHORT_STATUS_TYPE;
   network: string;
-  pendingSignatureRequests?: Record<string, string>;
+  pendingSignatureRequests?: Map<string, string>;
   participants?: Array<string>;
   cohortKeys?: Array<Uint8Array>;
   trMerkleRoot?: Uint8Array;
@@ -66,9 +66,9 @@ export class AggregateBeaconCohort implements BeaconCohort {
 
   /**
    * Pending signature requests, mapping participant DIDs to their pending signatures.
-   * @type {Record<string, string>}
+   * @type {Map<string, string>}
    */
-  public pendingSignatureRequests: Record<string, string> = {};
+  public pendingSignatureRequests: Map<string, string> = new Map<string, string>();
 
   /**
    * List of participant DIDs.
@@ -226,11 +226,9 @@ export class AggregateBeaconCohort implements BeaconCohort {
     return new BeaconCohortReadyMessage({
       to,
       from,
-      body : {
-        cohortId      : this.id,
-        beaconAddress : this.beaconAddress,
-        cohortKeys    : this.cohortKeys,
-      }
+      cohortId      : this.id,
+      beaconAddress : this.beaconAddress,
+      cohortKeys    : this.cohortKeys,
     });
   }
 
@@ -243,7 +241,7 @@ export class AggregateBeaconCohort implements BeaconCohort {
     if(!this.validateSignatureRequest(message)) {
       throw new BeaconCoordinatorError(`No signature request from ${message.from} in cohort ${this.id}.`);
     }
-    this.pendingSignatureRequests[message.from] = message.data;
+    this.pendingSignatureRequests.set(message.from, message.data);
   }
 
   /**
@@ -280,7 +278,7 @@ export class AggregateBeaconCohort implements BeaconCohort {
     return new BeaconCohortSigningSession({
       cohort,
       pendingTx         : new Transaction(),
-      processedRequests : this.pendingSignatureRequests,
+      processedRequests : Object.json(this.pendingSignatureRequests),
     });
   }
 

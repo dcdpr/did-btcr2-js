@@ -12,7 +12,7 @@ export class CommunicationFactory {
   static establish(service: Service): CommunicationService {
     switch (service.type) {
       case 'nostr':
-        return new NostrAdapter();
+        return new NostrAdapter(service.keys);
       case 'didcomm':
         throw new NotImplementedError(
           'DIDComm communication service is not implemented yet.',

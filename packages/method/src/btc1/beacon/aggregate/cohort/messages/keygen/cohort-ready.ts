@@ -5,11 +5,9 @@ import { BEACON_COHORT_READY } from '../constants.js';
 export interface CohortReadyMessage {
   to: string;
   from: string;
-  body: {
-    cohortId: string;
-    beaconAddress: string;
-    cohortKeys: Array<Uint8Array>;
-  }
+  cohortId: string;
+  beaconAddress: string;
+  cohortKeys: Array<Uint8Array>;
 }
 
 /**
@@ -25,9 +23,9 @@ export class BeaconCohortReadyMessage extends BaseMessage {
 
   constructor(readyMessage: CohortReadyMessage) {
     super({ ...readyMessage, type: BEACON_COHORT_READY });
-    this.cohortId = readyMessage.body.cohortId;
-    this.beaconAddress = readyMessage.body.beaconAddress;
-    this.cohortKeys = readyMessage.body.cohortKeys;
+    this.cohortId = readyMessage.cohortId;
+    this.beaconAddress = readyMessage.beaconAddress;
+    this.cohortKeys = readyMessage.cohortKeys;
   }
 
   /**
