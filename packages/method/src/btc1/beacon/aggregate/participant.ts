@@ -133,24 +133,16 @@ export class BeaconParticipant {
   }
 
   /**
-   * Starts the participant by registering message handlers for various message types.
-   * @returns {void} The service adapter for the communication protocol.
+   * Setup and start the BeaconParticipant communication protocol..
+   * @returns {void}
    */
-  public setup(): void {
+  public start(): void {
     Logger.info(`Setting up BeaconParticipant ${this.name} (${this.did}) on ${this.protocol.name} ...`);
     this.protocol.registerMessageHandler(BEACON_COHORT_ADVERT, this._handleCohortAdvert.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_OPT_IN_ACCEPT, this._handleSubscribeAccept.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_READY, this._handleCohortReady.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_AUTHORIZATION_REQUEST, this._handleAuthorizationRequest.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_AGGREGATED_NONCE, this._handleAggregatedNonce.bind(this));
-  }
-
-  /**
-   * Starts the participant's communication protocol.
-   * @returns {void} The service adapter for the communication protocol.
-   */
-  public start(): void {
-    Logger.info(`Starting BeaconParticipant ${this.name} (${this.did}) on ${this.protocol.name} ...`);
     this.protocol.start();
   }
 

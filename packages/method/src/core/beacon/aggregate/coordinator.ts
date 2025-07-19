@@ -87,25 +87,15 @@ export class BeaconCoordinator {
   }
 
   /**
-   * Sets up the and starts the BeaconCoordinator communication protocol.
-   * @returns {void} The started communication service adapter.
+   * Setup and start the BeaconCoordinator communication protocol.
+   * @returns {void}
    */
-  public setup(): void {
+  public start(): void {
     Logger.info(`Setting up BeaconCoordinator ${this.name} (${this.did}) on ${this.protocol.name} ...`);
-    // this.protocol.registerMessageHandler(BEACON_COHORT_SUBSCRIBE, this._handleSubscribe.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_OPT_IN, this._handleOptIn.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_REQUEST_SIGNATURE, this._handleRequestSignature.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_NONCE_CONTRIBUTION, this._handleNonceContribution.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_SIGNATURE_AUTHORIZATION, this._handleSignatureAuthorization.bind(this));
-  }
-
-  /**
-   * Starts the BeaconCoordinator service.
-   * This method initializes the communication protocol and begins listening for messages.
-   * @returns {void}
-   */
-  public start(): void {
-    Logger.info(`Starting BeaconCoordinator ${this.name} (${this.did}) on ${this.protocol.name} ...`);
     this.protocol.start();
   }
 

@@ -20,12 +20,6 @@ const alice = new BeaconParticipant({
 // const charlie = new BeaconParticipant(mnemonics.charlie, nostr, 'charlie');
 // const dina = new BeaconParticipant(mnemonics.dina, nostr, 'dina');
 
-// Setup the participants
-alice.setup();
-// bob.setup();
-// charlie.setup();
-// dina.setup();
-
 // Start participants listening for events
 alice.start();
 // bob.start();

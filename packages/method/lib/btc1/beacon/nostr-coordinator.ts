@@ -1,9 +1,9 @@
 import { BeaconCoordinator } from '../../../src/index.js';
 
-const coordinatorDid = 'did:btc1:k1qyptw8fs2twdezay2epc39ytv4d432487d6f0mclexyzn7gertwglpgxeyp0l'
+const coordinatorDid = 'did:btc1:k1q5ptw8fs2twdezay2epc39ytv4d432487d6f0mclexyzn7gertwglpgkugx8t'
 const coordinatiorKeys = {
   public: new Uint8Array([
-      2, 183,  29,  48,  82, 220, 220, 139,
+      183,  29,  48,  82, 220, 220, 139,
     164,  86,  67, 136, 148, 139, 101,  91,
      88, 170, 167, 243, 116, 151, 239,  31,
     201, 136,  41, 249,  25,  26, 220, 143,
@@ -23,11 +23,10 @@ const coordinator = new BeaconCoordinator({
 });
 
 // Setup the coordinator
-coordinator.setup();
+coordinator.start();
 
 // Announce the cohort
 const cohort = await coordinator.advertiseCohort(4)
 console.log(`Cohort announced with ID: ${cohort.id}`, cohort);
 
 // Start the coordinator and participants listening for events
-// coordinator.start();
