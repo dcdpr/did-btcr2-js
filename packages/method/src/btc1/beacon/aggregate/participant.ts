@@ -225,7 +225,6 @@ export class BeaconParticipant {
    * @returns {Promise<void>}
    */
   public async _handleCohortAdvert(message: Maybe<BeaconCohortAdvertMessage>): Promise<void> {
-    Logger.debug('_handleCohortAdvert', message);
     const cohortAdvertMessage = BeaconCohortAdvertMessage.fromJSON(message);
     Logger.info(`Received new cohort announcement from ${cohortAdvertMessage.from}`, cohortAdvertMessage);
 
@@ -272,7 +271,7 @@ export class BeaconParticipant {
    */
   public async _handleCohortReady(message: Maybe<BeaconCohortReadyMessage>): Promise<void> {
     const cohortSetMessage = BeaconCohortReadyMessage.fromJSON(message);
-    const cohortId = cohortSetMessage.cohortId;
+    const cohortId = cohortSetMessage.body?.cohortId;
     const cohort = this.cohorts.find(c => c.id === cohortId);
     if (!cohortId || !cohort) {
       Logger.warn(`Cohort with ID ${cohortId} not found or not joined by participant ${this.did}.`);
@@ -284,9 +283,18 @@ export class BeaconParticipant {
       Logger.error(`Failed to derive public key for cohort ${cohortId}`);
       return;
     }
-    const beaconAddress = cohortSetMessage.beaconAddress;
-    const cohortKeys = cohortSetMessage.cohortKeys.map(key => key.toHex());
-    cohort.validateCohort([participantPk], cohortKeys, beaconAddress);
+    const beaconAddress = cohortSetMessage.body?.beaconAddress;
+    if(!beaconAddress) {
+      Logger.error(`Beacon address not provided in cohort set message for ${cohortId}`);
+      return;
+    }
+    const cohortKeys = cohortSetMessage.body?.cohortKeys;
+    if(!cohortKeys) {
+      Logger.error(`Cohort keys not provided in cohort set message for ${cohortId}`);
+      return;
+    }
+    const keys = cohortKeys.map(key => key.toHex());
+    cohort.validateCohort([participantPk], keys, beaconAddress);
     Logger.info(`BeaconParticipant w/ pk ${participantPk} successfully joined cohort ${cohortId} with beacon address ${beaconAddress}.`);
     Logger.info(`Cohort status: ${cohort.status}`);
   }
@@ -298,15 +306,25 @@ export class BeaconParticipant {
    */
   public async _handleAuthorizationRequest(message: Maybe<CohortAuthorizationRequestMessage>): Promise<void> {
     const authRequest = BeaconCohortAuthorizationRequestMessage.fromJSON(message);
-    const cohort = this.cohorts.find(c => c.id === authRequest.cohortId);
+    const cohort = this.cohorts.find(c => c.id === authRequest.body?.cohortId);
     if (!cohort) {
-      Logger.warn(`Authorization request for unknown cohort ${authRequest.cohortId} from ${authRequest.from}`);
+      Logger.warn(`Authorization request for unknown cohort ${authRequest.body?.cohortId} from ${authRequest.from}`);
+      return;
+    }
+    const id = authRequest.body?.sessionId;
+    if (!id) {
+      Logger.warn(`Authorization request missing session ID from ${authRequest.from}`);
+      return;
+    }
+    const pendingTx = authRequest.body?.pendingTx;
+    if (!pendingTx) {
+      Logger.warn(`Authorization request missing pending transaction from ${authRequest.from}`);
       return;
     }
     const session = new BeaconCohortSigningSession({
       cohort,
-      id        : authRequest.sessionId,
-      pendingTx : Transaction.fromHex(authRequest.pendingTx),
+      id,
+      pendingTx : Transaction.fromHex(pendingTx),
     });
     this.activeSigningSessions.set(session.id, session);
     const nonceContribution = this.generateNonceContribution(cohort, session);
@@ -320,12 +338,22 @@ export class BeaconParticipant {
    */
   public async _handleAggregatedNonce(message: Maybe<CohortAggregatedNonceMessage>): Promise<void> {
     const aggNonceMessage = BeaconCohortAggregatedNonceMessage.fromJSON(message);
-    const session = this.activeSigningSessions.get(aggNonceMessage.sessionId);
-    if (!session) {
-      Logger.warn(`Aggregated nonce message received for unknown session ${aggNonceMessage.sessionId}`);
+    const sessionId = aggNonceMessage.body?.sessionId;
+    if (!sessionId) {
+      Logger.warn(`Aggregated nonce message missing session ID from ${aggNonceMessage.from}`);
       return;
     }
-    session.aggregatedNonce = aggNonceMessage.aggregatedNonce;
+    const session = this.activeSigningSessions.get(sessionId);
+    if (!session) {
+      Logger.warn(`Aggregated nonce message received for unknown session ${sessionId}`);
+      return;
+    }
+    const aggregatedNonce = aggNonceMessage.body?.aggregatedNonce;
+    if (!aggregatedNonce) {
+      Logger.warn(`Aggregated nonce message missing aggregated nonce from ${aggNonceMessage.from}`);
+      return;
+    }
+    session.aggregatedNonce = aggregatedNonce;
     const participantSk = this.getCohortKey(session.cohort.id).privateKey;
     if(!participantSk) {
       Logger.error(`Failed to derive secret key for cohort ${session.cohort.id}`);

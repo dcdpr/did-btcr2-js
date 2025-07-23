@@ -18,15 +18,10 @@ export interface CohortNonceContributionMessage {
  * @type {BeaconCohortNonceContributionMessage}
  */
 export class BeaconCohortNonceContributionMessage extends BaseMessage {
-  public cohortId: string;
-  public sessionId: string;
-  public nonceContribution: Uint8Array;
-
-  constructor(nonceContribMessage: CohortNonceContributionMessage) {
-    super({ ...nonceContribMessage, type: BEACON_COHORT_NONCE_CONTRIBUTION });
-    this.cohortId = nonceContribMessage.cohortId;
-    this.sessionId = nonceContribMessage.sessionId;
-    this.nonceContribution = nonceContribMessage.nonceContribution;
+  constructor({ to, from, cohortId, sessionId, nonceContribution }: CohortNonceContributionMessage) {
+    const body = { cohortId, sessionId, nonceContribution };
+    const type = BEACON_COHORT_NONCE_CONTRIBUTION;
+    super({ to, from, body, type });
   }
 
   /**

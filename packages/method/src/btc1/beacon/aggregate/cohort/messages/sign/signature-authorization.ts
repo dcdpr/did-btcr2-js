@@ -19,15 +19,10 @@ export type CohortSignatureAuthorizationMessage = {
  * @type {BeaconCohortSignatureAuthorizationMessage}
  */
 export class BeaconCohortSignatureAuthorizationMessage extends BaseMessage {
-  public cohortId: string;
-  public sessionId: string;
-  public partialSignature: Uint8Array;
-
-  constructor(sigAuthMessage: CohortSignatureAuthorizationMessage) {
-    super({ ...sigAuthMessage, type: BEACON_COHORT_SIGNATURE_AUTHORIZATION });
-    this.cohortId = sigAuthMessage.cohortId;
-    this.sessionId = sigAuthMessage.sessionId;
-    this.partialSignature = sigAuthMessage.partialSignature;
+  constructor({ to, from, cohortId, sessionId, partialSignature }: CohortSignatureAuthorizationMessage) {
+    const body = { cohortId, sessionId, partialSignature };
+    const type = BEACON_COHORT_SIGNATURE_AUTHORIZATION;
+    super({ to, from, body, type });
   }
 
   /**

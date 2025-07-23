@@ -18,15 +18,10 @@ export type CohortRequestSignatureMessage = {
  * @type {BeaconCohortRequestSignatureMessage}
  */
 export class BeaconCohortRequestSignatureMessage extends BaseMessage {
-  public cohortId: string;
-  public sessionId?: string;
-  public data: string;
-
-  constructor(reqSigMessage: CohortRequestSignatureMessage) {
-    super({ ...reqSigMessage, type: BEACON_COHORT_REQUEST_SIGNATURE });
-    this.cohortId = reqSigMessage.cohortId;
-    this.sessionId = reqSigMessage.sessionId;
-    this.data = reqSigMessage.data;
+  constructor({ to, from, cohortId, sessionId, data }: CohortRequestSignatureMessage) {
+    const body = { cohortId, sessionId, data };
+    const type = BEACON_COHORT_REQUEST_SIGNATURE;
+    super({ to, from, body, type });
   }
 
   /**

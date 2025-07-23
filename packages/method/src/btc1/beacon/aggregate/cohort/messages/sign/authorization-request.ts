@@ -18,29 +18,10 @@ export interface CohortAuthorizationRequestMessage {
  * @type {CohortAuthorizationRequestMessage}
  */
 export class BeaconCohortAuthorizationRequestMessage extends BaseMessage {
-  /**
-   * The ID of the cohort that this request is for.
-   * @type {string}
-   */
-  public cohortId: string;
-
-  /**
-   * The session ID for the signing session.
-   * @type {string}
-   */
-  public sessionId: string;
-
-  /**
-   * The pending transaction that is being authorized.
-   * @type {string}
-   */
-  public pendingTx: string;
-
-  constructor(authRequestMessage: CohortAuthorizationRequestMessage) {
-    super({ ...authRequestMessage, type: BEACON_COHORT_AUTHORIZATION_REQUEST });
-    this.cohortId = authRequestMessage.cohortId;
-    this.sessionId = authRequestMessage.sessionId;
-    this.pendingTx = authRequestMessage.pendingTx;
+  constructor({ to, from, cohortId, sessionId, pendingTx }: CohortAuthorizationRequestMessage) {
+    const body = { cohortId, sessionId, pendingTx };
+    const type = BEACON_COHORT_AUTHORIZATION_REQUEST;
+    super({ to, from, body, type });
   }
 
   /**

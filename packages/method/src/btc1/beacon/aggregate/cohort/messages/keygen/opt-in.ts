@@ -10,13 +10,11 @@ export interface CohortOptInMessage {
 }
 
 export class BeaconCohortOptInMessage extends BaseMessage {
-  public cohortId: string;
-  public participantPk: Uint8Array;
 
-  constructor(optInMessage: CohortOptInMessage) {
-    super({ ...optInMessage, type: BEACON_COHORT_OPT_IN });
-    this.cohortId = optInMessage.cohortId;
-    this.participantPk = optInMessage.participantPk;
+  constructor({ from, to, cohortId, participantPk }: CohortOptInMessage) {
+    const body = { cohortId, participantPk };
+    const type = BEACON_COHORT_OPT_IN;
+    super({ from, to, body, type });
   }
 
   /**

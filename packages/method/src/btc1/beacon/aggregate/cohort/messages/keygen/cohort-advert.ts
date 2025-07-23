@@ -3,11 +3,12 @@ import { BaseMessage } from '../base.js';
 import { BEACON_COHORT_ADVERT } from '../constants.js';
 
 export interface CohortAdvertMessage {
+  id?: string;
   from: string;
   cohortId: string;
   cohortSize: number;
+  beaconType: string;
   network: string;
-  advertId?: string;
 }
 
 /**
@@ -17,17 +18,13 @@ export interface CohortAdvertMessage {
  * @type {BeaconCohortAdvertMessage}
  */
 export class BeaconCohortAdvertMessage extends BaseMessage {
-  public advertId: string;
-  public cohortId: string;
-  public cohortSize: number;
-  public network: string;
+  public id: string;
 
-  constructor({ from, cohortId, cohortSize, network }: CohortAdvertMessage) {
-    super({ from, body: { cohortId, cohortSize, network }, type: BEACON_COHORT_ADVERT });
-    this.advertId = `${BEACON_COHORT_ADVERT}/${cohortId}`;
-    this.cohortId = cohortId;
-    this.cohortSize = cohortSize;
-    this.network = network;
+  constructor({ from, id, cohortId, cohortSize, beaconType, network }: CohortAdvertMessage) {
+    const body = { cohortId, cohortSize, beaconType, network };
+    const type = BEACON_COHORT_ADVERT;
+    super({ from, body, type });
+    this.id = id || `${type}/${cohortId}`;
   }
 
   /**
@@ -35,7 +32,7 @@ export class BeaconCohortAdvertMessage extends BaseMessage {
    * @param {CohortAdvertMessage} data The CohortAdvertMessage object to initialize the BeaconCohortAdvertMessage.
    * @returns {BeaconCohortAdvertMessage} The new BeaconCohortAdvertMessage.
    */
-  public static initialize(data: Maybe<CohortAdvertMessage>): BeaconCohortAdvertMessage {
+  public static fromJSON(data: Maybe<CohortAdvertMessage>): BeaconCohortAdvertMessage {
     if (data.type != BEACON_COHORT_ADVERT){
       throw new Error(`Invalid type: ${data.type}`);
     }

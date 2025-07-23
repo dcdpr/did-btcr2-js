@@ -17,15 +17,10 @@ export interface CohortReadyMessage {
  * @type {BeaconCohortReadyMessage}
  */
 export class BeaconCohortReadyMessage extends BaseMessage {
-  public cohortId: string;
-  public beaconAddress: string;
-  public cohortKeys: Array<Uint8Array>;
-
-  constructor(readyMessage: CohortReadyMessage) {
-    super({ ...readyMessage, type: BEACON_COHORT_READY });
-    this.cohortId = readyMessage.cohortId;
-    this.beaconAddress = readyMessage.beaconAddress;
-    this.cohortKeys = readyMessage.cohortKeys;
+  constructor({ from, to, cohortId, beaconAddress, cohortKeys }: CohortReadyMessage) {
+    const body = { cohortId, beaconAddress, cohortKeys };
+    const type = BEACON_COHORT_READY;
+    super({ from, to, body, type });
   }
 
   /**

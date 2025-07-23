@@ -17,15 +17,10 @@ export interface CohortAggregatedNonceMessage {
  * @type {BeaconCohortAggregatedNonceMessage}
  */
 export class BeaconCohortAggregatedNonceMessage extends BaseMessage {
-  public cohortId: string;
-  public sessionId: string;
-  public aggregatedNonce: Uint8Array;
-
-  constructor(aggNonceMessage: CohortAggregatedNonceMessage) {
-    super({ ...aggNonceMessage, type: BEACON_COHORT_AGGREGATED_NONCE });
-    this.cohortId = aggNonceMessage.cohortId;
-    this.sessionId = aggNonceMessage.sessionId;
-    this.aggregatedNonce = aggNonceMessage.aggregatedNonce;
+  constructor({ to, from, cohortId, sessionId, aggregatedNonce }: CohortAggregatedNonceMessage) {
+    const body = { cohortId, sessionId, aggregatedNonce };
+    const type = BEACON_COHORT_AGGREGATED_NONCE;
+    super({ to, from, body, type });
   }
 
   /**
