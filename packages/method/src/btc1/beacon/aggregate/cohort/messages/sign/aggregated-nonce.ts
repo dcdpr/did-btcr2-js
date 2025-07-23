@@ -29,9 +29,10 @@ export class BeaconCohortAggregatedNonceMessage extends BaseMessage {
    * @returns {BeaconCohortAggregatedNonceMessage} The new BeaconCohortAggregatedNonceMessage.
    */
   public static fromJSON(data: Maybe<CohortAggregatedNonceMessage>): BeaconCohortAggregatedNonceMessage {
-    if (data.type != BEACON_COHORT_AGGREGATED_NONCE) {
-      throw new Error(`Invalid type: ${data.type}`);
+    const message = JSON.parse(data);
+    if (message.type != BEACON_COHORT_AGGREGATED_NONCE) {
+      throw new Error(`Invalid type: ${message.type}`);
     }
-    return new BeaconCohortAggregatedNonceMessage(data);
+    return new BeaconCohortAggregatedNonceMessage(message);
   }
 }

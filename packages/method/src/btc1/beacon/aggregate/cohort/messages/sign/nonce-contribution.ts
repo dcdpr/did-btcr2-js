@@ -30,9 +30,10 @@ export class BeaconCohortNonceContributionMessage extends BaseMessage {
    * @returns {BeaconCohortNonceContributionMessage} The new BeaconCohortNonceContributionMessage.
    */
   public static fromJSON(data: Maybe<CohortNonceContributionMessage>): BeaconCohortNonceContributionMessage {
-    if (data.type != BEACON_COHORT_NONCE_CONTRIBUTION) {
-      throw new Error(`Invalid type: ${data.type}`);
+    const message = JSON.parse(data);
+    if (message.type != BEACON_COHORT_NONCE_CONTRIBUTION) {
+      throw new Error(`Invalid type: ${message.type}`);
     }
-    return new BeaconCohortNonceContributionMessage(data);
+    return new BeaconCohortNonceContributionMessage(message);
   }
 }

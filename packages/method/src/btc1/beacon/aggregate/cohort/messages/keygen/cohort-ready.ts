@@ -3,6 +3,7 @@ import { BaseMessage } from '../base.js';
 import { BEACON_COHORT_READY } from '../constants.js';
 
 export interface CohortReadyMessage {
+  type?: typeof BEACON_COHORT_READY;
   to: string;
   from: string;
   cohortId: string;
@@ -29,9 +30,10 @@ export class BeaconCohortReadyMessage extends BaseMessage {
    * @returns {BeaconCohortReadyMessage} The new BeaconCohortReadyMessage.
    */
   public static fromJSON(data: Maybe<CohortReadyMessage>): BeaconCohortReadyMessage {
-    if (data.type !== BEACON_COHORT_READY) {
-      throw new Error(`Invalid type: ${data.type}`);
+    const message = JSON.parse(data);
+    if (message.type !== BEACON_COHORT_READY) {
+      throw new Error(`Invalid type: ${message.type}`);
     }
-    return new BeaconCohortReadyMessage(data);
+    return new BeaconCohortReadyMessage(message);
   }
 }

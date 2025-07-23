@@ -30,9 +30,10 @@ export class BeaconCohortAuthorizationRequestMessage extends BaseMessage {
    * @returns {BeaconCohortAuthorizationRequestMessage} The serialized BeaconCohortAuthorizationRequestMessage.
    */
   public static fromJSON(data: Maybe<CohortAuthorizationRequestMessage>): BeaconCohortAuthorizationRequestMessage {
-    if (data.type != BEACON_COHORT_AUTHORIZATION_REQUEST) {
-      throw new Error(`Invalid type: ${data.type}`);
+    const message = JSON.parse(data);
+    if (message.type != BEACON_COHORT_AUTHORIZATION_REQUEST) {
+      throw new Error(`Invalid type: ${message.type}`);
     }
-    return new BeaconCohortAuthorizationRequestMessage(data);
+    return new BeaconCohortAuthorizationRequestMessage(message);
   }
 }

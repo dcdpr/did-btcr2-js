@@ -12,8 +12,8 @@ import {
   BEACON_COHORT_OPT_IN_ACCEPT,
   BEACON_COHORT_READY
 } from './cohort/messages/constants.js';
-import { BeaconCohortAdvertMessage } from './cohort/messages/keygen/cohort-advert.js';
-import { BeaconCohortReadyMessage } from './cohort/messages/keygen/cohort-ready.js';
+import { BeaconCohortAdvertMessage, CohortAdvertMessage } from './cohort/messages/keygen/cohort-advert.js';
+import { BeaconCohortReadyMessage, CohortReadyMessage } from './cohort/messages/keygen/cohort-ready.js';
 import { BeaconCohortOptInAcceptMessage, CohortOptInAcceptMessage } from './cohort/messages/keygen/opt-in-accept.js';
 import { BeaconCohortOptInMessage } from './cohort/messages/keygen/opt-in.js';
 import { BeaconCohortSubscribeMessage } from './cohort/messages/keygen/subscribe.js';
@@ -224,7 +224,8 @@ export class BeaconParticipant {
    * @param {Maybe<BeaconCohortAdvertMessage>} message The cohort advertisement message.
    * @returns {Promise<void>}
    */
-  public async _handleCohortAdvert(message: Maybe<BeaconCohortAdvertMessage>): Promise<void> {
+  public async _handleCohortAdvert(message: Maybe<CohortAdvertMessage>): Promise<void> {
+    Logger.debug('_handleCohortAdvert', message);
     const cohortAdvertMessage = BeaconCohortAdvertMessage.fromJSON(message);
     Logger.info(`Received new cohort announcement from ${cohortAdvertMessage.from}`, cohortAdvertMessage);
 
@@ -266,10 +267,10 @@ export class BeaconParticipant {
 
   /**
    * Handles a cohort set message.
-   * @param {Maybe<BeaconCohortReadyMessage>} message The cohort set message.
+   * @param {Maybe<CohortReadyMessage>} message The cohort set message.
    * @returns {Promise<void>}
    */
-  public async _handleCohortReady(message: Maybe<BeaconCohortReadyMessage>): Promise<void> {
+  public async _handleCohortReady(message: Maybe<CohortReadyMessage>): Promise<void> {
     const cohortSetMessage = BeaconCohortReadyMessage.fromJSON(message);
     const cohortId = cohortSetMessage.body?.cohortId;
     const cohort = this.cohorts.find(c => c.id === cohortId);

@@ -3,6 +3,7 @@ import { BaseMessage } from '../base.js';
 import { BEACON_COHORT_OPT_IN_ACCEPT } from '../constants.js';
 
 export interface CohortOptInAcceptMessage {
+  type?: typeof BEACON_COHORT_OPT_IN_ACCEPT;
   to: string;
   from: string;
 }
@@ -24,9 +25,10 @@ export class BeaconCohortOptInAcceptMessage extends BaseMessage {
    * @returns {BeaconCohortOptInAcceptMessage} The new BeaconCohortOptInAcceptMessage.
    */
   public static fromJSON(data: Maybe<CohortOptInAcceptMessage>): BeaconCohortOptInAcceptMessage {
-    if (data.type != BEACON_COHORT_OPT_IN_ACCEPT) {
-      throw new Error(`Invalid type: ${data.type}`);
+    const message = JSON.parse(data);
+    if (message.type != BEACON_COHORT_OPT_IN_ACCEPT) {
+      throw new Error(`Invalid type: ${message.type}`);
     }
-    return new BeaconCohortOptInAcceptMessage(data);
+    return new BeaconCohortOptInAcceptMessage(message);
   }
 }

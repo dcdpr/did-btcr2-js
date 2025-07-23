@@ -30,9 +30,10 @@ export class BeaconCohortRequestSignatureMessage extends BaseMessage {
    * @returns {BeaconCohortRequestSignatureMessage} The new BeaconCohortRequestSignatureMessage.
    */
   public static fromJSON(data: Maybe<CohortRequestSignatureMessage>): BeaconCohortRequestSignatureMessage {
-    if (data.type != BEACON_COHORT_REQUEST_SIGNATURE) {
-      throw new Error(`Invalid type: ${data.type}`);
+    const message = JSON.parse(data);
+    if (message.type != BEACON_COHORT_REQUEST_SIGNATURE) {
+      throw new Error(`Invalid type: ${message.type}`);
     }
-    return new BeaconCohortRequestSignatureMessage(data);
+    return new BeaconCohortRequestSignatureMessage(message);
   }
 }

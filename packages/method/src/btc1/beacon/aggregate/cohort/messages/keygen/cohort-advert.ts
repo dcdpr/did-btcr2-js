@@ -1,8 +1,9 @@
-import { Maybe } from '@did-btc1/common';
+import { Logger, Maybe } from '@did-btc1/common';
 import { BaseMessage } from '../base.js';
 import { BEACON_COHORT_ADVERT } from '../constants.js';
 
 export interface CohortAdvertMessage {
+  type?: typeof BEACON_COHORT_ADVERT;
   id?: string;
   from: string;
   cohortId: string;
@@ -33,9 +34,10 @@ export class BeaconCohortAdvertMessage extends BaseMessage {
    * @returns {BeaconCohortAdvertMessage} The new BeaconCohortAdvertMessage.
    */
   public static fromJSON(data: Maybe<CohortAdvertMessage>): BeaconCohortAdvertMessage {
-    if (data.type != BEACON_COHORT_ADVERT){
-      throw new Error(`Invalid type: ${data.type}`);
+    const message = JSON.parse(data);
+    if (message.type !== BEACON_COHORT_ADVERT){
+      throw new Error(`Invalid type: ${message.type}`);
     }
-    return new BeaconCohortAdvertMessage(data);
+    return new BeaconCohortAdvertMessage(message);
   }
 }
