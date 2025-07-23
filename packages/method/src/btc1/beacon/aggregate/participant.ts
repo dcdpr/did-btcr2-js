@@ -225,14 +225,15 @@ export class BeaconParticipant {
    * @returns {Promise<void>}
    */
   public async _handleCohortAdvert(message: Maybe<BeaconCohortAdvertMessage>): Promise<void> {
+    Logger.debug('_handleCohortAdvert', message);
     const cohortAdvertMessage = BeaconCohortAdvertMessage.fromJSON(message);
     Logger.info(`Received new cohort announcement from ${cohortAdvertMessage.from}`, cohortAdvertMessage);
 
     const from = cohortAdvertMessage.from;
-    if (!this.coordinatorDids.includes(from)) {
-      Logger.warn(`Received unsolicited new cohort announcement from ${from}`);
-      return;
-    }
+    // if (!this.coordinatorDids.includes(from)) {
+    //   Logger.warn(`Received unsolicited new cohort announcement from ${from}`);
+    //   return;
+    // }
 
     const cohortId = cohortAdvertMessage.body?.cohortId;
     if (!cohortId) {

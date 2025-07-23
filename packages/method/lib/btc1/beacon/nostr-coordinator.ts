@@ -1,4 +1,4 @@
-import { BeaconCoordinator } from '../../../src/index.js';
+import { BeaconCoordinator, NostrAdapter } from '../../../src/index.js';
 
 const coordinatorDid = 'did:btc1:k1q5ptw8fs2twdezay2epc39ytv4d432487d6f0mclexyzn7gertwglpgkugx8t'
 const coordinatiorKeys = {
@@ -16,11 +16,15 @@ const coordinatiorKeys = {
     210, 148,  41, 23, 169,  10,  11, 208
   ])
 }
+const nostr = new NostrAdapter(coordinatiorKeys, ['ws://127.0.0.1:7777']);
+console.log('nostr', nostr);
 const coordinator = new BeaconCoordinator({
   keys: coordinatiorKeys,
+  protocol: nostr,
   did: coordinatorDid,
-  name: 'fred'
+  name: 'charlie'
 });
+console.log('coordinator', coordinator);
 
 // Setup the coordinator
 coordinator.start();

@@ -48,12 +48,6 @@ export class BeaconCoordinator {
   public did: string;
 
   /**
-   * The keys used by the BeaconCoordinator for cryptographic operations.
-   * @type {ServiceAdapterIdentity<NostrKeys>}
-   */
-  public keys: ServiceAdapterIdentity<NostrKeys>;
-
-  /**
    * The communication protocol used by the BeaconCoordinator.
    * @type {CommunicationService}
    */
@@ -82,8 +76,7 @@ export class BeaconCoordinator {
   constructor(params: BeaconCoordinatorParams) {
     this.name = params.name || `btc1-beacon-coordinator-${crypto.randomUUID()}`;
     this.did = params.did;
-    this.keys = params.keys;
-    this.protocol = params.protocol || new NostrAdapter(this.keys);
+    this.protocol = params.protocol || new NostrAdapter(params.keys);
   }
 
   /**

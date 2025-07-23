@@ -22,7 +22,6 @@ export type Base = {
   type: string;
   to?: string;
   from: string;
-  threadId?: string;
   body?: BaseBody;
 };
 
@@ -30,14 +29,12 @@ export class BaseMessage {
   public type: string;
   public to?: string;
   public from: string;
-  public threadId?: string;
   public body?: BaseBody;
 
-  constructor({ type, to, from, threadId, body }: Base) {
+  constructor({ type, to, from, body }: Base) {
     this.type = type;
     this.to = to;
     this.from = from;
-    this.threadId = threadId;
     this.body = body;
   }
 

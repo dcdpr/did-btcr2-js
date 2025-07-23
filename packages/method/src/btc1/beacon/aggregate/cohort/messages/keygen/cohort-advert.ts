@@ -3,11 +3,11 @@ import { BaseMessage } from '../base.js';
 import { BEACON_COHORT_ADVERT } from '../constants.js';
 
 export interface CohortAdvertMessage {
-  advertId?: string;
   from: string;
   cohortId: string;
   cohortSize: number;
   network: string;
+  advertId?: string;
 }
 
 /**
@@ -22,12 +22,12 @@ export class BeaconCohortAdvertMessage extends BaseMessage {
   public cohortSize: number;
   public network: string;
 
-  constructor(advertMessage: CohortAdvertMessage) {
-    super({ ...advertMessage, type: BEACON_COHORT_ADVERT });
-    this.advertId = `${BEACON_COHORT_ADVERT}/${advertMessage.cohortId}`;
-    this.cohortId = advertMessage.cohortId;
-    this.cohortSize = advertMessage.cohortSize;
-    this.network = advertMessage.network;
+  constructor({ from, cohortId, cohortSize, network }: CohortAdvertMessage) {
+    super({ from, body: { cohortId, cohortSize, network }, type: BEACON_COHORT_ADVERT });
+    this.advertId = `${BEACON_COHORT_ADVERT}/${cohortId}`;
+    this.cohortId = cohortId;
+    this.cohortSize = cohortSize;
+    this.network = network;
   }
 
   /**
