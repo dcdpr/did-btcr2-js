@@ -278,7 +278,7 @@ export class Identifier {
    * Generates a new did:btcr2 identifier based on a newly generated key pair.
    * @returns {string} The new did:btcr2 identifier.
    */
-  public static generate(): { keys: SchnorrKeyPair; identifier: { controller: string; id: string } } {
+  public static generate(): { keys: SchnorrKeyPair; identifier: { uri: string; fragment: string } } {
     const keys = SchnorrKeyPair.generate();
     const did = this.encode({
       idType       : IdentifierTypes.KEY,
@@ -287,7 +287,7 @@ export class Identifier {
       genesisBytes : keys.publicKey.compressed
     });
 
-    return { keys, identifier: { controller: did, id: '#initialKey'} };
+    return { keys, identifier: { uri: did, fragment: '#initialKey'} };
   }
 
   /**

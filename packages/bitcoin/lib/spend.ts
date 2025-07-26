@@ -6,7 +6,7 @@ import { SchnorrKeyPair } from '@did-btcr2/keypair';
 
 const [id = '#initialP2PKH', controller = 'did:btcr2:k1qyp3al8fedye95ueca9ezrmcm49vhur3zhze49wlgyfzdl5qk4dgltccfavpw'] = process.argv.slice(2);
 
-if(!controller) {
+if(!uri) {
   throw new Error('Controller is required as the second argument.');
 }
 const secretKey = Buffer.fromHex('b8e9cdde0453f6608df2dde9f4b0000416537361d08b8981ea0187455113c259');

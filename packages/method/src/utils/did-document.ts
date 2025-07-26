@@ -61,7 +61,7 @@ export class DidVerificationMethod implements IDidVerificationMethod {
     this.controller = controller;
     this.publicKeyMultibase = publicKeyMultibase;
     this.secretKeyMultibase = secretKeyMultibase;
-    if(!secretKeyMultibase){
+    if(!secretKeyMultibase) {
       delete this.secretKeyMultibase;
     }
   }
@@ -93,6 +93,7 @@ export interface IDidDocument extends IIDidDocument {
   capabilityInvocation?: Array<string | DidVerificationMethod>;
   capabilityDelegation?: Array<string | DidVerificationMethod>;
   service: Array<BeaconService>;
+  deactivated?: boolean;
 }
 
 /**

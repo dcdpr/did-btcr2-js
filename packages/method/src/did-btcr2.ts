@@ -241,7 +241,6 @@ export class DidBtcr2 implements DidMethod {
 
     // 6. Return signalsMetadata. It is up to implementations to ensure that the signalsMetadata is persisted.
     return signalsMetadata;
-    // TODO: Should we be applying the patch, producing a target did document and returning it?
   }
 
   /**
@@ -284,5 +283,17 @@ export class DidBtcr2 implements DidMethod {
       );
     }
     return verificationMethod as DidVerificationMethod;
+  }
+
+  /**
+   * Entry point for section {@link https://dcdpr.github.io/did-btc1/#deactivate | 4.4 Deactivate}.
+   *
+   * To deactivate a did:btc1, the DID controller MUST add the property `deactivated` with the value `true` on the DID
+   * document. To do this, the DID controller constructs a valid DID Update Payload with a JSON patch that adds this
+   * property and announces the payload through a Beacon in their current DID document following the algorithm in Update.
+   * Once a did:btc1 has been deactivated this state is considered permanent and resolution MUST terminate.
+   */
+  public static deactivate(): string {
+
   }
 }

@@ -19,7 +19,7 @@ const genesisKeyPair = new SchnorrKeyPair({
   publicKey  : Buffer.from(genesisKey.pk, 'hex')
 });
 
-const parts = Did.parse(initialDocument.id);
+const parts = Did.parse(initialDocument.verificationMethod[0].id);
 if (!parts) {
   throw new Error('Failed to parse DID');
 }
@@ -45,6 +45,10 @@ const patch = JSON.patch.create([
     })
   }
 ]);
+if(!parts.fragment) {
+  throw new Error('DID fragment is missing');
+}
+const keyUri = initialDocument.verificationMethod[0].id;
 
 const keyUri = KeyManager.computeKeyUri(parts.id, parts.fragment ?? '')
 await KeyManager.initialize(genesisKeyPair, keyUri);
