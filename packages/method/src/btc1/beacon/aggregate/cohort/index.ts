@@ -239,9 +239,19 @@ export class AggregateBeaconCohort implements BeaconCohort {
    */
   public addSignatureRequest(message: BeaconCohortRequestSignatureMessage): void {
     if(!this.validateSignatureRequest(message)) {
-      throw new BeaconCoordinatorError(`No signature request from ${message.from} in cohort ${this.id}.`);
+      throw new BeaconCoordinatorError(
+        `No signature request from ${message.from} in cohort ${this.id}`,
+        'INVALID_SIGNATURE_REQUEST_ERROR', message
+      );
     }
-    this.pendingSignatureRequests.set(message.from, message.data);
+    // Check if the signature request has a body and data
+    if(!message.body || !message.body.data) {
+      throw new BeaconCoordinatorError(
+        `Invalid signature request from ${message.from} in cohort ${this.id}`,
+        'INVALID_SIGNATURE_REQUEST_ERROR', message
+      );
+    }
+    this.pendingSignatureRequests.set(message.from, message.body.data);
   }
 
   /**
@@ -250,12 +260,21 @@ export class AggregateBeaconCohort implements BeaconCohort {
    * @returns {boolean} True if the message is valid, false otherwise.
    */
   public validateSignatureRequest(message: BeaconCohortRequestSignatureMessage): boolean {
-    const cohortId = message.cohortId;
+    const cohortId = message.body?.cohortId;
+
+    // Check if the message has a cohort ID
+    if(!cohortId) {
+      Logger.info('Signature request message does not contain a cohort ID.');
+      return false;
+    }
+
+    // Validate the cohort ID matches this cohort's ID
     if(cohortId !== this.id) {
       Logger.info(`Signature request for wrong cohort: ${cohortId}.`);
       return false;
     }
 
+    // Check if the participant is in the cohort
     if(!this.participants.includes(message.from)) {
       Logger.info(`Participant ${message.from} not in cohort ${this.id}.`);
       return false;

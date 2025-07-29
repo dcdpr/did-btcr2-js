@@ -76,7 +76,8 @@ export class BeaconCoordinator {
   constructor(params: BeaconCoordinatorParams) {
     this.name = params.name || `btc1-beacon-coordinator-${crypto.randomUUID()}`;
     this.did = params.did;
-    this.protocol = params.protocol || new NostrAdapter(params.keys);
+    this.protocol = params.protocol || new NostrAdapter();
+    this.protocol.setKeys(params.keys);
   }
 
   /**

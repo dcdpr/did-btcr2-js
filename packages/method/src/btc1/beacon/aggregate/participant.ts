@@ -120,14 +120,15 @@ export class BeaconParticipant {
       ? HDKey.fromMasterSeed(ent)
       : HDKey.fromMasterSeed(mnemonicToSeedSync(ent));
 
-    const hdkey = this.hdKey.deriveChild(this.beaconKeyIndex);
-    if(!hdkey.publicKey || !hdkey.privateKey) {
+    const { publicKey: pk, privateKey: secret } = this.hdKey.deriveChild(this.beaconKeyIndex);
+    if(!pk || !secret) {
       throw new BeaconParticipantError(
         `Failed to derive HD key for participant ${this.name} at index ${this.beaconKeyIndex}`,
-        'CONSTRUCTOR_ERROR', hdkey
+        'CONSTRUCTOR_ERROR', { public: pk, secret }
       );
     }
-    this.protocol = protocol || new NostrAdapter({ public: hdkey.publicKey, secret: hdkey.privateKey });
+    this.protocol = protocol || new NostrAdapter();
+    this.protocol.setKeys({ public: pk, secret });
     this.cohortKeyState.set('__UNSET__', this.beaconKeyIndex);
     Logger.debug(`BeaconParticipant initialized with DID: ${this.did}, Name: ${this.name}, Key Index: ${this.beaconKeyIndex}`);
   }
@@ -229,12 +230,6 @@ export class BeaconParticipant {
     const cohortAdvertMessage = BeaconCohortAdvertMessage.fromJSON(message);
     Logger.info(`Received new cohort announcement from ${cohortAdvertMessage.from}`, cohortAdvertMessage);
 
-    const from = cohortAdvertMessage.from;
-    // if (!this.coordinatorDids.includes(from)) {
-    //   Logger.warn(`Received unsolicited new cohort announcement from ${from}`);
-    //   return;
-    // }
-
     const cohortId = cohortAdvertMessage.body?.cohortId;
     if (!cohortId) {
       Logger.warn('Received malformed cohort advert message: missing cohortId', cohortAdvertMessage);
@@ -253,6 +248,7 @@ export class BeaconParticipant {
       return;
     }
 
+    const from = cohortAdvertMessage.from;
     const cohort = new AggregateBeaconCohort(
       {
         network,

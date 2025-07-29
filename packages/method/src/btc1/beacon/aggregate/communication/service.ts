@@ -30,7 +30,8 @@ export type ServiceAdapter<T extends CommunicationService> = T;
 export type ServiceAdapterIdentity<T extends NostrKeys> = T;
 export interface CommunicationService {
   name: string;
-  start(): ServiceAdapter<CommunicationService>;
+  start(): void;
+  setKeys(keys: ServiceAdapterIdentity<NostrKeys>): void;
   registerMessageHandler(messageType: string, handler: MessageHandler): void;
   sendMessage(message: Maybe<AggregateBeaconMessageType>, sender: string, recipient?: string): Promise<void | Promise<string>[]>;
   generateIdentity?(keys?: ServiceAdapterIdentity<NostrKeys>): ServiceAdapterConfigType<ServiceAdapterConfig>

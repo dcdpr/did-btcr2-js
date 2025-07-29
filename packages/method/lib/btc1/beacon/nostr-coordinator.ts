@@ -16,7 +16,7 @@ const coordinatiorKeys = {
     210, 148,  41, 23, 169,  10,  11, 208
   ])
 }
-const nostr = new NostrAdapter(coordinatiorKeys, ['ws://127.0.0.1:7777']);
+const nostr = new NostrAdapter({ relays: ['ws://127.0.0.1:7777'] });
 console.log('nostr', nostr);
 const coordinator = new BeaconCoordinator({
   keys: coordinatiorKeys,

@@ -3,7 +3,10 @@ import { RawKeyPair, SchnorrKeyPair } from '@did-btc1/keypair';
 import { SimplePool, } from 'nostr-tools/pool';
 import { Btc1Identifier } from '../../../../../utils/identifier.js';
 import { AggregateBeaconMessageType } from '../../cohort/messages/index.js';
-import { CommunicationService, MessageHandler, ServiceAdapter, ServiceAdapterConfig, ServiceAdapterConfigType } from '../service.js';
+import { CommunicationService, MessageHandler, ServiceAdapterConfig, ServiceAdapterConfigType, ServiceAdapterIdentity } from '../service.js';
+import { NostrKeys } from './nostr.js';
+
+export type DidCommKeys = {}
 
 /**
  * DidCommAdapterConfig is a configuration class for the DidCommAdapter.
@@ -87,10 +90,18 @@ export class DidCommAdapter implements CommunicationService {
 
   /**
    * Starts the DidComm service.
-   * @returns {ServiceAdapter<DidCommAdapter>} Returns the DidCommAdapter instance for method chaining.
+   * @returns {void} Returns the DidCommAdapter instance for method chaining.
    */
-  public start(): ServiceAdapter<DidCommAdapter> {
-    throw new NotImplementedError('DidCommAdapter.start() is not implemented. Use NostrAdapter instead.');
+  public start(): void {
+    throw new NotImplementedError('DidCommAdapter is not implemented. Use NostrAdapter instead.');
+  }
+
+  /**
+   * Sets the keys used for Nostr communication.
+   * @param {ServiceAdapterIdentity<NostrKeys>} keys The keys to set.
+   */
+  public setKeys(keys: ServiceAdapterIdentity<NostrKeys>): void {
+    this.config.keys = keys;
   }
 
   /**

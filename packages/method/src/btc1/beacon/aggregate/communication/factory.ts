@@ -1,6 +1,6 @@
 import { NotImplementedError } from '@did-btc1/common';
-import { CommunicationServiceError } from './error.js';
 import { NostrAdapter } from './adapter/nostr.js';
+import { CommunicationServiceError } from './error.js';
 import { CommunicationService, Service } from './service.js';
 
 /**
@@ -12,7 +12,7 @@ export class CommunicationFactory {
   static establish(service: Service): CommunicationService {
     switch (service.type) {
       case 'nostr':
-        return new NostrAdapter(service.keys);
+        return new NostrAdapter();
       case 'didcomm':
         throw new NotImplementedError(
           'DIDComm communication service is not implemented yet.',
