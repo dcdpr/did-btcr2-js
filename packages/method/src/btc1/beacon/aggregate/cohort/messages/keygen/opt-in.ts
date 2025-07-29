@@ -1,6 +1,7 @@
-import { Maybe } from '@did-btc1/common';
+import { Logger, Maybe } from '@did-btc1/common';
 import { BaseMessage } from '../base.js';
 import { BEACON_COHORT_OPT_IN } from '../constants.js';
+import { AggregateBeaconError } from '../../../../error.js';
 
 export interface CohortOptInMessage {
   type?: typeof BEACON_COHORT_OPT_IN;
@@ -24,10 +25,18 @@ export class BeaconCohortOptInMessage extends BaseMessage {
    * @returns {BeaconCohortOptInMessage} The new BeaconCohortOptInMessage.
    */
   public static fromJSON(data: Maybe<CohortOptInMessage>): BeaconCohortOptInMessage {
-    const message = JSON.parse(data);
-    if (message.type != BEACON_COHORT_OPT_IN) {
-      throw new Error(`Invalid type: ${message.type}`);
+    Logger.debug('BeaconCohortOptInMessage.fromJSON data => ', data);
+    try {
+      const message = JSON.parse(data);
+      if (message.type != BEACON_COHORT_OPT_IN) {
+        throw new Error(`Invalid type: ${message.type}`);
+      }
+      return new BeaconCohortOptInMessage(message);
+    } catch (error: any) {
+      throw new AggregateBeaconError(
+        `Failed to parse BeaconCohortOptInMessage: ${error.message}`,
+        'BEACON_COHORT_MESSAGE_ERROR', data
+      );
     }
-    return new BeaconCohortOptInMessage(message);
   }
 }

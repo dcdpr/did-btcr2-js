@@ -382,22 +382,23 @@ export class BeaconParticipant {
    */
   public async joinCohort(cohortId: string, coordinatorDid: string): Promise<void> {
     Logger.info(`BeaconParticipant ${this.did} joining cohort ${cohortId} with coordinator ${coordinatorDid}`);
+    this.finalizeUnsetCohortKey(cohortId);
     const cohort = this.cohorts.find(c => c.id === cohortId);
     if (!cohort) {
       Logger.warn(`Cohort with ID ${cohortId} not found.`);
       return;
     }
-    const participantPk = this.getCohortKey(cohortId).publicKey?.toHex();
-    if(!participantPk) {
+    const pk = this.getCohortKey(cohortId).publicKey;
+    if(!pk) {
       Logger.error(`Failed to derive public key for cohort ${cohortId} at index ${this.beaconKeyIndex}`);
       return;
     }
     this.setCohortKey(cohortId);
-    const optInMessage = BeaconCohortOptInMessage.fromJSON({
+    const optInMessage = new BeaconCohortOptInMessage({
       cohortId,
-      participantPk,
-      from     : this.did,
-      to       : coordinatorDid,
+      participantPk : pk,
+      from          : this.did,
+      to            : coordinatorDid,
     });
 
     await this.protocol.sendMessage(optInMessage, this.did, coordinatorDid);

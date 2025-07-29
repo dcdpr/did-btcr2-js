@@ -30,7 +30,7 @@ console.log('coordinator', coordinator);
 coordinator.start();
 
 // Announce the cohort
-const cohort = await coordinator.advertiseCohort(4)
-console.log(`Cohort announced with ID: ${cohort.id}`, cohort);
+// const cohort = await coordinator.advertiseCohort(4)
+// console.log(`Cohort announced with ID: ${cohort.id}`, cohort);
 
 // Start the coordinator and participants listening for events
