@@ -1,4 +1,4 @@
-import { Btc1Error, Bytes, UnixTimestamp } from '@did-btc1/common';
+import { Btc1Error, Bytes, Logger, UnixTimestamp } from '@did-btc1/common';
 import { DEFAULT_REST_CLIENT_CONFIG } from '../constants.js';
 import { BitcoinRpcError } from '../errors.js';
 import {

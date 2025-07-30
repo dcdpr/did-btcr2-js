@@ -36,6 +36,7 @@ export type AvailableNetworks = {
   mainnet: true;
   testnet: true;
   signet: true;
+  mutinynet: true;
   regtest: true;
 };
 
@@ -49,6 +50,7 @@ export class Bitcoin {
   public mainnet?: BitcoinNetworkConfig;
   public testnet?: BitcoinNetworkConfig;
   public signet?: BitcoinNetworkConfig;
+  public mutinynet?: BitcoinNetworkConfig;
   public regtest?: BitcoinNetworkConfig;
 
   /**
@@ -66,7 +68,10 @@ export class Bitcoin {
         rpc  : DEFAULT_RPC_CLIENT_CONFIG,
         rest : DEFAULT_REST_CLIENT_CONFIG
       }
-    });    if(!BITCOIN_NETWORK_CONFIG) {
+    });
+
+
+    if(!BITCOIN_NETWORK_CONFIG) {
       throw new Btc1Error(
         'No BITCOIN_NETWORK_CONFIG available: must pass `configs` to constructor or set `BITCOIN_NETWORK_CONFIG` in env',
         'MISSING_BITCOIN_NETWORK_CONFIG',
@@ -87,7 +92,7 @@ export class Bitcoin {
     const networkConfigs: Record<string, BitcoinClientConfig> = JSON.parse(BITCOIN_NETWORK_CONFIG);
 
     // Set a list of available networks
-    const networks: (keyof AvailableNetworks)[] = ['mainnet', 'testnet', 'signet', 'regtest'];
+    const networks: (keyof AvailableNetworks)[] = ['mainnet', 'testnet', 'signet', 'mutinynet', 'regtest'];
 
     // Iterate over the networks and create the client connections
     for (const network of networks) {
