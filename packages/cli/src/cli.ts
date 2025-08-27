@@ -1,9 +1,16 @@
+import { DidMethodError } from '@did-btcr2/common';
+import { Identifier } from '@did-btcr2/method';
 import { Command } from 'commander';
-import pkg from '../package.json' with { type: 'json' };
-import CRUD from './crud.js';
+import { readFile } from 'fs/promises';
+import Btcr2Command from './command.js';
 
-export interface ICommand {
-  execute(params: { options?: any; action?: string }): Promise<void>;
+/**
+ * Custom CLI Error class extending DidMethodError.
+ */
+export class CLIError extends DidMethodError {
+  constructor(message: string, type: string = 'CLIError', data?: Record<string, any>) {
+    super(message, { type, name: type, data });
+  }
 }
 
 /**
@@ -18,7 +25,7 @@ export class DidBtcr2Cli {
     // Create the main Commander program
     this.CLI = new Command()
       .name('btcr2')
-      .version(`btcr2 v${pkg.version}`, '-v, --version', 'Output the current version')
+      .version('btcr2 0.1.0', '-v, --version', 'Output the current version')
       .description('CLI tool for the did:btcr2 method');
 
     // Configure top-level options and subcommands
@@ -26,75 +33,171 @@ export class DidBtcr2Cli {
   }
 
   /**
-   * Define all commands, aliases, and options here.
+   * Configure the CLI commands and options.
+   * @private
    */
   private configureCommands(): void {
-    // A required option for the entire CLI
-    this.CLI
-      .requiredOption(
-        '-n, --network <network>',
-        'Bitcoin network (mainnet, testnet, signet, regtest)',
-        'mainnet'
-      );
-
-    // CREATE
+    /* CREATE */
     this.CLI
       .command('create')
-      .description('Create a did:btcr2 identifier and initial DID document')
-      .requiredOption('-t, --type <type>', 'Type of the identifier (key, external)', 'key')
-      .option('-p, --pubkey <pubkey>', 'Hex public key (when type=key)')
-      .option('-d, --document <document>', 'JSON DID document (when type=external)')
-      .option('-o, --options <options>', 'JSON object of optional parameters')
-      .action(async (options) => {
-        // The action name is "create"
-        await this.invokeCommand({
-          options,
-          action  : options.name(),
-          command : new CRUD(),
-        });
-      });
+      .description('Create an identifier and initial DID document')
+      .requiredOption('-t, --type <type>', 'Identifier type <k|x>', 'k')
+      .requiredOption(
+        '-n, --network <network>',
+        'Identifier bitcoin network <bitcoin|testnet3|testnet4|signet|mutinynet|regtest>'
+      )
+      .requiredOption(
+        '-b, --bytes <bytes>',
+        'The genesis bytes used to create a DID and DID document as a hex string. ' +
+        'If type=k, MUST be secp256k1 public key. ' +
+        'If type=x, MUST be SHA-256 hash of a genesis document'
+      )
+      .action(
+        async (options: { type: string; network: string; bytes: string, [key: string]: any }) => {
+          if(!['k','x'].includes(options.type)) {
+            throw new CLIError(
+              'Invalid type. Must be "k" or "x".',
+              'INVALID_ARGUMENT_ERROR',
+              options
+            );
+          }
+          if(!['bitcoin','testnet3','testnet4','signet','mutinynet','regtest'].includes(options.network)) {
+            throw new CLIError(
+              'Invalid network. Must be one of "bitcoin", "testnet3", ' +
+              '"testnet4", "signet", "mutinynet", or "regtest".',
+              'INVALID_ARGUMENT_ERROR',
+              options
+            );
+          }
+          if(Buffer.from(options.bytes, 'hex').length === 0) {
+            throw new CLIError(
+              'Invalid bytes. Must be a non-empty hex string.',
+              'INVALID_ARGUMENT_ERROR',
+              options
+            );
+          }
+          await this.invokeCommand({ options, action: 'create', command: new Btcr2Command() });
+        }
+      );
 
-    // READ / RESOLVE (Single command with alias)
+    /* READ / RESOLVE */
     this.CLI
-      .command('read')
-      .alias('resolve')
+      .command('resolve')
+      .alias('read')
       .description('Resolve the DID document of the identifier.')
       .requiredOption('-i, --identifier <identifier>', 'did:btcr2 identifier')
-      .option('-o, --options <options>', 'JSON of optional parameters')
-      .action(async (options) => {
-        // If you prefer to differentiate "read" vs "resolve", you can check argv
-        // or simply treat them identically. Commander uses "read" as the official name.
-        await this.invokeCommand({
-          options,
-          action  : 'read', // or options.name() if you'd like, but that'll be 'read' either way
-          command : new CRUD(),
-        });
+      .option('-r, --resolutionOptions <resolutionOptions>', 'JSON string containing resolution options')
+      .option('-p, --resolutionOptionsPath <resolutionOptionsPath>', 'Path to a JSON file containing resolution options')
+      .action(async (options: { identifier: string; resolutionOptions?: string; resolutionOptionsPath?: string }) => {
+        try {
+          Identifier.decode(options.identifier);
+        } catch {
+          throw new CLIError(
+            'Invalid identifier. Must be a valid did:btcr2 identifier.',
+            'INVALID_ARGUMENT_ERROR',
+            options
+          );
+        }
+        if(options.resolutionOptions) {
+          try {
+            options.resolutionOptions = JSON.parse(options.resolutionOptions);
+          } catch {
+            throw new CLIError(
+              'Invalid options. Must be a valid JSON string.',
+              'INVALID_ARGUMENT_ERROR',
+              options
+            );
+          }
+        }
+        if(options.resolutionOptionsPath) {
+          try {
+            const data = await readFile(options.resolutionOptionsPath, 'utf-8');
+            options.resolutionOptions = JSON.parse(data);
+          } catch {
+            throw new CLIError(
+              'Invalid options path. Must be a valid path to a JSON file.',
+              'INVALID_ARGUMENT_ERROR',
+              options
+            );
+          }
+        }
+        await this.invokeCommand({ options, action: 'resolve', command: new Btcr2Command() });
       });
 
-    // UPDATE
+    /* UPDATE */
     this.CLI
       .command('update')
-      .description('Update a did:btcr2 document with an invoked ZCAP-LD capability.')
-      .action(async (options) => {
-        await this.invokeCommand({
-          options,
-          action  : options.name(), // 'update'
-          command : new CRUD(),
-        });
+      .description('Update a did:btcr2 document.')
+      .requiredOption('-i, --identifier <identifier>', 'did:btcr2 identifier')
+      .requiredOption('-s, --sourceDocument <sourceDocument>', 'Source DID document as JSON string')
+      .requiredOption('-v, --sourceVersionId <sourceVersionId>', 'Source version ID as a number')
+      .requiredOption('-p, --patch <patch>', 'JSON Patch operations as a JSON string array')
+      .requiredOption('-m, --verificationMethodId <verificationMethodId>', 'Did document verification method ID as a string')
+      .requiredOption('-b, --beaconIds <beaconIds>', 'Beacon IDs as a JSON string array')
+      .action(async (options: {
+        identifier: string;
+        sourceDocument: string; // stringified DidDocument; e.g. '{ "@context": "...", "id": "did:btcr2:...", ... }'
+        sourceVersionId: number;
+        patch: string; // stringified PatchOperation[]; e.g. '[{ "op": "add", "path": "/foo", "value": "bar" }]'
+        verificationMethodId: string;
+        beaconIds: string // stringified string[]; e.g. '["beaconId1","beaconId2"]'
+       }) => {
+        // Validate identifier by decoding
+        try {
+          Identifier.decode(options.identifier);
+        } catch {
+          throw new CLIError(
+            'Invalid identifier. Must be a valid did:btcr2 identifier.',
+            'INVALID_ARGUMENT_ERROR',
+            options
+          );
+        }
+        // Validate source document JSON
+        if(options.sourceDocument) {
+          try {
+            options.sourceDocument = JSON.parse(options.sourceDocument);
+          } catch {
+            throw new CLIError(
+              'Invalid options. Must be a valid JSON string.',
+              'INVALID_ARGUMENT_ERROR',
+              options
+            );
+          }
+        }
+        // Validate patch JSON
+        if(options.patch) {
+          try {
+            options.patch = JSON.parse(options.patch);
+          } catch {
+            throw new CLIError(
+              'Invalid options. Must be a valid JSON string.',
+              'INVALID_ARGUMENT_ERROR',
+              options
+            );
+          }
+        }
+        // Validate beacon IDs JSON
+        if(options.beaconIds) {
+          try {
+            options.beaconIds = JSON.parse(options.beaconIds);
+          } catch {
+            throw new CLIError(
+              'Invalid options. Must be a valid JSON string.',
+              'INVALID_ARGUMENT_ERROR',
+              options
+            );
+          }
+        }
+        await this.invokeCommand({ options, action: 'update', command: new Btcr2Command() });
       });
 
-    // DEACTIVATE / DELETE (Single command with alias)
+    /* DEACTIVATE / DELETE */
     this.CLI
       .command('deactivate')
       .alias('delete')
       .description('Deactivate the did:btcr2 identifier permanently.')
       .action(async (options) => {
-        // For "deactivate" or "delete"
-        await this.invokeCommand({
-          options,
-          action  : 'deactivate',
-          command : new CRUD(),
-        });
+        await this.invokeCommand({ options, action: 'deactivate', command: new Btcr2Command() });
       });
   }
 
@@ -104,7 +207,7 @@ export class DidBtcr2Cli {
   private async invokeCommand({ options, action, command }: {
     options: any;
     action: string;
-    command: CRUD;
+    command: Btcr2Command;
   }): Promise<void> {
     try {
       await command.execute({ options, action });
@@ -115,7 +218,6 @@ export class DidBtcr2Cli {
 
   /**
    * Parse and run the CLI.
-   * You can supply custom argv for testing, or let it default to process.argv in production.
    */
   public run(argv?: string[]): void {
     if (argv) {
@@ -131,3 +233,6 @@ export class DidBtcr2Cli {
     }
   }
 }
+
+
+export default new DidBtcr2Cli().run();
