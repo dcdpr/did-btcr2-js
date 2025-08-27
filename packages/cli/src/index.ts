@@ -1,2 +1,2 @@
 export * from './cli.js';
-export * from './crud.js';
+export * from './command.js';

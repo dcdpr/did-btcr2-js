@@ -8,8 +8,8 @@
   },
   "include": [
     "../src",
-    "."
-, "../bin/btcr2.ts", "../bin"  ],
+    ".",
+  ],
   "exclude": [
     "./compiled"
   ]
