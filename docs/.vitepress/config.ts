@@ -1,7 +1,8 @@
 import { defineConfig } from 'vitepress';
 import typedocSidebar from '../packages/typedoc-sidebar.json';
+import { withMermaid } from 'vitepress-plugin-mermaid';
 
-export default defineConfig({
+const config = defineConfig({
   srcExclude      : ['README.md', 'packages/**/README.md'],
   ignoreDeadLinks : [
     (url) => url.includes('/_media/'),
@@ -12,6 +13,13 @@ export default defineConfig({
   title           : 'DID BTCR2 JS',
   description     : 'Monorepo for did:btcr2 js/ts implementation and supporting packages.',
   cleanUrls       : true,
+  mermaid: {
+    securityLevel: 'loose',
+    theme: 'default'
+  },
+  mermaidPlugin: {
+    class: 'mermaid'
+  },
   themeConfig     : {
     outline : {
       level : [2, 3]
@@ -46,3 +54,5 @@ export default defineConfig({
     socialLinks : [{ icon: 'github', link: 'https://github.com/dcdpr/did-btcr2-js' }],
   }
 });
+
+export default withMermaid(config);

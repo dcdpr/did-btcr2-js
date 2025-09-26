@@ -1,5 +1,5 @@
 sequenceDiagram
-    title 4.1.2 From External Intermediate DID Document
+    title Create From External Intermediate DID Document
     participant Controller
     participant BTC1Create
     participant Encode as Identifier Encoding
@@ -14,4 +14,4 @@ sequenceDiagram
     Encode-->>BTC1Create: id
     BTC1Create->>BTC1Create: initialDocument = copy(intermediateDocument)<br/>Replace all did:btc1:xxxx... with id
     BTC1Create-->>Controller: {did, initialDocument}
-    Note right of BTC1Create: Optionally, store canonicalBytes on IPFS as CID.
+    Note right of BTC1Create: Optionally, store canonicalBytes on IPFS as CID. 
