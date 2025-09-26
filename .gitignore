@@ -169,5 +169,5 @@ temp
 release/
 
 # VitePress output folders
-.vitepress/dist
-.vitepress/cache
+docs/.vitepress/dist
+docs/.vitepress/cache
