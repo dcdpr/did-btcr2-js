@@ -1,6 +1,6 @@
 {
   "name": "did-btcr2-js",
-  "version": "3.0.6",
+  "version": "3.0.7",
   "description": "Monorepo for did:btcr2 js/ts implementation and supporting packages.",
   "type": "module",
   "workspaces": [
