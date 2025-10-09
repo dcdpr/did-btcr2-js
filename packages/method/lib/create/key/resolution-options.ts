@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'fs/promises';
 import path from 'path';
 import bitcoin from '../../../../src/bitcoin/index.js';
 import { RawTransactionRest } from '../../../../src/bitcoin/rest-client.js';
-import { DidDocument, KeyManager, Btc1Update, DidBtc1 } from '../../../../src/index.js';
+import { DidDocument, KeyManager, Btc1Update, DidBtc1 } from '../../../src/index.js';
 
 const cwd = process.cwd();
 const network = process.argv.slice(2)[0] || 'regtest';

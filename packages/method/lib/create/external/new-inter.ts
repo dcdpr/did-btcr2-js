@@ -1,7 +1,7 @@
 import { ID_PLACEHOLDER_VALUE } from '@did-btcr2/common';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
-import { DidBtcr2 } from "../../../../src/did-btcr2.js";
-import { BeaconUtils, IntermediateDidDocument } from '../../../../src/index.js';
+import { DidBtcr2 } from "../../../src/did-btcr2.js";
+import { BeaconUtils, IntermediateDidDocument } from '../../../src/index.js';
 import { getNetwork } from '@did-btcr2/bitcoin';
 
 const key0 = SchnorrKeyPair.generate();

@@ -1,5 +1,5 @@
 import { readFile, writeFile } from 'fs/promises';
-import { DidBtcr2 } from '../../../../src/did-btcr2.js';
+import { DidBtcr2 } from '../../../src/did-btcr2.js';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 
 const cwd = process.cwd();

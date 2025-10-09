@@ -1,6 +1,6 @@
 import { readFile, writeFile } from 'fs/promises';
 import path from 'path';
-import { BeaconUtils, DidDocument, Btc1Update, getNetwork } from '../../../../src/index.js';
+import { BeaconUtils, DidDocument, Btc1Update, getNetwork } from '../../../src/index.js';
 
 const args = process.argv.slice(2);
 const cwd = process.cwd();
