@@ -6,7 +6,7 @@ import {
 } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey } from './public.js';
 import { Secp256k1SecretKey } from './secret.js';
-import { MultibaseKeys, RawSchnorrKeyPair, SchnorrKeyPairParams } from './types.js';
+import { HexSchnorrKeyPair, MultibaseKeys, RawSchnorrKeyPair, SchnorrKeyPairParams } from './types.js';
 
 /**
  * General KeyPair interface used by SchnorrKeyPair class.
@@ -134,13 +134,24 @@ export class SchnorrKeyPair implements KeyPair {
   }
 
   /**
-   * Get the raw bytes of each key in the SchnorrKeyPair.
+   * Get the `raw` bytes of each key in the SchnorrKeyPair.
    * @returns {RawSchnorrKeyPair} JSON object with the SchnorrKeyPair raw bytes.
    */
   get raw(): RawSchnorrKeyPair {
     return {
       public : this.publicKey.x,
       secret : this.secretKey ? this.secretKey.bytes : undefined
+    };
+  }
+
+  /**
+   * Get the Keys in hex format.
+   * @returns {object} The Keys in hex format
+   */
+  get hex(): HexSchnorrKeyPair {
+    return {
+      public : this.publicKey.hex,
+      secret : this._secretKey ? this.secretKey.hex : undefined
     };
   }
 
