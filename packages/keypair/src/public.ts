@@ -4,7 +4,6 @@ import {
   CURVE,
   Hex,
   KeyBytes,
-  Maybe,
   MultibaseObject,
   PublicKeyError,
   PublicKeyObject
@@ -378,9 +377,9 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
    * @param {PublicKeyObject} json The JSON object to initialize the CompressedSecp256k1PublicKey.
    * @returns {CompressedSecp256k1PublicKey} The initialized CompressedSecp256k1PublicKey object.
    */
-  public static fromJSON(json: Maybe<PublicKeyObject>): CompressedSecp256k1PublicKey {
-    json.x.unshift(json.parity);
-    return new CompressedSecp256k1PublicKey(json.x.toUint8Array());
+  public static fromJSON(json: PublicKeyObject): CompressedSecp256k1PublicKey {
+    json.point.x.unshift(json.point.parity);
+    return new CompressedSecp256k1PublicKey(json.point.x.toUint8Array());
   }
 
   /**
