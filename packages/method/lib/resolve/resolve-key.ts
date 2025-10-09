@@ -1,4 +1,4 @@
-import { DidBtcr2 } from '../../../src/index.js';
+import { DidBtcr2 } from '../../src/index.js';
 import path from 'path';
 import { readdir, readFile } from 'fs/promises';
 

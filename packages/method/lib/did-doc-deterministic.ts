@@ -1,5 +1,5 @@
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
-import { DidDocument } from '../../src/index.js';
+import { DidDocument } from '../src/index.js';
 import initialKeyDocument from '../in/resolve/key/initialDidDocument.json' with { type: 'json' };
 
 const privateKeyBytes = new Uint8Array([
