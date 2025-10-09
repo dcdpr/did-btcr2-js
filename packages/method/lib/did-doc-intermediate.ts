@@ -1,6 +1,6 @@
 import { ID_PLACEHOLDER_VALUE } from '@did-btcr2/common';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
-import { IntermediateDidDocument } from '../../src/index.js';
+import { IntermediateDidDocument } from '../src/index.js';
 import initialExternalDocument from '../in/resolve/external/initialDidDoc.json' with { type: 'json' };
 
 const privateKeyBytes = new Uint8Array([

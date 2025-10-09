@@ -1,4 +1,4 @@
-import { Identifier } from '../../../src/index.js';
+import { Identifier } from '../../src/index.js';
 
 const networks = ['bitcoin', 'mutinynet', 'regtest', 'signet', 'testnet3', 'testnet4'];
 

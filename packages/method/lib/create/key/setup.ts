@@ -2,7 +2,7 @@ import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { Did } from '@web5/dids';
 import { mkdir, readdir, readFile, rename, writeFile } from 'fs/promises';
 import path from 'path';
-import { DidBtcr2 } from '../../../../src/did-btcr2.js';
+import { DidBtcr2 } from '../../../src/did-btcr2.js';
 
 const cwd = process.cwd();
 const network = process.argv[2] || 'regtest';

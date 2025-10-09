@@ -1,55 +1,54 @@
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { mkdir, readFile, writeFile } from 'fs/promises';
+import { BeaconUtils, DidDocument, KeyManager, DidBtc1, getNetwork } from '../../src/index.js';
+import { Did } from '@web5/dids';
 import bitcoin from '../../../src/bitcoin/index.js';
 import { RawTransactionRest } from '../../../src/bitcoin/rest-client.js';
-import { BeaconUtils, DidDocument, KeyManager, DidBtc1, getNetwork } from '../../../src/index.js';
-import { ID_PLACEHOLDER_VALUE } from '@did-btcr2/common';
 
 const cwd = process.cwd();
 const network = process.argv.slice(2)[0] || 'regtest';
-const idType = 'external';
+const idType = process.argv[3] || 'key';
 console.log('Running for network:', network);
-const latestdir = `${cwd}/data/${network}/${idType}/latest`;
 
+const latestdir = `${cwd}/data/${network}/${idType}/latest`;
 const initialDocument = JSON.parse(await readFile(`${latestdir}/initialDocument.json`, { encoding: 'utf-8' }));
+const keys = JSON.parse(await readFile(`${latestdir}/keys.json`, { encoding: 'utf-8' }));
+const genesisKey = keys.genesisKey;
+const genesisKeyPair = new SchnorrKeyPair({
+  secretKey : Buffer.from(genesisKey.sk, 'hex'),
+  publicKey  : Buffer.from(genesisKey.pk, 'hex')
+});
+
+const parts = Did.parse(initialDocument.id);
+if (!parts) {
+  throw new Error('Failed to parse DID');
+}
+const replacementKey = keys[parts.id];
+const replacementKeyPair = new SchnorrKeyPair({
+  secretKey : Buffer.from(replacementKey.sk, 'hex'),
+  publicKey  : Buffer.from(replacementKey.pk, 'hex')
+});
+
 const identifier = initialDocument.id;
 const sourceDocument = new DidDocument(initialDocument);
-
-const keyPairMap = new Map(Object.entries(JSON.parse(await readFile(`${latestdir}/keys.json`, { encoding: 'utf-8' }))));
-
-const keyId = `${identifier}#key-0`;
-const key = keyPairMap.get(keyId) as { sk: string, pk: string };
-const keys = new SchnorrKeyPair({ privateKey: Buffer.fromHex(key.sk) });
-
-const kms = await KeyManager.initialize(keyPair, keyId);
-
-const serviceId = `${initialDocument.id}#service-0`;
-const serviceKey = keyPairMap.get(serviceId) as { sk: string, pk: string };
-const serviceKeyPair = new SchnorrKeyPair({ privateKey: Buffer.fromHex(serviceKey.sk) });
-
-await kms.importKey(serviceKeyPair, serviceId);
-
-const serviceId1 = `${initialDocument.id}#service-1`;
-const serviceKey1 = keyPairMap.get(serviceId1) as { sk: string, pk: string };
-const serviceKeyPair1 = new SchnorrKeyPair({ privateKey: Buffer.fromHex(serviceKey1.sk) });
-
-await kms.importKey(serviceKeyPair1, serviceId1);
-
+const sourceVersionId = 1;
 const patch = JSON.patch.create([
   {
-    op    : 'add',
-    path  : '/service/1',
+    op    : 'replace',
+    path  : '/service/0',
     value : BeaconUtils.generateBeaconService({
-      id          : `${identifier}#service-1`,
-      publicKey   : serviceKeyPair1.publicKey.bytes,
+      id          : identifier,
+      publicKey   : replacementKeyPair.publicKey.compressed,
       network     : getNetwork(network),
-      addressType : 'p2wpkh',
+      addressType : 'p2pkh',
       type        : 'SingletonBeacon',
     })
   }
 ]);
 
-const sourceVersionId = 1;
+const keyUri = KeyManager.computeKeyUri(parts.id, parts.fragment ?? '')
+await KeyManager.initialize(genesisKeyPair, keyUri);
+
 const verificationMethodId = initialDocument.verificationMethod[0].id;
 const beaconIds = [initialDocument.service[0].id];
 const signalsMetadata = await DidBtcr2.update({
@@ -88,6 +87,6 @@ for (const [txId, updates] of Object.entries(signalsMetadata)) {
   console.log(`Created new targetDocument: ${latestdir}/targetDocument.json`, targetDocument);
 
   const resolutionOptions = { versionTime: Date.now(), sidecarData: { did: identifier, signalsMetadata } };
-  await writeFile(`${latestdir}/resolutionOptions.json`, JSON.stringify(resolutionOptions, null, 4), { encoding: 'utf-8' });
+  await writeFile(`${blockDir}/resolutionOptions.json`, JSON.stringify(resolutionOptions, null, 4), { encoding: 'utf-8' });
   console.log(`Created new resolutionOptions: ${latestdir}/resolutionOptions.json`, resolutionOptions);
 }

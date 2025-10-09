@@ -3,7 +3,7 @@ import { KeyPairUtils } from '@did-btcr2/keypair';
 import { Did } from '@web5/dids';
 import { writeFile } from 'fs/promises';
 import path from 'path';
-import { BeaconUtils, DidBtc1, getNetwork, IntermediateDidDocument } from '../../../../src/index.js';
+import { BeaconUtils, DidBtc1, getNetwork, IntermediateDidDocument } from '../../../src/index.js';
 
 const cwd = process.cwd();
 const network = process.argv[2] || 'regtest';
