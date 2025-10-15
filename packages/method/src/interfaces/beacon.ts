@@ -1,4 +1,4 @@
-import { DidUpdatePayload } from '@did-btcr2/common';
+import { DidUpdatePayload, KeyBytes } from '@did-btcr2/common';
 import { DidServiceEndpoint } from '@web5/dids';
 import { RawTransactionV2, RawTransactionRest } from '@did-btcr2/bitcoin';
 import { SidecarData, SignalsMetadata } from '../types/crud.js';
@@ -63,5 +63,5 @@ export abstract class Beacon implements IBeacon {
   /**
    * Broadcasts a Beacon Signal (implemented by subclasses).
    */
-  abstract broadcastSignal(didUpdatePayload: DidUpdatePayload): Promise<SignalsMetadata>;
+  abstract broadcastSignal(didUpdatePayload: DidUpdatePayload, secretKey: KeyBytes): Promise<SignalsMetadata>;
 }

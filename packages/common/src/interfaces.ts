@@ -139,6 +139,12 @@ export interface Proof extends ProofOptions {
  */
 export interface ProofOptions {
   /**
+   * JSON-LD context URIs for interpreting this proof. The spec's example
+   * includes contexts for security, ZCAP, and JSON-LD patch.
+   */
+  '@context'?: string | string[];
+
+  /**
    * The proof type—per the spec’s example, "DataIntegrityProof".
    */
   type: string;

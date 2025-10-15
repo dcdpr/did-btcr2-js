@@ -1,5 +1,5 @@
 import { AddressUtxo, BitcoinNetworkConnection, RawTransactionRest, RawTransactionV2, TxOut, Vout } from '@did-btcr2/bitcoin';
-import { DidUpdatePayload, INVALID_SIDECAR_DATA, LATE_PUBLISHING_ERROR, SingletonBeaconError } from '@did-btcr2/common';
+import { DidUpdatePayload, INVALID_SIDECAR_DATA, KeyBytes, LATE_PUBLISHING_ERROR, SingletonBeaconError } from '@did-btcr2/common';
 import { opcodes, Psbt, script } from 'bitcoinjs-lib';
 import { base58btc } from 'multiformats/bases/base58';
 import { Beacon } from '../../interfaces/beacon.js';
@@ -7,6 +7,8 @@ import { BeaconService, BeaconSignal } from '../../interfaces/ibeacon.js';
 import { BeaconSidecarData, Metadata, SignalsMetadata, SingletonSidecar } from '../../types/crud.js';
 import { Appendix } from '../../utils/appendix.js';
 import { KeyManager, Signer } from '../key-manager/index.js';
+import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
+import { SchnorrKeyPair } from '@did-btcr2/keypair';
 
 const bitcoin = new BitcoinNetworkConnection();
 
@@ -176,7 +178,7 @@ export class SingletonBeacon extends Beacon {
    * @returns {SignedRawTx} Successful output of a bitcoin transaction.
    * @throws {SingletonBeaconError} if the bitcoin address is invalid or unfunded.
    */
-  public async broadcastSignal(didUpdatePayload: DidUpdatePayload): Promise<SignalsMetadata> {
+  public async broadcastSignal(didUpdatePayload: DidUpdatePayload, secretKey: KeyBytes): Promise<SignalsMetadata> {
     // 1. Initialize an addressURI variable to beacon.serviceEndpoint.
     // 2. Set bitcoinAddress to the decoding of addressURI following BIP21.
     const bitcoinAddress = this.service.serviceEndpoint.replace('bitcoin:', '');
@@ -220,7 +222,8 @@ export class SingletonBeacon extends Beacon {
     // 6. Retrieve the cryptographic material, e.g private key or signing capability, associated with the bitcoinAddress
     //    or service. How this is done is left to the implementer.
     // TODO: Determine how we want to handle this. Currently, this code uses the RPC to handle signing.
-    const multikey = await KeyManager.getKeyPair(this.service.id);
+    const id = this.service.id.slice(this.service.id.indexOf('#'));
+    const multikey = new SchnorrMultikey({ id, controller: this.service.id, keys: new SchnorrKeyPair({ secretKey }) });
     if (!multikey) {
       throw new Error('Key pair not found.');
     }

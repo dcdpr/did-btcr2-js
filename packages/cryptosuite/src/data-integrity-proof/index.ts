@@ -33,7 +33,7 @@ export class DataIntegrityProof implements IDataIntegrityProof {
   public async addProof({ document, options }: AddProofParams): Promise<DidUpdateInvocation> {
     // Generate the proof
     const proof = await this.cryptosuite.createProof({ document, options });
-
+    console.log('diproof.addProof: proof', proof);
     // Deconstruct the proof object
     const { type, verificationMethod, proofPurpose } = proof;
 

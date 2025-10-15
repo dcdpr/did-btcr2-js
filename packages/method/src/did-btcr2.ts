@@ -189,6 +189,7 @@ export class DidBtcr2 implements DidMethod {
     patch: PatchOperation[];
     verificationMethodId: string;
     beaconIds: string[];
+    secretKey: KeyBytes;
   }): Promise<SignalsMetadata> {
     // Deconstruct the params
     const {
@@ -198,6 +199,7 @@ export class DidBtcr2 implements DidMethod {
       patch,
       verificationMethodId: methodId,
       beaconIds,
+      secretKey
     } = params;
 
     // 1. Set unsignedUpdate to the result of passing Identifier, sourceDocument,
@@ -233,11 +235,11 @@ export class DidBtcr2 implements DidMethod {
 
     // 4. Set didUpdateInvocation to the result of passing Identifier, unsignedUpdate as didUpdatePayload, and
     //    verificationMethod to the Invoke DID Update Payload algorithm.
-    const didUpdateInvocation = await Update.invoke({ identifier, verificationMethod, didUpdatePayload, });
+    const didUpdateInvocation = await Update.invoke({ identifier, verificationMethod, didUpdatePayload, secretKey });
 
     // 5. Set signalsMetadata to the result of passing Identifier, sourceDocument, beaconIds and didUpdateInvocation
     //    to the Announce DID Update algorithm.
-    const signalsMetadata = await Update.announce({ sourceDocument, beaconIds, didUpdateInvocation, });
+    const signalsMetadata = await Update.announce({ sourceDocument, beaconIds, didUpdateInvocation, secretKey });
 
     // 6. Return signalsMetadata. It is up to implementations to ensure that the signalsMetadata is persisted.
     return signalsMetadata;

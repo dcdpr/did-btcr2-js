@@ -9,7 +9,8 @@ import {
   Logger,
   NOT_FOUND,
   PatchOperation,
-  ProofOptions
+  ProofOptions,
+  KeyBytes
 } from '@did-btcr2/common';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
@@ -141,14 +142,16 @@ export class Update {
   public static async invoke({
     identifier,
     didUpdatePayload,
-    verificationMethod
+    verificationMethod,
+    secretKey
   }: {
     identifier: string;
     didUpdatePayload: DidUpdatePayload;
     verificationMethod: DidVerificationMethod;
+    secretKey: KeyBytes;
   }): Promise<DidUpdateInvocation> {
     // Deconstruct the verificationMethod
-    const { id: fullId, controller, publicKeyMultibase, secretKeyMultibase } = verificationMethod;
+    const { id: fullId, controller, publicKeyMultibase } = verificationMethod;
 
     // Validate the verificationMethod
     if(!publicKeyMultibase) {
@@ -161,18 +164,7 @@ export class Update {
     // 1. Set privateKeyBytes to the result of retrieving the private key bytes
     // associated with the verificationMethod value.
     const id = fullId.slice(fullId.indexOf('#'));
-    const multikey = !secretKeyMultibase
-    // 1.1 Compute the keyUri and check if the key is in the keystore
-      ? await KeyManager.getKeyPair(fullId)
-    // 1.2 If not, use the secretKeyMultibase from the verificationMethod
-      : SchnorrMultikey
-        .create({
-          id,
-          controller,
-          keys : new SchnorrKeyPair({
-            secretKey : Secp256k1SecretKey.decode(secretKeyMultibase)
-          })
-        });
+    const multikey = SchnorrMultikey.create({ id, controller, keys: new SchnorrKeyPair({ secretKey }) });
 
     // 1.3 If the privateKey is not found, throw an error
     if (!multikey) {
@@ -233,11 +225,13 @@ export class Update {
   public static async announce({
     sourceDocument,
     beaconIds,
-    didUpdateInvocation
+    didUpdateInvocation,
+    secretKey
   }: {
     sourceDocument: DidDocument;
     beaconIds: string[];
     didUpdateInvocation: DidUpdateInvocation;
+    secretKey: KeyBytes;
   }): Promise<SignalsMetadata> {
     // 1. Set beaconServices to an empty array.
     const beaconServices: BeaconService[] = [];
@@ -274,7 +268,7 @@ export class Update {
       // 4.5 Else:
       //    4.5.1 MUST throw invalidBeacon error.
       const beacon = BeaconFactory.establish(beaconService);
-      signalsMetadata = await beacon.broadcastSignal(didUpdateInvocation);
+      signalsMetadata = await beacon.broadcastSignal(didUpdateInvocation, secretKey);
     }
     if(!signalsMetadata) {
       throw new MethodError(

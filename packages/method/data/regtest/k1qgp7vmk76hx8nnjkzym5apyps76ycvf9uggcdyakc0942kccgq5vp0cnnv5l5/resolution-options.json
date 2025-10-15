@@ -1,0 +1,45 @@
+{
+  "sidecarData": {
+    "did": "did:btcr2:k1qgp7vmk76hx8nnjkzym5apyps76ycvf9uggcdyakc0942kccgq5vp0cnnv5l5",
+    "signalsMetadata": {
+      "8c79ed5ddce2e2e818c18b035eb8ffa525d81c0b9df33dbf719cb871b8679e6d": {
+        "didUpdate": {
+          "@context": [
+            "https://w3id.org/security/v2",
+            "https://w3id.org/zcap/v1",
+            "https://w3id.org/json-ld-patch/v1"
+          ],
+          "patch": [
+            {
+              "op": "add",
+              "path": "/verificationMethod/1",
+              "value": {
+                "id": "did:btcr2:k1qgp7vmk76hx8nnjkzym5apyps76ycvf9uggcdyakc0942kccgq5vp0cnnv5l5#updateKey",
+                "type": "Multikey",
+                "controller": "did:btcr2:k1qgp7vmk76hx8nnjkzym5apyps76ycvf9uggcdyakc0942kccgq5vp0cnnv5l5",
+                "publicKeyMultibase": "zQ3shc7dLzA8QLdPp4LXG3XBCrHQfr6biQVQohCjc3by8M8jP"
+              }
+            }
+          ],
+          "targetHash": "GjkJa6KQDsqt3dFKEJVfuMqFNhZuFrXdACm7XhJsPBEw",
+          "targetVersionId": 2,
+          "sourceHash": "3hUujuESuYoB2NCCnpMMhFTZejiZiJHmrW5H1AqyD8Lp",
+          "proof": {
+            "cryptosuite": "bip340-jcs-2025",
+            "type": "DataIntegrityProof",
+            "verificationMethod": "did:btcr2:k1qgp7vmk76hx8nnjkzym5apyps76ycvf9uggcdyakc0942kccgq5vp0cnnv5l5#initialKey",
+            "proofPurpose": "capabilityInvocation",
+            "capability": "urn:zcap:root:did%3Abtcr2%3Ak1qgp7vmk76hx8nnjkzym5apyps76ycvf9uggcdyakc0942kccgq5vp0cnnv5l5",
+            "capabilityAction": "Write",
+            "@context": [
+              "https://w3id.org/security/v2",
+              "https://w3id.org/zcap/v1",
+              "https://w3id.org/json-ld-patch/v1"
+            ],
+            "proofValue": "z3wFdpRiR78RDMKnUoxqUUHB1Wg4adacdfrxSLMzVR4rSQK9m5JpuPcpLUsZ8qPmaoX4jo6fwY5vv5aQhxatY8YFu"
+          }
+        }
+      }
+    }
+  }
+}

@@ -123,7 +123,6 @@ export class DidDocument implements IDidDocument {
   service: Array<BeaconService>;
 
   constructor(document: IDidDocument) {
-    console.log('Constructing DidDocument with document:', document);
     // Set the ID and ID type
     const idType = document.id.includes('k1')
       ? IdentifierTypes.KEY

@@ -86,7 +86,7 @@ module.exports = [
       '**/*.mjs',
       '**/*.d.ts',
       '**/prototyping/*',
-      '**/lib/*',
+      // '**/lib/*',
     ]
   }
 ];
