@@ -1,4 +1,4 @@
-import DidBtc1CLI from '../bin/btc1.js';
+import DidBtc1CLI from '../bin/btcr2.js';
 
 
 

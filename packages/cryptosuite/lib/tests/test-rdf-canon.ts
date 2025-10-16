@@ -23,7 +23,7 @@ const unsecured = {
       'name' : 'Example University'
     }
   },
-  'issuer' : 'did:btc1:k1q2ddta4gt5n7u6d3xwhdyua57t6awrk55ut82qvurfm0qnrxx5nw7vnsy65'
+  'issuer' : 'did:btcr2:k1q2ddta4gt5n7u6d3xwhdyua57t6awrk55ut82qvurfm0qnrxx5nw7vnsy65'
 };
 
 const secured = {
@@ -53,11 +53,11 @@ const secured = {
       'name' : 'Example University'
     }
   },
-  'issuer' : 'did:btc1:k1q2ddta4gt5n7u6d3xwhdyua57t6awrk55ut82qvurfm0qnrxx5nw7vnsy65',
+  'issuer' : 'did:btcr2:k1q2ddta4gt5n7u6d3xwhdyua57t6awrk55ut82qvurfm0qnrxx5nw7vnsy65',
   'proof'  : {
     '@type'              : 'DataIntegrityProof',
     'cryptosuite'        : 'bip340-rdfc-2025',
-    'verificationMethod' : 'did:btc1:k1q2ddta4gt5n7u6d3xwhdyua57t6awrk55ut82qvurfm0qnrxx5nw7vnsy65#initialKey',
+    'verificationMethod' : 'did:btcr2:k1q2ddta4gt5n7u6d3xwhdyua57t6awrk55ut82qvurfm0qnrxx5nw7vnsy65#initialKey',
     'proofPurpose'       : 'attestationMethod',
     '@context'           : [
       'https://www.w3.org/ns/credentials/v2',

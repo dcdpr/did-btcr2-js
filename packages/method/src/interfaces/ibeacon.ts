@@ -1,8 +1,7 @@
-import { DidUpdatePayload, UnixTimestamp } from '@did-btc1/common';
+import { DidUpdatePayload, UnixTimestamp } from '@did-btcr2/common';
 import { DidServiceEndpoint, DidService as IDidService } from '@web5/dids';
-import { RawTransactionV2 } from '../types/bitcoin.js';
+import { RawTransactionV2, RawTransactionRest } from '@did-btcr2/bitcoin';
 import { SignalsMetadata } from '../types/crud.js';
-import { RawTransactionRest } from '../bitcoin/rest-client.js';
 
 /**
  * Beacon interface

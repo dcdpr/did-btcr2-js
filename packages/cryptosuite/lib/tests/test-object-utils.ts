@@ -1,4 +1,4 @@
-import { ObjectUtils } from '@did-btc1/common';
+import { ObjectUtils } from '@did-btcr2/common';
 const securedDocument = {
   '@context' : [
     'https://w3id.org/security/v2',
@@ -22,7 +22,7 @@ const securedDocument = {
   proof           : {
     type               : 'DataIntegrityProof',
     cryptosuite        : 'bip340-jcs-2025',
-    verificationMethod : 'did:btc1:regtest:k1qdh2ef3aqne63sdhq8tr7c8zv9lyl5xy4llj8uw3ejfj5xsuhcacjq98ccc#initialKey',
+    verificationMethod : 'did:btcr2:regtest:k1qdh2ef3aqne63sdhq8tr7c8zv9lyl5xy4llj8uw3ejfj5xsuhcacjq98ccc#initialKey',
     proofPurpose       : 'capabilityInvocation',
     capability         : 'urn:zcap:root:did%3Abtc1%3Aregtest%3Ak1qdh2ef3aqne63sdhq8tr7c8zv9lyl5xy4llj8uw3ejfj5xsuhcacjq98ccc',
     capabilityAction   : 'Write',

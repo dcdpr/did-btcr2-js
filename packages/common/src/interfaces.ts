@@ -12,13 +12,13 @@ export interface PatchOperation {
 
 /**
  * The unsigned payload object containing instructions for how to update a
- * did:btc1 DID Document. Once signed, it becomes a
+ * did:btcr2 DID Document. Once signed, it becomes a
  * {@link DidUpdateInvocation | DID Update Invocation}
  *
- * DID BTC1
- * {@link https://dcdpr.github.io/did-btc1/#construct-did-update-payload | 4.3.1 Construct DID Update Payload}.
+ * DID BTCR2
+ * {@link https://dcdpr.github.io/did-btcr2/#construct-did-update-payload | 4.3.1 Construct DID Update Payload}.
  *
- * Found in DID BTC1 Specification {@link https://dcdpr.github.io/did-btc1/#dereference-root-capability-identifier | Section 9.4.2}
+ * Found in DID BTCR2 Specification {@link https://dcdpr.github.io/did-btcr2/#dereference-root-capability-identifier | Section 9.4.2}
  * @example
  * ```
  * {
@@ -41,9 +41,9 @@ export interface PatchOperation {
  *   "proof":{
  *   "type": "DataIntegrityProof,
  *   "cryptosuite": "schnorr-secp256k1-jcs-2025,
- *   "verificationMethod": "did:btc1:k1qqpuwwde82nennsavvf0lqfnlvx7frrgzs57lchr02q8mz49qzaaxmqphnvcx#initialKey,
- *   "invocationTarget": "did:btc1:k1qqpuwwde82nennsavvf0lqfnlvx7frrgzs57lchr02q8mz49qzaaxmqphnvcx,
- *   "capability": "urn:zcap:root:did%3Abtc1%3Ak1qqpuwwde82nennsavvf0lqfnlvx7frrgzs57lchr02q8mz49qzaaxmqphnvcx,
+ *   "verificationMethod": "did:btcr2:k1qqpuwwde82nennsavvf0lqfnlvx7frrgzs57lchr02q8mz49qzaaxmqphnvcx#initialKey,
+ *   "invocationTarget": "did:btcr2:k1qqpuwwde82nennsavvf0lqfnlvx7frrgzs57lchr02q8mz49qzaaxmqphnvcx,
+ *   "capability": "urn:zcap:root:did%3Abtcr2%3Ak1qqpuwwde82nennsavvf0lqfnlvx7frrgzs57lchr02q8mz49qzaaxmqphnvcx,
  *   "capabilityAction": "Write,
  *   "proofPurpose": "assertionMethod,
  *   "proofValue": "z381yXYmxU8NudZ4HXY56DfMN6zfD8syvWcRXzT9xD9uYoQToo8QsXD7ahM3gXTzuay5WJbqTswt2BKaGWYn2hHhVFKJLXaD
@@ -89,7 +89,7 @@ export interface DidUpdatePayload {
      * A proof object (Data Integrity proof) that authorizes this update.
      * It is a JSON-LD proof indicating a capability invocation on the DID's
      * root capability, typically signed with the DID's verification key (using
-     * Schnorr secp256k1 in did:btc1).
+     * Schnorr secp256k1 in did:btcr2).
      */
     proof?: Proof;
 }
@@ -99,24 +99,24 @@ export interface DidUpdatePayload {
  * Data Integrity proof that authorizes the update. Once signed, the spec calls
  * this an 'invoked DID Update Payload' or 'didUpdateInvocation'.
  *
- * DID BTC1
- * {@link https://dcdpr.github.io/did-btc1/#invoke-did-update-payload | 4.3.2 Invoke DID Update Payload}
+ * DID BTCR2
+ * {@link https://dcdpr.github.io/did-btcr2/#invoke-did-update-payload | 4.3.2 Invoke DID Update Payload}
  * and
- * {@link https://dcdpr.github.io/did-btc1/#root-didbtc1-update-capabilities | 9.4 Root did:btc1 Update Capabilities}.
+ * {@link https://dcdpr.github.io/did-btcr2/#root-didbtcr2-update-capabilities | 9.4 Root did:btcr2 Update Capabilities}.
  */
 export interface DidUpdateInvocation extends DidUpdatePayload {
   proof: Proof;
 }
 
 /**
- * Proof is the Data Integrity proof (ZCAP-LD style) added to a did:btc1 DID
+ * Proof is the Data Integrity proof (ZCAP-LD style) added to a did:btcr2 DID
  * Update Payload.
  *
  * Verifiable Credential Data Integrity
  * {@link https://w3c.github.io/vc-data-integrity/#proofs | 2.1 Proofs}.
  *
- * DID BTC1
- * {@link https://dcdpr.github.io/did-btc1/#invoke-did-update-payload | 4.3.2 Invoke DID Update Payload}.
+ * DID BTCR2
+ * {@link https://dcdpr.github.io/did-btcr2/#invoke-did-update-payload | 4.3.2 Invoke DID Update Payload}.
  */
 export interface Proof extends ProofOptions {
   /**
@@ -129,13 +129,13 @@ export interface Proof extends ProofOptions {
 
 /**
  * Proof Options used when adding a Data Integrity proof (ZCAP-LD style)
- * to a did:btc1 DID Update Payload.
+ * to a did:btcr2 DID Update Payload.
  *
  * Verifiable Credential Data Integrity
  * {@link https://w3c.github.io/vc-data-integrity/#proofs | 2.1 Proofs}.
  *
- * DID BTC1
- * {@link https://dcdpr.github.io/did-btc1/#invoke-did-update-payload | 4.3.2 Invoke DID Update Payload}.
+ * DID BTCR2
+ * {@link https://dcdpr.github.io/did-btcr2/#invoke-did-update-payload | 4.3.2 Invoke DID Update Payload}.
  */
 export interface ProofOptions {
   /**
@@ -160,7 +160,7 @@ export interface ProofOptions {
   proofPurpose: string;
 
   /**
-   * The root capability being invoked. In did:btc1, this is typically
+   * The root capability being invoked. In did:btcr2, this is typically
    * `urn:zcap:root:<urlencoded-did>` (see Section 9.4.1).
    */
   capability?: string;
@@ -182,18 +182,18 @@ export interface ProofOptions {
 }
 
 /**
- * A JSON object that maps did:btc1 identifiers to the CID of the corresponding
+ * A JSON object that maps did:btcr2 identifiers to the CID of the corresponding
  * DID Update Payload.
  *
- * DID BTC1
- * {@link https://dcdpr.github.io/did-btc1/#cidaggregate-beacon | 5.2 CIDAggregate Beacons}.
+ * DID BTCR2
+ * {@link https://dcdpr.github.io/did-btcr2/#cidaggregate-beacon | 5.2 CIDAggregate Beacons}.
  */
 export interface DidUpdateBundle {
   /**
-   * The keys are did:btc1 identifiers as strings. The values are
+   * The keys are did:btcr2 identifiers as strings. The values are
    * IPFS CIDs (or other CAS IDs) referencing the actual DID Update Payload.
    */
-  [didBtc1Identifier: string]: string;
+  [didbtcr2Identifier: string]: string;
 }
 
 /**
@@ -201,15 +201,15 @@ export interface DidUpdateBundle {
  * initial DID document if it isn't stored in IPFS, plus references for each
  * on-chain Beacon signal.
  *
- * DID BTC1
- * {@link https://dcdpr.github.io/did-btc1/#sidecar-initial-document-validation | 4.2.1.2.1 Sidecar Initial Document Validation},
- * {@link https://dcdpr.github.io/did-btc1/#resolve-target-document | 4.2.2 Resolve Target Document},
- * {@link https://dcdpr.github.io/did-btc1/#traverse-blockchain-history | 4.2.2.2 Traverse Blockchain History},
- * {@link https://dcdpr.github.io/did-btc1/#find-next-signals | 4.2.2.3 Find Next Signals}.
+ * DID BTCR2
+ * {@link https://dcdpr.github.io/did-btcr2/#sidecar-initial-document-validation | 4.2.1.2.1 Sidecar Initial Document Validation},
+ * {@link https://dcdpr.github.io/did-btcr2/#resolve-target-document | 4.2.2 Resolve Target Document},
+ * {@link https://dcdpr.github.io/did-btcr2/#traverse-blockchain-history | 4.2.2.2 Traverse Blockchain History},
+ * {@link https://dcdpr.github.io/did-btcr2/#find-next-signals | 4.2.2.3 Find Next Signals}.
  */
 export interface SidecarData {
   /**
-   * The initial DID Document for an externally created did:btc1,
+   * The initial DID Document for an externally created did:btcr2,
    * if not fetched from IPFS or another CAS.
    */
   initialDocument?: Record<string, any>; // or a typed DIDDocument from W3C DID Core
@@ -219,7 +219,7 @@ export interface SidecarData {
    * Each signal might provide a single DID Update Payload, or (for aggregator beacons)
    * a bundle or proofs.
    */
-  signalsMetadata?: {
+  signalsMetadata: {
     [txid: string]: SignalSidecarData;
   };
 }
@@ -243,8 +243,8 @@ export interface SignalSidecarData {
 /**
  * A placeholder for the actual Sparse Merkle Tree inclusion/non-inclusion proof.
  *
- * DID BTC1
- * {@link https://dcdpr.github.io/did-btc1/#smtaggregate-beacon | 5.3 SMTAggregate Beacon}.
+ * DID BTCR2
+ * {@link https://dcdpr.github.io/did-btcr2/#smtaggregate-beacon | 5.3 SMTAggregate Beacon}.
  */
 export interface SmtProof {
   // Implementation-specific structure for SMT proofs, e.g.:
@@ -264,10 +264,10 @@ export type BeaconType =
  * Represents a transaction discovered on the Bitcoin blockchain that
  * spends from a Beacon address, thus announcing DID updates.
  *
- * DID BTC1
- * {@link https://dcdpr.github.io/did-btc1/#find-next-signals | 4.2.2.3 Find Next Signals}
+ * DID BTCR2
+ * {@link https://dcdpr.github.io/did-btcr2/#find-next-signals | 4.2.2.3 Find Next Signals}
  * and
- * {@link https://dcdpr.github.io/did-btc1/#process-beacon-signals | 4.2.2.4 Process Beacon Signals}.
+ * {@link https://dcdpr.github.io/did-btcr2/#process-beacon-signals | 4.2.2.4 Process Beacon Signals}.
  */
 export interface BeaconSignal {
   /**
@@ -288,22 +288,22 @@ export interface BeaconSignal {
 }
 
 /**
- * A ZCAP-LD root capability object that authorizes updates for a particular did:btc1.
+ * A ZCAP-LD root capability object that authorizes updates for a particular did:btcr2.
  *
- * DID BTC1
- * {@link https://dcdpr.github.io/did-btc1/#derive-root-capability-from-didbtc1-identifier | 9.4.1 Derive Root Capability from did:btc1 Identifier}.
+ * DID BTCR2
+ * {@link https://dcdpr.github.io/did-btcr2/#derive-root-capability-from-didbtcr2-identifier | 9.4.1 Derive Root Capability from did:btcr2 Identifier}.
  *
- * @example Found in DID BTC1 Specification Section 9.4.1
+ * @example Found in DID BTCR2 Specification Section 9.4.1
  * ```
  * {
  *   "@context": "https://w3id.org/zcap/v1",
- *   "id": "urn:zcap:root:did%3Abtc1%3Ak1qq...",
- *   "controller": "did:btc1:k1qq...",
- *   "invocationTarget": "did:btc1:k1qq..."
+ *   "id": "urn:zcap:root:did%3Abtcr2%3Ak1qq...",
+ *   "controller": "did:btcr2:k1qq...",
+ *   "invocationTarget": "did:btcr2:k1qq..."
  * }
  * ```
  */
-export interface DidBtc1RootCapability {
+export interface DidBtcr2RootCapability {
   '@context': string | string[]; // e.g. "https://w3id.org/zcap/v1"
   id: string;                    // e.g. "urn:zcap:root:<urlencoded-did>"
   controller: string;           // the DID

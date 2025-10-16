@@ -1,5 +1,5 @@
 import {
-  Btc1Error,
+  MethodError,
   CanonicalizedProofConfig,
   CryptosuiteError,
   DidUpdateInvocation,
@@ -10,14 +10,13 @@ import {
   PROOF_VERIFICATION_ERROR,
   ProofOptions,
   SignatureBytes
-} from '@did-btc1/common';
+} from '@did-btcr2/common';
 import { sha256 } from '@noble/hashes/sha2';
 import { base58btc } from 'multiformats/bases/base58';
 import { DataIntegrityProof } from '../data-integrity-proof/index.js';
 import { SchnorrMultikey } from '../multikey/index.js';
 import {
   CreateProofParams,
-  CryptosuiteParams,
   GenerateHashParams,
   ICryptosuite,
   ProofSerializationParams,
@@ -26,9 +25,14 @@ import {
   VerificationResult
 } from './interface.js';
 
+export interface CryptosuiteParams {
+  type?: 'DataIntegrityProof';
+  cryptosuite: 'bip340-jcs-2025' | 'bip340-rdfc-2025';
+  multikey: SchnorrMultikey;
+}
+
 /**
- * Implements
- * {@link https://dcdpr.github.io/data-integrity-schnorr-secp256k1/#instantiate-cryptosuite | 3.1 Instantiate Cryptosuite}
+ * Implements {@link https://dcdpr.github.io/data-integrity-schnorr-secp256k1/#instantiate-cryptosuite | 3.1 Instantiate Cryptosuite}
  *
  * The Instantiate Cryptosuite algorithm is used to configure a cryptographic suite to be used by the Add Proof and
  * Verify Proof functions in Verifiable Credential Data Integrity 1.0. The algorithm takes an options object
@@ -87,7 +91,6 @@ export class Cryptosuite implements ICryptosuite {
     this.algorithm = cryptosuite.includes('rdfc') ? 'rdfc' : 'jcs';
     JSON.canonicalization.algorithm = this.algorithm;
   }
-
 
   /**
    * Constructs an instance of DataIntegrityProof from the current Cryptosuite instance.
@@ -184,14 +187,14 @@ export class Cryptosuite implements ICryptosuite {
    * @param {DocumentParams} params.document The document to transform: secure or insecure.
    * @param {ProofOptions} params.options The options to use when transforming the proof.
    * @returns {string} The canonicalized document.
-   * @throws {Btc1Error} if the document cannot be transformed.
+   * @throws {MethodError} if the document cannot be transformed.
    */
   public async transformDocument({ document, options }: TransformDocumentParams): Promise<string> {
     // Get the type from the options and check:
     // If the options type does not match this type, throw error
     const type = options.type;
     if (type !== this.type) {
-      throw new Btc1Error(
+      throw new MethodError(
         `Type mismatch between config and this: ${type} !== ${this.type}`,
         PROOF_VERIFICATION_ERROR,
         options
@@ -202,7 +205,7 @@ export class Cryptosuite implements ICryptosuite {
     // If the options cryptosuite does not match this cryptosuite, throw error
     const { cryptosuite } = options;
     if (cryptosuite !== this.cryptosuite) {
-      throw new Btc1Error(
+      throw new MethodError(
         `Cryptosuite mismatch between config and this: ${cryptosuite} !== ${this.cryptosuite}`,
         PROOF_VERIFICATION_ERROR,
         options
@@ -238,7 +241,7 @@ export class Cryptosuite implements ICryptosuite {
    * Configure the proof by canonicalzing it.
    * @param {ProofOptions} options The options to use when transforming the proof.
    * @returns {string} The canonicalized proof configuration.
-   * @throws {Btc1Error} if the proof configuration cannot be canonicalized.
+   * @throws {MethodError} if the proof configuration cannot be canonicalized.
    */
   public async proofConfiguration(options: ProofOptions): Promise<CanonicalizedProofConfig> {
     // Get the type from the options
@@ -269,7 +272,7 @@ export class Cryptosuite implements ICryptosuite {
    * @param {HashBytes} params.hash The canonicalized proof configuration.
    * @param {ProofOptions} params.options The options to use when serializing the proof.
    * @returns {SignatureBytes} The serialized proof.
-   * @throws {Btc1Error} if the multikey does not match the verification method.
+   * @throws {MethodError} if the multikey does not match the verification method.
    */
   public proofSerialization({ hash, options }: ProofSerializationParams): SignatureBytes {
     // Get the verification method from the options
@@ -291,7 +294,7 @@ export class Cryptosuite implements ICryptosuite {
    * @param {SignatureBytes} params.signature The serialized proof.
    * @param {ProofOptions} params.options The options to use when verifying the proof.
    * @returns {boolean} True if the proof is verified, false otherwise.
-   * @throws {Btc1Error} if the multikey does not match the verification method.
+   * @throws {MethodError} if the multikey does not match the verification method.
    */
   public proofVerification({ hash, signature, options }: ProofVerificationParams): boolean {
     // Get the verification method from the options

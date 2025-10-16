@@ -1,4 +1,4 @@
-import { PrivateKeyUtils, PublicKeyUtils } from '@did-btc1/keypair';
+import { PrivateKeyUtils, PublicKeyUtils } from '@did-btcr2/keypair';
 
 const SECRET = 52464508790539176856770556715241483442035423615466097401201513777400180778402n;
 console.log('SECRET', SECRET);

@@ -1,0 +1,10 @@
+{
+    "genesisKey": {
+        "sk": "b5e1cc40522bdd562790f39582e5e81867da38988735cb1d4fd7401f9b98c51a",
+        "pk": "03e47dd0adaf09099f23d2a0990951411713f52d6566df1be33fa62096b44928af"
+    },
+    "replacementKey": {
+        "sk": "b67d0803acc51932871fe03c814a333ff57749bc36ebb83a774aeb4465dae3e3",
+        "pk": "026e8cb06c5b75451cba121e6e47ff50cf930675e7d02c2bc882292e0d3c5e9294"
+    }
+}

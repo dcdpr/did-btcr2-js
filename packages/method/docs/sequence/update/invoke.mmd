@@ -1,0 +1,39 @@
+sequenceDiagram
+  title 5.3.2 Invoke BTCR2 Update
+  autonumber
+
+  participant Invoke as Btc1Update.invoke
+  participant KMS as Btc1KeyManager
+  participant Multi as SchnorrMultikey
+  participant Appendix as Btc1Appendix
+
+  %% == Inputs ==
+  Note over Invoke: Inputs
+  Invoke->>Invoke: (identifier, unsecuredBtc1Update, verificationMethod)
+
+  %% == Validate inputs ==
+  alt missing publicKeyMultibase
+    Invoke-->>Invoke: throw Btc1Error(INVALID_PUBLIC_KEY_TYPE)\nreturn
+  end
+
+  %% == Try to obtain private key ==
+  Invoke->>KMS: getKeyPair(verificationMethod.id)
+  alt key exists in KMS
+    KMS-->>Invoke: SchnorrMultikey
+  else key not in KMS
+    alt verificationMethod.secretKeyMultibase present
+      Invoke->>Multi: initialize({ id, controller,<br/>keys: SecretKey.decode(secretKeyMultibase) })
+      Multi-->>Invoke: SchnorrMultikey
+    else no key material available
+      Invoke-->>Invoke: throw Btc1Error(NOT_FOUND)\nreturn
+    end
+  end
+
+  %% == Build capability + proof options ==
+  Invoke->>Appendix: deriveRootCapability(identifier)
+  Appendix-->>Invoke: rootCapability
+  Invoke->>Multi: .toCryptosuite("bip340-{jcs|rdfc}-2025")<br>.toDataIntegrityProof()
+  Invoke->>Multi: addProof(document=unsecuredBtc1Update,<br/>options={type: "DataIntegrityProof",<br/>cryptosuite: "bip340-{jcs|rdfc}-2025",<br/>proofPurpose: "capabilityInvocation",<br/>capability: rootCapability.id,<br/>capabilityAction: "Write"})
+  Multi-->>Invoke: btc1Update
+
+  Invoke-->>Invoke: return btc1Update

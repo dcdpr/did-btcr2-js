@@ -1,0 +1,14 @@
+sequenceDiagram
+    title 4.2 Resolve
+    participant Resolver as DID Resolver
+    participant Resolve as BTC1Resolve
+    participant Decode as Identifier Decoding
+
+    note over Resolver: DID Controller<br/>provides identifier to<br/>DID Resolver
+
+    Resolver->>Resolve: Resolve(identifier, options)
+    Resolve->>Decode: Decode(identifier)
+    Decode-->>Resolve: {didComponents}
+    Resolve-->>Resolve: ResolveInitialDocument(identifier, didComponents, options?)
+    Resolve-->>Resolve: ResolveTargetDocument(initialDocument, options?)
+    Resolve-->>Resolver: {didResolutionResult}

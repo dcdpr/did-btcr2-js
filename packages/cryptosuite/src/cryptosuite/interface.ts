@@ -7,14 +7,8 @@ import {
   Proof,
   ProofOptions,
   SignatureBytes
-} from '@did-btc1/common';
+} from '@did-btcr2/common';
 import { SchnorrMultikey } from '../multikey/index.js';
-
-export interface CryptosuiteParams {
-  type?: 'DataIntegrityProof';
-  cryptosuite: 'bip340-jcs-2025' | 'bip340-rdfc-2025';
-  multikey: SchnorrMultikey;
-}
 
 export interface CreateProofParams {
   options: ProofOptions;
@@ -85,7 +79,7 @@ export interface ICryptosuite {
    * @param {DocumentParams} params.document The document to transform: secure or insecure.
    * @param {ProofOptions} params.options The options to use when transforming the proof.
    * @returns {string} The canonicalized document.
-   * @throws {Btc1Error} if the document cannot be transformed.
+   * @throws {MethodError} if the document cannot be transformed.
    */
   transformDocument({ document, options }: TransformDocumentParams): Promise<string>;
 
@@ -102,7 +96,7 @@ export interface ICryptosuite {
    * Configure the proof by canonicalzing it.
    * @param {ProofOptions} options The options to use when transforming the proof.
    * @returns {string} The canonicalized proof configuration.
-   * @throws {Btc1Error} if the proof configuration cannot be canonicalized.
+   * @throws {MethodError} if the proof configuration cannot be canonicalized.
    */
   proofConfiguration(options: ProofOptions): Promise<CanonicalizedProofConfig>;
 
@@ -112,7 +106,7 @@ export interface ICryptosuite {
    * @param {HashBytes} params.hash The canonicalized proof configuration.
    * @param {ProofOptions} params.options The options to use when serializing the proof.
    * @returns {SignatureBytes} The serialized proof.
-   * @throws {Btc1Error} if the multikey does not match the verification method.
+   * @throws {MethodError} if the multikey does not match the verification method.
    */
   proofSerialization({ hash, options }: ProofSerializationParams): SignatureBytes;
 
@@ -123,7 +117,7 @@ export interface ICryptosuite {
    * @param {SignatureBytes} params.signature The serialized proof.
    * @param {ProofOptions} params.options The options to use when verifying the proof.
    * @returns {boolean} True if the proof is verified, false otherwise.
-   * @throws {Btc1Error} if the multikey does not match the verification method.
+   * @throws {MethodError} if the multikey does not match the verification method.
    */
   proofVerification({ hash, signature, options }: ProofVerificationParams): boolean;
 }

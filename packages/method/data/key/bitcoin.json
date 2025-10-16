@@ -1,0 +1,54 @@
+{
+  "did": "did:btcr2:k1qqpkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5dsaaw53r",
+  "initialDocument": {
+    "id": "did:btcr2:k1qqpkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5dsaaw53r",
+    "controller": [
+      "did:btcr2:k1qqpkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5dsaaw53r"
+    ],
+    "@context": [
+      "https://www.w3.org/TR/did-1.1",
+      "https://btcr2.dev/context/v1"
+    ],
+    "verificationMethod": [
+      {
+        "id": "did:btcr2:k1qqpkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5dsaaw53r#initialKey",
+        "type": "Multikey",
+        "controller": "did:btcr2:k1qqpkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5dsaaw53r",
+        "publicKeyMultibase": "zQ3shmErrWMPe8mMpTEkzJW23YYh3xSFdP1uAkPfoHHAZ64Qm"
+      }
+    ],
+    "authentication": [
+      "did:btcr2:k1qqpkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5dsaaw53r#initialKey"
+    ],
+    "assertionMethod": [
+      "did:btcr2:k1qqpkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5dsaaw53r#initialKey"
+    ],
+    "capabilityInvocation": [
+      "did:btcr2:k1qqpkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5dsaaw53r#initialKey"
+    ],
+    "capabilityDelegation": [
+      "did:btcr2:k1qqpkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5dsaaw53r#initialKey"
+    ],
+    "service": [
+      {
+        "type": "SingletonBeacon",
+        "id": "did:btcr2:k1qqpkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5dsaaw53r#initialP2PKH",
+        "serviceEndpoint": "bitcoin:1H88u4QooyH8nQa62M4Yq9paenYkho8SQw"
+      },
+      {
+        "type": "SingletonBeacon",
+        "id": "did:btcr2:k1qqpkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5dsaaw53r#initialP2WPKH",
+        "serviceEndpoint": "bitcoin:bc1qkrdcgnhztushvx7jvgtcejkfk6fjs7gv0cg80f"
+      },
+      {
+        "type": "SingletonBeacon",
+        "id": "did:btcr2:k1qqpkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5dsaaw53r#initialP2TR",
+        "serviceEndpoint": "bitcoin:bc1p6cz4t2zmy26tzllrn75slx3urpaquzr3emd7990sh2dcceal3vdsnsc9ft"
+      }
+    ]
+  },
+  "keyPair": {
+    "secret": "80d5427d3191c13a0c8e7279abc538a31a1ea210158d38022a80b2fac1660a79",
+    "public": "03620d4fb8d5c40b0dc2f9fd84636d85487e51ecf55fbcd5ccf08c6ac148bc8a36"
+  }
+}

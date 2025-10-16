@@ -1,8 +1,8 @@
-import { KeyPairError } from '@did-btc1/common';
+import { KeyPairError } from '@did-btcr2/common';
 import { expect } from 'chai';
 import { SchnorrKeyPair } from '../src/pair.js';
-import { PublicKey } from '../src/public.js';
-import { SecretKey } from '../src/secret.js';
+import { CompressedSecp256k1PublicKey } from '../src/public.js';
+import { Secp256k1SecretKey } from '../src/secret.js';
 
 describe('SchnorrKeyPair instantiated', () => {
   const bytes = {
@@ -36,13 +36,13 @@ describe('SchnorrKeyPair instantiated', () => {
       expect(keys).to.be.instanceOf(SchnorrKeyPair);
     });
 
-    it('should have property secretKey as an instanceOf SecretKey with matching bytes', () => {
-      expect(keys.secretKey).to.be.instanceOf(SecretKey);
+    it('should have property secretKey as an instanceOf Secp256k1SecretKey with matching bytes', () => {
+      expect(keys.secretKey).to.be.instanceOf(Secp256k1SecretKey);
       expect(keys.secretKey.bytes).to.deep.equal(bytes.secretKey);
     });
 
-    it('should have property publicKey as an instanceOf PublicKey with matching bytes', () => {
-      expect(keys.publicKey).to.be.instanceOf(PublicKey);
+    it('should have property publicKey as an instanceOf CompressedSecp256k1PublicKey with matching bytes', () => {
+      expect(keys.publicKey).to.be.instanceOf(CompressedSecp256k1PublicKey);
       expect(keys.publicKey.compressed).to.deep.equal(bytes.publicKey);
     });
   });
@@ -58,8 +58,8 @@ describe('SchnorrKeyPair instantiated', () => {
       expect(() => keys.secretKey).to.throw(KeyPairError, 'Secret key not available');
     });
 
-    it('should have property publicKey as an instanceOf PublicKey with matching bytes', () => {
-      expect(keys.publicKey).to.be.instanceOf(PublicKey);
+    it('should have property publicKey as an instanceOf CompressedSecp256k1PublicKey with matching bytes', () => {
+      expect(keys.publicKey).to.be.instanceOf(CompressedSecp256k1PublicKey);
       expect(keys.publicKey.compressed).to.deep.equal(bytes.publicKey);
     });
   });
@@ -71,19 +71,19 @@ describe('SchnorrKeyPair instantiated', () => {
       expect(keys).to.be.instanceOf(SchnorrKeyPair);
     });
 
-    it('should have property secretKey as an instanceOf SecretKey with matching bytes', () => {
-      expect(keys.secretKey).to.be.instanceOf(SecretKey);
+    it('should have property secretKey as an instanceOf Secp256k1SecretKey with matching bytes', () => {
+      expect(keys.secretKey).to.be.instanceOf(Secp256k1SecretKey);
       expect(keys.secretKey.bytes).to.deep.equal(bytes.secretKey);
     });
 
-    it('should have property publicKey as an instanceOf PublicKey with matching bytes', () => {
-      expect(keys.publicKey).to.be.instanceOf(PublicKey);
+    it('should have property publicKey as an instanceOf CompressedSecp256k1PublicKey with matching bytes', () => {
+      expect(keys.publicKey).to.be.instanceOf(CompressedSecp256k1PublicKey);
       expect(keys.publicKey.compressed).to.deep.equal(bytes.publicKey);
     });
   });
 
-  describe('with SecretKey', () => {
-    const secretKey = new SecretKey(bytes.secretKey);
+  describe('with Secp256k1SecretKey', () => {
+    const secretKey = new Secp256k1SecretKey(bytes.secretKey);
     const keys = new SchnorrKeyPair({ secretKey });
 
     it('should construct a new SchnorrKeyPair', () => {
@@ -91,13 +91,13 @@ describe('SchnorrKeyPair instantiated', () => {
     });
 
     it('should contain properties keys.secretKey and keys.publicKey', () => {
-      expect(keys.secretKey).to.be.instanceOf(SecretKey);
-      expect(keys.publicKey).to.be.instanceOf(PublicKey);
+      expect(keys.secretKey).to.be.instanceOf(Secp256k1SecretKey);
+      expect(keys.publicKey).to.be.instanceOf(CompressedSecp256k1PublicKey);
     });
   });
 
-  describe('with PublicKey', () => {
-    const publicKey = new PublicKey(bytes.publicKey);
+  describe('with CompressedSecp256k1PublicKey', () => {
+    const publicKey = new CompressedSecp256k1PublicKey(bytes.publicKey);
     const keys = new SchnorrKeyPair({ publicKey });
 
     it('should construct a new SchnorrKeyPair', () => {
@@ -105,15 +105,15 @@ describe('SchnorrKeyPair instantiated', () => {
     });
 
     it('should contain property keys.publicKey and should not contain property keys.secretKey', () => {
-      expect(keys.publicKey).to.be.instanceOf(PublicKey);
+      expect(keys.publicKey).to.be.instanceOf(CompressedSecp256k1PublicKey);
       expect(() => keys.secretKey).to.throw(KeyPairError, 'Secret key not available');
     });
   });
 
 
-  describe('with SecretKey and PublicKey', () => {
-    const secretKey = new SecretKey(bytes.secretKey);
-    const publicKey = new PublicKey(bytes.publicKey);
+  describe('with Secp256k1SecretKey and CompressedSecp256k1PublicKey', () => {
+    const secretKey = new Secp256k1SecretKey(bytes.secretKey);
+    const publicKey = new CompressedSecp256k1PublicKey(bytes.publicKey);
     const keys = new SchnorrKeyPair({ secretKey, publicKey });
 
     it('should construct a new SchnorrKeyPair', () => {
@@ -121,8 +121,8 @@ describe('SchnorrKeyPair instantiated', () => {
     });
 
     it('should construct', () => {
-      expect(keys.secretKey).to.be.instanceOf(SecretKey);
-      expect(keys.publicKey).to.be.instanceOf(PublicKey);
+      expect(keys.secretKey).to.be.instanceOf(Secp256k1SecretKey);
+      expect(keys.publicKey).to.be.instanceOf(CompressedSecp256k1PublicKey);
     });
   });
 });

@@ -1,4 +1,4 @@
-import { SchnorrKeyPair } from '@did-btc1/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { base58btc } from 'multiformats/bases/base58';
 import { Cryptosuite, DataIntegrityProof, Multikey } from '../../src/index.js';
 
@@ -25,7 +25,7 @@ const securedDocument = {
   proof           : {
     type               : 'DataIntegrityProof',
     cryptosuite        : 'bip340-jcs-2025',
-    verificationMethod : 'did:btc1:regtest:k1qdh2ef3aqne63sdhq8tr7c8zv9lyl5xy4llj8uw3ejfj5xsuhcacjq98ccc#initialKey',
+    verificationMethod : 'did:btcr2:regtest:k1qdh2ef3aqne63sdhq8tr7c8zv9lyl5xy4llj8uw3ejfj5xsuhcacjq98ccc#initialKey',
     proofPurpose       : 'capabilityInvocation',
     capability         : 'urn:zcap:root:did%3Abtc1%3Aregtest%3Ak1qdh2ef3aqne63sdhq8tr7c8zv9lyl5xy4llj8uw3ejfj5xsuhcacjq98ccc',
     capabilityAction   : 'Write',
@@ -38,7 +38,7 @@ const securedDocument = {
   }
 };
 const id = '#initialKey';
-const controller = 'did:btc1:regtest:k1qdh2ef3aqne63sdhq8tr7c8zv9lyl5xy4llj8uw3ejfj5xsuhcacjq98ccc';
+const controller = 'did:btcr2:regtest:k1qdh2ef3aqne63sdhq8tr7c8zv9lyl5xy4llj8uw3ejfj5xsuhcacjq98ccc';
 const publicKeyMultibase = 'zQ3shn68faoXE2EqCTtefQXNLgaTa7ZohG2ftZjgXphStJsGc';
 const publicKey = base58btc.decode(publicKeyMultibase).slice(2);
 console.log('publicKey', publicKey);

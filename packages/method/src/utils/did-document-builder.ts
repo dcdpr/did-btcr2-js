@@ -1,11 +1,11 @@
-import { DidDocumentError, INVALID_DID_DOCUMENT } from '@did-btc1/common';
+import { DidDocumentError, INVALID_DID_DOCUMENT } from '@did-btcr2/common';
 import { BeaconService } from '../interfaces/ibeacon.js';
-import { Btc1DidDocument, Btc1VerificationMethod } from './did-document.js';
+import { DidDocument, DidVerificationMethod } from './did-document.js';
 
-export class Btc1DidDocumentBuilder {
-  private document: Partial<Btc1DidDocument> = {};
+export class DidDocumentBuilder {
+  private document: Partial<DidDocument> = {};
 
-  constructor(initialDocument: Partial<Btc1DidDocument>) {
+  constructor(initialDocument: Partial<DidDocument>) {
     if (!initialDocument.id) {
       throw new DidDocumentError('Missing required "id" property', INVALID_DID_DOCUMENT, initialDocument);
     }
@@ -24,28 +24,28 @@ export class Btc1DidDocumentBuilder {
     return this;
   }
 
-  withAuthentication(authentication: Array<string | Btc1VerificationMethod>): this {
+  withAuthentication(authentication: Array<string | DidVerificationMethod>): this {
     if (authentication) {
       this.document.authentication = authentication;
     }
     return this;
   }
 
-  withAssertionMethod(assertionMethod: Array<string | Btc1VerificationMethod>): this {
+  withAssertionMethod(assertionMethod: Array<string | DidVerificationMethod>): this {
     if (assertionMethod) {
       this.document.assertionMethod = assertionMethod;
     }
     return this;
   }
 
-  withCapabilityInvocation(capabilityInvocation: Array<string | Btc1VerificationMethod>): this {
+  withCapabilityInvocation(capabilityInvocation: Array<string | DidVerificationMethod>): this {
     if (capabilityInvocation) {
       this.document.capabilityInvocation = capabilityInvocation;
     }
     return this;
   }
 
-  withCapabilityDelegation(capabilityDelegation: Array<string | Btc1VerificationMethod>): this {
+  withCapabilityDelegation(capabilityDelegation: Array<string | DidVerificationMethod>): this {
     if (capabilityDelegation) {
       this.document.capabilityDelegation = capabilityDelegation;
     }
@@ -59,12 +59,12 @@ export class Btc1DidDocumentBuilder {
     return this;
   }
 
-  build(): Btc1DidDocument {
-    const didDocument = new Btc1DidDocument(this.document as Btc1DidDocument);
+  build(): DidDocument {
+    const didDocument = new DidDocument(this.document as DidDocument);
 
     for (const key of Object.keys(didDocument)) {
-      if (didDocument[key as keyof Btc1DidDocument] === undefined) {
-        delete didDocument[key as keyof Btc1DidDocument];
+      if (didDocument[key as keyof DidDocument] === undefined) {
+        delete didDocument[key as keyof DidDocument];
       }
     }
 

@@ -22,7 +22,7 @@ console.log('keyPair.publicKey.uncompressed', keyPair.publicKey.uncompressed);
 console.log('keyPair.publicKey.x', keyPair.publicKey.x);
 console.log('keyPair.publicKey.y', keyPair.publicKey.y);
 const id = '#initialKey';
-const controller = 'did:btc1:k1qvddh3hl7n5czluwhz9ry35tunkhtldhgr66zp907ewg4l7p6u786tz863a';
+const controller = 'did:btcr2:k1qvddh3hl7n5czluwhz9ry35tunkhtldhgr66zp907ewg4l7p6u786tz863a';
 
 const mk = keyPair.toMultikey({ id, controller });
 console.log('mk', mk);

@@ -11,7 +11,7 @@
                     "op": "replace",
                     "path": "/service/0",
                     "value": {
-                        "id": "did:btc1:k1qypdnfyh7j8z87wk3vylqaz9t8psnkws8k5e2ccl9c0zqwwt5uyjeeg7f3knj#initialP2PKH",
+                        "id": "did:btcr2:k1qypdnfyh7j8z87wk3vylqaz9t8psnkws8k5e2ccl9c0zqwwt5uyjeeg7f3knj#initialP2PKH",
                         "type": "SingletonBeacon",
                         "serviceEndpoint": "bitcoin:msHx5bq4xcf2trYjcdYv9n3i823ujfRfiQ"
                     }
@@ -23,7 +23,7 @@
             "proof": {
                 "cryptosuite": "bip340-jcs-2025",
                 "type": "DataIntegrityProof",
-                "verificationMethod": "did:btc1:k1qypdnfyh7j8z87wk3vylqaz9t8psnkws8k5e2ccl9c0zqwwt5uyjeeg7f3knj#initialKey",
+                "verificationMethod": "did:btcr2:k1qypdnfyh7j8z87wk3vylqaz9t8psnkws8k5e2ccl9c0zqwwt5uyjeeg7f3knj#initialKey",
                 "proofPurpose": "capabilityInvocation",
                 "capability": "urn:zcap:root:did%3Abtc1%3Ak1qypdnfyh7j8z87wk3vylqaz9t8psnkws8k5e2ccl9c0zqwwt5uyjeeg7f3knj",
                 "capabilityAction": "Write",

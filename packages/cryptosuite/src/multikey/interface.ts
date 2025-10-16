@@ -1,5 +1,5 @@
-import { KeyBytes, SchnorrKeyPairObject, MessageBytes, SignatureBytes } from '@did-btc1/common';
-import { SchnorrKeyPair, PublicKey, SecretKey } from '@did-btc1/keypair';
+import { KeyBytes, SchnorrKeyPairObject, MessageBytes, SignatureBytes } from '@did-btcr2/common';
+import { SchnorrKeyPair, CompressedSecp256k1PublicKey, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { DidVerificationMethod } from '@web5/dids';
 
 export type MultikeyObject = {
@@ -21,9 +21,6 @@ export interface FromSecretKey extends DidParams {
 export interface FromPublicKey extends DidParams {
   publicKeyBytes: KeyBytes;
 }
-export interface MultikeyParams extends DidParams {
-  keys?: SchnorrKeyPair;
-}
 export interface FromPublicKeyMultibaseParams extends DidParams {
   publicKeyMultibase: string;
 }
@@ -42,11 +39,11 @@ export interface Multikey {
   /** @type {Keys} @readonly Get the keys. */
   readonly keys: SchnorrKeyPair;
 
-  /** @type {PublicKey} @readonly Get the PublicKey. */
-  readonly publicKey: PublicKey;
+  /** @type {CompressedSecp256k1PublicKey} @readonly Get the CompressedSecp256k1PublicKey. */
+  readonly publicKey: CompressedSecp256k1PublicKey;
 
-  /** @type {SecretKey} @readonly Get the SecretKey. */
-  readonly secretKey?: SecretKey;
+  /** @type {Secp256k1SecretKey} @readonly Get the Secp256k1SecretKey. */
+  readonly secretKey?: Secp256k1SecretKey;
 
   /** @type {boolean} @readonly Get signing ability of the (i.e. is there a valid secretKey). */
   readonly signer: boolean;

@@ -3,26 +3,27 @@ import {
   KeyBytes,
   KeyPairError,
   SchnorrKeyPairObject
-} from '@did-btc1/common';
-import { PublicKey } from './public.js';
-import { SecretKey } from './secret.js';
+} from '@did-btcr2/common';
+import { CompressedSecp256k1PublicKey } from './public.js';
+import { Secp256k1SecretKey } from './secret.js';
+import { HexSchnorrKeyPair, MultibaseKeys, RawSchnorrKeyPair, SchnorrKeyPairParams } from './types.js';
 
 /**
- * Interface for KeyPair class.
+ * General KeyPair interface used by SchnorrKeyPair class.
  * @interface KeyPair
  * @type {KeyPair}
  */
 export interface KeyPair {
   /**
-   * @type {PublicKey} The PublicKey associated with the SchnorrKeyPair (required).
+   * @type {CompressedSecp256k1PublicKey} The public key associated with the SchnorrKeyPair (required).
    */
-  readonly publicKey: PublicKey;
+  readonly publicKey: CompressedSecp256k1PublicKey;
 
   /**
-   * @type {SecretKey} The SecretKey associated with the SchnorrKeyPair (optional).
+   * @type {Secp256k1SecretKey} The secret key associated with the SchnorrKeyPair (optional).
    * @throws {KeyPairError} If the secret key is not available.
    */
-  readonly secretKey?: SecretKey;
+  readonly secretKey?: Secp256k1SecretKey;
 
   /**
    * JSON representation of the SchnorrKeyPair object.
@@ -31,32 +32,17 @@ export interface KeyPair {
   json(): SchnorrKeyPairObject;
 }
 
-type RawKeyPair = {
-  public: KeyBytes;
-  secret?: KeyBytes
-}
-
-/** Params for the {@link SchnorrKeyPair} constructor */
-interface KeyParams {
-  secretKey?: SecretKey | KeyBytes;
-  publicKey?: PublicKey | KeyBytes;
-}
-
-interface MultibaseKeys {
-  publicKeyMultibase: string;
-  secretKeyMultibase: string
-}
 /**
- * Encapsulates a PublicKey and a SecretKey object as a single Keys object.
+ * Encapsulates a CompressedSecp256k1PublicKey and a Secp256k1SecretKey object as a single SchnorrKeyPair object.
  * @class SchnorrKeyPair
  * @type {SchnorrKeyPair}
  */
 export class SchnorrKeyPair implements KeyPair {
-  /** @type {SecretKey} The secret key object */
-  private _secretKey?: SecretKey;
+  /** @type {Secp256k1SecretKey} The secret key object */
+  private _secretKey?: Secp256k1SecretKey;
 
-  /** @type {PublicKey} The public key object */;
-  private _publicKey: PublicKey;
+  /** @type {CompressedSecp256k1PublicKey} The public key object */;
+  private _publicKey: CompressedSecp256k1PublicKey;
 
   /** @type {string} The public key in multibase format */
   private _publicKeyMultibase: string;
@@ -66,41 +52,45 @@ export class SchnorrKeyPair implements KeyPair {
 
   /**
    * Creates an instance of Keys. Must provide a at least a secret key.
-   * Can optionally provide both a private and public key, but must be a valid pair.
-   * @param {SecretKey} secretKey The secret key object
+   * Can optionally provide both a secret and public key, but must be a valid pair.
+   * @param {SchnorrKeyPairParams} params The parameters to initialize the Keys object.
+   * @param {CompressedSecp256k1PublicKey | KeyBytes} params.publicKey The public key object or bytes
+   * @param {Secp256k1SecretKey | KeyBytes} [params.secret] The secret key object or bytes
+   * @throws {KeyPairError} If neither a public key or secret key is provided.
+   * @throws {KeyPairError} If the public key is not a valid pair with the secret key.
    */
-  constructor({ secretKey, publicKey }: KeyParams = {}) {
+  constructor(params: SchnorrKeyPairParams = {}) {
     // If no secret key or public key, throw an error
-    if (!publicKey && !secretKey) {
+    if (!params.publicKey && !params.secretKey) {
       throw new KeyPairError('Argument missing: must at least provide a publicKey', 'CONSTRUCTOR_ERROR');
     }
 
-    // Set the secret key
-    if(secretKey instanceof Uint8Array) {
-      this._secretKey = new SecretKey(secretKey);
-    } else if (secretKey instanceof SecretKey) {
-      this._secretKey = secretKey;
+    // Set the secretKey
+    if(params.secretKey instanceof Uint8Array) {
+      this._secretKey = new Secp256k1SecretKey(params.secretKey);
+    } else if (params.secretKey instanceof Secp256k1SecretKey) {
+      this._secretKey = params.secretKey;
     }
 
-    // Set the public key
-    if(publicKey instanceof PublicKey) {
-      this._publicKey = publicKey;
-    } else if (publicKey instanceof Uint8Array) {
-      this._publicKey = new PublicKey(publicKey);
+    // Set the publicKey
+    if(params.publicKey instanceof CompressedSecp256k1PublicKey) {
+      this._publicKey = params.publicKey;
+    } else if (params.publicKey instanceof Uint8Array) {
+      this._publicKey = new CompressedSecp256k1PublicKey(params.publicKey);
     } else {
-      this._publicKey = new PublicKey(this._secretKey!.computePublicKey());
+      this._publicKey = this._secretKey!.computePublicKey();
     }
 
-    this._publicKeyMultibase = this._publicKey.multibase.address;
+    this._publicKeyMultibase = this._publicKey.multibase.encoded;
     this._secretKeyMultibase = this._secretKey ? this._secretKey.multibase : '';
   }
 
   /**
-   * Get the SecretKey.
-   * @returns {SecretKey} The SecretKey object
+   * Get the Secp256k1SecretKey.
+   * @returns {Secp256k1SecretKey} The Secp256k1SecretKey object
    * @throws {KeyPairError} If the secret key is not available
    */
-  get secretKey(): SecretKey {
+  get secretKey(): Secp256k1SecretKey {
     // If the secret key is not available, throw an error
     if(!this._secretKey) {
       throw new KeyPairError('Secret key not available', 'SECRET_KEY_ERROR');
@@ -110,39 +100,44 @@ export class SchnorrKeyPair implements KeyPair {
       throw new KeyPairError('Secret key is not valid', 'SECRET_KEY_ERROR');
     }
     // Return a copy of the secret key
-    const secretKey = this._secretKey;
-    return secretKey;
+    const secret = this._secretKey;
+    return secret;
   }
 
   /**
-   * Set the PublicKey.
-   * @param {PublicKey} publicKey The PublicKey object
+   * Set the CompressedSecp256k1PublicKey.
+   * @param {CompressedSecp256k1PublicKey} publicKey The CompressedSecp256k1PublicKey object
    * @throws {KeyPairError} If the public key is not a valid pair with the secret key.
    */
-  set publicKey(publicKey: PublicKey) {
+  set publicKey(publicKey: CompressedSecp256k1PublicKey) {
     // If the public key is not a valid pair with the secret key, throw an error
-    if(this.secretKey && !this.secretKey.isValidPair(publicKey)) {
-      throw new KeyPairError('Public key is not a valid pair with the secret key', 'PUBLIC_KEY_ERROR');
+    if(this.secretKey) {
+      if(!this.secretKey.hasValidPublicKey()) {
+        throw new KeyPairError('Secret key is not valid', 'SECRET_KEY_ERROR');
+      }
+      const cPk = this.secretKey.computePublicKey();
+      if(!publicKey.equals(cPk))
+        throw new KeyPairError('Public key is not a valid pair with the secret key', 'PUBLIC_KEY_ERROR');
     }
     this._publicKey = publicKey;
-    this._publicKeyMultibase = publicKey.multibase.address;
+    this._publicKeyMultibase = publicKey.multibase.encoded;
     this._secretKeyMultibase = this._secretKey ? this._secretKey.multibase : '';
   }
 
   /**
-   * Get the PublicKey.
-   * @returns {PublicKey} The PublicKey object
+   * Get the CompressedSecp256k1PublicKey.
+   * @returns {CompressedSecp256k1PublicKey} The CompressedSecp256k1PublicKey object
    */
-  get publicKey(): PublicKey {
+  get publicKey(): CompressedSecp256k1PublicKey {
     const publicKey = this._publicKey;
     return publicKey;
   }
 
   /**
-   * Get the Keys as a raw key pair.
-   * @returns {RawKeyPair} The Keys as a raw key pair
+   * Get the `raw` bytes of each key in the SchnorrKeyPair.
+   * @returns {RawSchnorrKeyPair} JSON object with the SchnorrKeyPair raw bytes.
    */
-  get raw(): RawKeyPair {
+  get raw(): RawSchnorrKeyPair {
     return {
       public : this.publicKey.x,
       secret : this.secretKey ? this.secretKey.bytes : undefined
@@ -150,8 +145,19 @@ export class SchnorrKeyPair implements KeyPair {
   }
 
   /**
+   * Get the Keys in hex format.
+   * @returns {object} The Keys in hex format
+   */
+  get hex(): HexSchnorrKeyPair {
+    return {
+      public : this.publicKey.hex,
+      secret : this._secretKey ? this.secretKey.hex : undefined
+    };
+  }
+
+  /**
    * Get the Keys in multibase format.
-   * @returns {MultibaseKeys} The SecretKey in multibase format
+   * @returns {MultibaseKeys} The Secp256k1SecretKey in multibase format
    */
   get multibase(): MultibaseKeys {
     return {
@@ -177,50 +183,51 @@ export class SchnorrKeyPair implements KeyPair {
    * @returns {SchnorrKeyPair} The initialized Keys object.
    */
   public static fromJSON(keys: SchnorrKeyPairObject): SchnorrKeyPair {
-    const secretKey = SecretKey.fromJSON(keys.secretKey);
-    const publicKey = PublicKey.fromJSON(keys.publicKey);
-    return new SchnorrKeyPair({ secretKey, publicKey });
+    return new SchnorrKeyPair({
+      secretKey : Secp256k1SecretKey.fromJSON(keys.secretKey),
+      publicKey : CompressedSecp256k1PublicKey.fromJSON(keys.publicKey)
+    });
   }
 
   /**
-   * Static method creates a new SchnorrKeyPair from a SecretKey object or secret key bytes.
-   * @param {SecretKey | KeyBytes} data The secret key bytes
+   * Static method creates a new SchnorrKeyPair from a Secp256k1SecretKey object or secret key bytes.
+   * @param {Secp256k1SecretKey | KeyBytes} data The secret key bytes
    * @returns {SchnorrKeyPair} A new SchnorrKeyPair object
    */
-  public static fromPrivateKey(data: SecretKey | KeyBytes): SchnorrKeyPair {
+  public static fromPrivateKey(data: Secp256k1SecretKey | KeyBytes): SchnorrKeyPair {
 
-    // If the secret key is a SecretKey object, get the raw bytes else use the bytes
-    const bytes = data instanceof SecretKey ? data.bytes : data;
+    // If the secret key is a Secp256k1SecretKey object, get the raw bytes else use the bytes
+    const bytes = data instanceof Secp256k1SecretKey ? data.bytes : data;
 
     // Throw error if the secret key is not 32 bytes
     if(bytes.length !== 32) {
       throw new KeyPairError('Invalid arg: must be 32 byte secret key', 'FROM_PRIVATE_KEY_ERROR');
     }
 
-    // If pk Uint8Array, construct SecretKey object else use the object
-    const secretKey = data instanceof Uint8Array ? new SecretKey(data) : data;
-
-    // Compute the public key from the secret key
-    const publicKey = secretKey.computePublicKey();
+    // If pk Uint8Array, construct Secp256k1SecretKey object else use the object
+    const secret = data instanceof Uint8Array ? new Secp256k1SecretKey(data) : data;
 
     // Return a new Keys object
-    return new SchnorrKeyPair({ secretKey, publicKey });
+    return new SchnorrKeyPair({
+      secretKey : data instanceof Uint8Array ? new Secp256k1SecretKey(data) : data,
+      publicKey : secret.computePublicKey()
+    });
   }
 
   /**
-   * Static method creates a new Keys (SecretKey/PublicKey) bigint secret.
-   * @param {bigint} secret The secret key secret
-   * @returns {Keys} A new Keys object
+   * Static method creates a new Keys (Secp256k1SecretKey/CompressedSecp256k1PublicKey) from bigint entropy.
+   * @param {bigint} entropy The entropy in bigint form
+   * @returns {SchnorrKeyPair} A new SchnorrKeyPair object
    */
-  public static fromSecret(secret: bigint): SchnorrKeyPair {
-    const secretKey = SecretKey.fromSecret(secret);
+  public static fromEntropy(entropy: bigint): SchnorrKeyPair {
+    const secretKey = Secp256k1SecretKey.fromEntropy(entropy);
     const publicKey = secretKey.computePublicKey();
     return new SchnorrKeyPair({ secretKey, publicKey });
   }
 
   /**
    * Converts key bytes to a hex string.
-   * @param {KeyBytes} keyBytes The key bytes (private or public).
+   * @param {KeyBytes} keyBytes The key bytes (secret or public).
    * @returns {Hex} The key bytes as a hex string.
    */
   public static toHex(keyBytes: KeyBytes): Hex {
@@ -229,23 +236,23 @@ export class SchnorrKeyPair implements KeyPair {
 
   /**
    * Compares two Keys objects for equality.
-   * @param {SchnorrKeyPair} keys The main keys.
-   * @param {SchnorrKeyPair} otherKeys The other keys to compare.
+   * @param {SchnorrKeyPair} kp The main keys.
+   * @param {SchnorrKeyPair} otherKp The other keys to compare.
    * @returns {boolean} True if the public key and secret key are equal, false otherwise.
    */
-  public static equals(keys: SchnorrKeyPair, otherKeys: SchnorrKeyPair): boolean {
+  public static equals(kp: SchnorrKeyPair, otherKp: SchnorrKeyPair): boolean {
     // Deconstruct the public keys from the key pairs
-    const pk = keys.publicKey;
-    const otherPk = otherKeys.publicKey;
+    const pk = kp.publicKey;
+    const otherPk = otherKp.publicKey;
 
     // If publicKeys present, use to compare as hex strings.
     if(pk && otherPk) {
       return pk.hex === otherPk.hex;
     }
 
-    // Deconstruct the private keys from the key pairs
-    const sk = keys.secretKey;
-    const otherSk = otherKeys.secretKey;
+    // Deconstruct the secret keys from the key pairs
+    const sk = kp.secretKey;
+    const otherSk = otherKp.secretKey;
     if(sk && otherSk) {
       // Get the public key hex strings for both key pair publicKeys
       return sk.hex === otherSk.hex;
@@ -256,14 +263,14 @@ export class SchnorrKeyPair implements KeyPair {
 
   /**
    * Static method to generate a new random SchnorrKeyPair instance.
-   * @returns {SchnorrKeyPair} A new SecretKey object.
+   * @returns {SchnorrKeyPair} A new Secp256k1SecretKey object.
    */
   public static generate(): SchnorrKeyPair {
     // Generate random secret key bytes
-    const skBytes = SecretKey.random();
+    const sk = Secp256k1SecretKey.random();
 
-    // Construct a new SecretKey object
-    const secretKey = new SecretKey(skBytes);
+    // Construct a new Secp256k1SecretKey object
+    const secretKey = new Secp256k1SecretKey(sk);
 
     // Compute the public key from the secret key
     const publicKey = secretKey.computePublicKey();

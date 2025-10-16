@@ -1,5 +1,5 @@
-import { ProofOptions } from '@did-btc1/common';
-import { SchnorrKeyPair, SecretKey } from '@did-btc1/keypair';
+import { ProofOptions } from '@did-btcr2/common';
+import { SchnorrKeyPair, SecretKey } from '@did-btcr2/keypair';
 import { SchnorrMultikey } from '../../src/index.js';
 
 const unsecuredDocument = {
@@ -10,7 +10,7 @@ const unsecuredDocument = {
   id                : 'http://university.example/credentials/58473',
   type              : ['VerifiableCredential', 'ExampleAlumniCredential'],
   validFrom         : '2020-01-01T00:00:00Z',
-  issuer            : 'did:btc1:k1q2ddta4gt5n7u6d3xwhdyua57t6awrk55ut82qvurfm0qnrxx5nw7vnsy65',
+  issuer            : 'did:btcr2:k1q2ddta4gt5n7u6d3xwhdyua57t6awrk55ut82qvurfm0qnrxx5nw7vnsy65',
   credentialSubject : {
     id       : 'did:example:ebfeb1f712ebc6f1c276e12ec21',
     alumniOf : {
@@ -20,12 +20,12 @@ const unsecuredDocument = {
   },
 } as any;
 const id = '#initialKey';
-const controller = 'did:btc1:k1q2ddta4gt5n7u6d3xwhdyua57t6awrk55ut82qvurfm0qnrxx5nw7vnsy65';
+const controller = 'did:btcr2:k1q2ddta4gt5n7u6d3xwhdyua57t6awrk55ut82qvurfm0qnrxx5nw7vnsy65';
 const SECRET = 52464508790539176856770556715241483442035423615466097401201513777400180778402n;
 const options: ProofOptions = {
   type               : 'DataIntegrityProof',
   cryptosuite        : 'bip340-jcs-2025',
-  verificationMethod : 'did:btc1:k1q2ddta4gt5n7u6d3xwhdyua57t6awrk55ut82qvurfm0qnrxx5nw7vnsy65#initialKey',
+  verificationMethod : 'did:btcr2:k1q2ddta4gt5n7u6d3xwhdyua57t6awrk55ut82qvurfm0qnrxx5nw7vnsy65#initialKey',
   proofPurpose       : 'attestationMethod'
 };
 

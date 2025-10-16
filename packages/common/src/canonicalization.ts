@@ -20,6 +20,7 @@ export class Canonicalization {
    * Initializes the Canonicalization class with the specified algorithm.
    * @param {CanonicalizationAlgorithm} algorithm The canonicalization algorithm to use ('jcs' or 'rdfc').
    */
+  // TODO: Need to move to using RDFC by default
   constructor(algorithm: CanonicalizationAlgorithm = 'jcs') {
     this._algorithm = algorithm;
   }
@@ -49,7 +50,7 @@ export class Canonicalization {
   }
 
   /**
-   * Implements {@link http://dcdpr.github.io/did-btc1/#json-canonicalization-and-hash | 9.2 JSON Canonicalization and Hash}.
+   * Implements {@link http://dcdpr.github.io/did-btcr2/#json-canonicalization-and-hash | 9.2 JSON Canonicalization and Hash}.
    *
    * A macro function that takes in a JSON document, document, and canonicalizes it following the JSON Canonicalization
    * Scheme. The function returns the canonicalizedBytes.

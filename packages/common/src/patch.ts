@@ -1,6 +1,6 @@
 import { PatchOperation } from './interfaces.js';
 import { JSONObject } from './types.js';
-import { Btc1Error } from './errors.js';
+import { MethodError } from './errors.js';
 
 /**
  * Implementation of {@link https://datatracker.ietf.org/doc/html/rfc6902 | IETF RFC 6902 JSON Patch}.
@@ -59,12 +59,12 @@ export class Patch {
         case 'test':{
           const existingValue = this.getValue(patchedDocument, segments);
           if (JSON.stringify(existingValue) !== JSON.stringify(value)) {
-            throw new Btc1Error(`Test operation failed at path`, 'JSON_PATCH_APPLY_ERROR', { path });
+            throw new MethodError(`Test operation failed at path`, 'JSON_PATCH_APPLY_ERROR', { path });
           }
           break;
         }
         default:
-          throw new Btc1Error(`Unsupported JSON Patch operation`, 'JSON_PATCH_APPLY_ERROR', { op });
+          throw new MethodError(`Unsupported JSON Patch operation`, 'JSON_PATCH_APPLY_ERROR', { op });
       }
     }
 
@@ -122,7 +122,7 @@ export class Patch {
       if (!(key in (sourceDocument || {}))) {
         operations.push({ op: 'add', path: currentPath, value: targetVal });
       } else if (typeof sourceVal === 'object' && sourceVal !== null && typeof targetVal === 'object' && targetVal !== null) {
-        this.diff(sourceVal, targetVal, currentPath);
+        operations.push(...this.diff(sourceVal, targetVal, currentPath));
       } else if (JSON.stringify(sourceVal) !== JSON.stringify(targetVal)) {
         operations.push({ op: 'replace', path: currentPath, value: targetVal });
       }

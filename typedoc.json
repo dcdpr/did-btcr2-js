@@ -1,14 +1,24 @@
 {
-    "includeVersion": true,
-    "excludeExternals": true,
-    "excludePrivate": true,
-    "excludeProtected": true,
-    "hideGenerator": true,
+    "$schema": "https://typedoc-plugin-markdown.org/schema.json",
     "plugin": [
-        "typedoc-plugin-markdown"
+        "typedoc-plugin-markdown",
+        "typedoc-vitepress-theme"
     ],
-    "theme": "markdown",
+    "out": "docs/packages",
+    "docsRoot": "./docs",
+    "entryPointStrategy": "packages",
     "entryPoints": [
-        "./README.md",
+        "packages/*"
     ],
+    "packageOptions": {
+        "entryPoints": [
+            "src/index.ts"
+        ]
+    },
+    "hideBreadcrumbs": true,
+    "hidePageHeader": true,
+    "useHTMLEncodedBrackets": true,
+    "sanitizeComments": true,
+    "readme": "none",
+    "entryFileName": "index"
 }

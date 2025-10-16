@@ -1,0 +1,47 @@
+{
+    "id": "did:btcr2:k1qgp7glws4khsjzvly0f2pxgf29q3wyl494jkdhcmuvl6vgykk3yj3tctl223f",
+    "controller": [
+        "did:btcr2:k1qgp7glws4khsjzvly0f2pxgf29q3wyl494jkdhcmuvl6vgykk3yj3tctl223f"
+    ],
+    "@context": [
+        "https://www.w3.org/TR/did-1.1",
+        "https://btcr2.dev/context/v1"
+    ],
+    "verificationMethod": [
+        {
+            "id": "did:btcr2:k1qgp7glws4khsjzvly0f2pxgf29q3wyl494jkdhcmuvl6vgykk3yj3tctl223f#initialKey",
+            "type": "Multikey",
+            "controller": "did:btcr2:k1qgp7glws4khsjzvly0f2pxgf29q3wyl494jkdhcmuvl6vgykk3yj3tctl223f",
+            "publicKeyMultibase": "zQ3shv23MUx8C7mKQYw3yqDdgrv2mjGwqVMngSKivsBEnq9f4"
+        }
+    ],
+    "authentication": [
+        "did:btcr2:k1qgp7glws4khsjzvly0f2pxgf29q3wyl494jkdhcmuvl6vgykk3yj3tctl223f#initialKey"
+    ],
+    "assertionMethod": [
+        "did:btcr2:k1qgp7glws4khsjzvly0f2pxgf29q3wyl494jkdhcmuvl6vgykk3yj3tctl223f#initialKey"
+    ],
+    "capabilityInvocation": [
+        "did:btcr2:k1qgp7glws4khsjzvly0f2pxgf29q3wyl494jkdhcmuvl6vgykk3yj3tctl223f#initialKey"
+    ],
+    "capabilityDelegation": [
+        "did:btcr2:k1qgp7glws4khsjzvly0f2pxgf29q3wyl494jkdhcmuvl6vgykk3yj3tctl223f#initialKey"
+    ],
+    "service": [
+        {
+            "type": "SingletonBeacon",
+            "id": "did:btcr2:k1qgp7glws4khsjzvly0f2pxgf29q3wyl494jkdhcmuvl6vgykk3yj3tctl223f#initialP2PKH",
+            "serviceEndpoint": "bitcoin:n3vMnjBVF2U4DhGhBqrYeEdfoNdbXKbni4"
+        },
+        {
+            "type": "SingletonBeacon",
+            "id": "did:btcr2:k1qgp7glws4khsjzvly0f2pxgf29q3wyl494jkdhcmuvl6vgykk3yj3tctl223f#initialP2WPKH",
+            "serviceEndpoint": "bitcoin:bcrt1q7kllynx6twp0qupl0ygt6txy65fha8s98xjutf"
+        },
+        {
+            "type": "SingletonBeacon",
+            "id": "did:btcr2:k1qgp7glws4khsjzvly0f2pxgf29q3wyl494jkdhcmuvl6vgykk3yj3tctl223f#initialP2TR",
+            "serviceEndpoint": "bitcoin:bcrt1prt29nsvq09s6alxr89ntu6xdd9nz0v057uqgz338u3mgjqvaqcwq8aapcj"
+        }
+    ]
+}

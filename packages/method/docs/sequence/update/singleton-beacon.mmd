@@ -1,0 +1,50 @@
+sequenceDiagram
+  title 5.3 Update with 5.2.2.3 Process Singleton Beacon Signal
+  autonumber
+
+  actor Client as DidBtc1
+  participant Update as Btc1Update
+  participant KMS as Btc1KeyManager
+  participant Multi as SchnorrMultikey
+  participant Appendix as Btc1Appendix
+  participant Factory as BeaconFactory
+  participant SBeacon as SingletonBeacon
+
+  %% == Entry ==
+  Client->>Update: update({ identifier, sourceDocument,<br/>sourceVersionId, patch, verificationMethodId,<br/>beaconIds:[<singletonId>] })
+  activate Update
+
+  %% == Construct DID Update Payload ==
+  Update->>Update: construct({ identifier, sourceDocument,<br/>sourceVersionId, patch })
+  Note right of Update: • Validate sourceDocument.id === identifier<br/>• Apply JSON Patch → targetDocument<br/>• Validate DID Core conformance<br/>• JCS canonicalize + hash → sourceHash, targetHash<br/>• targetVersionId = sourceVersionId + 1
+  Update-->>Update: DidUpdatePayload
+
+  %% == Resolve & validate verification method ==
+  Update->>Update: getSigningMethod(sourceDocument, verificationMethodId)
+  Update-->>Update: verificationMethod (type: Multikey,<br/>publicKeyMultibase ~ "zQ3s...")
+  Note right of Update: MUST be type "Multikey"<br/>MUST have publicKeyMultibase prefix "zQ3s"
+
+  %% == Invoke (add ZCAP-LD Data Integrity proof) ==
+  Update->>KMS: getKeyPair(verificationMethod.id)
+  alt key exists in KMS
+    KMS-->>Update: SchnorrMultikey
+  else not in KMS but secretKeyMultibase present
+    Update->>Multi: initialize({ id, controller,<br/>keys: SecretKey.decode(secretKeyMultibase) })
+    Multi-->>Update: SchnorrMultikey
+  end
+  Update->>Appendix: deriveRootCapability(identifier)
+  Appendix-->>Update: rootCapability
+  Update->>Multi: toCryptosuite("bip340-jcs-2025").toDataIntegrityProof()
+  Update->>Multi: addProof(didUpdatePayload,<br/>{ type: DataIntegrityProof,<br/>verificationMethod,<br/>proofPurpose: capabilityInvocation,<br/>capability: rootCapability.id,<br/>capabilityAction: Write })
+  Multi-->>Update: DidUpdateInvocation
+
+  %% == Announce via SingletonBeacon ==
+  Update->>Update: find service by beaconId in sourceDocument.service
+  Update-->>Update: beaconService (type: SingletonBeacon)
+  Update->>Factory: establish(beaconService)
+  Factory-->>Update: SBeacon
+  Update->>SBeacon: broadcastSignal(DidUpdateInvocation)
+  SBeacon-->>Update: signalsMetadata
+
+  Update-->>Client: signalsMetadata
+  deactivate Update

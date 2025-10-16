@@ -5,7 +5,7 @@ import {
   KeyBytes,
   SecretKeyError,
   SecretKeyObject
-} from '@did-btc1/common';
+} from '@did-btcr2/common';
 import { sha256 } from '@noble/hashes/sha2';
 import { getRandomValues } from 'crypto';
 import { base58btc } from 'multiformats/bases/base58';
@@ -16,14 +16,14 @@ import {
   CURVE
 } from './constants.js';
 import { SchnorrKeyPair } from './pair.js';
-import { PublicKey } from './public.js';
+import { CompressedSecp256k1PublicKey } from './public.js';
 
 /**
- * Interface for the SecretKey class.
- * @interface ISecretKey
- * @type {ISecretKey}
+ * General SecretKey interface for the Secp256k1SecretKey class.
+ * @interface SecretKey
+ * @type {SecretKey}
  */
-export interface ISecretKey {
+export interface SecretKey {
   /**
    * Get the secret key bytes.
    * @readonly @type {KeyBytes} The secret key bytes.
@@ -45,16 +45,16 @@ export interface ISecretKey {
 
   /**
    * Checks if this secret key is equal to another secret key.
-   *
+   * @param {Secp256k1SecretKey} other The other secret key to compare.
    * @returns {boolean} True if the private keys are equal.
    */
-  equals(other: SecretKey): boolean;
+  equals(other: Secp256k1SecretKey): boolean;
 
   /**
    * Uses the secret key to compute the corresponding public key.
-   * @returns {KeyBytes} A new PublicKey object.
+   * @returns {CompressedSecp256k1PublicKey} The computed public key bytes.
    */
-  computePublicKey(): KeyBytes;
+  computePublicKey(): CompressedSecp256k1PublicKey;
 
   /**
    * Checks if the secret key is valid.
@@ -64,8 +64,8 @@ export interface ISecretKey {
 
 
   /**
-   * JSON representation of a SecretKey object.
-   * @returns {SecretKeyObject} The SecretKey as a JSON object.
+   * JSON representation of a Secp256k1SecretKey object.
+   * @returns {SecretKeyObject} The Secp256k1SecretKey as a JSON object.
    */
   json(): SecretKeyObject;
 }
@@ -74,11 +74,11 @@ export interface ISecretKey {
  * Encapsulates a secp256k1 secret key
  * Provides get methods for different formats (raw, secret, point).
  * Provides helpers methods for comparison, serialization and publicKey generation.
- * @class SecretKey
- * @type {SecretKey}
- *
+ * @class Secp256k1SecretKey
+ * @type {Secp256k1SecretKey}
+ * @implements {SecretKey}
  */
-export class SecretKey implements ISecretKey {
+export class Secp256k1SecretKey implements SecretKey {
   /** @type {KeyBytes} The entropy for the secret key as a byte array */
   private _bytes?: KeyBytes;
 
@@ -89,7 +89,7 @@ export class SecretKey implements ISecretKey {
   private _multibase: string;
 
   /**
-   * Instantiates an instance of SecretKey.
+   * Instantiates an instance of Secp256k1SecretKey.
    * @param {Entropy} entropy bytes (Uint8Array) or secret (bigint)
    * @throws {SecretKeyError} If entropy is not provided, not a valid 32-byte secret key or not a valid bigint seed
    */
@@ -107,12 +107,12 @@ export class SecretKey implements ISecretKey {
     // If bytes and bytes are not length 32
     if (isBytes && entropy.length === 32) {
       this._bytes = entropy;
-      this._seed = SecretKey.toSecret(entropy);
+      this._seed = Secp256k1SecretKey.toSecret(entropy);
     }
 
     // If secret and secret is not a valid bigint, throw error
     if (isSecret && !(entropy < 1n || entropy >= CURVE.n)) {
-      this._bytes = SecretKey.toBytes(entropy);
+      this._bytes = Secp256k1SecretKey.toBytes(entropy);
       this._seed = entropy;
     }
 
@@ -199,19 +199,19 @@ export class SecretKey implements ISecretKey {
 
   /**
    * Checks if this secret key is equal to another.
-   * @param {SecretKey} other The other secret key
+   * @param {Secp256k1SecretKey} other The other secret key
    * @returns {boolean} True if the private keys are equal, false otherwise
    */
-  public equals(other: SecretKey): boolean {
+  public equals(other: Secp256k1SecretKey): boolean {
     // Compare the hex strings of the private keys
     return this.hex === other.hex;
   }
 
   /**
    * Computes the public key from the secret key bytes.
-   * @returns {KeyBytes} The computed public key
+   * @returns {CompressedSecp256k1PublicKey} The computed public key
    */
-  public computePublicKey(): KeyBytes {
+  public computePublicKey(): CompressedSecp256k1PublicKey {
     // Derive the public key from the secret key
     const publicKeyBytes = tinysecp.pointFromScalar(this.bytes, true);
 
@@ -231,7 +231,7 @@ export class SecretKey implements ISecretKey {
       );
     }
 
-    return publicKeyBytes;
+    return new CompressedSecp256k1PublicKey(publicKeyBytes);
   }
 
   /**
@@ -256,22 +256,23 @@ export class SecretKey implements ISecretKey {
 
   /**
    * Checks if the public key is a valid secp256k1 point.
-   * @param {PublicKey} pk The public key to validate
    * @returns {boolean} True if the public key is valid, false otherwise
    */
-  public isValidPair(pk: PublicKey): boolean {
+  public hasValidPublicKey(): boolean {
+    // Compute the public key from the secret key and compress it
+    const pk = this.computePublicKey();
+
     // If the public key is not valid, return false
     if (!tinysecp.isPoint(pk.compressed)) {
       return false;
     }
 
-    // Else return true
+    // Return true if the computed public key equals the provided public key
     return true;
   }
 
   /**
    * Decodes the multibase string to the 34-byte secret key (2 byte prefix + 32 byte key).
-   * @static
    * @param {string} multibase The multibase string to decode
    * @returns {Bytes} The decoded secret key.
    */
@@ -306,25 +307,23 @@ export class SecretKey implements ISecretKey {
   }
 
   /**
-   * Creates a SecretKey object from a JSON object.
-   * @static
+   * Creates a Secp256k1SecretKey object from a JSON object.
    * @param {SecretKeyObject} json The JSON object containing the secret key bytes
-   * @returns {SecretKey} A new SecretKey object
+   * @returns {Secp256k1SecretKey} A new Secp256k1SecretKey object
    */
-  public static fromJSON(json: SecretKeyObject): SecretKey {
-    return new SecretKey(new Uint8Array(json.bytes));
+  public static fromJSON(json: SecretKeyObject): Secp256k1SecretKey {
+    return new Secp256k1SecretKey(new Uint8Array(json.bytes));
   }
 
   /**
-   * Converts a SecretKey or KeyBytes to a Pair.
-   * @static
-   * @param {KeyBytes} bytes
+   * Converts a Secp256k1SecretKey or KeyBytes to a SchnorrKeyPair.
+   * @param {KeyBytes} bytes The secret key bytes
    * @returns {SchnorrKeyPair} The SchnorrKeyPair object containing the public and private keys
    * @throws {SecretKeyError} If the secret key is not valid
    */
   public static toKeyPair(bytes: KeyBytes): SchnorrKeyPair {
-    // Create a new SecretKey from the bytes
-    const secretKey = new SecretKey(bytes);
+    // Create a new Secp256k1SecretKey from the bytes
+    const secretKey = new Secp256k1SecretKey(bytes);
 
     // Compute the public key from the secret key
     const publicKey = secretKey.computePublicKey();
@@ -335,7 +334,6 @@ export class SecretKey implements ISecretKey {
 
   /**
    * Convert a bigint secret to secret key bytes.
-   * @static
    * @param {KeyBytes} bytes The secret key bytes
    * @returns {bigint} The secret key bytes as a bigint secret
    */
@@ -345,7 +343,6 @@ export class SecretKey implements ISecretKey {
 
   /**
    * Convert a secret key bytes to a bigint secret.
-   * @static
    * @param {bigint} secret The secret key secret.
    * @returns {KeyBytes} The secret key secret as secret key bytes.
    */
@@ -367,23 +364,21 @@ export class SecretKey implements ISecretKey {
   }
 
   /**
-   * Creates a new SecretKey object from a bigint secret.
-   * @static
-   * @param {bigint} secret The secret bigint
-   * @returns {SecretKey} A new SecretKey object
+   * Creates a new Secp256k1SecretKey object from a bigint secret.
+   * @param {bigint} entropy The secret bigint
+   * @returns {Secp256k1SecretKey} A new Secp256k1SecretKey object
    */
-  public static fromSecret(secret: bigint): SecretKey {
+  public static fromEntropy(entropy: bigint): Secp256k1SecretKey {
     // Convert the secret bigint to a hex string
-    const hexsecret = secret.toString(16).padStart(64, '0');
+    const hexsecret = entropy.toString(16).padStart(64, '0');
     // Convert the hex string to a Uint8Array
     const privateKeyBytes = new Uint8Array(hexsecret.match(/.{2}/g)!.map(byte => parseInt(byte, 16)));
-    // Return a new SecretKey object
-    return new SecretKey(privateKeyBytes);
+    // Return a new Secp256k1SecretKey object
+    return new Secp256k1SecretKey(privateKeyBytes);
   }
 
   /**
    * Generates random secret key bytes.
-   * @static
    * @returns {KeyBytes} Uint8Array of 32 random bytes.
    */
   public static random(): KeyBytes {
@@ -396,26 +391,24 @@ export class SecretKey implements ISecretKey {
 
 
   /**
-   * Creates a new SecretKey from random secret key bytes.
-   * @static
-   * @returns {SecretKey} A new SecretKey object
+   * Creates a new Secp256k1SecretKey from random secret key bytes.
+   * @returns {Secp256k1SecretKey} A new Secp256k1SecretKey object
    */
-  public static generate(): SecretKey {
+  public static generate(): Secp256k1SecretKey {
     // Generate empty 32-byte array
     const randomBytes = this.random();
 
     // Use the getRandomValues function to fill the byteArray with random values
-    return new SecretKey(randomBytes);
+    return new Secp256k1SecretKey(randomBytes);
   }
 
   /**
    * Generates a public key from the given secret key bytes.
-   * @static
    * @param {KeyBytes} bytes The secret key bytes
-   * @returns {KeyBytes} The computed public key bytes
+   * @returns {CompressedSecp256k1PublicKey} The computed public key bytes
    */
-  public static getPublicKey(bytes: KeyBytes): KeyBytes {
-    // Create a new SecretKey from the bytes and compute the public key
-    return new SecretKey(bytes).computePublicKey();
+  public static getPublicKey(bytes: KeyBytes): CompressedSecp256k1PublicKey {
+    // Create a new Secp256k1SecretKey from the bytes and compute the public key
+    return new Secp256k1SecretKey(bytes).computePublicKey();
   }
 }

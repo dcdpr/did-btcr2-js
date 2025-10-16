@@ -1,4 +1,4 @@
-import { DidUpdateInvocation, DidUpdatePayload, ProofOptions } from '@did-btc1/common';
+import { DidUpdateInvocation, DidUpdatePayload, ProofOptions } from '@did-btcr2/common';
 import { Cryptosuite } from '../cryptosuite/index.js';
 import { VerificationResult } from '../cryptosuite/interface.js';
 

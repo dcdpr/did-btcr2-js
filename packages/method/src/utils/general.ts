@@ -1,4 +1,4 @@
-import { KeyBytes, BIP340_PUBLIC_KEY_MULTIBASE_PREFIX, HdWallet } from '@did-btc1/common';
+import { KeyBytes, BIP340_PUBLIC_KEY_MULTIBASE_PREFIX, HdWallet } from '@did-btcr2/common';
 import { sha256 } from '@noble/hashes/sha2';
 import { CURVE, getPublicKey, utils } from '@noble/secp256k1';
 import { HDKey } from '@scure/bip32';
@@ -7,7 +7,7 @@ import { wordlist } from '@scure/bip39/wordlists/english';
 import { base58btc } from 'multiformats/bases/base58';
 
 /**
- * Static class of general utility functions for the did-btc1 spec implementation
+ * Static class of general utility functions for the did-btcr2 spec implementation
  * @class GeneralUtils
  * @type {GeneralUtils}
  */

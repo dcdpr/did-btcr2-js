@@ -1,4 +1,4 @@
-import { BitcoinNetworkNames } from '@did-btc1/common';
+import { BitcoinNetworkNames } from '@did-btcr2/common';
 import { SchnorrKeyPair } from '../src/pair.js';
 
 const secretKey = new Uint8Array([
@@ -16,9 +16,9 @@ const document = {
     '@context' : [
       'https://www.w3.org/ns/did/v1',
       'https://w3id.org/security/multikey/v1',
-      'https://github.com/dcdpr/did-btc1'
+      'https://github.com/dcdpr/did-btcr2'
     ],
-    id                   : 'did:btc1:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+    id                   : 'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
     authentication       : ['#initialKey'],
     assertionMethod      : ['#initialKey'],
     capabilityInvocation : ['#initialKey'],
@@ -26,7 +26,7 @@ const document = {
     verificationMethod   : [{
       id                 : '#initialKey',
       type               : 'Multikey',
-      controller         : 'did:btc1:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+      controller         : 'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
       publicKeyMultibase : publicKey.multibase,
     }],
     service : [

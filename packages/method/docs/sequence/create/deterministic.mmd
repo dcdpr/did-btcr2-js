@@ -1,0 +1,16 @@
+sequenceDiagram
+    title 4.1.1 From Deterministic Key Pair
+    actor Controller as DID Controller
+    participant BTC1Create
+    participant Encode as Identifier Encoding
+    participant BTC1Read
+
+    note over Controller, BTC1Read: Offline — no Bitcoin network interaction
+
+    Controller->>BTC1Create: CreateDeterministic(pubKeyBytes, version?, network?)
+    BTC1Create->>BTC1Create: idType="key"<br/>version=1<br/>network="bitcoin"<br/>genesisBytes=pubKeyBytes
+    BTC1Create->>Encode: Encode(idType, version, network, genesisBytes)
+    Encode-->>BTC1Create: id
+    BTC1Create->>BTC1Read: BTC1Read(did = id)
+    BTC1Read-->>BTC1Create: {initialDocument}
+    BTC1Create-->>Controller: {did, initialDocument}

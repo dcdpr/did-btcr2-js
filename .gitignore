@@ -167,3 +167,7 @@ temp
 
 # Release build output
 release/
+
+# VitePress output folders
+.vitepress/dist
+.vitepress/cache

@@ -1,92 +1,145 @@
-import { ID_PLACEHOLDER_VALUE } from '@did-btc1/common';
-import { PublicKey } from '@did-btc1/keypair';
-import { payments } from 'bitcoinjs-lib';
 import { expect } from 'chai';
-import { DidBtc1 } from '../src/did-btc1.js';
-import { Btc1DidDocument, getNetwork, IntermediateDidDocument } from '../src/index.js';
+import { DidBtcr2 } from '../src/did-btcr2.js';
+import { IntermediateDidDocument } from '../src/index.js';
 
 /**
- * DidBtc1 Create External Test Cases
- * idType=external, intermediateDocument
- * idType=external, intermediateDocument, version
- * idType=external, intermediateDocument, network
+ * Create External Test Cases
  */
-describe('DidBtc1 Create External', () => {
+describe('Create External', () => {
   const expectedDidMap = new Map<string, string>([
-    ['bitcoin', 'did:btc1:x1qqqdpgqepe54a2nr44kh8jnpuvs0h7k4vjt7pqr9q3e6qjt9mrmsu4nfdnq'],
-    ['regtest', 'did:btc1:x1qgqdpgqepe54a2nr44kh8jnpuvs0h7k4vjt7pqr9q3e6qjt9mrmsugy2648'],
-    ['testnet4', 'did:btc1:x1qsqdpgqepe54a2nr44kh8jnpuvs0h7k4vjt7pqr9q3e6qjt9mrmsux502lw']
+    ['bitcoin', 'did:btcr2:x1qrn3k9ttngd7x6lgjlfpykz4aj03672675uw2gt2nj3m5vj680t8vaxz52w'],
+    ['mutinynet', 'did:btcr2:x1q5uu7xjnle255xwwvgqu6f8j0x3ztxjs4307z9t04s3jw9z0d7wsswgwz3s'],
+    ['regtest', 'did:btcr2:x1qguu7xjnle255xwwvgqu6f8j0x3ztxjs4307z9t04s3jw9z0d7wss687dcw'],
+    ['signet', 'did:btcr2:x1qyuu7xjnle255xwwvgqu6f8j0x3ztxjs4307z9t04s3jw9z0d7wssa0g9a7'],
+    ['testnet3', 'did:btcr2:x1qvuu7xjnle255xwwvgqu6f8j0x3ztxjs4307z9t04s3jw9z0d7wssqctjme'],
+    ['testnet4', 'did:btcr2:x1qsuu7xjnle255xwwvgqu6f8j0x3ztxjs4307z9t04s3jw9z0d7wss5hmaj8']
   ]);
   const idType = 'EXTERNAL';
-  const publicKey = new PublicKey(new Uint8Array([
-    2, 206, 152,  64, 106, 58, 228,  11,
-    55, 209,  52,  38,  90, 75, 107, 155,
-    163, 176, 226, 175,   3, 40, 184, 133,
-    28,   0,  90,  52,  10, 21, 186, 144,
-    12
-  ]));
-  const verificationMethod = [
-    {
-      id                 : `${ID_PLACEHOLDER_VALUE}#key-0`,
-      type               : 'Multikey',
-      controller         : ID_PLACEHOLDER_VALUE,
-      publicKeyMultibase : publicKey.multibase.address
-    }
-  ];
-  const p2tr = payments.p2tr({ network: getNetwork('bitcoin'), internalPubkey: publicKey.x }).address;
-  const service = [{
-    id              : `${ID_PLACEHOLDER_VALUE}#key-0`,
-    type            : 'SingletonBeacon',
-    serviceEndpoint : `bitcoin:${p2tr}`,
-  }];
+  const mainInterDoc = new IntermediateDidDocument({
+    'id'         : 'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+    'controller' : [
+      'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+    ],
+    '@context' : [
+      'https://www.w3.org/TR/did-1.1',
+      'https://btcr2.dev/context/v1'
+    ],
+    'verificationMethod' : [
+      {
+        'id'                 : 'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx#key-0',
+        'type'               : 'Multikey',
+        'controller'         : 'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        'publicKeyMultibase' : 'zQ3shNEtFVr84D9d5xPCDRo6Z8Kr7PuNTAWG63hZgrbsRdwuE'
+      }
+    ],
+    'authentication' : [
+      'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx#key-0'
+    ],
+    'assertionMethod' : [
+      'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx#key-0'
+    ],
+    'capabilityInvocation' : [
+      'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx#key-0'
+    ],
+    'capabilityDelegation' : [
+      'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx#key-0'
+    ],
+    'service' : [
+      {
+        'id'              : 'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx#service-0',
+        'type'            : 'SingletonBeacon',
+        'serviceEndpoint' : 'bitcoin:1DNTBNvF7zeXSXe9UnNskw3BZvDwqrGpVZ'
+      }
+    ]
+  });
+  const nonMainInterDoc = new IntermediateDidDocument({
+    'id'         : 'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+    'controller' : [
+      'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+    ],
+    '@context' : [
+      'https://www.w3.org/TR/did-1.1',
+      'https://btcr2.dev/context/v1'
+    ],
+    'verificationMethod' : [
+      {
+        'id'                 : 'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx#key-0',
+        'type'               : 'Multikey',
+        'controller'         : 'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+        'publicKeyMultibase' : 'zQ3shNEtFVr84D9d5xPCDRo6Z8Kr7PuNTAWG63hZgrbsRdwuE'
+      }
+    ],
+    'authentication' : [
+      'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx#key-0'
+    ],
+    'assertionMethod' : [
+      'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx#key-0'
+    ],
+    'capabilityInvocation' : [
+      'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx#key-0'
+    ],
+    'capabilityDelegation' : [
+      'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx#key-0'
+    ],
+    'service' : [
+      {
+        'id'              : 'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx#service-0',
+        'type'            : 'SingletonBeacon',
+        'serviceEndpoint' : 'bitcoin:mstQUS1Dw25nDe7mCMMFarFWRupejRsMzb'
+      }
+    ]
+  });
 
   it('should create new bitcoin DID and initial DID document',
     async () => {
       const network = 'bitcoin';
-      const intermediateDocument = new IntermediateDidDocument({ id: ID_PLACEHOLDER_VALUE, verificationMethod, service });
-      const {did, initialDocument} = await DidBtc1.create({ idType, intermediateDocument, options: { network }});
-
+      const genesisBytes = await JSON.canonicalization.canonicalhash(mainInterDoc);
+      const did = await DidBtcr2.create({ idType, genesisBytes, options: { network }});
       expect(did).to.equal(expectedDidMap.get(network));
-      expect(initialDocument).to.be.instanceOf(Btc1DidDocument);
+    }
+  );
 
-      expect(initialDocument.verificationMethod[0].type).to.equal(intermediateDocument.verificationMethod[0].type);
-      expect(initialDocument.verificationMethod[0].publicKeyMultibase).to.equal(intermediateDocument.verificationMethod[0].publicKeyMultibase);
-
-      expect(initialDocument.service[0].type).to.equal(intermediateDocument.service[0].type);
-      expect(initialDocument.service[0].serviceEndpoint).to.equal(intermediateDocument.service[0].serviceEndpoint);
+  it('should create new mutinynet DID and initial DID Document',
+    async () => {
+      const network = 'mutinynet';
+      const genesisBytes = await JSON.canonicalization.canonicalhash(nonMainInterDoc);
+      const did = await DidBtcr2.create({ idType, genesisBytes, options: { network }});
+      expect(did).to.equal(expectedDidMap.get(network));
     }
   );
 
   it('should create new regtest DID and initial DID Document',
     async () => {
       const network = 'regtest';
-      const intermediateDocument = new IntermediateDidDocument({ id: ID_PLACEHOLDER_VALUE, verificationMethod, service });
-      const {did, initialDocument} = await DidBtc1.create({ idType, intermediateDocument, options: { network }});
-
+      const genesisBytes = await JSON.canonicalization.canonicalhash(nonMainInterDoc);
+      const did = await DidBtcr2.create({ idType, genesisBytes, options: { network }});
       expect(did).to.equal(expectedDidMap.get(network));
-      expect(initialDocument).to.be.instanceOf(Btc1DidDocument);
+    }
+  );
 
-      expect(initialDocument.verificationMethod[0].type).to.equal(intermediateDocument.verificationMethod[0].type);
-      expect(initialDocument.verificationMethod[0].publicKeyMultibase).to.equal(intermediateDocument.verificationMethod[0].publicKeyMultibase);
+  it('should create new signet DID and initial DID Document',
+    async () => {
+      const network = 'signet';
+      const genesisBytes = await JSON.canonicalization.canonicalhash(nonMainInterDoc);
+      const did = await DidBtcr2.create({ idType, genesisBytes, options: { network }});
+      expect(did).to.equal(expectedDidMap.get(network));
+    }
+  );
 
-      expect(initialDocument.service[0].type).to.equal(intermediateDocument.service[0].type);
-      expect(initialDocument.service[0].serviceEndpoint).to.equal(intermediateDocument.service[0].serviceEndpoint);
+  it('should create new testnet3 DID and initial DID Document',
+    async () => {
+      const network = 'testnet3';
+      const genesisBytes = await JSON.canonicalization.canonicalhash(nonMainInterDoc);
+      const did = await DidBtcr2.create({ idType, genesisBytes, options: { network }});
+      expect(did).to.equal(expectedDidMap.get(network));
     }
   );
 
   it('should create new testnet4 DID and initial DID Document',
     async () => {
       const network = 'testnet4';
-      const intermediateDocument = new IntermediateDidDocument({ id: ID_PLACEHOLDER_VALUE, verificationMethod, service });
-      const {did, initialDocument} = await DidBtc1.create({ idType, intermediateDocument, options: { network }});
-
+      const genesisBytes = await JSON.canonicalization.canonicalhash(nonMainInterDoc);
+      const did = await DidBtcr2.create({ idType, genesisBytes, options: { network }});
       expect(did).to.equal(expectedDidMap.get(network));
-      expect(initialDocument).to.be.instanceOf(Btc1DidDocument);
-
-      expect(initialDocument.verificationMethod[0].type).to.equal(intermediateDocument.verificationMethod[0].type);
-      expect(initialDocument.verificationMethod[0].publicKeyMultibase).to.equal(intermediateDocument.verificationMethod[0].publicKeyMultibase);
-
-      expect(initialDocument.service[0].type).to.equal(intermediateDocument.service[0].type);
-      expect(initialDocument.service[0].serviceEndpoint).to.equal(intermediateDocument.service[0].serviceEndpoint);
     });
 });

@@ -1,8 +1,7 @@
-// import { expect } from 'chai';
-// import { helloWorld } from '../src/index.js';
+import { expect } from 'chai';
 
-// describe('Index Test', () => {
-//     it('should pass', () => {
-//         expect(helloWorld()).to.equal('Hello, World!');
-//     });
-// });
+describe('ToDo Tests', () => {
+  it('should pass', () => {
+    expect(true).to.be.true;
+  });
+});

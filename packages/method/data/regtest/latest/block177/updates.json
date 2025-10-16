@@ -1,0 +1,23 @@
+[
+    {
+        "@context": [
+            "https://w3id.org/security/v2",
+            "https://w3id.org/zcap/v1",
+            "https://w3id.org/json-ld-patch/v1"
+        ],
+        "patch": [
+            {
+                "op": "replace",
+                "path": "/service/0",
+                "value": {
+                    "id": "did:btcr2:k1qgp7glws4khsjzvly0f2pxgf29q3wyl494jkdhcmuvl6vgykk3yj3tctl223f#initialP2PKH",
+                    "type": "SingletonBeacon",
+                    "serviceEndpoint": "bitcoin:mq6acdf5499UwUXVPmnCgxW5Lks3wdRCRp"
+                }
+            }
+        ],
+        "targetHash": "HQBHDhLKsPkFsBk1HpkwyLcXHuP87wdhgNFeUNRAzyTL",
+        "targetVersionId": 2,
+        "sourceHash": "G2P5TV3HiTKtUsD5CrYP7UDVqWJfLMPtfR7QDzv72tQ2"
+    }
+]

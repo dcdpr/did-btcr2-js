@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js with pnpm
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+
+      - name: Install dependencies
+        run: pnpm install -r --no-lockfile
+
+      - name: Run linter
+        run: pnpm lint
+
+      - name: Build packages
+        run: pnpm build
+
+      - name: Build tests
+        run: pnpm build:tests
+      
+      # - name: Run tests
+      #   run: pnpm test

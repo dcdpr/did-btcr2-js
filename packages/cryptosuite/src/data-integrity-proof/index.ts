@@ -1,4 +1,4 @@
-import { Btc1Error, DidUpdateInvocation, Proof, PROOF_GENERATION_ERROR, PROOF_PARSING_ERROR } from '@did-btc1/common';
+import { MethodError, DidUpdateInvocation, Proof, PROOF_GENERATION_ERROR, PROOF_PARSING_ERROR } from '@did-btcr2/common';
 import { Cryptosuite } from '../cryptosuite/index.js';
 import { VerificationResult } from '../cryptosuite/interface.js';
 import { AddProofParams, IDataIntegrityProof } from './interface.js';
@@ -39,7 +39,7 @@ export class DataIntegrityProof implements IDataIntegrityProof {
 
     // Check if the type, verificationMethod, and proofPurpose are defined
     if (!type || !verificationMethod || !proofPurpose) {
-      throw new Btc1Error('Proof missing "type", "verificationMethod" and/or "proofPurpose"', PROOF_GENERATION_ERROR, proof);
+      throw new MethodError('Proof missing "type", "verificationMethod" and/or "proofPurpose"', PROOF_GENERATION_ERROR, proof);
     }
 
     // Deconstruct the domain from the proof object and check:
@@ -47,14 +47,14 @@ export class DataIntegrityProof implements IDataIntegrityProof {
     // Logger.warn('// TODO: Adjust the domain check to match the spec (domain as a list of urls)');
     const { domain } = proof;
     if (options.domain && options.domain !== domain) {
-      throw new Btc1Error('Domain mismatch between options and domain passed', PROOF_GENERATION_ERROR, proof);
+      throw new MethodError('Domain mismatch between options and domain passed', PROOF_GENERATION_ERROR, proof);
     }
 
     // Deconstruct the challenge from the proof object and check:
     // if options challenge is defined, ensure it matches the proof challenge
     const { challenge } = proof;
     if (options.challenge && options.challenge !== challenge) {
-      throw new Btc1Error('Challenge mismatch options and challenge passed', PROOF_GENERATION_ERROR, proof);
+      throw new MethodError('Challenge mismatch options and challenge passed', PROOF_GENERATION_ERROR, proof);
     }
 
     // Set the proof in the document and return as a DidUpdateInvocation
@@ -92,34 +92,34 @@ export class DataIntegrityProof implements IDataIntegrityProof {
 
     // Check if the proof object is an object
     if (typeof secure !== 'object' || typeof proof !== 'object') {
-      throw new Btc1Error('', PROOF_PARSING_ERROR);
+      throw new MethodError('', PROOF_PARSING_ERROR);
     }
 
     // Deconstruct the proof object
     const { type, proofPurpose, verificationMethod, challenge, domain } = proof;
     // Check if the type, proofPurpose, and verificationMethod are defined
     if (!type || !verificationMethod || !proofPurpose) {
-      throw new Btc1Error('', 'PROOF_VERIFICATION_ERROR');
+      throw new MethodError('', 'PROOF_VERIFICATION_ERROR');
     }
 
     // Check if the expectedPurpose is defined and if it matches the proofPurpose
     if (expectedPurpose && expectedPurpose !== proofPurpose) {
-      throw new Btc1Error('', 'PROOF_VERIFICATION_ERROR');
+      throw new MethodError('', 'PROOF_VERIFICATION_ERROR');
     }
 
     // Check if the expectedChallenge is defined and if it matches the challenge
     if (expectedChallenge && expectedChallenge !== challenge) {
-      throw new Btc1Error('', 'INVALID_CHALLENGE_ERROR');
+      throw new MethodError('', 'INVALID_CHALLENGE_ERROR');
     }
 
     // Check if the expectedDomain length matches the proof.domain length
     if(expectedDomain && expectedDomain?.length !== domain?.length) {
-      throw new Btc1Error('', 'INVALID_DOMAIN_ERROR');
+      throw new MethodError('', 'INVALID_DOMAIN_ERROR');
     }
 
     // If defined, check that each entry in expectedDomain can be found in proof.domain
     if(expectedDomain && !expectedDomain?.every(url => domain?.includes(url))) {
-      throw new Btc1Error('', 'INVALID_DOMAIN_ERROR');
+      throw new MethodError('', 'INVALID_DOMAIN_ERROR');
     }
 
     // Verify the proof

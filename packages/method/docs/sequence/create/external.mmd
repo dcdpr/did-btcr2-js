@@ -1,0 +1,17 @@
+sequenceDiagram
+    title 4.1.2 From External Intermediate DID Document
+    participant Controller
+    participant BTC1Create
+    participant Encode as Identifier Encoding
+    participant Canonicalize as Canonicalize & Hash
+
+    note over Controller, Canonicalize: Offline — no Bitcoin network interaction
+    Controller->>BTC1Create: CreateExternal(intermediateDocument, version?, network?)
+    BTC1Create->>BTC1Create: idType="external"<br/>version=1<br/>network="bitcoin"
+    BTC1Create->>Canonicalize: CanonicalizeAndHash(intermediateDocument)
+    Canonicalize-->>BTC1Create: genesisBytes
+    BTC1Create->>Encode: Encode(idType, version, network, genesisBytes)
+    Encode-->>BTC1Create: id
+    BTC1Create->>BTC1Create: initialDocument = copy(intermediateDocument)<br/>Replace all did:btc1:xxxx... with id
+    BTC1Create-->>Controller: {did, initialDocument}
+    Note right of BTC1Create: Optionally, store canonicalBytes on IPFS as CID.

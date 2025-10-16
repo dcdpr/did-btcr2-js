@@ -1,38 +1,41 @@
+import { getNetwork } from '@did-btcr2/bitcoin';
 import {
-  BTC1_DID_DOCUMENT_CONTEXT,
-  Btc1IdentifierTypes,
+  BTCR2_DID_DOCUMENT_CONTEXT,
   DidDocumentError,
   ID_PLACEHOLDER_VALUE,
+  IdentifierTypes,
   INVALID_DID_DOCUMENT,
   JSONObject,
+  KeyBytes,
   Logger
-} from '@did-btc1/common';
-import { DidService, DidVerificationMethod, DidDocument as IDidDocument } from '@web5/dids';
+} from '@did-btcr2/common';
+import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
+import { DidService, DidDocument as IIDidDocument, DidVerificationMethod as IIDidVerificationMethod } from '@web5/dids';
 import { BeaconService } from '../interfaces/ibeacon.js';
-import { Btc1Appendix } from './appendix.js';
+import { Appendix } from './appendix.js';
 import { BeaconUtils } from './beacons.js';
-import { Btc1Identifier } from './identifier.js';
+import { Identifier } from './identifier.js';
 
 export const BECH32M_CHARS = '';
-export const BTC1_DID_REGEX = /did:btc1:(x1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]*)/g;
+export const DID_REGEX = /did:btcr2:(x1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]*)/g;
 
 export type ExternalData = {
   id: string,
-  verificationMethod: Array<Btc1VerificationMethod>,
-  authentication?: Array<string | Btc1VerificationMethod>,
-  assertionMethod?: Array<string | Btc1VerificationMethod>,
-  capabilityInvocation?: Array<string | Btc1VerificationMethod>,
-  capabilityDelegation?: Array<string | Btc1VerificationMethod>,
+  verificationMethod: Array<DidVerificationMethod>,
+  authentication?: Array<string | DidVerificationMethod>,
+  assertionMethod?: Array<string | DidVerificationMethod>,
+  capabilityInvocation?: Array<string | DidVerificationMethod>,
+  capabilityDelegation?: Array<string | DidVerificationMethod>,
   service: Array<BeaconService>
 }
 export type VerificationRelationships = {
-  authentication?: Array<string | Btc1VerificationMethod>;
-  assertionMethod?: Array<string | Btc1VerificationMethod>;
-  capabilityInvocation?: Array<string | Btc1VerificationMethod>;
-  capabilityDelegation?: Array<string | Btc1VerificationMethod>;
+  authentication?: Array<string | DidVerificationMethod>;
+  assertionMethod?: Array<string | DidVerificationMethod>;
+  capabilityInvocation?: Array<string | DidVerificationMethod>;
+  capabilityDelegation?: Array<string | DidVerificationMethod>;
 }
 
-export interface IBtc1VerificationMethod extends DidVerificationMethod {
+export interface IDidVerificationMethod extends IIDidVerificationMethod {
   id: string;
   type: string;
   controller: string;
@@ -41,19 +44,19 @@ export interface IBtc1VerificationMethod extends DidVerificationMethod {
 }
 
 /**
- * DID BTC1 Verification Method extends the DidVerificationMethod class adding helper methods and properties
- * @class Btc1VerificationMethod
- * @type {Btc1VerificationMethod}
+ * DID BTCR2 Verification Method extends the DidVerificationMethod class adding helper methods and properties
+ * @class DidVerificationMethod
+ * @type {DidVerificationMethod}
  *
  */
-export class Btc1VerificationMethod implements IBtc1VerificationMethod {
+export class DidVerificationMethod implements IDidVerificationMethod {
   id: string;
   type: string;
   controller: string;
   publicKeyMultibase: string;
   secretKeyMultibase?: string | undefined;
 
-  constructor({ id, type, controller, publicKeyMultibase, secretKeyMultibase }: IBtc1VerificationMethod) {
+  constructor({ id, type, controller, publicKeyMultibase, secretKeyMultibase }: IDidVerificationMethod) {
     this.id = id;
     this.type = type;
     this.controller = controller;
@@ -67,79 +70,80 @@ export class Btc1VerificationMethod implements IBtc1VerificationMethod {
 }
 
 /**
- * BTC1 DID Document Interface
- * @interface IBtc1DidDocument
- * @type {IBtc1DidDocument}
- * @extends {IDidDocument}
+ * BTCR2 DID Document Interface
+ * @interface IDidDocument
+ * @type {IDidDocument}
+ * @extends {IIDidDocument}
  * @property {string} id - The identifier of the DID Document.
  * @property {Array<string>} [controller] - The controller of the DID Document.
  * @property {Array<string | JSONObject>} ['@context'] - The context of the DID Document.
  * @property {Array<DidVerificationMethod>} verificationMethod - The verification methods of the DID Document.
- * @property {Array<string | Btc1VerificationMethod>} [authentication] - The authentication methods of the DID Document.
- * @property {Array<string | Btc1VerificationMethod>} [assertionMethod] - The assertion methods of the DID Document.
- * @property {Array<string | Btc1VerificationMethod>} [capabilityInvocation] - The capability invocation methods of the DID Document.
- * @property {Array<string | Btc1VerificationMethod>} [capabilityDelegation] - The capability delegation methods of the DID Document.
+ * @property {Array<string | DidVerificationMethod>} [authentication] - The authentication methods of the DID Document.
+ * @property {Array<string | DidVerificationMethod>} [assertionMethod] - The assertion methods of the DID Document.
+ * @property {Array<string | DidVerificationMethod>} [capabilityInvocation] - The capability invocation methods of the DID Document.
+ * @property {Array<string | DidVerificationMethod>} [capabilityDelegation] - The capability delegation methods of the DID Document.
  * @property {Array<BeaconService>} service - The services of the DID Document.
  */
-export interface IBtc1DidDocument extends IDidDocument {
+export interface IDidDocument extends IIDidDocument {
   id: string;
   controller?: Array<string>;
   '@context'?: Array<string | JSONObject>;
-  verificationMethod: Array<Btc1VerificationMethod>;
-  authentication?: Array<string | Btc1VerificationMethod>;
-  assertionMethod?: Array<string | Btc1VerificationMethod>;
-  capabilityInvocation?: Array<string | Btc1VerificationMethod>;
-  capabilityDelegation?: Array<string | Btc1VerificationMethod>;
+  verificationMethod: Array<DidVerificationMethod>;
+  authentication?: Array<string | DidVerificationMethod>;
+  assertionMethod?: Array<string | DidVerificationMethod>;
+  capabilityInvocation?: Array<string | DidVerificationMethod>;
+  capabilityDelegation?: Array<string | DidVerificationMethod>;
   service: Array<BeaconService>;
 }
 
 /**
- * BTC1 DID Document extends the DidDocument class adding helper methods and properties
- * @class Btc1DidDocument
- * @type {Btc1DidDocument}
- * @implements {IBtc1DidDocument}
+ * BTCR2 DID Document extends the DidDocument class adding helper methods and properties
+ * @class DidDocument
+ * @type {DidDocument}
+ * @implements {IDidDocument}
  * @property {string} id - The identifier of the DID Document.
  * @property {Array<string>} [controller] - The controller of the DID Document.
  * @property {Array<string | JSONObject>} ['@context'] - The context of the DID Document.
  * @property {Array<DidVerificationMethod>} verificationMethod - The verification methods of the DID Document.
- * @property {Array<string | Btc1VerificationMethod>} [authentication] - The authentication methods of the DID Document.
- * @property {Array<string | Btc1VerificationMethod>} [assertionMethod] - The assertion methods of the DID Document.
- * @property {Array<string | Btc1VerificationMethod>} [capabilityInvocation] - The capability invocation methods of the DID Document.
- * @property {Array<string | Btc1VerificationMethod>} [capabilityDelegation] - The capability delegation methods of the DID Document.
+ * @property {Array<string | DidVerificationMethod>} [authentication] - The authentication methods of the DID Document.
+ * @property {Array<string | DidVerificationMethod>} [assertionMethod] - The assertion methods of the DID Document.
+ * @property {Array<string | DidVerificationMethod>} [capabilityInvocation] - The capability invocation methods of the DID Document.
+ * @property {Array<string | DidVerificationMethod>} [capabilityDelegation] - The capability delegation methods of the DID Document.
  * @property {Array<BeaconService>} service - The services of the DID Document.
  */
-export class Btc1DidDocument implements IBtc1DidDocument {
+export class DidDocument implements IDidDocument {
   id: string;
   controller?: Array<string>;
-  '@context'?: Array<string | JSONObject> = BTC1_DID_DOCUMENT_CONTEXT;
-  verificationMethod: Array<Btc1VerificationMethod>;
-  authentication?: Array<string | Btc1VerificationMethod>;
-  assertionMethod?: Array<string | Btc1VerificationMethod>;
-  capabilityInvocation?: Array<string | Btc1VerificationMethod>;
-  capabilityDelegation?: Array<string | Btc1VerificationMethod>;
+  '@context'?: Array<string | JSONObject> = BTCR2_DID_DOCUMENT_CONTEXT;
+  verificationMethod: Array<DidVerificationMethod>;
+  authentication?: Array<string | DidVerificationMethod>;
+  assertionMethod?: Array<string | DidVerificationMethod>;
+  capabilityInvocation?: Array<string | DidVerificationMethod>;
+  capabilityDelegation?: Array<string | DidVerificationMethod>;
   service: Array<BeaconService>;
 
-  constructor(document: IBtc1DidDocument) {
+  constructor(document: IDidDocument) {
+    console.log('Constructing DidDocument with document:', document);
     // Set the ID and ID type
     const idType = document.id.includes('k1')
-      ? Btc1IdentifierTypes.KEY
-      : Btc1IdentifierTypes.EXTERNAL;
+      ? IdentifierTypes.KEY
+      : IdentifierTypes.EXTERNAL;
 
     // Validate ID and parts for non-intermediate
     const isIntermediate = document.id === ID_PLACEHOLDER_VALUE;
     // Deconstruct the document parts for validation
     const { id, controller, verificationMethod: vm, service } = document;
     if (!isIntermediate) {
-      if (!Btc1DidDocument.isValidId(id)) {
+      if (!DidDocument.isValidId(id)) {
         throw new DidDocumentError(`Invalid id: ${id}`, INVALID_DID_DOCUMENT, document);
       }
-      if(!Btc1DidDocument.isValidController(controller ?? [id])) {
+      if(!DidDocument.isValidController(controller ?? [id])) {
         throw new DidDocumentError(`Invalid controller: ${controller}`, INVALID_DID_DOCUMENT, document);
       }
-      if (!Btc1DidDocument.isValidVerificationMethods(vm)) {
+      if (!DidDocument.isValidVerificationMethods(vm)) {
         throw new DidDocumentError('Invalid verificationMethod: ' + vm, INVALID_DID_DOCUMENT, document);
       }
-      if (!Btc1DidDocument.isValidServices(service)) {
+      if (!DidDocument.isValidServices(service)) {
         throw new DidDocumentError('Invalid service: ' + service, INVALID_DID_DOCUMENT, document);
       }
     }
@@ -148,11 +152,11 @@ export class Btc1DidDocument implements IBtc1DidDocument {
     this.id = document.id;
     this.verificationMethod = document.verificationMethod;
     this.service = document.service;
-    this['@context'] = document['@context'] || BTC1_DID_DOCUMENT_CONTEXT;
+    this['@context'] = document['@context'] || BTCR2_DID_DOCUMENT_CONTEXT;
     this.controller = document.controller || [this.id];
 
     // Relationships logic based on idType
-    if (idType === Btc1IdentifierTypes.KEY) {
+    if (idType === IdentifierTypes.KEY) {
       // auto-generate #initialKey if missing
       const keyRef = `${this.id}#initialKey`;
       this.authentication = document.authentication || [keyRef];
@@ -168,18 +172,18 @@ export class Btc1DidDocument implements IBtc1DidDocument {
     }
 
     // Sanitize the DID Document
-    Btc1DidDocument.sanitize(this);
+    DidDocument.sanitize(this);
     // If the DID Document is not an intermediateDocument, validate it
     if (!isIntermediate) {
-      Btc1DidDocument.validate(this);
+      DidDocument.validate(this);
     } else {
       this.validateIntermediate();
     }
   }
 
   /**
-   * Convert the Btc1DidDocument to a JSON object.
-   * @returns {JSONObject} The JSON representation of the Btc1DidDocument.
+   * Convert the DidDocument to a JSON object.
+   * @returns {JSONObject} The JSON representation of the DidDocument.
    */
   public json(): JSONObject {
     return {
@@ -196,23 +200,23 @@ export class Btc1DidDocument implements IBtc1DidDocument {
   }
 
   /**
-   * Create a minimal Btc1DidDocument from "k1" btc1 identifier.
+   * Create a minimal DidDocument from "k1" btcr2 identifier.
    * @param {string} publicKeyMultibase The public key in multibase format.
    * @param {Array<BeaconService>} service The beacon services to be included in the document.
-   * @returns {Btc1DidDocument} A new Btc1DidDocument with the placeholder ID.
+   * @returns {DidDocument} A new DidDocument with the placeholder ID.
    */
   public static fromKeyIdentifier(
     id: string,
     publicKeyMultibase: string,
     service: Array<BeaconService>
-  ): Btc1DidDocument {
+  ): DidDocument {
     // Ensure the ID is in the correct format
     id = id.includes('#') ? id : `${id}#initialKey`;
-    // Create the verification method and the Btc1DidDocument
+    // Create the verification method and the DidDocument
     const document = {
       id,
       verificationMethod : [
-        new Btc1VerificationMethod({
+        new DidVerificationMethod({
           id,
           type       : 'Multikey',
           controller : id,
@@ -220,40 +224,40 @@ export class Btc1DidDocument implements IBtc1DidDocument {
         })
       ],
       service
-    } as IBtc1DidDocument;
-    return new Btc1DidDocument(document);
+    } as IDidDocument;
+    return new DidDocument(document);
   }
 
   /**
-   * Create a Btc1DidDocument from "x1" btc1 identifier.
+   * Create a DidDocument from "x1" btcr2 identifier.
    * @param {ExternalData} data The verification methods of the DID Document.
-   * @returns {Btc1DidDocument} A new Btc1DidDocument.
+   * @returns {DidDocument} A new DidDocument.
    */
-  public static fromExternalIdentifier(data: ExternalData): Btc1DidDocument {
-    return new Btc1DidDocument(data as IBtc1DidDocument);
+  public static fromExternalIdentifier(data: ExternalData): DidDocument {
+    return new DidDocument(data as IDidDocument);
   }
 
 
   /**
    * Sanitize the DID Document by removing undefined values
-   * @returns {Btc1DidDocument} The sanitized DID Document
+   * @returns {DidDocument} The sanitized DID Document
    */
-  public static sanitize(doc: Btc1DidDocument): Btc1DidDocument {
+  public static sanitize(doc: DidDocument): DidDocument {
     for (const key of Object.keys(doc)) {
-      if (doc[key as keyof Btc1DidDocument] === undefined) {
-        delete doc[key as keyof Btc1DidDocument];
+      if (doc[key as keyof DidDocument] === undefined) {
+        delete doc[key as keyof DidDocument];
       }
     }
     return doc;
   }
 
   /**
-   * Validates a Btc1DidDocument by breaking it into modular validation methods.
-   * @param {Btc1DidDocument} didDocument The DID document to validate.
+   * Validates a DidDocument by breaking it into modular validation methods.
+   * @param {DidDocument} didDocument The DID document to validate.
    * @returns {boolean} True if the DID document is valid.
    * @throws {DidDocumentError} If any validation check fails.
    */
-  public static isValid(didDocument: Btc1DidDocument): boolean {
+  public static isValid(didDocument: DidDocument): boolean {
     if (!this.isValidContext(didDocument?.['@context'])) {
       throw new DidDocumentError('Invalid "@context"', INVALID_DID_DOCUMENT, didDocument);
     }
@@ -275,13 +279,13 @@ export class Btc1DidDocument implements IBtc1DidDocument {
   /**
    * Validates that "@context" exists and includes correct values.
    * @private
-   * @param {Btc1DidDocument['@context']} context The context to validate.
+   * @param {DidDocument['@context']} context The context to validate.
    * @returns {boolean} True if the context is valid.
    */
-  private static isValidContext(context: Btc1DidDocument['@context']): boolean {
+  private static isValidContext(context: DidDocument['@context']): boolean {
     if(!context) return false;
     if(!Array.isArray(context)) return false;
-    if(!context.every(ctx => typeof ctx === 'string' && BTC1_DID_DOCUMENT_CONTEXT.includes(ctx))) return false;
+    if(!context.every(ctx => typeof ctx === 'string' && BTCR2_DID_DOCUMENT_CONTEXT.includes(ctx))) return false;
     return true;
   }
 
@@ -293,7 +297,7 @@ export class Btc1DidDocument implements IBtc1DidDocument {
    */
   private static isValidId(id: string): boolean {
     try {
-      Btc1Identifier.decode(id);
+      Identifier.decode(id);
       return true;
     } catch (error: any) {
       Logger.error('Invalid DID Document ID', error);
@@ -319,8 +323,8 @@ export class Btc1DidDocument implements IBtc1DidDocument {
    * @param {DidVerificationMethod[]} verificationMethod The verification methods to validate.
    * @returns {boolean} True if the verification methods are valid.
    */
-  private static isValidVerificationMethods(verificationMethod: DidVerificationMethod[]): boolean {
-    return Array.isArray(verificationMethod) && verificationMethod.every(Btc1Appendix.isDidVerificationMethod);
+  private static isValidVerificationMethods(verificationMethod: IIDidVerificationMethod[]): boolean {
+    return Array.isArray(verificationMethod) && verificationMethod.every(Appendix.isDidVerificationMethod);
   }
 
   /**
@@ -336,12 +340,12 @@ export class Btc1DidDocument implements IBtc1DidDocument {
   /**
    * Validates verification relationships (authentication, assertionMethod, capabilityInvocation, capabilityDelegation).
    * @private
-   * @param {Btc1DidDocument} didDocument The DID Document to validate.
+   * @param {DidDocument} didDocument The DID Document to validate.
    * @returns {boolean} True if the verification relationships are valid.
    */
-  public static isValidVerificationRelationships(didDocument: Btc1DidDocument): boolean {
+  public static isValidVerificationRelationships(didDocument: DidDocument): boolean {
     // Define the available verification relationships
-    const possibleVerificationRelationships: (keyof Btc1DidDocument)[] = [
+    const possibleVerificationRelationships: (keyof DidDocument)[] = [
       'authentication',
       'assertionMethod',
       'capabilityInvocation',
@@ -349,12 +353,12 @@ export class Btc1DidDocument implements IBtc1DidDocument {
     ];
 
     // Get the DID Document keys
-    const verificationRelationships = Object.keys(didDocument) as Array<keyof Btc1DidDocument>;
+    const verificationRelationships = Object.keys(didDocument) as Array<keyof DidDocument>;
 
     // Filter the DID Document keys to only those that are in the available verification relationships
     const availableVerificationRelationships = possibleVerificationRelationships.filter(
-      key => verificationRelationships.includes(key as keyof Btc1DidDocument)
-    ) as (keyof Btc1DidDocument)[];
+      key => verificationRelationships.includes(key as keyof DidDocument)
+    ) as (keyof DidDocument)[];
 
     // Check if all available verification relationships are valid
     return availableVerificationRelationships.every((key) =>
@@ -364,21 +368,21 @@ export class Btc1DidDocument implements IBtc1DidDocument {
       Array.isArray(didDocument[key]) &&
       // Check that every value in the array is a string or DidVerificationMethod
       didDocument[key].every(
-        entry => typeof entry === 'string' || Btc1Appendix.isDidVerificationMethod(entry)
+        entry => typeof entry === 'string' || Appendix.isDidVerificationMethod(entry)
       ));
   }
 
   /**
    * Validate the DID Document
-   * @returns {Btc1DidDocument} Validated DID Document.
+   * @returns {DidDocument} Validated DID Document.
    * @throws {DidDocumentError} If the DID Document is invalid.
    */
-  public static validate(didDocument: Btc1DidDocument | IntermediateDidDocument): Btc1DidDocument {
+  public static validate(didDocument: DidDocument | IntermediateDidDocument): DidDocument {
     // Validate the DID Document
     if (didDocument.id === ID_PLACEHOLDER_VALUE) {
       (didDocument as IntermediateDidDocument).validateIntermediate();
     } else {
-      Btc1DidDocument.isValid(didDocument);
+      DidDocument.isValid(didDocument);
     }
     // Return the DID Document
     return didDocument;
@@ -388,7 +392,7 @@ export class Btc1DidDocument implements IBtc1DidDocument {
    * Validate the IntermediateDidDocument.
    * @returns {boolean} True if the IntermediateDidDocument is valid.
    */
-  public validateIntermediate(): void {
+  public validateIntermediate(): boolean {
     // Validate the id
     if(this.id !== ID_PLACEHOLDER_VALUE) {
       throw new DidDocumentError('Invalid IntermediateDidDocument ID', INVALID_DID_DOCUMENT, this);
@@ -405,15 +409,17 @@ export class Btc1DidDocument implements IBtc1DidDocument {
     if(!this.service.every(svc => svc.id.includes(ID_PLACEHOLDER_VALUE))) {
       throw new DidDocumentError('Invalid IntermediateDidDocument service', INVALID_DID_DOCUMENT, this);
     }
-    if(!Btc1DidDocument.isValidVerificationRelationships(this)) {
+    if(!DidDocument.isValidVerificationRelationships(this)) {
       // Return true if all validations pass
       throw new DidDocumentError('Invalid IntermediateDidDocument assertionMethod', INVALID_DID_DOCUMENT, this);
     }
+
+    return true;
   }
 
   /**
-   * Convert the Btc1DidDocument to an IntermediateDidDocument.
-   * @returns {IntermediateDidDocument} The IntermediateDidDocument representation of the Btc1DidDocument.
+   * Convert the DidDocument to an IntermediateDidDocument.
+   * @returns {IntermediateDidDocument} The IntermediateDidDocument representation of the DidDocument.
    */
   public toIntermediate(): IntermediateDidDocument {
     if(this.id.includes('k1')) {
@@ -424,27 +430,48 @@ export class Btc1DidDocument implements IBtc1DidDocument {
 }
 
 /**
- * IntermediateDidDocument extends the Btc1DidDocument class for creating and managing intermediate DID documents.
+ * IntermediateDidDocument extends the DidDocument class for creating and managing intermediate DID documents.
  * This class is used to create a minimal DID document with a placeholder ID.
  * It is used in the process of creating a new DID document.
  * @class IntermediateDidDocument
- * @extends {Btc1DidDocument}
+ * @extends {DidDocument}
  */
-export class IntermediateDidDocument extends Btc1DidDocument {
-  constructor(document: IBtc1DidDocument) {
-    const intermediateDocument = JSON.cloneReplace(document, BTC1_DID_REGEX, ID_PLACEHOLDER_VALUE) as IBtc1DidDocument;
-    super(intermediateDocument);
+export class IntermediateDidDocument extends DidDocument {
+  constructor(document: JSONObject) {
+    super(document as IDidDocument);
+  }
+
+  /**
+   * Convert the IntermediateDidDocument to a DidDocument by replacing the placeholder value with the provided DID.
+   * @param did The DID to replace the placeholder value in the document.
+   * @returns {DidDocument} A new DidDocument with the placeholder value replaced by the provided DID.
+   */
+  public toDidDocument(did: string): DidDocument {
+    const stringThis = JSON.stringify(this).replaceAll(ID_PLACEHOLDER_VALUE, did);
+    const parseThis = JSON.parse(stringThis) as IDidDocument;
+    return new DidDocument(parseThis);
+  }
+
+
+  /**
+   * Create an IntermediateDidDocument from a DidDocument by replacing the DID with a placeholder value.
+   * @param {DidDocument} didDocument The DidDocument to convert.
+   * @returns {IntermediateDidDocument} The IntermediateDidDocument representation of the DidDocument.
+   */
+  public static fromDidDocument(didDocument: DidDocument): IntermediateDidDocument {
+    const intermediateDocument = JSON.cloneReplace(didDocument, DID_REGEX, ID_PLACEHOLDER_VALUE) as IDidDocument;
+    return new IntermediateDidDocument(intermediateDocument);
   }
 
   /**
    * Create a minimal IntermediateDidDocument with a placeholder ID.
-   * @param {Array<Btc1VerificationMethod>} verificationMethod The public key in multibase format.
+   * @param {Array<DidVerificationMethod>} verificationMethod The public key in multibase format.
    * @param {VerificationRelationships} relationships The public key in multibase format.
    * @param {Array<BeaconService>} service The service to be included in the document.
    * @returns {IntermediateDidDocument} A new IntermediateDidDocument with the placeholder ID.
    */
   public static create(
-    verificationMethod: Array<Btc1VerificationMethod>,
+    verificationMethod: Array<DidVerificationMethod>,
     relationships: VerificationRelationships,
     service: Array<BeaconService>
   ): IntermediateDidDocument {
@@ -453,22 +480,51 @@ export class IntermediateDidDocument extends Btc1DidDocument {
   }
 
   /**
-   * Convert the IntermediateDidDocument to a Btc1DidDocument by replacing the placeholder value with the provided DID.
-   * @param did The DID to replace the placeholder value in the document.
-   * @returns {Btc1DidDocument} A new Btc1DidDocument with the placeholder value replaced by the provided DID.
+   * Create a minimal IntermediateDidDocument from a public key.
+   * @param {KeyBytes} publicKey The public key in bytes format.
+   * @returns {IntermediateDidDocument} A new IntermediateDidDocument with the placeholder ID.
    */
-  public toBtc1DidDocument(did: string): Btc1DidDocument {
-    const stringThis = JSON.stringify(this).replaceAll(ID_PLACEHOLDER_VALUE, did);
-    const parseThis = JSON.parse(stringThis) as IBtc1DidDocument;
-    return new Btc1DidDocument(parseThis);
+  public static fromPublicKey(publicKey: KeyBytes, network: string): IntermediateDidDocument {
+    const pk = new CompressedSecp256k1PublicKey(publicKey);
+    const id = ID_PLACEHOLDER_VALUE;
+    const service = BeaconUtils.generateBeaconService({
+      id          : `${id}#key-0`,
+      publicKey   : pk.compressed,
+      network     : getNetwork(network),
+      addressType : 'p2pkh',
+      type        : 'SingletonBeacon',
+    });
+
+    const relationships = {
+      authentication       : [`${id}#key-0`],
+      assertionMethod      : [`${id}#key-0`],
+      capabilityInvocation : [`${id}#key-0`],
+      capabilityDelegation : [`${id}#key-0`]
+    };
+    const verificationMethod = [
+      {
+        id                 : `${id}#key-0`,
+        type               : 'Multikey',
+        controller         : id,
+        publicKeyMultibase : pk.multibase.encoded,
+      }
+    ];
+
+    return IntermediateDidDocument.create(verificationMethod, relationships, [service]);
   }
 
   /**
-   * Create a Btc1DidDocument from a JSON object.
+   * Taken an object, convert it to an IntermediateDocuemnt and then to a DidDocument.
    * @param {JSONObject} object The JSON object to convert.
-   * @returns {Btc1DidDocument} The created Btc1DidDocument.
+   * @returns {DidDocument} The created DidDocument.
    */
-  public static from(object: JSONObject): Btc1DidDocument {
-    return new IntermediateDidDocument(object as IBtc1DidDocument).toBtc1DidDocument(object.id as string);
+  public static fromJSON(object: JSONObject): IntermediateDidDocument {
+    return new IntermediateDidDocument(object as IDidDocument);
+  }
+}
+
+export class Document {
+  public static isValid(didDocument: DidDocument | IntermediateDidDocument): boolean {
+    return new DidDocument(didDocument).validateIntermediate();
   }
 }

@@ -1,27 +1,19 @@
+export * from './core/beacon/cid-aggregate.js';
+export * from './core/beacon/factory.js';
+export * from './core/beacon/singleton.js';
+export * from './core/beacon/smt-aggregate.js';
 
-export * from './bitcoin/constants.js';
-export * from './bitcoin/interface.js';
-export * from './bitcoin/network.js';
-export * from './bitcoin/rpc-client.js';
+export * from './core/crud/deactivate.js';
+export * from './core/crud/read.js';
+export * from './core/crud/update.js';
 
-export * from './btc1/beacon/cid-aggregate.js';
-export * from './btc1/beacon/factory.js';
-export * from './btc1/beacon/singleton.js';
-export * from './btc1/beacon/smt-aggregate.js';
-
-export * from './btc1/crud/create.js';
-export * from './btc1/crud/deactivate.js';
-export * from './btc1/crud/read.js';
-export * from './btc1/crud/update.js';
-
-export * from './btc1/key-manager/index.js';
-export * from './btc1/key-manager/interface.js';
+export * from './core/key-manager/index.js';
+export * from './core/key-manager/interface.js';
 
 export * from './interfaces/beacon.js';
 export * from './interfaces/crud.js';
 export * from './interfaces/ibeacon.js';
 
-export * from './types/bitcoin.js';
 export * from './types/crud.js';
 
 export * from './utils/appendix.js';
@@ -31,4 +23,4 @@ export * from './utils/did-document.js';
 export * from './utils/general.js';
 export * from './utils/identifier.js';
 
-export * from './did-btc1.js';
+export * from './did-btcr2.js';

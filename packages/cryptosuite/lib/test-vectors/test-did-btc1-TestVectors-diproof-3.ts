@@ -1,5 +1,5 @@
-import { SchnorrKeyPair } from '@did-btc1/keypair';
-import { Btc1Identifier } from '../../../method/src/index.js';
+import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { Identifier } from '../../../method/src/index.js';
 import { SchnorrMultikey } from '../../src/index.js';
 
 const securedDocument = {
@@ -13,7 +13,7 @@ const securedDocument = {
       op    : 'add',
       path  : '/service/3',
       value : {
-        id              : 'did:btc1:k1qgpzs6takyvuhv3dy8epaqhwee6eamxttprpn4k48ft4xyvw5sp3mvqqavunt#service-0',
+        id              : 'did:btcr2:k1qgpzs6takyvuhv3dy8epaqhwee6eamxttprpn4k48ft4xyvw5sp3mvqqavunt#service-0',
         type            : 'SingletonBeacon',
         serviceEndpoint : 'bitcoin:bcrt1p8x86wve7hzfanwyh9dlz8vn0g0gk79ws3cezp575zjphdg9yje6qc9ty2s'
       }
@@ -25,7 +25,7 @@ const securedDocument = {
   proof           : {
     type               : 'DataIntegrityProof',
     cryptosuite        : 'bip340-jcs-2025',
-    verificationMethod : 'did:btc1:k1qgpzs6takyvuhv3dy8epaqhwee6eamxttprpn4k48ft4xyvw5sp3mvqqavunt#initialKey',
+    verificationMethod : 'did:btcr2:k1qgpzs6takyvuhv3dy8epaqhwee6eamxttprpn4k48ft4xyvw5sp3mvqqavunt#initialKey',
     proofPurpose       : 'capabilityInvocation',
     capability         : 'urn:zcap:root:did%3Abtc1%3Ak1qgpzs6takyvuhv3dy8epaqhwee6eamxttprpn4k48ft4xyvw5sp3mvqqavunt',
     capabilityAction   : 'Write',
@@ -39,8 +39,8 @@ const securedDocument = {
 };
 
 const id = '#initialKey';
-const controller = 'did:btc1:k1qgpzs6takyvuhv3dy8epaqhwee6eamxttprpn4k48ft4xyvw5sp3mvqqavunt';
-const components = Btc1Identifier.decode(controller);
+const controller = 'did:btcr2:k1qgpzs6takyvuhv3dy8epaqhwee6eamxttprpn4k48ft4xyvw5sp3mvqqavunt';
+const components = Identifier.decode(controller);
 console.log('components:', components);
 const keys = new SchnorrKeyPair({ publicKey: components.genesisBytes });
 const diProof = Multikey.initialize({ id, controller, keyPair })

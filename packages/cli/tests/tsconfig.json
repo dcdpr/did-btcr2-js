@@ -9,7 +9,7 @@
   "include": [
     "../src",
     "."
-, "../bin/btc1.ts", "../bin"  ],
+, "../bin/btcr2.ts", "../bin"  ],
   "exclude": [
     "./compiled"
   ]

@@ -1,0 +1,57 @@
+sequenceDiagram
+  title 5.3 Update
+  autonumber
+
+  actor Client as DID Controller
+  participant Update as Btc1Update
+  participant Factory as BeaconFactory
+  participant Beacon as Beacon (Singleton/Map/SMT)
+
+  Client->>Update: update({ identifier, sourceDocument,<br/>sourceVersionId, patch, verificationMethodId, beaconIds })
+  activate Update
+
+  %% ===== Construct DID Update Payload =====
+  rect rgba(0,0,0,0.03)
+    Note over Update: Construct DID Update Payload
+    Update->>Update: construct({ identifier, sourceDocument,<br/>sourceVersionId, patch })
+    Note right of Update: - Verify sourceDocument.id === identifier<br/>- Apply JSON Patch → targetDocument<br/>- Validate targetDocument (DID Core)<br/>- JCS + hash → sourceHash, targetHash<br/>- targetVersionId = sourceVersionId + 1
+    Update-->>Update: DidUpdatePayload
+  end
+
+  %% ===== Resolve & validate signing method =====
+  rect rgba(0,0,0,0.03)
+    Note over Update: Resolve & validate signing method
+    Update->>Update: getSigningMethod(sourceDocument, verificationMethodId)
+    Update-->>Update: verificationMethod
+    alt invalid verificationMethod
+      Update-->>Client: throw Btc1Error(INVALID_DID_DOCUMENT)
+      deactivate Update
+    else type !== "Multikey" OR publicKeyMultibase prefix !== "zQ3s"
+      Update-->>Client: throw Btc1Error(INVALID_DID_DOCUMENT)
+    end
+  end
+
+  %% ===== Invoke DID Update Payload (add ZCAP-LD Data Integrity proof) =====
+  rect rgba(0,0,0,0.03)
+    Note over Update: Invoke DID Update Payload (add ZCAP-LD Data Integrity proof)
+    Update->>Update: invoke({ identifier, didUpdatePayload,<br/>verificationMethod })
+    Update-->>Update: DidUpdateInvocation
+  end
+
+  %% ===== Announce DID Update (broadcast to beacons) =====
+  rect rgba(0,0,0,0.03)
+    Note over Update: Announce DID Update (broadcast to beacons)
+    loop for beaconId in beaconIds
+      Update->>Update: find service in sourceDocument.service
+      alt not found
+        Update-->>Client: throw Btc1Error(INVALID_DID_DOCUMENT)
+      else found
+        Update->>Factory: establish(beaconService)
+        Factory-->>Update: Beacon instance
+        Update->>Beacon: broadcastSignal(DidUpdateInvocation)
+        Beacon-->>Update: signalMetadata (accumulate)
+      end
+    end
+  end
+
+  Update-->>Client: signalsMetadata

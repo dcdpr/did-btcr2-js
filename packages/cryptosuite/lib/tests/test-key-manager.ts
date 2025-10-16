@@ -1,5 +1,5 @@
-import { SchnorrKeyPair } from '@did-btc1/keypair';
-import { Btc1KeyManager } from '../../../method/src/index.js';
+import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { KeyManager } from '../../../method/src/index.js';
 
 const secretKey = new Uint8Array([
   159,  79, 128, 155, 191, 173,  89, 197,
@@ -10,5 +10,5 @@ const secretKey = new Uint8Array([
 console.log('secretKey', secretKey);
 const keys = new SchnorrKeyPair({ secretKey });
 console.log('keys', keys);
-const keyManager = new Btc1KeyManager({ keys });
+const keyManager = new KeyManager({ keys });
 console.log(keyManager);

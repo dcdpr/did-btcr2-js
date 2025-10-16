@@ -1,20 +1,20 @@
 // NOTE: Does not verify due to bad input data!
 
-import { SchnorrKeyPair } from '@did-btc1/keypair';
-import { Btc1Identifier } from '../../../method/src/index.js';
+import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { Identifier } from '../../../method/src/index.js';
 import { SchnorrMultikey } from '../../src/index.js';
 
 const initialDocument = {
   '@context' : [
     'https://www.w3.org/ns/did/v1',
-    'https://did-btc1/TBD/context'
+    'https://did-btcr2/TBD/context'
   ],
-  id                 : 'did:btc1:regtest:k1qdh2ef3aqne63sdhq8tr7c8zv9lyl5xy4llj8uw3ejfj5xsuhcacjq98ccc',
+  id                 : 'did:btcr2:regtest:k1qdh2ef3aqne63sdhq8tr7c8zv9lyl5xy4llj8uw3ejfj5xsuhcacjq98ccc',
   verificationMethod : [
     {
       id                 : '#initialKey',
       type               : 'Multikey',
-      controller         : 'did:btc1:regtest:k1qdh2ef3aqne63sdhq8tr7c8zv9lyl5xy4llj8uw3ejfj5xsuhcacjq98ccc',
+      controller         : 'did:btcr2:regtest:k1qdh2ef3aqne63sdhq8tr7c8zv9lyl5xy4llj8uw3ejfj5xsuhcacjq98ccc',
       publicKeyMultibase : 'zQ3shn68faoXE2EqCTtefQXNLgaTa7ZohG2ftZjgXphStJsGc'
     }
   ],
@@ -71,7 +71,7 @@ const securedDocument = {
   proof           : {
     type               : 'DataIntegrityProof',
     cryptosuite        : 'bip340-jcs-2025',
-    verificationMethod : 'did:btc1:regtest:k1qdh2ef3aqne63sdhq8tr7c8zv9lyl5xy4llj8uw3ejfj5xsuhcacjq98ccc#initialKey',
+    verificationMethod : 'did:btcr2:regtest:k1qdh2ef3aqne63sdhq8tr7c8zv9lyl5xy4llj8uw3ejfj5xsuhcacjq98ccc#initialKey',
     proofPurpose       : 'capabilityInvocation',
     capability         : 'urn:zcap:root:did%3Abtc1%3Aregtest%3Ak1qdh2ef3aqne63sdhq8tr7c8zv9lyl5xy4llj8uw3ejfj5xsuhcacjq98ccc',
     capabilityAction   : 'Write',
@@ -87,7 +87,7 @@ const securedDocument = {
 const vm = initialDocument.verificationMethod[0];
 const id = vm.id;
 const controller = vm.controller;
-const components = Btc1Identifier.decode(controller);
+const components = Identifier.decode(controller);
 console.log('components:', components);
 const publicKey = components.genesisBytes;
 console.log('publicKey:', publicKey);

@@ -1,18 +1,23 @@
 {
-  "name": "did-btc1-js",
-  "version": "2.1.0",
-  "description": "Monorepo for did:btc1 js/ts implementation and supporting packages.",
+  "name": "did-btcr2-js",
+  "version": "3.0.8",
+  "description": "Monorepo for did:btcr2 js/ts implementation and supporting packages.",
   "type": "module",
   "workspaces": [
-    "packages/common",
-    "packages/keypair",
-    "packages/cryptosuite",
-    "packages/method",
+    "packages/api",
+    "packages/bitcoin",
     "packages/cli",
+    "packages/common",
+    "packages/cryptosuite",
+    "packages/keypair",
+    "packages/method",
     "packages/smt"
   ],
   "scripts": {
     "purge": "pnpm npkill -d $(pwd)/packages -t dist && pnpm npkill -d $(pwd) -t node_modules",
+    "docs:dev": "vitepress dev docs",
+    "docs:build": "typedoc --options typedoc.json && vitepress build docs",
+    "docs:deploy": "pnpm docs:build && gh-pages -d docs/.vitepress/dist",
     "reinstall": "pnpm --recursive --stream reinstall",
     "wipe": "pnpm --recursive --stream wipe",
     "wipe:install": "pnpm --recursive --stream wipe:install",
@@ -27,7 +32,6 @@
     "build": "pnpm --recursive --stream build",
     "build:test": "pnpm --recursive --stream build:test",
     "build:tests": "pnpm --recursive --stream build:tests",
-    "build:docs": "pnpm --recursive --stream build:docs",
     "build:all": "pnpm --recursive --stream build:all",
     "test": "pnpm --recursive --stream test",
     "lint": "pnpm --recursive --stream lint",
@@ -35,12 +39,14 @@
     "release": "pnpm --recursive --stream release",
     "prepublish": "pnpm --recursive --stream prepublish",
     "publish:all": "pnpm --recursive --stream publish",
-    "cryptosuite": "pnpm --filter cryptosuite",
-    "common": "pnpm --filter common",
+    "api": "pnpm --filter api",
+    "bitcoin": "pnpm --filter bitcoin",
     "cli": "pnpm --filter cli",
-    "smt": "pnpm --filter smt",
+    "common": "pnpm --filter common",
+    "cryptosuite": "pnpm --filter cryptosuite",
     "keypair": "pnpm --filter keypair",
-    "method": "pnpm --filter method"
+    "method": "pnpm --filter method",
+    "smt": "pnpm --filter smt"
   },
   "keywords": [
     "did",
@@ -48,18 +54,18 @@
     "dids",
     "decentralized identifiers",
     "did method",
-    "btc1",
-    "did btc1",
-    "did:btc1",
+    "btcr2",
+    "did btcr2",
+    "did:btcr2",
     "bitcoin"
   ],
   "license": "MPL-2.0",
-  "homepage": "https://github.com/jintekc/did-btc1-js",
+  "homepage": "https://github.com/dcdpr/did-btcr2-js",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com:jintekc/did-btc1-js.git"
+    "url": "git+ssh://git@github.com:dcdpr/did-btcr2-js.git"
   },
-  "bugs": "https://github.com/jintekc/did-btc1-js/issues",
+  "bugs": "https://github.com/dcdpr/did-btcr2-js/issues",
   "publishConfig": {
     "access": "public"
   },
@@ -69,15 +75,21 @@
   "devDependencies": {
     "@changesets/changelog-github": "^0.5.1",
     "@changesets/cli": "^2.28.0",
+    "@eslint/js": "^9.22.0",
     "@npmcli/package-json": "^6.1.1",
     "@typescript-eslint/eslint-plugin": "^8.24.1",
+    "@typescript-eslint/parser": "^8.26.1",
     "audit-ci": "^7.1.0",
     "eslint-plugin-mocha": "^10.5.0",
     "globals": "^15.15.0",
     "npkill": "^0.12.2",
     "typedoc": "^0.28.1",
-    "typedoc-plugin-markdown": "^4.6.0"
+    "typedoc-plugin-markdown": "^4.7.0",
+    "typedoc-vitepress-theme": "^1.1.2",
+    "typescript": "^5.7.3",
+    "vitepress": "^1.6.3"
   },
+  "packageManager": "pnpm@10.17.0",
   "pnpm": {
     "onlyBuiltDependencies": [
       "@ipshipyard/node-datachannel",
@@ -85,10 +97,5 @@
       "dtrace-provider",
       "esbuild"
     ]
-  },
-  "dependencies": {
-    "@eslint/js": "^9.22.0",
-    "@typescript-eslint/parser": "^8.26.1",
-    "typescript": "^5.7.3"
   }
 }
