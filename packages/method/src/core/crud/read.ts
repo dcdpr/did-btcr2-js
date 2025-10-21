@@ -28,16 +28,16 @@ import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';
 import { DidBtcr2 } from '../../did-btcr2.js';
 import { DidResolutionOptions } from './interface.js';
-import { BeaconService, BeaconServiceAddress, BeaconSignal } from '../beacon/interface.js';
+import { BeaconService, BeaconServiceAddress, BeaconSignal } from '../beacons/interface.js';
 import {
   CIDAggregateSidecar,
   SidecarData,
   SignalsMetadata
 } from './types.js';
 import { Appendix, DidComponents } from '../../utils/appendix.js';
-import { BeaconUtils } from '../beacon/utils.js';
+import { BeaconUtils } from '../beacons/utils.js';
 import { DidDocument } from '../../utils/did-document.js';
-import { BeaconFactory } from '../beacon/factory.js';
+import { BeaconFactory } from '../beacons/factory.js';
 
 export type FindNextSignalsRestParams = {
   connection: BitcoinRestClient;

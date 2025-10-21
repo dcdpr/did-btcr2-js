@@ -9,34 +9,38 @@ export type BaseBody = {
   participantPk?: Uint8Array;
   beaconAddress?: string;
   cohortKeys?: Array<Uint8Array>;
+  sessionId?: string;
+  aggregatedNonce?: Uint8Array;
+  nonceContribution?: Uint8Array;
+  partialSignature?: Uint8Array;
+  pendingTx?: string;
+  beaconType?: string;
+  data?: string;
 };
 
 export type Base = {
   type: string;
-  to: string;
+  to?: string;
   from: string;
-  threadId?: string;
-  body: BaseBody;
+  body?: BaseBody;
 };
 
 export class BaseMessage {
   public type: string;
-  public to: string;
+  public to?: string;
   public from: string;
-  public threadId?: string;
-  public body: BaseBody;
+  public body?: BaseBody;
 
-  constructor({ type, to, from, threadId, body }: Base) {
+  constructor({ type, to, from, body }: Base) {
     this.type = type;
     this.to = to;
     this.from = from;
-    this.threadId = threadId;
     this.body = body;
   }
 
   /**
    * Creates a BaseMessage from a JSON object.
-   * @param {Maybe<Base>} data - The JSON object to initialize the BaseMessage.
+   * @param {Maybe<Base>} data The JSON object to initialize the BaseMessage.
    * @returns {BaseMessage} The initialized BaseMessage.
    */
   public static fromJSON(data: Maybe<Base>): BaseMessage {
@@ -48,12 +52,6 @@ export class BaseMessage {
    * @returns {Base} The JSON representation of the BaseMessage.
    */
   public json(): Base {
-    return {
-      type     : this.type,
-      to       : this.to,
-      from     : this.from,
-      threadId : this.threadId,
-      body     : this.body ?? {}
-    };
+    return Object.json(this) as Base;
   }
 }

@@ -14,11 +14,11 @@ import {
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import type { DidService } from '@web5/dids';
-import { BeaconService } from '../beacon/interface.js';
+import { BeaconService } from '../beacons/interface.js';
 import { SignalsMetadata } from './types.js';
 import { Appendix } from '../../utils/appendix.js';
 import { DidDocument, DidVerificationMethod } from '../../utils/did-document.js';
-import { BeaconFactory } from '../beacon/factory.js';
+import { BeaconFactory } from '../beacons/factory.js';
 import { KeyManager } from '../key-manager/index.js';
 
 export interface ConstructUpdateParams {

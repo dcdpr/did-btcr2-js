@@ -11,9 +11,9 @@ import {
 } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { DidService, DidDocument as IIDidDocument, DidVerificationMethod as IIDidVerificationMethod } from '@web5/dids';
-import { BeaconService } from '../core/beacon/interface.js';
+import { BeaconService } from '../core/beacons/interface.js';
 import { Appendix } from './appendix.js';
-import { BeaconUtils } from '../core/beacon/utils.js';
+import { BeaconUtils } from '../core/beacons/utils.js';
 import { Identifier } from './identifier.js';
 
 export const BECH32M_CHARS = '';
