@@ -2,7 +2,7 @@ import { AddressUtxo, BitcoinNetworkConnection, RawTransactionRest, RawTransacti
 import { DidUpdatePayload, INVALID_SIDECAR_DATA, LATE_PUBLISHING_ERROR, SingletonBeaconError } from '@did-btcr2/common';
 import { opcodes, Psbt, script } from 'bitcoinjs-lib';
 import { base58btc } from 'multiformats/bases/base58';
-import { Beacon } from '../../interfaces/beacon.js';
+import { Beacon } from './beacon.js';
 import { BeaconService, BeaconSignal } from '../../interfaces/ibeacon.js';
 import { BeaconSidecarData, Metadata, SignalsMetadata, SingletonSidecar } from '../../types/crud.js';
 import { Appendix } from '../../utils/appendix.js';

@@ -10,7 +10,7 @@ export * from './core/crud/update.js';
 export * from './core/key-manager/index.js';
 export * from './core/key-manager/interface.js';
 
-export * from './interfaces/beacon.js';
+export * from './core/beacon/beacon.js';
 export * from './interfaces/crud.js';
 export * from './interfaces/ibeacon.js';
 
