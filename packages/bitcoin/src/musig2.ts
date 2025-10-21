@@ -1,9 +1,8 @@
 import { Hex } from '@did-btcr2/common';
-import { SecretKey } from '@did-btcr2/keypair';
-import { ProjPointType } from '@noble/curves/abstract/weierstrass';
-import { schnorr, secp256k1 } from '@noble/curves/secp256k1';
-import { bytesToHex } from '@noble/hashes/utils';
-import { CURVE, ProjectivePoint } from '@noble/secp256k1';
+import { Secp256k1SecretKey } from '@did-btcr2/keypair';
+import { schnorr } from '@noble/curves/secp256k1';
+import { bytesToHex } from '@noble/hashes/utils.js';
+import { CURVE, Point, ProjectivePoint } from '@noble/secp256k1';
 import { payments, Psbt } from 'bitcoinjs-lib';
 import { taggedHash } from 'bitcoinjs-lib/src/crypto';
 
@@ -39,20 +38,20 @@ export class MuSig2Participant {
   public secretKey: Uint8Array;
   public publicKey: Uint8Array;
   public nonce?: Uint8Array;
-  public noncePub?: ProjPointType<bigint>;
+  public noncePub?: Point;
 
   constructor(secretKey?: Uint8Array) {
-    this.secretKey = secretKey ?? SecretKey.random();
+    this.secretKey = secretKey ?? Secp256k1SecretKey.random();
     this.publicKey = schnorr.getPublicKey(this.secretKey);
   }
 
   public generateNonce(): MuSig2NonceContribution {
-    this.nonce = SecretKey.random();
-    this.noncePub = secp256k1.ProjectivePoint.fromPrivateKey(this.nonce);
+    this.nonce = Secp256k1SecretKey.random();
+    this.noncePub = ProjectivePoint.fromPrivateKey(this.nonce);
 
     return {
       sessionId     : 'SESSION_ID',
-      beaconAddress : 'BEACON_ADDRESS',
+      beaconAddress : Buffer.from(this.publicKey).toString('hex'),
       noncePoints   : this.noncePub.toHex(true), // compressed
     };
   }
@@ -113,6 +112,6 @@ export class MuSig2Coordinator {
 
   public finalizeTransaction(psbt: Psbt): string {
     // Combine partial signatures (assuming MuSig2 multi-party logic handled externally)
-    return psbt.toHex(); // simplified placeholder
+    return psbt.toHex();
   }
 }

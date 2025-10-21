@@ -83,6 +83,9 @@
     "dependencies": {
         "@did-btcr2/common": "workspace:*",
         "@did-btcr2/keypair": "workspace:*",
+        "@noble/curves": "^1.9.7",
+        "@noble/hashes": "^2.0.1",
+        "@noble/secp256k1": "^2.3.0",
         "bitcoinjs-lib": "7.0.0-rc.0",
         "tiny-secp256k1": "^2.2.3"
     },
