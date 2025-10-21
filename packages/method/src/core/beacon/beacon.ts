@@ -1,8 +1,8 @@
 import { DidUpdatePayload } from '@did-btcr2/common';
 import { DidServiceEndpoint } from '@web5/dids';
 import { RawTransactionV2, RawTransactionRest } from '@did-btcr2/bitcoin';
-import { SidecarData, SignalsMetadata } from '../../types/crud.js';
-import { BeaconService, BeaconSignal, IBeacon } from '../../interfaces/ibeacon.js';
+import { SidecarData, SignalsMetadata } from '../crud/types.js';
+import { BeaconService, BeaconSignal, IBeacon } from './interface.js';
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/#update-beacons | 5. Beacons}.

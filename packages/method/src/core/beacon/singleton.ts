@@ -3,8 +3,8 @@ import { DidUpdatePayload, INVALID_SIDECAR_DATA, LATE_PUBLISHING_ERROR, Singleto
 import { opcodes, Psbt, script } from 'bitcoinjs-lib';
 import { base58btc } from 'multiformats/bases/base58';
 import { Beacon } from './beacon.js';
-import { BeaconService, BeaconSignal } from '../../interfaces/ibeacon.js';
-import { BeaconSidecarData, Metadata, SignalsMetadata, SingletonSidecar } from '../../types/crud.js';
+import { BeaconService, BeaconSignal } from './interface.js';
+import { BeaconSidecarData, Metadata, SignalsMetadata, SingletonSidecar } from '../crud/types.js';
 import { Appendix } from '../../utils/appendix.js';
 import { KeyManager, Signer } from '../key-manager/index.js';
 

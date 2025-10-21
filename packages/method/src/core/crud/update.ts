@@ -14,8 +14,8 @@ import {
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import type { DidService } from '@web5/dids';
-import { BeaconService } from '../../interfaces/ibeacon.js';
-import { SignalsMetadata } from '../../types/crud.js';
+import { BeaconService } from '../beacon/interface.js';
+import { SignalsMetadata } from './types.js';
 import { Appendix } from '../../utils/appendix.js';
 import { DidDocument, DidVerificationMethod } from '../../utils/did-document.js';
 import { BeaconFactory } from '../beacon/factory.js';

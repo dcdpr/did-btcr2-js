@@ -1,7 +1,7 @@
 import { UnixTimestamp } from '@did-btcr2/common';
 import { DidResolutionOptions as IDidResolutionOptions } from '@web5/dids';
-import { SidecarData } from '../types/crud.js';
-import { DidDocument } from '../utils/did-document.js';
+import { SidecarData } from './types.js';
+import { DidDocument } from '../../utils/did-document.js';
 
 /**
  * Options for resolving a DID Document

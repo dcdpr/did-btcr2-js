@@ -1,5 +1,5 @@
 import { DidDocumentError, INVALID_DID_DOCUMENT } from '@did-btcr2/common';
-import { BeaconService } from '../interfaces/ibeacon.js';
+import { BeaconService } from '../core/beacon/interface.js';
 import { DidDocument, DidVerificationMethod } from './did-document.js';
 
 export class DidDocumentBuilder {

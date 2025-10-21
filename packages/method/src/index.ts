@@ -11,13 +11,13 @@ export * from './core/key-manager/index.js';
 export * from './core/key-manager/interface.js';
 
 export * from './core/beacon/beacon.js';
-export * from './interfaces/crud.js';
-export * from './interfaces/ibeacon.js';
+export * from './core/crud/interface.js';
+export * from './core/beacon/interface.js';
 
-export * from './types/crud.js';
+export * from './core/crud/types.js';
 
 export * from './utils/appendix.js';
-export * from './utils/beacons.js';
+export * from './core/beacon/utils.js';
 export * from './utils/did-document-builder.js';
 export * from './utils/did-document.js';
 export * from './utils/general.js';

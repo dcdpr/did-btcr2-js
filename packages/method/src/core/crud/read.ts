@@ -27,15 +27,15 @@ import { Cryptosuite, DataIntegrityProof, SchnorrMultikey } from '@did-btcr2/cry
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';
 import { DidBtcr2 } from '../../did-btcr2.js';
-import { DidResolutionOptions } from '../../interfaces/crud.js';
-import { BeaconService, BeaconServiceAddress, BeaconSignal } from '../../interfaces/ibeacon.js';
+import { DidResolutionOptions } from './interface.js';
+import { BeaconService, BeaconServiceAddress, BeaconSignal } from '../beacon/interface.js';
 import {
   CIDAggregateSidecar,
   SidecarData,
   SignalsMetadata
-} from '../../types/crud.js';
+} from './types.js';
 import { Appendix, DidComponents } from '../../utils/appendix.js';
-import { BeaconUtils } from '../../utils/beacons.js';
+import { BeaconUtils } from '../beacon/utils.js';
 import { DidDocument } from '../../utils/did-document.js';
 import { BeaconFactory } from '../beacon/factory.js';
 

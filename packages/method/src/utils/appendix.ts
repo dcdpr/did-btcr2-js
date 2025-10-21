@@ -10,7 +10,7 @@ import {
 import { createHelia } from 'helia';
 import { CID } from 'multiformats';
 import { create as createDigest } from 'multiformats/hashes/digest';
-import { RootCapability } from '../interfaces/crud.js';
+import { RootCapability } from '../core/crud/interface.js';
 import { DidVerificationMethod } from './did-document.js';
 
 export interface DidComponents {

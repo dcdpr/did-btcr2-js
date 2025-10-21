@@ -19,11 +19,11 @@ import { initEccLib } from 'bitcoinjs-lib';
 import * as tinysecp from 'tiny-secp256k1';
 import { Resolve } from './core/crud/read.js';
 import { Update } from './core/crud/update.js';
-import { DidResolutionOptions } from './interfaces/crud.js';
+import { DidResolutionOptions } from './core/crud/interface.js';
 import { Appendix } from './utils/appendix.js';
 import { DidDocument, DidVerificationMethod } from './utils/did-document.js';
 import { Identifier } from './utils/identifier.js';
-import { SignalsMetadata } from './types/crud.js';
+import { SignalsMetadata } from './core/crud/types.js';
 
 export type Btcr2Identifier = string;
 
