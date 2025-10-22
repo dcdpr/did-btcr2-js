@@ -1,8 +1,8 @@
-import { KeyBytes, Logger, Maybe } from '@did-btcr2/common';
-import { CompressedSecp256k1PublicKey, RawSchnorrKeyPair, SchnorrKeyPair } from '@did-btcr2/keypair';
+import { DecentralizedIdentifier, KeyBytes, Maybe } from '@did-btcr2/common';
+import { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { nonceGen } from '@scure/btc-signer/musig2';
-import { Event, Filter, finalizeEvent, nip44 } from 'nostr-tools';
-import { SimplePool, } from 'nostr-tools/pool';
+import { Event, EventTemplate, Filter, finalizeEvent, nip44 } from 'nostr-tools';
+import { SimplePool } from 'nostr-tools/pool';
 import { Identifier } from '../../../../../utils/identifier.js';
 import {
   BEACON_COHORT_ADVERT,
@@ -17,23 +17,19 @@ import {
 } from '../../cohort/messages/constants.js';
 import { AggregateBeaconMessage, AggregateBeaconMessageType } from '../../cohort/messages/index.js';
 import { CommunicationAdapterError } from '../error.js';
-import {
-  CommunicationService,
-  MessageHandler,
-  ServiceAdapter,
-  ServiceAdapterConfig,
-  ServiceAdapterConfigType,
-  ServiceAdapterIdentity
-} from '../service.js';
-import { DidCommAdapterConfig } from './didcomm.js';
+import { CommunicationService, MessageHandler, ServiceAdapter, ServiceAdapterIdentity } from '../service.js';
 
+/**
+ * DEFAULT_NOSTR_RELAYS provides a list of default Nostr relay URLs for communication.
+ * These relays are used to connect to the Nostr network for sending and receiving messages.
+ * @constant {Array<string>} DEFAULT_NOSTR_RELAYS
+ */
 export const DEFAULT_NOSTR_RELAYS = [
   'wss://relay.damus.io',
   // 'wss://nos.lol',
   // 'wss://relay.snort.social',
   // 'wss://nostr-pub.wellorder.net',
 ];
-type DecentralizedIdentifier = string;
 
 /**
  * NostrKeys defines the structure for Nostr public and secret keys.
@@ -46,65 +42,35 @@ export type NostrKeys = {
 }
 
 /**
- * DidCommAdapterConfig is a configuration class for the DidCommAdapter.
- * It holds the necessary parameters to connect to Nostr relays and manage keys.
- * @class NostrAdapterConfig
- * @implements {ServiceAdapterConfig}
+ * NostrAdapterConfig defines the configuration structure for the Nostr communication adapter.
+ * It includes relay URLs, key pairs, and components for identity generation.
+ * @interface NostrAdapterConfig
  * @type {NostrAdapterConfig}
  */
-export class NostrAdapterConfig implements ServiceAdapterConfig {
-  public keys: RawSchnorrKeyPair;
-  public components: {
-    idType: string;
-    version: number;
-    network: string;
+export interface NostrAdapterConfig {
+  keys: NostrKeys;
+  did?: string;
+  components: {
+    idType?: string;
+    version?: number;
+    network?: string;
   };
-  public did: string;
-  public coordinatorDids: string[];
-  public relays: string[] = DEFAULT_NOSTR_RELAYS;
-
-  /**
-   * Constructs a new DidCommAdapterConfig instance.
-   * @param {Partial<ServiceAdapterConfig>} [config] Optional configuration parameters to initialize the adapter.
-   * @constructor
-   * @type {DidCommAdapterConfig}
-   */
-  constructor(config?: Partial<ServiceAdapterConfig>) {
-    this.keys = config?.keys || SchnorrKeyPair.generate().raw,
-    this.components = config?.components || {
-      version : 1,
-      idType  : 'KEY',
-      network : 'mutinynet'
-    };
-    this.did = config?.did || Identifier.encode(
-      {
-        ...this.components,
-        genesisBytes : this.keys.public
-      }
-    );
-    this.coordinatorDids = config?.coordinatorDids || [];
-  }
+  relays: string[];
+  [key: string]: any;
 }
 
-/**
- * NostrAdapter implements the CommunicationService interface for Nostr protocol.
- * It handles message sending, receiving, and identity generation using Nostr relays.
- * @class NostrAdapter
- * @implements {CommunicationService}
- * @type {NostrAdapter}
- */
 export class NostrAdapter implements CommunicationService {
   /**
-   * The name of the communication service.
+   * The name of the NostrAdapter service.
    * @type {string}
    */
   public name: string = 'nostr';
 
   /**
-   * The configuration for the Nostr adapter.
+   * The configuration for the NostrAdapter.
    * @type {NostrAdapterConfig}
    */
-  public config: NostrAdapterConfig;
+  private config: NostrAdapterConfig;
 
   /**
    * A map of message handlers for different message types.
@@ -119,20 +85,30 @@ export class NostrAdapter implements CommunicationService {
   public pool?: SimplePool;
 
   /**
-   * Constructs a new NostrAdapter instance with the provided configuration.
-   * @param {Partial<ServiceAdapterConfig>} config Optional configuration for the Nostr adapter.
+   * Constructs a new NostrAdapter instance with the given configuration.
+   * @param {NostrAdapterConfig} config - The configuration for the NostrAdapter.
+   * If no configuration is provided, a new key pair is generated and default relays are used.
+   * @constructor
    */
-  constructor(config?: Partial<ServiceAdapterConfig>) {
-    this.config = new NostrAdapterConfig(config);
+  constructor(config: NostrAdapterConfig = { keys: {} as NostrKeys, components: {}, relays: DEFAULT_NOSTR_RELAYS }) {
+    this.config = config;
+    this.config.keys = this.config.keys || SchnorrKeyPair.generate().raw;
+    this.config.did = config.did || Identifier.encode({
+      idType       : config.components.idType || 'KEY',
+      version      : config.components.version || 1,
+      network      : config.components.network || 'signet',
+      genesisBytes : this.config.keys.public!
+    });
   }
 
   /**
-   * Sets the keys used for Nostr communication.
-   * @param {ServiceAdapterIdentity<NostrKeys>} keys The keys to set.
+   * Sets the keys for the NostrAdapter.
+   * @param {ServiceAdapterIdentity<NostrKeys>} keys - The key pair to set.
    */
   public setKeys(keys: ServiceAdapterIdentity<NostrKeys>): void {
     this.config.keys = keys;
   }
+
 
   /**
    * Starts the Nostr communication service by subscribing to relays.
@@ -155,6 +131,7 @@ export class NostrAdapter implements CommunicationService {
     return this;
   }
 
+
   /**
    * Handles incoming Nostr events and dispatches them to the appropriate message handler.
    * @param {Event} event The Nostr event received from the relay.
@@ -167,7 +144,7 @@ export class NostrAdapter implements CommunicationService {
 
     for(const [p, pk] of ptags ){
       if(pk === 'b71d3052dcdc8ba4564388948b655b58aaa7f37497ef1fc98829f9191adc8f85') {
-        Logger.debug('nostr.onEvent: event.tags.find => p, pk', p, pk);
+        console.debug('nostr.onEvent: event.tags.find => p, pk', p, pk);
       }
     }
     // if(!type && !value) {
@@ -199,21 +176,6 @@ export class NostrAdapter implements CommunicationService {
   }
 
   /**
-   * Generates a DidComm identity.
-   * @param {RawKeyPair} [keys] Optional keys to use for identity generation.
-   * @returns {ServiceAdapterConfigType<DidCommAdapterConfig>} The generated DidComm identity configuration.
-   */
-  public generateIdentity(keys?: RawSchnorrKeyPair): ServiceAdapterConfigType<DidCommAdapterConfig> {
-    this.config.keys = keys || SchnorrKeyPair.generate().raw;
-    this.config.did = Identifier.encode(
-      {        ...this.config.components,
-        genesisBytes : this.config.keys.public
-      }
-    );
-    return this.config;
-  }
-
-  /**
    * Registers a message handler for a specific message type.
    * @param {string} messageType The type of message to handle.
    * @param {MessageHandler} handler The handler function that processes the message.
@@ -221,6 +183,7 @@ export class NostrAdapter implements CommunicationService {
   public registerMessageHandler(messageType: string, handler: MessageHandler): void {
     this.handlers.set(messageType, handler);
   }
+
 
   /**
    * Sends a message to a recipient using the Nostr protocol.
@@ -237,7 +200,7 @@ export class NostrAdapter implements CommunicationService {
         .filter(did => !!did)
         .every(did => !Identifier.isValid(did!))
     ) {
-      Logger.error(`Invalid Btc1 identifiers: sender ${from}, recipient ${to}`);
+      console.error(`Invalid Btc1 identifiers: sender ${from}, recipient ${to}`);
       throw new CommunicationAdapterError(
         `Invalid identifiers: sender ${from}, recipient ${to}`,
         'SEND_MESSAGE_ERROR', { adapter: this.name }
@@ -245,7 +208,7 @@ export class NostrAdapter implements CommunicationService {
     }
     // Decode the sender and recipient DIDs to get their genesis bytes in hex
     const sender = new CompressedSecp256k1PublicKey(Identifier.decode(from).genesisBytes);
-    Logger.info(`Sending message from ${sender}:`, message);
+    console.info(`Sending message from ${sender}:`, message);
 
     // if(message.type === BEACON_COHORT_SUBSCRIBE_ACCEPT) {
     //   this.config.coordinatorDids.push(recipient);
@@ -260,16 +223,16 @@ export class NostrAdapter implements CommunicationService {
     if(AggregateBeaconMessage.isKeyGenMessageValue(message.type)) {
       switch(message.type) {
         case BEACON_COHORT_ADVERT:
-          Logger.info('Add tag', ['BEACON_COHORT_ADVERT', message.type]);
+          console.info('Add tag', ['BEACON_COHORT_ADVERT', message.type]);
           break;
         case BEACON_COHORT_OPT_IN:
-          Logger.info('Add tag', ['BEACON_COHORT_OPT_IN', message.type]);
+          console.info('Add tag', ['BEACON_COHORT_OPT_IN', message.type]);
           break;
         case BEACON_COHORT_OPT_IN_ACCEPT:
-          Logger.info('Add tag', ['BEACON_COHORT_OPT_IN_ACCEPT', message.type]);
+          console.info('Add tag', ['BEACON_COHORT_OPT_IN_ACCEPT', message.type]);
           break;
         case BEACON_COHORT_READY:
-          Logger.info('Add tag', ['BEACON_COHORT_READY', message.type]);
+          console.info('Add tag', ['BEACON_COHORT_READY', message.type]);
           break;
       }
       const event = finalizeEvent({
@@ -277,37 +240,57 @@ export class NostrAdapter implements CommunicationService {
         created_at : Math.floor(Date.now() / 1000),
         tags,
         content    : JSON.stringify(message)
-      } as Event, this.config.keys.secret!);
-      Logger.info(`Sending message kind 1 event ...`, event);
+      } as EventTemplate, this.config.keys.secret!);
+      console.info(`Sending message kind 1 event ...`, event);
       return this.pool?.publish(this.config.relays, event);
     }
 
     if(AggregateBeaconMessage.isSignMessageValue(message.type)) {
       switch(message.type) {
         case BEACON_COHORT_REQUEST_SIGNATURE:
-          Logger.info('Add tag', ['BEACON_COHORT_REQUEST_SIGNATURE', message.type]);
+          console.info('Add tag', ['BEACON_COHORT_REQUEST_SIGNATURE', message.type]);
           break;
         case BEACON_COHORT_AUTHORIZATION_REQUEST:
-          Logger.info('Add tag', ['BEACON_COHORT_AUTHORIZATION_REQUEST', message.type]);
+          console.info('Add tag', ['BEACON_COHORT_AUTHORIZATION_REQUEST', message.type]);
           break;
         case BEACON_COHORT_NONCE_CONTRIBUTION:
-          Logger.info('Add tag', ['BEACON_COHORT_NONCE_CONTRIBUTION', message.type]);
+          console.info('Add tag', ['BEACON_COHORT_NONCE_CONTRIBUTION', message.type]);
           break;
         case BEACON_COHORT_AGGREGATED_NONCE:
-          Logger.info('Add tag', ['BEACON_COHORT_AGGREGATED_NONCE', message.type]);
+          console.info('Add tag', ['BEACON_COHORT_AGGREGATED_NONCE', message.type]);
           break;
         case BEACON_COHORT_SIGNATURE_AUTHORIZATION:
-          Logger.info('Add tag', ['BEACON_COHORT_SIGNATURE_AUTHORIZATION', message.type]);
+          console.info('Add tag', ['BEACON_COHORT_SIGNATURE_AUTHORIZATION', message.type]);
           break;
       }
       const { publicKey, secretKey } = SchnorrKeyPair.generate();
       const content = nip44.encrypt(JSON.stringify(message), secretKey.bytes, nonceGen(publicKey.x).public);
-      Logger.debug('NostrAdapter content:', content);
-      const event = finalizeEvent({ content, tags, kind: 1059 } as Event, this.config.keys.secret!);
-      Logger.debug('NostrAdapter event:', event);
+      console.debug('NostrAdapter content:', content);
+
+      const event = finalizeEvent({ content, tags, kind: 1059 } as EventTemplate, this.config.keys.secret!);
+      console.debug('NostrAdapter event:', event);
+
       return this.pool?.publish(this.config.relays, event);
     }
 
-    Logger.error(`Unsupported message type: ${message.type}`);
+    console.error(`Unsupported message type: ${message.type}`);
+  }
+
+  /**
+   * Generates a Nostr identity using the Secp256k1SecretKey and Identifier classes.
+   * @returns {string} A BTCR2 DID used for communication over the nostr protocol
+   */
+  public generateIdentity(): string {
+    this.config.keys.secret = Secp256k1SecretKey.random();
+    this.config.keys.public = Secp256k1SecretKey.getPublicKey(this.config.keys.secret).compressed;
+    this.config.did = Identifier.encode(
+      {
+        idType       : this.config.components.idType  || 'KEY',
+        version      : this.config.components.version || 1,
+        network      : this.config.components.network || 'signet',
+        genesisBytes : this.config.keys.public
+      }
+    );
+    return this.config.did;
   }
 }

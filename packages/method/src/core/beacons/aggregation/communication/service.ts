@@ -34,5 +34,5 @@ export interface CommunicationService {
   setKeys(keys: ServiceAdapterIdentity<NostrKeys>): void;
   registerMessageHandler(messageType: string, handler: MessageHandler): void;
   sendMessage(message: Maybe<AggregateBeaconMessageType>, sender: string, recipient?: string): Promise<void | Promise<string>[]>;
-  generateIdentity?(keys?: ServiceAdapterIdentity<NostrKeys>): ServiceAdapterConfigType<ServiceAdapterConfig>
+  generateIdentity(): string;
 }
