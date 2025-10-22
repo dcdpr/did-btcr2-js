@@ -1,7 +1,7 @@
 import { keyAggExport, keyAggregate, sortKeys } from '@scure/btc-signer/musig2';
 import { payments, Transaction } from 'bitcoinjs-lib';
 import { BeaconCoordinatorError } from '../../error.js';
-import { BeaconCohortSigningSession } from '../../session/index.js';
+import { BeaconCohortSigningSession } from '../session/index.js';
 import { BeaconCohortReadyMessage } from './messages/keygen/cohort-ready.js';
 import { BeaconCohortRequestSignatureMessage } from './messages/sign/request-signature.js';
 import { COHORT_STATUS, COHORT_STATUS_TYPE } from './status.js';
@@ -221,11 +221,9 @@ export class AggregateBeaconCohort implements BeaconCohort {
     return new BeaconCohortReadyMessage({
       to,
       from,
-      body : {
-        cohortId      : this.id,
-        beaconAddress : this.beaconAddress,
-        cohortKeys    : this.cohortKeys,
-      }
+      cohortId      : this.id,
+      beaconAddress : this.beaconAddress,
+      cohortKeys    : this.cohortKeys,
     });
   }
 
@@ -238,7 +236,12 @@ export class AggregateBeaconCohort implements BeaconCohort {
     if(!this.validateSignatureRequest(message)) {
       throw new BeaconCoordinatorError(`No signature request from ${message.from} in cohort ${this.id}.`);
     }
-    this.pendingSignatureRequests[message.from] = message.data;
+
+    if(!message.body?.data) {
+      throw new BeaconCoordinatorError(`No signature data in request from ${message.from} in cohort ${this.id}.`);
+    }
+
+    this.pendingSignatureRequests[message.from] = message.body.data;
   }
 
   /**
@@ -247,7 +250,7 @@ export class AggregateBeaconCohort implements BeaconCohort {
    * @returns {boolean} True if the message is valid, false otherwise.
    */
   public validateSignatureRequest(message: BeaconCohortRequestSignatureMessage): boolean {
-    const cohortId = message.cohortId;
+    const cohortId = message.body?.cohortId;
     if(cohortId !== this.id) {
       console.info(`Signature request for wrong cohort: ${cohortId}.`);
       return false;

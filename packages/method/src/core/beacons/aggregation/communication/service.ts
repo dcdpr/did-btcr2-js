@@ -1,6 +1,6 @@
 import { Maybe } from '@did-btcr2/common';
 import { AggregateBeaconMessageType } from '../cohort/messages/index.js';
-import { NostrKeys } from './adapter/nostr.js';
+import { RawSchnorrKeyPair } from '@did-btcr2/keypair';
 
 /**
  * ServiceAdapterConfig defines the configuration structure for the Nostr communication service.
@@ -22,17 +22,21 @@ export type CommunicationServiceType = 'nostr' | 'didcomm';
 export type ServiceAdapterConfigType<T extends ServiceAdapterConfig> = T;
 export interface Service {
   type: CommunicationServiceType;
-  keys: ServiceAdapterIdentity<NostrKeys>;
+  keys: ServiceAdapterIdentity<RawSchnorrKeyPair>;
   did: string;
   name?: string;
 }
 export type ServiceAdapter<T extends CommunicationService> = T;
-export type ServiceAdapterIdentity<T extends NostrKeys> = T;
+export type ServiceAdapterIdentity<T extends RawSchnorrKeyPair> = T;
 export interface CommunicationService {
   name: string;
   start(): void;
-  setKeys(keys: ServiceAdapterIdentity<NostrKeys>): void;
+  setKeys(keys: ServiceAdapterIdentity<RawSchnorrKeyPair>): void;
   registerMessageHandler(messageType: string, handler: MessageHandler): void;
-  sendMessage(message: Maybe<AggregateBeaconMessageType>, sender: string, recipient?: string): Promise<void | Promise<string>[]>;
-  generateIdentity(): string;
+  sendMessage(
+    message: Maybe<AggregateBeaconMessageType>,
+    sender: string,
+    recipient?: string
+  ): Promise<void | Promise<string>[]>;
+  generateIdentity(keys?: RawSchnorrKeyPair): ServiceAdapterConfigType<ServiceAdapterConfig>;
 }

@@ -113,7 +113,7 @@ export class BeaconParticipant {
    */
   constructor({ ent, protocol, did, name }: BeaconParticipantParams) {
     this.did = did;
-    this.name = name || `btc1-beacon-participant-${crypto.randomUUID()}`;
+    this.name = name || `btcr2-beacon-participant-${crypto.randomUUID()}`;
     this.beaconKeyIndex = this.cohortKeyState.size;
 
     this.hdKey = ent instanceof Uint8Array

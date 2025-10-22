@@ -1,5 +1,6 @@
-import { NostrAdapter } from "../../dist/types/core/beacon/aggregation/protocol/nostr.js";
+import { NostrAdapter } from "../../src/core/beacons/aggregation/communication/adapter/nostr.js";
 import { BeaconCoordinator } from "../../src/core/beacons/aggregation/coordinator.js";
+
 
 const coordinatorDid = 'did:btc1:k1q5ptw8fs2twdezay2epc39ytv4d432487d6f0mclexyzn7gertwglpgkugx8t'
 const coordinatiorKeys = {
@@ -17,7 +18,7 @@ const coordinatiorKeys = {
     210, 148,  41, 23, 169,  10,  11, 208
   ])
 }
-const nostr = new NostrAdapter({ relays: ['ws://127.0.0.1:7777'] });
+const nostr = new NostrAdapter();
 console.log('nostr', nostr);
 const coordinator = new BeaconCoordinator({
   keys: coordinatiorKeys,

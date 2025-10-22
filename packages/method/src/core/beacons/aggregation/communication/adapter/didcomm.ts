@@ -1,11 +1,8 @@
 import { Maybe, NotImplementedError } from '@did-btcr2/common';
-import { RawSchnorrKeyPair, SchnorrKeyPair } from '@did-btcr2/keypair';
+import { RawSchnorrKeyPair, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { Identifier } from '../../../../../utils/identifier.js';
 import { AggregateBeaconMessageType } from '../../cohort/messages/index.js';
-import { CommunicationService, MessageHandler, ServiceAdapterConfig, ServiceAdapterConfigType, ServiceAdapterIdentity } from '../service.js';
-import { NostrKeys } from './nostr.js';
-
-export type DidCommKeys = {}
+import { CommunicationService, MessageHandler, ServiceAdapterConfig, ServiceAdapterIdentity } from '../service.js';
 
 /**
  * DidCommAdapterConfig is a configuration class for the DidCommAdapter.
@@ -93,7 +90,7 @@ export class DidCommAdapter implements CommunicationService {
    * Sets the keys used for Nostr communication.
    * @param {ServiceAdapterIdentity<NostrKeys>} keys The keys to set.
    */
-  public setKeys(keys: ServiceAdapterIdentity<NostrKeys>): void {
+  public setKeys(keys: ServiceAdapterIdentity<RawSchnorrKeyPair>): void {
     this.config.keys = keys;
   }
 
@@ -125,16 +122,32 @@ export class DidCommAdapter implements CommunicationService {
   /**
    * Generates a DidComm identity.
    * @param {RawKeyPair} [keys] Optional keys to use for identity generation.
-   * @returns {ServiceAdapterConfigType<DidCommAdapterConfig>} The generated DidComm identity configuration.
+   * @returns {ServiceAdapterConfig} The generated DidComm identity configuration.
    */
-  public generateIdentity(keys?: NostrKeys): ServiceAdapterConfigType<DidCommAdapterConfig> {
-    this.config.keys = keys || SchnorrKeyPair.generate().raw;
+  public generateIdentity(keys?: RawSchnorrKeyPair): ServiceAdapterConfig {
+    if(!keys) {
+      this.config.keys.secret = Secp256k1SecretKey.random();
+      this.config.keys.public = Secp256k1SecretKey.getPublicKey(this.config.keys.secret).compressed;
+      this.config.did = Identifier.encode(
+        {
+          idType       : this.config.components.idType  || 'KEY',
+          version      : this.config.components.version || 1,
+          network      : this.config.components.network || 'signet',
+          genesisBytes : this.config.keys.public
+        }
+      );
+      return this.config as ServiceAdapterConfig;
+    }
+
+    this.config.keys = keys;
     this.config.did = Identifier.encode(
       {
-        ...this.config.components,
+        idType       : this.config.components.idType  || 'KEY',
+        version      : this.config.components.version || 1,
+        network      : this.config.components.network || 'signet',
         genesisBytes : this.config.keys.public
       }
     );
-    return this.config;
+    return this.config as ServiceAdapterConfig;
   }
 }

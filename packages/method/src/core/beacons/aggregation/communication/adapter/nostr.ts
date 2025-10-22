@@ -1,5 +1,5 @@
-import { DecentralizedIdentifier, KeyBytes, Maybe } from '@did-btcr2/common';
-import { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
+import { DecentralizedIdentifier, Maybe } from '@did-btcr2/common';
+import { CompressedSecp256k1PublicKey, RawSchnorrKeyPair, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { nonceGen } from '@scure/btc-signer/musig2';
 import { Event, EventTemplate, Filter, finalizeEvent, nip44 } from 'nostr-tools';
 import { SimplePool } from 'nostr-tools/pool';
@@ -17,7 +17,7 @@ import {
 } from '../../cohort/messages/constants.js';
 import { AggregateBeaconMessage, AggregateBeaconMessageType } from '../../cohort/messages/index.js';
 import { CommunicationAdapterError } from '../error.js';
-import { CommunicationService, MessageHandler, ServiceAdapter, ServiceAdapterIdentity } from '../service.js';
+import { CommunicationService, MessageHandler, ServiceAdapter, ServiceAdapterConfig, ServiceAdapterIdentity } from '../service.js';
 
 /**
  * DEFAULT_NOSTR_RELAYS provides a list of default Nostr relay URLs for communication.
@@ -32,23 +32,13 @@ export const DEFAULT_NOSTR_RELAYS = [
 ];
 
 /**
- * NostrKeys defines the structure for Nostr public and secret keys.
- * It is used to store the key pair for communication over the Nostr protocol.
- * @type {NostrKeys}
- */
-export type NostrKeys = {
-  public: KeyBytes;
-  secret: KeyBytes;
-}
-
-/**
  * NostrAdapterConfig defines the configuration structure for the Nostr communication adapter.
  * It includes relay URLs, key pairs, and components for identity generation.
  * @interface NostrAdapterConfig
  * @type {NostrAdapterConfig}
  */
 export interface NostrAdapterConfig {
-  keys: NostrKeys;
+  keys: RawSchnorrKeyPair;
   did?: string;
   components: {
     idType?: string;
@@ -90,7 +80,7 @@ export class NostrAdapter implements CommunicationService {
    * If no configuration is provided, a new key pair is generated and default relays are used.
    * @constructor
    */
-  constructor(config: NostrAdapterConfig = { keys: {} as NostrKeys, components: {}, relays: DEFAULT_NOSTR_RELAYS }) {
+  constructor(config: NostrAdapterConfig = { keys: {} as RawSchnorrKeyPair, components: {}, relays: DEFAULT_NOSTR_RELAYS }) {
     this.config = config;
     this.config.keys = this.config.keys || SchnorrKeyPair.generate().raw;
     this.config.did = config.did || Identifier.encode({
@@ -103,9 +93,9 @@ export class NostrAdapter implements CommunicationService {
 
   /**
    * Sets the keys for the NostrAdapter.
-   * @param {ServiceAdapterIdentity<NostrKeys>} keys - The key pair to set.
+   * @param {ServiceAdapterIdentity<RawSchnorrKeyPair>} keys - The key pair to set.
    */
-  public setKeys(keys: ServiceAdapterIdentity<NostrKeys>): void {
+  public setKeys(keys: ServiceAdapterIdentity<RawSchnorrKeyPair>): void {
     this.config.keys = keys;
   }
 
@@ -278,11 +268,25 @@ export class NostrAdapter implements CommunicationService {
 
   /**
    * Generates a Nostr identity using the Secp256k1SecretKey and Identifier classes.
-   * @returns {string} A BTCR2 DID used for communication over the nostr protocol
+   * @param {RawSchnorrKeyPair} [keys] Optional keys to use for identity generation.
+   * @returns {ServiceAdapterConfig} The generated Nostr identity configuration.
    */
-  public generateIdentity(): string {
-    this.config.keys.secret = Secp256k1SecretKey.random();
-    this.config.keys.public = Secp256k1SecretKey.getPublicKey(this.config.keys.secret).compressed;
+  public generateIdentity(keys?: RawSchnorrKeyPair): ServiceAdapterConfig {
+    if(!keys) {
+      this.config.keys.secret = Secp256k1SecretKey.random();
+      this.config.keys.public = Secp256k1SecretKey.getPublicKey(this.config.keys.secret).compressed;
+      this.config.did = Identifier.encode(
+        {
+          idType       : this.config.components.idType  || 'KEY',
+          version      : this.config.components.version || 1,
+          network      : this.config.components.network || 'signet',
+          genesisBytes : this.config.keys.public
+        }
+      );
+      return this.config as ServiceAdapterConfig;
+    }
+
+    this.config.keys = keys;
     this.config.did = Identifier.encode(
       {
         idType       : this.config.components.idType  || 'KEY',
@@ -291,6 +295,6 @@ export class NostrAdapter implements CommunicationService {
         genesisBytes : this.config.keys.public
       }
     );
-    return this.config.did;
+    return this.config as ServiceAdapterConfig;
   }
 }

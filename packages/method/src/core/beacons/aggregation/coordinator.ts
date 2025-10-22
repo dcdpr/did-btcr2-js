@@ -1,4 +1,5 @@
 import { Logger, Maybe } from '@did-btcr2/common';
+import { RawSchnorrKeyPair } from '@did-btcr2/keypair';
 import { BeaconCoordinatorError } from '../error.js';
 import { AggregateBeaconCohort } from './cohort/index.js';
 import {
@@ -16,7 +17,7 @@ import { BeaconCohortAggregatedNonceMessage } from './cohort/messages/sign/aggre
 import { BeaconCohortNonceContributionMessage, CohortNonceContributionMessage } from './cohort/messages/sign/nonce-contribution.js';
 import { BeaconCohortRequestSignatureMessage, CohortRequestSignatureMessage } from './cohort/messages/sign/request-signature.js';
 import { BeaconCohortSignatureAuthorizationMessage, CohortSignatureAuthorizationMessage } from './cohort/messages/sign/signature-authorization.js';
-import { NostrAdapter, NostrKeys } from './communication/adapter/nostr.js';
+import { NostrAdapter } from './communication/adapter/nostr.js';
 import { CommunicationFactory } from './communication/factory.js';
 import { CommunicationService, Service, ServiceAdapterIdentity } from './communication/service.js';
 import { BeaconCohortSigningSession } from './session/index.js';
@@ -25,7 +26,7 @@ import { SIGNING_SESSION_STATUS } from './session/status.js';
 type BeaconCoordinatorParams = {
   protocol?: CommunicationService;
   did: string;
-  keys: ServiceAdapterIdentity<NostrKeys>
+  keys: ServiceAdapterIdentity<RawSchnorrKeyPair>
   name?: string;
 }
 /**
@@ -74,7 +75,7 @@ export class BeaconCoordinator {
    * @param {ServiceAdapterIdentity<RawKeyPair>} params.keys The keys used for cryptographic operations.
    */
   constructor(params: BeaconCoordinatorParams) {
-    this.name = params.name || `btc1-beacon-coordinator-${crypto.randomUUID()}`;
+    this.name = params.name || `btcr2-beacon-coordinator-${crypto.randomUUID()}`;
     this.did = params.did;
     this.protocol = params.protocol || new NostrAdapter();
     this.protocol.setKeys(params.keys);

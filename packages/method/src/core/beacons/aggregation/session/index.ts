@@ -1,11 +1,35 @@
 import { Logger } from '@did-btcr2/common';
-import { KeyPairUtils } from '@did-btcr2/keypair';
 import * as musig2 from '@scure/btc-signer/musig2';
 import { Transaction } from 'bitcoinjs-lib';
 import { AggregateBeaconError } from '../../error.js';
 import { AggregateBeaconCohort } from '../cohort/index.js';
 import { BeaconCohortAuthorizationRequestMessage } from '../cohort/messages/sign/authorization-request.js';
 import { SIGNING_SESSION_STATUS, SIGNING_SESSION_STATUS_TYPE } from './status.js';
+
+/**
+ * Convert a big-endian byte array into a bigint.
+ * @param bytes - The input Uint8Array representing a big-endian integer.
+ * @returns The integer value as a bigint.
+ */
+export function bigEndianToInt(bytes: Uint8Array): bigint {
+  return bytes.reduce((num, b) => (num << 8n) + BigInt(b), 0n);
+}
+
+/**
+ * Convert a bigint to a big-endian Uint8Array of specified length.
+ * @param xInit - The bigint to convert.
+ * @param length - The desired length of the output array in bytes.
+ * @returns A Uint8Array representing the bigint in big-endian form.
+ */
+export function intToBigEndian(xInit: bigint, length: number): Uint8Array {
+  let x = xInit;
+  const result = new Uint8Array(length);
+  for (let i = length - 1; i >= 0; i--) {
+    result[i] = Number(x & 0xffn);
+    x >>= 8n;
+  }
+  return result;
+}
 
 type PublicKeyHex = string;
 type Nonce = Uint8Array;
@@ -211,7 +235,7 @@ export class BeaconCohortSigningSession implements SigningSession {
       throw new AggregateBeaconError('Previous output script is missing for the input to sign.');
     }
 
-    const sigSum = [...this.partialSignatures.values()].reduce((sum, sig) => sum + KeyPairUtils.bigEndianToInt(sig), 0n);
+    const sigSum = [...this.partialSignatures.values()].reduce((sum, sig) => sum + bigEndianToInt(sig), 0n);
     Logger.info(`Aggregated Signature computed: ${sigSum}`);
 
     this.aggregatedNonce ??= this.generateAggregatedNonce();
@@ -248,7 +272,7 @@ export class BeaconCohortSigningSession implements SigningSession {
   }
 
   /**
-   * Checks if the signing session is complete.
+   * Checks if the signing session is a completed state.
    * @returns {boolean} True if the session is complete, false otherwise.
    */
   public isComplete(): boolean {
