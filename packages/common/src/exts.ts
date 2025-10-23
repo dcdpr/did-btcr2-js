@@ -64,6 +64,11 @@ declare global {
       patch: Patch;
   }
 
+  /** Extend global Object interface */
+  interface ObjectConstructor {
+    /** Convert an object to a JSON object */
+    json(o: Object): JSONObject;
+  }
 
   /** Extend global Set interface */
   interface Set<T> {
@@ -84,7 +89,10 @@ declare global {
 
   /** Extend the global Uint8Array interface */
   interface Uint8Array {
+    /** Convert Uint8Array to number array */
     toArray(): number[];
+    /** Convert Uint8Array to hex string */
+    toHex(): string;
   }
 }
 
@@ -251,6 +259,11 @@ JSON.sanitize = function (o: JSONObject): JSONObject {
 JSON.canonicalization = new Canonicalization();
 JSON.patch = new Patch();
 
+/** Object Interface Extensions */
+Object.json = function (o: Object): JSONObject {
+  return Object.fromEntries(Object.entries(o));
+};
+
 /** Set Interface Extensions */
 Set.prototype.difference = function <T>(other: Set<T>): Set<T> {
   const result = new Set<T>(this);
@@ -288,6 +301,10 @@ String.prototype.replaceEnd = function (e: string | RegExp, r?: string): string 
 /** Uint8Array Interface Extensions */
 Uint8Array.prototype.toArray = function (): number[] {
   return Array.from(this);
+};
+
+Uint8Array.prototype.toHex = function (): string {
+  return Buffer.from(this).toString('hex');
 };
 
 export default global;
