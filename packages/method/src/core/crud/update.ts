@@ -19,7 +19,7 @@ import { SignalsMetadata } from '../../types/crud.js';
 import { Appendix } from '../../utils/appendix.js';
 import { DidDocument, DidVerificationMethod } from '../../utils/did-document.js';
 import { BeaconFactory } from '../beacon/factory.js';
-import { KeyManager } from '../key-manager/kms.js';
+import { KeyManager } from '@did-btcr2/kms';
 
 export interface ConstructUpdateParams {
     identifier: string;

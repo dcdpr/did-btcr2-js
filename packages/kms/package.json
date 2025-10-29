@@ -9,20 +9,8 @@
     "exports": {
         ".": {
             "types": "./dist/types/index.d.ts",
-            "browser": "./dist/browser.mjs",
             "import": "./dist/esm/index.js",
             "require": "./dist/cjs/index.js"
-        },
-        "./browser": {
-            "type": "./dist/types/index.d.ts",
-            "default": "./dist/browser.mjs"
-        }
-    },
-    "typesVersions": {
-        "*": {
-            "browser": [
-                "dist/types/index.d.ts"
-            ]
         }
     },
     "files": [
@@ -73,10 +61,9 @@
         "clean": "pnpm clean:build && pnpm clean:tests",
         "wipe": "pnpm clean && pnpm clean:deps",
         "reinstall": "pnpm install --force",
-        "build": "pnpm clean:build && pnpm build:esm && pnpm build:cjs && pnpm build:browser",
+        "build": "pnpm clean:build && pnpm build:esm && pnpm build:cjs",
         "build:esm": "rimraf dist/esm dist/types && pnpm tsc -p tsconfig.json",
         "build:cjs": "rimraf dist/cjs && tsc -p tsconfig.cjs.json && echo '{\"type\": \"commonjs\"}' > ./dist/cjs/package.json",
-        "build:browser": "rimraf dist/browser.mjs dist/browser.js && node build/bundles.js",
         "build:tests": "pnpm clean:tests && pnpm tsc -p tests/tsconfig.json",
         "build:all": "pnpm build && pnpm build:tests",
         "lint": "eslint . --max-warnings 0",
