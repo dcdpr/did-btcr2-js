@@ -45,6 +45,7 @@
     "common": "pnpm --filter common",
     "cryptosuite": "pnpm --filter cryptosuite",
     "keypair": "pnpm --filter keypair",
+    "kms": "pnpm --filter kms",
     "method": "pnpm --filter method",
     "smt": "pnpm --filter smt"
   },

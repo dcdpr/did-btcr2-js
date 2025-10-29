@@ -6,7 +6,7 @@ import { Beacon } from '../../interfaces/beacon.js';
 import { BeaconService, BeaconSignal } from '../../interfaces/ibeacon.js';
 import { BeaconSidecarData, Metadata, SignalsMetadata, SingletonSidecar } from '../../types/crud.js';
 import { Appendix } from '../../utils/appendix.js';
-import { KeyManager, Signer } from '../key-manager/index.js';
+import { KeyManager, Signer } from '../key-manager/kms.js';
 
 const bitcoin = new BitcoinNetworkConnection();
 

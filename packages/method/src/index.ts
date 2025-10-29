@@ -7,7 +7,7 @@ export * from './core/crud/deactivate.js';
 export * from './core/crud/read.js';
 export * from './core/crud/update.js';
 
-export * from './core/key-manager/index.js';
+export * from './core/key-manager/kms.js';
 export * from './core/key-manager/interface.js';
 
 export * from './interfaces/beacon.js';
