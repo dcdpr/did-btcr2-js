@@ -29,6 +29,10 @@
       "path": "packages/keypair"
     },
     {
+      "name": "kms",
+      "path": "packages/kms"
+    },
+    {
       "name": "method",
       "path": "packages/method"
     },

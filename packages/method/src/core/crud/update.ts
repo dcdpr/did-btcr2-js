@@ -1,25 +1,26 @@
 import {
   BTCR2_DID_UPDATE_PAYLOAD_CONTEXT,
-  MethodError,
   DidUpdateInvocation,
   DidUpdatePayload,
   INVALID_DID_DOCUMENT,
   INVALID_DID_UPDATE,
   INVALID_PUBLIC_KEY_TYPE,
   Logger,
+  MethodError,
   NOT_FOUND,
   PatchOperation,
   ProofOptions
 } from '@did-btcr2/common';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import { SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
+import { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
+import { Kms } from '@did-btcr2/kms';
 import type { DidService } from '@web5/dids';
 import { BeaconService } from '../../interfaces/ibeacon.js';
 import { SignalsMetadata } from '../../types/crud.js';
-import { Appendix } from '../../utils/appendix.js';
 import { DidDocument, DidVerificationMethod } from '../../utils/did-document.js';
 import { BeaconFactory } from '../beacon/factory.js';
-import { KeyManager } from '../key-manager/index.js';
+import { Appendix } from '../../utils/appendix.js';
+import { Identifier } from '../identifier.js';
 
 export interface ConstructUpdateParams {
     identifier: string;
@@ -160,25 +161,30 @@ export class Update {
 
     // 1. Set privateKeyBytes to the result of retrieving the private key bytes
     // associated with the verificationMethod value.
+    // 1.1 Let id be the fragment portion of verificationMethod.id.
     const id = fullId.slice(fullId.indexOf('#'));
-    const multikey = !secretKeyMultibase
-    // 1.1 Compute the keyUri and check if the key is in the keystore
-      ? await KeyManager.getKeyPair(fullId)
-    // 1.2 If not, use the secretKeyMultibase from the verificationMethod
-      : SchnorrMultikey
-        .create({
-          id,
-          controller,
-          keys : new SchnorrKeyPair({
-            secretKey : Secp256k1SecretKey.decode(secretKeyMultibase)
-          })
-        });
 
-    // 1.3 If the privateKey is not found, throw an error
-    if (!multikey) {
+    // 1.2 Retrieve the key pair from the KMS or from the secretKeyMultibase
+    const components = Identifier.decode(id);
+    const keyUri = new CompressedSecp256k1PublicKey(components.genesisBytes).hex;
+    const keys = secretKeyMultibase
+      ? new SchnorrKeyPair({ secretKey: Secp256k1SecretKey.decode(secretKeyMultibase) })
+      : await Kms.getKey(keyUri as string);
+    if (!keys) {
       throw new MethodError(
         'No privateKey found in kms or vm',
         NOT_FOUND, verificationMethod
+      );
+    }
+
+    // 1.3 Set multikey to the result of passing verificationMethod and privateKeyBytes into the Multikey Creation algorithm.
+    const multikey = SchnorrMultikey.create({ id, controller, keys });
+
+    // 1.4 If the privateKey is not found, throw an error
+    if (!multikey) {
+      throw new MethodError(
+        'Failed to create multikey from verification method',
+        'MULTKEY_CREATE_FAILED', verificationMethod
       );
     }
 
@@ -193,7 +199,6 @@ export class Update {
     // 7. Set proofOptions.proofPurpose to capabilityInvocation.
     // 8. Set proofOptions.capability to rootCapability.id.
     // 9. Set proofOptions.capabilityAction to Write.
-    // TODO: Wonder if we actually need this. Arent we always writing?
     const options: ProofOptions = {
       cryptosuite,
       type               : 'DataIntegrityProof',
@@ -206,8 +211,6 @@ export class Update {
     // 10. Set cryptosuite to the result of executing the Cryptosuite Instantiation algorithm from the BIP340 Data
     //     Integrity specification passing in proofOptions.
     const diproof = multikey.toCryptosuite(cryptosuite).toDataIntegrityProof();
-
-    // TODO: 11. need to set up the proof instantiation such that it can resolve / dereference the root capability. This is deterministic from the DID.
 
     // 12. Set didUpdateInvocation to the result of executing the Add Proof algorithm from VC Data Integrity passing
     //     didUpdatePayload as the input document, cryptosuite, and the set of proofOptions.

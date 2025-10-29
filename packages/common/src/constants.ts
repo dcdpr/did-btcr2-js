@@ -72,35 +72,32 @@ export const W3C_DID_RESOLUTION_V1 = 'https://w3id.org/did-resolution/v1';
 export const CONTEXT_URL_MAP = {
   w3c : {
     did           : {
-      v1   : 'https://www.w3.org/ns/did/v1',
-      v1_1 : 'https://www.w3.org/TR/did-1.1',
+      v1   : W3C_DID_V1,
+      v1_1 : W3C_DID_V1_1,
     },
     didresolution : {
-      v1 : 'https://w3id.org/did-resolution/v1',
+      v1 : W3C_DID_RESOLUTION_V1,
     },
     security : {
-      v2 : 'https://w3id.org/security/v2',
+      v2 : W3C_SECURITY_V2,
     },
     dataintegrity : {
-      v1 : 'https://w3id.org/security/data-integrity/v1',
-      v2 : 'https://w3id.org/security/data-integrity/v2',
+      v1 : W3C_DATA_INTEGRITY_V1,
+      v2 : W3C_DATA_INTEGRITY_V2,
     },
     zcap          : {
-      v1 : 'https://w3id.org/zcap/v1',
+      v1 : W3C_ZCAP_V1,
     },
     jsonldpatch   : {
-      v1 : 'https://w3id.org/json-ld-patch/v1',
+      v1 : W3C_JSONLD_PATCH_V1,
     },
     multikey      : {
-      v1 : 'https://w3id.org/security/multikey/v1',
+      v1 : W3C_MULTIKEY_V1,
     },
   },
   btcr2 : {
-    diddocument : {
-      v1 : 'https://dcdpr.github.io/did-btcr2-js/ns/did-document/v1',
-    },
     method : {
-      v1 : 'https://btcr2.dev/context/v1'
+      v1 : BTCR2_METHOD_CONTEXT
     },
   },
 
@@ -117,6 +114,7 @@ export const BTCR2_MULTIKEY_CONTEXT = [
 ];
 
 export const BTCR2_DID_UPDATE_PAYLOAD_CONTEXT = [
+  CONTEXT_URL_MAP.btcr2.method.v1,
   CONTEXT_URL_MAP.w3c.security.v2,
   CONTEXT_URL_MAP.w3c.zcap.v1,
   CONTEXT_URL_MAP.w3c.jsonldpatch.v1,

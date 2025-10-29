@@ -7,14 +7,16 @@ import {
   Hex,
   KeyBytes,
   SecretKeyError,
-  SecretKeyObject
+  SecretKeyObject,
+  SignatureBytes
 } from '@did-btcr2/common';
 import { sha256 } from '@noble/hashes/sha2';
-import { getRandomValues } from 'crypto';
+import { getRandomValues, randomBytes } from 'crypto';
 import { base58btc } from 'multiformats/bases/base58';
 import * as tinysecp from 'tiny-secp256k1';
 import { SchnorrKeyPair } from './pair.js';
 import { CompressedSecp256k1PublicKey } from './public.js';
+import { CryptoOptions } from './types.js';
 
 /**
  * General SecretKey interface for the Secp256k1SecretKey class.
@@ -59,7 +61,6 @@ export interface SecretKey {
    * @returns {boolean} Whether the secret key is valid.
    */
   isValid(): boolean;
-
 
   /**
    * JSON representation of a Secp256k1SecretKey object.
@@ -270,6 +271,31 @@ export class Secp256k1SecretKey implements SecretKey {
   }
 
   /**
+   * Produce a signature over arbitrary data using schnorr or ecdsa.
+   * @param {MessageBytes} data Data to be signed.
+   * @param {CryptoOptions} opts Options for signing.
+   * @param {('ecdsa' | 'schnorr')} opts.scheme The signature scheme to use. Default is 'schnorr'.
+   * @returns {SignatureBytes} Signature byte array.
+   * @throws {SecretKeyError} if no private key is provided.
+   */
+  public sign(data: Bytes, opts?: CryptoOptions): SignatureBytes {
+    // Set default options if not provided
+    opts ??= { scheme: 'schnorr' };
+
+    // Sign ecdsa and return
+    if(opts.scheme === 'ecdsa') {
+      return tinysecp.sign(data, this.bytes);
+    }
+
+    // Sign schnorr and return
+    if(opts.scheme === 'schnorr') {
+      return tinysecp.signSchnorr(data, this.bytes, randomBytes(32));
+    }
+
+    throw new SecretKeyError(`Invalid scheme: ${opts.scheme}.`, 'SIGN_ERROR', opts);
+  }
+
+  /**
    * Decodes the multibase string to the 34-byte secret key (2 byte prefix + 32 byte key).
    * @param {string} multibase The multibase string to decode
    * @returns {Bytes} The decoded secret key.
@@ -386,7 +412,6 @@ export class Secp256k1SecretKey implements SecretKey {
     // Use the getRandomValues function to fill the byteArray with random values
     return getRandomValues(byteArray);
   }
-
 
   /**
    * Creates a new Secp256k1SecretKey from random secret key bytes.

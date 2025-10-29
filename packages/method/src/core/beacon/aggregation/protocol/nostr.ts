@@ -1,7 +1,7 @@
 import { SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { Filter } from 'nostr-tools';
 import { SimplePool, } from 'nostr-tools/pool';
-import { Identifier } from '../../../../utils/identifier.js';
+import { Identifier } from '../../../identifier.js';
 import { ProtocolService } from './service.js';
 
 export interface NostrAdapterConfig {
