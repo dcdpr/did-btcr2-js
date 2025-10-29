@@ -5,7 +5,7 @@ import {
   METHOD_NOT_SUPPORTED,
   MethodError,
   PatchOperation,
-  W3C_DID_RESOLUTION_V1
+  W3C_DID_RESOLUTION_V1,
 } from '@did-btcr2/common';
 import type { DidResolutionResult } from '@web5/dids';
 import {
@@ -20,10 +20,10 @@ import * as tinysecp from 'tiny-secp256k1';
 import { Resolve } from './core/crud/read.js';
 import { Update } from './core/crud/update.js';
 import { DidResolutionOptions } from './interfaces/crud.js';
-import { Appendix } from './utils/appendix.js';
 import { DidDocument, DidVerificationMethod } from './utils/did-document.js';
-import { Identifier } from './utils/identifier.js';
 import { SignalsMetadata } from './types/crud.js';
+import { Identifier } from './core/identifier.js';
+import { Appendix } from './utils/appendix.js';
 
 export type Btcr2Identifier = string;
 

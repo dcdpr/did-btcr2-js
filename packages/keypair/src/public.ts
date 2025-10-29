@@ -1,6 +1,7 @@
 import {
   BIP340_PUBLIC_KEY_MULTIBASE_PREFIX,
   BIP340_PUBLIC_KEY_MULTIBASE_PREFIX_HASH,
+  Bytes,
   CURVE,
   Hex,
   KeyBytes,
@@ -12,7 +13,13 @@ import { sha256 } from '@noble/hashes/sha2';
 import { base58btc } from 'multiformats/bases/base58';
 import * as tinysecp from 'tiny-secp256k1';
 import { Secp256k1SecretKey } from './secret.js';
+import { CryptoOptions } from './types.js';
 
+/**
+ * Point Interface representing an (x, y) coordinate on the secp256k1 curve.
+ * @interface Point
+ * @type {Point}
+ */
 export interface Point {
   x: KeyBytes;
   y: KeyBytes;
@@ -135,7 +142,7 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
    */
   constructor(bytes: KeyBytes) {
     // If the byte length is not 33, throw an error
-    if(bytes.length !== 33) {
+    if(!bytes || bytes.length !== 33) {
       throw new PublicKeyError(
         'Invalid argument: byte length must be 33 (compressed)',
         'CONSTRUCTOR_ERROR', { bytes }
@@ -179,7 +186,8 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
    * X-only (32-byte) view of the public key per BIP-340.
    */
   get xOnly(): KeyBytes {
-    return this._bytes.slice(1);
+    const xOnly = this.compressed.slice(1);
+    return xOnly;
   }
 
   /**
@@ -188,7 +196,7 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
    * @throws {PublicKeyError} If the parity byte is not 0x02 or 0x03.
    */
   get parity(): 0x02 | 0x03 {
-    const parity = this._bytes[0];
+    const parity = this.compressed[0];
     if(![0x02, 0x03].includes(parity)) {
       throw new PublicKeyError(
         'Invalid state: parity byte must be 2 or 3',
@@ -203,7 +211,7 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
    * @returns {boolean} True if the public key has even Y.
    */
   get isEven(): boolean {
-    return this._bytes[0] === 0x02;
+    return this.parity === 0x02;
   }
 
   /**
@@ -235,9 +243,9 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
 
   /**
    * Returns the raw public key as a hex string.
-   * @returns {Hex} The public key as a hex string.
+   * @returns {string} The public key as a hex string.
    */
-  get hex(): Hex {
+  get hex(): string {
     const hex = Buffer.from(this.compressed).toString('hex');
     return hex;
   }
@@ -267,7 +275,7 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
    * @returns {Point} The point of the public key.
    * @throws {PublicKeyError} If the public key is not a valid hex string or byte array.
    */
-  static point(pk: Hex): Point {
+  public static point(pk: Hex): Point {
     // If the public key is a hex string, convert it to a CompressedSecp256k1PublicKey object and return the point
     if(typeof pk === 'string' && /^[0-9a-fA-F]+$/.test(pk)) {
       const publicKey = new CompressedSecp256k1PublicKey(Buffer.fromHex(pk));
@@ -345,6 +353,26 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
 
     // Encode the bytes in base58btc format and return
     return base58btc.encode(publicKeyMultibase.toUint8Array());
+  }
+
+  /**
+   * Verify a signature using schnorr or ecdsa.
+   * @param {SignatureBytes} signature Signature for verification.
+   * @param {string} data Data for verification.
+   * @param {CryptoOptions} opts Options for signing.
+   * @param {('ecdsa' | 'schnorr')} opts.scheme The signature scheme to use. Default is 'schnorr'.
+   * @returns {boolean} If the signature is valid against the public key.
+   */
+  public verify(signature: Bytes, data: Bytes, opts?: CryptoOptions): boolean {
+    opts ??= { scheme: 'schnorr' };
+    // Verify the signature depending on the scheme and return the result
+    if(opts.scheme === 'ecdsa') {
+      return tinysecp.verify(data, this.compressed, signature); }
+    else if(opts.scheme === 'schnorr') {
+      return tinysecp.verifySchnorr(data, this.x, signature);
+    }
+
+    throw new PublicKeyError(`Invalid scheme: ${opts.scheme}.`, 'VERIFY_SIGNATURE_ERROR', opts);
   }
 
   /**

@@ -1,12 +1,14 @@
 import { AddressUtxo, BitcoinNetworkConnection, RawTransactionRest, RawTransactionV2, TxOut, Vout } from '@did-btcr2/bitcoin';
 import { DidUpdatePayload, INVALID_SIDECAR_DATA, LATE_PUBLISHING_ERROR, SingletonBeaconError } from '@did-btcr2/common';
+import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
+import { Kms, Signer } from '@did-btcr2/kms';
 import { opcodes, Psbt, script } from 'bitcoinjs-lib';
 import { base58btc } from 'multiformats/bases/base58';
 import { Beacon } from '../../interfaces/beacon.js';
 import { BeaconService, BeaconSignal } from '../../interfaces/ibeacon.js';
 import { BeaconSidecarData, Metadata, SignalsMetadata, SingletonSidecar } from '../../types/crud.js';
 import { Appendix } from '../../utils/appendix.js';
-import { KeyManager, Signer } from '../key-manager/index.js';
+import { Identifier } from '../identifier.js';
 
 const bitcoin = new BitcoinNetworkConnection();
 
@@ -219,13 +221,14 @@ export class SingletonBeacon extends Beacon {
 
     // 6. Retrieve the cryptographic material, e.g private key or signing capability, associated with the bitcoinAddress
     //    or service. How this is done is left to the implementer.
-    // TODO: Determine how we want to handle this. Currently, this code uses the RPC to handle signing.
-    const multikey = await KeyManager.getKeyPair(this.service.id);
-    if (!multikey) {
+    const components = Identifier.decode(this.service.id);
+    const keyUri = new CompressedSecp256k1PublicKey(components.genesisBytes).hex;
+    const keyPair = await Kms.getKey(keyUri as string);
+    if (!keyPair) {
       throw new Error('Key pair not found.');
     }
 
-    const signer = new Signer({ multikey, network: bitcoin.network.name });
+    const signer = new Signer({ keyPair, network: bitcoin.network.name });
 
     // 7. Sign the spendTx.
     const signedTx = spendTx.signInput(0, signer)

@@ -34,10 +34,11 @@ import {
   SidecarData,
   SignalsMetadata
 } from '../../types/crud.js';
-import { Appendix, DidComponents } from '../../utils/appendix.js';
-import { BeaconUtils } from '../../utils/beacons.js';
+import { Appendix } from '../../utils/appendix.js';
 import { DidDocument } from '../../utils/did-document.js';
+import { DidComponents } from '../identifier.js';
 import { BeaconFactory } from '../beacon/factory.js';
+import { BeaconUtils } from '../beacon/utils.js';
 
 export type FindNextSignalsRestParams = {
   connection: BitcoinRestClient;
@@ -905,17 +906,7 @@ export class Resolve {
 
     // Construct a new Multikey.
     const multikey = SchnorrMultikey.fromPublicKeyMultibase({ id: `#${id}`, controller, publicKeyMultibase });
-    // Logger.warn('// TODO: applyDidUpdate - Refactor Multikey to accept pub/priv bytes => Pub/PrivKey => KeyPair.');
-
     const cryptosuite = new Cryptosuite({ cryptosuite: 'bip340-jcs-2025', multikey });
-    // Logger.warn('// TODO: applyDidUpdate - Refactor Cryptosuite to default to RDFC.');
-
-    // 5. Set expectedProofPurpose to capabilityInvocation.
-    const expectedPurpose = 'capabilityInvocation';
-
-    // 6. Set mediaType to ????
-    // const mediaType = 'application/json';
-    // Logger.warn('// TODO: applyDidUpdate - is this just application/json?');
 
     // 7. Set documentBytes to the bytes representation of update.
     const documentBytes = await JSON.canonicalization.canonicalize(update);
@@ -923,7 +914,7 @@ export class Resolve {
     // 8. Set verificationResult to the result of passing mediaType, documentBytes, cryptosuite, and
     //    expectedProofPurpose into the Verify Proof algorithm defined in the VC Data Integrity specification.
     const diProof = new DataIntegrityProof(cryptosuite);
-    const verificationResult = await diProof.verifyProof({ document: documentBytes, expectedPurpose });
+    const verificationResult = await diProof.verifyProof({ document: documentBytes, expectedPurpose: 'capabilityInvocation' });
 
     // 9. If verificationResult.verified equals False, MUST raise a invalidUpdateProof exception.
     if (!verificationResult.verified) {

@@ -98,6 +98,7 @@
         "@did-btcr2/common": "workspace:*",
         "@did-btcr2/cryptosuite": "workspace:*",
         "@did-btcr2/keypair": "workspace:*",
+        "@did-btcr2/kms": "workspace:*",
         "@helia/strings": "^4.0.2",
         "@noble/curves": "^1.8.1",
         "@noble/hashes": "^1.5.0",

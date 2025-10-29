@@ -2,6 +2,8 @@ import { Hex, KeyBytes } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey } from './public.js';
 import { Secp256k1SecretKey } from './secret.js';
 
+export type CryptoOptions = { scheme: 'ecdsa' | 'schnorr' }
+
 export type RawSchnorrKeyPair = {
   public: KeyBytes;
   secret?: KeyBytes

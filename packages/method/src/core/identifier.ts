@@ -1,7 +1,23 @@
-import { BitcoinNetworkNames, MethodError, IdentifierTypes, Bytes, INVALID_DID, METHOD_NOT_SUPPORTED } from '@did-btcr2/common';
+import { BitcoinNetworkNames, Bytes, IdentifierTypes, INVALID_DID, METHOD_NOT_SUPPORTED, MethodError } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { bech32m } from '@scure/base';
-import { DidComponents } from './appendix.js';
+
+/**
+ * Components of a did:btcr2 identifier.
+ * @interface DidComponents
+ * @property {string} hrp The human-readable part of the Bech32m encoding.
+ * @property {string} idType Identifier type (key or external).
+ * @property {number} version Identifier version.
+ * @property {string | number} network Bitcoin network name or number.
+ * @property {Bytes} genesisBytes Public key or an intermediate document bytes.
+ */
+export interface DidComponents {
+    hrp: string;
+    idType: string;
+    version: number;
+    network: string;
+    genesisBytes: Bytes;
+};
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/#syntax | 3 Syntax}.
@@ -25,7 +41,7 @@ export class Identifier {
    *    - a key-value representing a secp256k1 public key; or
    *    - a hash-value representing the hash of an initiating external DID document.
    *
-   * @param {CreateIdentifierParams} params See {@link CreateIdentifierParams} for details.
+   * @param {DidComponents} params See {@link DidComponents} for details.
    * @param {IdentifierTypes} params.idType Identifier type (key or external).
    * @param {string} params.network Bitcoin network name.
    * @param {number} params.version Identifier version.
@@ -35,7 +51,7 @@ export class Identifier {
   public static encode({ idType, version, network, genesisBytes }: {
     idType: string;
     version: number;
-    network: string | number;
+    network: string;
     genesisBytes: Bytes;
   }): string {
     // 1. If idType is not a valid value per above, raise invalidDid error.
@@ -267,7 +283,7 @@ export class Identifier {
     const did = this.encode({
       idType       : IdentifierTypes.KEY,
       version      : 1,
-      network      : BitcoinNetworkNames.bitcoin,
+      network      : 'bitcoin',
       genesisBytes : keys.publicKey.compressed
     });
 
