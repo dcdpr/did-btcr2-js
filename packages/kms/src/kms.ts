@@ -11,7 +11,7 @@ import {
 } from '@did-btcr2/common';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey, SchnorrKeyPair } from '@did-btcr2/keypair';
-import { sha256 } from '@noble/hashes/sha2';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { KeyValueStore, MemoryStore } from '@web5/common';
 import { KeyIdentifier } from '@web5/crypto';
 import { Did } from '@web5/dids';
