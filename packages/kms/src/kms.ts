@@ -64,6 +64,9 @@ export class KeyManager implements IKeyManager, CryptoSigner, BitcoinSigner  {
    * instance. This store is responsible for managing cryptographic keys, allowing them to be retrieved, stored, and
    * managed during cryptographic operations.
    * @param {KeyIdentifier} params.keyUri An optional property to specify the active key URI for the key manager.
+   * The keyUri could be a DID or a public key hex string. Either can be used to lookup the secret key in the key store.
+   * @param {Secp256k1SecretKey} params.secretKey An optional property to specify the secret key for the key manager.
+   * If provided along with `keyUri`, the key manager will import the key into the key store and set it as active.
    */
   constructor({ store, keyUri, secretKey }: KeyManagerParams = {}) {
     // Set the default key store to a MemoryStore instance
@@ -179,7 +182,13 @@ export class KeyManager implements IKeyManager, CryptoSigner, BitcoinSigner  {
     }
 
     // Get the key pair from the key store
-    return await this._store.get(uri);
+    const kp = await this._store.get(uri);
+    if (!kp) {
+      throw new KeyManagerError(`Key not found for URI: ${uri}`, 'KEY_NOT_FOUND');
+    }
+
+    // Return the key pair
+    return kp;
   }
 
   /**

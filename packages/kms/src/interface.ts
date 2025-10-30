@@ -36,8 +36,9 @@ export type KeyManagerParams = {
   store?: KeyValueStore<KeyIdentifier, SchnorrKeyPair>;
 
   /**
-   * An optional property to specify a key URI for a key pair. If not provided, the key manager
-   * will generate a key URI based on the public key of the key pair.
+   * An optional property to specify the active key URI for the key manager.
+   * The keyUri could be a DID or a public key hex string. Either can be used to
+   * lookup the secret key in the key store.
    * @type {KeyIdentifier}
    */
   keyUri?: KeyIdentifier;
