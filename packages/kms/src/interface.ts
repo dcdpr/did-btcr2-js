@@ -1,53 +1,60 @@
 import { HashBytes, Hex, SignatureBytes } from '@did-btcr2/common';
-import { Multikey, SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import { SchnorrKeyPair, CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
+import { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { KeyValueStore } from '@web5/common';
 
+/**
+ * Options for KeyManager methods.
+ * @property {boolean} [importKey] - Whether to import the key.
+ * @property {boolean} [active] - Whether to set the key as active.
+ * @property {string} [did] - The DID associated with the key.
+ * @property {string} [network] - The network associated with the DID.
+ */
 export type KeyManagerOptions = {
   importKey?: boolean;
   active?: boolean
+  did?: string;
+  network?: string;
 };
 
 /** Alias type for KeyManager keyUri */
 export type KeyIdentifier = string;
 
-/** Params for initializing a KeyManager class instance. */
+/**
+ * Parameters for initializing a KeyManager instance.
+ * @property {KeyValueStore<KeyIdentifier, SchnorrKeyPair>} [store] - An optional custom key-value store for managing keys.
+ * @property {KeyIdentifier} [keyUri] - An optional key URI for the key pair.
+ * @property {Secp256k1SecretKey} [secretKey] - An optional secret key to be imported into the key manager.
+ */
 export type KeyManagerParams = {
   /**
    * An optional property to specify a custom `KeyValueStore` instance for key management. If not
    * provided, {@link KeyManager | `KeyManager`} uses a default `MemoryStore` instance.
    * This store is responsible for managing cryptographic keys, allowing them to be retrieved,
    * stored, and managed during cryptographic operations.
-   * @type {KeyValueStore<KeyIdentifier, KeyPair>}
+   * @type {KeyValueStore<KeyIdentifier, SchnorrKeyPair>}
    */
-  store?: KeyValueStore<KeyIdentifier, SchnorrMultikey>;
+  store?: KeyValueStore<KeyIdentifier, SchnorrKeyPair>;
 
   /**
-   * An optional property to specify a key URI for the key manager. If not provided, the key manager
+   * An optional property to specify a key URI for a key pair. If not provided, the key manager
    * will generate a key URI based on the public key of the key pair.
    * @type {KeyIdentifier}
    */
   keyUri?: KeyIdentifier;
 
   /**
-   * An optional property to specify the DID contoller id.
-   * @type {string}
+   * An optional property to specify a secret key to be imported into the key manager.
+   * @type {Secp256k1SecretKey}
    */
-  id?: string;
-
-  /**
-   * An optional property to specify the DID controller.\
-   * @type {string}
-   */
-  controller?: string;
-
-  /**
-   * An optional property to pass in an initial key pair
-   * @type {SchnorrKeyPair}
-   */
-  keys?: SchnorrKeyPair;
+  secretKey?: Secp256k1SecretKey;
 };
 
+/**
+ * Parameters for generating a new key pair.
+ * @property {string} id - The identifier for the key.
+ * @property {string} controller - The controller of the key.
+ * @property {KeyManagerOptions} options - Additional options for key generation.
+ */
 export type GenerateKeyParams = {
   id: string;
   controller: string;
@@ -69,10 +76,10 @@ export interface IKeyManager {
     /**
      * Exports the full key pair from the key store.
      * @param {KeyIdentifier} keyUri The URI of the key to export.
-     * @returns {Promise<Multikey | undefined>} The key pair associated with the key URI.
+     * @returns {Promise<SchnorrKeyPair | undefined>} The key pair associated with the key URI.
      * @throws {KeyManagerError} If the key is not found in the key store.
      */
-    exportKey(keyUri?: KeyIdentifier): Promise<Multikey | undefined>;
+    exportKey(keyUri?: KeyIdentifier): Promise<SchnorrKeyPair | undefined>;
 
     /**
      * Gets the public key of a key pair.
@@ -83,16 +90,23 @@ export interface IKeyManager {
 
     /**
      * Imports a key pair into the key store.
-     * @param {SchnorrKeyPair} keyPair The key pair to import.
-     * @param {string} keyUri The full DID controller + fragment identifier (e.g. 'did:btcr2:xyz#key-1').
+     * @param {Secp256k1SecretKey} secretKey The secret key to import.
      * @param {KeyManagerOptions} options The options for importing the key pair.
-     * @param {boolean} options.active Whether to set the imported key as active.
+     * @param {boolean} [options.active] Whether to set the imported key as active.
+     * @param {string} [options.did] The DID for the key (optional).
+     * @param {string} [options.network] The network for the DID for the key (optional).
      * @returns {Promise<KeyIdentifier>} A promise that resolves to the key identifier of the imported key.
      */
-    importKey(keyPair: SchnorrKeyPair, keyUri: string, options: KeyManagerOptions): Promise<KeyIdentifier>;
+    importKey(secretKey: Secp256k1SecretKey, options: KeyManagerOptions): Promise<KeyIdentifier>;
 }
 
-export interface CryptoSigner {
+/**
+ * The interface for cryptographic signing operations.
+ * @interface CryptoSigner
+ * @extends {BitcoinSigner}
+ * @type {CryptoSigner}
+ */
+export interface CryptoSigner extends BitcoinSigner {
   /**
    * Signs a message with a key pair.
    * @param {Hex} data The data to sign.
@@ -118,6 +132,11 @@ export interface CryptoSigner {
   digest(data: Uint8Array): HashBytes;
 }
 
+/**
+ * The interface for Bitcoin transaction signing operations.
+ * @interface BitcoinSigner
+ * @type {BitcoinSigner}
+ */
 export interface BitcoinSigner {
   /**
    * Signs a Bitcoin transaction with a key pair.
