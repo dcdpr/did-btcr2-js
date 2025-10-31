@@ -1,25 +1,25 @@
 import {
   BTCR2_DID_UPDATE_PAYLOAD_CONTEXT,
-  MethodError,
   DidUpdateInvocation,
   DidUpdatePayload,
   INVALID_DID_DOCUMENT,
   INVALID_DID_UPDATE,
   INVALID_PUBLIC_KEY_TYPE,
   Logger,
+  MethodError,
   NOT_FOUND,
   PatchOperation,
   ProofOptions
 } from '@did-btcr2/common';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
+import { KeyManager } from '@did-btcr2/kms';
 import type { DidService } from '@web5/dids';
 import { BeaconService } from '../../interfaces/ibeacon.js';
 import { SignalsMetadata } from '../../types/crud.js';
 import { Appendix } from '../../utils/appendix.js';
 import { DidDocument, DidVerificationMethod } from '../../utils/did-document.js';
 import { BeaconFactory } from '../beacon/factory.js';
-import { KeyManager } from '@did-btcr2/kms';
 
 export interface ConstructUpdateParams {
     identifier: string;
@@ -196,7 +196,6 @@ export class Update {
     // 7. Set proofOptions.proofPurpose to capabilityInvocation.
     // 8. Set proofOptions.capability to rootCapability.id.
     // 9. Set proofOptions.capabilityAction to Write.
-    // TODO: Wonder if we actually need this. Arent we always writing?
     const options: ProofOptions = {
       cryptosuite,
       type               : 'DataIntegrityProof',
@@ -209,8 +208,6 @@ export class Update {
     // 10. Set cryptosuite to the result of executing the Cryptosuite Instantiation algorithm from the BIP340 Data
     //     Integrity specification passing in proofOptions.
     const diproof = multikey.toCryptosuite(cryptosuite).toDataIntegrityProof();
-
-    // TODO: 11. need to set up the proof instantiation such that it can resolve / dereference the root capability. This is deterministic from the DID.
 
     // 12. Set didUpdateInvocation to the result of executing the Add Proof algorithm from VC Data Integrity passing
     //     didUpdatePayload as the input document, cryptosuite, and the set of proofOptions.
