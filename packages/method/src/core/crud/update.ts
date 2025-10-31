@@ -160,25 +160,28 @@ export class Update {
 
     // 1. Set privateKeyBytes to the result of retrieving the private key bytes
     // associated with the verificationMethod value.
+    // 1.1 Let id be the fragment portion of verificationMethod.id.
     const id = fullId.slice(fullId.indexOf('#'));
-    const multikey = !secretKeyMultibase
-    // 1.1 Compute the keyUri and check if the key is in the keystore
-      ? await KeyManager.getKeyPair(fullId)
-    // 1.2 If not, use the secretKeyMultibase from the verificationMethod
-      : SchnorrMultikey
-        .create({
-          id,
-          controller,
-          keys : new SchnorrKeyPair({
-            secretKey : Secp256k1SecretKey.decode(secretKeyMultibase)
-          })
-        });
 
-    // 1.3 If the privateKey is not found, throw an error
-    if (!multikey) {
+    // 1.2 Retrieve the key pair from the KMS or from the secretKeyMultibase
+    const keys = secretKeyMultibase
+      ? new SchnorrKeyPair({ secretKey: Secp256k1SecretKey.decode(secretKeyMultibase) })
+      : await KeyManager.getKeyPair(id);
+    if (!keys) {
       throw new MethodError(
         'No privateKey found in kms or vm',
         NOT_FOUND, verificationMethod
+      );
+    }
+
+    // 1.3 Set multikey to the result of passing verificationMethod and privateKeyBytes into the Multikey Creation algorithm.
+    const multikey = SchnorrMultikey.create({ id, controller, keys });
+
+    // 1.4 If the privateKey is not found, throw an error
+    if (!multikey) {
+      throw new MethodError(
+        'Failed to create multikey from verification method',
+        'MULTKEY_CREATE_FAILED', verificationMethod
       );
     }
 
