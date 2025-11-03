@@ -1,6 +1,5 @@
 import { Bytes, HashBytes, Hex, KeyIdentifier, SignatureBytes } from '@did-btcr2/common';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
-import { KeyManagerOptions } from './kms.js';
+import { Algo } from './types.js';
 
 /**
  * The interface for the Kms class.
@@ -33,15 +32,21 @@ export interface KeyManager {
 
   /**
    * Imports a key pair into the key store.
-   * @param {SchnorrKeyPair} keyPair The secret key to import.
-   * @param {KeyManagerOptions} options The options for importing the key pair.
-   * @param {KeyIdentifier} [options.keyUri] The URI of the key to import.
-   * @param {boolean} [options.active] Whether to set the imported key as active.
-   * @param {string} [options.did] The DID for the key (optional).
-   * @param {string} [options.network] The network for the DID for the key (optional).
+   * @param {Uint8Array} secretKey The secret key to import.
+   * @param {Uint8Array} publicKey The public key to import.
+   * @param {Object} opts Options for importing the key.
+   * @param {Algo} [opts.algo] The algorithm of the key.
+   * @param {boolean} [opts.exportable] Whether the key is exportable.
+   * @param {string} [opts.passphrase] The passphrase to encrypt the key at rest.
+   * @param {boolean} [opts.active] Whether to set the imported key as the active key.
    * @returns {Promise<KeyIdentifier>} A promise that resolves to the key identifier of the imported key.
    */
-  importKey(keyPair: SchnorrKeyPair, options: KeyManagerOptions): Promise<KeyIdentifier>
+  importKey(secretKey: Uint8Array, publicKey: Uint8Array, opts: {
+      algo?: Algo;
+      exportable?: boolean;
+      passphrase?: string;
+      active?: boolean;
+    }): Promise<KeyIdentifier>;
 
   /**
    * Computes the hash of the given data.
