@@ -4,17 +4,75 @@ import {
   HashBytes,
   Hex,
   KeyBytes,
+  KeyIdentifier,
   KeyManagerError,
   Logger,
-  MULTIBASE_URI_PREFIX,
   SignatureBytes
 } from '@did-btcr2/common';
-import { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { KeyValueStore, MemoryStore } from '@web5/common';
-import { KeyIdentifier } from '@web5/crypto';
-import { Multibase } from 'multiformats';
-import { BitcoinSigner, CryptoSigner, IKeyManager, KeyManagerOptions, KeyManagerParams } from './interface.js';
+import { BitcoinSigner, CryptoSigner, KeyManager } from './interface.js';
+
+/**
+ * Options for KeyManager methods.
+ * @property {boolean} [importKey] - Whether to import the key.
+ * @property {boolean} [active] - Whether to set the key as active.
+ * @property {string} [did] - The DID associated with the key.
+ * @property {string} [network] - The network associated with the DID.
+ */
+export type KeyManagerOptions = {
+  keyUri?: KeyIdentifier;
+  importKey?: boolean;
+  active?: boolean
+  did?: string;
+  network?: string;
+};
+
+/**
+ * Parameters for initializing a KeyManager instance.
+ * @property {KeyValueStore<KeyIdentifier, SchnorrKeyPair>} [store] - An optional custom key-value store for managing keys.
+ * @property {KeyIdentifier} [keyUri] - An optional key URI for the key pair.
+ * @property {SchnorrKeyPair} [keyPair] - An optional key pair to be imported into the key manager.
+ */
+export type KeyManagerParams = {
+  /**
+   * An optional property to specify a custom `KeyValueStore` instance for key management. If not
+   * provided, {@link KeyManager | `KeyManager`} uses a default `MemoryStore` instance.
+   * This store is responsible for managing cryptographic keys, allowing them to be retrieved,
+   * stored, and managed during cryptographic operations.
+   * @type {KeyValueStore<KeyIdentifier, SchnorrKeyPair>}
+   */
+  store?: KeyValueStore<KeyIdentifier, SchnorrKeyPair>;
+
+  /**
+   * An optional property to specify the active key URI for the key manager.
+   * The keyUri could be a DID or a public key hex string. Either can be used to
+   * lookup the active key in the store.
+   * @type {KeyIdentifier}
+   */
+  keyUri?: KeyIdentifier;
+
+  /**
+   * An optional property to specify a key pair to be imported into the key manager
+   * upon initialization. If provided along with `keyUri`, the key manager will
+   * import the key into the key store and set it as active.
+   * @type {SchnorrKeyPair}
+   */
+  keyPair?: SchnorrKeyPair;
+};
+
+/**
+ * Parameters for generating a new key pair.
+ * @property {string} id - The identifier for the key.
+ * @property {string} controller - The controller of the key.
+ * @property {KeyManagerOptions} options - Additional options for key generation.
+ */
+export type GenerateKeyParams = {
+  id: string;
+  controller: string;
+  options: KeyManagerOptions
+};
 
 export interface SignerParams {
   keyPair: SchnorrKeyPair;
@@ -22,26 +80,17 @@ export interface SignerParams {
 };
 
 /**
- * Class for managing cryptographic keys for the B DID method.
- * @class KeyManager
- * @type {KeyManager}
+ * Class for managing cryptographic keys for the BTCR2 DID method.
+ * @class Kms
+ * @type {Kms}
  */
-export class KeyManager implements IKeyManager, CryptoSigner, BitcoinSigner  {
+export class Kms implements KeyManager, CryptoSigner, BitcoinSigner  {
   /**
-   * Singleton instance of the KeyManager.
+   * Singleton instance of the Kms.
    * @private
    * @type {KeyManager}
    */
-  static #instance?: KeyManager;
-
-  /**
-   * The `activeKeyUri` property is a string that represents the URI of the currently active key.
-   * It is used to identify the key that will be used for signing and verifying operations.
-   * This property is optional and can be set to a specific key URI when initializing the
-   * `KeyManager` instance. If not set, the key manager will use the default key URI.
-   * @type {KeyIdentifier}
-   */
-  public activeKeyUri?: KeyIdentifier;
+  static #instance?: Kms;
 
   /**
    * The `_store` private variable in `KeyManager` is a `KeyValueStore` instance used for
@@ -54,7 +103,17 @@ export class KeyManager implements IKeyManager, CryptoSigner, BitcoinSigner  {
    * @readonly
    * @type {KeyValueStore<KeyIdentifier, SchnorrKeyPair>} The key store for managing cryptographic keys.
    */
-  private readonly _store: KeyValueStore<KeyIdentifier, SchnorrKeyPair>;
+  readonly #store: KeyValueStore<KeyIdentifier, SchnorrKeyPair>;
+
+
+  /**
+   * The `activeKeyUri` property is a string that represents the URI of the currently active key.
+   * It is used to identify the key that will be used for signing and verifying operations.
+   * This property is optional and can be set to a specific key URI when initializing the
+   * `KeyManager` instance. If not set, the key manager will use the default key URI.
+   * @type {KeyIdentifier}
+   */
+  public activeKeyUri?: KeyIdentifier;
 
   /**
    * Creates an instance of KeyManager.
@@ -65,32 +124,32 @@ export class KeyManager implements IKeyManager, CryptoSigner, BitcoinSigner  {
    * managed during cryptographic operations.
    * @param {KeyIdentifier} params.keyUri An optional property to specify the active key URI for the key manager.
    * The keyUri could be a DID or a public key hex string. Either can be used to lookup the secret key in the key store.
-   * @param {Secp256k1SecretKey} params.secretKey An optional property to specify the secret key for the key manager.
+   * @param {SchnorrKeyPair} params.keyPair An optional property to specify the secret key for the key manager.
    * If provided along with `keyUri`, the key manager will import the key into the key store and set it as active.
    */
-  constructor({ store, keyUri, secretKey }: KeyManagerParams = {}) {
+  constructor({ store, keyUri, keyPair }: KeyManagerParams = {}) {
     // Set the default key store to a MemoryStore instance
-    this._store = store ?? new MemoryStore<KeyIdentifier, SchnorrKeyPair>();
+    this.#store = store ?? new MemoryStore<KeyIdentifier, SchnorrKeyPair>();
 
     // Import the keys into the key store
-    if (keyUri && secretKey) {
-      void this.importKey(secretKey, { active: true }).then(() => {
+    if (keyUri && keyPair) {
+      void this.importKey(keyPair, { active: true }).then(() => {
         this.activeKeyUri = keyUri;
       });
     }
   }
 
   /**
-   * Gets the singleton instance of the KeyManager.
-   * @returns {KeyManager} The singleton instance of the KeyManager.
+   * Gets the singleton instance of the Kms.
+   * @returns {Kms} The singleton instance of the Kms.
    */
-  public static get instance(): KeyManager {
-    // Check if the KeyManager instance is initialized
-    if (!KeyManager.#instance) {
-      throw new KeyManagerError('KeyManager not initialized. Call initialize() first.', 'KEY_MANAGER_NOT_INITIALIZED');
+  public static get instance(): Kms {
+    // Check if the Kms instance is initialized
+    if (!Kms.#instance) {
+      throw new KeyManagerError('Kms not initialized. Call initialize() first.', 'KMS_NOT_INITIALIZED');
     }
     // Return the singleton instance
-    const instance = KeyManager.#instance;
+    const instance = Kms.#instance;
     return instance;
   }
 
@@ -100,26 +159,8 @@ export class KeyManager implements IKeyManager, CryptoSigner, BitcoinSigner  {
    * @param {KeyIdentifier} keyUri The URI of the key to sign the transaction with.
    * @returns {Promise<Hex>} A promise resolving to the signed transaction hex.
    */
-  signTransaction(txHex: Hex, keyUri?: KeyIdentifier): Promise<Hex> {
+  public signTransaction(txHex: Hex, keyUri?: KeyIdentifier): Promise<Hex> {
     throw new Error('Method not implemented.' + txHex + keyUri);
-  }
-
-  /**
-   * Gets the key pair from the key store and returns a CompressedSecp256k1PublicKey.
-   * @param {KeyIdentifier} keyUri The URI of the key to get the public key for.
-   * @returns {Promise<CompressedSecp256k1PublicKey>} The public key associated with the key URI.
-   */
-  public async getPublicKey(keyUri?: KeyIdentifier): Promise<CompressedSecp256k1PublicKey> {
-    // Use the active key URI if not provided
-    const key = await this.getKey(keyUri);
-
-    // Check if the key exists and has a public key
-    if (!key?.publicKey) {
-      throw new KeyManagerError(`Key not found for URI: ${keyUri}`, 'KEY_NOT_FOUND');
-    }
-
-    // Return the public key
-    return key.publicKey;
   }
 
   /**
@@ -167,8 +208,8 @@ export class KeyManager implements IKeyManager, CryptoSigner, BitcoinSigner  {
   }
 
   /**
-   * Gets the key pair from the key store.
-   * @param {KeyIdentifier} keyUri The URI of the key to get.
+   * Gets the key from the store using the keyUri.
+   * @param {KeyIdentifier} [keyUri] The URI of the key to get the public key for.
    * @returns {Promise<SchnorrKeyPair>} The key pair associated with the key URI.
    * @throws {KeyManagerError} If the key is not found in the key store.
    */
@@ -182,7 +223,7 @@ export class KeyManager implements IKeyManager, CryptoSigner, BitcoinSigner  {
     }
 
     // Get the key pair from the key store
-    const kp = await this._store.get(uri);
+    const kp = await this.#store.get(uri);
     if (!kp) {
       throw new KeyManagerError(`Key not found for URI: ${uri}`, 'KEY_NOT_FOUND');
     }
@@ -192,46 +233,28 @@ export class KeyManager implements IKeyManager, CryptoSigner, BitcoinSigner  {
   }
 
   /**
-   * Exports the full multikeypair from the key store.
-   * @returns {Promise<SchnorrKeyPair>} The key pair associated with the key URI.
-   * @throws {KeyManagerError} If the key is not found in the key store.
-   */
-  public async exportKey(keyUri?: KeyIdentifier): Promise<SchnorrKeyPair | undefined> {
-    // Get the key from the key store and return it
-    return await this.getKey(keyUri);
-  }
-
-  /**
    * Imports a keypair to the store.
-   * @param {Secp256k1SecretKey} secretKey The secret key to import.
-   * @param {KeyManagerOptions} options Relevant import options.
-   * @param {boolean} options.active A flag to set the key as active (optional, default: false).
+   * @param {SchnorrKeyPair} keyPair The secret key to import.
+   * @param {KeyManagerOptions} [options] Relevant import options.
+   * @param {KeyIdentifier} [options.keyUri] The URI of the key to import (optional).
+   * @param {boolean} [options.active] A flag to set the key as active (optional, default: false).
    * @param {string} [options.did] The DID for the key (optional).
    * @param {string} [options.network] The network for the DID for the key (optional).
    * @returns {Promise<KeyIdentifier>} A promise that resolves to the key identifier of the imported key.
    */
-  public async importKey(secretKey: Secp256k1SecretKey, options: KeyManagerOptions = {}): Promise<KeyIdentifier> {
-    // TODO: Create keyUri from public key, require passing network
-
-    // Instantiate a new SchnorrKeyPair with the provided keys
-    const kp = new SchnorrKeyPair({ secretKey });
-
-    const keyUri = options.did || options.network;
-
-    if(!keyUri) {
-      throw new KeyManagerError('Either DID or network must be provided to import a key.', 'MISSING_DID_OR_NETWORK');
-    }
+  public async importKey(keyPair: SchnorrKeyPair, options: KeyManagerOptions = {}): Promise<KeyIdentifier> {
+    options.keyUri ??= keyPair.publicKey.hex as string;
 
     // Store the keypair in the key store
-    await this._store.set(keyUri, kp);
+    await this.#store.set(options.keyUri, keyPair);
 
     // Set the key as active if required
     if (options.active) {
-      this.activeKeyUri = keyUri;
+      this.activeKeyUri = options.keyUri;
     }
 
     // Return the key URI
-    return keyUri;
+    return options.keyUri;
   }
 
   /**
@@ -244,67 +267,41 @@ export class KeyManager implements IKeyManager, CryptoSigner, BitcoinSigner  {
   }
 
   /**
-   * Computes the key URI of a given keypair.
-   * @param {string} id The fragment identifier (e.g. 'key-1').
-   * @param {string} [controller] The DID controller (e.g. 'did:btcr2:xyz').
-   * @returns {KeyIdentifier} A full DID fragment URI (e.g. 'did:btcr2:xyz#key-1')
-   */
-  public static computeKeyUri(id: string, controller: string): KeyIdentifier {
-    // Concat the id to the controller and return
-    return `${controller}${id.startsWith('#') ? id : `#${id}`}`;
-  }
-
-  /**
-   * Computes a multibase-compliant URI from a key.
-   * @param key A SchnorrKeyPair, CompressedSecp256k1PublicKey, or multibase string
-   * @returns {string} A multibase URI (e.g. 'urn:mb:zQ3s...')
-   */
-  public static toMultibaseUri(data: SchnorrKeyPair | CompressedSecp256k1PublicKey | Multibase<'zQ3s'>): string {
-    const multibase = data instanceof SchnorrKeyPair
-      ? data.publicKey.multibase
-      : data instanceof CompressedSecp256k1PublicKey
-        ? data.multibase
-        : data;
-
-    return `${MULTIBASE_URI_PREFIX}${multibase}`;
-  }
-
-  /**
    * Initializes a singleton KeyManager instance.
-   * @param {Secp256k1SecretKey} secretKey The secret key to import.
+   * @param {SchnorrKeyPair} keyPair The secret key to import.
    * @param {string} keyUri The URI to set as the active key.
    * @returns {void}
    */
-  public static async initialize(secretKey: Secp256k1SecretKey, keyUri: string): Promise<KeyManager> {
+  public static async initialize(keyPair: SchnorrKeyPair, keyUri: string): Promise<Kms> {
     // Check if the KeyManager instance is already initialized
-    if (KeyManager.#instance) {
-      Logger.warn('KeyManager global instance is already initialized.');
-      return KeyManager.#instance;
+    if (Kms.#instance) {
+      Logger.warn('Kms global instance is already initialized.');
+      return Kms.#instance;
     }
 
     // Check if the keypair is provided
-    if(!secretKey) {
+    if(!keyPair) {
       // Log a warning message if not provided
       Logger.warn('secretKey not provided, generating ...');
     }
 
     // Generate a new keypair if not provided
-    secretKey ??= Secp256k1SecretKey.generate();
+    keyPair ??= SchnorrKeyPair.generate();
 
     // Initialize the singleton key manager with the keypair
-    KeyManager.#instance = new KeyManager({ secretKey });
+    Kms.#instance = new Kms();
 
     // Import the keypair into the key store
-    await KeyManager.#instance.importKey(secretKey, { active: true });
+    await Kms.#instance.importKey(keyPair, { active: true });
 
     // Set the active key URI
-    KeyManager.#instance.activeKeyUri = keyUri;
+    Kms.#instance.activeKeyUri = keyUri;
 
     // Log the active key URI
-    Logger.info(`KeyManager initialized with Active Key URI: ${KeyManager.#instance.activeKeyUri}`);
+    Logger.info(`Kms initialized with Active Key URI: ${Kms.#instance.activeKeyUri}`);
 
     // Return the singleton instance
-    return KeyManager.#instance;
+    return Kms.#instance;
   }
 
   /**
@@ -313,11 +310,11 @@ export class KeyManager implements IKeyManager, CryptoSigner, BitcoinSigner  {
    * @param {KeyIdentifier} keyUri The URI of the keypair to retrieve.
    * @returns {Promise<SchnorrKeyPair | undefined>} The retrieved keypair, or undefined if not found.
    */
-  public static async getKeyPair(keyUri?: KeyIdentifier): Promise<SchnorrKeyPair | undefined> {
+  public static async getKey(keyUri?: KeyIdentifier): Promise<SchnorrKeyPair | undefined> {
     // Use the active key URI if not provided
-    keyUri ??= KeyManager.#instance?.activeKeyUri;
-    // Instantiate a new KeyManager with the default key store
-    return await KeyManager.#instance?.getKey(keyUri);
+    keyUri ??= Kms.#instance?.activeKeyUri;
+    // Instantiate a new Kms with the default key store
+    return await Kms.#instance?.getKey(keyUri);
   }
 
   public async getKeySigner(keyUri: KeyIdentifier, network: keyof AvailableNetworks): Promise<Signer> {
@@ -343,11 +340,11 @@ export class Signer {
     return this.keyPair.publicKey.compressed;
   }
 
-  public sign(hash: Bytes): SignatureBytes {
+  public signEcdsa(hash: Bytes): SignatureBytes {
     return this.keyPair.secretKey.sign(hash, { scheme: 'ecdsa' });
   };
 
-  public signSchnorr(hash: Bytes): SignatureBytes {
+  public sign(hash: Bytes): SignatureBytes {
     return this.keyPair.secretKey.sign(hash);
   }
 }

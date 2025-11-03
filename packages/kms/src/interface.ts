@@ -1,104 +1,54 @@
-import { HashBytes, Hex, SignatureBytes } from '@did-btcr2/common';
-import { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
-import { KeyValueStore } from '@web5/common';
+import { Bytes, HashBytes, Hex, KeyIdentifier, SignatureBytes } from '@did-btcr2/common';
+import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { KeyManagerOptions } from './kms.js';
 
 /**
- * Options for KeyManager methods.
- * @property {boolean} [importKey] - Whether to import the key.
- * @property {boolean} [active] - Whether to set the key as active.
- * @property {string} [did] - The DID associated with the key.
- * @property {string} [network] - The network associated with the DID.
+ * The interface for the Kms class.
+ * @interface KeyManager
+ * @type {KeyManager}
  */
-export type KeyManagerOptions = {
-  importKey?: boolean;
-  active?: boolean
-  did?: string;
-  network?: string;
-};
-
-/** Alias type for KeyManager keyUri */
-export type KeyIdentifier = string;
-
-/**
- * Parameters for initializing a KeyManager instance.
- * @property {KeyValueStore<KeyIdentifier, SchnorrKeyPair>} [store] - An optional custom key-value store for managing keys.
- * @property {KeyIdentifier} [keyUri] - An optional key URI for the key pair.
- * @property {Secp256k1SecretKey} [secretKey] - An optional secret key to be imported into the key manager.
- */
-export type KeyManagerParams = {
+export interface KeyManager {
   /**
-   * An optional property to specify a custom `KeyValueStore` instance for key management. If not
-   * provided, {@link KeyManager | `KeyManager`} uses a default `MemoryStore` instance.
-   * This store is responsible for managing cryptographic keys, allowing them to be retrieved,
-   * stored, and managed during cryptographic operations.
-   * @type {KeyValueStore<KeyIdentifier, SchnorrKeyPair>}
-   */
-  store?: KeyValueStore<KeyIdentifier, SchnorrKeyPair>;
-
-  /**
-   * An optional property to specify the active key URI for the key manager.
-   * The keyUri could be a DID or a public key hex string. Either can be used to
-   * lookup the secret key in the key store.
+   * The URI of the active key.
    * @type {KeyIdentifier}
    */
-  keyUri?: KeyIdentifier;
+  activeKeyUri?: KeyIdentifier
 
   /**
-   * An optional property to specify a secret key to be imported into the key manager.
-   * @type {Secp256k1SecretKey}
+   * Signs the given data using the key associated with the key URI.
+   * @param {Bytes} data The data to sign.
+   * @param {KeyIdentifier} [keyUri] The URI of the key to sign the data with.
+   * @returns {Promise<SignatureBytes>} A promise resolving to the signature of the data.
    */
-  secretKey?: Secp256k1SecretKey;
-};
+  sign(data: Bytes, keyUri?: KeyIdentifier): Promise<SignatureBytes>;
 
-/**
- * Parameters for generating a new key pair.
- * @property {string} id - The identifier for the key.
- * @property {string} controller - The controller of the key.
- * @property {KeyManagerOptions} options - Additional options for key generation.
- */
-export type GenerateKeyParams = {
-  id: string;
-  controller: string;
-  options: KeyManagerOptions
-};
+  /**
+   * Verifies a signature using the key associated with the key URI.
+   * @param {KeyIdentifier} keyUri The URI of the key to verify the signature with.
+   * @param {SignatureBytes} signature The signature to verify.
+   * @param {Hex} data The data to verify the signature with.
+   * @returns {Promise<boolean>} A promise resolving to a boolean indicating the verification result.
+   */
+  verify(signature: SignatureBytes, data: Bytes, keyUri?: KeyIdentifier): Promise<boolean>;
 
-/**
- * The interface for the KeyManager class.
- * @interface IKeyManager
- * @type {IKeyManager}
- */
-export interface IKeyManager {
-    /**
-     * The URI of the active key.
-     * @type {KeyIdentifier}
-     */
-    activeKeyUri?: KeyIdentifier;
+  /**
+   * Imports a key pair into the key store.
+   * @param {SchnorrKeyPair} keyPair The secret key to import.
+   * @param {KeyManagerOptions} options The options for importing the key pair.
+   * @param {KeyIdentifier} [options.keyUri] The URI of the key to import.
+   * @param {boolean} [options.active] Whether to set the imported key as active.
+   * @param {string} [options.did] The DID for the key (optional).
+   * @param {string} [options.network] The network for the DID for the key (optional).
+   * @returns {Promise<KeyIdentifier>} A promise that resolves to the key identifier of the imported key.
+   */
+  importKey(keyPair: SchnorrKeyPair, options: KeyManagerOptions): Promise<KeyIdentifier>
 
-    /**
-     * Exports the full key pair from the key store.
-     * @param {KeyIdentifier} keyUri The URI of the key to export.
-     * @returns {Promise<SchnorrKeyPair | undefined>} The key pair associated with the key URI.
-     * @throws {KeyManagerError} If the key is not found in the key store.
-     */
-    exportKey(keyUri?: KeyIdentifier): Promise<SchnorrKeyPair | undefined>;
-
-    /**
-     * Gets the public key of a key pair.
-     * @param {KeyIdentifier} keyUri The URI of the key to get the public key for.
-     * @returns {Promise<CompressedSecp256k1PublicKey>} The public key of the key pair.
-     */
-    getPublicKey(keyUri: KeyIdentifier): Promise<CompressedSecp256k1PublicKey>;
-
-    /**
-     * Imports a key pair into the key store.
-     * @param {Secp256k1SecretKey} secretKey The secret key to import.
-     * @param {KeyManagerOptions} options The options for importing the key pair.
-     * @param {boolean} [options.active] Whether to set the imported key as active.
-     * @param {string} [options.did] The DID for the key (optional).
-     * @param {string} [options.network] The network for the DID for the key (optional).
-     * @returns {Promise<KeyIdentifier>} A promise that resolves to the key identifier of the imported key.
-     */
-    importKey(secretKey: Secp256k1SecretKey, options: KeyManagerOptions): Promise<KeyIdentifier>;
+  /**
+   * Computes the hash of the given data.
+   * @param {Uint8Array} data The data to hash.
+   * @returns {HashBytes} The hash of the data.
+   */
+  digest(data: Uint8Array): HashBytes;
 }
 
 /**
