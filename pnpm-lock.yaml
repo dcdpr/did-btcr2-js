@@ -380,9 +380,6 @@ importers:
       '@noble/hashes':
         specifier: ^1.7.1
         version: 1.8.0
-      '@scure/base':
-        specifier: ^1.2.6
-        version: 1.2.6
       '@scure/bip32':
         specifier: ^1.5.0
         version: 1.7.0
