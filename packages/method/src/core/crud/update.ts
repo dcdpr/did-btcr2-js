@@ -12,14 +12,15 @@ import {
   ProofOptions
 } from '@did-btcr2/common';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import { SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
-import { KeyManager } from '@did-btcr2/kms';
+import { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
+import { Kms } from '@did-btcr2/kms';
 import type { DidService } from '@web5/dids';
 import { BeaconService } from '../../interfaces/ibeacon.js';
 import { SignalsMetadata } from '../../types/crud.js';
-import { Appendix } from '../../utils/appendix.js';
 import { DidDocument, DidVerificationMethod } from '../../utils/did-document.js';
 import { BeaconFactory } from '../beacon/factory.js';
+import { Appendix } from '../../utils/appendix.js';
+import { Identifier } from '../../utils/identifier.js';
 
 export interface ConstructUpdateParams {
     identifier: string;
@@ -164,9 +165,11 @@ export class Update {
     const id = fullId.slice(fullId.indexOf('#'));
 
     // 1.2 Retrieve the key pair from the KMS or from the secretKeyMultibase
+    const components = Identifier.decode(id);
+    const keyUri = new CompressedSecp256k1PublicKey(components.genesisBytes).hex;
     const keys = secretKeyMultibase
       ? new SchnorrKeyPair({ secretKey: Secp256k1SecretKey.decode(secretKeyMultibase) })
-      : await KeyManager.getKeyPair(id);
+      : await Kms.getKey(keyUri as string);
     if (!keys) {
       throw new MethodError(
         'No privateKey found in kms or vm',

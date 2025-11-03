@@ -3,8 +3,8 @@ import { DidService } from '@web5/dids';
 import { networks, payments } from 'bitcoinjs-lib';
 import { BeaconFactory } from '../core/beacon/factory.js';
 import { BeaconService, BeaconServiceAddress } from '../interfaces/ibeacon.js';
-import { Appendix } from './appendix.js';
 import { DidDocument } from './did-document.js';
+import { Appendix } from './appendix.js';
 export interface GenerateBeaconParams {
   identifier: string;
   publicKey: KeyBytes;

@@ -1,25 +1,17 @@
-import { Bytes, HashBytes, Logger, W3C_ZCAP_V1 } from '@did-btcr2/common';
+import { HashBytes, W3C_ZCAP_V1 } from '@did-btcr2/common';
 import { strings } from '@helia/strings';
 import {
   DidDocument,
   DidError,
   DidErrorCode,
   DidService,
+  DidVerificationMethod,
   DidVerificationRelationship
 } from '@web5/dids';
 import { createHelia } from 'helia';
 import { CID } from 'multiformats';
 import { create as createDigest } from 'multiformats/hashes/digest';
 import { RootCapability } from '../interfaces/crud.js';
-import { DidVerificationMethod } from './did-document.js';
-
-export interface DidComponents {
-    hrp: string;
-    idType: string;
-    version: number;
-    network: string;
-    genesisBytes: Bytes;
-};
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/#appendix | 9. Appendix} methods.
@@ -246,7 +238,7 @@ export class Appendix {
     const helia = strings(await createHelia());
 
     // 2. Set content to the result of fetching the cid from a CAS system. Which CAS systems checked is up to implementation.
-    Logger.warn('// TODO: Is this right? Are implementations just supposed to check all CAS they trust?');
+    // TODO: Is this right? Are implementations just supposed to check all CAS they trust?'
     const content = await helia.get(cid, {});
 
     // 3. If content for cid cannot be found, set content to null.

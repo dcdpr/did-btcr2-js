@@ -7,14 +7,13 @@ import {
   INVALID_DID_DOCUMENT,
   JSONObject,
   KeyBytes,
-  Logger
 } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { DidService, DidDocument as IIDidDocument, DidVerificationMethod as IIDidVerificationMethod } from '@web5/dids';
 import { BeaconService } from '../interfaces/ibeacon.js';
-import { Appendix } from './appendix.js';
 import { BeaconUtils } from './beacons.js';
 import { Identifier } from './identifier.js';
+import { Appendix } from './appendix.js';
 
 export const BECH32M_CHARS = '';
 export const DID_REGEX = /did:btcr2:(x1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]*)/g;
@@ -123,7 +122,6 @@ export class DidDocument implements IDidDocument {
   service: Array<BeaconService>;
 
   constructor(document: IDidDocument) {
-    console.log('Constructing DidDocument with document:', document);
     // Set the ID and ID type
     const idType = document.id.includes('k1')
       ? IdentifierTypes.KEY
@@ -299,8 +297,7 @@ export class DidDocument implements IDidDocument {
     try {
       Identifier.decode(id);
       return true;
-    } catch (error: any) {
-      Logger.error('Invalid DID Document ID', error);
+    } catch {
       return false;
     }
   }
