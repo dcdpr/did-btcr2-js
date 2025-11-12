@@ -1,4 +1,4 @@
-import { Command } from 'commander';
+import { Command, Option } from 'commander';
 import pkg from '../package.json' with { type: 'json' };
 import CRUD from './crud.js';
 
@@ -40,12 +40,16 @@ export class DidBtcr2Cli {
     // CREATE
     this.CLI
       .command('create')
-      .description('Create a did:btcr2 identifier and initial DID document')
-      .requiredOption('-t, --type <type>', 'Type of the identifier (key, external)', 'key')
-      .option('-p, --pubkey <pubkey>', 'Hex public key (when type=key)')
-      .option('-d, --document <document>', 'JSON DID document (when type=external)')
+      .description('Create a did:btc1 identifier and initial DID document')
+      .requiredOption('-t, --type <type>', 'Type of the identifier (key | external)', 'key')
+      .option(
+        '-b, --bytes <bytes>',
+        `The genesis bytes used to create a DID and DID document. ` +
+        `Can be either: a secp256k1 public key (idType=key) ` +
+        `or SHA-256 hash of anintermediate document (idType=external)`
+      )
       .option('-o, --options <options>', 'JSON object of optional parameters')
-      .action(async (options) => {
+      .action(async (options: Option) => {
         // The action name is "create"
         await this.invokeCommand({
           options,
