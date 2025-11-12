@@ -289,4 +289,18 @@ export class Identifier {
 
     return { keys, identifier: { controller: did, id: '#initialKey'} };
   }
+
+  /**
+   * Validates a did:btcr2 identifier.
+   * @param {string} identifier The did:btcr2 identifier to validate.
+   * @returns {boolean} True if the identifier is valid, false otherwise.
+   */
+  static isValid(identifier: string): boolean {
+    try {
+      this.decode(identifier);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }

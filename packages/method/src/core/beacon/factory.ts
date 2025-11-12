@@ -1,7 +1,6 @@
 import { MethodError } from '@did-btcr2/common';
-import { Beacon } from '../../interfaces/beacon.js';
-import { BeaconService } from '../../interfaces/ibeacon.js';
-import { CIDAggregateSidecar, SidecarData, SMTAggregateSidecar } from '../../types/crud.js';
+import { Beacon, BeaconService } from '../../interfaces/beacon.js';
+import { CIDAggregateSidecar, SidecarData, SMTAggregateSidecar } from '../../utils/types.js';
 import { CIDAggregateBeacon } from './cid-aggregate.js';
 import { SingletonBeacon } from './singleton.js';
 import { SMTAggregateBeacon } from './smt-aggregate.js';

@@ -21,7 +21,7 @@ import { Resolve } from './core/crud/read.js';
 import { Update } from './core/crud/update.js';
 import { DidResolutionOptions } from './interfaces/crud.js';
 import { DidDocument, DidVerificationMethod } from './utils/did-document.js';
-import { SignalsMetadata } from './types/crud.js';
+import { SignalsMetadata } from './utils/types.js';
 import { Identifier } from './core/identifier.js';
 import { Appendix } from './utils/appendix.js';
 

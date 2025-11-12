@@ -1,7 +1,7 @@
-import { Bytes, HashBytes, KeyBytes, KeyIdentifier, KeyManagerError, SignatureBytes } from '@did-btcr2/common';
+import { Bytes, HashBytes, KeyBytes, KeyManagerError, SignatureBytes } from '@did-btcr2/common';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { sha256 } from '@noble/hashes/sha2.js';
-import { KeyManager } from './interface.js';
+import { KeyIdentifier, KeyManager } from './interface.js';
 import { KeyValueStore, MemoryStore } from './store.js';
 
 /**

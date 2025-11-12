@@ -10,7 +10,7 @@ import {
 } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { DidService, DidDocument as IIDidDocument, DidVerificationMethod as IIDidVerificationMethod } from '@web5/dids';
-import { BeaconService } from '../interfaces/ibeacon.js';
+import { BeaconService } from '../interfaces/beacon.js';
 import { BeaconUtils } from '../core/beacon/utils.js';
 import { Identifier } from '../core/identifier.js';
 import { Appendix } from './appendix.js';

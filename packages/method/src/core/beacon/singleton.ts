@@ -4,9 +4,8 @@ import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { Kms, Signer } from '@did-btcr2/kms';
 import { opcodes, Psbt, script } from 'bitcoinjs-lib';
 import { base58btc } from 'multiformats/bases/base58';
-import { Beacon } from '../../interfaces/beacon.js';
-import { BeaconService, BeaconSignal } from '../../interfaces/ibeacon.js';
-import { BeaconSidecarData, Metadata, SignalsMetadata, SingletonSidecar } from '../../types/crud.js';
+import { Beacon, BeaconService, BeaconSignal } from '../../interfaces/beacon.js';
+import { BeaconSidecarData, Metadata, SignalsMetadata, SingletonSidecar } from '../../utils/types.js';
 import { Appendix } from '../../utils/appendix.js';
 import { Identifier } from '../identifier.js';
 
@@ -223,7 +222,7 @@ export class SingletonBeacon extends Beacon {
     //    or service. How this is done is left to the implementer.
     const components = Identifier.decode(this.service.id);
     const keyUri = new CompressedSecp256k1PublicKey(components.genesisBytes).hex;
-    const keyPair = await Kms.getKey(keyUri as string);
+    const keyPair = Kms.getKey(keyUri as string);
     if (!keyPair) {
       throw new Error('Key pair not found.');
     }
