@@ -1,9 +1,8 @@
 import { RawTransactionV2 } from '@did-btcr2/bitcoin';
 import { DidUpdateInvocation, DidUpdatePayload, MethodError } from '@did-btcr2/common';
 import { DidServiceEndpoint } from '@web5/dids';
-import { Beacon } from '../../interfaces/beacon.js';
-import { BeaconService, BeaconSignal } from '../../interfaces/ibeacon.js';
-import { BeaconSidecarData, CIDAggregateSidecar, SignalsMetadata } from '../../types/crud.js';
+import { Beacon, BeaconService, BeaconSignal } from '../../interfaces/beacon.js';
+import { BeaconSidecarData, CIDAggregateSidecar, SignalsMetadata } from '../../utils/types.js';
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/#cidaggregate-beacon | 5.2 CIDAggregate Beacon}.

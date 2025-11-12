@@ -1,6 +1,6 @@
 {
   "name": "@did-btcr2/kms",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Key manager that can be used with the did:btcr2 DID method",
   "main": "./dist/cjs/index.js",

@@ -1,9 +1,8 @@
 import { RawTransactionV2 } from '@did-btcr2/bitcoin';
 import { DidUpdatePayload, MethodError } from '@did-btcr2/common';
 import { DidServiceEndpoint } from '@web5/dids';
-import { Beacon } from '../../interfaces/beacon.js';
-import { BeaconService, BeaconSignal } from '../../interfaces/ibeacon.js';
-import { BeaconSidecarData, SignalsMetadata, SMTAggregateSidecar } from '../../types/crud.js';
+import { Beacon, BeaconService, BeaconSignal } from '../../interfaces/beacon.js';
+import { BeaconSidecarData, SignalsMetadata, SMTAggregateSidecar } from '../../utils/types.js';
 
 /**
  * TODO: Finish implementation

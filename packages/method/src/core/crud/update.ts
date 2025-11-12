@@ -15,11 +15,11 @@ import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { Kms } from '@did-btcr2/kms';
 import type { DidService } from '@web5/dids';
-import { BeaconService } from '../../interfaces/ibeacon.js';
-import { SignalsMetadata } from '../../types/crud.js';
-import { DidDocument, DidVerificationMethod } from '../../utils/did-document.js';
-import { BeaconFactory } from '../beacon/factory.js';
+import { BeaconService } from '../../interfaces/beacon.js';
 import { Appendix } from '../../utils/appendix.js';
+import { DidDocument, DidVerificationMethod } from '../../utils/did-document.js';
+import { SignalsMetadata } from '../../utils/types.js';
+import { BeaconFactory } from '../beacon/factory.js';
 import { Identifier } from '../identifier.js';
 
 export interface ConstructUpdateParams {

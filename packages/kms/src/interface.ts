@@ -1,5 +1,7 @@
-import { Bytes, HashBytes, KeyBytes, KeyIdentifier, SignatureBytes } from '@did-btcr2/common';
+import { Bytes, HashBytes, KeyBytes, SignatureBytes } from '@did-btcr2/common';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
+
+export type KeyIdentifier = string;
 
 /**
  * The interface for the Kms class.

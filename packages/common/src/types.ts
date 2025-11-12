@@ -66,7 +66,8 @@ export enum BitcoinNetworkNames {
     testnet4 = 4,
     mutinynet = 5
 }
-export type KeyIdentifier = string;
+export type DecentralizedIdentifier = string;
+export type Did = DecentralizedIdentifier;
 export type BeaconUri = string;
 export type DidPlaceholder = 'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
 export type CanonicalizedProofConfig = string;
