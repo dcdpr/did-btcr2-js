@@ -11,7 +11,9 @@ module.exports = [
     languageOptions: {
       parser        : tsParser,
       parserOptions : {
-        ecmaFeatures : { modules: true },
+        ecmaFeatures : {
+          modules: true
+        },
         ecmaVersion  : '2022'
       },
       globals: {
