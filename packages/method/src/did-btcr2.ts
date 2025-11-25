@@ -1,4 +1,4 @@
-import { BitcoinNetworkConnection } from '@did-btcr2/bitcoin';
+import { BitcoinConnection } from '@did-btcr2/bitcoin';
 import {
   DocumentBytes,
   HexString,
@@ -8,6 +8,7 @@ import {
   KeyBytes,
   METHOD_NOT_SUPPORTED,
   MethodError,
+  MISSING_RESOLUTION_OPTIONS,
   MISSING_UPDATE_DATA,
   PatchOperation,
   ResolveError,
@@ -37,7 +38,7 @@ export type Btcr2Identifier = string;
 
 export interface DidCreateOptions {
   /** Type of identifier to create (key or external) */
-  idType: 'KEY' | 'EXTERNAL';
+  idType: string;
   /** DID BTCR2 Version Number */
   version?: number;
   /** Bitcoin Network */
@@ -83,10 +84,7 @@ export class DidBtcr2 implements DidMethod {
    * const did = DidBtcr2.create(genesisBytes, { idType: 'KEY', network: 'regtest' });
    * ```
    */
-  static create(
-    genesisBytes: KeyBytes | DocumentBytes,
-    options?: DidCreateOptions
-  ): Btcr2Identifier {
+  static create(genesisBytes: KeyBytes | DocumentBytes, options?: DidCreateOptions): Btcr2Identifier {
     // Deconstruct the idType, version and network from the options, setting defaults if not given
     const { idType, version = 1, network = 'bitcoin' } = options || {};
 
@@ -98,7 +96,7 @@ export class DidBtcr2 implements DidMethod {
     }
 
     // Call identifier encoding algorithm
-    return Identifier.encode({ idType, genesisBytes, version, network });
+    return Identifier.encode(genesisBytes, { idType, version, network });
   }
 
   /**
@@ -172,12 +170,11 @@ export class DidBtcr2 implements DidMethod {
 
       // Check if bitcoin driver provided
       if(!resolutionOptions?.drivers?.bitcoin) {
-        // If not, initialize default drivers
-        resolutionOptions.drivers = resolutionOptions.drivers || {};
-        // Set bitcoin driver to default BitcoinNetworkConnection
-        resolutionOptions.drivers.bitcoin = new BitcoinNetworkConnection();
-        // Set the network based on the decoded identifier
-        resolutionOptions.drivers.bitcoin.setActiveNetwork(didComponents.network);
+        throw new ResolveError(
+          'Bitcoin connection required for resolve. Pass a configured driver via '
+          + 'resolutionOptions.drivers.bitcoin or use DidBtcr2Api which injects it automatically.',
+          MISSING_RESOLUTION_OPTIONS, resolutionOptions
+        );
       }
 
       // Get the bitcoin driver from the resolution options
@@ -217,9 +214,8 @@ export class DidBtcr2 implements DidMethod {
       // Return didResolutionResult;
       return didResolutionResult;
     } catch (error: any) {
-      console.error(error);
       // Rethrow any unexpected errors that are not a `ResolveError`.
-      if (!(error instanceof ResolveError)) throw new Error(error);
+      if (!(error instanceof ResolveError)) throw new Error(error.message ?? error, { cause: error });
 
       // Return a DID Resolution Result with the appropriate error code.
       return {
@@ -247,7 +243,7 @@ export class DidBtcr2 implements DidMethod {
    * @param {string} params.verificationMethodId The verificationMethod ID to sign the update with.
    * @param {string} params.beaconId The beacon ID associated with the update.
    * @param {KeyBytes | HexString} [params.signingMaterial] Optional signing material (key bytes or hex string).
-   * @param {BitcoinNetworkConnection} [params.bitcoin] Optional Bitcoin network connection for announcing the update. If not provided, a default connection will be initialized.
+   * @param {BitcoinConnection} [params.bitcoin] Optional Bitcoin network connection for announcing the update. If not provided, a default connection will be initialized.
    * @return {Promise<SignedBTCR2Update>} Promise resolving to the signed BTCR2 update.
    * @throws {UpdateError} if no verificationMethod, verificationMethod type is not `Multikey` or the publicKeyMultibase
    * header is not `zQ3s`
@@ -267,7 +263,7 @@ export class DidBtcr2 implements DidMethod {
     verificationMethodId: string;
     beaconId: string;
     signingMaterial?: KeyBytes | HexString;
-    bitcoin?: BitcoinNetworkConnection;
+    bitcoin?: BitcoinConnection;
   }): Promise<SignedBTCR2Update> {
     // TODO: provide KMS as alternative
     // If no signingMaterial provided, throw an UpdateError with INVALID_DID_UPDATE.
@@ -337,8 +333,14 @@ export class DidBtcr2 implements DidMethod {
         INVALID_DID_UPDATE, {sourceDocument, beaconId}
       );
     }
-    // If no bitcoin network connection provided, initialize default
-    bitcoin ??= new BitcoinNetworkConnection();
+    // Require an explicit bitcoin connection — no silent env-var fallback
+    if (!bitcoin) {
+      throw new UpdateError(
+        'Bitcoin connection required for update. Pass a configured `bitcoin` parameter '
+        + 'or use DidBtcr2Api which injects it automatically.',
+        INVALID_DID_UPDATE, { beaconId }
+      );
+    }
 
     // Announce the signed update to the blockchain using the specified beacon(s)
     await Update.announce(beaconService, signed, secretKey, bitcoin);

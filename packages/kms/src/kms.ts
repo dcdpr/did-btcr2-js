@@ -238,6 +238,16 @@ export class Kms implements KeyManager {
   }
 
   /**
+   * Exports the key pair associated with the given ID.
+   * @param {KeyIdentifier} id The ID of the key to export.
+   * @returns {SchnorrKeyPair} The exported key pair.
+   */
+  exportKey(id: KeyIdentifier): SchnorrKeyPair {
+    // Get the key pair from the store
+    return this.#getKeyOrThrow(id);
+  }
+
+  /**
    * Computes the hash of the given data.
    * @param {Uint8Array} data The data to hash.
    * @returns {HashBytes} The hash of the data.

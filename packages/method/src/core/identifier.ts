@@ -1,24 +1,32 @@
-import { BitcoinNetworkNames, Bytes, IdentifierError, IdentifierTypes, INVALID_DID, METHOD_NOT_SUPPORTED } from '@did-btcr2/common';
+import { BitcoinNetworkNames, Bytes, DocumentBytes, IdentifierError, IdentifierTypes, INVALID_DID, KeyBytes, METHOD_NOT_SUPPORTED, SchnorrKeyPairObject } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { bech32m } from '@scure/base';
+import { DidCreateOptions } from '../did-btcr2.js';
 
 /**
  * Components of a did:btcr2 identifier.
  * @interface DidComponents
+ * @extends {IdentifierComponents}
  * @property {string} hrp The human-readable part of the Bech32m encoding.
+ */
+export interface DidComponents extends IdentifierComponents {
+    hrp: string;
+};
+
+/**
+ * Components of a did:btcr2 identifier.
+ * @interface IdentifierComponents
  * @property {string} idType Identifier type (key or external).
  * @property {number} version Identifier version.
- * @property {string | number} network Bitcoin network name or number.
+ * @property {string} network Bitcoin network name or number.
  * @property {Bytes} genesisBytes Public key or an intermediate document bytes.
  */
-export interface DidComponents {
-    hrp: string;
+export interface IdentifierComponents {
     idType: string;
     version: number;
     network: string;
     genesisBytes: Bytes;
-};
-
+}
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/#syntax | 3 Syntax}.
  * A did:btcr2 DID consists of a did:btcr2 prefix, followed by an id-bech32 value, which is a Bech32m encoding of:
@@ -41,20 +49,15 @@ export class Identifier {
    *    - a key-value representing a secp256k1 public key; or
    *    - a hash-value representing the hash of an initiating external DID document.
    *
-   * @param {DidComponents} params See {@link DidComponents} for details.
-   * @param {IdentifierTypes} params.idType Identifier type (key or external).
-   * @param {string} params.network Bitcoin network name.
-   * @param {number} params.version Identifier version.
-   * @param {KeyBytes | DocumentBytes} params.genesisBytes Public key or an intermediate document bytes.
+   * @param {KeyBytes | DocumentBytes} genesisBytes The genesis bytes (public key or document bytes).
+   * @param {DidCreateOptions} options The DID creation options.
    * @returns {string} The new did:btcr2 identifier.
    */
-  static encode({ idType, version, network, genesisBytes }: {
-    idType: string;
-    version: number;
-    network: string;
-    genesisBytes: Bytes;
-  }): string {
-    // 1. If idType is not a valid value per above, raise invalidDid error.
+  static encode(genesisBytes: KeyBytes | DocumentBytes, options: DidCreateOptions): string {
+    // Deconstruct the options
+    const { idType, version = 1, network } = options;
+
+    // If idType is not a valid value per above, raise invalidDid error.
     if (!(idType in IdentifierTypes)) {
       throw new IdentifierError('Expected "idType" to be "KEY" or "EXTERNAL"', INVALID_DID, {idType});
     }
@@ -275,16 +278,16 @@ export class Identifier {
    * Generates a new did:btcr2 identifier based on a newly generated key pair.
    * @returns {string} The new did:btcr2 identifier.
    */
-  static generate(): { keys: SchnorrKeyPair; identifier: { controller: string; id: string } } {
-    const keys = SchnorrKeyPair.generate();
-    const did = this.encode({
-      idType       : IdentifierTypes.KEY,
-      version      : 1,
-      network      : 'bitcoin',
-      genesisBytes : keys.publicKey.compressed
-    });
-
-    return { keys, identifier: { controller: did, id: '#initialKey'} };
+  static generate(): { keyPair: SchnorrKeyPairObject; did: string } {
+    const keyPair  = SchnorrKeyPair.generate();
+    const did = this.encode(keyPair.publicKey.compressed,
+      {
+        idType       : 'KEY',
+        version      : 1,
+        network      : 'regtest'
+      }
+    );
+    return { keyPair: keyPair.toJSON(), did };
   }
 
   /**

@@ -4,6 +4,7 @@ import { canonicalize as jcsa } from 'json-canonicalize';
 import { base58btc } from 'multiformats/bases/base58';
 import { CanonicalizationError } from './errors.js';
 import { CanonicalizationAlgorithm, CanonicalizationEncoding, HashBytes, HexString } from './types.js';
+import { base64url } from 'multiformats/bases/base64';
 
 export interface CanonicalizationOptions {
   algorithm?: CanonicalizationAlgorithm;
@@ -13,7 +14,7 @@ export interface CanonicalizationOptions {
 /**
  * Canonicalization class provides methods for canonicalizing JSON objects
  * and hashing them using SHA-256. It supports different canonicalization
- * algorithms and encoding formats (hex and base58).
+ * algorithms and encoding formats (hex and base58btc).
  * @class Canonicalization
  * @type {Canonicalization}
  */
@@ -40,7 +41,7 @@ export class Canonicalization {
    */
   static normalizeEncoding(encoding: CanonicalizationEncoding): CanonicalizationEncoding {
     const normalized = encoding.toLowerCase() as CanonicalizationEncoding;
-    if (normalized !== 'hex' && normalized !== 'base58') {
+    if (!['hex', 'base58btc', 'base64url'].includes(normalized)) {
       throw new CanonicalizationError(`Unsupported encoding: ${encoding}`, 'ENCODING_ERROR');
     }
     return normalized;
@@ -57,7 +58,7 @@ export class Canonicalization {
    *
    * @param {Record<any, any>} object The object to process.
    * @param {Object} [options] Options for processing.
-   * @param {CanonicalizationEncoding} [options.encoding='hex'] The encoding format ('hex' or 'base58').
+   * @param {CanonicalizationEncoding} [options.encoding='hex'] The encoding format ('hex' or 'base58btc').
    * @param {CanonicalizationAlgorithm} [options.algorithm] The canonicalization algorithm to use.
    * @returns {string} The final SHA-256 hash bytes as a hex string.
    */
@@ -111,9 +112,9 @@ export class Canonicalization {
   }
 
   /**
-   * Step 3: Encodes SHA-256 hashed, canonicalized object as a hex or base58 string.
+   * Step 3: Encodes SHA-256 hashed, canonicalized object as a hex or base58btc string.
    * @param {string} canonicalizedhash The canonicalized object to encode.
-   * @param {CanonicalizationEncoding} encoding The encoding format ('hex' or 'base58').
+   * @param {CanonicalizationEncoding} encoding The encoding format ('hex' or 'base58btc').
    * @throws {CanonicalizationError} If the encoding format is not supported.
    * @returns {string} The encoded string.
    */
@@ -126,9 +127,14 @@ export class Canonicalization {
       return this.toHex(canonicalizedhash);
     }
 
-    // If encoding is base58, encode to base58
-    if (normalized === 'base58') {
+    // If encoding is base58btc, encode to base58btc
+    if (normalized === 'base58btc') {
       return this.toBase58(canonicalizedhash);
+    }
+
+    // If encoding is base64url, encode to base64url
+    if (normalized === 'base64url') {
+      return this.toBase64Url(canonicalizedhash);
     }
 
     // Throw error if encoding is unsupported
@@ -136,9 +142,9 @@ export class Canonicalization {
   }
 
   /**
-   * Decodes SHA-256 hashed, canonicalized object as a hex or base58 string.
+   * Decodes SHA-256 hashed, canonicalized object as a hex or base58btc string.
    * @param {string} canonicalizedhash The canonicalized object to encode.
-   * @param {CanonicalizationEncoding} encoding The encoding format ('hex' or 'base58').
+   * @param {CanonicalizationEncoding} encoding The encoding format ('hex' or 'base58btc').
    * @throws {CanonicalizationError} If the encoding format is not supported.
    * @returns {string} The encoded string.
    */
@@ -151,9 +157,13 @@ export class Canonicalization {
       return this.fromHex(canonicalizedhash);
     }
 
-    // If encoding is base58, decode from base58
-    if (normalized === 'base58') {
+    // If encoding is base58btc, decode from base58btc
+    if (normalized === 'base58btc') {
       return this.fromBase58(canonicalizedhash);
+    }
+
+    if(normalized === 'base64url') {
+      return this.fromBase64Url(canonicalizedhash);
     }
 
     // Throw error if encoding is unsupported
@@ -188,12 +198,30 @@ export class Canonicalization {
   }
 
   /**
-   * Decodes a base58 string to HashBytes (Uint8Array).
-   * @param {string} b58str The hash as a base58 string.
+   * Decodes a base58btc string to HashBytes (Uint8Array).
+   * @param {string} b58str The hash as a base58btc string.
    * @returns {HashBytes} The hash bytes.
    */
   static fromBase58(b58str: string): HashBytes {
     return base58btc.decode(b58str);
+  }
+
+  /**
+   * Step 3.2: Encodes HashBytes (Uint8Array) to a base64url string.
+   * @param {HashBytes} hashBytes The hash as a Uint8Array.
+   * @returns {string} The hash as a base64url string.
+   */
+  static toBase64Url(hashBytes: HashBytes): string {
+    return base64url.encode(hashBytes);
+  }
+
+  /**
+   * Decodes a base64url string to HashBytes (Uint8Array).
+   * @param {string} b64urlstr The hash as a base64url string.
+   * @returns {HashBytes} The hash bytes.
+   */
+  static fromBase64Url(b64urlstr: string): HashBytes {
+    return base64url.decode(b64urlstr);
   }
 
   /**
@@ -230,12 +258,22 @@ export class Canonicalization {
   }
 
   /**
-   * Computes the SHA-256 hashes of canonicalized object and encodes it as a base58 string.
-   * Step 2-3: Hash → Encode(base58).
+   * Computes the SHA-256 hashes of canonicalized object and encodes it as a base58btc string.
+   * Step 2-3: Hash → Encode(base58btc).
    * @param {string} canonicalized The canonicalized object to hash.
-   * @returns {string} The SHA-256 hash as a base58 string.
+   * @returns {string} The SHA-256 hash as a base58btc string.
    */
   static andHashToBase58(canonicalized: string): string {
-    return this.encode(this.toHash(canonicalized), 'base58');
+    return this.encode(this.toHash(canonicalized), 'base58btc');
+  }
+
+  /**
+   * Computes the SHA-256 hashes of canonicalized object and encodes it as a base64url string.
+   * Step 2-3: Hash → Encode(base64url).
+   * @param {string} canonicalized The canonicalized object to hash.
+   * @returns {string} The SHA-256 hash as a base64url string.
+   */
+  static andHashToBase64Url(canonicalized: string): string {
+    return this.toBase64Url(this.toHash(canonicalized));
   }
 }

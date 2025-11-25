@@ -1,4 +1,4 @@
-import { JsonPatch } from '@did-btcr2/common';
+import { PatchOperation } from '@did-btcr2/common';
 import { Cryptosuite, VerificationResult } from '../cryptosuite/interface.js';
 
 export type BTCR2Update = UnsignedBTCR2Update | SignedBTCR2Update;
@@ -19,7 +19,7 @@ export interface UnsignedBTCR2Update {
      * the DID Document. Applying this patch to the current DID Document yields
      * the new DID Document (which must remain valid per DID Core spec).
      */
-    patch: JsonPatch;
+    patch: Array<PatchOperation>;
 
     /**
      * The multihash of the current (source) DID Document, encoded as a multibase

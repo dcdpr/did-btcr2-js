@@ -1,9 +1,19 @@
 import jsonPatch, { Operation } from 'fast-json-patch';
 import { MethodError } from './errors.js';
-import { PatchOperation } from './interfaces.js';
 import { JSONObject } from './types.js';
 
 const { applyPatch, compare, deepClone } = jsonPatch;
+
+export type PatchOpCode = 'add' | 'remove' | 'replace' | 'move' | 'copy' | 'test' | (string & {});
+/**
+ * A JSON Patch operation, as defined in {@link https://datatracker.ietf.org/doc/html/rfc6902 | RFC 6902}.
+ */
+export interface PatchOperation {
+  op: PatchOpCode;
+  path: string;
+  value?: unknown; // Required for add, replace, test
+  from?: string; // Required for move, copy
+}
 
 /**
  * Thin wrapper around fast-json-patch to keep a stable API within this package.

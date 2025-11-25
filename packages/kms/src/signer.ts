@@ -1,4 +1,4 @@
-import { AvailableNetworks } from '@did-btcr2/bitcoin';
+import { NetworkName } from '@did-btcr2/bitcoin';
 import { KeyBytes, Bytes, SignatureBytes } from '@did-btcr2/common';
 import {  SchnorrKeyPair } from '@did-btcr2/keypair';
 
@@ -17,17 +17,17 @@ export class Signer {
 
   /**
    * The network associated with the signer.
-   * @type {keyof AvailableNetworks}
+   * @type {NetworkName}
    */
-  network: keyof AvailableNetworks;
+  network: NetworkName;
 
   /**
    * Creates an instance of Signer.
-   * @param {{ keyPair: SchnorrKeyPair; network: keyof AvailableNetworks; }} params The parameters for the signer.
+   * @param {{ keyPair: SchnorrKeyPair; network: NetworkName; }} params The parameters for the signer.
    * @param {SchnorrKeyPair} params.keyPair The key pair used for signing.
-   * @param {keyof AvailableNetworks} params.network The network associated with the signer.
+   * @param {NetworkName} params.network The network associated with the signer.
    */
-  constructor(params: { keyPair: SchnorrKeyPair; network: keyof AvailableNetworks; }) {
+  constructor(params: { keyPair: SchnorrKeyPair; network: NetworkName; }) {
     this.keyPair = params.keyPair;
     this.network = params.network;
   }

@@ -1,4 +1,4 @@
-import { BitcoinNetworkConnection } from '@did-btcr2/bitcoin';
+import { BitcoinConnection } from '@did-btcr2/bitcoin';
 import { DidResolutionOptions } from '@web5/dids';
 import { Sidecar } from './types.js';
 
@@ -44,7 +44,7 @@ export interface ResolutionOptions extends ResolutionOptionsCore {
    * Drivers for interacting with external systems, such as the Bitcoin network.
    */
   drivers?: {
-    bitcoin?: BitcoinNetworkConnection;
+    bitcoin?: BitcoinConnection;
   };
 }
 

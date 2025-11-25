@@ -188,7 +188,7 @@ export class BeaconCohortSigningSession implements SigningSession {
         `Missing ${missing} nonce contributions. ` +
         `Received ${this.cohort?.participants.length} of ${this.nonceContributions.size} nonce contributions. ` +
         `Current status: ${this.status}`,
-        'NONCE_CONTRIBUTION_ERROR', this.json()
+        'NONCE_CONTRIBUTION_ERROR', this.toJSON()
       );
     }
     const sortedPubkeys = musig2.sortKeys(this.cohort.cohortKeys);
@@ -267,8 +267,20 @@ export class BeaconCohortSigningSession implements SigningSession {
    * Converts the signing session instance to a JSON object representation.
    * @returns {BeaconCohortSigningSession} The JSON object representation of the signing session.
    */
-  public json(): BeaconCohortSigningSession {
-    return Object.fromEntries(Object.entries(this)) as BeaconCohortSigningSession;
+  public toJSON(): Partial<BeaconCohortSigningSession> {
+    return {
+      id                 : this.id,
+      cohort             : this.cohort,
+      pendingTx          : this.pendingTx,
+      nonceContributions : this.nonceContributions,
+      aggregatedNonce    : this.aggregatedNonce,
+      partialSignatures  : this.partialSignatures,
+      signature          : this.signature,
+      status             : this.status,
+      processedRequests  : this.processedRequests,
+      nonceSecrets       : this.nonceSecrets,
+      musig2Session      : this.musig2Session
+    };
   }
 
   /**

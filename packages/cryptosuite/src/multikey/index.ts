@@ -264,13 +264,13 @@ export class SchnorrMultikey implements Multikey {
    * Convert the multikey to a JSON object.
    * @returns {MultikeyObject} The multikey as a JSON object.
    */
-  public json(): MultikeyObject {
+  public toJSON(): MultikeyObject {
     return {
       id                 : this.id,
       controller         : this.controller,
       fullId             : this.fullId(),
       signer             : this.signer,
-      keyPair            : this.keyPair.json(),
+      keyPair            : this.keyPair.toJSON(),
       verificationMethod : this.toVerificationMethod()
     };
   }

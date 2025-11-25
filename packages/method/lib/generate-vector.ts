@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { stdin, stdout } from 'node:process';
 import * as readline from 'node:readline/promises';
 
-import { BitcoinNetworkConnection, getNetwork } from '@did-btcr2/bitcoin';
+import { BitcoinConnection, getNetwork } from '@did-btcr2/bitcoin';
 import { Canonicalization, PatchOperation } from '@did-btcr2/common';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { payments } from 'bitcoinjs-lib';
@@ -149,7 +149,7 @@ function readJSON(filepath: string): any {
  * @returns {{ secretHex: string; publicHex: string }} The hex-encoded key material.
  */
 function keypairHex(kp: SchnorrKeyPair): { secretHex: string; publicHex: string } {
-  const j = kp.json();
+  const j = kp.toJSON();
   return { secretHex: j.secretKey.hex!, publicHex: j.publicKey.hex };
 }
 
@@ -245,28 +245,16 @@ function loadVectorContext(hash: string): VectorContext {
 
 /**
  * Validates the BITCOIN_NETWORK_CONFIG environment variable and returns
- * a BitcoinNetworkConnection configured for the given network.
+ * a BitcoinConnection configured for the given network.
  * Required by the announce and resolve-live steps which interact with
  * a live Bitcoin node.
  *
  * @param {string} net The Bitcoin network name to connect to.
- * @returns {BitcoinNetworkConnection} A configured connection instance.
+ * @returns {BitcoinConnection} A configured connection instance.
  */
-function requireBitcoinConnection(net: string): BitcoinNetworkConnection {
-  if (!process.env.BITCOIN_NETWORK_CONFIG) {
-    console.error(`Error: BITCOIN_NETWORK_CONFIG environment variable is not set.`);
-    console.error(`This step requires a live Bitcoin node connection.`);
-    console.error(`\nSet it by sourcing your .env file:`);
-    console.error(`  source .env`);
-    console.error(`\nOr export it directly:`);
-    console.error(`  export BITCOIN_NETWORK_CONFIG='{"${net}":{"rest":{"host":"..."}}}'`);
-    process.exit(1);
-  }
-
+function requireBitcoinConnection(net: string): BitcoinConnection {
   try {
-    const bitcoin = new BitcoinNetworkConnection();
-    bitcoin.setActiveNetwork(net);
-    return bitcoin;
+    return BitcoinConnection.forNetwork(net as any);
   } catch (err: any) {
     console.error(`Error: Failed to connect to Bitcoin network "${net}".`);
     console.error(`  ${err.message}`);
@@ -856,7 +844,7 @@ async function stepUpdate(hash: string = hashArg) {
  * Resolves a DID and writes the resolution test vector files.
  *
  * By default, resolves against a live Bitcoin node by injecting a
- * BitcoinNetworkConnection driver into the resolution options.
+ * BitcoinConnection driver into the resolution options.
  * With --offline, only builds the sidecar data (no Bitcoin connection required).
  *
  * If an update has been performed (update/output.json exists), the signed

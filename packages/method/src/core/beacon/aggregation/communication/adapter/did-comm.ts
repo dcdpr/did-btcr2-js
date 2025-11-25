@@ -34,12 +34,7 @@ export class DidCommAdapterConfig implements ServiceAdapterConfig {
       idType  : 'KEY',
       network : 'mutinynet'
     };
-    this.did = config?.did || Identifier.encode(
-      {
-        ...this.components,
-        genesisBytes : this.keys.public
-      }
-    );
+    this.did = config?.did || Identifier.encode(this.keys.public, this.components);
     this.coordinatorDids = config?.coordinatorDids || [];
   }
 }
@@ -128,24 +123,22 @@ export class DidCommAdapter implements CommunicationService {
     if(!keys) {
       this.config.keys.secret = Secp256k1SecretKey.random();
       this.config.keys.public = Secp256k1SecretKey.getPublicKey(this.config.keys.secret).compressed;
-      this.config.did = Identifier.encode(
+      this.config.did = Identifier.encode(this.config.keys.public,
         {
           idType       : this.config.components.idType  || 'KEY',
           version      : this.config.components.version || 1,
-          network      : this.config.components.network || 'signet',
-          genesisBytes : this.config.keys.public
+          network      : this.config.components.network || 'regtest',
         }
       );
       return this.config as ServiceAdapterConfig;
     }
 
     this.config.keys = keys;
-    this.config.did = Identifier.encode(
+    this.config.did = Identifier.encode(this.config.keys.public,
       {
         idType       : this.config.components.idType  || 'KEY',
         version      : this.config.components.version || 1,
-        network      : this.config.components.network || 'signet',
-        genesisBytes : this.config.keys.public
+        network      : this.config.components.network || 'regtest',
       }
     );
     return this.config as ServiceAdapterConfig;

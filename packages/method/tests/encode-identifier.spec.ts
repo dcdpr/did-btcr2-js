@@ -7,8 +7,8 @@ import data from './data/encode-data.js';
  */
 describe('Encode Identifier', () => {
   it('should properly encode each components into the respective identifier', () => {
-    for(const { did, components } of data) {
-      const encoded = Identifier.encode(components);
+    for(const { did, genesisBytes, options } of data) {
+      const encoded = Identifier.encode(genesisBytes, options);
       expect(encoded).to.equal(did);
     }
   });

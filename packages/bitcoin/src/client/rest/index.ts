@@ -1,126 +1,70 @@
-import { JSONUtils, MethodError, StringUtils } from '@did-btcr2/common';
-import { DEFAULT_BITCOIN_NETWORK_CONFIG } from '../../constants.js';
+import { MethodError } from '@did-btcr2/common';
 import { BitcoinAddress } from './address.js';
 import { BitcoinBlock } from './block.js';
 import { BitcoinTransaction } from './transaction.js';
-import { RestClientConfig, RestApiCallParams, RestResponse } from '../../types.js';
-
+import { EsploraProtocol } from './protocol.js';
+import { RestConfig } from '../../types.js';
+import { HttpExecutor, HttpRequest, defaultHttpExecutor } from '../http.js';
 
 /**
- * Implements a strongly-typed BitcoinRestClient to connect to remote bitcoin node via REST API.
- * @class BitcoinRestClient
- * @type {BitcoinRestClient}
+ * Esplora REST API client for Bitcoin.
+ *
+ * Wraps the sans-I/O {@link EsploraProtocol} with an {@link HttpExecutor}
+ * for convenience.  Users who want full control over I/O can access the
+ * protocol layer directly via the {@link protocol} property.
  */
 export class BitcoinRestClient {
-  /**
-   * The encapsulated {@link RestClientConfig} object.
-   * @private
-   * @type {RestClientConfig}
-   */
-  private _config: RestClientConfig;
+  private _config: RestConfig;
 
   /**
-   * The api calls related to bitcoin transactions.
-   * @type {BitcoinTransaction}
+   * The sans-I/O protocol layer.  Use this to build {@link HttpRequest}
+   * descriptors without performing any I/O.
    */
+  readonly protocol: EsploraProtocol;
+
+  private readonly executor: HttpExecutor;
+
+  /** Transaction-related API calls. */
   public transaction: BitcoinTransaction;
 
-  /**
-   * The api calls related to bitcoin blocks.
-   * @type {BitcoinBlock}
-   */
+  /** Block-related API calls. */
   public block: BitcoinBlock;
 
-  /**
-   * The api calls related to bitcoin addresses.
-   * @type {BitcoinAddress}
-   */
+  /** Address-related API calls. */
   public address: BitcoinAddress;
 
-  /**
-   * The API call method that can be used to make requests to the REST API.
-   * @returns {Promise<any>} A promise resolving to the response data.
-   */
-  public api: (params: RestApiCallParams) => Promise<any> = this.call;
+  constructor(config: RestConfig, executor?: HttpExecutor) {
+    this._config = config;
+    this.protocol = new EsploraProtocol(config);
+    this.executor = executor ?? defaultHttpExecutor;
 
-  constructor(config: RestClientConfig){
-    this._config = new RestClientConfig(config);
-    this.api = this.call.bind(this);
-    this.transaction = new BitcoinTransaction(this.api);
-    this.block = new BitcoinBlock(this.api);
-    this.address = new BitcoinAddress(this.api);
+    const exec = this.executeRequest.bind(this);
+    this.transaction = new BitcoinTransaction(this.protocol, exec);
+    this.block = new BitcoinBlock(this.protocol, exec);
+    this.address = new BitcoinAddress(this.protocol, exec);
+  }
+
+  get config(): RestConfig {
+    return this._config;
   }
 
   /**
-   * Get the configuration object.
-   * @private
+   * Execute an {@link HttpRequest} built by the protocol layer,
+   * parse the response, and throw on HTTP errors.
    */
-  get config(): RestClientConfig {
-    const config = this._config;
-    return config;
-  }
+  private async executeRequest(request: HttpRequest): Promise<any> {
+    const response = await this.executor(request);
 
-  /**
-   * Static method connects to a bitcoin node running a esplora REST API.
-   *
-   * @param {RestClientConfig} config The configuration object for the client (optional).
-   * @returns {BitcoinRestClient} A new {@link BitcoinRestClient} instance.
-   * @example
-   * ```
-   * const rest = BitcoinRestClient.connect();
-   * ```
-   */
-  public static connect(config?: RestClientConfig): BitcoinRestClient {
-    return new BitcoinRestClient(config ?? DEFAULT_BITCOIN_NETWORK_CONFIG.regtest.rest);
-  }
-
-  /**
-   * Make a REST API call to the configured Bitcoin node.
-   * @private
-   * @param {RestApiCallParams} params The parameters for the API call. See {@link RestApiCallParams} for details.
-   * @param {string} [params.path] The path to the API endpoint (required).
-   * @param {string} [params.url] The full URL to the API endpoint (optional).
-   * @param {string} [params.method] The HTTP method to use (default is 'GET').
-   * @param {any} [params.body] The body of the request (optional).
-   * @param {any} [params.headers] Additional headers to include in the request (optional).
-   * @returns {Promise<any>} A promise resolving to the response data.
-   */
-  private async call({ path, url, method, body, headers }: RestApiCallParams): Promise<any> {
-    // Construct the URL if not provided
-    url ??= `${StringUtils.replaceEnd(this.config.host, '/')}${path}`;
-
-    // Set the method to GET if not provided
-    method ??= 'GET';
-
-    // Construct the request options
-    const requestInit = {
-      method,
-      headers : headers ?? {
-        'Content-Type' : 'application/json',
-        ...this.config.headers,
-      }
-    } as any;
-
-    // If the method is POST or PUT, add the body to the request
-    if(body) {
-      requestInit.body = JSONUtils.isObject(body) ? JSON.stringify(body) : body;
-      requestInit.method = 'POST';
-    }
-
-    // Make the request
-    const response = await fetch(url, requestInit) as RestResponse;
-
-    // Check if the response is a text/plain response
-    const data = (response.headers.get('Content-Type') ?? 'json') === 'text/plain'
+    const contentType = response.headers.get('Content-Type') ?? '';
+    const data = contentType.includes('text/plain')
       ? await response.text()
       : await response.json();
 
-    // Check if the response is ok (status in the range 200-299)
     if (!response.ok) {
       throw new MethodError(
-        `Request to ${url} failed: ${response.status} - ${response.statusText}`,
+        `Request to ${request.url} failed: ${response.status} - ${response.statusText}`,
         'FAILED_HTTP_REQUEST',
-        { data, response }
+        { data }
       );
     }
 

@@ -99,6 +99,7 @@ export interface Btcr2DidDocument extends W3CDidDocument {
   capabilityInvocation?: Array<string | DidVerificationMethod>;
   capabilityDelegation?: Array<string | DidVerificationMethod>;
   service: Array<BeaconService>;
+  deactivated?: boolean;
 }
 
 /**
@@ -114,6 +115,7 @@ export interface Btcr2DidDocument extends W3CDidDocument {
  * @property {Array<string | DidVerificationMethod>} [capabilityInvocation] - The capability invocation methods of the DID Document.
  * @property {Array<string | DidVerificationMethod>} [capabilityDelegation] - The capability delegation methods of the DID Document.
  * @property {Array<BeaconService>} service - The services of the DID Document.
+ * @property {boolean} [deactivated] - Indicates if the DID Document is deactivated.
  */
 export class DidDocument implements Btcr2DidDocument {
   id: string;
@@ -199,8 +201,18 @@ export class DidDocument implements Btcr2DidDocument {
    * Convert the DidDocument to a JSON object.
    * @returns {DidDocument} The JSON representation of the DidDocument.
    */
-  public json(): object {
-    return Object.fromEntries(Object.entries(this)) as DidDocument;
+  public toJSON(): DidDocumentLike {
+    return {
+      id                    : this.id,
+      '@context'            : this['@context'],
+      verificationMethod    : this.verificationMethod,
+      authentication        : this.authentication,
+      assertionMethod       : this.assertionMethod,
+      capabilityInvocation  : this.capabilityInvocation,
+      capabilityDelegation  : this.capabilityDelegation,
+      service               : this.service,
+      deactivated           : this.deactivated
+    };
   }
 
   /**

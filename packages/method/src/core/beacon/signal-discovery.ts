@@ -1,5 +1,5 @@
 import {
-  BitcoinNetworkConnection,
+  BitcoinConnection,
   BlockV3,
   GENESIS_TX_ID,
   RawTransactionV2,
@@ -21,23 +21,23 @@ export class BeaconSignalDiscovery {
    * Retrieves the beacon signals for the given array of BeaconService objects
    * using an esplora/electrs REST API connection via a bitcoin I/O driver.
    * @param {Array<BeaconService>} beaconServices Array of BeaconService objects to retrieve signals for
-   * @param {BitcoinNetworkConnection} bitcoin Bitcoin network connection to use for REST calls
+   * @param {BitcoinConnection} bitcoin Bitcoin network connection to use for REST calls
    * @returns {Promise<Map<BeaconService, Array<BeaconSignal>>>} Map of beacon service to its discovered signals
    */
   static async indexer(
     beaconServices: Array<BeaconService>,
-    bitcoin: BitcoinNetworkConnection
+    bitcoin: BitcoinConnection
   ): Promise<Map<BeaconService, Array<BeaconSignal>>> {
     const beaconServiceSignals = new Map<BeaconService, Array<BeaconSignal>>();
 
     // Fetch the current block count once before the loop
-    const currentBlockCount = await bitcoin.network.rest.block.count();
+    const currentBlockCount = await bitcoin.rest.block.count();
 
     // Iterate over each beacon
     for (const beaconService of beaconServices) {
       beaconServiceSignals.set(beaconService, []);
       // Get the transactions for the beacon address via REST
-      const beaconSignals = await bitcoin.network.rest.address.getTxs(
+      const beaconSignals = await bitcoin.rest.address.getTxs(
         beaconService.serviceEndpoint as string
       );
 
@@ -104,12 +104,12 @@ export class BeaconSignalDiscovery {
   /**
    * Traverse the full blockchain from genesis to chain top looking for beacon signals.
    * @param {Array<BeaconService>} beaconServices Array of BeaconService objects to search for signals.
-   * @param {BitcoinNetworkConnection} bitcoin Bitcoin network connection to use for RPC calls.
+   * @param {BitcoinConnection} bitcoin Bitcoin network connection to use for RPC calls.
    * @returns {Promise<Map<BeaconService, Array<BeaconSignal>>>} Map of beacon service to its discovered signals.
    */
   static async fullnode(
     beaconServices: Array<BeaconService>,
-    bitcoin: BitcoinNetworkConnection
+    bitcoin: BitcoinConnection
   ): Promise<Map<BeaconService, Array<BeaconSignal>>> {
     const beaconServiceSignals = new Map<BeaconService, Array<BeaconSignal>>();
 
@@ -118,7 +118,7 @@ export class BeaconSignalDiscovery {
     }
 
     // Get the RPC connection from the bitcoin network
-    const rpc = bitcoin.network.rpc;
+    const rpc = bitcoin.rpc;
 
     // Ensure that the RPC connection is available
     if(!rpc) {
@@ -135,7 +135,7 @@ export class BeaconSignalDiscovery {
     let height = 0;
 
     // Opt into rpc connection to get the block data at the blockhash
-    let block = await bitcoin.network.rpc!.getBlock({ height }) as BlockV3;
+    let block = await bitcoin.rpc!.getBlock({ height }) as BlockV3;
 
     console.info(`Searching for beacon signals, please wait ...`);
     while (block.height <= targetHeight) {

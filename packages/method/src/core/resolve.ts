@@ -1,5 +1,5 @@
 import {
-  BitcoinNetworkConnection,
+  BitcoinConnection,
   getNetwork
 } from '@did-btcr2/bitcoin';
 import {
@@ -64,11 +64,11 @@ export class Resolve {
    * @returns {DidDocument} The resolved DID Document object.
    */
   static deterministic(didComponents: DidComponents): DidDocument {
-    // Encode the did from the didComponents
-    const did = Identifier.encode(didComponents);
-
     // Deconstruct the bytes from the given components
     const { genesisBytes } = didComponents;
+
+    // Encode the did from the didComponents
+    const did = Identifier.encode(genesisBytes, didComponents);
 
     // Construct a new CompressedSecp256k1PublicKey and deconstruct the publicKey and publicKeyMultibase
     const { multibase: publicKeyMultibase } = new CompressedSecp256k1PublicKey(genesisBytes);
@@ -107,19 +107,18 @@ export class Resolve {
     // Canonicalize and sha256 hash the currentDocument
     const hashBytes = Canonicalization.process(genesisDocument, { encoding: 'hex' });
 
-    // Compare the genesisBytes to the hashBytes
-    const genesisBytes = bytesToHex(didComponents.genesisBytes);
+    const { genesisBytes } = didComponents;
 
     // If the genesisBytes do not match the hashBytes, throw an error
-    if (genesisBytes !== hashBytes) {
+    if (bytesToHex(genesisBytes) !== hashBytes) {
       throw new ResolveError(
-        `Initial document mismatch: genesisBytes ${genesisBytes} !== hashBytes ${hashBytes}`,
+        `Initial document mismatch: genesisBytes ${bytesToHex(genesisBytes)} !== hashBytes ${hashBytes}`,
         INVALID_DID_DOCUMENT, { genesisBytes, hashBytes }
       );
     }
 
     // Encode the did from the didComponents
-    const did = Identifier.encode(didComponents);
+    const did = Identifier.encode(genesisBytes, didComponents);
 
     // Replace the placeholder did with the did throughout the currentDocument.
     const currentDocument = JSON.parse(
@@ -209,16 +208,16 @@ export class Resolve {
    * Signal Bytes (last output in OP_RETURN transaction).
    * @param {Array<BeaconService>} beaconServices The array of BeaconService objects to search for signals.
    * @param {SidecarData} sidecarData The sidecar data containing maps of updates, CAS announcements, and SMT proofs.
-   * @param {BitcoinNetworkConnection} bitcoin The bitcoin network connection used to fetch beacon signals
+   * @param {BitcoinConnection} bitcoin The bitcoin network connection used to fetch beacon signals
    * @returns {Promise<Array<[SignedBTCR2Update, BlockMetadata]>>} The array of BTCR2 Signed Updates announced by the Beacon Signals.
    */
   static async beaconSignals(
     beaconServices: Array<BeaconService>,
     sidecarData: SidecarData,
-    bitcoin: BitcoinNetworkConnection
+    bitcoin: BitcoinConnection
   ): Promise<Array<[SignedBTCR2Update, BlockMetadata]>> {
     // Discover Beacon Signals via indexer server (esplora/electrs) or full node
-    const beaconServicesSignals = bitcoin.network.rest
+    const beaconServicesSignals = bitcoin.rest
       ? await BeaconSignalDiscovery.indexer(beaconServices, bitcoin)
       : await BeaconSignalDiscovery.fullnode(beaconServices, bitcoin);
 
@@ -276,7 +275,7 @@ export class Resolve {
     // Iterate over each (update block) pair
     for(const [update, block] of updates) {
       // Get the hash of the current document
-      const currentDocumentHash = Canonicalization.process(response.didDocument, { encoding: 'base58' });
+      const currentDocumentHash = Canonicalization.process(response.didDocument, { encoding: 'base58btc' });
 
       // Safely convert block.time to timestamp
       const blocktime = DateUtils.blocktimeToTimestamp(block.time);
@@ -318,7 +317,7 @@ export class Resolve {
         // Create unsigned_update by removing the proof property from update.
         const unsignedUpdate = JSONUtils.deleteKeys(update, ['proof']) as UnsignedBTCR2Update;
         // Push the canonicalized unsigned update hash to the updateHashHistory
-        updateHashHistory.push(Canonicalization.process(unsignedUpdate, { encoding: 'base58' }));
+        updateHashHistory.push(Canonicalization.process(unsignedUpdate, { encoding: 'base58btc' }));
       }
 
       // If update.targetVersionId > currentVersionId + 1, throw LATE_PUBLISHING error
@@ -455,16 +454,16 @@ export class Resolve {
     DidDocument.validate(updatedDocument);
 
     // Canonicalize and hash the updatedDocument to get the currentDocumentHash.
-    const currentDocumentHash = Canonicalization.process(updatedDocument, { encoding: 'base58' });
+    const currentDocumentHash = Canonicalization.process(updatedDocument, { encoding: 'base58btc' });
 
     // Prepare the update targetHash for comparison with currentDocumentHash.
-    const updateTargetHash = update.targetHash.startsWith('z') ? update.targetHash : `z${update.targetHash}`;
+    const updateTargetHash = update.targetHash;
 
     // Make sure the update.targetHash equals currentDocumentHash.
-    if (updateTargetHash !== currentDocumentHash) {
+    if (update.targetHash !== currentDocumentHash) {
       // If they do not match, throw INVALID_DID_UPDATE error.
       throw new ResolveError(
-        `Invalid update: updateTargetHash !== currentDocumentHash`,
+        `Invalid update: update.targetHash !== currentDocumentHash`,
         INVALID_DID_UPDATE, { updateTargetHash, currentDocumentHash }
       );
     }

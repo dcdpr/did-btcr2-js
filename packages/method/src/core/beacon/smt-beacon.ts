@@ -1,4 +1,4 @@
-import { BitcoinNetworkConnection } from '@did-btcr2/bitcoin';
+import { BitcoinConnection } from '@did-btcr2/bitcoin';
 import { KeyBytes } from '@did-btcr2/common';
 import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { SidecarData } from '../types.js';
@@ -39,14 +39,14 @@ export class SMTBeacon extends Beacon {
    * Broadcast CAS Beacon signal to the Bitcoin network.
    * @param {SignedBTCR2Update} signedUpdate The signed BTCR2 update to broadcast.
    * @param {KeyBytes} secretKey The secret key for signing the Bitcoin transaction.
-   * @param {BitcoinNetworkConnection} bitcoin The Bitcoin network connection.
+   * @param {BitcoinConnection} bitcoin The Bitcoin network connection.
    * @return {Promise<SignedBTCR2Update>} The signed update that was broadcasted.
    * @throws {SMTBeaconError} if broadcasting fails.
    */
   async broadcastSignal(
     signedUpdate: SignedBTCR2Update,
     secretKey: KeyBytes,
-    bitcoin: BitcoinNetworkConnection
+    bitcoin: BitcoinConnection
   ): Promise<SignedBTCR2Update> {
     throw new SMTBeaconError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`, {signedUpdate, secretKey, bitcoin});
   }

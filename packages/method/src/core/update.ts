@@ -15,7 +15,7 @@ import {
 import { Btcr2DidDocument, DidDocument, DidVerificationMethod } from '../utils/did-document.js';
 import { BeaconFactory } from './beacon/factory.js';
 import { BeaconService } from './beacon/interfaces.js';
-import { BitcoinNetworkConnection } from '@did-btcr2/bitcoin';
+import { BitcoinConnection } from '@did-btcr2/bitcoin';
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/operations/update.html | 7.3 Update}.
@@ -56,7 +56,7 @@ export class Update {
       patch           : patches,
       targetHash      : '',
       targetVersionId : sourceVersionId + 1,
-      sourceHash      : Canonicalization.process(sourceDocument, { encoding: 'base58' }),
+      sourceHash      : Canonicalization.process(sourceDocument, { encoding: 'base58btc' }),
     };
 
     // Apply all JSON patches to sourceDocument.
@@ -74,7 +74,7 @@ export class Update {
     }
 
     // Set the targetHash by canonicalizing the targetDocument and encoding it in base58.
-    unsignedUpdate.targetHash = Canonicalization.process(targetDocument, { encoding: 'base58' });
+    unsignedUpdate.targetHash = Canonicalization.process(targetDocument, { encoding: 'base58btc' });
 
     // Return unsignedUpdate.
     return unsignedUpdate;
@@ -140,7 +140,7 @@ export class Update {
     beaconService: BeaconService,
     update: SignedBTCR2Update,
     secretKey: KeyBytes,
-    bitcoin: BitcoinNetworkConnection
+    bitcoin: BitcoinConnection
   ): Promise<SignedBTCR2Update> {
     // Establish a beacon object
     const beacon = BeaconFactory.establish(beaconService);

@@ -49,7 +49,7 @@ describe('SchnorrMultikey', () => {
   describe('No SchnorrKeyPair', () => {
     it('should throw MultikeyError', () => {
       expect(() => new SchnorrMultikey({ id, controller }))
-        .to.throw(MultikeyError, 'Argument missing: "keys" required');
+        .to.throw(MultikeyError, 'Argument missing: "keyPair" required');
     });
   });
 

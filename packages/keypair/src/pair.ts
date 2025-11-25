@@ -172,10 +172,10 @@ export class SchnorrKeyPair implements KeyPair {
    * JSON representation of a Keys.
    * @returns {SchnorrKeyPairObject} The Keys as a JSON object
    */
-  json(): SchnorrKeyPairObject {
+  toJSON(): SchnorrKeyPairObject {
     return {
-      secretKey : this.secretKey.json(),
-      publicKey : this.publicKey.json()
+      secretKey : this.secretKey.toJSON(),
+      publicKey : this.publicKey.toJSON()
     };
   }
 

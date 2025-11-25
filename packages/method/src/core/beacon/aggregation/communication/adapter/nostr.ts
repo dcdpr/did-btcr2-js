@@ -93,11 +93,10 @@ export class NostrAdapter implements CommunicationService {
   constructor(config: NostrAdapterConfig = { keys: {} as RawSchnorrKeyPair, components: {}, relays: DEFAULT_NOSTR_RELAYS }) {
     this.config = config;
     this.config.keys = this.config.keys || SchnorrKeyPair.generate().raw;
-    this.config.did = config.did || Identifier.encode({
-      idType       : config.components.idType || 'KEY',
+    this.config.did = config.did || Identifier.encode(this.config.keys.public!, {
+      idType       : config.components.idType  || 'KEY',
       version      : config.components.version || 1,
-      network      : config.components.network || 'signet',
-      genesisBytes : this.config.keys.public!
+      network      : config.components.network || 'signet'
     });
   }
 
@@ -297,24 +296,22 @@ export class NostrAdapter implements CommunicationService {
     if(!keys) {
       this.config.keys.secret = Secp256k1SecretKey.random();
       this.config.keys.public = Secp256k1SecretKey.getPublicKey(this.config.keys.secret).compressed;
-      this.config.did = Identifier.encode(
+      this.config.did = Identifier.encode(this.config.keys.public,
         {
           idType       : this.config.components.idType  || 'KEY',
           version      : this.config.components.version || 1,
           network      : this.config.components.network || 'signet',
-          genesisBytes : this.config.keys.public
         }
       );
       return this.config as ServiceAdapterConfig;
     }
 
     this.config.keys = keys;
-    this.config.did = Identifier.encode(
+    this.config.did = Identifier.encode(this.config.keys.public,
       {
         idType       : this.config.components.idType  || 'KEY',
         version      : this.config.components.version || 1,
         network      : this.config.components.network || 'signet',
-        genesisBytes : this.config.keys.public
       }
     );
     return this.config as ServiceAdapterConfig;

@@ -1,5 +1,5 @@
 import { KeyBytes } from '@did-btcr2/common';
-import { BitcoinNetworkConnection } from '../../../../bitcoin/dist/types/bitcoin.js';
+import { BitcoinConnection } from '@did-btcr2/bitcoin';
 import { SignedBTCR2Update } from '../../../../cryptosuite/dist/types/data-integrity-proof/interface.js';
 import { SidecarData } from '../types.js';
 import { BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js';
@@ -47,12 +47,12 @@ export abstract class Beacon {
    * Used during the update path.
    * @param {SignedBTCR2Update} signedUpdate The signed BTCR2 update to broadcast.
    * @param {KeyBytes} secretKey The secret key for signing the Bitcoin transaction.
-   * @param {BitcoinNetworkConnection} bitcoin The Bitcoin network connection.
+   * @param {BitcoinConnection} bitcoin The Bitcoin network connection.
    * @returns {Promise<SignedBTCR2Update>} The signed update that was broadcast.
    */
   abstract broadcastSignal(
     signedUpdate: SignedBTCR2Update,
     secretKey: KeyBytes,
-    bitcoin: BitcoinNetworkConnection
+    bitcoin: BitcoinConnection
   ): Promise<SignedBTCR2Update>;
 }

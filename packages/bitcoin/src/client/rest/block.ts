@@ -1,57 +1,60 @@
 import { BitcoinRestError } from '../../errors.js';
-import { RestApiCallParams, BlockResponse, BlockV3, GetBlockParams } from '../../types.js';
+import { EsploraBlock } from '../../types.js';
+import { HttpRequest } from '../http.js';
+import { EsploraProtocol } from './protocol.js';
 
 /**
- * Implements a strongly-typed BitcoinRest to connect to remote bitcoin node via REST API for block-related operations.
- * @class BitcoinBlock
- * @type {BitcoinBlock}
+ * Block-related Esplora REST API operations.
+ *
+ * Note: The Esplora API always returns the same block format regardless
+ * of any "verbosity" setting (unlike Bitcoin Core RPC).  Use the RPC
+ * client if you need verbosity-controlled block responses.
  */
 export class BitcoinBlock {
-  private api: (params: RestApiCallParams) => Promise<any>;
+  private readonly protocol: EsploraProtocol;
+  private readonly exec: (req: HttpRequest) => Promise<any>;
 
-  constructor(api: (params: RestApiCallParams) => Promise<any>) {
-    this.api = api;
+  constructor(protocol: EsploraProtocol, exec: (req: HttpRequest) => Promise<any>) {
+    this.protocol = protocol;
+    this.exec = exec;
   }
 
   /**
-   * Returns the blockheight of the most-work fully-validated chain. The genesis block has height 0.
-   * @returns {Blockheight} The number of the blockheight with the most-work of the fully-validated chain.
+   * Returns the blockheight of the most-work fully-validated chain.
+   * @returns {Promise<number>} The current block height.
    */
   public async count(): Promise<number> {
-    return await this.api({ path: '/blocks/tip/height' });
+    return await this.exec(this.protocol.getBlockTipHeight());
   }
 
   /**
-   * Returns the block data associated with a `blockhash` of a valid block.
-   * @param {GetBlockParams} params See {@link GetBlockParams} for details.
-   * @param {?string} params.blockhash The blockhash of the block to query.
-   * @param {?number} params.height The block height of the block to query.
-   * @returns {BlockResponse} A promise resolving to a {@link BlockResponse} formatted depending on `verbosity` level.
-   * @throws {BitcoinRpcError} If neither `blockhash` nor `height` is provided.
+   * Returns the Esplora block data for a given blockhash or height.
+   * @param {object} params The block hash or height.
+   * @param {string} [params.blockhash] The blockhash of the block to query.
+   * @param {number} [params.height] The block height of the block to query.
+   * @returns {Promise<EsploraBlock | undefined>} The block data.
+   * @throws {BitcoinRestError} If neither blockhash nor height is provided.
    */
-  public async get({ blockhash, height }: GetBlockParams): Promise<BlockResponse | undefined> {
-    // Check if blockhash or height is provided, if neither throw an error
-    if(!blockhash && height === undefined) {
-      throw new BitcoinRestError('INVALID_PARAMS_GET_BLOCK: blockhash or height required', { blockhash, height });
+  public async get({ blockhash, height }: { blockhash?: string; height?: number }): Promise<EsploraBlock | undefined> {
+    if (!blockhash && height === undefined) {
+      throw new BitcoinRestError('blockhash or height required', { blockhash, height });
     }
 
-    // If height is provided, get the blockhash
     blockhash ??= await this.getHash(height!);
-    if(!blockhash || typeof blockhash !== 'string') {
+    if (!blockhash || typeof blockhash !== 'string') {
       return undefined;
     }
 
-    // Get the block data
-    return await this.api({ path: `/block/${blockhash}` }) as BlockV3;
+    return await this.exec(this.protocol.getBlock(blockhash)) as EsploraBlock;
   }
 
   /**
    * Get the block hash for a given block height.
    * See {@link https://github.com/blockstream/esplora/blob/master/API.md#get-block-heightheight | Esplora GET /block-height/:height } for details.
    * @param {number} height The block height (required).
-   * @returns {Promise<string>} The hash of the block currently at height..
+   * @returns {Promise<string>} The hash of the block at the given height.
    */
   public async getHash(height: number): Promise<string> {
-    return await this.api({ path: `/block-height/${height}` });
+    return await this.exec(this.protocol.getBlockHeight(height));
   }
 }

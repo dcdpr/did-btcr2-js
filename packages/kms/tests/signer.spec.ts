@@ -17,7 +17,7 @@ describe('Signer', () => {
 
     const msg = new Uint8Array([1, 2, 3, 4]);
     const hash = sha256(msg);
-    const sig = signer.sign(hash);
+    const sig = signer.signSchnorr(hash);
 
     expect(sig).to.be.instanceOf(Uint8Array);
     const ok = kp.publicKey.verify(sig, hash);
