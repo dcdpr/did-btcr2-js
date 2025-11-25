@@ -20,13 +20,15 @@ import type {
   SchnorrKeyPairObject,
   SignatureBytes
 } from '@did-btcr2/common';
-import { DEFAULT_BLOCK_CONFIRMATIONS, DEFAULT_REST_CONFIG, DEFAULT_RPC_CONFIG, IdentifierTypes, NotImplementedError } from '@did-btcr2/common';
+import { DEFAULT_BLOCK_CONFIRMATIONS, DEFAULT_REST_CONFIG, DEFAULT_RPC_CONFIG, IdentifierTypes } from '@did-btcr2/common';
 import type { MultikeyObject } from '@did-btcr2/cryptosuite';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
+import { Kms, type KeyManager } from '@did-btcr2/kms';
 import type { DidCreateOptions, DidResolutionOptions, SignalsMetadata, UpdateParams } from '@did-btcr2/method';
 import { DidBtcr2, DidDocument, DidDocumentBuilder, Identifier } from '@did-btcr2/method';
-import type { DidResolutionResult, DidService, DidVerificationMethod } from '@web5/dids';
+import { KeyIdentifier } from '@web5/crypto';
+import { Did, type DidResolutionResult, type DidService, type DidVerificationMethod } from '@web5/dids';
 
 export { DidDocument, DidDocumentBuilder, Identifier, IdentifierTypes };
 export type {
@@ -51,12 +53,14 @@ export type {
   SignatureBytes
 };
 
-/* =========================
- * Configuration Interfaces
- * ========================= */
-
+/**
+ * Network names supported by the Bitcoin API.
+ */
 export type NetworkName = 'mainnet' | 'testnet4' | 'signet' | 'regtest';
 
+/**
+ * Bitcoin API configuration options.
+ */
 export type BitcoinApiConfig = {
   /** Shortcut to compute base URLs and params via @did-btcr2/bitcoin getNetwork */
   network?: NetworkName;
@@ -68,79 +72,85 @@ export type BitcoinApiConfig = {
   defaultConfirmations?: number;
 };
 
+/**
+ * API configuration options.
+ */
 export type ApiConfig = {
   bitcoin?: BitcoinApiConfig;
+  kms?: KeyManager;
 };
 
-/* =========================
- * Sub-facade: KeyPair
- * ========================= */
-
+/**
+ * KeyPair sub-facade for various Schnorr keypair operations.
+ * @class KeyPairApi
+ * @type {KeyPairApi}
+ */
 export class KeyPairApi {
   /** Generate a new Schnorr keypair (secp256k1). */
-  static generate(): SchnorrKeyPair {
+  generate(): SchnorrKeyPair {
     return new SchnorrKeyPair();
   }
 
   /** Import from secret key bytes or bigint. */
-  static fromSecret(ent: Entropy): SchnorrKeyPair {
+  fromSecret(ent: Entropy): SchnorrKeyPair {
     const sk = new Secp256k1SecretKey(ent);
     return new SchnorrKeyPair({ secretKey: sk });
   }
 }
 
+/**
+ * Multikey API sub-facade for various Schnorr multikey operations.
+ * @class MultikeyApi
+ * @type {MultikeyApi}
+ */
 export class MultikeyApi {
   /**
-   * Create a Schnorr Multikey wrapper (includes verificationMethod, sign/verify).
-   * If secret is present, the multikey can sign.
+   * Create a new Schnorr multikey.
+   * @param {string} id The multikey ID.
+   * @param {string} controller The multikey controller.
+   * @param {SchnorrKeyPair} keys The Schnorr keypair to use.
+   * @returns {SchnorrMultikey} The created Schnorr multikey.
    */
-  static create(params: {
-    id: string;
-    controller: string;
-    keys: SchnorrKeyPair
-  }): SchnorrMultikey {
-    return new SchnorrMultikey(params);
+  create(id: string, controller: string, keys: SchnorrKeyPair): SchnorrMultikey {
+    return new SchnorrMultikey({ id, controller, keys });
   }
 
   /** Produce a DID Verification Method JSON from a multikey. */
-  static toVerificationMethod(mk: SchnorrMultikey): DidVerificationMethod {
+  toVerificationMethod(mk: SchnorrMultikey): DidVerificationMethod {
     return mk.toVerificationMethod();
   }
 
   /** Sign bytes via the multikey (requires secret). */
-  static async sign(mk: SchnorrMultikey, data: Bytes): Promise<SignatureBytes> {
+  async sign(mk: SchnorrMultikey, data: Bytes): Promise<SignatureBytes> {
     return mk.sign(data);
   }
 
   /** Verify signature via multikey. */
-  static async verify(mk: SchnorrMultikey, data: Bytes, signature: SignatureBytes): Promise<boolean> {
+  async verify(mk: SchnorrMultikey, data: Bytes, signature: SignatureBytes): Promise<boolean> {
     return mk.verify(data, signature);
   }
 }
 
-/* =========================
- * Sub-facade: Crypto
- * ========================= */
-
+/**
+ * Crypto API sub-facade for various cryptographic utilities.
+ */
+// TODO: expand with more cryptographic utilities as needed
 export class CryptoApi {
-  public static keyPairApi = new KeyPairApi();
-  public static multikeyApi = new MultikeyApi();
+  public keyPairApi = new KeyPairApi();
+  public multikeyApi = new MultikeyApi();
 }
 
-/* =========================
- * Sub-facade: Bitcoin
- * ========================= */
-
+/**
+ * Bitcoin API sub-facade for various Bitcoin network operations.
+ */
 export class BitcoinApi {
   readonly rest: BitcoinRestClient;
   readonly rpc: BitcoinCoreRpcClient;
   readonly defaultConfirmations: number;
 
   constructor(cfg?: BitcoinApiConfig) {
-    const restCfg = {
-      host : cfg?.rest?.host ?? DEFAULT_REST_CONFIG.host,
-      ...cfg?.rest
-    };
+    const host = cfg?.rest?.host ?? DEFAULT_REST_CONFIG.host;
+    const restCfg = { host, ...cfg?.rest };
 
     const rpcCfg = {
       ...DEFAULT_RPC_CONFIG,
@@ -173,70 +183,131 @@ export class BitcoinApi {
   }
 }
 
-/* =========================
- * Sub-facade: KeyManager
- * ========================= */
+/**
+ * KeyManager API sub-facade for various key management operations.
+ * @class KeyManagerApi
+ * @type {KeyManagerApi}
+ */
+export class KeyManagerApi {
+  /** The underlying KeyManager instance. */
+  readonly kms: KeyManager;
 
-// export class KeyManagerApi {
-//   readonly impl: IMethodKeyManager;
+  /** Create a new KeyManagerApi instance initialized with a Kms class. */
+  constructor(kms?: KeyManager) {
+    this.kms = kms ?? new Kms();
+  }
 
-//   constructor(params?: ApiKeyManagerConfig) {
-//     this.impl = new MethodKeyManager(params);
-//   }
+  /** Set the active key by its identifier. */
+  setActive(id: string): void {
+    this.kms.setActiveKey(id);
+  }
 
-//   setActive(keyUri: string) {
-//     this.impl.activeKeyUri = keyUri;
-//   }
+  /** Get the active key identifier. */
+  getPublicKey(id: string): Bytes {
+    return this.kms.getPublicKey(id);
+  }
 
-//   export(keyUri: string) {
-//     return this.impl.export(keyUri);
-//   }
+  /** Import a Schnorr keypair into the KMS. */
+  import(kp: SchnorrKeyPair, options: { id?: KeyIdentifier; setActive?: boolean }) {
+    return this.kms.importKey(kp, options);
+  }
 
-//   import(mk: SchnorrMultikey, opts?: { importKey?: boolean; active?: boolean }) {
-//     return this.impl.import(mk, opts);
-//   }
+  /** Sign a hash via the KMS. */
+  sign(id: string, hash: HashBytes): SignatureBytes {
+    return this.kms.sign(hash, id);
+  }
+}
 
-//   sign(keyUri: string, hash: HashBytes): Promise<SignatureBytes> {
-//     return this.impl.sign(keyUri, hash);
-//   }
-// }
-
-/* =========================
- * Sub-facade: DID / CRUD
- * ========================= */
-
+/**
+ * DID API sub-facade for interacting with BTCR2 identifiers.
+ * @class DidApi
+ * @type {DidApi}
+ */
 export class DidApi {
+  /** Encode a DID from genesis bytes and options. */
+  encode(genesisBytes: DocumentBytes, options: DidCreateOptions & { idType: string }): Identifier {
+    return Identifier.encode({
+      genesisBytes,
+      idType  : options.idType,
+      version : options.version ?? 1,
+      network : options.network ?? 'bitcoin'
+    });
+  }
+
+  /** Decode a DID into its components. */
+  decode(did: string): {
+    genesisBytes: DocumentBytes;
+    idType: string;
+    version: number;
+    network: string;
+  } {
+    return Identifier.decode(did);
+  }
+
+  /** Generate a new DID and associated keys. */
+  generate(): { keys: SchnorrKeyPair; identifier: { controller: string; id: string } } {
+    return Identifier.generate();
+  }
+
+  /** Check if a DID is valid. */
+  isValid(did: string): boolean {
+    return Identifier.isValid(did);
+  }
+
+  /** Parse a DID string into a Did object or null if invalid. */
+  parse(did: string): Did | null {
+    return Did.parse(did);
+  }
+}
+
+/**
+ * DID Method API sub-facade for interacting with BTCR2 Method operations:
+ * create, resolve, update, and deactivate.
+ * @class DidMethodApi
+ * @type {DidMethodApi}
+ */
+
+export class DidMethodApi {
   /**
    * Create a deterministic DID from a public key (bytes).
+   * @param {KeyBytes} genesisBytes The public key bytes.
+   * @param {DidCreateOptions} options The creation options.
+   * @returns {Promise<Identifier>} The created DID identifier.
    */
-  async createDeterministic({ genesisBytes, options }: {
-    genesisBytes: KeyBytes;
-    options: DidCreateOptions;
-  }) {
+  async createDeterministic(genesisBytes: KeyBytes, options: DidCreateOptions): Promise<Identifier> {
     return await DidBtcr2.create({ idType: 'KEY', genesisBytes, options });
   }
 
   /**
-   * Create from an intermediate DID document (external genesis).
+   * Create a non-deterministic DID from external genesis document bytes.
+   * @param {DocumentBytes} genesisBytes The genesis document bytes.
+   * @param {DidCreateOptions} options The creation options.
+   * @returns {Promise<Identifier>} The created DID identifier.
    */
-  async createExternal({ genesisBytes, options }: {
-    genesisBytes: DocumentBytes;
-    options: DidCreateOptions;
-  }) {
-    return await DidBtcr2.create({ idType: 'KEY', genesisBytes, options });
+  async createExternal(genesisBytes: DocumentBytes, options: DidCreateOptions): Promise<Identifier> {
+    return await DidBtcr2.create({ idType: 'EXTERNAL', genesisBytes, options });
   }
 
   /**
-   * Resolve DID document from DID (did:btcr2:...).
+   * Resolve a DID.
+   * @param {string} identifier The DID to resolve.
+   * @param {DidResolutionOptions} options The resolution options.
+   * @returns {DidResolutionResult} The resolution result.
    */
-  async resolve(did: string, options: DidResolutionOptions): Promise<DidResolutionResult> {
-    return await DidBtcr2.resolve(did, options);
+  async resolve(identifier: string, options: DidResolutionOptions): Promise<DidResolutionResult> {
+    return await DidBtcr2.resolve(identifier, options);
   }
 
   /**
-   * Update a DID Document using a JSON Patch, signed as capabilityInvocation.
-   * You provide the prior DID Document (to pick VM), a JSON Patch, and a signer multikey.
-   * This delegates to MethodUpdate (which follows the cryptosuite rules internally).
+   * Update an existing DID document.
+   * @param {UpdateParams} params The update parameters.
+   * @param {string} params.identifier The DID identifier to update.
+   * @param {DidDocument} params.sourceDocument The current DID document (can be used to avoid a resolve).
+   * @param {number} params.sourceVersionId The current version ID (can be used to avoid a resolve).
+   * @param {PatchOperation[]} params.patch The JSON Patch operations to apply.
+   * @param {string} params.verificationMethodId The verification method ID to use for signing the update.
+   * @param {string[]} params.beaconIds Optional beacon IDs to anchor the update to.
+   * @returns {SignalsMetadata} The resulting signals metadata from the update operation.
    */
   async update({
     identifier,
@@ -246,8 +317,41 @@ export class DidApi {
     verificationMethodId,
     beaconIds
   }: UpdateParams): Promise<SignalsMetadata> {
-    // The Update class exposes the algorithm that creates a DID Update Payload and proof;
-    // keep this wrapper narrow so testing can mock MethodUpdate directly.
+    return await DidBtcr2.update({
+      identifier,
+      sourceDocument,
+      sourceVersionId,
+      patch,
+      verificationMethodId,
+      beaconIds,
+    });
+  }
+
+  /**
+   * Deactivate an existing DID and DID document.
+   * @param {UpdateParams} params The update parameters.
+   * @param {string} params.identifier The DID identifier to update.
+   * @param {DidDocument} params.sourceDocument The current DID document (can be used to avoid a resolve).
+   * @param {number} params.sourceVersionId The current version ID (can be used to avoid a resolve).
+   * @param {PatchOperation[]} params.patch The JSON Patch operations to apply.
+   * @param {string} params.verificationMethodId The verification method ID to use for signing the update.
+   * @param {string[]} params.beaconIds Optional beacon IDs to anchor the update to.
+   * @returns {SignalsMetadata} The resulting signals metadata from the update operation.
+   */
+  async deactivate({
+    identifier,
+    sourceDocument,
+    sourceVersionId,
+    patch,
+    verificationMethodId,
+    beaconIds
+  }: UpdateParams): Promise<SignalsMetadata> {
+    patch ??= [{
+      op    : 'add',
+      path  : '/deactivated',
+      value : true
+    }] as PatchOperation[];
+
     const result = await DidBtcr2.update({
       identifier,
       sourceDocument,
@@ -258,45 +362,36 @@ export class DidApi {
     });
     return result;
   }
-
-  /** Deactivate convenience: applies the standard `deactivated: true` patch. */
-  async deactivate(): Promise<SignalsMetadata> {
-    // This class is a stub in method right now; expose a narrow wrapper for future expansion.
-    // return DidBtcr2.deactivate({ identifier, patch }); // No-op holder; implement when core adds behavior.
-    throw new NotImplementedError(
-      'DidApi.deactivate is not implemented yet.',
-      {
-        type : 'DID_API_METHOD_NOT_IMPLEMENTED',
-        name : 'NOT_IMPLEMENTED_ERROR'
-      }
-    );
-  }
 }
 
-/* =========================
- * Root facade
- * ========================= */
-
+/**
+ * Main DidBtcr2Api facade class that exposes sub-facades for Bitcoin, DID
+ * Method, KeyPair, Crypto, and KeyManager operations.
+ * @class DidBtcr2Api
+ * @type {DidBtcr2Api}
+ */
 export class DidBtcr2Api {
-  readonly bitcoin: BitcoinApi;
+  readonly btc: BitcoinApi;
   readonly did: DidApi;
-  readonly keys: KeyPairApi;
+  readonly btcr2: DidMethodApi;
   readonly crypto: CryptoApi;
-  // readonly keyManager: KeyManagerApi;
+  readonly kms: KeyManagerApi;
 
   constructor(config?: ApiConfig) {
-    this.bitcoin = new BitcoinApi(config?.bitcoin);
+    this.btc = new BitcoinApi(config?.bitcoin);
     this.did = new DidApi();
-    this.keys = new KeyPairApi();
+    this.btcr2 = new DidMethodApi();
     this.crypto = new CryptoApi();
-    // this.keyManager = new KeyManagerApi(config?.keyManager);
+    this.kms = new KeyManagerApi(config?.kms);
   }
 }
 
-/* =========================
- * Factory
- * ========================= */
+/**
+ * Factory function to create a DidBtcr2Api instance.
+ * @param {ApiConfig} config Optional API configuration.
+ * @returns {DidBtcr2Api} The created DidBtcr2Api instance.
+ */
 
-export function createApi(config?: ApiConfig) {
+export function createApi(config?: ApiConfig): DidBtcr2Api {
   return new DidBtcr2Api(config);
 }
