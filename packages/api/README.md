@@ -1,3 +1,3 @@
 # API
 
-SDK for accessing the did:btcr2 method functionality
+API layer for accessing the did:btcr2 SDK

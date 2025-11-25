@@ -86,10 +86,4 @@ export interface Multikey {
    * if the publicKeyMultibase has an invalid prefix.
    */
   fromVerificationMethod(verificationMethod: DidVerificationMethod): Multikey;
-
-  /**
-   * Convert the multikey to a JSON object.
-   * @returns {MultikeyObject} The multikey as a JSON object.
-   */
-  json(): MultikeyObject;
 }

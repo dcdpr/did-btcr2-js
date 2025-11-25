@@ -109,12 +109,6 @@ export interface PublicKey {
    * @returns {boolean} True if the public keys are equal.
    */
   equals(other: CompressedSecp256k1PublicKey): boolean;
-
-  /**
-   * JSON representation of a CompressedSecp256k1PublicKey object.
-   * @returns {PublicKeyObject} The CompressedSecp256k1PublicKey as a JSON object.
-   */
-  json(): PublicKeyObject;
 }
 
 /**
@@ -125,10 +119,14 @@ export interface PublicKey {
  * @type {CompressedSecp256k1PublicKey}
  */
 export class CompressedSecp256k1PublicKey implements PublicKey {
-  /** @type {KeyBytes} The public key bytes */
+  /**
+   * The public key bytes
+   **/
   readonly #bytes: KeyBytes;
 
-  /** @type {MultibaseObject} The public key as a MultibaseObject */
+  /**
+   * The public key as a MultibaseObject
+   */
   readonly #multibase: MultibaseObject = {
     prefix  : BIP340_PUBLIC_KEY_MULTIBASE_PREFIX,
     key     : [],
@@ -343,14 +341,19 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
    * @returns {boolean} If the signature is valid against the public key.
    */
   verify(signature: Bytes, data: Bytes, opts?: CryptoOptions): boolean {
+    // Default to schnorr scheme
     opts ??= { scheme: 'schnorr' };
-    // Verify the signature depending on the scheme and return the result
+
+    // If scheme is ecdsa, verify using ecdsa
     if(opts.scheme === 'ecdsa') {
-      return tinysecp.verify(data, this.compressed, signature); }
+      return tinysecp.verify(data, this.compressed, signature);
+    }
+    // If scheme is schnorr, verify using schnorr
     else if(opts.scheme === 'schnorr') {
       return tinysecp.verifySchnorr(data, this.x, signature);
     }
 
+    // If scheme is neither ecdsa nor schnorr, throw an error
     throw new PublicKeyError(`Invalid scheme: ${opts.scheme}.`, 'VERIFY_SIGNATURE_ERROR', opts);
   }
 
@@ -367,7 +370,7 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
    * JSON representation of a CompressedSecp256k1PublicKey object.
    * @returns {PublicKeyObject} The CompressedSecp256k1PublicKey as a JSON object.
    */
-  json(): PublicKeyObject {
+  toJSON(): PublicKeyObject {
     return {
       hex       : this.hex,
       multibase : this.multibase,

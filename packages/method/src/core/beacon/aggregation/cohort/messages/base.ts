@@ -40,7 +40,12 @@ export class BaseMessage {
    * Converts a BaseMessage to a JSON object.
    * @returns {Base} The JSON representation of the BaseMessage.
    */
-  public json(): Base {
-    return Object.fromEntries(Object.entries(this)) as Base;
+  public toJSON(): Base {
+    return {
+      type : this.type,
+      to   : this.to,
+      from : this.from,
+      body : this.body
+    };
   }
 }

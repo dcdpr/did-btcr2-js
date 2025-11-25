@@ -45,8 +45,8 @@ describe('canonicalization', () => {
   });
 
   it('supports base58 and multibase encoding', () => {
-    const base58 = Canonicalization.process(simpleObject, { encoding: 'base58' });
-    expect(base58.startsWith('z')).to.be.false;
+    const base58 = Canonicalization.process(simpleObject, { encoding: 'base58btc' });
+    expect(base58.startsWith('z')).to.be.true;
   });
 
   it('throws on unsupported algorithms', () => {
@@ -73,12 +73,12 @@ describe('canonicalization', () => {
 
   it('produces a base58 encoded SHA-256 hash of a canonicalized object', () => {
     const result = Canonicalization.andHashToBase58(canonicalComplexObject);
-    expect(result).to.equal('8ADWw43bTgn9z3n7NjuzrM1GfJa1aNCaaK4RJpwe3sCK');
+    expect(result).to.equal('z8ADWw43bTgn9z3n7NjuzrM1GfJa1aNCaaK4RJpwe3sCK');
   });
 
   it('produces a valid base58 encoding of SHA-256 hash bytes', () => {
     const result = Canonicalization.toBase58(hashComplexObject);
-    expect(result).to.equal('8ADWw43bTgn9z3n7NjuzrM1GfJa1aNCaaK4RJpwe3sCK');
+    expect(result).to.equal('z8ADWw43bTgn9z3n7NjuzrM1GfJa1aNCaaK4RJpwe3sCK');
   });
 
 });

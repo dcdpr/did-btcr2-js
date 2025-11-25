@@ -61,12 +61,6 @@ export interface SecretKey {
    * @returns {boolean} Whether the secret key is valid.
    */
   isValid(): boolean;
-
-  /**
-   * JSON representation of a Secp256k1SecretKey object.
-   * @returns {SecretKeyObject} The Secp256k1SecretKey as a JSON object.
-   */
-  json(): SecretKeyObject;
 }
 
 /**
@@ -237,7 +231,7 @@ export class Secp256k1SecretKey implements SecretKey {
    * Converts the secret key to a JSON object.
    * @returns {SecretKeyObject} The secret key as a JSON object
    */
-  public json(): SecretKeyObject {
+  public toJSON(): SecretKeyObject {
     return {
       bytes : Array.from(this.bytes),
       seed  : this.seed.toString(),

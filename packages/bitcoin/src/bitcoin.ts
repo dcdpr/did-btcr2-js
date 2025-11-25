@@ -1,149 +1,136 @@
-import { JSONUtils, MethodError } from '@did-btcr2/common';
+import { MethodError } from '@did-btcr2/common';
 import { networks } from 'bitcoinjs-lib';
+import { HttpExecutor } from './client/http.js';
 import { BitcoinRestClient } from './client/rest/index.js';
 import { BitcoinCoreRpcClient } from './client/rpc/index.js';
 import { getNetwork } from './network.js';
-import { AvailableNetworks, BitcoinClientConfig } from './types.js';
+import { NetworkName, RestConfig, RpcConfig } from './types.js';
 import { DEFAULT_BITCOIN_NETWORK_CONFIG } from './constants.js';
 
-export type BitcoinNetworkConfig = {
-  name: keyof AvailableNetworks;
-  rpc?: BitcoinCoreRpcClient;
-  rest: BitcoinRestClient;
-  config: BitcoinClientConfig;
-  data: networks.Network;
-};
-
-export type BitcoinNetworkConfigMap = {
-  [key in keyof AvailableNetworks]?: BitcoinNetworkConfig;
+/**
+ * Options for creating a BitcoinConnection.
+ */
+export type BitcoinConnectionOptions = {
+  network: NetworkName;
+  rest: RestConfig;
+  rpc?: RpcConfig;
+  /** Optional HTTP executor for sans-I/O usage. Defaults to global `fetch`. */
+  executor?: HttpExecutor;
 };
 
 /**
- * The BitcoinNetworkConnection class contains relevant data and methods for interacting with different Bitcoin network.
- * @name BitcoinNetworkConnection
- * @type {BitcoinNetworkConnection}
+ * Represents a connection to a single Bitcoin network.
+ * Holds the REST and optional RPC clients for that network.
+ *
+ * The underlying clients use a sans-I/O protocol layer that separates
+ * request construction from HTTP execution.  By default, requests are
+ * executed via the global `fetch` function.  Supply a custom
+ * {@link HttpExecutor} to use any HTTP client.
+ *
+ * @example
+ * ```ts
+ * // Quick setup with defaults (uses fetch)
+ * const btc = BitcoinConnection.forNetwork('regtest');
+ *
+ * // With a custom HTTP executor
+ * const btc = BitcoinConnection.forNetwork('testnet4', {
+ *   rest: { host: 'https://my-mempool/api' },
+ *   executor: myCustomExecutor,
+ * });
+ *
+ * // Direct usage
+ * const tx = await btc.rest.transaction.get(txid);
+ * const block = await btc.rpc?.getBlock({ height: 100 });
+ *
+ * // Sans-I/O: build requests without performing I/O
+ * const req = btc.rest.protocol.getTx(txid);
+ * const res = await myHttpClient.execute(req);
+ * ```
  */
-export class BitcoinNetworkConnection {
-  public network: BitcoinNetworkConfig;
-  public bitcoin?: BitcoinNetworkConfig;
-  public testnet3?: BitcoinNetworkConfig;
-  public testnet4?: BitcoinNetworkConfig;
-  public signet?: BitcoinNetworkConfig;
-  public mutinynet?: BitcoinNetworkConfig;
-  public regtest?: BitcoinNetworkConfig;
+export class BitcoinConnection {
+  /** The network this connection targets. */
+  readonly name: NetworkName;
 
-  /**
-   * Creates an instance of the Bitcoin class.
-   * @param {BitcoinNetworkConfigMap} configs Optional configuration object for the Bitcoin client. If not provided, it will
-   * be loaded from the BITCOIN_CLIENT_CONFIG environment variables.
-   * @throws {MethodError} If no configs is passed and BITCOIN_NETWORK_CONFIG is missing or invalid.
-   */
-  constructor(configs?: BitcoinNetworkConfigMap) {
-    const BITCOIN_NETWORK_CONFIG = process.env.BITCOIN_NETWORK_CONFIG ?? JSON.stringify(configs ?? DEFAULT_BITCOIN_NETWORK_CONFIG);
+  /** REST client (Esplora API). */
+  readonly rest: BitcoinRestClient;
 
-    if(!BITCOIN_NETWORK_CONFIG) {
-      throw new MethodError(
-        'No BITCOIN_NETWORK_CONFIG available: must pass `configs` to constructor or set `BITCOIN_NETWORK_CONFIG` in env',
-        'MISSING_BITCOIN_NETWORK_CONFIG',
-        { BITCOIN_NETWORK_CONFIG }
-      );
-    }
+  /** RPC client (Bitcoin Core). May be undefined if not configured. */
+  readonly rpc?: BitcoinCoreRpcClient;
 
-    // Check if BITCOIN_NETWORK_CONFIG is parsable JSON string
-    if (!JSONUtils.isParsable(BITCOIN_NETWORK_CONFIG)) {
-      throw new MethodError(
-        'Parsing failed: malformed BITCOIN_NETWORK_CONFIG',
-        'MISSING_MALFORMED_BITCOIN_NETWORK_CONFIG',
-        { BITCOIN_NETWORK_CONFIG }
-      );
-    }
+  /** bitcoinjs-lib network data (for address derivation, PSBT signing, etc.). */
+  readonly data: networks.Network;
 
-    // Parse the BITCOIN_NETWORK_CONFIG
-    const networkConfigs: Record<string, BitcoinClientConfig> = JSON.parse(BITCOIN_NETWORK_CONFIG);
-
-    // Set a list of available networks
-    const networks: (keyof AvailableNetworks)[] = ['bitcoin', 'testnet3', 'testnet4', 'signet', 'mutinynet', 'regtest'];
-
-    // Iterate over the networks and create the client connections
-    for (const network of networks) {
-      const networkConfig: BitcoinClientConfig = (configs?.[network] ?? networkConfigs[network]) as BitcoinClientConfig;
-      if (networkConfig) {
-        this[network] = {
-          name   : network,
-          config : networkConfig,
-          rpc    : new BitcoinCoreRpcClient(networkConfig.rpc),
-          rest   : new BitcoinRestClient(networkConfig.rest) ,
-          data   : getNetwork(network),
-        };
-      }
-    }
-
-    // Load and check the ACTIVE_NETWORK variable
-    const ACTIVE_NETWORK = (process.env.ACTIVE_NETWORK?.toLowerCase() ?? 'regtest') as keyof AvailableNetworks;
-    if (!ACTIVE_NETWORK) {
-      throw new MethodError('Missing ACTIVE_NETWORK environment variable', 'MISSING_ACTIVE_NETWORK', { ACTIVE_NETWORK });
-    }
-
-
-    if (!this[ACTIVE_NETWORK]) {
-      throw new MethodError(
-        `No configuration found for ACTIVE_NETWORK='${ACTIVE_NETWORK}'`,
-        'MISSING_CONFIG_FOR_NETWORK'
-      );
-    }
-
-    this.network = this[ACTIVE_NETWORK];
+  constructor(options: BitcoinConnectionOptions) {
+    this.name = options.network;
+    this.rest = new BitcoinRestClient(options.rest, options.executor);
+    this.rpc  = options.rpc ? new BitcoinCoreRpcClient(options.rpc, options.executor) : undefined;
+    this.data = getNetwork(options.network);
   }
 
   /**
-   * Get the Bitcoin network configuration for a specific network.
-   * @param {keyof AvailableNetworks} network - The Bitcoin network (e.g., 'bitcoin', 'testnet3', 'signet', 'regtest').
-   * @returns {Bitcoin} The Bitcoin object.
+   * Create a connection for a single network with optional REST/RPC endpoint overrides.
+   * Merges overrides on top of defaults from DEFAULT_BITCOIN_NETWORK_CONFIG.
+   * Does not read environment variables.
+   *
+   * @param network The network name (e.g., 'regtest', 'testnet4', 'bitcoin').
+   * @param overrides Optional endpoint and executor overrides.
+   * @returns A BitcoinConnection for the requested network.
    */
-  public getNetworkConnection(network: string): BitcoinNetworkConnection {
-    const availableNetwork = network as keyof AvailableNetworks;
-    if (!this[availableNetwork]) {
+  static forNetwork(
+    network: NetworkName,
+    overrides?: { rest?: Partial<RestConfig>; rpc?: RpcConfig; executor?: HttpExecutor }
+  ): BitcoinConnection {
+    const defaults = DEFAULT_BITCOIN_NETWORK_CONFIG[network];
+
+    if (!defaults) {
       throw new MethodError(
-        `No configuration found for network='${availableNetwork}'`,
-        'MISSING_CONFIG_FOR_NETWORK'
+        `Unknown network '${network}'. Available: bitcoin, testnet3, testnet4, signet, mutinynet, regtest`,
+        'UNKNOWN_NETWORK',
+        { network }
       );
     }
-    return this;
+
+    const restCfg: RestConfig = { ...defaults.rest, ...overrides?.rest };
+
+    const hasRpc = defaults.rpc !== undefined || overrides?.rpc !== undefined;
+    const rpcCfg = hasRpc
+      ? { ...defaults.rpc, ...overrides?.rpc } as RpcConfig
+      : undefined;
+
+    return new BitcoinConnection({
+      network,
+      rest     : restCfg,
+      rpc      : rpcCfg,
+      executor : overrides?.executor,
+    });
   }
 
   /**
-   * Sets the active Bitcoin network.
-   * @param {keyof AvailableNetworks} active - The Bitcoin network to set as active (e.g., 'bitcoin', 'testnet3', 'signet', 'regtest').
-   * @throws {MethodError} If no configuration is found for the specified network.
+   * Converts Bitcoin (BTC) to satoshis.
+   * Uses string-based arithmetic to avoid floating-point precision errors.
+   * @throws {RangeError} If the value has more than 8 decimal places.
    */
-  public setActiveNetwork(active: string): void {
-    const availableNetwork = active as keyof AvailableNetworks;
-    if (!this[availableNetwork]) {
-      throw new MethodError(
-        `No configuration found for network='${availableNetwork}'`,
-        'MISSING_CONFIG_FOR_NETWORK'
-      );
+  static btcToSats(btc: number): number {
+    const str = btc.toFixed(8);
+    const [whole, frac] = str.split('.');
+    // Verify no precision beyond 8 decimals was lost
+    if (Math.abs(btc - Number(str)) > Number.EPSILON) {
+      throw new RangeError(`BTC value ${btc} exceeds 8 decimal places of precision`);
     }
-    this.network = this[availableNetwork] as BitcoinNetworkConfig;
+    return Number(whole) * 1e8 + Number(frac);
   }
 
   /**
-   * Converts Bitcoin (BTC) to satoshis (SAT).
-   * @param {number} btc - The amount in BTC.
-   * @returns {number} The amount in SAT.
+   * Converts satoshis to Bitcoin (BTC).
+   * Uses string-based arithmetic to avoid floating-point precision errors.
+   * @param sats Must be a non-negative integer.
    */
-  public static btcToSats (btc: number): number {
-    return Math.round(btc * 1e8);
-  };
-
-  /**
-   * Converts satoshis (SAT) to Bitcoin (BTC).
-   * @param {number} sats - The amount in SAT.
-   * @returns {number} The amount in BTC.
-   */
-  public static satsToBtc (sats: number): number {
-    return sats / 1e8;
-  };
+  static satsToBtc(sats: number): number {
+    const negative = sats < 0;
+    const abs = Math.abs(sats);
+    const whole = Math.floor(abs / 1e8);
+    const frac = abs % 1e8;
+    const result = Number(`${whole}.${frac.toString().padStart(8, '0')}`);
+    return negative ? -result : result;
+  }
 }
-
-export const bitcoin = new BitcoinNetworkConnection();

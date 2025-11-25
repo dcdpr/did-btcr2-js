@@ -5,6 +5,6 @@ const keypair = SchnorrKeyPair.generate();
 const genesisBytes = keypair.publicKey.compressed;
 const result = DidBtcr2.create(genesisBytes, { idType: 'KEY', network: 'regtest' });
 
-console.log('Key Pair:', keypair.json());
+console.log('Key Pair:', keypair.toJSON());
 console.log('Result:', result);
 

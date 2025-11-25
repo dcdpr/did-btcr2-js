@@ -1,74 +1,181 @@
 import { expect } from 'chai';
-import { BitcoinNetworkConnection } from '../src/bitcoin.js';
-import { DEFAULT_BITCOIN_NETWORK_CONFIG } from '../src/constants.js';
+import { BitcoinConnection } from '../src/bitcoin.js';
+import { EsploraProtocol } from '../src/client/rest/protocol.js';
+import { JsonRpcProtocol } from '../src/client/rpc/protocol.js';
+import { HttpExecutor, HttpRequest } from '../src/client/http.js';
 
 /**
- * BitcoinNetworkConnection Test Suite
+ * BitcoinConnection Test Suite
  */
-describe('BitcoinNetworkConnection', () => {
-  const originalEnv = { ...process.env };
+describe('BitcoinConnection', () => {
+  describe('forNetwork()', () => {
+    it('creates a connection with network defaults', () => {
+      const btc = BitcoinConnection.forNetwork('regtest');
+      expect(btc.name).to.equal('regtest');
+      expect(btc.rest).to.exist;
+      expect(btc.rpc).to.exist;
+      expect(btc.data).to.exist;
+    });
 
-  afterEach(() => {
-    Object.assign(process.env, originalEnv);
-    for (const key of Object.keys(process.env)) {
-      if (!(key in originalEnv)) delete (process.env as any)[key];
-    }
+    it('creates a connection with REST overrides', () => {
+      const btc = BitcoinConnection.forNetwork('testnet4', {
+        rest : { host: 'https://custom-mempool/api' }
+      });
+      expect(btc.name).to.equal('testnet4');
+      expect(btc.rest.config.host).to.equal('https://custom-mempool/api');
+      expect(btc.rpc).to.be.undefined;
+    });
+
+    it('creates a connection with RPC overrides on a network without default RPC', () => {
+      const btc = BitcoinConnection.forNetwork('testnet4', {
+        rpc : { host: 'http://mynode:18332', username: 'u', password: 'p' }
+      });
+      expect(btc.rpc).to.exist;
+    });
+
+    it('throws on unknown network', () => {
+      expect(() => BitcoinConnection.forNetwork('unknown' as any)).to.throw('Unknown network');
+    });
+
+    it('forwards executor to REST and RPC clients', () => {
+      const seen: HttpRequest[] = [];
+      const executor: HttpExecutor = async (req) => {
+        seen.push(req);
+        return new Response('{}');
+      };
+
+      const btc = BitcoinConnection.forNetwork('regtest', { executor });
+      expect(btc.rest).to.exist;
+      expect(btc.rpc).to.exist;
+      expect(btc.rest.protocol).to.be.instanceOf(EsploraProtocol);
+    });
   });
 
+  describe('constructor', () => {
+    it('creates a connection with REST and RPC', () => {
+      const btc = new BitcoinConnection({
+        network : 'regtest',
+        rest    : { host: 'http://localhost:3000' },
+        rpc     : { host: 'http://localhost:18443', username: 'u', password: 'p' },
+      });
+      expect(btc.name).to.equal('regtest');
+      expect(btc.rest).to.exist;
+      expect(btc.rpc).to.exist;
+    });
 
-  it('throws an error if process.env.ACTIVE_NETWORK is missing', () => {
-    const originalActiveNetwork = process.env.ACTIVE_NETWORK;
-    process.env.ACTIVE_NETWORK = '';
+    it('creates a connection without RPC', () => {
+      const btc = new BitcoinConnection({
+        network : 'bitcoin',
+        rest    : { host: 'https://mempool.space/api' },
+      });
+      expect(btc.name).to.equal('bitcoin');
+      expect(btc.rpc).to.be.undefined;
+    });
 
-    try {
-      expect(() => new BitcoinNetworkConnection()).to.throw('Missing ACTIVE_NETWORK environment variable');
-    } finally {
-      process.env.ACTIVE_NETWORK = originalActiveNetwork;
-    }
+    it('accepts a custom executor', () => {
+      const executor: HttpExecutor = async () => new Response('{}');
+      const btc = new BitcoinConnection({
+        network : 'regtest',
+        rest    : { host: 'http://localhost:3000' },
+        rpc     : { host: 'http://localhost:18443' },
+        executor,
+      });
+      expect(btc.rest.protocol).to.be.instanceOf(EsploraProtocol);
+      expect(btc.rpc!.client.protocol).to.be.instanceOf(JsonRpcProtocol);
+    });
   });
 
-  it('initializes with provided configs and switches networks', () => {
-    const config = {
-      regtest : {
-        rpc  : { host: 'http://localhost', username: 'u', password: 'p', version: '0.1', allowDefaultWallet: true },
-        rest : { host: 'http://rest' }
-      }
-    } as any;
-    process.env.ACTIVE_NETWORK = 'regtest';
-    const btc = new BitcoinNetworkConnection(config);
-    expect(btc.network.name).to.equal('regtest');
-    btc.setActiveNetwork('regtest');
-    expect(() => btc.setActiveNetwork('unknown')).to.throw('No configuration found for network=\'unknown\'');
-    expect(() => btc.getNetworkConnection('missing')).to.throw('No configuration found for network=\'missing\'');
-    expect(btc.getNetworkConnection('regtest')).to.be.instanceOf(BitcoinNetworkConnection);
-    expect(BitcoinNetworkConnection.btcToSats(1.5)).to.equal(150000000);
-    expect(BitcoinNetworkConnection.satsToBtc(150000000)).to.equal(1.5);
+  describe('protocol layer access', () => {
+    it('exposes EsploraProtocol on rest client', () => {
+      const btc = BitcoinConnection.forNetwork('regtest');
+      const txid = 'a'.repeat(64);
+      const req = btc.rest.protocol.getTx(txid);
+      expect(req.url).to.include(`/tx/${txid}`);
+      expect(req.method).to.equal('GET');
+      expect(req.body).to.be.undefined;
+    });
+
+    it('exposes JsonRpcProtocol on rpc transport', () => {
+      const btc = BitcoinConnection.forNetwork('regtest');
+      const req = btc.rpc!.client.protocol.buildRequest('getblockcount', []);
+      expect(req.method).to.equal('POST');
+      const body = JSON.parse(req.body!);
+      expect(body.method).to.equal('getblockcount');
+      expect(body.jsonrpc).to.equal('2.0');
+    });
   });
 
-  it('validates environment configuration', () => {
-    process.env.BITCOIN_NETWORK_CONFIG = '';
-    try {
-      new BitcoinNetworkConnection();
-      expect.fail('Expected missing config error');
-    } catch (err: any) {
-      expect(err.message).to.include('No BITCOIN_NETWORK_CONFIG');
-    }
+  describe('static helpers', () => {
+    it('converts btc to sats', () => {
+      expect(BitcoinConnection.btcToSats(1.5)).to.equal(150000000);
+      expect(BitcoinConnection.btcToSats(0)).to.equal(0);
+      expect(BitcoinConnection.btcToSats(0.00000001)).to.equal(1);
+      expect(BitcoinConnection.btcToSats(21000000)).to.equal(2100000000000000);
+    });
 
-    process.env.BITCOIN_NETWORK_CONFIG = '{';
-    try {
-      new BitcoinNetworkConnection();
-      expect.fail('Expected parse error');
-    } catch (err: any) {
-      expect(err.message).to.include('Parsing failed');
-    }
+    it('converts btc to sats with precision edge cases', () => {
+      // 0.1 + 0.2 !== 0.3 in floating point, but toFixed(8) handles it
+      expect(BitcoinConnection.btcToSats(0.29999999)).to.equal(29999999);
+      expect(BitcoinConnection.btcToSats(0.1)).to.equal(10000000);
+    });
 
-    process.env.BITCOIN_NETWORK_CONFIG = JSON.stringify({ bitcoin: DEFAULT_BITCOIN_NETWORK_CONFIG.bitcoin });
-    process.env.ACTIVE_NETWORK = 'regtest';
-    try {
-      new BitcoinNetworkConnection();
-      expect.fail('Expected missing active network config');
-    } catch (err: any) {
-      expect(err.message).to.include('No configuration found for ACTIVE_NETWORK');
-    }
+    it('converts sats to btc', () => {
+      expect(BitcoinConnection.satsToBtc(150000000)).to.equal(1.5);
+      expect(BitcoinConnection.satsToBtc(0)).to.equal(0);
+      expect(BitcoinConnection.satsToBtc(1)).to.equal(0.00000001);
+      expect(BitcoinConnection.satsToBtc(2100000000000000)).to.equal(21000000);
+    });
+
+    it('converts sats to btc with precision', () => {
+      expect(BitcoinConnection.satsToBtc(10000001)).to.equal(0.10000001);
+      expect(BitcoinConnection.satsToBtc(99999999)).to.equal(0.99999999);
+    });
+
+    it('handles negative sats in satsToBtc', () => {
+      expect(BitcoinConnection.satsToBtc(-100000000)).to.equal(-1);
+    });
+
+    it('throws RangeError for excessive precision in btcToSats', () => {
+      // A value that loses precision beyond 8 decimal places
+      expect(() => BitcoinConnection.btcToSats(0.000000001)).to.throw(RangeError);
+    });
+  });
+
+  describe('end-to-end with custom executor', () => {
+    it('routes REST calls through the injected executor', async () => {
+      const seen: HttpRequest[] = [];
+      const executor: HttpExecutor = async (req) => {
+        seen.push(req);
+        return new Response(JSON.stringify({ txid: 'mock-txid' }), {
+          status  : 200,
+          headers : { 'Content-Type': 'application/json' },
+        });
+      };
+
+      const txid = 'a'.repeat(64);
+      const btc = BitcoinConnection.forNetwork('regtest', { executor });
+      const tx = await btc.rest.transaction.get(txid);
+      expect(tx).to.deep.equal({ txid: 'mock-txid' });
+      expect(seen).to.have.length(1);
+      expect(seen[0].url).to.include(`/tx/${txid}`);
+    });
+
+    it('routes RPC calls through the injected executor', async () => {
+      const seen: HttpRequest[] = [];
+      const executor: HttpExecutor = async (req) => {
+        seen.push(req);
+        return new Response(JSON.stringify({ result: 12345 }), {
+          status  : 200,
+          headers : { 'Content-Type': 'application/json' },
+        });
+      };
+
+      const btc = BitcoinConnection.forNetwork('regtest', { executor });
+      const count = await btc.rpc!.getBlockCount();
+      expect(count).to.equal(12345);
+      expect(seen).to.have.length(1);
+      const body = JSON.parse(seen[0].body!);
+      expect(body.method).to.equal('getblockcount');
+    });
   });
 });

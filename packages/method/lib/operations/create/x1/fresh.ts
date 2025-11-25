@@ -16,4 +16,4 @@ console.log('did:', did);
 console.log('genesisHex:', genesisHex);
 console.log('genesisBytes:', genesisBytes);
 console.log('genesisDocument:', genesisDocument);
-console.log('keypair:', keypair.json());
+console.log('keypair:', keypair.toJSON());

@@ -97,5 +97,5 @@ export type TzOffset = `${Hours}:${Minutes}`;
 export type DateTimestamp = `${UtcTimestamp}Z` | `${UtcTimestamp}-${TzOffset}`;
 export type CanonicalizableObject = Record<string, any>;
 export type CanonicalizationAlgorithm = 'jcs' | 'rdfc';
-export type CanonicalizationEncoding = 'hex' | 'base58';
+export type CanonicalizationEncoding = 'hex' | 'base58btc' | 'base64url';
 export type UnixTimestamp = number;

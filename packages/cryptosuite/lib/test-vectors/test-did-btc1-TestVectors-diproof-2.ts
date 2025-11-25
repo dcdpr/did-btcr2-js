@@ -46,7 +46,7 @@ console.log('components:', components);
 const publicKey = components.genesisBytes;
 console.log('publicKey:', publicKey);
 const keyPair = new SchnorrKeyPair({ publicKey });
-const publicKeyJson = keyPair.publicKey.json();
+const publicKeyJson = keyPair.publicKey.toJSON();
 console.log('publicKeyJson', publicKeyJson);
 const diProof = SchnorrMultikey.create({ id, controller, keyPair }).toCryptosuite().toDataIntegrityProof();
 const document = Canonicalization.canonicalize(securedDocument);

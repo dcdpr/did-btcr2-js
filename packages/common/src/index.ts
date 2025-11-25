@@ -1,7 +1,6 @@
 export * from './canonicalization.js';
 export * from './constants.js';
 export * from './errors.js';
-export * from './interfaces.js';
 export * from './json-patch.js';
 export * from './logger.js';
 export * from './types.js';

@@ -82,7 +82,10 @@ export enum MethodErrorCode {
   INVALID_UPDATE = 'INVALID_UPDATE',
 
   /** The proof is missing or has a malformed domain field. */
-  INVALID_DOMAIN_ERROR = 'INVALID_DOMAIN_ERROR'
+  INVALID_DOMAIN_ERROR = 'INVALID_DOMAIN_ERROR',
+
+  /** Options required for resolution are missing. */
+  MISSING_RESOLUTION_OPTIONS = 'MISSING_RESOLUTION_OPTIONS'
 }
 
 export const {
@@ -111,7 +114,8 @@ export const {
   INVALID_SIDECAR_DATA,
   MISSING_UPDATE_DATA,
   INVALID_UPDATE,
-  INVALID_DOMAIN_ERROR
+  INVALID_DOMAIN_ERROR,
+  MISSING_RESOLUTION_OPTIONS
 } = MethodErrorCode;
 
 export type ErrorOptions = {

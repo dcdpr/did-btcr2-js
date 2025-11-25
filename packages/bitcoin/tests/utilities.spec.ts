@@ -1,14 +1,10 @@
 import { networks } from 'bitcoinjs-lib';
 import { expect } from 'chai';
+import { defaultHttpExecutor, HttpRequest } from '../src/client/http.js';
 import { safeText, toBase64 } from '../src/client/utils.js';
 import { BitcoinRestError, BitcoinRpcError } from '../src/errors.js';
 import { getNetwork } from '../src/network.js';
-import { BitcoinRpcClientConfig, RestClientConfig } from '../src/types.js';
 
-/**
- * Utilities Tests Suite include utils functions, network mapping, error classes,
- * types and configs.
- */
 describe('Utilities', () => {
   const originalBuffer = global.Buffer;
 
@@ -38,22 +34,78 @@ describe('Utilities', () => {
     expect(() => toBase64('x')).to.throw('No base64 encoder available');
   });
 
-  it('safeText returns text and swallows errors', async () => {
+  it('safeText returns text from a Response', async () => {
     const res = new Response('text');
-    expect(await safeText(res as any)).to.equal('text');
+    expect(await safeText(res)).to.equal('text');
+  });
 
+  it('safeText swallows errors and returns empty string', async () => {
     const throwing = { text: async () => { throw new Error('boom'); } } as any;
     expect(await safeText(throwing)).to.equal('');
   });
 });
 
+describe('defaultHttpExecutor', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('calls global fetch with correct arguments', async () => {
+    const seen: any[] = [];
+    global.fetch = async (url: any, init?: any) => {
+      seen.push({ url, init });
+      return new Response('{}', { status: 200 });
+    };
+
+    const req: HttpRequest = {
+      url     : 'http://example.com/test',
+      method  : 'POST',
+      headers : { 'Content-Type': 'application/json' },
+      body    : '{"a":1}',
+    };
+
+    const res = await defaultHttpExecutor(req);
+    expect(res.status).to.equal(200);
+    expect(seen).to.have.length(1);
+    expect(seen[0].url).to.equal('http://example.com/test');
+    expect(seen[0].init.method).to.equal('POST');
+    expect(seen[0].init.headers['Content-Type']).to.equal('application/json');
+    expect(seen[0].init.body).to.equal('{"a":1}');
+  });
+
+  it('passes undefined body for GET requests', async () => {
+    const seen: any[] = [];
+    global.fetch = async (url: any, init?: any) => {
+      seen.push({ url, init });
+      return new Response('{}', { status: 200 });
+    };
+
+    const req: HttpRequest = {
+      url     : 'http://example.com/test',
+      method  : 'GET',
+      headers : {},
+    };
+
+    await defaultHttpExecutor(req);
+    expect(seen[0].init.body).to.be.undefined;
+  });
+});
+
 describe('Network', () => {
-  it('returns the correct network', () => {
+  it('maps bitcoin to networks.bitcoin', () => {
     expect(getNetwork('bitcoin')).to.equal(networks.bitcoin);
-    expect(getNetwork('testnet4')).to.equal(networks.testnet);
+  });
+
+  it('maps testnet variants to networks.testnet', () => {
     expect(getNetwork('testnet3')).to.equal(networks.testnet);
+    expect(getNetwork('testnet4')).to.equal(networks.testnet);
     expect(getNetwork('signet')).to.equal(networks.testnet);
     expect(getNetwork('mutinynet')).to.equal(networks.testnet);
+  });
+
+  it('maps regtest to networks.regtest', () => {
     expect(getNetwork('regtest')).to.equal(networks.regtest);
   });
 
@@ -63,27 +115,31 @@ describe('Network', () => {
 });
 
 describe('Errors', () => {
-  it('wraps rpc and rest errors', () => {
-    const rpc = new BitcoinRpcError('BITCOIN_RPC_ERROR', 1, 'msg', { a: 1 });
-    expect(rpc.type).to.equal('BITCOIN_RPC_ERROR');
-    expect(rpc.code).to.equal(1);
-    expect(rpc.data).to.deep.equal({ a: 1 });
-    expect(rpc.name).to.equal('BitcoinRpcError');
-
-    const rest = new BitcoinRestError('rest', { foo: 'bar' });
-    expect(rest.data).to.deep.equal({ foo: 'bar' });
-    expect(rest.name).to.equal('BitcoinRestError');
+  it('constructs BitcoinRpcError with all fields', () => {
+    const err = new BitcoinRpcError('RPC_ERROR', 1, 'msg', { a: 1 });
+    expect(err.type).to.equal('RPC_ERROR');
+    expect(err.code).to.equal(1);
+    expect(err.message).to.equal('msg');
+    expect(err.data).to.deep.equal({ a: 1 });
+    expect(err.name).to.equal('BitcoinRpcError');
+    expect(err).to.be.instanceOf(Error);
   });
-});
 
+  it('constructs BitcoinRpcError without data', () => {
+    const err = new BitcoinRpcError('UNKNOWN_ERROR', 0, 'no data');
+    expect(err.data).to.be.undefined;
+  });
 
-describe('Types and configs', () => {
-  it('wraps rest and rpc configs', () => {
-    const restCfg = new RestClientConfig({ host: 'http://rest', headers: { A: 'b' } });
-    expect(restCfg.host).to.equal('http://rest');
-    expect(restCfg.headers!.A).to.equal('b');
+  it('constructs BitcoinRestError with all fields', () => {
+    const err = new BitcoinRestError('rest error', { foo: 'bar' });
+    expect(err.message).to.equal('rest error');
+    expect(err.data).to.deep.equal({ foo: 'bar' });
+    expect(err.name).to.equal('BitcoinRestError');
+    expect(err).to.be.instanceOf(Error);
+  });
 
-    const rpcCfg = new BitcoinRpcClientConfig({ host: 'http://rpc' });
-    expect((rpcCfg as any).host).to.equal('http://rpc');
+  it('constructs BitcoinRestError without data', () => {
+    const err = new BitcoinRestError('no data');
+    expect(err.data).to.be.undefined;
   });
 });
