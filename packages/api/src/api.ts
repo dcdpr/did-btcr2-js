@@ -25,8 +25,8 @@ import type {
   SignatureBytes
 } from '@did-btcr2/common';
 import { DEFAULT_BLOCK_CONFIRMATIONS, DEFAULT_REST_CONFIG, DEFAULT_RPC_CONFIG, IdentifierTypes } from '@did-btcr2/common';
-import type { MultikeyObject } from '@did-btcr2/cryptosuite';
-import { Cryptosuite as SchnorrCryptosuite, SchnorrMultikey } from '@did-btcr2/cryptosuite';
+import type { MultikeyObject, VerificationResult, AddProofParams, VerifyProofParams } from '@did-btcr2/cryptosuite';
+import { Cryptosuite as SchnorrCryptosuite, DataIntegrityProof, SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { Kms, type KeyManager } from '@did-btcr2/kms';
 import type { DidCreateOptions, DidResolutionOptions, SignalsMetadata, UpdateParams } from '@did-btcr2/method';
@@ -108,25 +108,85 @@ export class KeyPairApi {
  * @type {CryptosuiteApi}
  */
 export class CryptosuiteApi {
+  /**
+   * Create a new Schnorr cryptosuite.
+   * @param {CryptosuiteName} type The type of cryptosuite to create.
+   * @param {SchnorrMultikey} multikey The Schnorr multikey to use.
+   * @returns {SchnorrCryptosuite} The created Schnorr cryptosuite.
+   */
   create(type: CryptosuiteName, multikey: SchnorrMultikey): SchnorrCryptosuite {
     return new SchnorrCryptosuite({ cryptosuite: type, multikey });
   }
 
-  toDataIntegrityProof(cs: SchnorrCryptosuite): JSONObject {
-    return cs.toDataIntegrityProof();
+  /**
+   * Convert a Schnorr cryptosuite to a Data Integrity Proof JSON object.
+   * @param {SchnorrCryptosuite} cryptosuite The Schnorr cryptosuite to convert.
+   * @returns {JSONObject} The Data Integrity Proof JSON object.
+   */
+  toDataIntegrityProof(cryptosuite: SchnorrCryptosuite): JSONObject {
+    return cryptosuite.toDataIntegrityProof();
   }
 
+  /**
+   * Create a proof for a document using the given Schnorr cryptosuite.s
+   * @param {SchnorrCryptosuite} cryptosuite The Schnorr cryptosuite to use.
+   * @param {DidUpdatePayload} document The document to create a proof for.
+   * @param {ProofOptions} options The proof options.
+   * @returns {Promise<Proof>} The created proof.
+   */
   async createProof(
-    cs: SchnorrCryptosuite,
+    cryptosuite: SchnorrCryptosuite,
     document: DidUpdatePayload,
     options: ProofOptions
   ): Promise<Proof> {
-    return await cs.createProof({ document, options });
+    return await cryptosuite.createProof({ document, options });
   }
 
-  async verifyProof(cs: SchnorrCryptosuite, document: DidUpdateInvocation): Promise<boolean> {
-    const result = await cs.verifyProof(document);
+  /**
+   * Verify a proof for a document using the given Schnorr cryptosuite.
+   * @param {SchnorrCryptosuite} cryptosuite The Schnorr cryptosuite to use.
+   * @param {DidUpdateInvocation} document The document to verify the proof for.
+   * @returns {Promise<boolean>} Whether the proof is valid.
+   */
+  async verifyProof(cryptosuite: SchnorrCryptosuite, document: DidUpdateInvocation): Promise<boolean> {
+    const result = await cryptosuite.verifyProof(document);
     return result.verified;
+  }
+}
+
+/**
+ * Data Integrity Proof API sub-facade for various proof operations.
+ * @class DataIntegrityProofApi
+ * @type {DataIntegrityProofApi}
+ */
+export class DataIntegrityProofApi {
+  /**
+   * Create a DataIntegrityProof instance with the given cryptosuite.
+   * @param {SchnorrCryptosuite} cryptosuite The cryptosuite to use for proof operations.
+   * @returns {DataIntegrityProof} The created DataIntegrityProof instance.
+   */
+  create(cryptosuite: SchnorrCryptosuite): DataIntegrityProof {
+    return new DataIntegrityProof(cryptosuite);
+  }
+
+  /**
+   * Add a proof to a document using the given DataIntegrityProof instance.
+   * @param {DataIntegrityProof} proof The DataIntegrityProof instance to use.
+   * @param {AddProofParams} params Parameters for adding a proof to a document.
+   * @returns {Promise<DidUpdateInvocation>} A document with a proof added.
+   */
+  async addProof(proof: DataIntegrityProof, params: AddProofParams): Promise<DidUpdateInvocation> {
+    return await proof.addProof(params);
+  }
+
+  /**
+   * Verify a proof using the given DataIntegrityProof instance.
+   * @param {DataIntegrityProof} proof The DataIntegrityProof instance to use.
+   * @param {VerifyProofParams} params Parameters for verifying a proof.
+   * @returns {Promise<VerificationResult>} The result of verifying the proof.
+   */
+  async verifyProof(proof: DataIntegrityProof, params: VerifyProofParams): Promise<VerificationResult> {
+    return await proof.verifyProof(params);
   }
 }
 
@@ -177,6 +237,9 @@ export class CryptoApi {
 
   /** Schnorr Cryptosuite operations. */
   public cryptosuite = new CryptosuiteApi();
+
+  /** Data Integrity Proof operations. */
+  public proof = new DataIntegrityProofApi();
 }
 
 /**
