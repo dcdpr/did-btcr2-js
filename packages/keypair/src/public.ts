@@ -126,10 +126,10 @@ export interface PublicKey {
  */
 export class CompressedSecp256k1PublicKey implements PublicKey {
   /** @type {KeyBytes} The public key bytes */
-  private readonly _bytes: KeyBytes;
+  readonly #bytes: KeyBytes;
 
   /** @type {MultibaseObject} The public key as a MultibaseObject */
-  private _multibase: MultibaseObject = {
+  readonly #multibase: MultibaseObject = {
     prefix  : BIP340_PUBLIC_KEY_MULTIBASE_PREFIX,
     key     : [],
     encoded : ''
@@ -137,31 +137,35 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
 
   /**
    * Creates a CompressedSecp256k1PublicKey instance.
-   * @param {KeyBytes} bytes The public key byte array.
+   * @param {Hex} pk The public key byte array.
    * @throws {PublicKeyError} if the byte length is not 32 (x-only) or 33 (compressed)
    */
-  constructor(bytes: KeyBytes) {
+  constructor(pk: Hex) {
+    pk = pk instanceof Uint8Array
+      ? pk
+      : Buffer.fromHex(pk);
+
     // If the byte length is not 33, throw an error
-    if(!bytes || bytes.length !== 33) {
+    if(!pk || pk.length !== 33) {
       throw new PublicKeyError(
         'Invalid argument: byte length must be 33 (compressed)',
-        'CONSTRUCTOR_ERROR', { bytes }
+        'CONSTRUCTOR_ERROR', { pk }
       );
     }
 
     // Validate the point is on curve and in compressed form
-    if (!tinysecp.isPoint(bytes)) {
+    if (!tinysecp.isPoint(pk)) {
       throw new PublicKeyError(
-        'Invalid argument: bytes are not a valid secp256k1 compressed point',
-        'CONSTRUCTOR_ERROR', { bytes }
+        'Invalid argument: not a valid secp256k1 compressed point',
+        'CONSTRUCTOR_ERROR', { pk }
       );
     }
     // Set the bytes
-    this._bytes = bytes;
+    this.#bytes = pk;
 
     // Set multibase
-    this._multibase.encoded = this.encode();
-    this._multibase.key = [...this._multibase.prefix, ...this.compressed];
+    this.#multibase.encoded = this.encode();
+    this.#multibase.key = [...this.#multibase.prefix, ...this.compressed];
   }
 
   /**
@@ -169,7 +173,7 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
    * @returns {KeyBytes} The 33-byte compressed public key (0x02 or 0x03, x).
    */
   get compressed(): KeyBytes {
-    const bytes = new Uint8Array(this._bytes);
+    const bytes = new Uint8Array(this.#bytes);
     return bytes;
   };
 
@@ -237,7 +241,7 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
    * @returns {MultibaseObject} An object containing the multibase bytes, address and prefix.
    */
   get multibase(): MultibaseObject {
-    const multibase = this._multibase;
+    const multibase = this.#multibase;
     return multibase;
   }
 
