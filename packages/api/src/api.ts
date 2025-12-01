@@ -25,9 +25,9 @@ import type {
   SignatureBytes
 } from '@did-btcr2/common';
 import { DEFAULT_BLOCK_CONFIRMATIONS, DEFAULT_REST_CONFIG, DEFAULT_RPC_CONFIG, IdentifierTypes } from '@did-btcr2/common';
-import type { MultikeyObject, VerificationResult, AddProofParams, VerifyProofParams } from '@did-btcr2/cryptosuite';
-import { Cryptosuite as SchnorrCryptosuite, DataIntegrityProof, SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import { SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
+import type { AddProofParams, MultikeyObject, VerificationResult, VerifyProofParams } from '@did-btcr2/cryptosuite';
+import { DataIntegrityProof, Cryptosuite as SchnorrCryptosuite, SchnorrMultikey } from '@did-btcr2/cryptosuite';
+import { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { Kms, type KeyManager } from '@did-btcr2/kms';
 import type { DidCreateOptions, DidResolutionOptions, SignalsMetadata, UpdateParams } from '@did-btcr2/method';
 import { DidBtcr2, DidDocument, DidDocumentBuilder, Identifier } from '@did-btcr2/method';
@@ -80,9 +80,24 @@ export type BitcoinApiConfig = {
  * API configuration options.
  */
 export type ApiConfig = {
-  bitcoin?: BitcoinApiConfig;
+  btc?: BitcoinApiConfig;
   kms?: KeyManager;
 };
+
+
+export class Secp256k1SecretKeyApi {
+  /** Import from secret key bytes or bigint. */
+  fromSecret(ent: Entropy): Secp256k1SecretKey {
+    return new Secp256k1SecretKey(ent);
+  }
+}
+
+export class CompressedSecp256k1PublicKeyApi {
+  /** Import from public key bytes or hex string. */
+  fromBytes(byt: Bytes): CompressedSecp256k1PublicKey {
+    return new CompressedSecp256k1PublicKey(byt);
+  }
+}
 
 /**
  * KeyPair sub-facade for various Schnorr keypair operations.
@@ -90,6 +105,9 @@ export type ApiConfig = {
  * @type {KeyPairApi}
  */
 export class KeyPairApi {
+  public s256k1secret = new Secp256k1SecretKeyApi();
+  public s256k1public = new CompressedSecp256k1PublicKeyApi();
+
   /** Generate a new Schnorr keypair (secp256k1). */
   generate(): SchnorrKeyPair {
     return new SchnorrKeyPair();
@@ -476,17 +494,18 @@ export class DidMethodApi {
  */
 export class DidBtcr2Api {
   readonly btc: BitcoinApi;
+  readonly kms: KeyManagerApi;
   readonly did: DidApi;
+
   readonly btcr2: DidMethodApi;
   readonly crypto: CryptoApi;
-  readonly kms: KeyManagerApi;
 
   constructor(config?: ApiConfig) {
-    this.btc = new BitcoinApi(config?.bitcoin);
+    this.btc = new BitcoinApi(config?.btc);
+    this.kms = new KeyManagerApi(config?.kms);
     this.did = new DidApi();
     this.btcr2 = new DidMethodApi();
     this.crypto = new CryptoApi();
-    this.kms = new KeyManagerApi(config?.kms);
   }
 }
 
