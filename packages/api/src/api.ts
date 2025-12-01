@@ -9,6 +9,8 @@ import {
 import type {
   Bytes,
   CryptosuiteName,
+  DidUpdateInvocation,
+  DidUpdatePayload,
   DocumentBytes,
   Entropy,
   HashBytes,
@@ -16,13 +18,15 @@ import type {
   JSONObject,
   KeyBytes,
   PatchOperation,
+  Proof,
   ProofBytes,
+  ProofOptions,
   SchnorrKeyPairObject,
   SignatureBytes
 } from '@did-btcr2/common';
 import { DEFAULT_BLOCK_CONFIRMATIONS, DEFAULT_REST_CONFIG, DEFAULT_RPC_CONFIG, IdentifierTypes } from '@did-btcr2/common';
 import type { MultikeyObject } from '@did-btcr2/cryptosuite';
-import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
+import { Cryptosuite as SchnorrCryptosuite, SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { Kms, type KeyManager } from '@did-btcr2/kms';
 import type { DidCreateOptions, DidResolutionOptions, SignalsMetadata, UpdateParams } from '@did-btcr2/method';
@@ -99,6 +103,34 @@ export class KeyPairApi {
 }
 
 /**
+ * Cryptosuite API sub-facade for various cryptosuite operations.
+ * @class CryptosuiteApi
+ * @type {CryptosuiteApi}
+ */
+export class CryptosuiteApi {
+  create(type: CryptosuiteName, multikey: SchnorrMultikey): SchnorrCryptosuite {
+    return new SchnorrCryptosuite({ cryptosuite: type, multikey });
+  }
+
+  toDataIntegrityProof(cs: SchnorrCryptosuite): JSONObject {
+    return cs.toDataIntegrityProof();
+  }
+
+  async createProof(
+    cs: SchnorrCryptosuite,
+    document: DidUpdatePayload,
+    options: ProofOptions
+  ): Promise<Proof> {
+    return await cs.createProof({ document, options });
+  }
+
+  async verifyProof(cs: SchnorrCryptosuite, document: DidUpdateInvocation): Promise<boolean> {
+    const result = await cs.verifyProof(document);
+    return result.verified;
+  }
+}
+
+/**
  * Multikey API sub-facade for various Schnorr multikey operations.
  * @class MultikeyApi
  * @type {MultikeyApi}
@@ -133,15 +165,24 @@ export class MultikeyApi {
 
 /**
  * Crypto API sub-facade for various cryptographic utilities.
+ * @class CryptoApi
+ * @type {CryptoApi}
  */
-// TODO: expand with more cryptographic utilities as needed
 export class CryptoApi {
-  public keyPairApi = new KeyPairApi();
-  public multikeyApi = new MultikeyApi();
+  /** Schnorr keypair operations. */
+  public keypair = new KeyPairApi();
+
+  /** Schnorr Multikey operations. */
+  public multikey = new MultikeyApi();
+
+  /** Schnorr Cryptosuite operations. */
+  public cryptosuite = new CryptosuiteApi();
 }
 
 /**
  * Bitcoin API sub-facade for various Bitcoin network operations.
+ * @class BitcoinApi
+ * @type {BitcoinApi}
  */
 export class BitcoinApi {
   readonly rest: BitcoinRestClient;
@@ -391,7 +432,6 @@ export class DidBtcr2Api {
  * @param {ApiConfig} config Optional API configuration.
  * @returns {DidBtcr2Api} The created DidBtcr2Api instance.
  */
-
 export function createApi(config?: ApiConfig): DidBtcr2Api {
   return new DidBtcr2Api(config);
 }
