@@ -79,13 +79,13 @@ export interface SecretKey {
  */
 export class Secp256k1SecretKey implements SecretKey {
   /** @type {KeyBytes} The entropy for the secret key as a byte array */
-  private _bytes?: KeyBytes;
+  readonly #bytes?: KeyBytes;
 
   /** @type {bigint} The entropy for the secret key as a bigint */
-  private _seed?: bigint;
+  readonly #seed?: bigint;
 
   /** @type {string} The secret key as a secretKeyMultibase */
-  private _multibase: string;
+  readonly #multibase: string;
 
   /**
    * Instantiates an instance of Secp256k1SecretKey.
@@ -105,24 +105,24 @@ export class Secp256k1SecretKey implements SecretKey {
 
     // If bytes and bytes are not length 32
     if (isBytes && entropy.length === 32) {
-      this._bytes = entropy;
-      this._seed = Secp256k1SecretKey.toSecret(entropy);
+      this.#bytes = entropy;
+      this.#seed = Secp256k1SecretKey.toSecret(entropy);
     }
 
     // If secret and secret is not a valid bigint, throw error
     if (isSecret && !(entropy < 1n || entropy >= CURVE.n)) {
-      this._bytes = Secp256k1SecretKey.toBytes(entropy);
-      this._seed = entropy;
+      this.#bytes = Secp256k1SecretKey.toBytes(entropy);
+      this.#seed = entropy;
     }
 
-    if(!this._bytes || this._bytes.length !== 32) {
+    if(!this.#bytes || this.#bytes.length !== 32) {
       throw new SecretKeyError(
         'Invalid bytes: must be a valid 32-byte secret key',
         'CONSTRUCTOR_ERROR'
       );
     }
 
-    if(!this._seed || (this._seed < 1n || this._seed >= CURVE.n)) {
+    if(!this.#seed || (this.#seed < 1n || this.#seed >= CURVE.n)) {
       throw new SecretKeyError(
         'Invalid seed: must must be valid bigint',
         'CONSTRUCTOR_ERROR'
@@ -130,7 +130,7 @@ export class Secp256k1SecretKey implements SecretKey {
     }
 
     // Set the secret key multibase
-    this._multibase = this.encode();
+    this.#multibase = this.encode();
   }
 
   /**
@@ -139,7 +139,7 @@ export class Secp256k1SecretKey implements SecretKey {
    */
   get bytes(): Uint8Array {
     // Return a copy of the secret key bytes
-    const bytes = new Uint8Array(this._bytes!);
+    const bytes = new Uint8Array(this.#bytes!);
     return bytes;
   }
 
@@ -149,7 +149,7 @@ export class Secp256k1SecretKey implements SecretKey {
    */
   get seed(): bigint {
     // Memoize the secret and return
-    const seed = BigInt(this._seed!) as bigint;
+    const seed = BigInt(this.#seed!) as bigint;
     return seed;
   }
 
@@ -168,7 +168,7 @@ export class Secp256k1SecretKey implements SecretKey {
    * @returns {string} The secret key in base58btc multibase format
    */
   get multibase(): string {
-    const multibase = this._multibase;
+    const multibase = this.#multibase;
     return multibase;
   }
 
