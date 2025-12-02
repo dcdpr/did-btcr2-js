@@ -7,19 +7,19 @@ export const GENESIS_TX_ID = '4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2
 export const DEFAULT_BITCOIN_NETWORK_CONFIG = {
   bitcoin : {
     rpc  : undefined,
-    rest : { host: 'https://mempool.holdings/api' }
+    rest : { host: 'https://mempool.space/api' }
   },
   testnet3 : {
     rpc  : undefined,
-    rest : { host: 'https://mempool.holdings/testnet/api' }
+    rest : { host: 'https://mempool.space/testnet/api' }
   },
   testnet4 : {
     rpc  : undefined,
-    rest : { host: 'https://mempool.holdings/testnet4/api' }
+    rest : { host: 'https://mempool.space/testnet4/api' }
   },
   signet  : {
     rpc  : undefined,
-    rest : { host: 'https://mempool.holdings/signet/api' }
+    rest : { host: 'https://mempool.space/signet/api' }
   },
   mutinynet : {
     rpc  : undefined,
