@@ -14,17 +14,13 @@ describe('Resolve Deterministic', () => {
     ['testnet4', 'did:btcr2:k1qspkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5dsdczneh']
   ];
 
-
   it('should resolve each deterministic key identifier to its correponding did document',
     async () => {
-      await Promise.all(
-        deterministicDIDs.map(
-          async ([network, did]) => {
-            const result = await DidBtcr2.resolve(did, { network });
-            expect(result).to.have.property('didDocument');
-            expect(result).to.have.property('didResolutionMetadata');
-            expect(result).to.have.property('didDocumentMetadata');
-          })
-      );
+      for(let [network, did] of deterministicDIDs) {
+        const result = await DidBtcr2.resolve(did, { network });
+        expect(result).to.have.property('didDocument');
+        expect(result).to.have.property('didResolutionMetadata');
+        expect(result).to.have.property('didDocumentMetadata');
+      }
     });
 });
