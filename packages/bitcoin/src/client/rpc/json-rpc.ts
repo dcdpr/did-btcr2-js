@@ -16,7 +16,6 @@ export class JsonRpcTransport {
         const u = new URL(this.url);
         if (u.username || u.password) {
           this.authHeader = `Basic ${toBase64(`${decodeURIComponent(u.username)}:${decodeURIComponent(u.password)}`)}`;
-          // strip creds from URL if they were embedded
           u.username = ''; u.password = '';
           this.url = u.toString().replace(/\/+$/, '');
         }

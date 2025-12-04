@@ -56,3 +56,10 @@ export interface BitcoinRpcClient {
 
     signMessage(address: string, message: string): Promise<string>;
 }
+
+export function isBitcoinRpcClient(obj: any): obj is BitcoinRpcClient {
+  return obj &&
+    typeof obj.getBlockCount === 'function' &&
+    typeof obj.getBlockHash === 'function' &&
+    typeof obj.getBlockchainInfo === 'function';
+}

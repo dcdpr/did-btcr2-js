@@ -1,7 +1,8 @@
-import { Bitcoin } from '../../src/bitcoin/index.js';
-import { BlockV3 } from '../../method/src/index.js';
+import { BitcoinNetworkConnection } from "../src/bitcoin.js";
+import { BlockV3 } from "../src/types.js";
 
-const bitcoin = new Bitcoin();
-const height = await bitcoin.active.rpc.getBlockCount();
-const block = await bitcoin.active.rpc.getBlock({ height }) as BlockV3;
+
+const bitcoin = new BitcoinNetworkConnection({ });
+const height = await bitcoin.network.rpc!.getBlockCount();
+const block = await bitcoin.network.rpc!.getBlock({ height }) as BlockV3;
 console.log(`block #${height}`, block);

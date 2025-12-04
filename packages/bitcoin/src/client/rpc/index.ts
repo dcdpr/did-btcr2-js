@@ -36,8 +36,26 @@ import { JsonRpcTransport } from './json-rpc.js';
  * @implements {BitcoinRpcClient}
  */
 export class BitcoinCoreRpcClient implements BitcoinRpcClient {
-  private _transport: JsonRpcTransport;
-  private _config: RpcClientConfig;
+  /**
+   * The singleton instance of the BitcoinCoreRpcClient.
+   * @type {BitcoinCoreRpcClient}
+   * @private
+   */
+  static #instance: BitcoinCoreRpcClient;
+
+  /**
+   * The JSON-RPC transport layer.
+   * @type {JsonRpcTransport}
+   * @private
+   */
+  readonly #transport: JsonRpcTransport;
+
+  /**
+   * The configuration for the RPC client.
+   * @type {RpcClientConfig}
+   * @private
+   */
+  readonly #config: RpcClientConfig;
 
   /**
    * Constructs a new {@link BitcoinCoreRpcClient} instance from a new {@link RpcClient | RpcClient}.
@@ -49,8 +67,8 @@ export class BitcoinCoreRpcClient implements BitcoinRpcClient {
    * ```
    */
   constructor(config: RpcClientConfig) {
-    this._config = new BitcoinRpcClientConfig(config);
-    this._transport = new JsonRpcTransport(this._config);
+    this.#config = new BitcoinRpcClientConfig(config);
+    this.#transport = new JsonRpcTransport(this.#config);
   }
 
   /**
@@ -64,7 +82,7 @@ export class BitcoinCoreRpcClient implements BitcoinRpcClient {
    * ```
    */
   get config(): BitcoinRpcClientConfig {
-    const config = this._config;
+    const config = this.#config;
     return config;
   }
 
@@ -78,12 +96,12 @@ export class BitcoinCoreRpcClient implements BitcoinRpcClient {
    * ```
    */
   get client(): JsonRpcTransport {
-    const client = this._transport;
+    const client = this.#transport;
     return client;
   }
 
   /**
-   * Static method initializes a new BitcoinCoreRpcClient client with the given configuration.
+   * Static method initializes a static instance of BitcoinCoreRpcClient with the given configuration.
    * The RpcClient returned by this method does not have any named methods.
    * Use this method to create and pass a new RpcClient instance to a BitcoinCoreRpcClient constructor.
    *
@@ -100,8 +118,10 @@ export class BitcoinCoreRpcClient implements BitcoinRpcClient {
    * const alice = BitcoinCoreRpcClient.initialize(options); // Client config required
    * ```
    */
-  public static initialize(config?: RpcClientConfig): BitcoinRpcClientConfig {
-    return BitcoinRpcClientConfig.initialize(config);
+  public static initialize(config?: RpcClientConfig): BitcoinCoreRpcClient {
+    const cfg = new BitcoinRpcClientConfig(config);
+    BitcoinCoreRpcClient.#instance = new BitcoinCoreRpcClient(cfg);
+    return BitcoinCoreRpcClient.#instance;
   }
 
   /**
@@ -141,9 +161,7 @@ export class BitcoinCoreRpcClient implements BitcoinRpcClient {
    */
   private async executeRpc<T>(method: MethodNameInLowerCase, parameters: Array<any> = []): Promise<T> {
     try {
-      // raw call
       const raw = await this.client.command([{ method, parameters }] as BatchOption[]);
-      // normalization/unwrapping, if needed
       const normalized = JSON.unprototyped(raw) ? JSON.normalize(raw) : raw;
       const result = Array.isArray(normalized)
         ? normalized[normalized.length - 1]
@@ -155,6 +173,36 @@ export class BitcoinCoreRpcClient implements BitcoinRpcClient {
   }
 
   /**
+   *
+   * Map JSON-RPC error codes to HTTP status codes.
+   * @param {number | undefined} code The JSON-RPC error code.
+   * @returns {number} The corresponding HTTP status code.
+   *
+   * | Error type                     | HTTP code           |
+   * | -------------------------------| --------------------|
+   * | Valid JSON-RPC failure         | **400 / 404 / 422** |
+   * | JSON-RPC authentication issues | **401 / 403**       |
+   * | Upstream bitcoind unreachable  | **502**             |
+   * | Upstream timeout               | **504**             |
+   * | Network transient errors       | **503**             |
+   * | Unknown unexpected errors      | **500**             |
+   */
+  private mapRpcCodeToHttp(code?: number): number {
+    switch (code) {
+      case -32700:
+      case -32600:
+      case -32602:
+        return 400;
+
+      case -32601:
+        return 404;
+
+      default:
+        return 422;
+    }
+  }
+
+  /**
    * Handle errors that occur while executing commands.
    * @param methods An array of {@link BatchOption} objects.
    * @param error The error that was thrown.
@@ -162,26 +210,17 @@ export class BitcoinCoreRpcClient implements BitcoinRpcClient {
    */
   private handleError(err: unknown, method: string, params: any[]): never {
     if (this.isJsonRpcError(err)) {
-      // a bitcoind JSON‑RPC error
       throw new BitcoinRpcError(
-        err.code!,
+        err.name.toUpperCase(),
+        this.mapRpcCodeToHttp(err.code),
         `RPC ${method} failed: ${err.message}`,
         { method, params }
       );
     }
 
-    if (err instanceof Error) {
-      // network, HTTP, or unexpected client error
-      throw new BitcoinRpcError(
-        'NETWORK_ERROR',
-        `Network error in ${method}: ${err.message}`,
-        { method, params, original: err }
-      );
-    }
-
-    // absolutely unknown
     throw new BitcoinRpcError(
       'UNKNOWN_ERROR',
+      500,
       `Unknown failure in ${method}`,
       { method, params, err }
     );
@@ -199,7 +238,7 @@ export class BitcoinCoreRpcClient implements BitcoinRpcClient {
   public async getBlock({ blockhash, height, verbosity }: GetBlockParams): Promise<BlockResponse | undefined> {
     // Check if blockhash or height is provided, if neither throw an error
     if(!blockhash && height === undefined) {
-      throw new BitcoinRpcError('blockhash or height required', 'INVALID_PARAMS_GET_BLOCK', { blockhash, height });
+      throw new BitcoinRpcError('INVALID_PARAMS_GET_BLOCK', 400, 'blockhash or height required', { blockhash, height });
     }
 
     // If height is provided, get the blockhash
@@ -274,7 +313,6 @@ export class BitcoinCoreRpcClient implements BitcoinRpcClient {
     maxfeerate?: number | string,
     maxBurnAmount?: number | string
   ): Promise<string> {
-    console.log('sendRawTransaction', { hexstring, maxfeerate, maxBurnAmount });
     return await this.executeRpc<string>('sendrawtransaction', [hexstring, maxfeerate ?? 0.10, maxBurnAmount ?? 0.00]);
   }
 
@@ -302,7 +340,9 @@ export class BitcoinCoreRpcClient implements BitcoinRpcClient {
   }
 
   /**
-   * TODO: Comments
+   * Returns up to 'count' most recent transactions skipping the first 'from' transactions for account 'label'.
+   * @param {ListTransactionsParams} params The parameters for the listTransactions command.
+   * @returns {Promise<ListTransactionsResult>} A promise resolving to a {@link ListTransactionsResult} object.
    */
   public async listTransactions(params: ListTransactionsParams): Promise<ListTransactionsResult> {
     return await this.executeRpc('listtransactions', [params]);

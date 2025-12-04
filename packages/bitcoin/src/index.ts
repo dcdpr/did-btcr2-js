@@ -10,5 +10,4 @@ export * from './client/utils.js';
 export * from './constants.js';
 export * from './errors.js';
 export * from './network.js';
-export * from './taproot.js';
 export * from './types.js';
