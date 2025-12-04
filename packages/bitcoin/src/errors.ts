@@ -2,10 +2,12 @@
  * Custom Error class for handling Bitcoin RPC errors.
  */
 export class BitcoinRpcError extends Error {
-  public readonly code: number | string;
+  public readonly type: string;
+  public readonly code: number;
   public readonly data?: any;
-  constructor(code: number | string, message: string, data?: any) {
+  constructor(type: string, code: number, message: string, data?: any) {
     super(message);
+    this.type = type;
     this.code = code;
     this.data = data;
     this.name = 'BitcoinRpcError';

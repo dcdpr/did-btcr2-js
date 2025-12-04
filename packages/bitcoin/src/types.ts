@@ -165,10 +165,6 @@ export class BitcoinRpcClientConfig implements RpcClientConfig {
     this.wallet = options.wallet;
     this.allowDefaultWallet = options.allowDefaultWallet;
   }
-
-  public static initialize(options?: RpcClientConfig): RpcClientConfig {
-    return new BitcoinRpcClientConfig(options);
-  }
 }
 
 export interface ClientConstructorOption {
