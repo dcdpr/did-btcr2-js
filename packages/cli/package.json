@@ -1,13 +1,13 @@
 {
   "name": "@did-btcr2/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "CLI for interacting with did-btcr2-js, the JavaScript/TypeScript reference implementation of the did:btcr2 method. Exposes various parts of multiple packages in the did-btcr2-js monorepo.",
   "main": "./dist/cjs/index.js",
   "module": "./dist/esm/index.js",
   "types": "./dist/types/index.d.ts",
   "bin": {
-    "btcr2": "./dist/esm/cli.js"
+    "btcr2": "./dist/esm/bin.js"
   },
   "exports": {
     ".": {
@@ -56,28 +56,23 @@
     "cli"
   ],
   "scripts": {
-    "clean": "rimraf dist coverage tests/compiled",
-    "wipe": "rimraf node_modules pnpm-lock.json",
-    "wipe:clean": "pnpm wipe && pnpm clean",
-    "wipe:install": "pnpm wipe && pnpm install",
-    "clean:install": "pnpm clean && pnpm install",
-    "wipe:clean:install": "pnpm wipe:clean && pnpm install",
-    "reinstall": "pnpm install --force",
-    "build": "pnpm clean && pnpm build:esm && pnpm build:cjs",
-    "build:esm": "rimraf dist/esm dist/types && pnpm tsc -p tsconfig.json",
-    "build:cjs": "rimraf dist/cjs && tsc -p tsconfig.cjs.json && echo '{\"type\": \"commonjs\"}' > ./dist/cjs/package.json",
-    "build:tests": "pnpm tsc -p tests/tsconfig.json",
-    "build:all": "pnpm build && pnpm build:tests",
-    "release": "pnpm build && pnpm pack && mv *.tgz ../../release/cli",
-    "lint": "eslint . --max-warnings 0",
-    "lint:fix": "eslint . --fix",
-    "test": "pnpm c8 --omit-relative mocha",
-    "build:test": "pnpm build && pnpm build:tests && pnpm c8 --omit-relative mocha",
-    "build:lint:test": "pnpm build && pnpm build:tests && pnpm lint:fix",
-    "prepublish": "pnpm build",
-    "version": "pnpm version",
-    "version:no-git": "pnpm version --no-commit-hooks --no-git-tag-version",
-    "version:new": "[ -z \"$NEW_VERSION\" ] && echo 'ERROR: NEW_VERSION is not set' && exit 1 || (git checkout -b $NEW_VERSION && git tag $NEW_VERSION && pnpm version:no-git $NEW_VERSION)"
+     "clean:build": "rimraf dist",
+        "clean:tests": "rimraf coverage tests/compiled",
+        "clean:deps": "rimraf node_modules pnpm-lock.json",
+        "clean": "pnpm clean:build && pnpm clean:tests",
+        "wipe": "pnpm clean && pnpm clean:deps",
+        "reinstall": "pnpm install --force",
+        "build": "pnpm clean:build && pnpm build:esm && pnpm build:cjs",
+        "build:esm": "rimraf dist/esm dist/types && pnpm tsc -p tsconfig.json",
+        "build:cjs": "rimraf dist/cjs && tsc -p tsconfig.cjs.json && echo '{\"type\": \"commonjs\"}' > ./dist/cjs/package.json",
+        "build:tests": "pnpm clean:tests && pnpm tsc -p tests/tsconfig.json",
+        "build:all": "pnpm build && pnpm build:tests",
+        "lint": "eslint . --max-warnings 0",
+        "lint:fix": "eslint . --fix",
+        "test": "pnpm c8 mocha",
+        "build:test": "pnpm build && pnpm build:tests && pnpm c8 mocha",
+        "build:lint": "pnpm build && pnpm build:tests && pnpm lint:fix",
+        "prepublish": "pnpm build"
   },
   "dependencies": {
     "@did-btcr2/common": "workspace:*",

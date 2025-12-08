@@ -220,6 +220,7 @@ export class DidBtcr2Cli {
    * Parse and run the CLI.
    */
   public run(argv?: string[]): void {
+    console.log('process.argv:', process.argv);
     if (argv) {
       this.CLI.parse(argv, { from: 'user' });
     } else {
@@ -233,6 +234,3 @@ export class DidBtcr2Cli {
     }
   }
 }
-
-
-export default new DidBtcr2Cli().run();

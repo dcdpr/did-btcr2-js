@@ -15,5 +15,8 @@
   "reporter": [
     "cobertura",
     "text"
-  ]
+  ],
+  "omit-relative": true,
+  "cwd": "./",
+  "report-dir": "./coverage"
 }
