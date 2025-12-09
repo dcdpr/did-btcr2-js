@@ -1,17 +1,8 @@
-import { DidMethodError } from '@did-btcr2/common';
 import { Identifier } from '@did-btcr2/method';
 import { Command } from 'commander';
 import { readFile } from 'fs/promises';
 import Btcr2Command from './command.js';
-
-/**
- * Custom CLI Error class extending DidMethodError.
- */
-export class CLIError extends DidMethodError {
-  constructor(message: string, type: string = 'CLIError', data?: Record<string, any>) {
-    super(message, { type, name: type, data });
-  }
-}
+import { CLIError } from './error.js';
 
 /**
  * A class-based CLI using Commander.
@@ -19,26 +10,25 @@ export class CLIError extends DidMethodError {
  * - Configurable by calling `run(argv?)`.
  */
 export class DidBtcr2Cli {
-  private CLI: Command;
+  #commands: Command;
 
   constructor() {
     // Create the main Commander program
-    this.CLI = new Command()
-      .name('btcr2')
+    this.#commands = new Command('btcr2')
       .version('btcr2 0.1.0', '-v, --version', 'Output the current version')
       .description('CLI tool for the did:btcr2 method');
 
     // Configure top-level options and subcommands
-    this.configureCommands();
+    this.#configureCommands();
   }
 
   /**
    * Configure the CLI commands and options.
    * @private
    */
-  private configureCommands(): void {
+  #configureCommands(): void {
     /* CREATE */
-    this.CLI
+    this.#commands
       .command('create')
       .description('Create an identifier and initial DID document')
       .requiredOption('-t, --type <type>', 'Identifier type <k|x>', 'k')
@@ -81,7 +71,7 @@ export class DidBtcr2Cli {
       );
 
     /* READ / RESOLVE */
-    this.CLI
+    this.#commands
       .command('resolve')
       .alias('read')
       .description('Resolve the DID document of the identifier.')
@@ -125,7 +115,7 @@ export class DidBtcr2Cli {
       });
 
     /* UPDATE */
-    this.CLI
+    this.#commands
       .command('update')
       .description('Update a did:btcr2 document.')
       .requiredOption('-i, --identifier <identifier>', 'did:btcr2 identifier')
@@ -192,7 +182,7 @@ export class DidBtcr2Cli {
       });
 
     /* DEACTIVATE / DELETE */
-    this.CLI
+    this.#commands
       .command('deactivate')
       .alias('delete')
       .description('Deactivate the did:btcr2 identifier permanently.')
@@ -222,15 +212,15 @@ export class DidBtcr2Cli {
   public run(argv?: string[]): void {
     console.log('process.argv:', process.argv);
     if (argv) {
-      this.CLI.parse(argv, { from: 'user' });
+      this.#commands.parse(argv, { from: 'user' });
     } else {
       // parse real process.argv
-      this.CLI.parse();
+      this.#commands.parse();
     }
 
     // If no subcommand was given, show help
-    if (!this.CLI.args.length) {
-      this.CLI.help();
+    if (!this.#commands.args.length) {
+      this.#commands.help();
     }
   }
 }
