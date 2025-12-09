@@ -2,6 +2,7 @@ import { DidUpdatePayload, ProofBytes } from '@did-btcr2/common';
 import { BeaconService } from '../interfaces/beacon.js';
 import { DidDocument } from './did-document.js';
 import { BlockV3 } from '@did-btcr2/bitcoin';
+import { DidResolutionResult as IDidResolutionResult } from '@web5/dids';
 
 export type FindNextSignals = {
   block: BlockV3;
@@ -39,3 +40,4 @@ export type GetSigningMethodParams = {
   didDocument: DidDocument;
   methodId?: string;
 };
+export type DidResolutionResult = IDidResolutionResult;

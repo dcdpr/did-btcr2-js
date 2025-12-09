@@ -141,14 +141,14 @@ export class DidBtcr2 implements DidMethod {
       return didResolutionResult;
     } catch (error: any) {
       console.error(error);
-      // Rethrow any unexpected errors that are not a `DidError`.
-      if (!(error instanceof DidError)) throw new Error(error);
+      // Rethrow any unexpected errors that are not a `MethodError`.
+      if (!(error instanceof MethodError)) throw new Error(error);
 
       // Return a DID Resolution Result with the appropriate error code.
       return {
         ...EMPTY_DID_RESOLUTION_RESULT,
         didResolutionMetadata : {
-          error : error.code,
+          error : error.type,
           ...error.message && { errorMessage: error.message }
         }
       };
