@@ -1,13 +1,13 @@
 {
   "name": "@did-btcr2/cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "type": "module",
   "description": "CLI for interacting with did-btcr2-js, the JavaScript/TypeScript reference implementation of the did:btcr2 method. Exposes various parts of multiple packages in the did-btcr2-js monorepo.",
   "main": "./dist/cjs/index.js",
   "module": "./dist/esm/index.js",
   "types": "./dist/types/index.d.ts",
   "bin": {
-    "btcr2": "./dist/esm/bin.js"
+    "btcr2": "./dist/esm/bin/btcr2.js"
   },
   "exports": {
     ".": {

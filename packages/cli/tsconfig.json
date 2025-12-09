@@ -5,7 +5,8 @@
     "outDir": "dist/esm"
   },
   "include": [
-    "src"
+    "src",
+    "bin/btcr2.ts"
   ],
   "exclude": [
     "node_modules",
