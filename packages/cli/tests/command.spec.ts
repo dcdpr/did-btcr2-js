@@ -1,5 +1,5 @@
-import { IdentifierTypes, Logger } from '@did-btcr2/common';
-import { DidBtcr2 } from '@did-btcr2/method';
+import { IdentifierTypes, Logger, MethodError } from '@did-btcr2/common';
+import { DidBtcr2, DidDocument } from '@did-btcr2/method';
 import Btcr2Command from '../src/command.js';
 import { expect, originalConsoleError, originalConsoleLog, originalConsoleWarn } from './helpers.js';
 
@@ -18,19 +18,18 @@ describe('Btcr2Command', () => {
   });
 
   it('creates a key identifier', async () => {
-    const logs: string[] = [];
-    console.log = (...args: any[]) => { logs.push(args.join(' ')); };
-
-    (DidBtcr2 as any).create = async ({ idType, genesisBytes }: any) => {
+    (DidBtcr2 as any).create = async ({ idType, genesisBytes, options }: any) => {
       expect(idType).to.equal(IdentifierTypes.KEY);
       expect(genesisBytes).to.be.instanceOf(Uint8Array);
+      expect(options.network).to.equal('bitcoin');
       return 'did:btcr2:key';
     };
 
     const command = new Btcr2Command();
-    await command.execute({ action: 'create', options: { type: 'k', bytes: 'abcd' } });
+    const result = await command.execute({ action: 'create', options: { type: 'k', bytes: 'abcd', network: 'bitcoin' } });
+    if (result.action !== 'create') throw new Error('Expected create result');
 
-    expect(logs[0]).to.equal('did:btcr2:key');
+    expect(result).to.deep.equal({ action: 'create', did: 'did:btcr2:key' });
   });
 
   it('creates an external identifier', async () => {
@@ -41,15 +40,14 @@ describe('Btcr2Command', () => {
     };
 
     const command = new Btcr2Command();
-    await command.execute({ action: 'create', options: { type: 'x', bytes: 'abcd' } });
+    const result = await command.execute({ action: 'create', options: { type: 'x', bytes: 'abcd', network: 'bitcoin' } });
+    if (result.action !== 'create') throw new Error('Expected create result');
 
     expect(receivedType).to.equal(IdentifierTypes.EXTERNAL);
+    expect(result.did).to.equal('did:btcr2:external');
   });
 
   it('resolves an identifier (resolve alias)', async () => {
-    const logs: string[] = [];
-    console.log = (...args: any[]) => logs.push(args[0] as string);
-
     (DidBtcr2 as any).resolve = async (identifier: string, options: any) => {
       expect(identifier).to.equal('did:btcr2:example');
       expect(options).to.deep.equal({ network: 'bitcoin' });
@@ -57,9 +55,11 @@ describe('Btcr2Command', () => {
     };
 
     const command = new Btcr2Command();
-    await command.execute({ action: 'resolve', options: { identifier: 'did:btcr2:example', options: { network: 'bitcoin' } } });
+    const result = await command.execute({ action: 'resolve', options: { identifier: 'did:btcr2:example', options: { network: 'bitcoin' } } });
+    if (result.action !== 'resolve' && result.action !== 'read') throw new Error('Expected resolve result');
 
-    expect(JSON.parse(logs[0])).to.deep.equal({ resolved: true });
+    expect(result.action).to.equal('resolve');
+    expect(result.resolution).to.deep.equal({ resolved: true });
   });
 
   it('resolves an identifier (read alias)', async () => {
@@ -70,24 +70,41 @@ describe('Btcr2Command', () => {
     };
 
     const command = new Btcr2Command();
-    await command.execute({ action: 'read', options: { identifier: 'did:btcr2:alias', options: {} } });
+    const result = await command.execute({ action: 'read', options: { identifier: 'did:btcr2:alias', options: {} } });
+    if (result.action !== 'resolve' && result.action !== 'read') throw new Error('Expected resolve/read result');
 
     expect(called).to.be.true;
+    expect(result.resolution).to.deep.equal({ ok: true });
   });
 
   it('updates a document', async () => {
-    const logs: string[] = [];
-    console.log = (...args: any[]) => logs.push(args[0] as string);
-
     (DidBtcr2 as any).update = async (options: any) => {
-      expect(options).to.deep.equal({ patch: [] });
+      expect(options).to.deep.equal({
+        identifier           : 'did:btcr2:example',
+        sourceDocument       : { id: 'did:btcr2:example' },
+        sourceVersionId      : 1,
+        patch                : [],
+        verificationMethodId : 'vm',
+        beaconIds            : [],
+      });
       return { updated: true };
     };
 
     const command = new Btcr2Command();
-    await command.execute({ action: 'update', options: { patch: [] } });
+    const result = await command.execute({
+      action  : 'update',
+      options : {
+        identifier           : 'did:btcr2:example',
+        sourceDocument       : { id: 'did:btcr2:example' } as DidDocument,
+        sourceVersionId      : 1,
+        patch                : [],
+        verificationMethodId : 'vm',
+        beaconIds            : [],
+      },
+    });
+    if (result.action !== 'update') throw new Error('Expected update result');
 
-    expect(JSON.parse(logs[0])).to.deep.equal({ updated: true });
+    expect(result.metadata).to.deep.equal({ updated: true });
   });
 
   it('warns on deactivate/delete', async () => {
@@ -95,30 +112,22 @@ describe('Btcr2Command', () => {
     Logger.warn = (...args: any[]) => { warnings.push(args.join(' ')); };
 
     const command = new Btcr2Command();
-    await command.execute({ action: 'deactivate', options: {} });
+    const result = await command.execute({ action: 'deactivate', options: {} });
+    if (result.action !== 'deactivate' && result.action !== 'delete') throw new Error('Expected deactivate result');
 
     expect(warnings[0]).to.include('TODO');
+    expect(result.message).to.include('not yet implemented');
   });
 
-  it('handles unknown commands gracefully', async () => {
-    const errors: any[] = [];
-    console.error = (...args: any[]) => errors.push(args[0]);
-
+  it('throws for unknown commands', async () => {
     const command = new Btcr2Command();
-    await command.execute({ action: 'unknown', options: {} });
-
-    expect(errors[0]).to.be.instanceOf(Error);
+    await expect(command.execute({ action: 'unknown' as any, options: {} })).to.be.rejectedWith(MethodError);
   });
 
-  it('catches errors from handlers', async () => {
-    const errors: any[] = [];
-    console.error = (...args: any[]) => errors.push(args[0]);
-
+  it('propagates handler errors', async () => {
     (DidBtcr2 as any).create = async () => { throw new Error('fail'); };
 
     const command = new Btcr2Command();
-    await command.execute({ action: 'create', options: { type: 'k', bytes: 'abcd' } });
-
-    expect((errors[0] as Error).message).to.equal('fail');
+    await expect(command.execute({ action: 'create', options: { type: 'k', bytes: 'abcd', network: 'bitcoin' } })).to.be.rejectedWith('fail');
   });
 });
