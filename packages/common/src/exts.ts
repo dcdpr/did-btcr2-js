@@ -4,16 +4,6 @@ import { JSONObject, Maybe, Prototyped, Unprototyped } from './types.js';
 
 /** Extend the global namespace */
 declare global {
-  /** Extend the global Array interface */
-  interface Array<T> {
-      /** Get the last element of the array */
-      last(): T | undefined;
-      /** Get the last element of the array */
-      [-1](): T | undefined;
-      /** Convert Array to Uint8Array */
-      toUint8Array(): Uint8Array;
-  }
-
   /** Extend the global Buffer interface */
    interface BufferConstructor {
     /** Convert a hex string to a Buffer */
@@ -95,45 +85,6 @@ declare global {
     toHex(): string;
   }
 }
-
-/** Array Interface Extensions */
-Array.prototype.last = function <T>(): T | undefined {
-  return this[this.length - 1] ?? undefined;
-};
-
-Array.prototype[-1] = function <T>(): T | undefined {
-  return this.last();
-};
-
-Array.prototype.toUint8Array = function (): Uint8Array {
-  return new Uint8Array(this);
-};
-
-/** BufferConstructor/Buffer Interface Extensions */
-Buffer.fromHex = function (hex: string): Buffer<ArrayBuffer> {
-  return Buffer.from(hex, 'hex');
-};
-
-Buffer.toHex = function (ui8: Uint8Array): string {
-  return Buffer.from(ui8).toString('hex');
-};
-
-Buffer.toUint8Array = function (buf: Buffer<ArrayBuffer>): Uint8Array {
-  return new Uint8Array(buf);
-};
-
-/** Date Interface Extensions */
-Date.prototype.getUTCDateTime = function (): string {
-  return `${this.toISOString().slice(0, -5)}Z`;
-};
-
-Date.prototype.toUnix = function (): number {
-  const time = this.getTime();
-  if (isNaN(time)) {
-    throw new Error(`Invalid date string: "${this}"`);
-  }
-  return time;
-};
 
 /** JSON Interface Extensions */
 JSON.is = function (unknown: Maybe<JSONObject>): boolean {
