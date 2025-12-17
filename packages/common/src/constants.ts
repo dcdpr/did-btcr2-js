@@ -1,4 +1,5 @@
 import { sha256 } from '@noble/hashes/sha2';
+import { bytesToHex } from '@noble/hashes/utils';
 import { Bytes, HashHex } from './types.js';
 
 export const ID_PLACEHOLDER_VALUE = 'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
@@ -30,11 +31,11 @@ export const DEFAULT_BLOCK_CONFIRMATIONS = 7;
 // Fixed public key header bytes per the Data Integrity BIP340 Cryptosuite spec: [0xe7, 0x01] / [231, 1]
 export const BIP340_PUBLIC_KEY_MULTIBASE_PREFIX: Bytes = new Uint8Array([0xe7, 0x01]);
 // Hash of the BIP-340 Multikey prefix
-export const BIP340_PUBLIC_KEY_MULTIBASE_PREFIX_HASH: HashHex = Buffer.from(sha256(BIP340_PUBLIC_KEY_MULTIBASE_PREFIX)).toString('hex');
+export const BIP340_PUBLIC_KEY_MULTIBASE_PREFIX_HASH: HashHex = bytesToHex(sha256(BIP340_PUBLIC_KEY_MULTIBASE_PREFIX));
 // Fixed secret key header bytes per the Data Integrity BIP340 Cryptosuite spec: [0x81, 0x26] / [129, 38]
 export const BIP340_SECRET_KEY_MULTIBASE_PREFIX: Bytes = new Uint8Array([0x81, 0x26]);
 // Hash of the BIP-340 Multikey prefix
-export const BIP340_SECRET_KEY_MULTIBASE_PREFIX_HASH: HashHex = Buffer.from(sha256(BIP340_SECRET_KEY_MULTIBASE_PREFIX)).toString('hex');
+export const BIP340_SECRET_KEY_MULTIBASE_PREFIX_HASH: HashHex = bytesToHex(sha256(BIP340_SECRET_KEY_MULTIBASE_PREFIX));
 // curve's field size
 export const B256 = 2n ** 256n;
 // curve's field prime

@@ -55,10 +55,13 @@ const LEVEL_METHODS: Record<Level, keyof Console> = {
 export class Logger {
   private levels: Level[];
   private namespace?: string;
+  private useColors: boolean;
+  private static shared: Logger;
 
   constructor(namespace?: string) {
     this.levels = LOG_LEVELS[NODE_ENV] || [];
     this.namespace = namespace ?? 'did-btcr2-js';
+    this.useColors = Boolean(process.stdout.isTTY);
   }
 
   /**
@@ -72,9 +75,11 @@ export class Logger {
 
     const timestamp = new Date().toISOString();
     const namespace = this.namespace ? `[${this.namespace}]` : '';
+    const render = this.useColors ? color : (v: string) => v;
+    const renderGray = this.useColors ? chalk.gray : (v: string) => v;
 
     (console[method] as (...args: any[]) => void)(
-      `${chalk.gray(timestamp)} ${namespace} ${color(level)}: ${chalk.white(message)}`,
+      `${renderGray(timestamp)} ${namespace} ${render(level)}: ${message}`,
       ...args
     );
   }
@@ -112,30 +117,37 @@ export class Logger {
    * Static methods for convenience (auto-instantiate).
    */
   public static debug(message?: unknown, ...args: unknown[]) {
-    new Logger().debug(message, ...args);
+    Logger.instance().debug(message, ...args);
   }
 
   public static error(message?: unknown, ...args: unknown[]) {
-    new Logger().error(message, ...args);
+    Logger.instance().error(message, ...args);
   }
 
   public static info(message?: unknown, ...args: unknown[]) {
-    new Logger().info(message, ...args);
+    Logger.instance().info(message, ...args);
   }
 
   public static warn(message?: unknown, ...args: unknown[]) {
-    new Logger().warn(message, ...args);
+    Logger.instance().warn(message, ...args);
   }
 
   public static security(message?: unknown, ...args: unknown[]) {
-    new Logger().security(message, ...args);
+    Logger.instance().security(message, ...args);
   }
 
   public static log(message?: unknown, ...args: unknown[]) {
-    new Logger().log(message, ...args);
+    Logger.instance().log(message, ...args);
   }
 
   public static newline() {
-    new Logger().newline();
+    Logger.instance().newline();
+  }
+
+  private static instance(): Logger {
+    if (!Logger.shared) {
+      Logger.shared = new Logger();
+    }
+    return Logger.shared;
   }
 }
