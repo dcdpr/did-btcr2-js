@@ -1,4 +1,4 @@
-import { MethodError, DidUpdateInvocation, Proof, PROOF_GENERATION_ERROR, PROOF_PARSING_ERROR } from '@did-btcr2/common';
+import { MethodError, DidUpdateInvocation, Proof, PROOF_GENERATION_ERROR, PROOF_PARSING_ERROR, JSONUtils } from '@did-btcr2/common';
 import { Cryptosuite } from '../cryptosuite/index.js';
 import { VerificationResult } from '../cryptosuite/interface.js';
 import { AddProofParams, IDataIntegrityProof } from './interface.js';
@@ -131,7 +131,7 @@ export class DataIntegrityProof implements IDataIntegrityProof {
     // Add the mediaType to the verification result
     mediaType ??= mt;
 
-    const sansProof = JSON.delete(verifiedDocument as Record<string, any>, ['proof']) as DidUpdateInvocation;
+    const sansProof = JSONUtils.deleteKeys(verifiedDocument as Record<string, any>, ['proof']) as DidUpdateInvocation;
 
     // Return the verification result
     return {verified, verifiedDocument: verified ? sansProof : undefined, mediaType};

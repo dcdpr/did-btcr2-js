@@ -1,4 +1,6 @@
 import {
+  Canonicalization,
+  DateUtils,
   DocumentBytes,
   INVALID_DID_DOCUMENT,
   KeyBytes,
@@ -24,6 +26,8 @@ import { DidDocument, DidVerificationMethod } from './utils/did-document.js';
 import { SignalsMetadata } from './utils/types.js';
 import { Identifier } from './core/identifier.js';
 import { Appendix } from './utils/appendix.js';
+
+export const canonicalization = new Canonicalization();
 
 export type Btcr2Identifier = string;
 
@@ -133,7 +137,7 @@ export class DidBtcr2 implements DidMethod {
       const didResolutionResult: DidResolutionResult = {
         '@context'            : W3C_DID_RESOLUTION_V1,
         didResolutionMetadata : { contentType: 'application/ld+json' },
-        didDocumentMetadata   : { created: new Date().getUTCDateTime() },
+        didDocumentMetadata   : { created: DateUtils.getUTCDateTime() },
         didDocument           : targetDocument,
       };
 

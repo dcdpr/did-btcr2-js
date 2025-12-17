@@ -23,7 +23,15 @@ import { CommunicationService, Service, ServiceAdapterIdentity } from './communi
 import { BeaconCohortSigningSession } from './session/index.js';
 import { SIGNING_SESSION_STATUS } from './session/status.js';
 
-type BeaconCoordinatorParams = {
+/**
+ * Parameters for initializing a BeaconCoordinator.
+ * @type {BeaconCoordinatorParams}
+ * @property {CommunicationService} [protocol] - The communication protocol to be used.
+ * @property {string} did - The Decentralized Identifier (DID) for the coordinator.
+ * @property {ServiceAdapterIdentity<RawSchnorrKeyPair>} keys - The keys used for cryptographic operations.
+ * @property {string} [name] - Optional name for the coordinator.
+ */
+export type BeaconCoordinatorParams = {
   protocol?: CommunicationService;
   did: string;
   keys: ServiceAdapterIdentity<RawSchnorrKeyPair>
@@ -34,37 +42,36 @@ type BeaconCoordinatorParams = {
  * @class BeaconCoordinator
  * @type {BeaconCoordinator}
  */
-
 export class BeaconCoordinator {
   /**
    * The name of the BeaconCoordinator service.
    * @type {string}
    */
-  public name: string;
+  name: string;
 
   /**
    * The DID of the BeaconCoordinator.
    * @type {Array<string>}
    */
-  public did: string;
+  did: string;
 
   /**
    * The communication protocol used by the BeaconCoordinator.
    * @type {CommunicationService}
    */
-  public protocol: CommunicationService;
+  protocol: CommunicationService;
 
   /**
    * List of subscribers engaged in a Musig2 Cohort signing session with the BeaconCoordinator.
    * @type {Array<string>}
    */
-  public cohorts: Array<AggregateBeaconCohort> = [];
+  cohorts: Array<AggregateBeaconCohort> = [];
 
   /**
    * Active signing sessions for the BeaconCoordinator.
    * @type {Record<string, BeaconCohortSigningSession>}
    */
-  public activeSigningSessions: Map<string, BeaconCohortSigningSession> = new Map();
+  activeSigningSessions: Map<string, BeaconCohortSigningSession> = new Map();
 
   /**
    * Constructs a new BeaconCoordinator instance.
@@ -74,23 +81,28 @@ export class BeaconCoordinator {
    * @param {string} [params.did] Optional DID to use for the coordinator. If not provided, a new DID will be generated.
    * @param {ServiceAdapterIdentity<RawKeyPair>} params.keys The keys used for cryptographic operations.
    */
-  constructor(params: BeaconCoordinatorParams) {
-    this.name = params.name || `btcr2-beacon-coordinator-${crypto.randomUUID()}`;
+  constructor(params: {
+    did: string;
+    keys: ServiceAdapterIdentity<RawSchnorrKeyPair>
+    protocol?: CommunicationService;
+    name?: string;
+  }) {
     this.did = params.did;
     this.protocol = params.protocol || new NostrAdapter();
     this.protocol.setKeys(params.keys);
+    this.name = params.name || `btcr2-beacon-coordinator-${crypto.randomUUID()}`;
   }
 
   /**
    * Setup and start the BeaconCoordinator communication protocol.
    * @returns {void}
    */
-  public start(): void {
+  start(): void {
     Logger.info(`Setting up BeaconCoordinator ${this.name} (${this.did}) on ${this.protocol.name} ...`);
-    this.protocol.registerMessageHandler(BEACON_COHORT_OPT_IN, this._handleOptIn.bind(this));
-    this.protocol.registerMessageHandler(BEACON_COHORT_REQUEST_SIGNATURE, this._handleRequestSignature.bind(this));
-    this.protocol.registerMessageHandler(BEACON_COHORT_NONCE_CONTRIBUTION, this._handleNonceContribution.bind(this));
-    this.protocol.registerMessageHandler(BEACON_COHORT_SIGNATURE_AUTHORIZATION, this._handleSignatureAuthorization.bind(this));
+    this.protocol.registerMessageHandler(BEACON_COHORT_OPT_IN, this.#handleOptIn.bind(this));
+    this.protocol.registerMessageHandler(BEACON_COHORT_REQUEST_SIGNATURE, this.#handleRequestSignature.bind(this));
+    this.protocol.registerMessageHandler(BEACON_COHORT_NONCE_CONTRIBUTION, this.#handleNonceContribution.bind(this));
+    this.protocol.registerMessageHandler(BEACON_COHORT_SIGNATURE_AUTHORIZATION, this.#handleSignatureAuthorization.bind(this));
     this.protocol.start();
   }
 
@@ -99,7 +111,7 @@ export class BeaconCoordinator {
    * @param {OptInMessage} message The message containing the opt-in request.
    * @returns {Promise<void>}
    */
-  private async _handleOptIn(message: CohortOptInMessage): Promise<void> {
+  async #handleOptIn(message: CohortOptInMessage): Promise<void> {
     const optIn = BeaconCohortOptInMessage.fromJSON(message);
     const cohortId = optIn.body?.cohortId;
     const participant = optIn.from;
@@ -126,7 +138,7 @@ export class BeaconCoordinator {
    * @param {CohortRequestSignatureMessage} message The message containing the request signature.
    * @returns {Promise<void>}
    */
-  private async _handleRequestSignature(message: Maybe<CohortRequestSignatureMessage>): Promise<void> {
+  async #handleRequestSignature(message: Maybe<CohortRequestSignatureMessage>): Promise<void> {
     const signatureRequest = BeaconCohortRequestSignatureMessage.fromJSON(message);
     const cohortId = signatureRequest.body?.cohortId;
     if (!cohortId) {
@@ -147,7 +159,7 @@ export class BeaconCoordinator {
    * @param {CohortNonceContributionMessage} message The message containing the nonce contribution.
    * @returns {Promise<void>}
    */
-  private async _handleNonceContribution(message: CohortNonceContributionMessage): Promise<void> {
+  async #handleNonceContribution(message: CohortNonceContributionMessage): Promise<void> {
     // Cast message to NonceContributionMessage type.
     const nonceContribMessage = BeaconCohortNonceContributionMessage.fromJSON(message);
     const cohortId = nonceContribMessage.body?.cohortId;
@@ -195,7 +207,7 @@ export class BeaconCoordinator {
    * @param {Maybe<CohortSignatureAuthorizationMessage>} message The message containing the signature authorization request.
    * @returns {Promise<void>}
    */
-  private async _handleSignatureAuthorization(message: Maybe<CohortSignatureAuthorizationMessage>): Promise<void> {
+  async #handleSignatureAuthorization(message: Maybe<CohortSignatureAuthorizationMessage>): Promise<void> {
     const sigAuthMessage = BeaconCohortSignatureAuthorizationMessage.fromJSON(message);
     const cohortId = sigAuthMessage.body?.cohortId;
     if (!cohortId) {
@@ -216,14 +228,14 @@ export class BeaconCoordinator {
     if(signingSession.id !== sessionId) {
       throw new BeaconCoordinatorError(
         `Signature authorization for wrong session: ${signingSession.id} != ${sessionId}`,
-        'SIGNATURE_AUTHORIZATION_ERROR', message
+        'SIGNATURE_AUTHORIZATION_ERROR', { original: message, converted: sigAuthMessage }
       );
     }
 
     if(signingSession.status !== SIGNING_SESSION_STATUS.AWAITING_PARTIAL_SIGNATURES) {
       throw new BeaconCoordinatorError(
         `Partial signature received but not expected. Current status: ${signingSession.status}`,
-        'SIGNATURE_AUTHORIZATION_ERROR', message
+        'SIGNATURE_AUTHORIZATION_ERROR', { original: message, converted: sigAuthMessage }
       );
     }
     const partialSignature = sigAuthMessage.body?.partialSignature;
@@ -241,7 +253,7 @@ export class BeaconCoordinator {
 
     if (signingSession.status === SIGNING_SESSION_STATUS.PARTIAL_SIGNATURES_RECEIVED) {
       const signature = await signingSession.generateFinalSignature();
-      Logger.info(`Final signature ${signature.toHex()} generated for session ${signingSession.id}`);
+      Logger.info(`Final signature ${Buffer.from(signature).toString('hex')} generated for session ${signingSession.id}`);
     }
   }
 
@@ -266,7 +278,7 @@ export class BeaconCoordinator {
    * @param {string} participant The DID of the participant requesting the subscription.
    * @returns {Promise<void>}
    */
-  public async acceptSubscription(participant: string): Promise<void> {
+  async acceptSubscription(participant: string): Promise<void> {
     Logger.info(`Accepting subscription from ${participant}`);
     const message = {
       type : BEACON_COHORT_OPT_IN_ACCEPT,
@@ -281,7 +293,7 @@ export class BeaconCoordinator {
    * @param {BeaconCohortSigningSession} session The session containing the aggregated nonce.
    * @returns {Promise<void>}
    */
-  public async sendAggregatedNonce(session: BeaconCohortSigningSession): Promise<void> {
+  async sendAggregatedNonce(session: BeaconCohortSigningSession): Promise<void> {
     const aggregatedNonce = session.generateAggregatedNonce();
     Logger.info(`Aggregated Nonces for session ${session.id}:`, aggregatedNonce);
 
@@ -307,7 +319,7 @@ export class BeaconCoordinator {
    * @param {string} [beaconType='SMTAggregateBeacon'] The type of beacon to be used (default is 'SMTAggregateBeacon').
    * @returns {Promise<AggregateBeaconCohort>} The newly created cohort.
    */
-  public async advertiseCohort(
+  async advertiseCohort(
     minParticipants: number,
     network: string = 'mutinynet',
     beaconType: string = 'SMTAggregateBeacon'
@@ -334,7 +346,7 @@ export class BeaconCoordinator {
    * @param {string} cohortId The minimum number of participants required for the cohort.
    * @returns {Promise<AggregateBeaconCohort>} The newly created cohort.
    */
-  public async announceCohortReady(cohortId: string): Promise<AggregateBeaconCohort> {
+  async announceCohortReady(cohortId: string): Promise<AggregateBeaconCohort> {
     const cohort = this.cohorts.find(c => c.id === cohortId);
     if (!cohort) {
       Logger.error(`Cohort with ID ${cohortId} not found.`);
@@ -366,7 +378,7 @@ export class BeaconCoordinator {
    * @returns {Promise<BeaconCohortSigningSession>} The started signing session.
    * @throws {BeaconCoordinatorError} If the cohort with the given ID is not found.
    */
-  public async startSigningSession(cohortId: string): Promise<BeaconCohortSigningSession> {
+  async startSigningSession(cohortId: string): Promise<BeaconCohortSigningSession> {
     Logger.info(`Attempting to start signing session for cohort ${cohortId}`);
     const cohort = this.cohorts.find(c => c.id === cohortId);
     if (!cohort) {
@@ -393,7 +405,7 @@ export class BeaconCoordinator {
    * @param {Service} service The communication service configuration.
    * @returns {BeaconCoordinator} Initialized BeaconCoordinator instance.
    */
-  public static initialize(service: Service): BeaconCoordinator {
+  static initialize(service: Service): BeaconCoordinator {
     const communicationService = CommunicationFactory.establish(service);
     const coordinator = new BeaconCoordinator({
       protocol : communicationService,

@@ -2,9 +2,8 @@ import { sha256 } from '@noble/hashes/sha2';
 import { bytesToHex } from '@noble/hashes/utils';
 import { canonicalize as jcsa } from 'json-canonicalize';
 import { base58btc } from 'multiformats/bases/base58';
-import rdf from 'rdf-canonize';
-import { CanonicalizationAlgorithm, HashBytes, JSONObject } from './types.js';
 import { CanonicalizationError } from './errors.js';
+import { CanonicalizationAlgorithm, CanonicalizationEncoding, HashBytes } from './types.js';
 
 /**
  * Canonicalization class provides methods for canonicalizing JSON objects
@@ -14,31 +13,14 @@ import { CanonicalizationError } from './errors.js';
  * @type {Canonicalization}
  */
 export class Canonicalization {
-  private _algorithm: CanonicalizationAlgorithm;
+  private readonly _defaultAlgorithm: CanonicalizationAlgorithm;
 
   /**
    * Initializes the Canonicalization class with the specified algorithm.
-   * @param {CanonicalizationAlgorithm} algorithm The canonicalization algorithm to use ('jcs' or 'rdfc').
+   * @param {CanonicalizationAlgorithm} algorithm The canonicalization algorithm to use ('jcs').
    */
-  // TODO: Need to move to using RDFC by default
   constructor(algorithm: CanonicalizationAlgorithm = 'jcs') {
-    this._algorithm = algorithm;
-  }
-
-  /**
-   * Sets the canonicalization algorithm.
-   * @param {'jcs' | 'rdfc'} algorithm Either 'jcs' or 'rdfc'.
-   */
-  set algorithm(algorithm: 'jcs' | 'rdfc') {
-    // Normalize the passed algorithm to lowercase
-    algorithm = algorithm.toLowerCase() as CanonicalizationAlgorithm;
-
-    // Validate the algorithm is either 'jcs' or 'rdfc'
-    if(!['jcs', 'rdfc'].includes(algorithm)){
-      throw new CanonicalizationError(`Unsupported algorithm: ${algorithm}`, 'ALGORITHM_ERROR');
-    }
-    // Set the algorithm
-    this._algorithm = algorithm;
+    this._defaultAlgorithm = Canonicalization.normalizeAlgorithm(algorithm);
   }
 
   /**
@@ -46,7 +28,35 @@ export class Canonicalization {
    * @returns {CanonicalizationAlgorithm} The current canonicalization algorithm.
    */
   get algorithm(): CanonicalizationAlgorithm {
-    return this._algorithm;
+    return this._defaultAlgorithm;
+  }
+
+  /**
+   * Normalizes the canonicalization algorithm.
+   * @param {CanonicalizationAlgorithm} algorithm
+   * @returns {CanonicalizationAlgorithm} The normalized algorithm.
+   * @throws {CanonicalizationError} If the algorithm is not supported.
+   */
+  static normalizeAlgorithm(algorithm: CanonicalizationAlgorithm): CanonicalizationAlgorithm {
+    const normalized = algorithm.toLowerCase() as CanonicalizationAlgorithm;
+    if (normalized !== 'jcs') {
+      throw new CanonicalizationError(`Unsupported algorithm: ${algorithm}`, 'ALGORITHM_ERROR');
+    }
+    return normalized;
+  }
+
+  /**
+   * Normalizes the canonicalization encoding.
+   * @param {CanonicalizationEncoding} encoding - The encoding to normalize.
+   * @returns {CanonicalizationEncoding} The normalized encoding.
+   * @throws {CanonicalizationError} If the encoding is not supported.
+   */
+  static normalizeEncoding(encoding: CanonicalizationEncoding): CanonicalizationEncoding {
+    const normalized = encoding.toLowerCase() as CanonicalizationEncoding;
+    if (normalized !== 'hex' && normalized !== 'base58') {
+      throw new CanonicalizationError(`Unsupported encoding: ${encoding}`, 'ENCODING_ERROR');
+    }
+    return normalized;
   }
 
   /**
@@ -56,48 +66,54 @@ export class Canonicalization {
    * Scheme. The function returns the canonicalizedBytes.
    *
    * Optionally encodes a sha256 hashed canonicalized JSON object.
-   * Step 1 Canonicalize (JCS/RDFC) → Step 2 Hash (SHA256) → Step 3 Encode (Hex/Base58).
+   * Step 1 Canonicalize (JCS) → Step 2 Hash (SHA256) → Step 3 Encode (Hex/Base58).
    *
-   * @param {JSONObject} object The object to process.
-   * @param {string} encoding The encoding format ('hex' or 'base58').
+   * @param {Record<any, any>} object The object to process.
+   * @param {Object} [options] Options for processing.
+   * @param {CanonicalizationEncoding} [options.encoding='hex'] The encoding format ('hex' or 'base58').
+   * @param {CanonicalizationAlgorithm} [options.algorithm] The canonicalization algorithm to use.
    * @returns {Promise<string>} The final SHA-256 hash bytes as a hex string.
    */
-  public async process(object: JSONObject, encoding: string = 'hex'): Promise<string> {
+  async process(object: Record<any, any>, options: {
+    encoding?: CanonicalizationEncoding;
+    algorithm?: CanonicalizationAlgorithm;
+    multibase?: boolean;
+  } = {}): Promise<string> {
+    const algorithm = Canonicalization.normalizeAlgorithm(options.algorithm ?? this._defaultAlgorithm);
+    const encoding = Canonicalization.normalizeEncoding(options.encoding ?? 'hex');
+
     // Step 1: Canonicalize
-    const canonicalized = await this.canonicalize(object);
+    const canonicalized = await this.canonicalize(object, algorithm);
     // Step 2: Hash
     const hashed = this.hash(canonicalized);
     // Step 3: Encode
-    const encoded = this.encode(hashed, encoding);
+    const encoded = this.encode(hashed, encoding, options.multibase ?? false);
     // Return the encoded string
     return encoded;
   }
 
   /**
-   * Step 1: Uses this.algorithm to determine the method (JCS/RDFC).
-   * @param {JSONObject} object The object to canonicalize.
+   * Step 1: Uses this.algorithm to determine the method (JCS).
+   * @param {Record<any, any>} object The object to canonicalize.
+   * @param {CanonicalizationAlgorithm} [algorithm] The algorithm to use.
    * @returns {Promise<string>} The canonicalized object.
    */
-  public async canonicalize(object: JSONObject): Promise<string> {
-    return await (this[this.algorithm] as (object: JSONObject) => any)(object);
+  async canonicalize(object: Record<any, any>, algorithm: CanonicalizationAlgorithm = this._defaultAlgorithm): Promise<string> {
+    switch (Canonicalization.normalizeAlgorithm(algorithm)) {
+      case 'jcs':
+        return this.jcs(object);
+      default:
+        throw new CanonicalizationError(`Unsupported algorithm: ${algorithm}`, 'ALGORITHM_ERROR');
+    }
   }
 
   /**
    * Step 1: Canonicalizes an object using JCS (JSON Canonicalization Scheme).
-   * @param {JSONObject} object The object to canonicalize.
+   * @param {Record<any, any>} object The object to canonicalize.
    * @returns {string} The canonicalized object.
    */
-  public jcs(object: JSONObject): any {
+  jcs(object: Record<any, any>): string {
     return jcsa(object);
-  }
-
-  /**
-   * Step 1: Canonicalizes an object using RDF Canonicalization (RDFC).
-   * @param {JSONObject} object The object to canonicalize.
-   * @returns {Promise<string>} The canonicalized object.
-   */
-  public rdfc(object: JSONObject): Promise<string> {
-    return rdf.canonize([object], { algorithm: 'RDFC-1.0' });
   }
 
   /**
@@ -112,19 +128,18 @@ export class Canonicalization {
   /**
    * Step 3: Encodes SHA-256 hashed, canonicalized object as a hex or base58 string.
    * @param {string} canonicalizedhash The canonicalized object to encode.
-   * @param {string} encoding The encoding format ('hex' or 'base58').
+   * @param {CanonicalizationEncoding} encoding The encoding format ('hex' or 'base58').
    * @throws {CanonicalizationError} If the encoding format is not supported.
    * @returns {string} The encoded string.
    */
-  public encode(canonicalizedhash: HashBytes, encoding: string = 'hex'): string {
-    switch(encoding) {
-      case 'hex':
-        return this.hex(canonicalizedhash);
-      case 'base58':
-        return this.base58(canonicalizedhash);
-      default:
-        throw new CanonicalizationError(`Unsupported encoding: ${encoding}`, 'ENCODING_ERROR');
+  public encode(canonicalizedhash: HashBytes, encoding: CanonicalizationEncoding = 'hex', multibase: boolean = false): string {
+    const normalized = Canonicalization.normalizeEncoding(encoding);
+    if (normalized === 'hex') return this.hex(canonicalizedhash);
+    if (normalized === 'base58') {
+      const encoded = this.base58(canonicalizedhash);
+      return multibase ? `z${encoded}` : encoded;
     }
+    throw new CanonicalizationError(`Unsupported encoding: ${encoding}`, 'ENCODING_ERROR');
   }
 
   /**
@@ -142,17 +157,21 @@ export class Canonicalization {
    * @returns {string} The hash as a hex string.
    */
   public base58(hashBytes: HashBytes): string {
-    return base58btc.encode(hashBytes);
+    const encoded = base58btc.encode(hashBytes);
+    return encoded.startsWith('z') ? encoded.slice(1) : encoded;
   }
 
   /**
    * Canonicalizes an object, hashes it and returns it as hash bytes.
    * Step 1-2: Canonicalize → Hash.
-   * @param {JSONObject} object The object to process.
+   * @param {Record<any, any>} object The object to process.
    * @returns {Promise<HashBytes>} The final SHA-256 hash bytes.
    */
-  public async canonicalhash(object: JSONObject): Promise<HashBytes> {
-    const canonicalized = await this.canonicalize(object);
+  public async canonicalhash(
+    object: Record<any, any>,
+    algorithm: CanonicalizationAlgorithm = this._defaultAlgorithm
+  ): Promise<HashBytes> {
+    const canonicalized = await this.canonicalize(object, algorithm);
     return this.hash(canonicalized);
   }
 
@@ -163,7 +182,7 @@ export class Canonicalization {
    * @returns {string} The SHA-256 hash as a hex string.
    */
   public hashhex(canonicalized: string): string {
-    return this.encode(this.hash(canonicalized));
+    return this.encode(this.hash(canonicalized), 'hex');
   }
 
   /**
@@ -172,9 +191,7 @@ export class Canonicalization {
    * @param {string} canonicalized The canonicalized object to hash.
    * @returns {string} The SHA-256 hash as a base58 string.
    */
-  public hashb58(canonicalized: string): string {
-    return this.encode(this.hash(canonicalized), 'base58');
+  public hashbase58(canonicalized: string): string {
+    return this.encode(this.hash(canonicalized), 'base58', false);
   }
 }
-
-export const canonicalization = new Canonicalization();

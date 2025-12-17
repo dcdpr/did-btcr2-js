@@ -36,7 +36,7 @@ export class GeneralUtils {
    */
   static bigintToBuffer(value: bigint): Buffer {
     const hex = value.toString(16).padStart(64, '0');
-    return Buffer.fromHex(hex);
+    return Buffer.from(hex, 'hex');
   }
 
   /**

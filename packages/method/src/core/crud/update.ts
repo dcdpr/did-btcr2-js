@@ -5,6 +5,7 @@ import {
   INVALID_DID_DOCUMENT,
   INVALID_DID_UPDATE,
   INVALID_PUBLIC_KEY_TYPE,
+  JSONPatch,
   Logger,
   MethodError,
   NOT_FOUND,
@@ -21,6 +22,7 @@ import { DidDocument, DidVerificationMethod } from '../../utils/did-document.js'
 import { SignalsMetadata } from '../../utils/types.js';
 import { BeaconFactory } from '../beacon/factory.js';
 import { Identifier } from '../identifier.js';
+import { canonicalization } from '../../did-btcr2.js';
 
 export interface ConstructUpdateParams {
     identifier: string;
@@ -103,19 +105,19 @@ export class Update {
 
     // 5. Set targetDocument to the result of applying the documentPatch to the sourceDocument, following the JSON Patch
     //    specification.
-    const targetDocument = JSON.patch.apply(sourceDocument, patch) as DidDocument;
+    const targetDocument = JSONPatch.apply(sourceDocument, patch) as DidDocument;
 
     // 6. Validate targetDocument is a conformant DID document, else MUST raise invalidDIDUpdate error.
     DidDocument.validate(targetDocument);
 
     // 7. Set sourceHashBytes to the result of passing sourceDocument into the JSON Canonicalization and Hash algorithm.
     // 8. Set didUpdatePayload.sourceHash to the base58-btc Multibase encoding of sourceHashBytes.
-    didUpdatePayload.sourceHash = (await JSON.canonicalization.process(sourceDocument, 'base58')).slice(1);
+    didUpdatePayload.sourceHash = (await canonicalization.process(sourceDocument, { encoding: 'base58' })).slice(1);
     // TODO: Question - is base58btc the correct encoding scheme?
 
     // 9. Set targetHashBytes to the result of passing targetDocument into the JSON Canonicalization and Hash algorithm.
     // 10. Set didUpdatePayload.targetHash to the base58-btc Multibase encoding of targetHashBytes.
-    didUpdatePayload.targetHash = (await JSON.canonicalization.process(targetDocument, 'base58')).slice(1);
+    didUpdatePayload.targetHash = (await canonicalization.process(targetDocument, { encoding: 'base58' })).slice(1);
 
     // 11. Set didUpdatePayload.targetVersionId to sourceVersionId + 1.
     didUpdatePayload.targetVersionId = sourceVersionId + 1;

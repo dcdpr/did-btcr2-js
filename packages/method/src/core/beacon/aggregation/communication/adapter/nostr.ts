@@ -1,3 +1,5 @@
+// TODO: Finish nostr adapter implementation. Rethink patterns used.
+
 import { Did, Maybe } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey, RawSchnorrKeyPair, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { nonceGen } from '@scure/btc-signer/musig2';
@@ -20,6 +22,7 @@ import { CommunicationAdapterError } from '../error.js';
 import { CommunicationService, MessageHandler, ServiceAdapter, ServiceAdapterConfig, ServiceAdapterIdentity } from '../service.js';
 
 /**
+ * TODO: Determine set of default Nostr relays to use.
  * DEFAULT_NOSTR_RELAYS provides a list of default Nostr relay URLs for communication.
  * These relays are used to connect to the Nostr network for sending and receiving messages.
  * @constant {Array<string>} DEFAULT_NOSTR_RELAYS
@@ -49,30 +52,37 @@ export interface NostrAdapterConfig {
   [key: string]: any;
 }
 
+/**
+ * NostrAdapter implements the CommunicationService interface for Nostr protocol communication.
+ * It provides methods for starting the service, sending messages, and handling incoming events.
+ * @class NostrAdapter
+ * @type {NostrAdapter}
+ * @implements {CommunicationService}
+ */
 export class NostrAdapter implements CommunicationService {
   /**
    * The name of the NostrAdapter service.
    * @type {string}
    */
-  public name: string = 'nostr';
+  name: string = 'nostr';
 
   /**
    * The configuration for the NostrAdapter.
    * @type {NostrAdapterConfig}
    */
-  public config: NostrAdapterConfig;
+  config: NostrAdapterConfig;
 
   /**
    * A map of message handlers for different message types.
    * @type {Map<string, MessageHandler>}
    */
-  private handlers: Map<string, MessageHandler> = new Map();
+  #handlers: Map<string, MessageHandler> = new Map();
 
   /**
    * The SimplePool instance for managing Nostr subscriptions.
    * @type {SimplePool}
    */
-  public pool?: SimplePool;
+  pool?: SimplePool;
 
   /**
    * Constructs a new NostrAdapter instance with the given configuration.
@@ -101,6 +111,7 @@ export class NostrAdapter implements CommunicationService {
 
 
   /**
+   * TODO: Complete this method. Figure out best subscription patterns.
    * Starts the Nostr communication service by subscribing to relays.
    * @returns {ServiceAdapter<NostrAdapter>} Returns the NostrAdapter instance for method chaining.
    */
@@ -123,6 +134,7 @@ export class NostrAdapter implements CommunicationService {
 
 
   /**
+   * TODO: Complete this method. Figure out best way to filter incoming nostr events.
    * Handles incoming Nostr events and dispatches them to the appropriate message handler.
    * @param {Event} event The Nostr event received from the relay.
    */
@@ -171,11 +183,12 @@ export class NostrAdapter implements CommunicationService {
    * @param {MessageHandler} handler The handler function that processes the message.
    */
   public registerMessageHandler(messageType: string, handler: MessageHandler): void {
-    this.handlers.set(messageType, handler);
+    this.#handlers.set(messageType, handler);
   }
 
 
   /**
+   * TODO: Clean up and complete this method.
    * Sends a message to a recipient using the Nostr protocol.
    * This method is a placeholder and should be implemented with actual Nostr message sending logic.
    * @param {Maybe<AggregateBeaconMessageType>} message The message to send, typically containing the content and metadata.
@@ -184,13 +197,13 @@ export class NostrAdapter implements CommunicationService {
    * @returns {Promise<void>} A promise that resolves when the message is sent.
    */
   public async sendMessage(message: Maybe<AggregateBeaconMessageType>, from: Did, to?: Did): Promise<void | Promise<string>[]> {
-    // Check if the sender and recipient DIDs are valid Btc1 identifiers
+    // Check if the sender and recipient DIDs are valid identifiers
     if(
       [from, to]
         .filter(did => !!did)
         .every(did => !Identifier.isValid(did!))
     ) {
-      console.error(`Invalid Btc1 identifiers: sender ${from}, recipient ${to}`);
+      console.error(`Invalid identifiers: sender ${from}, recipient ${to}`);
       throw new CommunicationAdapterError(
         `Invalid identifiers: sender ${from}, recipient ${to}`,
         'SEND_MESSAGE_ERROR', { adapter: this.name }
@@ -209,20 +222,28 @@ export class NostrAdapter implements CommunicationService {
       const recipient = new CompressedSecp256k1PublicKey(Identifier.decode(to).genesisBytes);
       tags.push(['p', Buffer.from(recipient.x).toString('hex')]);
     }
+    const { type } = message as any ?? {};
+    if(!type) {
+      console.error('Message type is undefined:', message);
+      throw new CommunicationAdapterError(
+        'Message type is undefined',
+        'SEND_MESSAGE_ERROR', { adapter: this.name }
+      );
+    }
 
-    if(AggregateBeaconMessage.isKeyGenMessageValue(message.type)) {
-      switch(message.type) {
+    if(AggregateBeaconMessage.isKeyGenMessageValue(type)) {
+      switch(type) {
         case BEACON_COHORT_ADVERT:
-          console.info('Add tag', ['BEACON_COHORT_ADVERT', message.type]);
+          console.info('Add tag', ['BEACON_COHORT_ADVERT', type]);
           break;
         case BEACON_COHORT_OPT_IN:
-          console.info('Add tag', ['BEACON_COHORT_OPT_IN', message.type]);
+          console.info('Add tag', ['BEACON_COHORT_OPT_IN', type]);
           break;
         case BEACON_COHORT_OPT_IN_ACCEPT:
-          console.info('Add tag', ['BEACON_COHORT_OPT_IN_ACCEPT', message.type]);
+          console.info('Add tag', ['BEACON_COHORT_OPT_IN_ACCEPT', type]);
           break;
         case BEACON_COHORT_READY:
-          console.info('Add tag', ['BEACON_COHORT_READY', message.type]);
+          console.info('Add tag', ['BEACON_COHORT_READY', type]);
           break;
       }
       const event = finalizeEvent({
@@ -235,22 +256,22 @@ export class NostrAdapter implements CommunicationService {
       return this.pool?.publish(this.config.relays, event);
     }
 
-    if(AggregateBeaconMessage.isSignMessageValue(message.type)) {
-      switch(message.type) {
+    if(AggregateBeaconMessage.isSignMessageValue(type)) {
+      switch(type) {
         case BEACON_COHORT_REQUEST_SIGNATURE:
-          console.info('Add tag', ['BEACON_COHORT_REQUEST_SIGNATURE', message.type]);
+          console.info('Add tag', ['BEACON_COHORT_REQUEST_SIGNATURE', type]);
           break;
         case BEACON_COHORT_AUTHORIZATION_REQUEST:
-          console.info('Add tag', ['BEACON_COHORT_AUTHORIZATION_REQUEST', message.type]);
+          console.info('Add tag', ['BEACON_COHORT_AUTHORIZATION_REQUEST', type]);
           break;
         case BEACON_COHORT_NONCE_CONTRIBUTION:
-          console.info('Add tag', ['BEACON_COHORT_NONCE_CONTRIBUTION', message.type]);
+          console.info('Add tag', ['BEACON_COHORT_NONCE_CONTRIBUTION', type]);
           break;
         case BEACON_COHORT_AGGREGATED_NONCE:
-          console.info('Add tag', ['BEACON_COHORT_AGGREGATED_NONCE', message.type]);
+          console.info('Add tag', ['BEACON_COHORT_AGGREGATED_NONCE', type]);
           break;
         case BEACON_COHORT_SIGNATURE_AUTHORIZATION:
-          console.info('Add tag', ['BEACON_COHORT_SIGNATURE_AUTHORIZATION', message.type]);
+          console.info('Add tag', ['BEACON_COHORT_SIGNATURE_AUTHORIZATION', type]);
           break;
       }
       const { publicKey, secretKey } = SchnorrKeyPair.generate();
@@ -263,10 +284,11 @@ export class NostrAdapter implements CommunicationService {
       return this.pool?.publish(this.config.relays, event);
     }
 
-    console.error(`Unsupported message type: ${message.type}`);
+    console.error(`Unsupported message type: ${type}`);
   }
 
   /**
+   * TODO: Determine if this method is needed.
    * Generates a Nostr identity using the Secp256k1SecretKey and Identifier classes.
    * @param {RawSchnorrKeyPair} [keys] Optional keys to use for identity generation.
    * @returns {ServiceAdapterConfig} The generated Nostr identity configuration.

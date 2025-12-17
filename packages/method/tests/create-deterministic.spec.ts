@@ -20,7 +20,7 @@ describe('Create Deterministic', () => {
   ]);
   const networkDidEntries = Object.entries(expectedDidMap);
   const idType = 'KEY';
-  const genesisBytes = Buffer.fromHex('03620d4fb8d5c40b0dc2f9fd84636d85487e51ecf55fbcd5ccf08c6ac148bc8a36');
+  const genesisBytes = Buffer.from('03620d4fb8d5c40b0dc2f9fd84636d85487e51ecf55fbcd5ccf08c6ac148bc8a36', 'hex');
 
   it('should create a deterministic key identifier and DID document from a publicKey',
     async () => {

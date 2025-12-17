@@ -275,11 +275,12 @@ export class BeaconParticipant {
       return;
     }
     this.finalizeUnsetCohortKey(cohortId);
-    const participantPk = this.getCohortKey(cohortId).publicKey?.toHex();
-    if(!participantPk) {
+    const participantPkBytes = this.getCohortKey(cohortId).publicKey;
+    if(!participantPkBytes) {
       Logger.error(`Failed to derive public key for cohort ${cohortId}`);
       return;
     }
+    const participantPk = Buffer.from(participantPkBytes).toString('hex');
     const beaconAddress = cohortSetMessage.body?.beaconAddress;
     if(!beaconAddress) {
       Logger.error(`Beacon address not provided in cohort set message for ${cohortId}`);
@@ -290,7 +291,7 @@ export class BeaconParticipant {
       Logger.error(`Cohort keys not provided in cohort set message for ${cohortId}`);
       return;
     }
-    const keys = cohortKeys.map(key => key.toHex());
+    const keys = cohortKeys.map(key => Buffer.from(key).toString('hex'));
     cohort.validateCohort([participantPk], keys, beaconAddress);
     Logger.info(`BeaconParticipant w/ pk ${participantPk} successfully joined cohort ${cohortId} with beacon address ${beaconAddress}.`);
     Logger.info(`Cohort status: ${cohort.status}`);

@@ -11,12 +11,15 @@ import {
 } from '@did-btcr2/bitcoin';
 import {
   BitcoinNetworkNames,
+  DateUtils,
   DidUpdatePayload,
   ID_PLACEHOLDER_VALUE,
   IdentifierHrp,
   INVALID_DID,
   INVALID_DID_DOCUMENT,
   INVALID_DID_UPDATE,
+  JSONPatch,
+  JSONUtils,
   LATE_PUBLISHING_ERROR,
   Logger,
   MethodError,
@@ -26,7 +29,7 @@ import {
 import { Cryptosuite, DataIntegrityProof, SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';
-import { DidBtcr2 } from '../../did-btcr2.js';
+import { canonicalization, DidBtcr2 } from '../../did-btcr2.js';
 import { BeaconService, BeaconServiceAddress, BeaconSignal } from '../../interfaces/beacon.js';
 import { DidResolutionOptions } from '../../interfaces/crud.js';
 import { Appendix } from '../../utils/appendix.js';
@@ -224,7 +227,7 @@ export class Resolve {
     );
 
     // Canonicalize and sha256 hash the intermediateDocument
-    const hashBytes = await JSON.canonicalization.process(intermediateDocument, 'hex');
+    const hashBytes = await canonicalization.process(intermediateDocument, { encoding: 'hex' });
 
     // Compare the genesisBytes to the hashBytes
     const genesisBytes = bytesToHex(identifierComponents.genesisBytes);
@@ -263,7 +266,7 @@ export class Resolve {
     const intermediateDocument = await Appendix.fetchFromCas(hashBytes);
 
     // Validate the intermediateDocument is not null and is parsable JSON
-    if (!intermediateDocument || !JSON.parsable(intermediateDocument)) {
+    if (!intermediateDocument || !JSONUtils.isParsable(intermediateDocument)) {
       throw new MethodError(INVALID_DID_DOCUMENT, 'Invalid DID Document content', { intermediateDocument });
     }
     // 5. Replace the placeholder did with the identifier throughout the initialDocument.
@@ -339,7 +342,7 @@ export class Resolve {
 
     // 2. Else if resolutionOptions.versionTime is not null, set targetTime to resolutionOptions.versionTime.
     // 3. Else set targetTime to the UNIX timestamp for now at the moment of execution.
-    const targetTime = resolutionsOptions.versionTime ?? new Date().toUnix();
+    const targetTime = resolutionsOptions.versionTime ?? DateUtils.toUnixSeconds();
 
     // 4. Set signalsMetadata to resolutionOptions.sidecarData.signalsMetadata.
     const signalsMetadata = (resolutionsOptions.sidecarData as SidecarData)?.signalsMetadata ?? {};
@@ -425,7 +428,7 @@ export class Resolve {
     network: string;
   }): Promise<DidDocument> {
     // 1. Set contemporaryHash to the SHA256 hash of the contemporaryDidDocument
-    let contemporaryHash = await JSON.canonicalization.process(contemporaryDidDocument, 'base58');
+    let contemporaryHash = await canonicalization.process(contemporaryDidDocument, { encoding: 'base58' });
 
     // 2. Find all BTCR2 Beacons in contemporaryDIDDocument.service where service.type equals one of
     //    SingletonBeacon, CIDAggregateBeacon and SMTAggregateBeacon.
@@ -497,13 +500,13 @@ export class Resolve {
         delete unsecuredUpdate.proof;
 
         // 10.2.7 Set updateHash to the result of passing unsecuredUpdate into the JSON Canonicalization and Hash algorithm.
-        const updateHash = await JSON.canonicalization.process(update, 'base58');
+        const updateHash = await canonicalization.process(update, { encoding: 'base58' });
 
         // 10.2.8. Push updateHash onto updateHashHistory.
         updateHashHistory.push(updateHash as string);
 
         // 10.2.9. Set contemporaryHash to result of passing contemporaryDIDDocument into the JSON Canonicalization and Hash algorithm.
-        contemporaryHash = await JSON.canonicalization.process(contemporaryDidDocument, 'base58');
+        contemporaryHash = await canonicalization.process(contemporaryDidDocument, { encoding: 'base58' });
 
         //  10.3. If update.targetVersionId is greater than currentVersionId + 1, MUST throw a LatePublishing error.
       } else if (update.targetVersionId > currentVersionId + 1) {
@@ -838,7 +841,7 @@ export class Resolve {
     delete unsecuredUpdate.proof;
 
     // 3. Let updateHash equal the result of passing unsecuredUpdate into the JSON Canonicalization and Hash algorithm.
-    const updateHash = await JSON.canonicalization.process(unsecuredUpdate);
+    const updateHash = await canonicalization.process(unsecuredUpdate);
 
     // 4. Let updateHashIndex equal update.targetVersionId - 2.
     // const updateHashIndex = update.targetVersionId - 2;
@@ -909,7 +912,7 @@ export class Resolve {
     const cryptosuite = new Cryptosuite({ cryptosuite: 'bip340-jcs-2025', multikey });
 
     // 7. Set documentBytes to the bytes representation of update.
-    const documentBytes = await JSON.canonicalization.canonicalize(update);
+    const documentBytes = await canonicalization.canonicalize(update);
 
     // 8. Set verificationResult to the result of passing mediaType, documentBytes, cryptosuite, and
     //    expectedProofPurpose into the Verify Proof algorithm defined in the VC Data Integrity specification.
@@ -925,13 +928,13 @@ export class Resolve {
     let targetDIDDocument = contemporaryDidDocument;
 
     // 11. Use JSON Patch to apply the update.patch to the targetDIDDOcument.
-    targetDIDDocument = JSON.patch.apply(targetDIDDocument, update.patch) as DidDocument;
+    targetDIDDocument = JSONPatch.apply(targetDIDDocument, update.patch) as DidDocument;
 
     // 12. Verify that targetDIDDocument is conformant with the data model specified by the DID Core specification.
     DidDocument.validate(targetDIDDocument);
 
     // 13. Set targetHash to the SHA256 hash of targetDIDDocument.
-    const targetHash = await JSON.canonicalization.process(targetDIDDocument, 'base58');
+    const targetHash = await canonicalization.process(targetDIDDocument, { encoding: 'base58' });
 
     // Prepend the sourceHash if it does not start with `z`
     const updateTargetHash = update.targetHash.startsWith('z')

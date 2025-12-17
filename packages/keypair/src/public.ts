@@ -143,7 +143,7 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
   constructor(pk: Hex) {
     pk = pk instanceof Uint8Array
       ? pk
-      : Buffer.fromHex(pk);
+      : Buffer.from(pk, 'hex');
 
     // If the byte length is not 33, throw an error
     if(!pk || pk.length !== 33) {
@@ -282,7 +282,7 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
   public static point(pk: Hex): Point {
     // If the public key is a hex string, convert it to a CompressedSecp256k1PublicKey object and return the point
     if(typeof pk === 'string' && /^[0-9a-fA-F]+$/.test(pk)) {
-      const publicKey = new CompressedSecp256k1PublicKey(Buffer.fromHex(pk));
+      const publicKey = new CompressedSecp256k1PublicKey(Buffer.from(pk, 'hex'));
       return publicKey.point;
     }
 
@@ -339,7 +339,7 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
    */
   public encode(): string {
     // Convert public key bytes to an array
-    const pk = this.compressed.toArray();
+    const pk = Array.from(this.compressed);
 
     // Ensure the public key is 33-byte secp256k1 compressed public key
     if (pk.length !== 33) {
@@ -350,13 +350,13 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
     }
 
     // Convert prefix to an array
-    const publicKeyMultibase = BIP340_PUBLIC_KEY_MULTIBASE_PREFIX.toArray();
+    const publicKeyMultibase = Array.from(BIP340_PUBLIC_KEY_MULTIBASE_PREFIX);
 
     // Push the public key bytes at the end of the prefix
     publicKeyMultibase.push(...pk);
 
     // Encode the bytes in base58btc format and return
-    return base58btc.encode(publicKeyMultibase.toUint8Array());
+    return base58btc.encode(Uint8Array.from(publicKeyMultibase));
   }
 
   /**
@@ -397,8 +397,8 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
       hex       : this.hex,
       multibase : this.multibase,
       point     : {
-        x      : this.x.toArray(),
-        y      : this.y.toArray(),
+        x      : Array.from(this.x),
+        y      : Array.from(this.y),
         parity : this.parity,
       },
     };
@@ -411,7 +411,7 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
    */
   public static fromJSON(json: PublicKeyObject): CompressedSecp256k1PublicKey {
     json.point.x.unshift(json.point.parity);
-    return new CompressedSecp256k1PublicKey(json.point.x.toUint8Array());
+    return new CompressedSecp256k1PublicKey(Uint8Array.from(json.point.x));
   }
 
   /**
@@ -490,7 +490,7 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
     const y = this.sqrtMod(ySquared, CURVE.p);
 
     // Convert x and y to Uint8Array
-    const yBytes = Buffer.fromHex(y.toString(16).padStart(64, '0'));
+    const yBytes = Buffer.from(y.toString(16).padStart(64, '0'), 'hex');
 
     // Return 65-byte uncompressed public key: `0x04 || x || y`
     return new Uint8Array(Buffer.concat([Buffer.from([0x04]), Buffer.from(this.x), yBytes]));

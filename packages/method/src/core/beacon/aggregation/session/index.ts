@@ -268,7 +268,7 @@ export class BeaconCohortSigningSession implements SigningSession {
    * @returns {BeaconCohortSigningSession} The JSON object representation of the signing session.
    */
   public json(): BeaconCohortSigningSession {
-    return Object.json(this) as BeaconCohortSigningSession;
+    return Object.fromEntries(Object.entries(this)) as BeaconCohortSigningSession;
   }
 
   /**

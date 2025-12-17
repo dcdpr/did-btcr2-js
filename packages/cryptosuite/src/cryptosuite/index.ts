@@ -9,7 +9,8 @@ import {
   PROOF_SERIALIZATION_ERROR,
   PROOF_VERIFICATION_ERROR,
   ProofOptions,
-  SignatureBytes
+  SignatureBytes,
+  Canonicalization
 } from '@did-btcr2/common';
 import { sha256 } from '@noble/hashes/sha2';
 import { base58btc } from 'multiformats/bases/base58';
@@ -30,6 +31,8 @@ export interface CryptosuiteParams {
   cryptosuite: 'bip340-jcs-2025' | 'bip340-rdfc-2025';
   multikey: SchnorrMultikey;
 }
+
+const canonicalization = new Canonicalization();
 
 /**
  * Implements {@link https://dcdpr.github.io/data-integrity-schnorr-secp256k1/#instantiate-cryptosuite | 3.1 Instantiate Cryptosuite}
@@ -88,8 +91,7 @@ export class Cryptosuite implements ICryptosuite {
   constructor({ cryptosuite, multikey }: CryptosuiteParams) {
     this.cryptosuite = cryptosuite;
     this.multikey = multikey;
-    this.algorithm = cryptosuite.includes('rdfc') ? 'rdfc' : 'jcs';
-    JSON.canonicalization.algorithm = this.algorithm;
+    this.algorithm = 'jcs';
   }
 
   /**
@@ -213,7 +215,7 @@ export class Cryptosuite implements ICryptosuite {
     }
 
     // Return the canonicalized document
-    return await JSON.canonicalization.canonicalize(document);
+    return await canonicalization.canonicalize(document);
   }
 
   /**
@@ -263,7 +265,7 @@ export class Cryptosuite implements ICryptosuite {
       console.info('TODO: check valid XMLSchema DateTime');
     }
 
-    return await JSON.canonicalization.canonicalize(options);
+    return await canonicalization.canonicalize(options);
   }
 
   /**

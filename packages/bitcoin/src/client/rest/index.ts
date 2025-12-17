@@ -1,4 +1,4 @@
-import { MethodError } from '@did-btcr2/common';
+import { JSONUtils, MethodError, StringUtils } from '@did-btcr2/common';
 import { DEFAULT_BITCOIN_NETWORK_CONFIG } from '../../constants.js';
 import { BitcoinAddress } from './address.js';
 import { BitcoinBlock } from './block.js';
@@ -87,7 +87,7 @@ export class BitcoinRestClient {
    */
   private async call({ path, url, method, body, headers }: RestApiCallParams): Promise<any> {
     // Construct the URL if not provided
-    url ??= `${this.config.host.replaceEnd('/')}${path}`;
+    url ??= `${StringUtils.replaceEnd(this.config.host, '/')}${path}`;
 
     // Set the method to GET if not provided
     method ??= 'GET';
@@ -103,7 +103,7 @@ export class BitcoinRestClient {
 
     // If the method is POST or PUT, add the body to the request
     if(body) {
-      requestInit.body = JSON.is(body) ? JSON.stringify(body) : body;
+      requestInit.body = JSONUtils.isObject(body) ? JSON.stringify(body) : body;
       requestInit.method = 'POST';
     }
 

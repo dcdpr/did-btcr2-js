@@ -1,4 +1,4 @@
-import { Maybe } from '@did-btcr2/common';
+import { JSONUtils, Maybe } from '@did-btcr2/common';
 import { BaseMessage } from '../base.js';
 import { BEACON_COHORT_NONCE_CONTRIBUTION } from '../constants.js';
 
@@ -30,7 +30,7 @@ export class BeaconCohortNonceContributionMessage extends BaseMessage {
    * @returns {BeaconCohortNonceContributionMessage} The new BeaconCohortNonceContributionMessage.
    */
   public static fromJSON(data: Maybe<CohortNonceContributionMessage>): BeaconCohortNonceContributionMessage {
-    const message = JSON.parse(data);
+    const message = JSONUtils.isParsable(data) ? JSON.parse(data) : data;
     if (message.type != BEACON_COHORT_NONCE_CONTRIBUTION) {
       throw new Error(`Invalid type: ${message.type}`);
     }

@@ -4,9 +4,10 @@ import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { Kms, Signer } from '@did-btcr2/kms';
 import { opcodes, Psbt, script } from 'bitcoinjs-lib';
 import { base58btc } from 'multiformats/bases/base58';
+import { canonicalization } from '../../did-btcr2.js';
 import { Beacon, BeaconService, BeaconSignal } from '../../interfaces/beacon.js';
-import { BeaconSidecarData, Metadata, SignalsMetadata, SingletonSidecar } from '../../utils/types.js';
 import { Appendix } from '../../utils/appendix.js';
+import { BeaconSidecarData, Metadata, SignalsMetadata, SingletonSidecar } from '../../utils/types.js';
 import { Identifier } from '../identifier.js';
 
 const bitcoin = new BitcoinNetworkConnection();
@@ -112,7 +113,7 @@ export class SingletonBeacon extends Beacon {
       return undefined;
     }
     // 4. Set hashBytes to the 32 bytes in the txout.
-    const hashBytes = JSON.canonicalization.encode(Buffer.fromHex(UPDATE_PAYLOAD_HASH), 'base58');
+    const hashBytes = canonicalization.encode(Buffer.from(UPDATE_PAYLOAD_HASH, 'hex'), 'base58');
 
     // Convert signalsMetadata to a Map for easier access
     const signalsMetadataMap = new Map<string, Metadata>(Object.entries(signalsMetadata));
@@ -127,7 +128,7 @@ export class SingletonBeacon extends Beacon {
       }
 
       // 5.2 Set updateHashBytes to the result of passing didUpdatePayload to the JSON Canonicalization and Hash algorithm.
-      const updateHashBytes = await JSON.canonicalization.process(didUpdatePayload, 'base58');
+      const updateHashBytes = await canonicalization.process(didUpdatePayload as any, { encoding: 'base58' });
 
       // 5.3 If updateHashBytes does not equal hashBytes, MUST throw an invalidSidecarData error.
       if (updateHashBytes !== hashBytes) {
@@ -199,7 +200,7 @@ export class SingletonBeacon extends Beacon {
     }
 
     // 4. Set hashBytes to the result of passing didUpdatePayload to the JSON Canonicalization and Hash algorithm.
-    const hashBytes = Buffer.fromHex(await JSON.canonicalization.process(didUpdatePayload));
+    const hashBytes = Buffer.from(await canonicalization.process(didUpdatePayload), 'hex');
     if (hashBytes.length !== 32) throw new SingletonBeaconError('Hash must be 32 bytes');
 
     // 5. Initialize spendTx to a Bitcoin transaction that spends a transaction controlled by the bitcoinAddress and
@@ -210,7 +211,7 @@ export class SingletonBeacon extends Beacon {
     const input = {
       hash           : txid,
       index          : vout,
-      nonWitnessUtxo : Buffer.fromHex(prevTx)
+      nonWitnessUtxo : Buffer.from(prevTx, 'hex')
     };
     // TODO: Figure out a good way to estimate fees
     const spendTx  = new Psbt({ network: bitcoin.network.data })
