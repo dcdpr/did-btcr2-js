@@ -1,4 +1,4 @@
-import { Maybe } from '@did-btcr2/common';
+import { JSONUtils, Maybe } from '@did-btcr2/common';
 import { BaseMessage } from '../base.js';
 import { BEACON_COHORT_OPT_IN_ACCEPT } from '../constants.js';
 
@@ -26,7 +26,7 @@ export class BeaconCohortSubscribeMessage extends BaseMessage {
    * @returns {BeaconCohortSubscribeMessage} The serialized SubscribeMessage.
    */
   public static fromJSON(data: Maybe<CohortSubscribeMessage>): BeaconCohortSubscribeMessage {
-    const message = JSON.parse(data);
+    const message = JSONUtils.isParsable(data) ? JSON.parse(data) : data;
     if (message.type != BEACON_COHORT_OPT_IN_ACCEPT) {
       throw new Error(`Invalid type: ${message.type}`);
     }

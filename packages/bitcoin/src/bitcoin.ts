@@ -1,4 +1,4 @@
-import { MethodError } from '@did-btcr2/common';
+import { JSONUtils, MethodError } from '@did-btcr2/common';
 import { networks } from 'bitcoinjs-lib';
 import { BitcoinRestClient } from './client/rest/index.js';
 import { BitcoinCoreRpcClient } from './client/rpc/index.js';
@@ -50,7 +50,7 @@ export class BitcoinNetworkConnection {
     }
 
     // Check if BITCOIN_NETWORK_CONFIG is parsable JSON string
-    if (!JSON.parsable(BITCOIN_NETWORK_CONFIG)) {
+    if (!JSONUtils.isParsable(BITCOIN_NETWORK_CONFIG)) {
       throw new MethodError(
         'Parsing failed: malformed BITCOIN_NETWORK_CONFIG',
         'MISSING_MALFORMED_BITCOIN_NETWORK_CONFIG',

@@ -1,11 +1,13 @@
 import { expect } from 'chai';
 import { DidBtcr2 } from '../src/did-btcr2.js';
 import { IntermediateDidDocument } from '../src/index.js';
+import { Canonicalization } from '@did-btcr2/common';
 
 /**
  * Create External Test Cases
  */
 describe('Create External', () => {
+  const canonicalization = new Canonicalization();
   const expectedDidMap = new Map<string, string>([
     ['bitcoin', 'did:btcr2:x1qrn3k9ttngd7x6lgjlfpykz4aj03672675uw2gt2nj3m5vj680t8vaxz52w'],
     ['mutinynet', 'did:btcr2:x1q5uu7xjnle255xwwvgqu6f8j0x3ztxjs4307z9t04s3jw9z0d7wsswgwz3s'],
@@ -93,7 +95,7 @@ describe('Create External', () => {
   it('should create new bitcoin DID and initial DID document',
     async () => {
       const network = 'bitcoin';
-      const genesisBytes = await JSON.canonicalization.canonicalhash(mainInterDoc);
+      const genesisBytes = await canonicalization.canonicalhash(mainInterDoc);
       const did = await DidBtcr2.create({ idType, genesisBytes, options: { network }});
       expect(did).to.equal(expectedDidMap.get(network));
     }
@@ -102,7 +104,7 @@ describe('Create External', () => {
   it('should create new mutinynet DID and initial DID Document',
     async () => {
       const network = 'mutinynet';
-      const genesisBytes = await JSON.canonicalization.canonicalhash(nonMainInterDoc);
+      const genesisBytes = await canonicalization.canonicalhash(nonMainInterDoc);
       const did = await DidBtcr2.create({ idType, genesisBytes, options: { network }});
       expect(did).to.equal(expectedDidMap.get(network));
     }
@@ -111,7 +113,7 @@ describe('Create External', () => {
   it('should create new regtest DID and initial DID Document',
     async () => {
       const network = 'regtest';
-      const genesisBytes = await JSON.canonicalization.canonicalhash(nonMainInterDoc);
+      const genesisBytes = await canonicalization.canonicalhash(nonMainInterDoc);
       const did = await DidBtcr2.create({ idType, genesisBytes, options: { network }});
       expect(did).to.equal(expectedDidMap.get(network));
     }
@@ -120,7 +122,7 @@ describe('Create External', () => {
   it('should create new signet DID and initial DID Document',
     async () => {
       const network = 'signet';
-      const genesisBytes = await JSON.canonicalization.canonicalhash(nonMainInterDoc);
+      const genesisBytes = await canonicalization.canonicalhash(nonMainInterDoc);
       const did = await DidBtcr2.create({ idType, genesisBytes, options: { network }});
       expect(did).to.equal(expectedDidMap.get(network));
     }
@@ -129,7 +131,7 @@ describe('Create External', () => {
   it('should create new testnet3 DID and initial DID Document',
     async () => {
       const network = 'testnet3';
-      const genesisBytes = await JSON.canonicalization.canonicalhash(nonMainInterDoc);
+      const genesisBytes = await canonicalization.canonicalhash(nonMainInterDoc);
       const did = await DidBtcr2.create({ idType, genesisBytes, options: { network }});
       expect(did).to.equal(expectedDidMap.get(network));
     }
@@ -138,7 +140,7 @@ describe('Create External', () => {
   it('should create new testnet4 DID and initial DID Document',
     async () => {
       const network = 'testnet4';
-      const genesisBytes = await JSON.canonicalization.canonicalhash(nonMainInterDoc);
+      const genesisBytes = await canonicalization.canonicalhash(nonMainInterDoc);
       const did = await DidBtcr2.create({ idType, genesisBytes, options: { network }});
       expect(did).to.equal(expectedDidMap.get(network));
     });

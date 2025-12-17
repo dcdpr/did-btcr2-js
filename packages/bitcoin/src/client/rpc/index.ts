@@ -1,3 +1,4 @@
+import { JSONUtils } from '@did-btcr2/common';
 import { DEFAULT_BITCOIN_NETWORK_CONFIG } from '../../constants.js';
 import { BitcoinRpcError } from '../../errors.js';
 import {
@@ -162,7 +163,7 @@ export class BitcoinCoreRpcClient implements BitcoinRpcClient {
   private async executeRpc<T>(method: MethodNameInLowerCase, parameters: Array<any> = []): Promise<T> {
     try {
       const raw = await this.client.command([{ method, parameters }] as BatchOption[]);
-      const normalized = JSON.unprototyped(raw) ? JSON.normalize(raw) : raw;
+      const normalized = JSONUtils.isUnprototyped(raw) ? JSONUtils.normalize(raw) : raw;
       const result = Array.isArray(normalized)
         ? normalized[normalized.length - 1]
         : normalized;

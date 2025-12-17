@@ -287,6 +287,6 @@ export class AggregateBeaconCohort implements BeaconCohort {
    * @returns {BeaconCohort} The JSON object representation of the cohort.
    */
   public json(): BeaconCohort {
-    return Object.json(this) as BeaconCohort;
+    return Object.fromEntries(Object.entries(this)) as BeaconCohort;
   }
 }

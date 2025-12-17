@@ -1,4 +1,4 @@
-import { KeyPairError, MultikeyError } from '@did-btcr2/common';
+import { JSONUtils, KeyPairError, MultikeyError } from '@did-btcr2/common';
 import { SchnorrKeyPair, Secp256k1SecretKey, CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { expect } from 'chai';
 import { SchnorrMultikey } from '../src/index.js';
@@ -101,7 +101,7 @@ describe('SchnorrMultikey', () => {
     });
 
     it('should return a valid, matching verification method', () => {
-      expect(JSON.deepEqual(multikey.toVerificationMethod(), verificationMethod)).to.equal(true);
+      expect(JSONUtils.deepEqual(multikey.toVerificationMethod(), verificationMethod)).to.equal(true);
     });
 
     it('should construct a valid Multikey with matching data given a valid verification method', () => {
@@ -160,7 +160,7 @@ describe('SchnorrMultikey', () => {
     });
 
     it('should return a valid, matching verification method', () => {
-      expect(JSON.deepEqual(multikey.toVerificationMethod(), verificationMethod)).to.equal(true);
+      expect(JSONUtils.deepEqual(multikey.toVerificationMethod(), verificationMethod)).to.equal(true);
     });
 
     it('should construct a valid Multikey with matching data given a valid verification method', () => {
@@ -220,7 +220,7 @@ describe('SchnorrMultikey', () => {
     });
 
     it('should return a valid, matching verification method', () => {
-      expect(JSON.deepEqual(multikey.toVerificationMethod(), verificationMethod)).to.equal(true);
+      expect(JSONUtils.deepEqual(multikey.toVerificationMethod(), verificationMethod)).to.equal(true);
     });
 
     it('should construct a valid Multikey with matching data given a valid verification method', () => {
@@ -283,7 +283,7 @@ describe('SchnorrMultikey', () => {
     });
 
     it('should return a valid, matching verification method', () => {
-      expect(JSON.deepEqual(multikey.toVerificationMethod(), verificationMethod)).to.equal(true);
+      expect(JSONUtils.deepEqual(multikey.toVerificationMethod(), verificationMethod)).to.equal(true);
     });
 
     it('should construct a valid Multikey with matching data given a valid verification method', () => {

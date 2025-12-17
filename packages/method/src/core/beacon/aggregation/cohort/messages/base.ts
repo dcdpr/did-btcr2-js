@@ -1,5 +1,3 @@
-import { Maybe } from '@did-btcr2/common';
-
 export const MESSAGE_PREFIX = 'https://btcr2.tools/';
 
 export type BaseBody = {
@@ -39,19 +37,10 @@ export class BaseMessage {
   }
 
   /**
-   * Creates a BaseMessage from a JSON object.
-   * @param {Maybe<Base>} data The JSON object to initialize the BaseMessage.
-   * @returns {BaseMessage} The initialized BaseMessage.
-   */
-  public static fromJSON(data: Maybe<Base>): BaseMessage {
-    return new BaseMessage(data);
-  }
-
-  /**
    * Converts a BaseMessage to a JSON object.
    * @returns {Base} The JSON representation of the BaseMessage.
    */
   public json(): Base {
-    return Object.json(this) as Base;
+    return Object.fromEntries(Object.entries(this)) as Base;
   }
 }

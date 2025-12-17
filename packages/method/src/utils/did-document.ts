@@ -6,6 +6,7 @@ import {
   IdentifierTypes,
   INVALID_DID_DOCUMENT,
   JSONObject,
+  JSONUtils,
   KeyBytes,
 } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
@@ -181,20 +182,10 @@ export class DidDocument implements IDidDocument {
 
   /**
    * Convert the DidDocument to a JSON object.
-   * @returns {JSONObject} The JSON representation of the DidDocument.
+   * @returns {DidDocument} The JSON representation of the DidDocument.
    */
-  public json(): JSONObject {
-    return {
-      id                   : this.id,
-      controller           : this.controller,
-      '@context'           : this['@context'],
-      verificationMethod   : this.verificationMethod,
-      authentication       : this.authentication,
-      assertionMethod      : this.assertionMethod,
-      capabilityInvocation : this.capabilityInvocation,
-      capabilityDelegation : this.capabilityDelegation,
-      service              : this.service
-    };
+  public json(): DidDocument {
+    return Object.fromEntries(Object.entries(this)) as DidDocument;
   }
 
   /**
@@ -434,8 +425,8 @@ export class DidDocument implements IDidDocument {
  * @extends {DidDocument}
  */
 export class IntermediateDidDocument extends DidDocument {
-  constructor(document: JSONObject) {
-    super(document as IDidDocument);
+  constructor(document: object | DidDocument) {
+    super(document as DidDocument);
   }
 
   /**
@@ -456,7 +447,7 @@ export class IntermediateDidDocument extends DidDocument {
    * @returns {IntermediateDidDocument} The IntermediateDidDocument representation of the DidDocument.
    */
   public static fromDidDocument(didDocument: DidDocument): IntermediateDidDocument {
-    const intermediateDocument = JSON.cloneReplace(didDocument, DID_REGEX, ID_PLACEHOLDER_VALUE) as IDidDocument;
+    const intermediateDocument = JSONUtils.cloneReplace(didDocument, DID_REGEX, ID_PLACEHOLDER_VALUE) as IDidDocument;
     return new IntermediateDidDocument(intermediateDocument);
   }
 
@@ -512,10 +503,10 @@ export class IntermediateDidDocument extends DidDocument {
 
   /**
    * Taken an object, convert it to an IntermediateDocuemnt and then to a DidDocument.
-   * @param {JSONObject} object The JSON object to convert.
+   * @param {object | DidDocument} object The JSON object to convert.
    * @returns {DidDocument} The created DidDocument.
    */
-  public static fromJSON(object: JSONObject): IntermediateDidDocument {
+  public static fromJSON(object: object | DidDocument): IntermediateDidDocument {
     return new IntermediateDidDocument(object as IDidDocument);
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@did-btcr2/common",
-  "version": "2.2.2",
+  "version": "3.0.0",
   "type": "module",
   "description": "Common utilities, types, interfaces, etc. shared across the did-btcr2-js monorepo packages.",
   "main": "./dist/cjs/index.js",
@@ -71,11 +71,10 @@
   "dependencies": {
     "@noble/hashes": "^1.7.1",
     "@scure/bip32": "^1.5.0",
-    "canonicalize": "^2.1.0",
     "chalk": "^5.4.1",
+    "fast-json-patch": "^3.1.1",
     "json-canonicalize": "^1.0.6",
-    "multiformats": "^13.3.2",
-    "rdf-canonize": "^4.0.1"
+    "multiformats": "^13.3.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.21.0",

@@ -1,4 +1,5 @@
 import { sha256 } from '@noble/hashes/sha2';
+import { bytesToHex } from '@noble/hashes/utils';
 import { Bytes, HashHex } from './types.js';
 
 export const ID_PLACEHOLDER_VALUE = 'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
@@ -9,32 +10,38 @@ export const MULTIBASE_URI_PREFIX = 'urn:mb:';
 export const INITIAL_BLOCK_REWARD = 50;
 export const HALVING_INTERVAL = 150;
 export const COINBASE_MATURITY_DELAY = 100;
-export const POLAR_BOB_CLIENT_CONFIG = {
+export const DEFAULT_POLAR_CONFIG = {
   username           : 'polaruser',
   password           : 'polarpass',
   host               : 'http://127.0.0.1:18443',
   allowDefaultWallet : true,
   version            : '28.1.0'
 };
-export const POLAR_ALICE_CLIENT_CONFIG = {
-  username           : 'polaruser',
-  password           : 'polarpass',
-  host               : 'http://127.0.0.1:18444',
-  allowDefaultWallet : true,
-  version            : '28.1.0'
-};
 export const DEFAULT_REST_CONFIG = { host: 'http://localhost:3000' };
-export const DEFAULT_RPC_CONFIG = POLAR_BOB_CLIENT_CONFIG;
+export const DEFAULT_RPC_CONFIG = DEFAULT_POLAR_CONFIG;
 export const DEFAULT_BLOCK_CONFIRMATIONS = 7;
+
+/**
+ * Load a default RPC config, allowing environment overrides to avoid hard-coding credentials/hosts in bundles.
+ * @returns {typeof DEFAULT_POLAR_CONFIG} The RPC config.
+ */
+export function getDefaultRpcConfig(): typeof DEFAULT_POLAR_CONFIG {
+  return {
+    ...DEFAULT_POLAR_CONFIG,
+    host     : process.env.BTCR2_RPC_HOST ?? DEFAULT_POLAR_CONFIG.host,
+    username : process.env.BTCR2_RPC_USER ?? DEFAULT_POLAR_CONFIG.username,
+    password : process.env.BTCR2_RPC_PASS ?? DEFAULT_POLAR_CONFIG.password,
+  };
+}
 
 // Fixed public key header bytes per the Data Integrity BIP340 Cryptosuite spec: [0xe7, 0x01] / [231, 1]
 export const BIP340_PUBLIC_KEY_MULTIBASE_PREFIX: Bytes = new Uint8Array([0xe7, 0x01]);
 // Hash of the BIP-340 Multikey prefix
-export const BIP340_PUBLIC_KEY_MULTIBASE_PREFIX_HASH: HashHex = Buffer.from(sha256(BIP340_PUBLIC_KEY_MULTIBASE_PREFIX)).toString('hex');
+export const BIP340_PUBLIC_KEY_MULTIBASE_PREFIX_HASH: HashHex = bytesToHex(sha256(BIP340_PUBLIC_KEY_MULTIBASE_PREFIX));
 // Fixed secret key header bytes per the Data Integrity BIP340 Cryptosuite spec: [0x81, 0x26] / [129, 38]
 export const BIP340_SECRET_KEY_MULTIBASE_PREFIX: Bytes = new Uint8Array([0x81, 0x26]);
 // Hash of the BIP-340 Multikey prefix
-export const BIP340_SECRET_KEY_MULTIBASE_PREFIX_HASH: HashHex = Buffer.from(sha256(BIP340_SECRET_KEY_MULTIBASE_PREFIX)).toString('hex');
+export const BIP340_SECRET_KEY_MULTIBASE_PREFIX_HASH: HashHex = bytesToHex(sha256(BIP340_SECRET_KEY_MULTIBASE_PREFIX));
 // curve's field size
 export const B256 = 2n ** 256n;
 // curve's field prime

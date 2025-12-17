@@ -178,7 +178,7 @@ export class Secp256k1SecretKey implements SecretKey {
    */
   public encode(): string {
     // Convert Uint8Array bytes to an Array
-    const secretKeyBytes = this.bytes.toArray();
+    const secretKeyBytes = Array.from(this.bytes);
 
     if(secretKeyBytes.length !== 32) {
       throw new SecretKeyError(
@@ -187,13 +187,13 @@ export class Secp256k1SecretKey implements SecretKey {
       );
     }
     // Convert prefix to an array
-    const mbaseBytes = BIP340_SECRET_KEY_MULTIBASE_PREFIX.toArray();
+    const mbaseBytes = Array.from(BIP340_SECRET_KEY_MULTIBASE_PREFIX);
 
     // Push the secret key bytes at the end of the prefix
     mbaseBytes.push(...secretKeyBytes);
 
     // Encode the bytes in base58btc format and return
-    return base58btc.encode(mbaseBytes.toUint8Array());
+    return base58btc.encode(Uint8Array.from(mbaseBytes));
   }
 
   /**
@@ -239,7 +239,7 @@ export class Secp256k1SecretKey implements SecretKey {
    */
   public json(): SecretKeyObject {
     return {
-      bytes : this.bytes.toArray(),
+      bytes : Array.from(this.bytes),
       seed  : this.seed.toString(),
       hex   : this.hex,
     };

@@ -1,4 +1,4 @@
-import { Maybe } from '@did-btcr2/common';
+import { JSONUtils, Maybe } from '@did-btcr2/common';
 import { BaseMessage } from '../base.js';
 import { BEACON_COHORT_SIGNATURE_AUTHORIZATION } from '../constants.js';
 
@@ -31,7 +31,7 @@ export class BeaconCohortSignatureAuthorizationMessage extends BaseMessage {
    * @returns {BeaconCohortSignatureAuthorizationMessage} The serialized BeaconCohortSignatureAuthorizationMessage.
    */
   public static fromJSON(data: Maybe<CohortSignatureAuthorizationMessage>): BeaconCohortSignatureAuthorizationMessage {
-    const message = JSON.parse(data);
+    const message = JSONUtils.isParsable(data) ? JSON.parse(data) : data;
     if (message.type != BEACON_COHORT_SIGNATURE_AUTHORIZATION) {
       throw new Error(`Invalid type: ${message.type}`);
     }
