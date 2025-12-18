@@ -16,10 +16,20 @@ export class JSONPatch {
    * @param {PatchOperation[]} operations - The JSON Patch operations to apply.
    * @returns {JSONObject} The patched JSON document.
    */
-  public apply(sourceDocument: JSONObject, operations: PatchOperation[]): JSONObject {
-    const docClone = deepClone(sourceDocument);
+  public apply(
+    sourceDocument: JSONObject,
+    operations: PatchOperation[],
+    options: { mutate?: boolean; clone?: (value: any) => any } = {}
+  ): JSONObject {
+    const mutate = options.mutate ?? false;
+    const cloneFn = options.clone ?? deepClone;
+    const docClone = mutate ? sourceDocument : cloneFn(sourceDocument);
+    const validationError = this.validateOperations(operations);
+    if (validationError) {
+      throw new MethodError('Invalid JSON Patch operations', 'JSON_PATCH_APPLY_ERROR', { error: validationError });
+    }
     try {
-      const result = applyPatch(docClone, operations as Operation[], true, false);
+      const result = applyPatch(docClone, operations as Operation[], true, mutate);
       if (result.newDocument === undefined) {
         throw new MethodError('JSON Patch application failed', 'JSON_PATCH_APPLY_ERROR', { result });
       }
@@ -64,7 +74,49 @@ export class JSONPatch {
     const prefix = path.endsWith('/') ? path.slice(0, -1) : path;
     return ops.map(op => ({
       ...op,
-      path : `${prefix}${op.path}`
+      path : this.joinPointer(prefix, op.path)
     }));
+  }
+
+  /**
+ * Join a base pointer prefix with an operation path ensuring correct escaping.
+ * @param {string} prefix - The base pointer prefix.
+ * @param {string} opPath - The operation path.
+ * @returns {string} The joined pointer.
+ */
+  joinPointer(prefix: string, opPath: string): string {
+    if (!prefix) return opPath;
+    const normalizedPrefix = prefix.startsWith('/') ? prefix : `/${prefix}`;
+    return `${this.escapeSegmentPath(normalizedPrefix)}${opPath}`;
+  }
+
+  /**
+ * Escape a JSON Pointer segment according to RFC 6901.
+ * @param {string} pointer - The JSON Pointer to escape.
+ * @returns {string} The escaped JSON Pointer.
+ */
+  escapeSegmentPath(pointer: string): string {
+    return pointer
+      .split('/')
+      .map((segment, idx) => idx === 0 ? segment : segment.replace(/~/g, '~0').replace(/\//g, '~1'))
+      .join('/');
+  }
+
+  /**
+ * Validate JSON Patch operations.
+ * @param {PatchOperation[]} operations - The operations to validate.
+ * @returns {Error | null} An Error if validation fails, otherwise null.
+ */
+  validateOperations(operations: PatchOperation[]): Error | null {
+    if (!Array.isArray(operations)) return new Error('Operations must be an array');
+    for (const op of operations) {
+      if (!op || typeof op !== 'object') return new Error('Operation must be an object');
+      if (typeof op.op !== 'string') return new Error('Operation.op must be a string');
+      if (typeof op.path !== 'string') return new Error('Operation.path must be a string');
+      if ((op.op === 'move' || op.op === 'copy') && typeof op.from !== 'string') {
+        return new Error(`Operation.from must be a string for op=${op.op}`);
+      }
+    }
+    return null;
   }
 }

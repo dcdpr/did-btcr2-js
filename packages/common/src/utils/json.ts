@@ -127,7 +127,15 @@ export class JSONUtils {
    * @param {WeakMap<object, object>} seen - A WeakMap to track seen object pairs for circular reference detection.
    * @returns {boolean} True if the values are deeply equal.
    */
-  static deepEqual(a: unknown, b: unknown, seen: WeakMap<object, object> = new WeakMap<object, object>()): boolean {
+  static deepEqual(
+    a: unknown,
+    b: unknown,
+    seen: WeakMap<object, object> = new WeakMap<object, object>(),
+    depth: number = 0
+  ): boolean {
+    if (depth > 1024) {
+      throw new Error('Maximum comparison depth exceeded');
+    }
     if (Object.is(a, b)) return true;
 
     if (typeof a !== typeof b) return false;
@@ -156,7 +164,7 @@ export class JSONUtils {
       for (const itemA of a) {
         let matched = false;
         for (const itemB of b) {
-          if (this.deepEqual(itemA, itemB, seen)) {
+          if (this.deepEqual(itemA, itemB, seen, depth + 1)) {
             matched = true;
             break;
           }
@@ -171,10 +179,10 @@ export class JSONUtils {
       for (const [keyA, valueA] of a) {
         let matched = false;
         if (b.has(keyA)) {
-          matched = this.deepEqual(valueA, b.get(keyA), seen);
+          matched = this.deepEqual(valueA, b.get(keyA), seen, depth + 1);
         } else {
           for (const [keyB, valueB] of b) {
-            if (this.deepEqual(keyA, keyB, seen) && this.deepEqual(valueA, valueB, seen)) {
+            if (this.deepEqual(keyA, keyB, seen, depth + 1) && this.deepEqual(valueA, valueB, seen, depth + 1)) {
               matched = true;
               break;
             }
@@ -188,7 +196,7 @@ export class JSONUtils {
     if (Array.isArray(a) && Array.isArray(b)) {
       if (a.length !== b.length) return false;
       for (let i = 0; i < a.length; i++) {
-        if (!this.deepEqual(a[i], b[i], seen)) return false;
+        if (!this.deepEqual(a[i], b[i], seen, depth + 1)) return false;
       }
       return true;
     }
@@ -269,7 +277,10 @@ export class JSONUtils {
    * @param {WeakMap<object, any>} seen - A WeakMap to track seen objects for circular reference detection.
    * @returns {any} The cloned value.
    */
-  static cloneInternal<T>(value: T, options: CloneOptions = {}, seen: WeakMap<object, any> = new WeakMap<object, any>()): any {
+  static cloneInternal<T>(value: T, options: CloneOptions = {}, seen: WeakMap<object, any> = new WeakMap<object, any>(), depth: number = 0): any {
+    if (depth > 1024) {
+      throw new Error('Maximum clone depth exceeded');
+    }
     const transformed = options.transform ? options.transform(value) : value;
     if (transformed !== value) return transformed;
 
@@ -285,7 +296,7 @@ export class JSONUtils {
       const clone: any[] = [];
       seen.set(value as object, clone);
       for (const item of value) {
-        clone.push(this.cloneInternal(item, options, seen));
+        clone.push(this.cloneInternal(item, options, seen, depth + 1));
       }
       return clone;
     }
@@ -297,7 +308,13 @@ export class JSONUtils {
         );
       }
 
-      return new (value.constructor as { new(input: ArrayBufferView): ArrayBufferView } | { new(length: number): ArrayBufferView })(value as any);
+      // Most typed arrays support .slice(); fall back to copying the underlying buffer.
+      if (typeof (value as any).slice === 'function') {
+        return (value as any).slice();
+      }
+      return new (value.constructor as { new(buffer: ArrayBufferLike, byteOffset?: number, length?: number): ArrayBufferView })(
+        value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength)
+      );
     }
 
     if (value instanceof Date) {
@@ -308,7 +325,7 @@ export class JSONUtils {
     seen.set(value as object, result);
 
     for (const key of Object.keys(value as object)) {
-      result[key] = this.cloneInternal((value as any)[key], options, seen);
+      result[key] = this.cloneInternal((value as any)[key], options, seen, depth + 1);
     }
 
     return result;

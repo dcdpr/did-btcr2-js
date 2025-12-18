@@ -5,6 +5,7 @@ export * from './interfaces.js';
 export * from './json-patch.js';
 export * from './logger.js';
 export * from './types.js';
+export * from './utils/bytes.js';
 export * from './utils/date.js';
 export * from './utils/json.js';
 export * from './utils/set.js';

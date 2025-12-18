@@ -28,6 +28,18 @@ export const DEFAULT_REST_CONFIG = { host: 'http://localhost:3000' };
 export const DEFAULT_RPC_CONFIG = POLAR_BOB_CLIENT_CONFIG;
 export const DEFAULT_BLOCK_CONFIRMATIONS = 7;
 
+/**
+ * Load a default RPC config, allowing environment overrides to avoid hard-coding credentials/hosts in bundles.
+ */
+export function getDefaultRpcConfig(): typeof POLAR_BOB_CLIENT_CONFIG {
+  return {
+    ...POLAR_BOB_CLIENT_CONFIG,
+    host     : process.env.BTCR2_RPC_HOST ?? POLAR_BOB_CLIENT_CONFIG.host,
+    username : process.env.BTCR2_RPC_USER ?? POLAR_BOB_CLIENT_CONFIG.username,
+    password : process.env.BTCR2_RPC_PASS ?? POLAR_BOB_CLIENT_CONFIG.password,
+  };
+}
+
 // Fixed public key header bytes per the Data Integrity BIP340 Cryptosuite spec: [0xe7, 0x01] / [231, 1]
 export const BIP340_PUBLIC_KEY_MULTIBASE_PREFIX: Bytes = new Uint8Array([0xe7, 0x01]);
 // Hash of the BIP-340 Multikey prefix

@@ -72,14 +72,18 @@ export type BeaconUri = string;
 export type DidPlaceholder = 'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
 export type CanonicalizedProofConfig = string;
 export type CryptosuiteName = 'bip340-jcs-2025' | 'bip340-rdfc-2025';
-export type ContextObject = Record<string | number | symbol, unknown>;
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonArray = JsonValue[];
+export type JsonValue = JsonPrimitive | JsonArray | JsonObject;
+export type JsonObject = { [key: string]: JsonValue };
+export type JSONObject = JsonObject; // JSON object: prototyped or unprototyped
+export type Prototyped = JSONObject;
+export type Unprototyped = JSONObject;
+export type ContextObject = Record<string, JsonValue>;
 export type Context = string | string[] | ContextObject | ContextObject[]
 
 /* General Types */
 export type Maybe<T> = T | null | undefined;
-export type JSONObject = Record<string | number | symbol, unknown>; // JSON object: prototyped or unprototyped
-export type Prototyped = JSONObject;
-export type Unprototyped = JSONObject;
 export type TwoDigits = `${number}${number}`;
 export type ThreeDigits = `${number}${number}${number}`;
 export type Year = `${1 | 2}${ThreeDigits}`;

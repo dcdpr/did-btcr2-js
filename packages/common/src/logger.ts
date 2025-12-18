@@ -58,10 +58,11 @@ export class Logger {
   private useColors: boolean;
   private static shared: Logger;
 
-  constructor(namespace?: string) {
-    this.levels = LOG_LEVELS[NODE_ENV] || [];
-    this.namespace = namespace ?? 'did-btcr2-js';
-    this.useColors = Boolean(process.stdout.isTTY);
+  constructor(namespace?: string, options: { levels?: Level[]; useColors?: boolean } = {}) {
+    this.levels = options.levels || LOG_LEVELS[NODE_ENV] || [];
+    this.namespace = namespace || 'did-btcr2-js';
+    const envForce = process.env.LOG_COLORS;
+    this.useColors = options.useColors || (envForce ? envForce !== '0' && envForce.toLowerCase() !== 'false' : Boolean(process.stdout.isTTY));
   }
 
   /**
@@ -144,9 +145,12 @@ export class Logger {
     Logger.instance().newline();
   }
 
-  private static instance(): Logger {
+  private static instance(levels?: Level[], useColors?: boolean): Logger {
     if (!Logger.shared) {
-      Logger.shared = new Logger();
+      Logger.shared = new Logger(undefined, { levels, useColors });
+    } else {
+      if (levels) Logger.shared.levels = levels;
+      if (useColors !== undefined) Logger.shared.useColors = useColors;
     }
     return Logger.shared;
   }
