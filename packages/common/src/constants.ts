@@ -10,33 +10,27 @@ export const MULTIBASE_URI_PREFIX = 'urn:mb:';
 export const INITIAL_BLOCK_REWARD = 50;
 export const HALVING_INTERVAL = 150;
 export const COINBASE_MATURITY_DELAY = 100;
-export const POLAR_BOB_CLIENT_CONFIG = {
+export const DEFAULT_POLAR_CONFIG = {
   username           : 'polaruser',
   password           : 'polarpass',
   host               : 'http://127.0.0.1:18443',
   allowDefaultWallet : true,
   version            : '28.1.0'
 };
-export const POLAR_ALICE_CLIENT_CONFIG = {
-  username           : 'polaruser',
-  password           : 'polarpass',
-  host               : 'http://127.0.0.1:18444',
-  allowDefaultWallet : true,
-  version            : '28.1.0'
-};
 export const DEFAULT_REST_CONFIG = { host: 'http://localhost:3000' };
-export const DEFAULT_RPC_CONFIG = POLAR_BOB_CLIENT_CONFIG;
+export const DEFAULT_RPC_CONFIG = DEFAULT_POLAR_CONFIG;
 export const DEFAULT_BLOCK_CONFIRMATIONS = 7;
 
 /**
  * Load a default RPC config, allowing environment overrides to avoid hard-coding credentials/hosts in bundles.
+ * @returns {typeof DEFAULT_POLAR_CONFIG} The RPC config.
  */
-export function getDefaultRpcConfig(): typeof POLAR_BOB_CLIENT_CONFIG {
+export function getDefaultRpcConfig(): typeof DEFAULT_POLAR_CONFIG {
   return {
-    ...POLAR_BOB_CLIENT_CONFIG,
-    host     : process.env.BTCR2_RPC_HOST ?? POLAR_BOB_CLIENT_CONFIG.host,
-    username : process.env.BTCR2_RPC_USER ?? POLAR_BOB_CLIENT_CONFIG.username,
-    password : process.env.BTCR2_RPC_PASS ?? POLAR_BOB_CLIENT_CONFIG.password,
+    ...DEFAULT_POLAR_CONFIG,
+    host     : process.env.BTCR2_RPC_HOST ?? DEFAULT_POLAR_CONFIG.host,
+    username : process.env.BTCR2_RPC_USER ?? DEFAULT_POLAR_CONFIG.username,
+    password : process.env.BTCR2_RPC_PASS ?? DEFAULT_POLAR_CONFIG.password,
   };
 }
 

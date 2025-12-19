@@ -57,3 +57,9 @@ export class StringUtils {
     return value.replace(regex, replacement);
   }
 }
+
+export const escapeRegExp = StringUtils.escapeRegExp.bind(StringUtils);
+export const toSnake = StringUtils.toSnake.bind(StringUtils);
+export const toSnakeScream = StringUtils.toSnakeScream.bind(StringUtils);
+export const chop = StringUtils.chop.bind(StringUtils);
+export const replaceEnd = StringUtils.replaceEnd.bind(StringUtils);

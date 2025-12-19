@@ -207,7 +207,7 @@ export class JSONUtils {
 
     for (const key of keysA) {
       if (!Object.prototype.hasOwnProperty.call(b, key)) return false;
-      if (!this.deepEqual((a as any)[key], (b as any)[key], seen)) return false;
+      if (!this.deepEqual((a as any)[key], (b as any)[key], seen, depth + 1)) return false;
     }
 
     return true;

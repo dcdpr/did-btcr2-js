@@ -30,3 +30,6 @@ export class DateUtils {
     return Math.floor(time / 1000);
   }
 }
+
+export const getUTCDateTime = DateUtils.getUTCDateTime.bind(DateUtils);
+export const toUnixSeconds = DateUtils.toUnixSeconds.bind(DateUtils);

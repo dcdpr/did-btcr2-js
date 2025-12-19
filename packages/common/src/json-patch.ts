@@ -1,7 +1,9 @@
-import { applyPatch, compare, deepClone, Operation } from 'fast-json-patch';
+import jsonPatch, { Operation } from 'fast-json-patch';
 import { MethodError } from './errors.js';
 import { PatchOperation } from './interfaces.js';
 import { JSONObject } from './types.js';
+
+const { applyPatch, compare, deepClone } = jsonPatch;
 
 /**
  * Thin wrapper around fast-json-patch to keep a stable API within this package.
@@ -37,27 +39,6 @@ export class JSONPatch {
     } catch (error) {
       throw new MethodError('JSON Patch application failed', 'JSON_PATCH_APPLY_ERROR', { error });
     }
-  }
-
-  /**
-   * Constructs a JSON Patch array from a list of operations.
-   * @param {PatchOperation[]} patches - The list of patch operations.
-   * @returns {PatchOperation[]} The constructed JSON Patch array.
-   */
-  public create(patches: PatchOperation[]): PatchOperation[] {
-    return patches.map(({ op, path, value, from }) => {
-      const operation: PatchOperation = { op, path };
-
-      if (value !== undefined) {
-        operation.value = value;
-      }
-
-      if (from !== undefined) {
-        operation.from = from;
-      }
-
-      return operation;
-    });
   }
 
   /**

@@ -157,7 +157,8 @@ export class Canonicalization {
    * @returns {string} The hash as a hex string.
    */
   public base58(hashBytes: HashBytes): string {
-    return base58btc.encode(hashBytes);
+    const encoded = base58btc.encode(hashBytes);
+    return encoded.startsWith('z') ? encoded.slice(1) : encoded;
   }
 
   /**
@@ -190,9 +191,7 @@ export class Canonicalization {
    * @param {string} canonicalized The canonicalized object to hash.
    * @returns {string} The SHA-256 hash as a base58 string.
    */
-  public hashb58(canonicalized: string): string {
+  public hashbase58(canonicalized: string): string {
     return this.encode(this.hash(canonicalized), 'base58', false);
   }
 }
-
-export const canonicalization = new Canonicalization();
