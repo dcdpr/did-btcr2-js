@@ -18,7 +18,7 @@ export class JSONPatch {
    * @param {PatchOperation[]} operations - The JSON Patch operations to apply.
    * @returns {JSONObject} The patched JSON document.
    */
-  public apply(
+  apply(
     sourceDocument: JSONObject,
     operations: PatchOperation[],
     options: { mutate?: boolean; clone?: (value: any) => any } = {}
@@ -48,7 +48,7 @@ export class JSONPatch {
    * @param {string} [path] - An optional base path to prefix to each operation.
    * @returns {PatchOperation[]} The computed JSON Patch operations.
    */
-  public diff(sourceDocument: JSONObject, targetDocument: JSONObject, path: string = ''): PatchOperation[] {
+  diff(sourceDocument: JSONObject, targetDocument: JSONObject, path: string = ''): PatchOperation[] {
     const ops = compare(sourceDocument ?? {}, targetDocument ?? {}) as PatchOperation[];
     if (!path) return ops;
 

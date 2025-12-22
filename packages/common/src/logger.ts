@@ -51,6 +51,8 @@ const LEVEL_METHODS: Record<Level, keyof Console> = {
  * - File/line tracing
  * - Timestamps
  * - Colorized output
+ * @class Logger
+ * @type {Logger}
  */
 export class Logger {
   private levels: Level[];
@@ -58,6 +60,13 @@ export class Logger {
   private useColors: boolean;
   private static shared: Logger;
 
+  /**
+   * Creates a new Logger instance.
+   * @param {string} namespace - Optional namespace for log messages.
+   * @param {Object} options - Configuration options.
+   * @param {Level[]} options.levels - Log levels to enable.
+   * @param {boolean} options.useColors - Whether to use colored output.
+   */
   constructor(namespace?: string, options: { levels?: Level[]; useColors?: boolean } = {}) {
     this.levels = options.levels || LOG_LEVELS[NODE_ENV] || [];
     this.namespace = namespace || 'did-btcr2-js';
@@ -67,6 +76,10 @@ export class Logger {
 
   /**
    * Logs a message with the specified level.
+   * @param {Level} level - The log level.
+   * @param {unknown} message - The message to log.
+   * @param {...unknown[]} args - Additional arguments to log.
+   * @returns {void}
    */
   private _log(level: Level, message?: unknown, ...args: unknown[]): void {
     if (!this.levels.includes(level)) return;
@@ -85,63 +98,66 @@ export class Logger {
     );
   }
 
-  // 🔹 Instance-based logging methods
-  public debug(message?: unknown, ...args: unknown[]) {
+  debug(message?: unknown, ...args: unknown[]): Logger {
     this._log('debug', message, ...args); return this;
   }
 
-  public error(message?: unknown, ...args: unknown[]) {
+  error(message?: unknown, ...args: unknown[]): Logger {
     this._log('error', message, ...args); return this;
   }
 
-  public info(message?: unknown, ...args: unknown[]) {
+  info(message?: unknown, ...args: unknown[]): Logger {
     this._log('info', message, ...args); return this;
   }
 
-  public warn(message?: unknown, ...args: unknown[]) {
+  warn(message?: unknown, ...args: unknown[]): Logger {
     this._log('warn', message, ...args); return this;
   }
 
-  public security(message?: unknown, ...args: unknown[]) {
+  security(message?: unknown, ...args: unknown[]): Logger {
     this._log('security', message, ...args); return this;
   }
 
-  public log(message?: unknown, ...args: unknown[]) {
+  log(message?: unknown, ...args: unknown[]): Logger {
     this._log('log', message, ...args); return this;
   }
 
-  public newline() {
+  newline(): Logger {
     console.log(); return this;
   }
 
   /**
    * Static methods for convenience (auto-instantiate).
+   * These use a shared singleton instance.
+   * @param {unknown} message - The message to log.
+   * @param {...unknown[]} args - Additional arguments to log.
+   * @returns {void}
    */
-  public static debug(message?: unknown, ...args: unknown[]) {
+  static debug(message?: unknown, ...args: unknown[]): void {
     Logger.instance().debug(message, ...args);
   }
 
-  public static error(message?: unknown, ...args: unknown[]) {
+  static error(message?: unknown, ...args: unknown[]): void {
     Logger.instance().error(message, ...args);
   }
 
-  public static info(message?: unknown, ...args: unknown[]) {
+  static info(message?: unknown, ...args: unknown[]): void {
     Logger.instance().info(message, ...args);
   }
 
-  public static warn(message?: unknown, ...args: unknown[]) {
+  static warn(message?: unknown, ...args: unknown[]): void {
     Logger.instance().warn(message, ...args);
   }
 
-  public static security(message?: unknown, ...args: unknown[]) {
+  static security(message?: unknown, ...args: unknown[]): void {
     Logger.instance().security(message, ...args);
   }
 
-  public static log(message?: unknown, ...args: unknown[]) {
+  static log(message?: unknown, ...args: unknown[]): void {
     Logger.instance().log(message, ...args);
   }
 
-  public static newline() {
+  static newline() {
     Logger.instance().newline();
   }
 
