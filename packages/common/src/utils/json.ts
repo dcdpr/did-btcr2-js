@@ -19,7 +19,7 @@ export class JSONUtils {
    * @param {unknown} value - The value to check.
    * @returns {boolean} True if the value is a JSON object.
    */
-  static isJsonObject(value: unknown): value is JSONObject {
+  static isObject(value: unknown): value is JSONObject {
     if (value === null || typeof value !== 'object') return false;
     if (Array.isArray(value)) return false;
     const proto = Object.getPrototypeOf(value);
@@ -31,24 +31,10 @@ export class JSONUtils {
    * @param {unknown} value - The value to check.
    * @returns {boolean} True if the value is a parsable JSON string.
    */
-  static isParsableJson(value: unknown): value is string {
+  static isParsable(value: unknown): value is string {
     if (typeof value !== 'string') return false;
     try {
       JSON.parse(value);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Check if a value is stringifiable to JSON.
-   * @param {unknown} value - The value to check.
-   * @returns {boolean} True if the value is stringifiable to JSON.
-   */
-  static isStringifiableJson(value: unknown): boolean {
-    try {
-      JSON.stringify(value as any);
       return true;
     } catch {
       return false;
@@ -108,16 +94,6 @@ export class JSONUtils {
         ? candidate.replace(pattern, replacement)
         : candidate
     });
-  }
-
-  /**
-   * Check if two values are strictly equal.
-   * @param {unknown} a - The first value to compare.
-   * @param {unknown} b - The second value to compare.
-   * @returns {boolean} True if the values are strictly equal.
-   */
-  static equal(a: unknown, b: unknown): boolean {
-    return Object.is(a, b);
   }
 
   /**
@@ -182,7 +158,10 @@ export class JSONUtils {
           matched = this.deepEqual(valueA, b.get(keyA), seen, depth + 1);
         } else {
           for (const [keyB, valueB] of b) {
-            if (this.deepEqual(keyA, keyB, seen, depth + 1) && this.deepEqual(valueA, valueB, seen, depth + 1)) {
+            if (
+              this.deepEqual(keyA, keyB, seen, depth + 1)
+              && this.deepEqual(valueA, valueB, seen, depth + 1)
+            ) {
               matched = true;
               break;
             }
@@ -277,7 +256,12 @@ export class JSONUtils {
    * @param {WeakMap<object, any>} seen - A WeakMap to track seen objects for circular reference detection.
    * @returns {any} The cloned value.
    */
-  static cloneInternal<T>(value: T, options: CloneOptions = {}, seen: WeakMap<object, any> = new WeakMap<object, any>(), depth: number = 0): any {
+  static cloneInternal<T>(
+    value: T,
+    options: CloneOptions = {},
+    seen: WeakMap<object, any> = new WeakMap<object, any>(),
+    depth: number = 0
+  ): any {
     if (depth > 1024) {
       throw new Error('Maximum clone depth exceeded');
     }
@@ -292,6 +276,7 @@ export class JSONUtils {
       throw new Error('Cannot clone circular structure');
     }
 
+    // Handle arrays and typed arrays
     if (Array.isArray(value)) {
       const clone: any[] = [];
       seen.set(value as object, clone);
@@ -301,6 +286,7 @@ export class JSONUtils {
       return clone;
     }
 
+    // Handle ArrayBuffer views (typed arrays, DataView)
     if (ArrayBuffer.isView(value)) {
       if (value instanceof DataView) {
         return new DataView(
@@ -308,13 +294,9 @@ export class JSONUtils {
         );
       }
 
-      // Most typed arrays support .slice(); fall back to copying the underlying buffer.
       if (typeof (value as any).slice === 'function') {
         return (value as any).slice();
       }
-      return new (value.constructor as { new(buffer: ArrayBufferLike, byteOffset?: number, length?: number): ArrayBufferView })(
-        value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength)
-      );
     }
 
     if (value instanceof Date) {
@@ -330,5 +312,4 @@ export class JSONUtils {
 
     return result;
   }
-
 }
