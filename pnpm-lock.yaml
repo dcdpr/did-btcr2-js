@@ -89,6 +89,9 @@ importers:
       '@did-btcr2/keypair':
         specifier: workspace:*
         version: link:../keypair
+      '@did-btcr2/kms':
+        specifier: workspace:*
+        version: link:../kms
       '@did-btcr2/method':
         specifier: workspace:*
         version: link:../method
