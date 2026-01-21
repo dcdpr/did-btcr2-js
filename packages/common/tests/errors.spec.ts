@@ -3,6 +3,7 @@ import {
   CanonicalizationError,
   CIDAggregateBeaconError,
   CryptosuiteError,
+  DataIntegrityProofError,
   DidDocumentError,
   DidMethodError,
   KeyManagerError,
@@ -15,7 +16,8 @@ import {
   ResolveError,
   SecretKeyError,
   SingletonBeaconError,
-  SMTAggregateBeaconError
+  SMTAggregateBeaconError,
+  UpdateError
 } from '../src/index.js';
 
 describe('errors', () => {
@@ -29,10 +31,12 @@ describe('errors', () => {
 
   it('creates specialized errors with proper names', () => {
     expect(new MethodError('some message', 'TYPE')).to.be.instanceOf(DidMethodError);
+    expect(new UpdateError('some message').name).to.equal('UpdateError');
     expect(new ResolveError('some message').name).to.equal('ResolveError');
     expect(new KeyManagerError('some message').name).to.equal('KeyManagerError');
     expect(new DidDocumentError('some message').name).to.equal('DidDocumentError');
     expect(new CryptosuiteError('some message').name).to.equal('CryptosuiteError');
+    expect(new DataIntegrityProofError('some message').name).to.equal('DataIntegrityProofError');
     expect(new KeyPairError('some message').name).to.equal('KeyPairError');
     expect(new SecretKeyError('some message').name).to.equal('SecretKeyError');
     expect(new PublicKeyError('some message').name).to.equal('PublicKeyError');

@@ -90,7 +90,7 @@ export class AggregateBeaconCohort implements BeaconCohort {
   public beaconAddress: string = '';
 
   /**
-   * Type of beacon used in the cohort (default is 'SMTAggregateBeacon').
+   * Type of beacon used in the cohort (default is 'SMTBeacon').
    * @type {string}
    */
   public beaconType: string;
@@ -110,7 +110,7 @@ export class AggregateBeaconCohort implements BeaconCohort {
     this.coordinatorDid = coordinatorDid || '';
     this.status = status as COHORT_STATUS_TYPE || COHORT_STATUS.COHORT_ADVERTISED;
     this.network = network;
-    this.beaconType = beaconType || 'SMTAggregateBeacon';
+    this.beaconType = beaconType || 'SMTBeacon';
   }
 
   set cohortKeys(keys: Array<Uint8Array>) {

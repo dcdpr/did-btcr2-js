@@ -24,7 +24,7 @@ import { DEFAULT_BLOCK_CONFIRMATIONS, DEFAULT_REST_CONFIG, DEFAULT_RPC_CONFIG, I
 import type { MultikeyObject } from '@did-btcr2/cryptosuite';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
-import type { DidCreateOptions, DidResolutionOptions, SignalsMetadata, UpdateParams } from '@did-btcr2/method';
+import type { DidCreateOptions, ResolutionOptions, SidecarData, UpdateParams } from '@did-btcr2/method';
 import { DidBtcr2, DidDocument, DidDocumentBuilder, Identifier } from '@did-btcr2/method';
 import type { DidResolutionResult, DidService, DidVerificationMethod } from '@web5/dids';
 
@@ -213,7 +213,7 @@ export class DidApi {
     genesisBytes: KeyBytes;
     options: DidCreateOptions;
   }) {
-    return await DidBtcr2.create({ idType: 'KEY', genesisBytes, options });
+    return await DidBtcr2.create(genesisBytes, options);
   }
 
   /**
@@ -223,13 +223,13 @@ export class DidApi {
     genesisBytes: DocumentBytes;
     options: DidCreateOptions;
   }) {
-    return await DidBtcr2.create({ idType: 'KEY', genesisBytes, options });
+    return await DidBtcr2.create(genesisBytes, options);
   }
 
   /**
    * Resolve DID document from DID (did:btcr2:...).
    */
-  async resolve(did: string, options: DidResolutionOptions): Promise<DidResolutionResult> {
+  async resolve(did: string, options: ResolutionOptions): Promise<DidResolutionResult> {
     return await DidBtcr2.resolve(did, options);
   }
 
@@ -245,7 +245,7 @@ export class DidApi {
     patch,
     verificationMethodId,
     beaconIds
-  }: UpdateParams): Promise<SignalsMetadata> {
+  }: UpdateParams): Promise<SidecarData> {
     // The Update class exposes the algorithm that creates a DID Update Payload and proof;
     // keep this wrapper narrow so testing can mock MethodUpdate directly.
     const result = await DidBtcr2.update({
@@ -260,7 +260,7 @@ export class DidApi {
   }
 
   /** Deactivate convenience: applies the standard `deactivated: true` patch. */
-  async deactivate(): Promise<SignalsMetadata> {
+  async deactivate(): Promise<SidecarData> {
     // This class is a stub in method right now; expose a narrow wrapper for future expansion.
     // return DidBtcr2.deactivate({ identifier, patch }); // No-op holder; implement when core adds behavior.
     throw new NotImplementedError(

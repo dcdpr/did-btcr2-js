@@ -11,7 +11,7 @@ import {
 import { createHelia } from 'helia';
 import { CID } from 'multiformats';
 import { create as createDigest } from 'multiformats/hashes/digest';
-import { RootCapability } from '../interfaces/crud.js';
+import { RootCapability } from '../core/interfaces.js';
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/#appendix | 9. Appendix} methods.
@@ -173,7 +173,7 @@ export class Appendix {
    *   }
    * }
    */
-  public static derefernceRootCapabilityIdentifier(capabilityId: string): RootCapability {
+  public static dereferenceZcapId(capabilityId: string): RootCapability {
     // 1. Set rootCapability to an empty object.
     const rootCapability = {} as RootCapability;
 
@@ -221,28 +221,24 @@ export class Appendix {
   }
 
   /**
-   * Implements {@link https://dcdpr.github.io/did-btcr2/#fetch-content-from-addressable-storage | 9.3. Fetch Content from Addressable Storage}.
-   *
-   * The Fetch Content from Addressable Storage function takes in SHA256 hash of some content, hashBytes, converts these
-   * bytes to a IPFS v1 Content Identifier and attempts to retrieve the identified content from Content Addressable
-   * Storage (CAS). It returns the retrieved content or null.
-   *
-   * @param {HashBytes} hashBytes The SHA256 hash of the content to be fetched.
-   * @returns {string} The fetched content or null if not found.
+   * Implements CAS Lookup Step from {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process-beacon-signals | 7.2.e Process Beacon Signals }.
+   * @param {HashBytes} hashBytes The hash bytes to look up in the CAS system.
+   * @returns {Promise<string | undefined>} The content fetched from the CAS system, or undefined if not found.
    */
-  public static async fetchFromCas(hashBytes: HashBytes): Promise<string | undefined> {
-    // 1. Set cid to the result of converting hashBytes to an IPFS v1 CID.
+  static async fetchFromCas(hashBytes: HashBytes): Promise<string | undefined> {
+    // Construct CID from hash bytes
     const cid = CID.create(1, 1, createDigest(1, hashBytes));
 
-    // Create a Helia node connection to IPFS
-    const helia = strings(await createHelia());
+    // Connect to IPFS/Helia node
+    const helia = await createHelia();
+    const node = strings(helia);
 
-    // 2. Set content to the result of fetching the cid from a CAS system. Which CAS systems checked is up to implementation.
-    // TODO: Is this right? Are implementations just supposed to check all CAS they trust?'
-    const content = await helia.get(cid, {});
-
-    // 3. If content for cid cannot be found, set content to null.
-    // 4. Return content.
-    return content;
+    // Return the IPFS get result
+    return await node.get(cid, {});
   }
 }
+
+
+
+
+
