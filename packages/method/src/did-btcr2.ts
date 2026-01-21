@@ -19,7 +19,7 @@ import {
 } from '@web5/dids';
 import { initEccLib } from 'bitcoinjs-lib';
 import * as tinysecp from 'tiny-secp256k1';
-import { Resolve } from './core/crud/read.js';
+import { Resolve } from './core/crud/resolve.js';
 import { Update } from './core/crud/update.js';
 import { DidResolutionOptions } from './interfaces/crud.js';
 import { DidDocument, DidVerificationMethod } from './utils/did-document.js';

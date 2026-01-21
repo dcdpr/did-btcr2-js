@@ -171,7 +171,7 @@ export class Update {
     const keyUri = new CompressedSecp256k1PublicKey(components.genesisBytes).hex;
     const keys = secretKeyMultibase
       ? new SchnorrKeyPair({ secretKey: Secp256k1SecretKey.decode(secretKeyMultibase) })
-      : await Kms.getKey(keyUri as string);
+      : Kms.getKey(keyUri as string);
     if (!keys) {
       throw new MethodError(
         'No privateKey found in kms or vm',
