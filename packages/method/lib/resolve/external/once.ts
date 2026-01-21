@@ -1,0 +1,45 @@
+import { DidBtcr2, GenesisDocument } from '../../../src/index.js';
+
+const did = 'did:btcr2:x1qqhekh0hahrn0gq9d6xahe3jwfrxn0fn9qfd5esgfvruxgq5c390ujuep0g';
+const genesisDocument = new GenesisDocument( {
+  'id'         : 'did:btcr2:_',
+  'controller' : [
+    'did:btcr2:_'
+  ],
+  '@context' : [
+    'https://www.w3.org/TR/did-1.1',
+    'https://btcr2.dev/context/v1'
+  ],
+  'verificationMethod' : [
+    {
+      'id'                 : 'did:btcr2:_#key-0',
+      'type'               : 'Multikey',
+      'controller'         : 'did:btcr2:_',
+      'publicKeyMultibase' : 'zQ3shU1YDA8iT1PTxtFVjVy4ZggMgd63JJ5cM9AvceSbKLVw7'
+    }
+  ],
+  'authentication' : [
+    'did:btcr2:_#key-0'
+  ],
+  'assertionMethod' : [
+    'did:btcr2:_#key-0'
+  ],
+  'capabilityInvocation' : [
+    'did:btcr2:_#key-0'
+  ],
+  'capabilityDelegation' : [
+    'did:btcr2:_#key-0'
+  ],
+  'service' : [
+    {
+      'id'              : 'did:btcr2:_#service-0',
+      'serviceEndpoint' : 'bitcoin:149c5YUddc2DMKySbrw1eDGjZKAZFRJGQf',
+      'type'            : 'SingletonBeacon'
+    }
+  ]
+});
+
+
+const options = { drivers: {}, sidecar: { genesisDocument } };
+const result = await DidBtcr2.resolve(did, options);
+console.log('result', result);

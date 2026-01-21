@@ -1,6 +1,6 @@
 {
   "name": "@did-btcr2/common",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "type": "module",
   "description": "Common utilities, types, interfaces, etc. shared across the did-btcr2-js monorepo packages.",
   "main": "./dist/cjs/index.js",

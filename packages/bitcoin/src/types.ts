@@ -550,17 +550,18 @@ export type TxInPrevout = {
 export interface TxInExt extends TxIn {
     prevout: TxInPrevout;
 }
+export type ScriptPubKey = {
+    asm: string;
+    hex: string;
+    reqSigs: number;
+    type: string;
+    address?: string;
+    desc: string;
+};
 export type TxOut = {
     value: number;
     n: number;
-    scriptPubKey: {
-        asm: string;
-        hex: string;
-        reqSigs: number;
-        type: scriptPubkeyType;
-        address?: string;
-        desc: string;
-    };
+    scriptPubKey: ScriptPubKey;
 };
 export type RawTransactionV0 = string;
 export interface RawTransactionV1 extends Transaction {
@@ -593,7 +594,7 @@ export type TxOutInBlock = {
         asm: string;
         hex: string;
         reqSigs: number;
-        type: scriptPubkeyType;
+        type: string;
         addresses: string[];
     };
     coinbase: boolean;
@@ -644,8 +645,6 @@ export type WalletInfo = {
     paytxfee: number;
     hdmasterkeyid: string;
 };
-
-export type scriptPubkeyType = string;
 
 export type SigHashType =
     | 'ALL'
