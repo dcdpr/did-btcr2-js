@@ -1,4 +1,4 @@
-import { BitcoinNetworkNames, Bytes, IdentifierTypes, INVALID_DID, METHOD_NOT_SUPPORTED, MethodError } from '@did-btcr2/common';
+import { BitcoinNetworkNames, Bytes, IdentifierError, IdentifierTypes, INVALID_DID, METHOD_NOT_SUPPORTED } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { bech32m } from '@scure/base';
 
@@ -48,7 +48,7 @@ export class Identifier {
    * @param {KeyBytes | DocumentBytes} params.genesisBytes Public key or an intermediate document bytes.
    * @returns {string} The new did:btcr2 identifier.
    */
-  public static encode({ idType, version, network, genesisBytes }: {
+  static encode({ idType, version, network, genesisBytes }: {
     idType: string;
     version: number;
     network: string;
@@ -56,22 +56,22 @@ export class Identifier {
   }): string {
     // 1. If idType is not a valid value per above, raise invalidDid error.
     if (!(idType in IdentifierTypes)) {
-      throw new MethodError('Expected "idType" to be "KEY" or "EXTERNAL"', INVALID_DID, {idType});
+      throw new IdentifierError('Expected "idType" to be "KEY" or "EXTERNAL"', INVALID_DID, {idType});
     }
 
     // 2. If version is greater than 1, raise invalidDid error.
     if (isNaN(version) || version > 1) {
-      throw new MethodError('Expected "version" to be 1', INVALID_DID, {version});
+      throw new IdentifierError('Expected "version" to be 1', INVALID_DID, {version});
     }
 
     // 3. If network is not a valid value (bitcoin|signet|regtest|testnet3|testnet4|number), raise invalidDid error.
     if (typeof network === 'string' && !(network in BitcoinNetworkNames)) {
-      throw new MethodError('Invalid "network" name', INVALID_DID, {network});
+      throw new IdentifierError('Invalid "network" name', INVALID_DID, {network});
     }
 
     // 4. If network is a number and is outside the range of 1-8, raise invalidDid error.
     if(typeof network === 'number' && (network < 0 || network > 8)) {
-      throw new MethodError('Invalid "network" number', INVALID_DID, {network});
+      throw new IdentifierError('Invalid "network" number', INVALID_DID, {network});
     }
 
     // 5. If idType is “key” and genesisBytes is not a valid compressed secp256k1 public key, raise invalidDid error.
@@ -79,7 +79,7 @@ export class Identifier {
       try {
         new CompressedSecp256k1PublicKey(genesisBytes);
       } catch {
-        throw new MethodError(
+        throw new IdentifierError(
           'Expected "genesisBytes" to be a valid compressed secp256k1 public key',
           INVALID_DID, { genesisBytes }
         );
@@ -127,15 +127,12 @@ export class Identifier {
     // 14. Create a dataBytes byte array from nibbles, where index is from 0 to nibbles.length / 2 - 1 and
     //     encodingBytes[index] = (nibbles[2 * index] << 4) | nibbles[2 * index + 1].
     if (fCount !== 0){
-      for(let index in Array.from({ length: (nibbles.length / 2) - 1 })) {
-        throw new MethodError('Not implemented', 'NOT_IMPLEMENTED', { index });
+      for(const index in Array.from({ length: (nibbles.length / 2) - 1 })) {
+        throw new IdentifierError('Not implemented', 'NOT_IMPLEMENTED', { index });
       }
     }
     const dataBytes = new Uint8Array([(nibbles[2 * 0] << 4) | nibbles[2 * 0 + 1], ...genesisBytes]);
 
-    // 15. Set identifier to “did:btcr2:”.
-    // 16. Pass hrp and dataBytes to the Bech32m Encoding algorithm, retrieving encodedString.
-    // 17. Append encodedString to identifier.
     // 18. Return identifier.
     return `did:btcr2:${bech32m.encodeFromBytes(hrp, dataBytes)}`;
   }
@@ -148,13 +145,13 @@ export class Identifier {
    * @throws {DidErrorCode.InvalidDid} if identifier is invalid
    * @throws {DidErrorCode.MethodNotSupported} if the method is not supported
    */
-  public static decode(identifier: string): DidComponents {
+  static decode(identifier: string): DidComponents {
     // 1. Split identifier into an array of components at the colon : character.
     const components = identifier.split(':');
 
     // 2. If the length of the components array is not 3, raise invalidDid error.
     if (components.length !== 3){
-      throw new MethodError(`Invalid did: ${identifier}`, INVALID_DID, { identifier });
+      throw new IdentifierError(`Invalid did: ${identifier}`, INVALID_DID, { identifier });
     }
 
     // Deconstruct the components of the identifier: scheme, method, encoded
@@ -162,26 +159,26 @@ export class Identifier {
 
     // 3. If components[0] is not “did”, raise invalidDid error.
     if (scheme !== 'did') {
-      throw new MethodError(`Invalid did: ${identifier}`, INVALID_DID, { identifier });
+      throw new IdentifierError(`Invalid did: ${identifier}`, INVALID_DID, { identifier });
     }
     // 4. If components[1] is not “btcr2”, raise methodNotSupported error.
     if (method !== 'btcr2') {
-      throw new MethodError(`Invalid did method: ${method}`, METHOD_NOT_SUPPORTED, { identifier });
+      throw new IdentifierError(`Invalid did method: ${method}`, METHOD_NOT_SUPPORTED, { identifier });
     }
 
     // 5. Set encodedString to components[2].
     if (!encoded) {
-      throw new MethodError(`Invalid method-specific id: ${identifier}`, INVALID_DID, { identifier });
+      throw new IdentifierError(`Invalid method-specific id: ${identifier}`, INVALID_DID, { identifier });
     }
     // 6. Pass encodedString to the Bech32m Decoding algorithm, retrieving hrp and dataBytes.
     const {prefix: hrp, bytes: dataBytes} = bech32m.decodeToBytes(encoded);
 
     // 7. If the Bech32m decoding algorithm fails, raise invalidDid error.
     if (!['x', 'k'].includes(hrp)) {
-      throw new MethodError(`Invalid hrp: ${hrp}`, INVALID_DID, { identifier });
+      throw new IdentifierError(`Invalid hrp: ${hrp}`, INVALID_DID, { identifier });
     }
     if (!dataBytes) {
-      throw new MethodError(`Failed to decode id: ${encoded}`, INVALID_DID, { identifier });
+      throw new IdentifierError(`Failed to decode id: ${encoded}`, INVALID_DID, { identifier });
     }
 
     // 8. Map hrp to idType from the following:
@@ -216,7 +213,7 @@ export class Identifier {
       nibblesConsumed += 1;
       // 14. If version is greater than 1, raise invalidDid error.
       if (version > 1) {
-        throw new MethodError(`Invalid version: ${version}`, INVALID_DID, { identifier });
+        throw new IdentifierError(`Invalid version: ${version}`, INVALID_DID, { identifier });
       }
     }
 
@@ -244,7 +241,7 @@ export class Identifier {
       if (networkValue >= 0x8 && networkValue <= 0xF) {
         network = networkValue - 11;
       } else {
-        throw new MethodError(`Invalid did: ${identifier}`, INVALID_DID, { identifier });
+        throw new IdentifierError(`Invalid did: ${identifier}`, INVALID_DID, { identifier });
       }
     }
 
@@ -254,7 +251,7 @@ export class Identifier {
       const fillerNibble = currentByte & 0x0F;
       //     17.2 If fillerNibble is not 0, raise invalidDid error.
       if (fillerNibble !== 0) {
-        throw new MethodError(`Invalid did: ${identifier}`, INVALID_DID, { identifier });
+        throw new IdentifierError(`Invalid did: ${identifier}`, INVALID_DID, { identifier });
       }
     }
 
@@ -266,7 +263,7 @@ export class Identifier {
       try {
         new CompressedSecp256k1PublicKey(genesisBytes);
       } catch {
-        throw new MethodError(`Invalid genesisBytes: ${genesisBytes}`, INVALID_DID, { identifier });
+        throw new IdentifierError(`Invalid genesisBytes: ${genesisBytes}`, INVALID_DID, { identifier });
       }
     }
 
@@ -278,7 +275,7 @@ export class Identifier {
    * Generates a new did:btcr2 identifier based on a newly generated key pair.
    * @returns {string} The new did:btcr2 identifier.
    */
-  public static generate(): { keys: SchnorrKeyPair; identifier: { controller: string; id: string } } {
+  static generate(): { keys: SchnorrKeyPair; identifier: { controller: string; id: string } } {
     const keys = SchnorrKeyPair.generate();
     const did = this.encode({
       idType       : IdentifierTypes.KEY,

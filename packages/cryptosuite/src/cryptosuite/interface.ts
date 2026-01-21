@@ -1,123 +1,106 @@
 import {
   CanonicalizedProofConfig,
-  DidUpdateInvocation,
-  DidUpdatePayload,
   HashBytes,
   HashHex,
-  Proof,
-  ProofOptions,
   SignatureBytes
 } from '@did-btcr2/common';
+import {
+  BTCR2SignedUpdate,
+  BTCR2UnsignedUpdate,
+  BTCR2Update,
+  DataIntegrityConfig,
+  DataIntegrityProofObject
+} from '../data-integrity-proof/interface.js';
 import { SchnorrMultikey } from '../multikey/index.js';
-
-export interface CreateProofParams {
-  options: ProofOptions;
-  document: DidUpdatePayload;
-}
 
 export interface VerificationResult {
     verified: boolean;
-    verifiedDocument?: DidUpdateInvocation;
+    verifiedDocument?: BTCR2SignedUpdate;
     mediaType?: string;
 }
 
-export interface TransformDocumentParams {
-  document: DidUpdatePayload | DidUpdateInvocation;
-  options: ProofOptions;
-}
-
-export interface GenerateHashParams {
-  canonicalConfig: string;
-  canonicalDocument: string
-}
-
-export interface ProofSerializationParams {
-  hash: HashBytes;
-  options: ProofOptions;
-};
-
-export interface ProofVerificationParams {
-  hash: HashBytes;
-  signature: SignatureBytes;
-  options: ProofOptions;
-}
-
 /**
- * Interface representing a BIP-340 Cryptosuite.
- * @interface ICryptosuite
- * @type {ICryptosuite}
+ * Interface representing a {@link https://www.w3.org/TR/vc-data-integrity/#cryptographic-suites | Cryptographic Suite}
+ * from the {@link https://www.w3.org/TR/vc-data-integrity/ | Verifiable Credential Data Integrity 1.0 spec}.
+ * @interface Cryptosuite
+ * @type {Cryptosuite}
  */
-export interface ICryptosuite {
-  /** @type {'DataIntegrityProof'} The type of proof produced by the cryptosuite */
-  type: 'DataIntegrityProof';
+export interface Cryptosuite {
+  /**
+   * The specific type of proof. Example types include DataIntegrityProof and Ed25519Signature2020
+   */
+  type: string;
 
-  /** @type {string} The name of the cryptosuite */
+  /**
+   * An identifier for the cryptographic suite that can be used to verify the proof.
+   */
   cryptosuite: string;
 
-  /** @type {SchnorrMultikey} The SchnorrMultikey used by the cryptosuite */
+  /**
+   * The SchnorrMultikey used by the cryptosuite
+   */
   multikey: SchnorrMultikey;
 
   /**
    * Create a proof for an insecure document.
-   * @param {CreateProofParams} params See {@link CreateProofParams} for details.
-   * @param {DidUpdatePayload} params.document The document to create a proof for.
-   * @param {ProofOptions} params.options The options to use when creating the proof.
+   * @param {BTCR2UnsignedUpdate} insecureDocument The document to create a proof for.
+   * @param {DataIntegrityConfig} config The config to use when creating the proof.
    * @returns {Proof} The proof for the document.
    */
-  createProof({ document, options }: CreateProofParams): Promise<Proof>;
+  createProof(insecureDocument: BTCR2UnsignedUpdate, config: DataIntegrityConfig): DataIntegrityProofObject;
 
   /**
    * Verify a proof for a secure document.
-   * @param {DidUpdateInvocation} document The secure document to verify.
+   * @param {BTCR2SignedUpdate} secureDocument The secure document to verify.
    * @returns {VerificationResult} The result of the verification.
    */
-  verifyProof(document: DidUpdateInvocation): Promise<VerificationResult>;
+  verifyProof(secureDocument: BTCR2SignedUpdate): VerificationResult;
 
   /**
    * Transform a document (secure didUpdateInvocation or insecure didUpdatePayload) into canonical form.
-   * @param {TransformDocumentParams} params See {@link TransformDocumentParams} for details.
-   * @param {DocumentParams} params.document The document to transform: secure or insecure.
-   * @param {ProofOptions} params.options The options to use when transforming the proof.
+   * @param {BTCR2UnsignedUpdate | BTCR2SignedUpdate} document The document to transform.
+   * @param {DataIntegrityConfig} config The config to use when transforming the document.
    * @returns {string} The canonicalized document.
    * @throws {MethodError} if the document cannot be transformed.
    */
-  transformDocument({ document, options }: TransformDocumentParams): Promise<string>;
+  transformDocument(document: BTCR2Update, config: DataIntegrityConfig): string;
 
   /**
    * Generate a hash of the canonical proof configuration and document.
-   * @param {GenerateHashParams} params See {@link GenerateHashParams} for details.
-   * @param {string} params.canonicalConfig The canonicalized proof configuration.
-   * @param {string} params.canonicalDocument The canonicalized document.
+   * @param {string} canonicalConfig The canonicalized proof configuration.
+   * @param {string} canonicalDocument The canonicalized document.
    * @returns {HashHex} The hash string of the proof configuration and document.
    */
-  generateHash({ canonicalConfig, canonicalDocument }: GenerateHashParams): HashHex;
+  generateHash(canonicalConfig: string, canonicalDocument: string): HashHex;
 
   /**
    * Configure the proof by canonicalzing it.
-   * @param {ProofOptions} options The options to use when transforming the proof.
+   * @param {DataIntegrityConfig} config The config to use when transforming the proof.
    * @returns {string} The canonicalized proof configuration.
    * @throws {MethodError} if the proof configuration cannot be canonicalized.
    */
-  proofConfiguration(options: ProofOptions): Promise<CanonicalizedProofConfig>;
+  proofConfiguration(config: DataIntegrityConfig): CanonicalizedProofConfig;
 
   /**
    * Serialize the proof into a byte array.
-   * @param {ProofSerializationParams} params See {@link ProofSerializationParams} for details.
-   * @param {HashBytes} params.hash The canonicalized proof configuration.
-   * @param {ProofOptions} params.options The options to use when serializing the proof.
+   * @param {HashBytes} hash The canonicalized proof configuration.
+   * @param {DataIntegrityConfig} config The config to use when serializing the proof.
    * @returns {SignatureBytes} The serialized proof.
    * @throws {MethodError} if the multikey does not match the verification method.
    */
-  proofSerialization({ hash, options }: ProofSerializationParams): SignatureBytes;
+  proofSerialization(hash: HashBytes, config: DataIntegrityConfig): SignatureBytes;
 
   /**
    * Verify the proof by comparing the hash of the proof configuration and document to the proof bytes.
-   * @param {ProofVerificationParams} params See {@link ProofVerificationParams} for details.
-   * @param {HashBytes} params.hash The canonicalized proof configuration.
-   * @param {SignatureBytes} params.signature The serialized proof.
-   * @param {ProofOptions} params.options The options to use when verifying the proof.
+   * @param {HashBytes} hash The canonicalized proof configuration.
+   * @param {SignatureBytes} signature The serialized proof.
+   * @param {DataIntegrityConfig} config The config to use when verifying the proof.
    * @returns {boolean} True if the proof is verified, false otherwise.
    * @throws {MethodError} if the multikey does not match the verification method.
    */
-  proofVerification({ hash, signature, options }: ProofVerificationParams): boolean;
+  proofVerification(
+    hash: HashBytes,
+    signature: SignatureBytes,
+    config: DataIntegrityConfig
+  ): boolean;
 }
