@@ -1,139 +1,170 @@
-import { MethodError, DidUpdateInvocation, Proof, PROOF_GENERATION_ERROR, PROOF_PARSING_ERROR, JSONUtils } from '@did-btcr2/common';
-import { Cryptosuite } from '../cryptosuite/index.js';
+import { DataIntegrityProofError, PROOF_GENERATION_ERROR, PROOF_VERIFICATION_ERROR } from '@did-btcr2/common';
+import { BIP340Cryptosuite } from '../cryptosuite/index.js';
 import { VerificationResult } from '../cryptosuite/interface.js';
-import { AddProofParams, IDataIntegrityProof } from './interface.js';
+import { BTCR2SignedUpdate, BTCR2UnsignedUpdate, DataIntegrityConfig, DataIntegrityProof } from './interface.js';
 
 /**
- * Implements section
- * {@link https://dcdpr.github.io/data-integrity-schnorr-secp256k1/#dataintegrityproof | 2.2.1 DataIntegrityProof}
+ * Implements section {@link https://dcdpr.github.io/data-integrity-schnorr-secp256k1/#dataintegrityproof | 2.2.1 DataIntegrityProof}
  * of the {@link https://dcdpr.github.io/data-integrity-schnorr-secp256k1 | Data Integrity BIP-340 Cryptosuite} spec
- * @class DataIntegrityProof
- * @type {DataIntegrityProof}
+ * @implements {DataIntegrityProof}
+ * @class BIP340DataIntegrityProof
+ * @type {BIP340DataIntegrityProof}
  */
-export class DataIntegrityProof implements IDataIntegrityProof {
-  /** @type {Cryptosuite} The cryptosuite to use for proof generation and verification. */
-  public cryptosuite: Cryptosuite;
+export class BIP340DataIntegrityProof implements DataIntegrityProof {
+  /** @type {BIP340Cryptosuite} The cryptosuite to use for proof generation and verification. */
+  public cryptosuite: BIP340Cryptosuite;
 
   /**
-   * Creates an instance of DataIntegrityProof.
-   *
-   * @param {Cryptosuite} cryptosuite The cryptosuite to use for proof generation and verification.
+   * Creates an instance of BIP340DataIntegrityProof.
+   * @param {BIP340Cryptosuite} cryptosuite The cryptosuite to use for proof generation and verification.
    */
-  constructor(cryptosuite: Cryptosuite) {
+  constructor(cryptosuite: BIP340Cryptosuite) {
     this.cryptosuite = cryptosuite;
   }
 
   /**
    * Add a proof to a document.
-   * @param {AddProofParams} params Parameters for adding a proof to a document.
-   * @param {InsecureDocument} params.document The document to add a proof to.
-   * @param {ProofOptions} params.options Options for adding a proof to a document.
-   * @returns {SecureDocument} A document with a proof added.
+   * @param {BTCR2UnsignedUpdate} unsignedDocument The document to add the proof to.
+   * @param {DataIntegrityConfig} config The configuration for generating the proof.
+   * @returns {BTCR2SignedUpdate} A document with a proof added.
    */
-  public async addProof({ document, options }: AddProofParams): Promise<DidUpdateInvocation> {
+  addProof(unsignedDocument: BTCR2UnsignedUpdate, config: DataIntegrityConfig): BTCR2SignedUpdate {
     // Generate the proof
-    const proof = await this.cryptosuite.createProof({ document, options });
+    const proof = this.cryptosuite.createProof(unsignedDocument, config);
 
-    // Deconstruct the proof object
-    const { type, verificationMethod, proofPurpose } = proof;
-
-    // Check if the type, verificationMethod, and proofPurpose are defined
-    if (!type || !verificationMethod || !proofPurpose) {
-      throw new MethodError('Proof missing "type", "verificationMethod" and/or "proofPurpose"', PROOF_GENERATION_ERROR, proof);
+    // Check if the proof has required fields: type, verificationMethod, and proofPurpose
+    if (!proof.type || !proof.verificationMethod || !proof.proofPurpose) {
+      throw new DataIntegrityProofError(
+        'Invalid proof: missing proof.type, proof.verificationMethod and/or proof.proofPurpose',
+        PROOF_GENERATION_ERROR, {config, proof}
+      );
     }
 
-    // Deconstruct the domain from the proof object and check:
-    // if the options domain is defined, ensure it matches the proof domain
-    // Logger.warn('// TODO: Adjust the domain check to match the spec (domain as a list of urls)');
-    const { domain } = proof;
-    if (options.domain && options.domain !== domain) {
-      throw new MethodError('Domain mismatch between options and domain passed', PROOF_GENERATION_ERROR, proof);
+    // TODO: Adjust the domain check to match the spec (domain as a list of urls)
+    // Check if the config has a domain
+    if (config.domain) {
+      // Check that it matches the proof domain Check domain from the proof object and check:
+      if(proof.domain !== config.domain)
+        throw new DataIntegrityProofError(
+          'Domain mismatch: proof.domain !== config.domain',
+          PROOF_GENERATION_ERROR, {config, proof}
+        );
     }
 
-    // Deconstruct the challenge from the proof object and check:
-    // if options challenge is defined, ensure it matches the proof challenge
-    const { challenge } = proof;
-    if (options.challenge && options.challenge !== challenge) {
-      throw new MethodError('Challenge mismatch options and challenge passed', PROOF_GENERATION_ERROR, proof);
+    // Check if the config has a challenge
+    if (config.challenge) {
+      // Check that it matches the proof.challenge
+      if(proof.challenge !== config.challenge)
+        throw new DataIntegrityProofError(
+          'Challenge mismatch options and challenge passed',
+          PROOF_GENERATION_ERROR, {config, proof}
+        );
     }
 
-    // Set the proof in the document and return as a DidUpdateInvocation
-    return { ...document, proof } as DidUpdateInvocation;
+    // Cast the unsignedDocument to a BTCR2SignedUpdate to add the proof
+    const signedDocument = unsignedDocument as BTCR2SignedUpdate;
+
+    // Set the proof in the document and return as a BTCR2SignedUpdate
+    signedDocument.proof = proof;
+
+    // Return the signed document
+    return signedDocument;
   }
 
   /**
    * Verify a proof.
-   * @param {VerifyProofParams} params Parameters for verifying a proof.
-   * @param {string} params.mediaType The media type of the document.
-   * @param {string} params.document The document to verify.
-   * @param {string} params.expectedPurpose The expected purpose of the proof.
-   * @param {string[]} params.expectedDomain The expected domain of the proof.
-   * @param {string} params.expectedChallenge The expected challenge of the proof.
+   * @param {string} mediaType The media type of the document.
+   * @param {string} document The stringified document to verify.
+   * @param {string} expectedPurpose The expected purpose of the proof.
+   * @param {string[]} expectedDomain The expected domain of the proof.
+   * @param {string} expectedChallenge The expected challenge of the proof.
    * @returns {VerificationResult} The result of verifying the proof.
    */
-  public async verifyProof({
-    mediaType,
-    document,
-    expectedPurpose,
-    expectedDomain,
-    expectedChallenge
-  }: {
-    mediaType?: string;
-    document: string;
-    expectedPurpose: string;
-    expectedDomain?: string[];
-    expectedChallenge?: string;
-  }): Promise<VerificationResult> {
-    // Parse the document
-    const secure = JSON.parse(document) as DidUpdateInvocation;
+  verifyProof(
+    document: string,
+    expectedPurpose: string,
+    mediaType?: string,
+    expectedDomain?: string | string[],
+    expectedChallenge?: string,
+  ): VerificationResult {
+    try {
+      // Parse the document
+      const signedDocument = JSON.parse(document) as BTCR2SignedUpdate;
 
-    // Deconstruct the secure object to get the proof
-    const { proof }: { proof: Proof } = secure;
+      // Parse the proof from the document
+      const proof = signedDocument.proof;
 
-    // Check if the proof object is an object
-    if (typeof secure !== 'object' || typeof proof !== 'object') {
-      throw new MethodError('', PROOF_PARSING_ERROR);
+      // Check if the type, proofPurpose, and verificationMethod are defined
+      if (!proof.type || !proof.verificationMethod || !proof.proofPurpose) {
+        throw new DataIntegrityProofError(
+          'Invalid proof: missing proof.type, proof.verificationMethod and/or proof.proofPurpose',
+          PROOF_VERIFICATION_ERROR, signedDocument
+        );
+      }
+
+      // Check if the expectedPurpose is defined
+      if (expectedPurpose)
+        // Check if expectedPurpose !== proof.proofPurpose
+        if(expectedPurpose !== proof.proofPurpose)
+          // Else throw DataIntegrityProofError
+          throw new DataIntegrityProofError(
+            'Proof purpose mismatch: proof.proofPurpose !== expectedPurpose',
+            PROOF_VERIFICATION_ERROR, { proof, expectedPurpose }
+          );
+
+      // Check if the expectedChallenge is defined
+      if (expectedChallenge)
+        // Check if expectedChallenge !== proof.challenge
+        if(expectedChallenge !== proof.challenge)
+          // Else throw DataIntegrityProofError
+          throw new DataIntegrityProofError(
+            'Challenge mismatch: proof.challenge !== expectedChallenge',
+            'INVALID_CHALLENGE_ERROR', { proof, expectedChallenge, }
+          );
+
+      // Check if the expectedDomain is defined
+      if(expectedDomain) {
+        // Check if expectedDomain is an array with at least one entry
+        if(Array.isArray(expectedDomain) && expectedDomain.length) {
+          // Check that the domain arrays match in length
+          if(expectedDomain.length !== proof.domain?.length) {
+            // Else throw DataIntegrityProofError
+            throw new DataIntegrityProofError(
+              'Domain mismatch: expectedDomain length does not match proof.domain length',
+              PROOF_VERIFICATION_ERROR, { proof, expectedDomain }
+            );
+          }
+          // Check that each entry in expectedDomain can be found in proof.domain
+          else if(expectedDomain.every(url => proof.domain?.includes(url))) {
+            // Else throw DataIntegrityProofError
+            throw new DataIntegrityProofError(
+              'Domain mismatch: expectedDomain and proof.domain do not match',
+              PROOF_VERIFICATION_ERROR, { proof, expectedDomain }
+            );
+          }
+        }
+        // Else expectedDomain is a string, check that it matches proof.domain
+        else if(proof.domain !== expectedDomain) {
+          throw new DataIntegrityProofError(
+            'Domain mismatch: proof.domain !== expectedDomain',
+            PROOF_VERIFICATION_ERROR, { proof, expectedDomain }
+          );
+        }
+      }
+
+      // Verify the proof
+      const result = this.cryptosuite.verifyProof(signedDocument);
+
+      // Add the mediaType to the verification result
+      result.mediaType = mediaType;
+
+      // Return the verification result
+      return result;
+    } catch (error) {
+      throw new DataIntegrityProofError(
+        'Error verifying proof: ' + (error instanceof Error ? error.message : String(error)),
+        PROOF_VERIFICATION_ERROR, {document, mediaType, expectedPurpose, expectedDomain, expectedChallenge}
+      );
     }
-
-    // Deconstruct the proof object
-    const { type, proofPurpose, verificationMethod, challenge, domain } = proof;
-    // Check if the type, proofPurpose, and verificationMethod are defined
-    if (!type || !verificationMethod || !proofPurpose) {
-      throw new MethodError('', 'PROOF_VERIFICATION_ERROR');
-    }
-
-    // Check if the expectedPurpose is defined and if it matches the proofPurpose
-    if (expectedPurpose && expectedPurpose !== proofPurpose) {
-      throw new MethodError('', 'PROOF_VERIFICATION_ERROR');
-    }
-
-    // Check if the expectedChallenge is defined and if it matches the challenge
-    if (expectedChallenge && expectedChallenge !== challenge) {
-      throw new MethodError('', 'INVALID_CHALLENGE_ERROR');
-    }
-
-    // Check if the expectedDomain length matches the proof.domain length
-    if(expectedDomain && expectedDomain?.length !== domain?.length) {
-      throw new MethodError('', 'INVALID_DOMAIN_ERROR');
-    }
-
-    // If defined, check that each entry in expectedDomain can be found in proof.domain
-    if(expectedDomain && !expectedDomain?.every(url => domain?.includes(url))) {
-      throw new MethodError('', 'INVALID_DOMAIN_ERROR');
-    }
-
-    // Verify the proof
-    const { verified, verifiedDocument, mediaType: mt } = await this.cryptosuite.verifyProof(secure);
-
-    // Add the mediaType to the verification result
-    mediaType ??= mt;
-
-    // Add the mediaType to the verification result
-    mediaType ??= mt;
-
-    const sansProof = JSONUtils.deleteKeys(verifiedDocument as Record<string, any>, ['proof']) as DidUpdateInvocation;
-
-    // Return the verification result
-    return {verified, verifiedDocument: verified ? sansProof : undefined, mediaType};
   }
 }

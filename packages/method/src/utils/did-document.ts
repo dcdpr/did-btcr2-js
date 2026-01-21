@@ -2,20 +2,21 @@ import { getNetwork } from '@did-btcr2/bitcoin';
 import {
   BTCR2_DID_DOCUMENT_CONTEXT,
   DidDocumentError,
-  ID_PLACEHOLDER_VALUE,
   IdentifierTypes,
   INVALID_DID_DOCUMENT,
   JSONObject,
   JSONUtils,
-  KeyBytes,
+  KeyBytes
 } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { DidService, DidDocument as IIDidDocument, DidVerificationMethod as IIDidVerificationMethod } from '@web5/dids';
-import { BeaconService } from '../interfaces/beacon.js';
+import { BeaconService } from '../core/beacon/interfaces.js';
 import { BeaconUtils } from '../core/beacon/utils.js';
 import { Identifier } from '../core/identifier.js';
 import { Appendix } from './appendix.js';
+import { payments } from 'bitcoinjs-lib';
 
+export const ID_PLACEHOLDER_VALUE = 'did:btcr2:_';
 export const BECH32M_CHARS = '';
 export const DID_REGEX = /did:btcr2:(x1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]*)/g;
 
@@ -121,18 +122,22 @@ export class DidDocument implements IDidDocument {
   capabilityInvocation?: Array<string | DidVerificationMethod>;
   capabilityDelegation?: Array<string | DidVerificationMethod>;
   service: Array<BeaconService>;
+  deactivated?: boolean;
 
   constructor(document: IDidDocument) {
     // Set the ID and ID type
-    const idType = document.id.includes('k1')
+    const idType = document.id.includes('k')
       ? IdentifierTypes.KEY
       : IdentifierTypes.EXTERNAL;
 
     // Validate ID and parts for non-intermediate
-    const isIntermediate = document.id === ID_PLACEHOLDER_VALUE;
+    const isGenesis = document.id === ID_PLACEHOLDER_VALUE;
+
     // Deconstruct the document parts for validation
     const { id, controller, verificationMethod: vm, service } = document;
-    if (!isIntermediate) {
+
+    // If not genesis, validate core properties
+    if (!isGenesis) {
       if (!DidDocument.isValidId(id)) {
         throw new DidDocumentError(`Invalid id: ${id}`, INVALID_DID_DOCUMENT, document);
       }
@@ -173,10 +178,10 @@ export class DidDocument implements IDidDocument {
     // Sanitize the DID Document
     DidDocument.sanitize(this);
     // If the DID Document is not an intermediateDocument, validate it
-    if (!isIntermediate) {
+    if (!isGenesis) {
       DidDocument.validate(this);
     } else {
-      this.validateIntermediate();
+      this.validateGenesis();
     }
   }
 
@@ -365,10 +370,10 @@ export class DidDocument implements IDidDocument {
    * @returns {DidDocument} Validated DID Document.
    * @throws {DidDocumentError} If the DID Document is invalid.
    */
-  public static validate(didDocument: DidDocument | IntermediateDidDocument): DidDocument {
+  public static validate(didDocument: DidDocument | GenesisDocument): DidDocument {
     // Validate the DID Document
     if (didDocument.id === ID_PLACEHOLDER_VALUE) {
-      (didDocument as IntermediateDidDocument).validateIntermediate();
+      (didDocument as GenesisDocument).validateGenesis();
     } else {
       DidDocument.isValid(didDocument);
     }
@@ -377,60 +382,67 @@ export class DidDocument implements IDidDocument {
   }
 
   /**
-   * Validate the IntermediateDidDocument.
-   * @returns {boolean} True if the IntermediateDidDocument is valid.
+   * Validate the GenesisDocument.
+   * @returns {boolean} True if the GenesisDocument is valid.
    */
-  public validateIntermediate(): boolean {
+  public validateGenesis(): boolean {
     // Validate the id
     if(this.id !== ID_PLACEHOLDER_VALUE) {
-      throw new DidDocumentError('Invalid IntermediateDidDocument ID', INVALID_DID_DOCUMENT, this);
+      throw new DidDocumentError('Invalid GenesisDocument ID', INVALID_DID_DOCUMENT, this);
     }
     // Validate the controller
     if(!this.controller?.every(c => c === ID_PLACEHOLDER_VALUE)) {
-      throw new DidDocumentError('Invalid IntermediateDidDocument controller', INVALID_DID_DOCUMENT, this);
+      throw new DidDocumentError('Invalid GenesisDocument controller', INVALID_DID_DOCUMENT, this);
     }
     // Validate the verificationMethod
     if(!this.verificationMethod.every(vm => vm.id.includes(ID_PLACEHOLDER_VALUE) && vm.controller === ID_PLACEHOLDER_VALUE)) {
-      throw new DidDocumentError('Invalid IntermediateDidDocument verificationMethod', INVALID_DID_DOCUMENT, this);
+      throw new DidDocumentError('Invalid GenesisDocument verificationMethod', INVALID_DID_DOCUMENT, this);
     }
     // Validate the service
     if(!this.service.every(svc => svc.id.includes(ID_PLACEHOLDER_VALUE))) {
-      throw new DidDocumentError('Invalid IntermediateDidDocument service', INVALID_DID_DOCUMENT, this);
+      throw new DidDocumentError('Invalid GenesisDocument service', INVALID_DID_DOCUMENT, this);
     }
     if(!DidDocument.isValidVerificationRelationships(this)) {
       // Return true if all validations pass
-      throw new DidDocumentError('Invalid IntermediateDidDocument assertionMethod', INVALID_DID_DOCUMENT, this);
+      throw new DidDocumentError('Invalid GenesisDocument assertionMethod', INVALID_DID_DOCUMENT, this);
     }
 
     return true;
   }
 
   /**
-   * Convert the DidDocument to an IntermediateDidDocument.
-   * @returns {IntermediateDidDocument} The IntermediateDidDocument representation of the DidDocument.
+   * Convert the DidDocument to an GenesisDocument.
+   * @returns {GenesisDocument} The GenesisDocument representation of the DidDocument.
    */
-  public toIntermediate(): IntermediateDidDocument {
+  public toIntermediate(): GenesisDocument {
     if(this.id.includes('k1')) {
       throw new DidDocumentError('Cannot convert a key identifier to an intermediate document', INVALID_DID_DOCUMENT, this);
     }
-    return new IntermediateDidDocument(this);
+    return new GenesisDocument(this);
   }
 }
 
+export class Document {
+  public static isValid(didDocument: DidDocument | GenesisDocument): boolean {
+    return new DidDocument(didDocument).validateGenesis();
+  }
+}
+
+
 /**
- * IntermediateDidDocument extends the DidDocument class for creating and managing intermediate DID documents.
+ * GenesisDocument extends the DidDocument class for creating and managing intermediate DID documents.
  * This class is used to create a minimal DID document with a placeholder ID.
  * It is used in the process of creating a new DID document.
- * @class IntermediateDidDocument
+ * @class GenesisDocument
  * @extends {DidDocument}
  */
-export class IntermediateDidDocument extends DidDocument {
+export class GenesisDocument extends DidDocument {
   constructor(document: object | DidDocument) {
     super(document as DidDocument);
   }
 
   /**
-   * Convert the IntermediateDidDocument to a DidDocument by replacing the placeholder value with the provided DID.
+   * Convert the GenesisDocument to a DidDocument by replacing the placeholder value with the provided DID.
    * @param did The DID to replace the placeholder value in the document.
    * @returns {DidDocument} A new DidDocument with the placeholder value replaced by the provided DID.
    */
@@ -442,46 +454,45 @@ export class IntermediateDidDocument extends DidDocument {
 
 
   /**
-   * Create an IntermediateDidDocument from a DidDocument by replacing the DID with a placeholder value.
+   * Create an GenesisDocument from a DidDocument by replacing the DID with a placeholder value.
    * @param {DidDocument} didDocument The DidDocument to convert.
-   * @returns {IntermediateDidDocument} The IntermediateDidDocument representation of the DidDocument.
+   * @returns {GenesisDocument} The GenesisDocument representation of the DidDocument.
    */
-  public static fromDidDocument(didDocument: DidDocument): IntermediateDidDocument {
+  public static fromDidDocument(didDocument: DidDocument): GenesisDocument {
     const intermediateDocument = JSONUtils.cloneReplace(didDocument, DID_REGEX, ID_PLACEHOLDER_VALUE) as IDidDocument;
-    return new IntermediateDidDocument(intermediateDocument);
+    return new GenesisDocument(intermediateDocument);
   }
 
   /**
-   * Create a minimal IntermediateDidDocument with a placeholder ID.
+   * Create a minimal GenesisDocument with a placeholder ID.
    * @param {Array<DidVerificationMethod>} verificationMethod The public key in multibase format.
    * @param {VerificationRelationships} relationships The public key in multibase format.
    * @param {Array<BeaconService>} service The service to be included in the document.
-   * @returns {IntermediateDidDocument} A new IntermediateDidDocument with the placeholder ID.
+   * @returns {GenesisDocument} A new GenesisDocument with the placeholder ID.
    */
   public static create(
     verificationMethod: Array<DidVerificationMethod>,
     relationships: VerificationRelationships,
     service: Array<BeaconService>
-  ): IntermediateDidDocument {
+  ): GenesisDocument {
     const id = ID_PLACEHOLDER_VALUE;
-    return new IntermediateDidDocument({ id, ...relationships, verificationMethod, service, });
+    return new GenesisDocument({ id, ...relationships, verificationMethod, service, });
   }
 
   /**
-   * Create a minimal IntermediateDidDocument from a public key.
+   * Create a minimal GenesisDocument from a public key.
    * @param {KeyBytes} publicKey The public key in bytes format.
-   * @returns {IntermediateDidDocument} A new IntermediateDidDocument with the placeholder ID.
+   * @returns {GenesisDocument} A new GenesisDocument with the placeholder ID.
    */
-  public static fromPublicKey(publicKey: KeyBytes, network: string): IntermediateDidDocument {
+  public static fromPublicKey(publicKey: KeyBytes, network: string): GenesisDocument {
     const pk = new CompressedSecp256k1PublicKey(publicKey);
     const id = ID_PLACEHOLDER_VALUE;
-    const service = BeaconUtils.generateBeaconService({
-      id          : `${id}#key-0`,
-      publicKey   : pk.compressed,
-      network     : getNetwork(network),
-      addressType : 'p2pkh',
-      type        : 'SingletonBeacon',
-    });
+    const address = payments.p2pkh({ pubkey: pk.compressed, network: getNetwork(network) })?.address;
+    const services = [{
+      id              : `${id}#key-0`,
+      serviceEndpoint : `bitcoin:${address}`,
+      type            : 'SingletonBeacon',
+    }];
 
     const relationships = {
       authentication       : [`${id}#key-0`],
@@ -498,7 +509,7 @@ export class IntermediateDidDocument extends DidDocument {
       }
     ];
 
-    return IntermediateDidDocument.create(verificationMethod, relationships, [service]);
+    return GenesisDocument.create(verificationMethod, relationships, services);
   }
 
   /**
@@ -506,13 +517,7 @@ export class IntermediateDidDocument extends DidDocument {
    * @param {object | DidDocument} object The JSON object to convert.
    * @returns {DidDocument} The created DidDocument.
    */
-  public static fromJSON(object: object | DidDocument): IntermediateDidDocument {
-    return new IntermediateDidDocument(object as IDidDocument);
-  }
-}
-
-export class Document {
-  public static isValid(didDocument: DidDocument | IntermediateDidDocument): boolean {
-    return new DidDocument(didDocument).validateIntermediate();
+  public static fromJSON(object: object | DidDocument): GenesisDocument {
+    return new GenesisDocument(object as IDidDocument);
   }
 }

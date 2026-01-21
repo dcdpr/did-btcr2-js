@@ -1,5 +1,5 @@
-import { KeyBytes, SchnorrKeyPairObject, MessageBytes, SignatureBytes } from '@did-btcr2/common';
-import { SchnorrKeyPair, CompressedSecp256k1PublicKey, Secp256k1SecretKey } from '@did-btcr2/keypair';
+import { KeyBytes, MessageBytes, SchnorrKeyPairObject, SignatureBytes } from '@did-btcr2/common';
+import { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { DidVerificationMethod } from '@web5/dids';
 
 export type MultikeyObject = {
@@ -7,7 +7,7 @@ export type MultikeyObject = {
   controller: string;
   fullId: string;
   signer: boolean;
-  keys: SchnorrKeyPairObject;
+  keyPair: SchnorrKeyPairObject;
   verificationMethod: DidVerificationMethod;
 }
 export interface DidParams {
@@ -36,8 +36,8 @@ export interface Multikey {
   /** @type {string} @readonly Get the controller. */
   readonly controller: string;
 
-  /** @type {Keys} @readonly Get the keys. */
-  readonly keys: SchnorrKeyPair;
+  /** @type {SchnorrKeyPair} @readonly Get the keyPair. */
+  readonly keyPair: SchnorrKeyPair;
 
   /** @type {CompressedSecp256k1PublicKey} @readonly Get the CompressedSecp256k1PublicKey. */
   readonly publicKey: CompressedSecp256k1PublicKey;
