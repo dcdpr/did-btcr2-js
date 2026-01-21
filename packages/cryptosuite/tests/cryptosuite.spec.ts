@@ -1,7 +1,11 @@
-import { ProofOptions } from '@did-btcr2/common';
 import { SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { expect } from 'chai';
-import { Cryptosuite, DataIntegrityProof, SchnorrMultikey } from '../src/index.js';
+import {
+  BIP340Cryptosuite,
+  BIP340DataIntegrityProof,
+  DataIntegrityConfig,
+  SchnorrMultikey
+} from '../src/index.js';
 
 const unsecuredDocument = {
   '@context' : [
@@ -22,7 +26,13 @@ const unsecuredDocument = {
 } as any;
 const id = '#initialKey';
 const controller = 'did:btcr2:k1qqpkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5dsaaw53r';
-const options: ProofOptions = {
+const config: DataIntegrityConfig = {
+  '@context' : [
+    'https://w3id.org/security/v2',
+    'https://w3id.org/zcap/v1',
+    'https://w3id.org/json-ld-patch/v1',
+    'https://btcr2.dev/context/v1'
+  ],
   type               : 'DataIntegrityProof',
   cryptosuite        : 'bip340-jcs-2025',
   verificationMethod : 'did:btcr2:k1qqpkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5dsaaw53r#initialKey',
@@ -33,7 +43,7 @@ describe('Cryptosuite', () => {
   const secretKey = new Secp256k1SecretKey(Buffer.from('80d5427d3191c13a0c8e7279abc538a31a1ea210158d38022a80b2fac1660a79', 'hex'));
   const keys = new SchnorrKeyPair({ secretKey });
   const multikey = new SchnorrMultikey({ id, controller, keys });
-  const cryptosuite = new Cryptosuite({ cryptosuite: 'bip340-jcs-2025', multikey });
+  const cryptosuite = new BIP340Cryptosuite(multikey);
 
   describe('Properties', () => {
     it('should include "type" = "DataIntegrityProof"', () => {
@@ -44,18 +54,14 @@ describe('Cryptosuite', () => {
       expect(cryptosuite.cryptosuite).to.equal('bip340-jcs-2025');
     });
 
-    it('should include "algorithm" = "jcs"', () => {
-      expect(cryptosuite.algorithm).to.equal('jcs');
-    });
-
     it('should include "multikey" as a valid SchnorrMultikey', () => {
       expect(cryptosuite.multikey).to.exist.and.to.be.instanceOf(SchnorrMultikey);
     });
   });
 
   describe('Create Proof', () => {
-    it('should return Proof object with "proofValue"', async () => {
-      const proof = await cryptosuite.createProof({ document: unsecuredDocument, options });
+    it('should return Proof object with "proofValue"', () => {
+      const proof = cryptosuite.createProof(unsecuredDocument, config);
       expect(proof).to.have.property('proofValue');
     });
   });
@@ -63,13 +69,13 @@ describe('Cryptosuite', () => {
   describe('To Data Integrity Proof', () => {
     it('should return a valid Data Integrity Proof', () => {
       const diproof = cryptosuite.toDataIntegrityProof();
-      expect(diproof).to.be.an.instanceOf(DataIntegrityProof);
+      expect(diproof).to.be.an.instanceOf(BIP340DataIntegrityProof);
     });
   });
 
   describe('Transform Document', () => {
-    it('should return canonicalized document string', async () => {
-      const canonicalDocument = await cryptosuite.transformDocument({ document: unsecuredDocument, options});
+    it('should return canonicalized document string', () => {
+      const canonicalDocument = cryptosuite.transformDocument(unsecuredDocument, config);
       expect(canonicalDocument).to.be.a.string;
     });
   });

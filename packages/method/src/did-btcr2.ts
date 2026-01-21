@@ -1,52 +1,61 @@
+import { BitcoinNetworkConnection } from '@did-btcr2/bitcoin';
 import {
   Canonicalization,
-  DateUtils,
   DocumentBytes,
+  IdentifierHrp,
   INVALID_DID_DOCUMENT,
   KeyBytes,
   METHOD_NOT_SUPPORTED,
   MethodError,
+  MISSING_UPDATE_DATA,
   PatchOperation,
-  W3C_DID_RESOLUTION_V1,
+  ResolveError
 } from '@did-btcr2/common';
-import type { DidResolutionResult } from '@web5/dids';
 import {
   Did,
   DidError,
   DidErrorCode,
   DidMethod,
+  DidResolutionResult,
   EMPTY_DID_RESOLUTION_RESULT
 } from '@web5/dids';
 import { initEccLib } from 'bitcoinjs-lib';
 import * as tinysecp from 'tiny-secp256k1';
-import { Resolve } from './core/crud/read.js';
-import { Update } from './core/crud/update.js';
-import { DidResolutionOptions } from './interfaces/crud.js';
-import { DidDocument, DidVerificationMethod } from './utils/did-document.js';
-import { SignalsMetadata } from './utils/types.js';
+import { BeaconUtils } from './core/beacon/utils.js';
 import { Identifier } from './core/identifier.js';
+import { ResolutionOptions } from './core/interfaces.js';
+import { Resolve } from './core/resolve.js';
+import { SidecarData } from './core/types.js';
+import { Update } from './core/update.js';
 import { Appendix } from './utils/appendix.js';
+import { DidDocument, DidVerificationMethod } from './utils/did-document.js';
 
+// TODO: convert to API driver
 export const canonicalization = new Canonicalization();
 
 export type Btcr2Identifier = string;
 
 export interface DidCreateOptions {
+  /** Type of identifier to create (key or external) */
+  idType: 'KEY' | 'EXTERNAL';
   /** DID BTCR2 Version Number */
   version?: number;
   /** Bitcoin Network */
   network?: string;
 }
 
+// TODO: convert to API driver
 /** Initialize tiny secp256k1 */
 initEccLib(tinysecp);
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2 | did:btcr2 DID Method Specification}.
- * did:btcr2 is a censorship resistant DID Method using the Bitcoin blockchain as a Verifiable Data Registry to announce
- * changes to the DID document. It improves on prior work by allowing: zero-cost off-chain DID creation; aggregated
- * updates for scalable on-chain update costs; long-term identifiers that can support frequent updates; private
- * communication of the DID document; private DID resolution; and non-repudiation appropriate for serious contracts.
+ * did:btcr2 is a censorship-resistant Decentralized Identifier (DID) method using
+ * the Bitcoin blockchain as a Verifiable Data Registry to announce changes to the
+ * DID document. It supports zero-cost off-chain DID creation; aggregated updates
+ * for scalable on-chain update costs; long-term identifiers that can support
+ * frequent updates; private communication of the DID document; private DID resolution;
+ * and non-repudiation.
  *
  * @class DidBtcr2
  * @type {DidBtcr2}
@@ -54,99 +63,151 @@ initEccLib(tinysecp);
  */
 export class DidBtcr2 implements DidMethod {
   /** @type {string} Name of the DID method, as defined in the DID BTCR2 specification */
-  public static methodName: string = 'btcr2';
+  static methodName: string = 'btcr2';
 
   /**
-   * Entry point for section {@link https://dcdpr.github.io/did-btcr2/#create | 4.1 Create}.
-   * See {@link Create} for implementation details.
-   *
-   * A did:btcr2 identifier and associated DID document can either be created deterministically from a cryptographic
-   * seed, or it can be created from an arbitrary genesis intermediate DID document representation. In both cases,
-   * DID creation can be undertaken in an offline manner, i.e., the DID controller does not need to interact with the
-   * Bitcoin network to create their DID.
-   * @param {CreateParams} params See {@link CreateParams} for details.
-   * @param {IdType} params.idType Type of identifier to create (key or external).
-   * @param {KeyBytes} params.pubKeyBytes Public key byte array used to create a btcr2 "key" identifier.
-   * @param {IntermediateDocument} params.intermediateDocument DID Document used to create a btcr2 "external" identifier.
-   * @param {DidCreateOptions} params.options See {@link DidCreateOptions} for create options.
-   * @param {number} params.options.version Version number of the btcr2 method.
-   * @param {string} params.options.network Bitcoin network name (mainnet, testnet, signet, regtest).
-   * @returns {Promise<CreateResponse>} Promise resolving to a CreateResponse object.
-   * @throws {DidBtcr2Error} if any of the checks fail
+   * Implements section {@link https://dcdpr.github.io/did-btcr2/operations/create.html | 7.1 Create}.
+   * @param {KeyBytes | DocumentBytes} genesisBytes The bytes used to create the genesis document for a did:btcr2 identifier.
+   * This can be either the bytes of the genesis document itself or the bytes of a key that will be used to create the genesis document.
+   * @param {DidCreateOptions} options Options for creating the identifier, including the idType (key or external), version, and network.
+   * @param {string} options.idType The type of identifier to create, either 'KEY' or 'EXTERNAL'. Defaults to 'KEY'.
+   * @param {number} options.version The version number of the did:btcr2 specification to use for creating the identifier. Defaults to 1.
+   * @param {string} options.network The Bitcoin network to use for the identifier, e.g. 'bitcoin', 'testnet', etc. Defaults to 'bitcoin'.
+   * @returns {Promise<Btcr2Identifier>} Promise resolving to a Btcr2Identifier string.
+   * @throws {MethodError} if any of the checks fail
    */
-  public static async create(params: {
-    idType: 'KEY' | 'EXTERNAL';
-    genesisBytes: KeyBytes | DocumentBytes;
-    options?: DidCreateOptions;
-  }): Promise<Btcr2Identifier> {
-    // Deconstruct the idType and options from the params
-    const { idType, options = {} } = params;
+  static async create(
+    genesisBytes: KeyBytes | DocumentBytes,
+    options?: DidCreateOptions
+  ): Promise<Btcr2Identifier> {
+    // Deconstruct the idType, version and network from the options, setting defaults if not given
+    const { idType, version = 1, network = 'bitcoin' } = options || {};
 
-    // Deconstruct the version and network from the options, setting defaults if not given
-    const { version = 1, network = 'bitcoin' } = options;
+    if(!idType) {
+      throw new MethodError(
+        'idType is required for creating a did:btcr2 identifier',
+        INVALID_DID_DOCUMENT, options
+      );
+    }
 
-    // Set the genesisBytes from the params
-    const genesisBytes = params.genesisBytes;
-
+    // Call identifier encoding algorithm
     return Identifier.encode({ idType, genesisBytes, version, network });
   }
 
   /**
-   * Entry point for section {@link https://dcdpr.github.io/did-btcr2/#read | 7.2 Read}.
-   * See {@link Resolve} for implementation details.
+   * Entry point for section {@link https://dcdpr.github.io/did-btcr2/#read | 7.2 Resolve}.
+   * See specification for the {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process | Resolve Process}.
+   * See {@link Resolve | Resolve (class)} for class implementation.
    *
-   * The Read operation is an algorithm consisting of a series of subroutine algorithms executed by a resolver after a
-   * resolution request identifying a specific did:btcr2 identifier is received from a client at Resolution Time. The
-   * request MUST always contain the resolutionOptions object containing additional information to be used in resolution.
-   * This object MAY be empty. See the DID Resolution specification for further details about the DID Resolution Options
-   * object. The resolver then attempts to resolve the DID document of the identifier at a specific Target Time. The
-   * Target Time is either provided in resolutionOptions or is set to the Resolution Time of the request.
+   * Resolving a did:btcr2 identifier iteratively builds a DID document by applying
+   * BTCR2 Updates to an Initial DID Document that have been committed to the Bitcoin
+   * blockchain by Authorized Beacon Signals. The Initial DID Document is either
+   * deterministically created from the DID or provided by Sidecar Data.
    *
-   * @param {string} identifier a valid did:btcr2 identifier to be resolved
-   * @param {DidResolutionOptions} [resolutionsOptions] see {@link https://www.w3.org/TR/did-1.0/#did-resolution-options | DidResolutionOptions}
-   * @param {number} options.versionId the version of the identifier and/or DID document
-   * @param {number} options.versionTime a timestamp used during resolution as a bound for when to stop resolving
-   * @param {DidDocument} options.sidecarData data necessary for resolving a DID
-   * @param {string} options.network Bitcoin network name (mainnet, testnet, signet, regtest).
-   * @returns {DidResolutionResult} Promise resolving to a DID Resolution Result containing the `targetDocument`
+   * @param {string} did a valid did:btcr2 identifier to be resolved
+   * @param {ResolutionOptions} resolutionOptions see {@link https://www.w3.org/TR/did-1.0/#did-resolution-options | ResolutionOptions}
+   * @param {number} resolutionOptions.versionId optional version of the identifier and/or DID document
+   * @param {number} resolutionOptions.versionTime optional timestamp used during resolution as a bound for when to stop resolving
+   * @param {DidDocument} resolutionOptions.sidecar optional data necessary for resolving a DID
+   * @returns {Promise<DidResolutionResult>} Promise resolving to a DID Resolution Result containing the `targetDocument`
    * @throws {Error} if the resolution fails for any reason
    * @throws {DidError} InvalidDid if the identifier is invalid
    * @example
    * ```ts
-   * const resolution = await DidBtcr2.resolve('did:btcr2:k1q0dygyp3gz969tp46dychzy4q78c2k3js68kvyr0shanzg67jnuez2cfplh')
+   * const resolution = await DidBtcr2.resolve(
+   *  'did:btcr2:k1q0dygyp3gz969tp46dychzy4q78c2k3js68kvyr0shanzg67jnuez2cfplh'
+   * )
    * ```
    */
-  public static async resolve(identifier: string, resolutionsOptions: DidResolutionOptions = {}): Promise<DidResolutionResult> {
+  static async resolve(did: string, resolutionOptions: ResolutionOptions = {drivers: {}}): Promise<DidResolutionResult> {
     try {
-      // 1. Pass identifier to the did:btcr2 Identifier Decoding algorithm, retrieving idType, version, network, and genesisBytes.
-      // 2. Set identifierComponents to a map of idType, version, network, and genesisBytes.
-      const identifierComponents = Identifier.decode(identifier);
 
-      // Set the network based on the decoded identifier
-      resolutionsOptions.network ??= identifierComponents.network;
-
-      // 3. Set initialDocument to the result of running the algorithm in Resolve Initial Document passing in the
-      //    identifier, identifierComponents and resolutionOptions.
-      const initialDocument = await Resolve.initialDocument({ identifier, identifierComponents, resolutionsOptions });
-
-      // 4. Set targetDocument to the result of running the algorithm in Resolve Target Document passing in
-      //    initialDocument and resolutionOptions.
-      const targetDocument = await Resolve.targetDocument({ initialDocument, resolutionsOptions });
-
-      // 5. Return targetDocument.
+      // Initialize an empty DID Resolution Result
       const didResolutionResult: DidResolutionResult = {
-        '@context'            : W3C_DID_RESOLUTION_V1,
+        '@context'            : 'https://w3id.org/did-resolution/v1',
         didResolutionMetadata : { contentType: 'application/ld+json' },
-        didDocumentMetadata   : { created: DateUtils.getUTCDateTime() },
-        didDocument           : targetDocument,
+        didDocumentMetadata   : {
+          deactivated   : false,
+          updated       : undefined,
+          versionId     : resolutionOptions.versionId,
+          confirmations : undefined,
+        },
+        didDocument : null,
       };
+
+      // Decode the did to be resolved
+      const didComponents = Identifier.decode(did);
+
+      // Process sidecar if provided
+      const sidecarData = Resolve.processSidecarData(resolutionOptions.sidecar);
+
+      // Establish a connection to a bitcoin network
+      if(!resolutionOptions.drivers.bitcoin) {
+        resolutionOptions.drivers.bitcoin = new BitcoinNetworkConnection();
+        // Set the network based on the decoded identifier
+        resolutionOptions.drivers.bitcoin.setActiveNetwork(didComponents.network);
+      }
+
+      // Parse the genesis document from the resolution options if provided
+      const genesisDocument = resolutionOptions.sidecar?.genesisDocument;
+      // Since genesisDocument is optional, check if it exists
+      if(!genesisDocument) {
+        // If no genesisDocument and x HRP, throw MISSING_UPDATE_DATA error
+        if(didComponents.hrp === IdentifierHrp.x)
+          throw new ResolveError(
+            'External resolution requires genesisDocument',
+            MISSING_UPDATE_DATA, { resolutionOptions }
+          );
+      }
+
+      // Establish the current document
+      const currentDocument = await Resolve.establishCurrentDocument(didComponents, genesisDocument);
+
+      // Extract all Beacon services from the current DID Document
+      const beaconServices = currentDocument.service
+        .filter(BeaconUtils.isBeaconService)
+        .map(BeaconUtils.parseBeaconServiceEndpoint);
+
+      // Process the Beacon Signals to get the required updates
+      const unsortedUpdates = await Resolve.processBeaconSignals(
+        beaconServices,
+        sidecarData,
+        resolutionOptions.drivers.bitcoin,
+        resolutionOptions.fullBlockchainTraversal
+      );
+
+      // If no updates found, return the current document
+      if(!unsortedUpdates.length) {
+        // Set the current document in the didResolutionResult
+        didResolutionResult.didDocument = currentDocument;
+
+        // Set the deactivated status in the didDocumentMetadata
+        didResolutionResult.didDocumentMetadata.deactivated = !!currentDocument.deactivated;
+
+        // Return the didResolutionResult early
+        return didResolutionResult;
+      }
+
+      // Process the updates to apply updates to bring the current DID Document to its more current state
+      const result = await Resolve.processUpdatesArray(
+        currentDocument,
+        unsortedUpdates,
+        resolutionOptions.versionTime,
+        resolutionOptions.versionId
+      );
+
+      // Set all of the required fields in the didResolutionResult
+      didResolutionResult.didDocument = result.currentDocument;
+      didResolutionResult.didDocumentMetadata.confirmations = result.confirmations;
+      didResolutionResult.didDocumentMetadata.versionId = result.versionId;
+      didResolutionResult.didDocumentMetadata.deactivated = !!result.currentDocument.deactivated;
 
       // Return didResolutionResult;
       return didResolutionResult;
     } catch (error: any) {
       console.error(error);
-      // Rethrow any unexpected errors that are not a `MethodError`.
-      if (!(error instanceof MethodError)) throw new Error(error);
+      // Rethrow any unexpected errors that are not a `ResolveError`.
+      if (!(error instanceof ResolveError)) throw new Error(error);
 
       // Return a DID Resolution Result with the appropriate error code.
       return {
@@ -174,7 +235,7 @@ export class DidBtcr2 implements DidMethod {
    * The result of these transformations MUST produce a DID document conformant to the DID Core specification. The
    * verificationMethodId is an identifier for a verificationMethod within the sourceDocument. The verificationMethod
    * identified MUST be a BIP340 Multikey. The beaconIds MUST identify service endpoints with one of the three Beacon
-   * Types SingletonBeacon, CIDAggregateBeacon, and SMTAggregateBeacon.
+   * Types SingletonBeacon, CASBeacon, and SMTBeacon.
    *
    * @param {UpdateParams} params Required parameters for the update operation.
    * @param {string} params.identifier The btcr2 identifier to be updated.
@@ -193,7 +254,7 @@ export class DidBtcr2 implements DidMethod {
     patch: PatchOperation[];
     verificationMethodId: string;
     beaconIds: string[];
-  }): Promise<SignalsMetadata> {
+  }): Promise<SidecarData> {
     // Deconstruct the params
     const {
       identifier,
@@ -207,7 +268,7 @@ export class DidBtcr2 implements DidMethod {
     // 1. Set unsignedUpdate to the result of passing Identifier, sourceDocument,
     //    sourceVersionId, and documentPatch into the Construct DID Update
     //    Payload algorithm.
-    const didUpdatePayload = await Update.construct({
+    const unsignedUpdate = await Update.construct({
       identifier,
       sourceDocument,
       sourceVersionId,
@@ -216,7 +277,7 @@ export class DidBtcr2 implements DidMethod {
 
     // 2. Set verificationMethod to the result of retrieving the verificationMethod
     //    from sourceDocument using the verificationMethodId.
-    const verificationMethod = this.getSigningMethod({ didDocument: sourceDocument, methodId, });
+    const verificationMethod = this.getSigningMethod(sourceDocument, methodId);
 
     // Validate the verificationMethod exists in the sourceDocument
     if (!verificationMethod) {
@@ -237,11 +298,11 @@ export class DidBtcr2 implements DidMethod {
 
     // 4. Set didUpdateInvocation to the result of passing Identifier, unsignedUpdate as didUpdatePayload, and
     //    verificationMethod to the Invoke DID Update Payload algorithm.
-    const didUpdateInvocation = await Update.invoke({ identifier, verificationMethod, didUpdatePayload, });
+    const signedUpdate = await Update.invoke({ identifier, verificationMethod, unsignedUpdate });
 
     // 5. Set signalsMetadata to the result of passing Identifier, sourceDocument, beaconIds and didUpdateInvocation
     //    to the Announce DID Update algorithm.
-    const signalsMetadata = await Update.announce({ sourceDocument, beaconIds, didUpdateInvocation, });
+    const signalsMetadata = await Update.announce({ sourceDocument, beaconIds, signedUpdate });
 
     // 6. Return signalsMetadata. It is up to implementations to ensure that the signalsMetadata is persisted.
     return signalsMetadata;
@@ -253,17 +314,12 @@ export class DidBtcr2 implements DidMethod {
    * for signing messages and credentials. If given, the `methodId` parameter is used to select the
    * verification method. If not given, the Identity Key's verification method with an ID fragment
    * of '#initialKey' is used.
-   *
-   * @param {{ didDocument: DidDocument; methodId?: string; }} params Parameters for the `getSigningMethod` method.
-   * @param {DidDocument} params.didDocument DID Document to get the verification method from.
-   * @param {string} params.methodId Optional ID of the verification method to use for signing.
+   * @param {DidDocument} didDocument The DID Document of the `did:btcr2` identifier.
+   * @param {string} [methodId] Optional verification method ID to be used for signing.
    * @returns {DidVerificationMethod} Promise resolving to the {@link DidVerificationMethod} object used for signing.
    * @throws {DidError} if the parsed did method does not match `btcr2` or signing method could not be determined.
    */
-  public static getSigningMethod({ didDocument, methodId }: {
-    didDocument: DidDocument;
-    methodId?: string;
-  }): DidVerificationMethod {
+  public static getSigningMethod(didDocument: DidDocument,  methodId?: string): DidVerificationMethod {
     // Set the default methodId to the first assertionMethod if not given
     methodId ??= '#initialKey';
 

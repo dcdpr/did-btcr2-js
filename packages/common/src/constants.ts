@@ -2,7 +2,6 @@ import { sha256 } from '@noble/hashes/sha2';
 import { bytesToHex } from '@noble/hashes/utils';
 import { Bytes, HashHex } from './types.js';
 
-export const ID_PLACEHOLDER_VALUE = 'did:btcr2:xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx';
 export const OP_RETURN = 0x6a;
 export const OP_PUSH32 = 0x20;
 export const VALID_HRP = ['k', 'x'];

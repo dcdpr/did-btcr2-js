@@ -1,9 +1,9 @@
 import { bytesToHex } from '@noble/hashes/utils';
 import { Identifier } from '../../src/index.js';
-import vectors from '../../in/encode-decode.js';
+
 import { Logger } from '@did-btcr2/common';
 
-for(let {did, identifierComponents: idcomps} of vectors) {
+for(const {did, identifierComponents: idcomps} of vectors) {
   Logger.log('Encoding', idcomps);
   const encoded = Identifier.encode(idcomps);
   if(encoded !== did){

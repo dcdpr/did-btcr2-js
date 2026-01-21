@@ -72,18 +72,18 @@ export class Canonicalization {
    * @param {Object} [options] Options for processing.
    * @param {CanonicalizationEncoding} [options.encoding='hex'] The encoding format ('hex' or 'base58').
    * @param {CanonicalizationAlgorithm} [options.algorithm] The canonicalization algorithm to use.
-   * @returns {Promise<string>} The final SHA-256 hash bytes as a hex string.
+   * @returns {string} The final SHA-256 hash bytes as a hex string.
    */
-  async process(object: Record<any, any>, options: {
+  process(object: Record<any, any>, options: {
     encoding?: CanonicalizationEncoding;
     algorithm?: CanonicalizationAlgorithm;
     multibase?: boolean;
-  } = {}): Promise<string> {
+  } = {}): string {
     const algorithm = Canonicalization.normalizeAlgorithm(options.algorithm ?? this._defaultAlgorithm);
     const encoding = Canonicalization.normalizeEncoding(options.encoding ?? 'hex');
 
     // Step 1: Canonicalize
-    const canonicalized = await this.canonicalize(object, algorithm);
+    const canonicalized = this.canonicalize(object, algorithm);
     // Step 2: Hash
     const hashed = this.hash(canonicalized);
     // Step 3: Encode
@@ -96,9 +96,9 @@ export class Canonicalization {
    * Step 1: Uses this.algorithm to determine the method (JCS).
    * @param {Record<any, any>} object The object to canonicalize.
    * @param {CanonicalizationAlgorithm} [algorithm] The algorithm to use.
-   * @returns {Promise<string>} The canonicalized object.
+   * @returns {string} The canonicalized object.
    */
-  async canonicalize(object: Record<any, any>, algorithm: CanonicalizationAlgorithm = this._defaultAlgorithm): Promise<string> {
+  canonicalize(object: Record<any, any>, algorithm: CanonicalizationAlgorithm = this._defaultAlgorithm): string {
     switch (Canonicalization.normalizeAlgorithm(algorithm)) {
       case 'jcs':
         return this.jcs(object);
@@ -121,7 +121,7 @@ export class Canonicalization {
    * @param {string} canonicalized The canonicalized object.
    * @returns {HashBytes} The SHA-256 HashBytes (Uint8Array).
    */
-  public hash(canonicalized: string): HashBytes {
+  hash(canonicalized: string): HashBytes {
     return sha256(canonicalized);
   }
 
@@ -132,7 +132,7 @@ export class Canonicalization {
    * @throws {CanonicalizationError} If the encoding format is not supported.
    * @returns {string} The encoded string.
    */
-  public encode(canonicalizedhash: HashBytes, encoding: CanonicalizationEncoding = 'hex', multibase: boolean = false): string {
+  encode(canonicalizedhash: HashBytes, encoding: CanonicalizationEncoding = 'hex', multibase: boolean = false): string {
     const normalized = Canonicalization.normalizeEncoding(encoding);
     if (normalized === 'hex') return this.hex(canonicalizedhash);
     if (normalized === 'base58') {
@@ -147,7 +147,7 @@ export class Canonicalization {
    * @param {HashBytes} hashBytes The hash as a Uint8Array.
    * @returns {string} The hash as a hex string.
    */
-  public hex(hashBytes: HashBytes): string {
+  hex(hashBytes: HashBytes): string {
     return bytesToHex(hashBytes);
   }
 
@@ -156,7 +156,7 @@ export class Canonicalization {
    * @param {HashBytes} hashBytes The hash as a Uint8Array.
    * @returns {string} The hash as a hex string.
    */
-  public base58(hashBytes: HashBytes): string {
+  base58(hashBytes: HashBytes): string {
     const encoded = base58btc.encode(hashBytes);
     return encoded.startsWith('z') ? encoded.slice(1) : encoded;
   }
@@ -167,11 +167,11 @@ export class Canonicalization {
    * @param {Record<any, any>} object The object to process.
    * @returns {Promise<HashBytes>} The final SHA-256 hash bytes.
    */
-  public async canonicalhash(
+  canonicalhash(
     object: Record<any, any>,
     algorithm: CanonicalizationAlgorithm = this._defaultAlgorithm
-  ): Promise<HashBytes> {
-    const canonicalized = await this.canonicalize(object, algorithm);
+  ): HashBytes {
+    const canonicalized = this.canonicalize(object, algorithm);
     return this.hash(canonicalized);
   }
 
@@ -181,7 +181,7 @@ export class Canonicalization {
    * @param {string} canonicalized The canonicalized object to hash.
    * @returns {string} The SHA-256 hash as a hex string.
    */
-  public hashhex(canonicalized: string): string {
+  hashhex(canonicalized: string): string {
     return this.encode(this.hash(canonicalized), 'hex');
   }
 
@@ -191,7 +191,7 @@ export class Canonicalization {
    * @param {string} canonicalized The canonicalized object to hash.
    * @returns {string} The SHA-256 hash as a base58 string.
    */
-  public hashbase58(canonicalized: string): string {
+  hashbase58(canonicalized: string): string {
     return this.encode(this.hash(canonicalized), 'base58', false);
   }
 }
