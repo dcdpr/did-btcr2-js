@@ -75,8 +75,11 @@ export enum MethodErrorCode {
   /** The sidecar data in the DID Update Payload was invalid. */
   INVALID_SIDECAR_DATA = 'INVALID_SIDECAR_DATA',
 
-  /** The proof is missing or has a malformed challenge field. */
-  INVALID_CHALLENGE_ERROR = 'INVALID_CHALLENGE_ERROR',
+  /** The update data required for resolution is missing. */
+  MISSING_UPDATE_DATA = 'MISSING_UPDATE_DATA',
+
+  /** The update is missing or has a malformed field(s). */
+  INVALID_UPDATE = 'INVALID_UPDATE',
 
   /** The proof is missing or has a malformed domain field. */
   INVALID_DOMAIN_ERROR = 'INVALID_DOMAIN_ERROR'
@@ -106,7 +109,8 @@ export const {
   VERIFICATION_METHOD_ERROR,
   LATE_PUBLISHING_ERROR,
   INVALID_SIDECAR_DATA,
-  INVALID_CHALLENGE_ERROR,
+  MISSING_UPDATE_DATA,
+  INVALID_UPDATE,
   INVALID_DOMAIN_ERROR
 } = MethodErrorCode;
 
@@ -166,6 +170,18 @@ export class MethodError extends DidMethodError {
   }
 }
 
+export class IdentifierError extends DidMethodError {
+  constructor(message: string, type: string = 'IdentifierError', data?: Record<string, any>) {
+    super(message, { type, name: type, data });
+  }
+}
+
+export class UpdateError extends DidMethodError {
+  constructor(message: string, type: string = 'UpdateError', data?: Record<string, any>) {
+    super(message, { type, name: type, data });
+  }
+}
+
 export class ResolveError extends DidMethodError {
   constructor(message: string, type: string = 'ResolveError', data?: Record<string, any>) {
     super(message, { type, name: 'ResolveError', data });
@@ -186,6 +202,12 @@ export class DidDocumentError extends DidMethodError {
 
 export class CryptosuiteError extends DidMethodError {
   constructor(message: string, type: string = 'CryptosuiteError', data?: Record<string, any>) {
+    super(message, { type, name: type, data });
+  }
+}
+
+export class DataIntegrityProofError extends DidMethodError {
+  constructor(message: string, type: string = 'DataIntegrityProofError', data?: Record<string, any>) {
     super(message, { type, name: type, data });
   }
 }

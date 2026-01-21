@@ -4,39 +4,51 @@ import { schnorr, secp256k1 } from '@noble/curves/secp256k1';
 import { DidVerificationMethod } from '@web5/dids';
 import { randomBytes } from 'crypto';
 import { base58btc } from 'multiformats/bases/base58';
-import { Cryptosuite } from '../cryptosuite/index.js';
+import { BIP340Cryptosuite } from '../cryptosuite/index.js';
 import {
   DidParams,
   FromPublicKey,
-  FromPublicKeyMultibaseParams,
   FromSecretKey,
   Multikey,
   MultikeyObject
 } from './interface.js';
 
-type CryptoOptions = { scheme: 'ecdsa' | 'schnorr' }
+type CryptoOptions = {
+  scheme: 'ecdsa' | 'schnorr';
+}
+
 interface MultikeyParams extends DidParams {
   keys?: SchnorrKeyPair;
 }
+
 /**
  * SchnorrMultikey is an implementation of {@link https://dcdpr.github.io/data-integrity-schnorr-secp256k1/#multikey | 2.1.1 Multikey}.
  * The publicKeyMultibase value of the verification method MUST be a base-58-btc Multibase encoding of a Multikey encoded secp256k1 public key.
  * The secretKeyMultibase value of the verification method MUST be a Multikey encoding of a secp256k1 secret key.
+ * @implements {Multikey}
  * @class SchnorrMultikey
  * @type {SchnorrMultikey}
  */
 export class SchnorrMultikey implements Multikey {
-  /** @type {string} The verification metod type */
-  public static readonly type: string = 'Multikey';
+  /**
+   * The verification metod type.
+   */
+  static readonly type: string = 'Multikey';
 
-  /** @type {string} The id references which key to use for various operations in the DID Document */
-  public readonly id: string;
+  /**
+   * The id references which key to use for various operations in the DID Document.
+   */
+  readonly id: string;
 
-  /** @type {string} The controller is the DID that controls the keys and information in the DID DOcument */
-  public readonly controller: string;
+  /**
+   * The controller is the DID that controls the keys and information in the DID DOcument.
+   */
+  readonly controller: string;
 
-  /** @type {Keys} The private key bytes for the multikey (optional) */
-  private readonly _keys: SchnorrKeyPair;
+  /**
+   * The schnorr key pair used for the schnorr multikey.
+   */
+  readonly #keyPair: SchnorrKeyPair;
 
   /**
    * Creates an instance of SchnorrMultikey.
@@ -62,27 +74,33 @@ export class SchnorrMultikey implements Multikey {
     // Set the class variables
     this.id = id;
     this.controller = controller;
-    this._keys = keys;
+    this.#keyPair = keys;
   }
 
-  /** @type {SchnorrKeyPair} @readonly Get the SchnorrKeyPair. */
-  get keys(): SchnorrKeyPair {
+  /**
+   * @readonly
+   * Get the SchnorrKeyPair.
+   */
+  get keyPair(): SchnorrKeyPair {
     // Return a copy of the Keys
-    const keys = this._keys;
+    const keys = this.#keyPair;
     return keys;
   }
 
-  /** @type {CompressedSecp256k1PublicKey} @readonly Get the Multikey CompressedSecp256k1PublicKey. */
+  /**
+   * @readonly
+   * Get the Multikey CompressedSecp256k1PublicKey
+   */
   get publicKey(): CompressedSecp256k1PublicKey {
     // Create and return a copy of the Keys.publicKey
-    const publicKey = this._keys.publicKey;
+    const publicKey = this.#keyPair.publicKey;
     return publicKey;
   }
 
   /** @type {PrivateKey} @readonly Get the Multikey PrivateKey. */
   get secretKey(): Secp256k1SecretKey {
     // Create and return a copy of the Keys.secretKey
-    const secretKey = this._keys.secretKey;
+    const secretKey = this.#keyPair.secretKey;
     // If there is no private key, throw an error
     if(!this.signer) {
       throw new MultikeyError('Cannot get: no secretKey', 'PRIVATE_KEY_ERROR');
@@ -92,12 +110,10 @@ export class SchnorrMultikey implements Multikey {
 
   /**
    * Constructs an instance of Cryptosuite from the current Multikey instance.
-   * @public
-   * @param {('bip340-jcs-2025' | 'bip340-rdfc-2025')} [cryptosuite='bip340-rdfc-2025']
-   * @returns {Cryptosuite}
+   * @returns {BIP340Cryptosuite}
    */
-  public toCryptosuite(cryptosuite: 'bip340-jcs-2025' | 'bip340-rdfc-2025' = 'bip340-jcs-2025'): Cryptosuite {
-    return new Cryptosuite({ cryptosuite, multikey: this });
+  toCryptosuite(): BIP340Cryptosuite {
+    return new BIP340Cryptosuite(this);
   }
 
   /**
@@ -117,17 +133,17 @@ export class SchnorrMultikey implements Multikey {
       throw new MultikeyError(`Cannot sign ${opts.scheme}: no secretKey`, 'SIGN_ERROR');
     }
 
-    // Sign ecdsa and return
-    if(opts.scheme === 'ecdsa') {
-      return secp256k1.sign(data, this.secretKey.bytes, { lowS: true }).toCompactRawBytes();
-    }
-
     // Sign schnorr and return
     if(opts.scheme === 'schnorr') {
       return schnorr.sign(data, this.secretKey.bytes, randomBytes(32));
     }
 
-    throw new MultikeyError(`Invalid scheme: ${opts.scheme}.`, 'SIGN_ERROR', opts);
+    // Sign ecdsa and return
+    if(opts.scheme === 'ecdsa') {
+      return secp256k1.sign(data, this.secretKey.bytes, { lowS: true }).toBytes('compact');
+    }
+
+    throw new MultikeyError('Invalid signing scheme', 'SIGN_ERROR', opts);
   }
 
   /**
@@ -139,12 +155,17 @@ export class SchnorrMultikey implements Multikey {
    * @returns {boolean} If the signature is valid against the public key.
    */
   public verify(signature: Hex, data: Hex, opts?: CryptoOptions): boolean {
+    // Set default options if not provided
     opts ??= { scheme: 'schnorr' };
+
+    // Verify the signature using schnorr and return
+    if(opts.scheme === 'schnorr') {
+      return schnorr.verify(signature, data, this.publicKey.x);
+    }
+
     // Verify the signature depending on the scheme and return the result
     if(opts.scheme === 'ecdsa') {
-      return secp256k1.verify(signature as Bytes, data as Bytes, this.publicKey.compressed); }
-    else if(opts.scheme === 'schnorr') {
-      return schnorr.verify(signature, data, this.publicKey.x);
+      return secp256k1.verify(signature as Bytes, data as Bytes, this.publicKey.compressed);
     }
 
     throw new MultikeyError(`Invalid scheme: ${opts.scheme}.`, 'VERIFY_SIGNATURE_ERROR', opts);
@@ -231,9 +252,12 @@ export class SchnorrMultikey implements Multikey {
     return new SchnorrMultikey({ id, controller, keys });
   }
 
-  /** @type {boolean} @readonly Get signing ability of the Multikey (i.e. is there a valid Secp256k1SecretKey). */
+  /**
+   * @readonly
+   * Get signing ability of the Multikey (i.e. is there a valid Secp256k1SecretKey).
+   */
   get signer(): boolean {
-    return !!this.keys.secretKey;
+    return !!this.#keyPair.secretKey;
   }
 
   /**
@@ -246,7 +270,7 @@ export class SchnorrMultikey implements Multikey {
       controller         : this.controller,
       fullId             : this.fullId(),
       signer             : this.signer,
-      keys               : this.keys.json(),
+      keyPair            : this.keyPair.json(),
       verificationMethod : this.toVerificationMethod()
     };
   }
@@ -306,17 +330,16 @@ export class SchnorrMultikey implements Multikey {
 
   /**
    * Creates a `Multikey` instance from a public key multibase.
-   * @param {FromPublicKeyMultibaseParams} params See {@link FromPublicKeyMultibaseParams} for details.
-   * @param {string} params.id The id of the multikey.
-   * @param {string} params.controller The controller of the multikey.
-   * @param {string} params.publicKeyMultibase The public key multibase for the multikey.
+   * @param {string} id The id of the multikey.
+   * @param {string} controller The controller of the multikey.
+   * @param {string} publicKeyMultibase The public key multibase of the multikey.
    * @returns {Multikey} The new multikey instance.
    */
-  public static fromPublicKeyMultibase({
-    id,
-    controller,
-    publicKeyMultibase
-  }: FromPublicKeyMultibaseParams): SchnorrMultikey {
+  public static fromPublicKeyMultibase(
+    id: string,
+    controller: string,
+    publicKeyMultibase: string,
+  ): SchnorrMultikey {
     // Decode the public key multibase using base58btc
     const publicKeyMultibaseBytes = base58btc.decode(publicKeyMultibase);
 

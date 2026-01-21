@@ -1,184 +1,114 @@
-import { AddressUtxo, BitcoinNetworkConnection, RawTransactionRest, RawTransactionV2, TxOut, Vout } from '@did-btcr2/bitcoin';
-import { DidUpdatePayload, INVALID_SIDECAR_DATA, LATE_PUBLISHING_ERROR, SingletonBeaconError } from '@did-btcr2/common';
+import { AddressUtxo, BitcoinNetworkConnection } from '@did-btcr2/bitcoin';
+import { HexString, INVALID_SIDECAR_DATA, MethodError, MISSING_UPDATE_DATA, SingletonBeaconError } from '@did-btcr2/common';
+import { BTCR2SignedUpdate } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { Kms, Signer } from '@did-btcr2/kms';
 import { opcodes, Psbt, script } from 'bitcoinjs-lib';
 import { base58btc } from 'multiformats/bases/base58';
 import { canonicalization } from '../../did-btcr2.js';
-import { Beacon, BeaconService, BeaconSignal } from '../../interfaces/beacon.js';
-import { Appendix } from '../../utils/appendix.js';
-import { BeaconSidecarData, Metadata, SignalsMetadata, SingletonSidecar } from '../../utils/types.js';
 import { Identifier } from '../identifier.js';
-
-const bitcoin = new BitcoinNetworkConnection();
+import { SidecarData } from '../types.js';
+import { AggregateBeacon, BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js';
 
 /**
- * Implements {@link https://dcdpr.github.io/did-btcr2/#singleton-beacon | 5.1 Singleton Beacon}.
- *
- * A Singleton Beacon enables a single entity to independently post a DID Update Payload in a Beacon Signal. Its is a
- * Beacon that can be used to publish a single DID Update Payload targeting a single DID document. The serviceEndpoint
- * for this Beacon Type is a Bitcoin address represented as a URI following the BIP21 scheme. It is recommended that
- * this Bitcoin address be under the sole control of the DID controller. How the Bitcoin address and the cryptographic
- * material that controls it are generated is left to the implementation.
+ * Implements {@link https://dcdpr.github.io/did-btcr2/terminology.html#singleton-beacon | Singleton Beacon}.
  *
  * @class SingletonBeacon
  * @type {SingletonBeacon}
- * @extends {Beacon}
+ * @extends {AggregateBeacon}
  */
-export class SingletonBeacon extends Beacon {
+export class SingletonBeacon extends AggregateBeacon {
 
   /**
    * Creates an instance of SingletonBeacon.
    * @param {BeaconService} service The Beacon service.
-   * @param {?BeaconSidecarData} [sidecar] Optional sidecar data.
+   * @param {?BeaconSidecarData} sidecar The SingletonBeacon sidecar data.
    */
-  constructor(service: BeaconService, sidecar?: BeaconSidecarData<SingletonSidecar>) {
-    super({ ...service, type: 'SingletonBeacon' }, sidecar);
+  constructor(
+    service: BeaconService,
+    signals: Array<BeaconSignal>,
+    sidecar: SidecarData,
+    bitcoin?: BitcoinNetworkConnection
+  ) {
+    super({ ...service, type: 'SingletonBeacon' }, signals, sidecar, bitcoin);
   }
 
   /**
-   * Get the Beacon service.
-   * @readonly
-   * @type {BeaconService} The Beacon service.
-   */
-  get service(): BeaconService {
-    return {
-      type            : this.type,
-      id              : this.id,
-      serviceEndpoint : this.serviceEndpoint
-    };
-  }
-
-  /**
-   * Implements {@link https://dcdpr.github.io/did-btcr2/#establish-singleton-beacon | 5.1.1 Establish Singleton Beacon}.
-   *
-   * Static, convenience method for establishing a Beacon object.
-   *
-   * A Singleton Beacon is a Beacon that can be used to publish a single DID Update Payload targeting a single DID
-   * document. The serviceEndpoint for this Beacon Type is a Bitcoin address represented as a URI following the BIP21
-   * scheme. It is RECOMMENDED that this Bitcoin address be under the sole control of the DID controller. How the
-   * Bitcoin address and the cryptographic material that controls it are generated is left to the implementation.
-   * The Establish Singleton Beacon algorithm takes in a Bitcoin address and a serviceId and returns a Singleton Beacon service.
-   * It returns a SignletonBeacon object with the given id, type, and serviceEndpoint.
-   *
+   * Static, convenience method for establishing a CASBeacon object.
    * @param {string} service The Beacon service.
-   * @param {BeaconSidecarData<SingletonSidecar>} sidecar The sidecar data.
+   * @param {SidecarData} sidecar The sidecar data.
    * @returns {SingletonBeacon} The Singleton Beacon.
    */
-  public static establish(service: BeaconService, sidecar: BeaconSidecarData<SingletonSidecar>): SingletonBeacon {
-    return new SingletonBeacon(service, sidecar);
+  static establish(service: BeaconService, signals: Array<BeaconSignal>, sidecar: SidecarData): SingletonBeacon {
+    return new SingletonBeacon(service, signals, sidecar);
   }
 
   /**
-   * TODO: Figure out if this is necessary or not.
-   * @param {string} didUpdatePayload The DID Update Payload to generate the signal for.
+   * Generates a Beacon Signal for a Singleton Beacon Service.
+   * @param {HexString} updateHash The update hash to be included in the Beacon Signal.
    * @returns {BeaconSignal} The generated signal.
    * @throws {MethodError} if the signal is invalid.
    */
-  public generateSignal(didUpdatePayload: string): BeaconSignal {
-    throw new Error('Method not implemented.' + didUpdatePayload);
+  generateSignal(updateHash: HexString): BeaconSignal {
+    throw new MethodError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`, {updateHash});
   }
 
   /**
-   * TODO: Finish implementation per spec
-   *
-   * Implements {@link https://dcdpr.github.io/did-btcr2/#process-singleton-beacon-signal | 5.1.3 Process Singleton Beacon Signal}.
-   * See {@link Beacon.processSignal | Abstract Beacon Interface Method processSignal} for more details.
-   *
-   * The Process Singleton Beacon Signal algorithm is called by the Process Beacon Signals algorithm as part of the Read
-   * operation. It takes a Bitcoin transaction representing a Beacon Signal and optional signalSidecarData containing
-   * any sidecar data provided to the resolver for the Beacon Signal identified by the Bitcoin transaction identifier.
-   * It returns the DID Update payload announced by the Beacon Signal or throws an error.
-   *
-   * @param {RawTransactionV2} signal Bitcoin transaction representing a Beacon Signal.
-   * @param {SignalsMetadata} signalsMetadata: SignalsMetadata Optional sidecar data for the Beacon Signal.
-   * @returns {Promise<DidUpdatePayload | undefined>} The DID Update payload announced by the Beacon Signal.
-   * @throws {DidError} if the signalTx is invalid or the signalSidecarData is invalid.
+   * Processes an array of Beacon Signals associated with a Singleton Beacon Service.
+   * @returns {Promise<BTCR2SignedUpdate | undefined>} The DID Update payload announced by the Beacon Signal.
+   * @throws {SingletonBeaconError} if the signalTx is invalid or the signalSidecarData is invalid.
    */
-  public async processSignal(signal: RawTransactionV2 | RawTransactionRest, signalsMetadata: SignalsMetadata): Promise<DidUpdatePayload | undefined> {
-    // 1. Initialize a txOut variable to the 0th transaction output of the tx.
-    const output = signal.vout.filter((vout) => ((vout as Vout)['scriptpubkey_asm'] as string || (vout as TxOut)['scriptPubKey'].asm as string).includes('OP_RETURN'))?.[0];
-    if(!output) {
-      throw new SingletonBeaconError('No OP_RETURN output found in transaction outputs.', 'NO_OP_RETURN', { signal });
-    }
-    const outputMap = new Map(Object.entries(output));
+  async processSignals(): Promise<Array<[BTCR2SignedUpdate, BlockMetadata]>> {
+    // Initialize an empty array to hold the BTCR2 signed updates
+    const updates = new Array<[BTCR2SignedUpdate, BlockMetadata]>();
 
-    // 2. Set didUpdatePayload to null.
-    let didUpdatePayload: DidUpdatePayload | undefined = undefined;
+    // Loop through each signal in this.signals
+    for(const signal of this.signals || []) {
+      // Grab the beacon signal bytes hash from the signal
+      const updateHash = signal.signalBytes;
 
-    // 3. Check txout is of the format [OP_RETURN, OP_PUSH32, <32bytes>], if not, then return didUpdatePayload.
-    //    The Bitcoin transaction is not a Beacon Signal.
-    const UPDATE_PAYLOAD_HASH = (outputMap.get('scriptpubkey_asm') ?? outputMap.get('scriptPubKey').asm).split(' ').last() as string;
-    if(!UPDATE_PAYLOAD_HASH) {
-      return undefined;
-    }
-    // 4. Set hashBytes to the 32 bytes in the txout.
-    const hashBytes = canonicalization.encode(Buffer.from(UPDATE_PAYLOAD_HASH, 'hex'), 'base58');
+      // Use the updateHash as the sidecar data lookup key to retrieve the btcr2 update
+      const signedUpdate = this.sidecar.updateMap.get(updateHash);
 
-    // Convert signalsMetadata to a Map for easier access
-    const signalsMetadataMap = new Map<string, Metadata>(Object.entries(signalsMetadata));
-
-    // 5. If signalsMetadata:
-    if (signalsMetadata) {
-      // 5.1 Set didUpdatePayload to signalsMetadata.updatePayload
-      didUpdatePayload = signalsMetadataMap.get(signal.txid)?.didUpdate;
-
-      if(!didUpdatePayload) {
-        throw new SingletonBeaconError('Update Payload not found in signal metadata.', 'PROCESS_SIGNAL_ERROR');
-      }
-
-      // 5.2 Set updateHashBytes to the result of passing didUpdatePayload to the JSON Canonicalization and Hash algorithm.
-      const updateHashBytes = await canonicalization.process(didUpdatePayload as any, { encoding: 'base58' });
-
-      // 5.3 If updateHashBytes does not equal hashBytes, MUST throw an invalidSidecarData error.
-      if (updateHashBytes !== hashBytes) {
+      // If no btcr2 update is found in sidecar data maps, throw missingUpdateData error.
+      if(!signedUpdate) {
         throw new SingletonBeaconError(
-          `Hash mismatch: updateHashBytes ${updateHashBytes} !== hashBytes ${hashBytes}.`,
-          INVALID_SIDECAR_DATA,
-          { UPDATE_PAYLOAD_HASH, didUpdatePayload }
+          `BTCR2 Signed Update not found for update hash ${updateHash}.`,
+          MISSING_UPDATE_DATA, signal
         );
       }
-      // 7. Return didUpdatePayload.
-      return didUpdatePayload;
+
+      // Canonicalize, hash and encode to base58 the signed update object found in sidecar or CAS
+      const encodedUpdate = canonicalization.process(signedUpdate, { encoding: 'base58' });
+
+      // Encode the signal bytes hex string to base58
+      const signalBytes = base58btc.encode(Buffer.from(updateHash, 'hex'));
+
+      // Check for mismatch between found sidecar/cas update hash and onchain beacon signal hash
+      if (encodedUpdate !== signalBytes) {
+        // If mismatch, throw invalidSidecarData error.
+        throw new SingletonBeaconError(
+          `Hash mismatch: sidecar update ${encodedUpdate} !== signal bytes ${signalBytes}.`,
+          INVALID_SIDECAR_DATA, { encodedUpdate, signalBytes }
+        );
+      }
+
+      // Push signedUpdate to updates array
+      updates.push([signedUpdate, signal.blockMetadata]);
     }
 
-    // 6. Else:
-    //  6.1 Set didUpdatePayload to the result of passing hashBytes into the Fetch Content from Addressable Storage algorithm.
-    const didUpdatePayloadString = await Appendix.fetchFromCas(base58btc.decode(hashBytes));
-    if(!didUpdatePayloadString || !JSON.parse(didUpdatePayloadString)) {
-      throw new SingletonBeaconError('Update payload not found in addressable storage.', INVALID_SIDECAR_DATA);
-    }
-    didUpdatePayload = JSON.parse(didUpdatePayloadString) as DidUpdatePayload;
-
-    //  6.2 If didUpdatePayload is null, MUST raise a latePublishingError. MAY identify Beacon Signal to resolver and request additional Sidecar data be provided.
-    if (!didUpdatePayload) {
-      throw new SingletonBeaconError('Update payload hash does not match transaction hash.', LATE_PUBLISHING_ERROR);
-    }
-
-    // 7. Return didUpdatePayload.
-    return didUpdatePayload;
+    // Return the array of signed updates
+    return updates;
   }
 
-
   /**
-   * Implements {@link https://dcdpr.github.io/did-btcr2/#broadcast-singleton-beacon-signal | 5.1.2 Broadcast Singleton Beacon Signal}.
-   *
-   * The Broadcast Singleton Beacon Signal algorithm is called by the Announce DID Update algorithm as part of the
-   * Update operation, if the Beacon being used is of the type SingletonBeacon. It takes as input a Beacon service and a
-   * secured didUpdatePayload. The algorithm constructs a Bitcoin transaction that spends from the Beacon address
-   * identified in the service and contains a transaction output of the format [OP_RETURN, OP_PUSH32, <hashBytes>],
-   * where hashBytes is the SHA256 hash of the canonical didUpdatePayload. The Bitcoin transaction is then signed and
-   * broadcast to the Bitcoin network, thereby publicly announcing a DID update in a Beacon Signal. It returns a
-   * signalMetadata object mapping the Bitcoin transaction identifier of the Beacon Signal to the necessary data needed
-   * to verify the signal announces a specific DID Update Payload.
-   *
+   * Broadcasts a SingletonBeacon signal.
    * TODO: Design and implement a way to construct, sign and send via RPC
    *
-   * @param {DidUpdatePayload} didUpdatePayload The verificationMethod object to be used for signing.
    * @returns {SignedRawTx} Successful output of a bitcoin transaction.
    * @throws {SingletonBeaconError} if the bitcoin address is invalid or unfunded.
    */
-  public async broadcastSignal(didUpdatePayload: DidUpdatePayload): Promise<SignalsMetadata> {
+  async broadcastSignal(updateHash: HexString): Promise<HexString> {
     // 1. Initialize an addressURI variable to beacon.serviceEndpoint.
     // 2. Set bitcoinAddress to the decoding of addressURI following BIP21.
     const bitcoinAddress = this.service.serviceEndpoint.replace('bitcoin:', '');
@@ -186,9 +116,8 @@ export class SingletonBeacon extends Beacon {
     // 3. Ensure bitcoinAddress is funded, if not, fund this address.
     // let inputs: Array<CreateRawTxInputs> = [];
 
-    const utxos = await bitcoin.network.rest.address.getUtxos(bitcoinAddress);
+    const utxos = await this.bitcoin.network.rest.address.getUtxos(bitcoinAddress);
     if(!utxos.length) {
-      // TODO: Discuss what to do here because sending to a beacon address does not allow you to spend from it immediately.
       throw new SingletonBeaconError('No UTXOs found, please fund address!', 'UNFUNDED_BEACON_ADDRESS', { bitcoinAddress });
     }
 
@@ -196,28 +125,31 @@ export class SingletonBeacon extends Beacon {
     if(!utxo) {
       throw new SingletonBeaconError(
         'Beacon bitcoin address unfunded or utxos unconfirmed.',
-        'UNFUNDED_BEACON_ADDRESS', { bitcoinAddress });
+        'UNFUNDED_BEACON_ADDRESS', { bitcoinAddress }
+      );
     }
 
-    // 4. Set hashBytes to the result of passing didUpdatePayload to the JSON Canonicalization and Hash algorithm.
-    const hashBytes = Buffer.from(await canonicalization.process(didUpdatePayload), 'hex');
-    if (hashBytes.length !== 32) throw new SingletonBeaconError('Hash must be 32 bytes');
+    // 4. Set hashBytes to the result of passing signedUpdate to the JSON Canonicalization and Hash algorithm.
+    const udpateHashBytes = Buffer.from(updateHash, 'hex');
+    if (udpateHashBytes.length !== 32) {
+      throw new SingletonBeaconError('Hash must be 32 bytes');
+    }
 
     // 5. Initialize spendTx to a Bitcoin transaction that spends a transaction controlled by the bitcoinAddress and
     //    contains at least one transaction output. This output MUST have the following format
     //    [OP_RETURN, OP_PUSH32, hashBytes]
     const {txid, vout} = utxo;
-    const prevTx = await bitcoin.network.rest.transaction.getHex(txid);
+    const prevTx = await this.bitcoin.network.rest.transaction.getHex(txid);
     const input = {
       hash           : txid,
       index          : vout,
       nonWitnessUtxo : Buffer.from(prevTx, 'hex')
     };
     // TODO: Figure out a good way to estimate fees
-    const spendTx  = new Psbt({ network: bitcoin.network.data })
+    const spendTx  = new Psbt({ network: this.bitcoin.network.data })
       .addInput(input)
       .addOutput({ address: bitcoinAddress, value: BigInt(utxo.value) - BigInt(500) })
-      .addOutput({ script: script.compile([opcodes.OP_RETURN, hashBytes]), value: 0n });
+      .addOutput({ script: script.compile([opcodes.OP_RETURN, udpateHashBytes]), value: 0n });
 
     // 6. Retrieve the cryptographic material, e.g private key or signing capability, associated with the bitcoinAddress
     //    or service. How this is done is left to the implementer.
@@ -228,7 +160,7 @@ export class SingletonBeacon extends Beacon {
       throw new Error('Key pair not found.');
     }
 
-    const signer = new Signer({ keyPair, network: bitcoin.network.name });
+    const signer = new Signer({ keyPair, network: this.bitcoin.network.name });
 
     // 7. Sign the spendTx.
     const signedTx = spendTx.signInput(0, signer)
@@ -240,15 +172,12 @@ export class SingletonBeacon extends Beacon {
     }
 
     // 8. Broadcast spendTx to the Bitcoin network.
-    const spentTx = await bitcoin.network.rest.transaction.send(signedTx);
+    const spentTx = await this.bitcoin.network.rest.transaction.send(signedTx);
     if(!spentTx) {
       throw new SingletonBeaconError('Failed to send raw transaction.', 'SEND_FAILED', { spentTx });
     }
 
-    // 9. Set signalId to the Bitcoin transaction identifier of spendTx.
-    // 10. Initialize signalMetadata to an empty object.
-    // 11. Set signalMetadata.updatePayload to didUpdatePayload.
-    // 12. Return the object {<signalId>: { updatePayload: DidUpdatePayload; proofs?: any; }}.
-    return { [spentTx]: { didUpdate: didUpdatePayload } };
+    // Return the signed update and the spend tx id.
+    return spentTx;
   }
 }

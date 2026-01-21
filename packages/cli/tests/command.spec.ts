@@ -18,8 +18,8 @@ describe('Btcr2Command', () => {
   });
 
   it('creates a key identifier', async () => {
-    (DidBtcr2 as any).create = async ({ idType, genesisBytes, options }: any) => {
-      expect(idType).to.equal(IdentifierTypes.KEY);
+    (DidBtcr2 as any).create = async (genesisBytes: any, options: any) => {
+      expect(options.idType).to.equal(IdentifierTypes.KEY);
       expect(genesisBytes).to.be.instanceOf(Uint8Array);
       expect(options.network).to.equal('bitcoin');
       return 'did:btcr2:key';
@@ -34,7 +34,8 @@ describe('Btcr2Command', () => {
 
   it('creates an external identifier', async () => {
     let receivedType: any;
-    (DidBtcr2 as any).create = async ({ idType }: any) => {
+    (DidBtcr2 as any).create = async ({ options: { idType } }: any) => {
+      console.log('Received idType:', idType);
       receivedType = idType;
       return 'did:btcr2:external';
     };
@@ -55,7 +56,13 @@ describe('Btcr2Command', () => {
     };
 
     const command = new Btcr2Command();
-    const result = await command.execute({ action: 'resolve', options: { identifier: 'did:btcr2:example', options: { network: 'bitcoin' } } });
+    const result = await command.execute({
+      action  : 'resolve',
+      options : {
+        identifier : 'did:btcr2:example',
+        options    : { network: 'bitcoin', drivers: {} },
+      }
+    });
     if (result.action !== 'resolve' && result.action !== 'read') throw new Error('Expected resolve result');
 
     expect(result.action).to.equal('resolve');
@@ -70,7 +77,13 @@ describe('Btcr2Command', () => {
     };
 
     const command = new Btcr2Command();
-    const result = await command.execute({ action: 'read', options: { identifier: 'did:btcr2:alias', options: {} } });
+    const result = await command.execute({
+      action  : 'read',
+      options : {
+        identifier : 'did:btcr2:alias',
+        options    : { drivers: {} }
+      }
+    });
     if (result.action !== 'resolve' && result.action !== 'read') throw new Error('Expected resolve/read result');
 
     expect(called).to.be.true;
@@ -104,7 +117,7 @@ describe('Btcr2Command', () => {
     });
     if (result.action !== 'update') throw new Error('Expected update result');
 
-    expect(result.metadata).to.deep.equal({ updated: true });
+    expect(result.sidecar).to.deep.equal({ updated: true });
   });
 
   it('warns on deactivate/delete', async () => {

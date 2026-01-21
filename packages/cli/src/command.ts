@@ -1,5 +1,6 @@
+import { DidResolutionResult } from '@web5/dids';
 import { IdentifierTypes, Logger, MethodError, PatchOperation } from '@did-btcr2/common';
-import { DidBtcr2, DidDocument, DidResolutionOptions, DidResolutionResult, SignalsMetadata } from '@did-btcr2/method';
+import { DidBtcr2, DidDocument, ResolutionOptions, SidecarData } from '@did-btcr2/method';
 
 export type NetworkOption = 'bitcoin' | 'testnet3' | 'testnet4' | 'signet' | 'mutinynet' | 'regtest';
 
@@ -15,7 +16,7 @@ export interface CreateCommandOptions {
 
 export interface ResolveCommandOptions {
   identifier: string;
-  options?: DidResolutionOptions;
+  options?: ResolutionOptions;
 }
 
 export interface UpdateCommandOptions {
@@ -40,7 +41,7 @@ export type CommandRequest =
 export type CommandResult =
   | { action: 'create'; did: string; }
   | { action: 'resolve' | 'read'; resolution: DidResolutionResult; }
-  | { action: 'update'; metadata: SignalsMetadata; }
+  | { action: 'update'; sidecar: SidecarData; }
   | { action: 'deactivate' | 'delete'; message: string; };
 
 export default class Btcr2Command implements CommandInterface {
@@ -51,7 +52,7 @@ export default class Btcr2Command implements CommandInterface {
         const { type, bytes, network } = request.options;
         const idType = type === 'k' ? IdentifierTypes.KEY : IdentifierTypes.EXTERNAL;
         const genesisBytes = Buffer.from(bytes, 'hex');
-        const did = await DidBtcr2.create({ idType, genesisBytes, options: { network } });
+        const did = await DidBtcr2.create(genesisBytes, { idType, network });
         return { action: 'create', did };
       }
       case 'read':
@@ -61,8 +62,8 @@ export default class Btcr2Command implements CommandInterface {
         return { action: request.action, resolution };
       }
       case 'update': {
-        const metadata = await DidBtcr2.update(request.options as any);
-        return { action: 'update', metadata };
+        const sidecar = await DidBtcr2.update(request.options as any);
+        return { action: 'update', sidecar };
       }
       case 'delete':
       case 'deactivate': {
