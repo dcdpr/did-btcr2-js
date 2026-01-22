@@ -9,7 +9,7 @@ import {
   PatchOperation,
   W3C_DID_RESOLUTION_V1,
 } from '@did-btcr2/common';
-import type { DidResolutionResult } from '@web5/dids';
+import type { DidResolutionResult as IDidResolutionResult, } from '@web5/dids';
 import {
   Did,
   DidError,
@@ -19,15 +19,17 @@ import {
 } from '@web5/dids';
 import { initEccLib } from 'bitcoinjs-lib';
 import * as tinysecp from 'tiny-secp256k1';
-import { Resolve } from './core/crud/resolve.js';
-import { Update } from './core/crud/update.js';
-import { DidResolutionOptions } from './interfaces/crud.js';
-import { DidDocument, DidVerificationMethod } from './utils/did-document.js';
-import { SignalsMetadata } from './utils/types.js';
 import { Identifier } from './core/identifier.js';
+import { Resolve } from './core/resolve/resolve.js';
+import { Update } from './core/update/update.js';
+import { DidResolutionOptions } from './interfaces/crud.js';
 import { Appendix } from './utils/appendix.js';
+import { DidDocument, DidVerificationMethod } from './utils/did-document.js';
+
 
 export const canonicalization = new Canonicalization();
+
+export type DidResolutionResult = IDidResolutionResult;
 
 export type Btcr2Identifier = string;
 

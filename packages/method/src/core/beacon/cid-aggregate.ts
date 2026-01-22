@@ -1,7 +1,7 @@
 import { RawTransactionV2 } from '@did-btcr2/bitcoin';
 import { DidUpdateInvocation, DidUpdatePayload, MethodError } from '@did-btcr2/common';
 import { DidServiceEndpoint } from '@web5/dids';
-import { Beacon, BeaconService, BeaconSignal } from '../../interfaces/beacon.js';
+import { Beacon, BeaconService, BeaconSignal } from './interfaces.js';
 import { BeaconSidecarData, CIDAggregateSidecar, SignalsMetadata } from '../../utils/types.js';
 
 /**

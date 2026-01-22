@@ -38,11 +38,11 @@ export * from './core/beacon/utils.js';
 
 export * from './core/crud/deactivate.js';
 export * from './core/crud/read.js';
-export * from './core/crud/update.js';
+export * from './core/update/update.js';
 
 export * from './core/identifier.js';
 
-export * from './interfaces/beacon.js';
+export * from './core/beacon/interfaces.js';
 export * from './interfaces/crud.js';
 
 export * from './utils/appendix.js';

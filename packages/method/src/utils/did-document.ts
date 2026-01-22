@@ -2,7 +2,6 @@ import { getNetwork } from '@did-btcr2/bitcoin';
 import {
   BTCR2_DID_DOCUMENT_CONTEXT,
   DidDocumentError,
-  ID_PLACEHOLDER_VALUE,
   IdentifierTypes,
   INVALID_DID_DOCUMENT,
   JSONObject,
@@ -11,11 +10,12 @@ import {
 } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { DidService, DidDocument as IIDidDocument, DidVerificationMethod as IIDidVerificationMethod } from '@web5/dids';
-import { BeaconService } from '../interfaces/beacon.js';
+import { BeaconService } from '../core/beacon/interfaces.js';
 import { BeaconUtils } from '../core/beacon/utils.js';
 import { Identifier } from '../core/identifier.js';
 import { Appendix } from './appendix.js';
 
+export const ID_PLACEHOLDER_VALUE = 'did:btcr2:_';
 export const BECH32M_CHARS = '';
 export const DID_REGEX = /did:btcr2:(x1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]*)/g;
 

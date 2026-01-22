@@ -1,7 +1,7 @@
 import { DidMethodError, KeyBytes, Maybe, MethodError } from '@did-btcr2/common';
 import { DidService } from '@web5/dids';
 import { networks, payments } from 'bitcoinjs-lib';
-import { BeaconService, BeaconServiceAddress } from '../../interfaces/beacon.js';
+import { BeaconService, BeaconServiceAddress } from './interfaces.js';
 import { Appendix } from '../../utils/appendix.js';
 import { DidDocument } from '../../utils/did-document.js';
 import { BeaconFactory } from './factory.js';

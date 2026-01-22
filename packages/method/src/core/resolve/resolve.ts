@@ -30,7 +30,7 @@ import { Cryptosuite, DataIntegrityProof, SchnorrMultikey } from '@did-btcr2/cry
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';
 import { canonicalization, DidBtcr2 } from '../../did-btcr2.js';
-import { BeaconService, BeaconServiceAddress, BeaconSignal } from '../../interfaces/beacon.js';
+import { BeaconService, BeaconServiceAddress, BeaconSignal } from '../beacon/interfaces.js';
 import { DidResolutionOptions } from '../../interfaces/crud.js';
 import { Appendix } from '../../utils/appendix.js';
 import { DidDocument } from '../../utils/did-document.js';

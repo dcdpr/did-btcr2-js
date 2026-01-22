@@ -5,7 +5,7 @@ import { Kms, Signer } from '@did-btcr2/kms';
 import { opcodes, Psbt, script } from 'bitcoinjs-lib';
 import { base58btc } from 'multiformats/bases/base58';
 import { canonicalization } from '../../did-btcr2.js';
-import { Beacon, BeaconService, BeaconSignal } from '../../interfaces/beacon.js';
+import { Beacon, BeaconService, BeaconSignal } from './interfaces.js';
 import { Appendix } from '../../utils/appendix.js';
 import { BeaconSidecarData, Metadata, SignalsMetadata, SingletonSidecar } from '../../utils/types.js';
 import { Identifier } from '../identifier.js';
