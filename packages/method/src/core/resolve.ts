@@ -12,6 +12,7 @@ import {
 import {
   BitcoinNetworkNames,
   DateUtils,
+  HashBytes,
   IdentifierHrp,
   INVALID_DID,
   INVALID_DID_DOCUMENT,
@@ -34,8 +35,8 @@ import { BeaconFactory } from './beacon/factory.js';
 import { BeaconService, BeaconServiceAddress, BeaconSignal } from './beacon/interfaces.js';
 import { BeaconUtils } from './beacon/utils.js';
 import { DidComponents } from './identifier.js';
-import { BTCR2SignedUpdate, ResolutionOptions } from './interfaces.js';
-import { SidecarData } from './types.js';
+import { BTCR2SignedUpdate, ResolutionOptions, SMTProof } from './interfaces.js';
+import { CASAnnouncement, SidecarData } from './types.js';
 
 export type FindNextSignalsParams = {
   block: BlockV3;
@@ -58,7 +59,7 @@ export type NetworkVersion = {
 export type ResolveInitialDocument = {
   did: string;
   components: DidComponents;
-  resolutionsOptions: ResolutionOptions;
+  resolutionOptions: ResolutionOptions;
 };
 
 export type ConfirmDuplicateParams = { update: BTCR2SignedUpdate; updateHashHistory: string[]; };
@@ -73,7 +74,7 @@ export interface ResolveDeterministic {
 export interface ResolveExternal {
   components: DidComponents;
   did: string;
-  resolutionsOptions: ResolutionOptions;
+  resolutionOptions: ResolutionOptions;
 }
 export interface ResolveSidecar {
   didComponents: DidComponents;
@@ -92,7 +93,7 @@ export interface ApplyDidUpdateParams {
 
 export interface TargetDocumentParams {
   genesisDocument: DidDocument;
-  resolutionsOptions: ResolutionOptions;
+  resolutionOptions: ResolutionOptions;
 };
 
 export interface TargetBlockheightParams {
@@ -100,34 +101,48 @@ export interface TargetBlockheightParams {
   targetTime?: UnixTimestamp;
 }
 
+export type ProcessedSidecarData = {
+  updateMap: Map<HashBytes, BTCR2SignedUpdate>;
+  casMap: Map<HashBytes, CASAnnouncement>;
+  smtMap: Map<string, SMTProof>;
+}
+
 const bitcoin = new BitcoinNetworkConnection();
 
 /**
- * Implements {@link https://dcdpr.github.io/did-btcr2/#read | 4.2 Read}.
- * The read operation is executed by a resolver after a resolution request identifying a specific did:btcr2 did is
- * received from a client at Resolution Time. The request MAY contain a resolutionOptions object containing additional
- * information to be used in resolution. The resolver then attempts to resolve the DID document of the did at a
- * specific Target Time. The Target Time is either provided in resolutionOptions or is set to the Resolution Time of the
- * request.
- * To do so it executes the following algorithm:
- *  1. Let didComponents be the result of running the algorithm
- *     in Parse did:btcr2 did, passing in the did.
- *  2. Set initialDocument to the result of running Resolve Initial Document
- *     passing did, didComponents and resolutionOptions.
- *  3. Set targetDocument to the result of running the algorithm in Resolve
- *     Target Document passing in initialDocument and resolutionOptions.
- *  4. Return targetDocument.
- *
+ * Implements {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html | 7.2 Resolve}.
  * @class Resolve
  * @type {Resolve}
  */
 export class Resolve {
   /**
-   * Implements {@link https://dcdpr.github.io/did-btcr2/#deterministically-generate-initial-did-document | 4.2.2.1 Deterministically Generate Initial DID Document}.
-   *
-   * The Deterministically Generate Initial DID Document algorithm deterministically generates an initial DID
-   * Document from a secp256k1 public key. It takes in a did:btcr2 did and a didComponents object and
-   * returns an initialDocument.
+   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process-sidecar-data | Process Sidecar Data}
+   * @param {SidecarData} sidecar The sidecar data to process.
+   * @returns {ProcessedSidecarData} The processed sidecar data containing maps of updates, CAS announcements, and SMT proofs.
+   */
+  static processSidecarData(sidecar: SidecarData = {} as SidecarData): ProcessedSidecarData {
+    const updateMap = new Map<HashBytes, BTCR2SignedUpdate>();
+    if(sidecar.updates?.length)
+      for(let update of sidecar.updates) {
+        updateMap.set(canonicalization.canonicalhash(update), update);
+      }
+
+    const casMap = new Map<HashBytes, CASAnnouncement>();
+    if(sidecar.casUpdates?.length)
+      for(let update of sidecar.casUpdates) {
+        casMap.set(canonicalization.canonicalhash(update), update);
+      }
+
+    const smtMap = new Map<string, SMTProof>();
+    if(sidecar.smtProofs?.length)
+      for(let proof of sidecar.smtProofs) {
+        smtMap.set(proof.id, proof);
+      }
+    return { updateMap, casMap, smtMap };
+  }
+
+  /**
+   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#if-genesis_bytes-is-a-secp256k1-public-key | if genesis bytes is a secp256k1 Public Key}.
    *
    * @param {ResolveDeterministic} params See {@link ResolveDeterministic} for details.
    * @param {string} params.did The did-btcr2 version.
@@ -177,18 +192,18 @@ export class Resolve {
    * @param {ResolveExternal} params Required params for calling the external method.
    * @param {string} params.did The DID to be resolved.
    * @param {DidComponents} params.didComponents The decoded components of the did.
-   * @param {ResolutionOptions} params.resolutionsOptions The options for resolving the DID Document.
-   * @param {DidDocument} params.resolutionsOptions.sidecarData The sidecar data for resolving the DID Document.
-   * @param {DidDocument} params.resolutionsOptions.sidecarData.initialDocument The offline user-provided DID Document
+   * @param {ResolutionOptions} params.resolutionOptions The options for resolving the DID Document.
+   * @param {DidDocument} params.resolutionOptions.sidecarData The sidecar data for resolving the DID Document.
+   * @param {DidDocument} params.resolutionOptions.sidecarData.initialDocument The offline user-provided DID Document
    * @returns {DidDocument} The resolved DID Document object
    */
-  public static async external({ did, didComponents, resolutionsOptions }: {
+  public static async external({ did, didComponents, resolutionOptions }: {
     did: string;
     didComponents: DidComponents;
-    resolutionsOptions: ResolutionOptions;
+    resolutionOptions: ResolutionOptions;
   }): Promise<DidDocument> {
     // Deconstruct the options
-    const { genesisDocument } = resolutionsOptions.sidecarData as SidecarData;
+    const { genesisDocument } = resolutionOptions.sidecarData as SidecarData;
 
     // 1. If resolutionOptions.sidecarData.initialDocument is not null, set initialDocument to the result of passing
     //    did, didComponents and resolutionOptions.sidecarData.initialDocument into algorithm Sidecar
@@ -283,24 +298,24 @@ export class Resolve {
    * Implements {@link https://dcdpr.github.io/did-btcr2/#resolve-initial-document | 4.2.2 Resolve Initial Document}.
    *
    * This algorithm resolves an initial DID document and validates it against the did for a specific did:btcr2.
-   * The algorithm takes in a did:btcr2 did, did components object, resolutionsOptions object and returns
+   * The algorithm takes in a did:btcr2 did, did components object, resolutionOptions object and returns
    * a valid initialDocument for that did.
    *
    * @param {ResolveInitialDocument} params See {@link ResolveInitialDocument} for parameter details.
    * @param {string} params.did The DID to be resolved.
    * @param {DidComponents} params.didComponents The decoded components of the did.
-   * @param {ResolutionOptions} params.resolutionsOptions Options for resolving the DID Document. See {@link ResolutionOptions}.
+   * @param {ResolutionOptions} params.resolutionOptions Options for resolving the DID Document. See {@link ResolutionOptions}.
    * @returns {Promise<DidDocument>} The resolved DID Document object.
    * @throws {DidError} if the DID hrp is invalid, no sidecarData passed and hrp = "x".
    */
   static async initialDocument({
     did,
     didComponents,
-    resolutionsOptions
+    resolutionOptions
   }: {
     did: string;
     didComponents: DidComponents;
-    resolutionsOptions: ResolutionOptions
+    resolutionOptions: ResolutionOptions
   }): Promise<DidDocument> {
     // Deconstruct the hrp from the components
     const hrp = didComponents.hrp;
@@ -311,13 +326,13 @@ export class Resolve {
     }
 
     //  Make sure options.sidecarData is not null if hrp === x
-    if (hrp === IdentifierHrp.x && !resolutionsOptions.sidecarData) {
-      throw new MethodError('External resolution requires sidecar data', INVALID_DID, resolutionsOptions);
+    if (hrp === IdentifierHrp.x && !resolutionOptions.sidecarData) {
+      throw new MethodError('External resolution requires sidecar data', INVALID_DID, resolutionOptions);
     }
 
     return hrp === IdentifierHrp.k
       ? this.deterministic({ did, didComponents })
-      : await this.external({ did, didComponents, resolutionsOptions });
+      : await this.external({ did, didComponents, resolutionOptions });
 
   }
 
@@ -334,22 +349,22 @@ export class Resolve {
    * @param {ResolutionOptions} params.options See {@link ResolutionOptions} for details.
    * @returns {DidDocument} The resolved DID Document object with a validated single, canonical history
    */
-  public static async targetDocument({ initialDocument, resolutionsOptions }: {
+  public static async targetDocument({ initialDocument, resolutionOptions }: {
     initialDocument: DidDocument;
-    resolutionsOptions: ResolutionOptions;
+    resolutionOptions: ResolutionOptions;
   }): Promise<DidDocument> {
     // Set the network from the options or default to mainnet
-    const network = resolutionsOptions.network!;
+    const network = resolutionOptions.network!;
 
     // 1. If resolutionOptions.versionId is not null, set targetVersionId to resolutionOptions.versionId.
-    const targetVersionId = resolutionsOptions.versionId;
+    const targetVersionId = resolutionOptions.versionId;
 
     // 2. Else if resolutionOptions.versionTime is not null, set targetTime to resolutionOptions.versionTime.
     // 3. Else set targetTime to the UNIX timestamp for now at the moment of execution.
-    const targetTime = resolutionsOptions.versionTime ?? DateUtils.toUnixSeconds();
+    const targetTime = resolutionOptions.versionTime ?? DateUtils.toUnixSeconds();
 
     // 4. Set signalsMetadata to resolutionOptions.sidecarData.signalsMetadata.
-    const sidecar = resolutionsOptions.sidecarData;
+    const sidecar = resolutionOptions.sidecarData;
 
     // 5. Set currentVersionId to 1
     const currentVersionId = '1';

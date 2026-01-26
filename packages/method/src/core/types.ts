@@ -28,7 +28,7 @@ export type SidecarData = {
   /**
    * The context string "https://btcr2.dev/context/v1"
    */
-  '@context': string,
+  '@context'?: string,
 
   /**
    * Optional Genesis Did Document. Required when resolving did:btcr2 identifiers

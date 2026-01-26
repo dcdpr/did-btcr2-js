@@ -3,22 +3,6 @@ import { DidResolutionOptions } from '@web5/dids';
 import { DidDocument } from '../utils/did-document.js';
 import { SidecarData } from './types.js';
 
-/**
- * See {@link https://dcdpr.github.io/did-btcr2/data-structures.html#resolution-options-example-panel-show | Resolution Options}
- * for more details.
- * @param {string} versionId The versionId for resolving the DID Document
- * @param {UnixTimestamp} versionTime The versionTime for resolving the DID Document
- * @param {Sidecar} sidecar The sidecar data for resolving the DID Document
- */
-export interface ResolutionOptions extends DidResolutionOptions {
-  /**
-   * Optional ASCII string representation of the specific version of a DID document to be resolved.
-   */
-  versionId?: string
-  versionTime?: UnixTimestamp;
-  sidecar?: SidecarData;
-  network?: string;
-}
 export interface RootCapability {
     '@context': string;
     id: string;
@@ -34,6 +18,32 @@ export interface ReadBlockchainParams {
   updateHashHistory: string[];
   sidecar?: SidecarData;
   options?: ResolutionOptions;
+}
+
+
+/**
+ * See {@link https://www.w3.org/TR/did-1.0/#did-resolution-options | ResolutionOptions} for the specification details.
+ * See {@link https://dcdpr.github.io/did-btcr2/data-structures.html#resolution-options-example-panel-show | Resolution Options}
+ * for data structure details.
+ */
+export interface ResolutionOptions extends DidResolutionOptions {
+  /**
+   * Optional ASCII string representation of the specific version of a DID document
+   * to be resolved.
+   */
+  versionId?: string
+
+  /**
+   * Optional XML Datetime normalized to UTC without sub-second decimal precision.
+   * The DID document to be resolved is the most recent version of the DID document
+   * that was valid for the DID before the specified versionTime.
+   */
+  versionTime?: UnixTimestamp;
+
+  /**
+   * See {@link https://dcdpr.github.io/did-btcr2/data-structures.html#sidecar-data-example-panel-show | Sidecar (data structure)}.
+   */
+  sidecar?: SidecarData;
 }
 
 /**
@@ -163,15 +173,8 @@ export interface DataIntegrityProof extends DataIntegrityConfig {
 /**
  * {@link https://dcdpr.github.io/did-btcr2/terminology.html#smt-proof | SMT Proof}
  * a set of SHA-256 hashes for nodes in a Sparse Merkle Tree that together form
- * a path from a leaf in the tree to the Merkle root, proving that the leaf is in the tree
- *
- * {@link https://dcdpr.github.io/did-btcr2/data-structures.html#smt-proof | SMT Proof Data Structure}
- * A SMT Proof data structure contains the following properties:
- *  id: SHA-256 hash of the root node.
- *  nonce: OPTIONAL 256-bit nonce generated for each update. MUST be encoded as a string using the "base64url" [RFC4648] encoding.
- *  updateId: The OPTIONAL BTCR2 Signed Update (data structure) hashed with the JSON Document Hashing algorithm.
- *  collapsed: Bitmap of zero nodes within the path (see: collapsed leaves).
- *  hashes: Array of SHA-256 hashes representing the sibling SMT nodes from the leaf, containing the SHA-256 hash of the BTCR2 Signed Update or the “zero identity”, to the root.
+ * a path from a leaf in the tree to the Merkle root, proving that the leaf is in the tree.
+ * See {@link https://dcdpr.github.io/did-btcr2/data-structures.html#smt-proof | SMT Proof (data structure)}.
  *
  * @example
  * ```json
@@ -189,6 +192,24 @@ export interface DataIntegrityProof extends DataIntegrityConfig {
  * ```
  */
 export interface SMTProof {
-  siblingHashes: string[];
-  leafIndex?: string;
+  /**
+   * The SHA-256 hash of the root node of the Sparse Merkle Tree.
+   */
+  id: string;
+  /**
+   * Optional 256-bit nonce generated for each update. MUST be encoded as a string using the "base64url" [RFC4648] encoding.
+   */
+  nonce?: string;
+  /**
+   * Optional BTCR2 Signed Update (data structure) hashed with the JSON Document Hashing algorithm.
+   */
+  updateId?: string;
+  /**
+   * Bitmap of zero nodes within the path (see: collapsed leaves).
+   */
+  collapsed: string;
+  /**
+   * Array of SHA-256 hashes representing the sibling SMT nodes from the leaf, containing the SHA-256 hash of the BTCR2 Signed Update or the “zero identity”, to the root.
+   */
+  hashes: string[];
 }
