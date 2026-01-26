@@ -28,10 +28,10 @@ import { Cryptosuite, DataIntegrityProof, SchnorrMultikey } from '@did-btcr2/cry
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';
 import { canonicalization, DidBtcr2 } from '../did-btcr2.js';
-import { BeaconService, BeaconServiceAddress, BeaconSignal } from './beacon/interfaces.js';
 import { Appendix } from '../utils/appendix.js';
 import { DidDocument, ID_PLACEHOLDER_VALUE } from '../utils/did-document.js';
 import { BeaconFactory } from './beacon/factory.js';
+import { BeaconService, BeaconServiceAddress, BeaconSignal } from './beacon/interfaces.js';
 import { BeaconUtils } from './beacon/utils.js';
 import { DidComponents } from './identifier.js';
 import { BTCR2SignedUpdate, ResolutionOptions } from './interfaces.js';
@@ -56,7 +56,7 @@ export type NetworkVersion = {
   network?: string;
 };
 export type ResolveInitialDocument = {
-  identifier: string;
+  did: string;
   components: DidComponents;
   resolutionsOptions: ResolutionOptions;
 };
@@ -66,22 +66,22 @@ export type ConfirmDuplicateParams = { update: BTCR2SignedUpdate; updateHashHist
 // Deterministic
 export interface ResolveDeterministic {
   components: DidComponents;
-  identifier: string;
+  did: string;
 };
 
 // External
 export interface ResolveExternal {
   components: DidComponents;
-  identifier: string;
+  did: string;
   resolutionsOptions: ResolutionOptions;
 }
 export interface ResolveSidecar {
-  identifierComponents: DidComponents;
+  didComponents: DidComponents;
   genesisDocument: DidDocument;
 };
 export interface ResolveCas {
-  identifier: string;
-  identifierComponents: DidComponents;
+  did: string;
+  didComponents: DidComponents;
 }
 
 // Methods
@@ -104,16 +104,16 @@ const bitcoin = new BitcoinNetworkConnection();
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/#read | 4.2 Read}.
- * The read operation is executed by a resolver after a resolution request identifying a specific did:btcr2 identifier is
+ * The read operation is executed by a resolver after a resolution request identifying a specific did:btcr2 did is
  * received from a client at Resolution Time. The request MAY contain a resolutionOptions object containing additional
- * information to be used in resolution. The resolver then attempts to resolve the DID document of the identifier at a
+ * information to be used in resolution. The resolver then attempts to resolve the DID document of the did at a
  * specific Target Time. The Target Time is either provided in resolutionOptions or is set to the Resolution Time of the
  * request.
  * To do so it executes the following algorithm:
- *  1. Let identifierComponents be the result of running the algorithm
- *     in Parse did:btcr2 identifier, passing in the identifier.
+ *  1. Let didComponents be the result of running the algorithm
+ *     in Parse did:btcr2 did, passing in the did.
  *  2. Set initialDocument to the result of running Resolve Initial Document
- *     passing identifier, identifierComponents and resolutionOptions.
+ *     passing did, didComponents and resolutionOptions.
  *  3. Set targetDocument to the result of running the algorithm in Resolve
  *     Target Document passing in initialDocument and resolutionOptions.
  *  4. Return targetDocument.
@@ -126,39 +126,39 @@ export class Resolve {
    * Implements {@link https://dcdpr.github.io/did-btcr2/#deterministically-generate-initial-did-document | 4.2.2.1 Deterministically Generate Initial DID Document}.
    *
    * The Deterministically Generate Initial DID Document algorithm deterministically generates an initial DID
-   * Document from a secp256k1 public key. It takes in a did:btcr2 identifier and a identifierComponents object and
+   * Document from a secp256k1 public key. It takes in a did:btcr2 did and a didComponents object and
    * returns an initialDocument.
    *
    * @param {ResolveDeterministic} params See {@link ResolveDeterministic} for details.
-   * @param {string} params.identifier The did-btcr2 version.
-   * @param {DidComponents} params.identifierComponents The decoded components of the identifier.
+   * @param {string} params.did The did-btcr2 version.
+   * @param {DidComponents} params.didComponents The decoded components of the did.
    * @returns {DidDocument} The resolved DID Document object.
    */
-  public static deterministic({ identifier, identifierComponents }: {
-    identifier: string;
-    identifierComponents: DidComponents;
+  public static deterministic({ did, didComponents }: {
+    did: string;
+    didComponents: DidComponents;
   }): DidDocument {
     // Deconstruct the components
-    const { network, genesisBytes } = identifierComponents;
+    const { network, genesisBytes } = didComponents;
 
     // Construct a new CompressedSecp256k1PublicKey and deconstruct the publicKey and publicKeyMultibase
     const { compressed: publicKey, multibase: publicKeyMultibase } = new CompressedSecp256k1PublicKey(genesisBytes);
 
     // Generate the service field for the DID Document
     const service = BeaconUtils.generateBeaconServices({
-      identifier,
+      did,
       publicKey,
       network : getNetwork(network),
       type    : 'SingletonBeacon',
     });
 
     return new DidDocument({
-      id                 : identifier,
-      controller         : [identifier],
+      id                 : did,
+      controller         : [did],
       verificationMethod : [{
-        id                 : `${identifier}#initialKey`,
+        id                 : `${did}#initialKey`,
         type               : 'Multikey',
-        controller         : identifier,
+        controller         : did,
         publicKeyMultibase : publicKeyMultibase.encoded
       }],
       service
@@ -171,32 +171,32 @@ export class Resolve {
    * The External Resolution algorithm externally retrieves an intermediateDocumentRepresentation, either by retrieving
    * it from {@link https://dcdpr.github.io/did-btcr2/#def-content-addressable-storage | Content Addressable Storage (CAS)}
    * or from the {@link https://dcdpr.github.io/did-btcr2/#def-sidecar-data | Sidecar Data} provided as part of the
-   * resolution request. It takes in a did:btcr2 identifier, a identifierComponents object and a resolutionOptions object.
-   * It returns an initialDocument, which is a conformant DID document validated against the identifier.
+   * resolution request. It takes in a did:btcr2 did, a didComponents object and a resolutionOptions object.
+   * It returns an initialDocument, which is a conformant DID document validated against the did.
    *
    * @param {ResolveExternal} params Required params for calling the external method.
-   * @param {string} params.identifier The DID to be resolved.
-   * @param {DidComponents} params.identifierComponents The decoded components of the identifier.
+   * @param {string} params.did The DID to be resolved.
+   * @param {DidComponents} params.didComponents The decoded components of the did.
    * @param {ResolutionOptions} params.resolutionsOptions The options for resolving the DID Document.
    * @param {DidDocument} params.resolutionsOptions.sidecarData The sidecar data for resolving the DID Document.
    * @param {DidDocument} params.resolutionsOptions.sidecarData.initialDocument The offline user-provided DID Document
    * @returns {DidDocument} The resolved DID Document object
    */
-  public static async external({ identifier, identifierComponents, resolutionsOptions }: {
-    identifier: string;
-    identifierComponents: DidComponents;
+  public static async external({ did, didComponents, resolutionsOptions }: {
+    did: string;
+    didComponents: DidComponents;
     resolutionsOptions: ResolutionOptions;
   }): Promise<DidDocument> {
     // Deconstruct the options
     const { genesisDocument } = resolutionsOptions.sidecarData as SidecarData;
 
     // 1. If resolutionOptions.sidecarData.initialDocument is not null, set initialDocument to the result of passing
-    //    identifier, identifierComponents and resolutionOptions.sidecarData.initialDocument into algorithm Sidecar
+    //    did, didComponents and resolutionOptions.sidecarData.initialDocument into algorithm Sidecar
     //    Initial Document Validation.
-    // 2. Else set initialDocument to the result of passing identifier and identifierComponents to the CAS Retrieval algorithm.
+    // 2. Else set initialDocument to the result of passing did and didComponents to the CAS Retrieval algorithm.
     const initialDocument = genesisDocument
-      ? await this.sidecar({ identifierComponents, genesisDocument })
-      : await this.cas({ identifier, identifierComponents });
+      ? await this.sidecar({ didComponents, genesisDocument })
+      : await this.cas({ did, didComponents });
 
     // 3. Validate initialDocument is a conformant DID document according to the DID Core 1.1 specification. Else MUST
     //    raise invalidDidDocument error.
@@ -209,20 +209,20 @@ export class Resolve {
   /**
    * Implements {@link https://dcdpr.github.io/did-btcr2/#sidecar-initial-document-validation | 4.2.2.2.1 Sidecar Initial Document Validation}.
    *
-   * The Sidecar Initial Document Validation algorithm validates an initialDocument against its identifier, by first
+   * The Sidecar Initial Document Validation algorithm validates an initialDocument against its did, by first
    * constructing the intermediateDocumentRepresentation and verifying the hash of this document matches the bytes
-   * encoded within the identifier. It takes in a did:btcr2 identifier, identifierComponents and a
+   * encoded within the did. It takes in a did:btcr2 did, didComponents and a
    * initialDocument. It returns the initialDocument if validated, otherwise it throws an error.
    *
    * @param {ResolveSidecar} params Required params for calling the sidecar method
-   * @param {string} params.identifier The DID to be resolved
-   * @param {DidComponents} params.identifierComponents The components of the DID identifier
+   * @param {string} params.did The DID to be resolved
+   * @param {DidComponents} params.didComponents The components of the DID did
    * @param {DidDocument} params.initialDocument The initial DID Document provided by the user
    * @returns {DidDocument} The resolved DID Document object
    * @throws {DidError} InvalidDidDocument if genesisBytes !== initialDocument hashBytes
    */
-  public static async sidecar({ identifierComponents, genesisDocument }: ResolveSidecar): Promise<DidDocument> {
-    // Replace the placeholder did with the identifier throughout the initialDocument.
+  public static async sidecar({ didComponents, genesisDocument }: ResolveSidecar): Promise<DidDocument> {
+    // Replace the placeholder did with the did throughout the initialDocument.
     const intermediateDocument = JSON.parse(
       JSON.stringify(genesisDocument).replaceAll(genesisDocument.id, ID_PLACEHOLDER_VALUE)
     );
@@ -231,7 +231,7 @@ export class Resolve {
     const hashBytes = await canonicalization.process(intermediateDocument, { encoding: 'hex' });
 
     // Compare the genesisBytes to the hashBytes
-    const genesisBytes = bytesToHex(identifierComponents.genesisBytes);
+    const genesisBytes = bytesToHex(didComponents.genesisBytes);
 
     // If the genesisBytes do not match the hashBytes, throw an error
     if (genesisBytes !== hashBytes) {
@@ -249,18 +249,18 @@ export class Resolve {
    * Implements {@link https://dcdpr.github.io/did-btcr2/#cas-retrieval | 4.2.2.2.2 CAS Retrieval}.
    *
    * The CAS Retrieval algorithm attempts to retrieve an initialDocument from a Content Addressable Storage (CAS) system
-   * by converting the bytes in the identifier into a Content Identifier (CID). It takes in an identifier and
-   * an identifierComponents object. It returns an initialDocument.
+   * by converting the bytes in the did into a Content Identifier (CID). It takes in an did and
+   * an didComponents object. It returns an initialDocument.
    *
    * @param {ResolveCas} params Required params for calling the cas method
-   * @param {string} params.identifier BTCR2 DID used to resolve the DID Document
-   * @param {DidComponents} params.identifierComponents BTCR2 DID components used to resolve the DID Document
+   * @param {string} params.did BTCR2 DID used to resolve the DID Document
+   * @param {DidComponents} params.didComponents BTCR2 DID components used to resolve the DID Document
    * @returns {DidDocument} The resolved DID Document object
    * @throws {MethodError} if the DID Document content is invalid
    */
-  public static async cas({ identifier, identifierComponents }: ResolveCas): Promise<DidDocument> {
-    // 1. Set hashBytes to identifierComponents.genesisBytes.
-    const hashBytes = identifierComponents.genesisBytes;
+  public static async cas({ did, didComponents }: ResolveCas): Promise<DidDocument> {
+    // 1. Set hashBytes to didComponents.genesisBytes.
+    const hashBytes = didComponents.genesisBytes;
 
     // 3. Set intermediateDocumentRepresentation to the result of fetching the cid against a Content Addressable Storage
     //    (CAS) system such as IPFS.
@@ -270,9 +270,9 @@ export class Resolve {
     if (!intermediateDocument || !JSONUtils.isParsable(intermediateDocument)) {
       throw new MethodError(INVALID_DID_DOCUMENT, 'Invalid DID Document content', { intermediateDocument });
     }
-    // 5. Replace the placeholder did with the identifier throughout the initialDocument.
+    // 5. Replace the placeholder did with the did throughout the initialDocument.
     const initialDocument = JSON.parse(
-      intermediateDocument.replaceAll(ID_PLACEHOLDER_VALUE, identifier)
+      intermediateDocument.replaceAll(ID_PLACEHOLDER_VALUE, did)
     );
 
     // 6. Return initialDocument.
@@ -282,28 +282,28 @@ export class Resolve {
   /**
    * Implements {@link https://dcdpr.github.io/did-btcr2/#resolve-initial-document | 4.2.2 Resolve Initial Document}.
    *
-   * This algorithm resolves an initial DID document and validates it against the identifier for a specific did:btcr2.
-   * The algorithm takes in a did:btcr2 identifier, identifier components object, resolutionsOptions object and returns
-   * a valid initialDocument for that identifier.
+   * This algorithm resolves an initial DID document and validates it against the did for a specific did:btcr2.
+   * The algorithm takes in a did:btcr2 did, did components object, resolutionsOptions object and returns
+   * a valid initialDocument for that did.
    *
    * @param {ResolveInitialDocument} params See {@link ResolveInitialDocument} for parameter details.
-   * @param {string} params.identifier The DID to be resolved.
-   * @param {DidComponents} params.identifierComponents The decoded components of the identifier.
+   * @param {string} params.did The DID to be resolved.
+   * @param {DidComponents} params.didComponents The decoded components of the did.
    * @param {ResolutionOptions} params.resolutionsOptions Options for resolving the DID Document. See {@link ResolutionOptions}.
    * @returns {Promise<DidDocument>} The resolved DID Document object.
    * @throws {DidError} if the DID hrp is invalid, no sidecarData passed and hrp = "x".
    */
   static async initialDocument({
-    identifier,
-    identifierComponents,
+    did,
+    didComponents,
     resolutionsOptions
   }: {
-    identifier: string;
-    identifierComponents: DidComponents;
+    did: string;
+    didComponents: DidComponents;
     resolutionsOptions: ResolutionOptions
   }): Promise<DidDocument> {
     // Deconstruct the hrp from the components
-    const hrp = identifierComponents.hrp;
+    const hrp = didComponents.hrp;
 
     // Validate the hrp is either 'k' or 'x'
     if (!(hrp in IdentifierHrp)) {
@@ -316,8 +316,8 @@ export class Resolve {
     }
 
     return hrp === IdentifierHrp.k
-      ? this.deterministic({ identifier, identifierComponents })
-      : await this.external({ identifier, identifierComponents, resolutionsOptions });
+      ? this.deterministic({ did, didComponents })
+      : await this.external({ did, didComponents, resolutionsOptions });
 
   }
 
@@ -325,7 +325,7 @@ export class Resolve {
    * Implements {@link https://dcdpr.github.io/did-btcr2/#resolve-target-document | 4.2.3 Resolve Target Document}.
    *
    * The Resolve Target Document algorithm resolves a DID document from an initial document by walking the Bitcoin
-   * blockchain to identify Beacon Signals that announce DID Update Payloads applicable to the did:btcr2 identifier being
+   * blockchain to identify Beacon Signals that announce DID Update Payloads applicable to the did:btcr2 did being
    * resolved. It takes as inputs initialDocument, resolutionOptions and network. It returns a valid DID document.
    *
    * @public
@@ -392,7 +392,7 @@ export class Resolve {
    *
    * @protected
    * @param {ReadBlockchainParams} params The parameters for the traverseBlockchainHistory operation.
-   * @param {DidDocument} params.contemporaryDidDocument The DID document for the did:btcr2 identifier being resolved.
+   * @param {DidDocument} params.contemporaryDidDocument The DID document for the did:btcr2 did being resolved.
    *    It should be "current" (contemporary) at the blockheight of the contemporaryBlockheight.
    *    It should be a DID Core conformant DID document.
    * @param {number} params.contemporaryBlockHeight The Bitcoin blockheight signaling the "contemporary time" of the
@@ -539,7 +539,7 @@ export class Resolve {
    *                          either SingletonBeacon, CIDAggregateBeacon or SMTAggregateBeacon.
    *      - `serviceEndpoint`: A BIP21 URI representing a Bitcoin address.
    *      - `address`: The Bitcoin address decoded from the `serviceEndpoint value.
-   *  - `network`: A string identifying the Bitcoin network of the did:btcr2 identifier. This algorithm MUST query the
+   *  - `network`: A string identifying the Bitcoin network of the did:btcr2 did. This algorithm MUST query the
    *               Bitcoin blockchain identified by the network.
    *
    * It returns a nextSignals struct, containing the following properties:
@@ -605,7 +605,7 @@ export class Resolve {
             continue;
           }
 
-          // If the vin txinwitness contains a coinbase identifier, continue ...
+          // If the vin txinwitness contains a coinbase did, continue ...
           if (vin.txinwitness && vin.txinwitness.length === 1 && vin.txinwitness[0] === TXIN_WITNESS_COINBASE) {
             continue;
           }
@@ -732,7 +732,7 @@ export class Resolve {
    *    - `updatePayload`: A signed update which should match the update announced by the Beacon Signal.
    *                       In the case of a SMT proof of non-inclusion, no signed update may be provided.
    *    - `proofs`: Sparse Merkle Tree proof used to verify that the `updatePayload` exists as the leaf indexed by the
-   *                did:btcr2 identifier being resolved.
+   *                did:btcr2 did being resolved.
    *
    * It returns an array of {@link https://dcdpr.github.io/did-btcr2/#def-did-update-payload | DID Update Payloads}.
    *

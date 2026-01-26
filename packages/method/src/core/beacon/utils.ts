@@ -6,7 +6,7 @@ import { Appendix } from '../../utils/appendix.js';
 import { DidDocument } from '../../utils/did-document.js';
 import { BeaconFactory } from './factory.js';
 export interface GenerateBeaconParams {
-  identifier: string;
+  did: string;
   publicKey: KeyBytes;
   network: networks.Network;
   type: string;
@@ -94,8 +94,8 @@ export class BeaconUtils {
    * @returns {Array<Array<string>>} 2D Array of bitcoin addresses (p2pkh, p2wpkh, p2tr).
    * @throws {DidMethodError} if the bitcoin address is invalid.
    */
-  public static generateBeaconAddresses({ identifier, publicKey, network }: {
-    identifier: string;
+  public static generateBeaconAddresses({ did, publicKey, network }: {
+    did: string;
     publicKey: KeyBytes;
     network: networks.Network;
   }): Array<Array<string>> {
@@ -107,9 +107,9 @@ export class BeaconUtils {
         throw new DidMethodError('Failed to generate bitcoin addresses');
       }
       return [
-        [`${identifier}#initialP2PKH`, p2pkh],
-        [`${identifier}#initialP2WPKH`, p2wpkh],
-        [`${identifier}#initialP2TR`, p2tr]
+        [`${did}#initialP2PKH`, p2pkh],
+        [`${did}#initialP2WPKH`, p2wpkh],
+        [`${did}#initialP2TR`, p2tr]
       ];
     } catch (error) {
       console.error(error);
@@ -161,7 +161,7 @@ export class BeaconUtils {
     try {
       if(!id.includes('#')) {
         throw new MethodError(
-          'Invalid id format. It should include a fragment identifier (e.g., #initialP2PKH).',
+          'Invalid id format. It should include a fragment did (e.g., #initialP2PKH).',
           'BEACON_ERROR',
           { id }
         );
@@ -182,14 +182,14 @@ export class BeaconUtils {
    * @param {string} params.beaconType Optional beacon type to use (default: SingletonBeacon).
    * @returns {DidService[]} Array of DidService objects.
    */
-  public static generateBeaconServices({ identifier, network, type, publicKey }: {
-    identifier: string;
+  public static generateBeaconServices({ did, network, type, publicKey }: {
+    did: string;
     publicKey: KeyBytes;
     network: networks.Network;
     type: string;
   }): Array<BeaconService> {
     // Generate the bitcoin addresses
-    const bitcoinAddrs = this.generateBeaconAddresses({ identifier, publicKey, network, });
+    const bitcoinAddrs = this.generateBeaconAddresses({ did, publicKey, network, });
 
     // Map the bitcoin addresses to the beacon service
     return bitcoinAddrs.map(([id, address]) => {
@@ -205,21 +205,21 @@ export class BeaconUtils {
   /**
    * Generate a single beacon service.
    * @param {GenerateBeaconParams} params Required parameters for generating a single Beacon Service.
-   * @param {string} params.identifier The identifier for the beacon service.
+   * @param {string} params.did The did for the beacon service.
    * @param {string} params.network The name of the Bitcoin network to use.
    * @param {Uint8Array} params.publicKey Byte array representation of a public key used to generate a new btcr2 key-id-type.
    * @param {string} params.type The type of beacon service to create.
    * @returns {BeaconService} A BeaconService object.
    * @throws {DidMethodError} if the bitcoin address is invalid.
    */
-  public static generateBeacon({ identifier, network, type, publicKey }: {
-    identifier: string;
+  public static generateBeacon({ did, network, type, publicKey }: {
+    did: string;
     publicKey: KeyBytes;
     network: networks.Network;
     type: string;
   }): BeaconService {
     // Generate the bitcoin addresses
-    const bitcoinAddrs = this.generateBeaconAddresses({ identifier, publicKey, network, });
+    const bitcoinAddrs = this.generateBeaconAddresses({ did, publicKey, network, });
 
     // Map the bitcoin addresses to the beacon service
     const beacon = bitcoinAddrs.map(([id, address]) => {

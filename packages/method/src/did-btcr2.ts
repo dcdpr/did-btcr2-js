@@ -60,7 +60,7 @@ initEccLib(tinysecp);
  */
 export class DidBtcr2 implements DidMethod {
   /** @type {string} Name of the DID method, as defined in the DID BTCR2 specification */
-  public static methodName: string = 'btcr2';
+  static methodName: string = 'btcr2';
 
   /**
    * Implements specification section {@link https://dcdpr.github.io/did-btcr2/operations/create.html | 7.1 Create}.
@@ -80,7 +80,7 @@ export class DidBtcr2 implements DidMethod {
    * @returns {Promise<CreateResponse>} Promise resolving to a CreateResponse object.
    * @throws {DidBtcr2Error} if any of the checks fail
    */
-  public static async create(params: {
+  static async create(params: {
     idType: 'KEY' | 'EXTERNAL';
     genesisBytes: KeyBytes | DocumentBytes;
     options?: DidCreateOptions;
@@ -98,22 +98,19 @@ export class DidBtcr2 implements DidMethod {
   }
 
   /**
-   * Entry point for section {@link https://dcdpr.github.io/did-btcr2/#read | 7.2 Read}.
-   * See {@link Resolve} for implementation details.
+   * Entry point for section {@link https://dcdpr.github.io/did-btcr2/#read | 7.2 Resolve}.
+   * See {@link Resolve} for subclass implementation.
    *
-   * The Read operation is an algorithm consisting of a series of subroutine algorithms executed by a resolver after a
-   * resolution request identifying a specific did:btcr2 identifier is received from a client at Resolution Time. The
-   * request MUST always contain the resolutionOptions object containing additional information to be used in resolution.
-   * This object MAY be empty. See the DID Resolution specification for further details about the DID Resolution Options
-   * object. The resolver then attempts to resolve the DID document of the identifier at a specific Target Time. The
-   * Target Time is either provided in resolutionOptions or is set to the Resolution Time of the request.
+   * Resolving a did:btcr2 identifier iteratively builds a DID document by applying BTCR2 Updates to an Initial DID
+   * Document that have been committed to the Bitcoin blockchain by Authorized Beacon Signals. The Initial DID Document
+   * is either deterministically created from the DID or provided by Sidecar Data.
    *
-   * @param {string} identifier a valid did:btcr2 identifier to be resolved
+   * @param {string} did a valid did:btcr2 identifier to be resolved
    * @param {ResolutionOptions} [resolutionsOptions] see {@link https://www.w3.org/TR/did-1.0/#did-resolution-options | ResolutionOptions}
-   * @param {number} options.versionId the version of the identifier and/or DID document
-   * @param {number} options.versionTime a timestamp used during resolution as a bound for when to stop resolving
-   * @param {DidDocument} options.sidecarData data necessary for resolving a DID
-   * @param {string} options.network Bitcoin network name (mainnet, testnet, signet, regtest).
+   * @param {number} resolutionsOptions.versionId the version of the identifier and/or DID document
+   * @param {number} resolutionsOptions.versionTime a timestamp used during resolution as a bound for when to stop resolving
+   * @param {DidDocument} resolutionsOptions.sidecarData data necessary for resolving a DID
+   * @param {string} resolutionsOptions.network Bitcoin network name (mainnet, testnet, signet, regtest).
    * @returns {DidResolutionResult} Promise resolving to a DID Resolution Result containing the `targetDocument`
    * @throws {Error} if the resolution fails for any reason
    * @throws {DidError} InvalidDid if the identifier is invalid
@@ -122,18 +119,18 @@ export class DidBtcr2 implements DidMethod {
    * const resolution = await DidBtcr2.resolve('did:btcr2:k1q0dygyp3gz969tp46dychzy4q78c2k3js68kvyr0shanzg67jnuez2cfplh')
    * ```
    */
-  public static async resolve(identifier: string, resolutionsOptions: ResolutionOptions = {}): Promise<DidResolutionResult> {
+  static async resolve(did: string, resolutionsOptions: ResolutionOptions = {}): Promise<DidResolutionResult> {
     try {
       // 1. Pass identifier to the did:btcr2 Identifier Decoding algorithm, retrieving idType, version, network, and genesisBytes.
-      // 2. Set identifierComponents to a map of idType, version, network, and genesisBytes.
-      const identifierComponents = Identifier.decode(identifier);
+      // 2. Set didComponents to a map of idType, version, network, and genesisBytes.
+      const didComponents = Identifier.decode(did);
 
       // Set the network based on the decoded identifier
-      resolutionsOptions.network ??= identifierComponents.network;
+      resolutionsOptions.network ??= didComponents.network;
 
       // 3. Set initialDocument to the result of running the algorithm in Resolve Initial Document passing in the
-      //    identifier, identifierComponents and resolutionOptions.
-      const initialDocument = await Resolve.initialDocument({ identifier, identifierComponents, resolutionsOptions });
+      //    identifier, didComponents and resolutionOptions.
+      const initialDocument = await Resolve.initialDocument({ did, didComponents, resolutionsOptions });
 
       // 4. Set targetDocument to the result of running the algorithm in Resolve Target Document passing in
       //    initialDocument and resolutionOptions.
