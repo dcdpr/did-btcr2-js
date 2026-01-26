@@ -1,4 +1,40 @@
-import { JsonPatch } from '@did-btcr2/common';
+import { JsonPatch, UnixTimestamp } from '@did-btcr2/common';
+import { DidResolutionOptions } from '@web5/dids';
+import { DidDocument } from '../utils/did-document.js';
+import { SidecarData } from './types.js';
+
+/**
+ * See {@link https://dcdpr.github.io/did-btcr2/data-structures.html#resolution-options-example-panel-show | Resolution Options}
+ * for more details.
+ * @param {string} versionId The versionId for resolving the DID Document
+ * @param {UnixTimestamp} versionTime The versionTime for resolving the DID Document
+ * @param {Sidecar} sidecar The sidecar data for resolving the DID Document
+ */
+export interface ResolutionOptions extends DidResolutionOptions {
+  /**
+   * Optional ASCII string representation of the specific version of a DID document to be resolved.
+   */
+  versionId?: string
+  versionTime?: UnixTimestamp;
+  sidecar?: SidecarData;
+  network?: string;
+}
+export interface RootCapability {
+    '@context': string;
+    id: string;
+    controller: string;
+    invocationTarget: string;
+}
+export interface ReadBlockchainParams {
+  contemporaryDidDocument: DidDocument;
+  contemporaryBlockHeight: number | 1;
+  currentVersionId: number | 1;
+  targetVersionId?: number;
+  targetBlockHeight: number;
+  updateHashHistory: string[];
+  sidecar?: SidecarData;
+  options?: ResolutionOptions;
+}
 
 /**
  * A {@link https://dcdpr.github.io/did-btcr2/terminology.html#btcr2-update | BTCR2 Update} without a data integrity proof.
@@ -47,7 +83,7 @@ export interface BTCR2SignedUpdate extends BTCR2UnsignedUpdate {
  /**
   * A digital signature added to a BTCR2 Unsigned Update in order to convert to a BTCR2 Signed Update.
   */
-  proof: DataIntegrityProof;
+  proof?: DataIntegrityProof;
 }
 
 
@@ -155,23 +191,4 @@ export interface DataIntegrityProof extends DataIntegrityConfig {
 export interface SMTProof {
   siblingHashes: string[];
   leafIndex?: string;
-}
-
-
-/**
- * {@link https://dcdpr.github.io/did-btcr2/data-structures.html#cas-announcement | CAS Announcement }
- * a data structure that maps DIDs to BTCR2 Signed Update hashes. All BTCR2 Signed
- * Updates (data structure) MUST be hashed with the JSON Document Hashing algorithm.
- * The concrete representation of this data structure will be published to a CAS.
- * @example
- * ```json
- * {
- *   "did:btcr2:k1q5pa5tq86fzrl0ez32nh8e0ks4tzzkxnnmn8tdvxk04ahzt70u09dag02h0cp": "a4ayc_80_OGda4BO_1o_V0etpOqiLx1JwB5S3beHW0s",
- *   "did:btcr2:x1qhjw6jnhwcyu5wau4x0cpwvz74c3g82c3uaehqpaf7lzfgmnwsd7spmmf54": "1HNeOiZeFu7gP1lxi5tdAwGcB9i2xR-Q2jpmbuwTqzU",
- *   "did:btcr2:k1qgp5h79scv4sfqkzak5g6y89dsy3cq0pd2nussu2cm3zjfhn4ekwrucc4q7t7": "TgdAhWK-24tgzgXB3s_jrRa3IjCWfeAfZAt-Rym0n84"
- * }
- * ```
- */
-export type CASAnnouncement = {
-  [key: string]: string
 }

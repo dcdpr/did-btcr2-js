@@ -12,8 +12,6 @@ import {
 import {
   BitcoinNetworkNames,
   DateUtils,
-  DidUpdatePayload,
-  ID_PLACEHOLDER_VALUE,
   IdentifierHrp,
   INVALID_DID,
   INVALID_DID_DOCUMENT,
@@ -29,19 +27,20 @@ import {
 import { Cryptosuite, DataIntegrityProof, SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';
-import { canonicalization, DidBtcr2 } from '../../did-btcr2.js';
-import { BeaconService, BeaconServiceAddress, BeaconSignal } from '../beacon/interfaces.js';
-import { DidResolutionOptions } from '../../interfaces/crud.js';
-import { Appendix } from '../../utils/appendix.js';
-import { DidDocument } from '../../utils/did-document.js';
-import {
-  CIDAggregateSidecar,
-  SidecarData,
-  SignalsMetadata
-} from '../../utils/types.js';
-import { BeaconFactory } from '../beacon/factory.js';
-import { BeaconUtils } from '../beacon/utils.js';
-import { DidComponents } from '../identifier.js';
+import { canonicalization, DidBtcr2 } from '../did-btcr2.js';
+import { BeaconService, BeaconServiceAddress, BeaconSignal } from './beacon/interfaces.js';
+import { Appendix } from '../utils/appendix.js';
+import { DidDocument, ID_PLACEHOLDER_VALUE } from '../utils/did-document.js';
+import { BeaconFactory } from './beacon/factory.js';
+import { BeaconUtils } from './beacon/utils.js';
+import { DidComponents } from './identifier.js';
+import { BTCR2SignedUpdate, ResolutionOptions } from './interfaces.js';
+import { SidecarData } from './types.js';
+
+export type FindNextSignalsParams = {
+  block: BlockV3;
+  beacons: BeaconService[]
+};
 
 export type FindNextSignalsRestParams = {
   connection: BitcoinRestClient;
@@ -59,8 +58,10 @@ export type NetworkVersion = {
 export type ResolveInitialDocument = {
   identifier: string;
   components: DidComponents;
-  resolutionsOptions: DidResolutionOptions;
+  resolutionsOptions: ResolutionOptions;
 };
+
+export type ConfirmDuplicateParams = { update: BTCR2SignedUpdate; updateHashHistory: string[]; };
 
 // Deterministic
 export interface ResolveDeterministic {
@@ -72,11 +73,11 @@ export interface ResolveDeterministic {
 export interface ResolveExternal {
   components: DidComponents;
   identifier: string;
-  resolutionsOptions: DidResolutionOptions;
+  resolutionsOptions: ResolutionOptions;
 }
 export interface ResolveSidecar {
   identifierComponents: DidComponents;
-  initialDocument: DidDocument;
+  genesisDocument: DidDocument;
 };
 export interface ResolveCas {
   identifier: string;
@@ -86,12 +87,12 @@ export interface ResolveCas {
 // Methods
 export interface ApplyDidUpdateParams {
   contemporaryDidDocument: DidDocument;
-  update: DidUpdatePayload;
+  update: BTCR2SignedUpdate;
 }
 
 export interface TargetDocumentParams {
-  initialDocument: DidDocument;
-  resolutionsOptions: DidResolutionOptions;
+  genesisDocument: DidDocument;
+  resolutionsOptions: ResolutionOptions;
 };
 
 export interface TargetBlockheightParams {
@@ -176,7 +177,7 @@ export class Resolve {
    * @param {ResolveExternal} params Required params for calling the external method.
    * @param {string} params.identifier The DID to be resolved.
    * @param {DidComponents} params.identifierComponents The decoded components of the identifier.
-   * @param {DidResolutionOptions} params.resolutionsOptions The options for resolving the DID Document.
+   * @param {ResolutionOptions} params.resolutionsOptions The options for resolving the DID Document.
    * @param {DidDocument} params.resolutionsOptions.sidecarData The sidecar data for resolving the DID Document.
    * @param {DidDocument} params.resolutionsOptions.sidecarData.initialDocument The offline user-provided DID Document
    * @returns {DidDocument} The resolved DID Document object
@@ -184,17 +185,17 @@ export class Resolve {
   public static async external({ identifier, identifierComponents, resolutionsOptions }: {
     identifier: string;
     identifierComponents: DidComponents;
-    resolutionsOptions: DidResolutionOptions;
+    resolutionsOptions: ResolutionOptions;
   }): Promise<DidDocument> {
     // Deconstruct the options
-    const { initialDocument: document } = resolutionsOptions.sidecarData as CIDAggregateSidecar;
+    const { genesisDocument } = resolutionsOptions.sidecarData as SidecarData;
 
     // 1. If resolutionOptions.sidecarData.initialDocument is not null, set initialDocument to the result of passing
     //    identifier, identifierComponents and resolutionOptions.sidecarData.initialDocument into algorithm Sidecar
     //    Initial Document Validation.
     // 2. Else set initialDocument to the result of passing identifier and identifierComponents to the CAS Retrieval algorithm.
-    const initialDocument = document
-      ? await this.sidecar({ identifierComponents, initialDocument: document })
+    const initialDocument = genesisDocument
+      ? await this.sidecar({ identifierComponents, genesisDocument })
       : await this.cas({ identifier, identifierComponents });
 
     // 3. Validate initialDocument is a conformant DID document according to the DID Core 1.1 specification. Else MUST
@@ -220,10 +221,10 @@ export class Resolve {
    * @returns {DidDocument} The resolved DID Document object
    * @throws {DidError} InvalidDidDocument if genesisBytes !== initialDocument hashBytes
    */
-  public static async sidecar({ identifierComponents, initialDocument }: ResolveSidecar): Promise<DidDocument> {
+  public static async sidecar({ identifierComponents, genesisDocument }: ResolveSidecar): Promise<DidDocument> {
     // Replace the placeholder did with the identifier throughout the initialDocument.
     const intermediateDocument = JSON.parse(
-      JSON.stringify(initialDocument).replaceAll(initialDocument.id, ID_PLACEHOLDER_VALUE)
+      JSON.stringify(genesisDocument).replaceAll(genesisDocument.id, ID_PLACEHOLDER_VALUE)
     );
 
     // Canonicalize and sha256 hash the intermediateDocument
@@ -241,7 +242,7 @@ export class Resolve {
     }
 
     // Return a W3C conformant DID Document
-    return new DidDocument(initialDocument);
+    return new DidDocument(genesisDocument);
   }
 
   /**
@@ -285,18 +286,21 @@ export class Resolve {
    * The algorithm takes in a did:btcr2 identifier, identifier components object, resolutionsOptions object and returns
    * a valid initialDocument for that identifier.
    *
-   * @public
    * @param {ResolveInitialDocument} params See {@link ResolveInitialDocument} for parameter details.
    * @param {string} params.identifier The DID to be resolved.
    * @param {DidComponents} params.identifierComponents The decoded components of the identifier.
-   * @param {DidResolutionOptions} params.resolutionsOptions Options for resolving the DID Document. See {@link DidResolutionOptions}.
+   * @param {ResolutionOptions} params.resolutionsOptions Options for resolving the DID Document. See {@link ResolutionOptions}.
    * @returns {Promise<DidDocument>} The resolved DID Document object.
    * @throws {DidError} if the DID hrp is invalid, no sidecarData passed and hrp = "x".
    */
-  public static async initialDocument({ identifier, identifierComponents, resolutionsOptions }: {
+  static async initialDocument({
+    identifier,
+    identifierComponents,
+    resolutionsOptions
+  }: {
     identifier: string;
     identifierComponents: DidComponents;
-    resolutionsOptions: DidResolutionOptions
+    resolutionsOptions: ResolutionOptions
   }): Promise<DidDocument> {
     // Deconstruct the hrp from the components
     const hrp = identifierComponents.hrp;
@@ -327,12 +331,12 @@ export class Resolve {
    * @public
    * @param {TargetDocumentParams} params See {@link TargetDocumentParams} for details.
    * @param {DidDocument} params.initialDocument The initial DID Document to resolve
-   * @param {ResolutionOptions} params.options See {@link DidResolutionOptions} for details.
+   * @param {ResolutionOptions} params.options See {@link ResolutionOptions} for details.
    * @returns {DidDocument} The resolved DID Document object with a validated single, canonical history
    */
   public static async targetDocument({ initialDocument, resolutionsOptions }: {
     initialDocument: DidDocument;
-    resolutionsOptions: DidResolutionOptions;
+    resolutionsOptions: ResolutionOptions;
   }): Promise<DidDocument> {
     // Set the network from the options or default to mainnet
     const network = resolutionsOptions.network!;
@@ -345,10 +349,10 @@ export class Resolve {
     const targetTime = resolutionsOptions.versionTime ?? DateUtils.toUnixSeconds();
 
     // 4. Set signalsMetadata to resolutionOptions.sidecarData.signalsMetadata.
-    const signalsMetadata = (resolutionsOptions.sidecarData as SidecarData)?.signalsMetadata ?? {};
+    const sidecar = resolutionsOptions.sidecarData;
 
     // 5. Set currentVersionId to 1
-    const currentVersionId = 1;
+    const currentVersionId = '1';
 
     // 6. If currentVersionId equals targetVersionId return initialDocument.
     if (currentVersionId === targetVersionId) {
@@ -362,11 +366,10 @@ export class Resolve {
       contemporaryDidDocument : initialDocument,
       contemporaryBlockHeight : 0,
       currentVersionId,
-      targetVersionId,
       targetTime,
       didDocumentHistory      : new Array(),
       updateHashHistory       : new Array(),
-      signalsMetadata,
+      sidecar,
       network
     });
 
@@ -410,21 +413,19 @@ export class Resolve {
     contemporaryDidDocument,
     contemporaryBlockHeight,
     currentVersionId,
-    targetVersionId,
     targetTime,
     didDocumentHistory,
     updateHashHistory,
-    signalsMetadata,
+    sidecar,
     network
   }: {
     contemporaryDidDocument: DidDocument;
     contemporaryBlockHeight: number;
-    currentVersionId: number;
-    targetVersionId?: number;
+    currentVersionId: string;
     targetTime: number;
     didDocumentHistory: DidDocument[];
     updateHashHistory: string[];
-    signalsMetadata: SignalsMetadata;
+    sidecar: SidecarData;
     network: string;
   }): Promise<DidDocument> {
     // 1. Set contemporaryHash to the SHA256 hash of the contemporaryDidDocument
@@ -456,22 +457,22 @@ export class Resolve {
     const orderedUpdates = (
       await Promise.all(
         nextSignals.map(
-          async signal => await this.processBeaconSignal(signal, signalsMetadata)
+          async signal => await this.processBeaconSignal(signal, sidecar)
         )
       )
-    ).sort((a, b) => a.targetVersionId - b.targetVersionId);
+    ).sort((a: { targetVersionId: number; }, b: { targetVersionId: number; }) => a.targetVersionId - b.targetVersionId);
 
     // 10. For update in orderedUpdates:
     for (let update of orderedUpdates) {
-      const updateTargetVersionId = update.targetVersionId;
+      const targetVersionId = update.targetVersionId;
       // 10.1. If update.targetVersionId is less than or equal to currentVersionId, run Algorithm Confirm Duplicate
       //      Update passing in update, documentHistory, and contemporaryHash.
-      if (updateTargetVersionId <= currentVersionId) {
+      if (targetVersionId <= Number(currentVersionId)) {
         updateHashHistory.push(contemporaryHash);
         await this.confirmDuplicateUpdate({ update, updateHashHistory: updateHashHistory });
 
         //  10.2. If update.targetVersionId equals currentVersionId + 1:
-      } else if (updateTargetVersionId === currentVersionId + 1) {
+      } else if (targetVersionId === Number(currentVersionId) + 1) {
         // Prepend `z` to the sourceHash if it does not start with it
         const sourceHash = update.sourceHash.startsWith('z') ? update.sourceHash : `z${update.sourceHash}`;
 
@@ -491,16 +492,13 @@ export class Resolve {
         didDocumentHistory.push(contemporaryDidDocument);
 
         // 10.2.4. Increment currentVersionId.
-        currentVersionId++;
-
-        // 10.2.5. Set unsecuredUpdate to a copy of the update object.
-        const unsecuredUpdate = update;
+        currentVersionId = `${currentVersionId+1}`;
 
         // 10.2.6 Remove the proof property from the unsecuredUpdate object.
-        delete unsecuredUpdate.proof;
+        const { proof, ...unsecuredUpdate } = update;
 
         // 10.2.7 Set updateHash to the result of passing unsecuredUpdate into the JSON Canonicalization and Hash algorithm.
-        const updateHash = await canonicalization.process(update, { encoding: 'base58' });
+        const updateHash = await canonicalization.process(unsecuredUpdate, { encoding: 'base58' });
 
         // 10.2.8. Push updateHash onto updateHashHistory.
         updateHashHistory.push(updateHash as string);
@@ -509,7 +507,7 @@ export class Resolve {
         contemporaryHash = await canonicalization.process(contemporaryDidDocument, { encoding: 'base58' });
 
         //  10.3. If update.targetVersionId is greater than currentVersionId + 1, MUST throw a LatePublishing error.
-      } else if (update.targetVersionId > currentVersionId + 1) {
+      } else if (update.targetVersionId > Number(currentVersionId) + 1) {
         throw new ResolveError(
           `Version Id Mismatch: target ${update.targetVersionId} cannot be > current+1 ${currentVersionId + 1}`,
           'LATE_PUBLISHING_ERROR'
@@ -518,9 +516,6 @@ export class Resolve {
     }
 
     // 13. If targetVersionId in not null, set targetDocument to the index at the targetVersionId of the didDocumentHistory array.
-    if(targetVersionId) {
-      return new DidDocument(didDocumentHistory[targetVersionId]);
-    }
 
     // 14. Return contemporaryDidDocument.
     return new DidDocument(contemporaryDidDocument);
@@ -555,7 +550,7 @@ export class Resolve {
    *      - tx: The Bitcoin transaction that is the Beacon Signal.
    *
    * @public
-   * @param {FindNextSignals} params The parameters for the findNextSignals operation.
+   * @param {FindNextSignalsParams} params The parameters for the findNextSignals operation.
    * @param {number} params.contemporaryBlockHeight The blockheight to start looking for beacon signals.
    * @param {Array<BeaconService>} params.beacons The beacons to look for in the block.
    * @param {Array<BeaconService>} params.network The bitcoin network to connect to (mainnet, signet, testnet, regtest).
@@ -726,7 +721,7 @@ export class Resolve {
    * Implements {@link https://dcdpr.github.io/did-btcr2/#process-beacon-signals | 4.2.3.4 Process Beacon Signals}.
    *
    * The Process Beacon Signals algorithm processes each Beacon Signal by attempting to retrieve and validate an
-   * announce DID Update Payload for that signal according to the type of the Beacon.
+   * announce signed update for that signal according to the type of the Beacon.
    *
    * It takes as inputs
    *  - `beaconSignals`: An array of Beacon Signals retrieved from the Find Next Signals algorithm. Each signal contains:
@@ -734,8 +729,8 @@ export class Resolve {
    *    - `beaconType`: The type of the Beacon that announced the signal.
    *    - `tx`: The Bitcoin transaction that is the Beacon Signal.
    *  - `signalsMetadata`: Maps Beacon Signal Bitcoin transaction ids to a SignalMetadata object containing:
-   *    - `updatePayload`: A DID Update Payload which should match the update announced by the Beacon Signal.
-   *                       In the case of a SMT proof of non-inclusion, no DID Update Payload may be provided.
+   *    - `updatePayload`: A signed update which should match the update announced by the Beacon Signal.
+   *                       In the case of a SMT proof of non-inclusion, no signed update may be provided.
    *    - `proofs`: Sparse Merkle Tree proof used to verify that the `updatePayload` exists as the leaf indexed by the
    *                did:btcr2 identifier being resolved.
    *
@@ -744,11 +739,11 @@ export class Resolve {
    * @public
    * @param {BeaconSignal} signal The beacon signals to process.
    * @param {SignalsMetadata} signalsMetadata The sidecar data for the DID Document.
-   * @returns {DidUpdatePayload[]} The updated DID Document object.
+   * @returns {BTCR2SignedUpdate[]} The updated DID Document object.
    */
-  public static async processBeaconSignal(signal: BeaconSignal, signalsMetadata: SignalsMetadata): Promise<DidUpdatePayload> {
+  public static async processBeaconSignal(signal: BeaconSignal, sidecar: SidecarData): Promise<BTCR2SignedUpdate> {
     // 1. Set updates to an empty array.
-    const updates = new Array<DidUpdatePayload>();
+    const updates = new Array<BTCR2SignedUpdate>();
 
     // 2. For beaconSignal in beaconSignals:
     // 2.1 Set type to beaconSignal.beaconType.
@@ -762,37 +757,6 @@ export class Resolve {
     } = signal;
     const signalTx = tx as RawTransactionRest | RawTransactionV2;
 
-    // 2.4 Set signalSidecarData to signalsMetadata[signalId]. TODO: formalize structure of sidecarData
-    // const signalSidecarData = new Map(Object.entries(signalsMetadata)).get(id)!;
-    // TODO: processBeaconSignal - formalize structure of sidecarData, signalSidecarData
-
-    // 2.6 If type == SingletonBeacon:
-    //     2.6.1 Set didUpdatePayload to the result of passing signalTx and signalSidecarData to Process Singleton Beacon Signal algorithm.
-    // 2.7 If type == CIDAggregateBeacon:
-    //     2.7.1 Set didUpdatePayload to the result of passing signalTx and signalSidecarData to the Process CIDAggregate Beacon Signal algorithm.
-    // 2.8 If type == SMTAggregateBeacon:
-    //     2.8.1 Set didUpdatePayload to the result of passing signalTx and signalSidecarData to the Process SMTAggregate Beacon Signal algorithm.
-
-    // TODO: processBeaconSignal - where/how to convert signalsMetadata to diff sidecars
-    const sidecar = { signalsMetadata } as SidecarData;
-    // switch (type) {
-    //   case 'SingletonBeacon': {
-    //     sidecar = { signalsMetadata } as SingletonSidecar;
-    //     break;
-    //   }
-    //   case 'CIDAggregateBeacon': {
-    //     sidecar = {} as CIDAggregateSidecar;
-    //     break;
-    //   }
-    //   case 'SMTAggregateBeacon': {
-    //     sidecar = {} as SMTAggregateSidecar;
-    //     break;
-    //   }
-    //   default: {
-    //     throw new MethodError('Invalid beacon type', 'INVALID_BEACON_TYPE', { type });
-    //   }
-    // }
-
     // Construct a service object from the beaconId and type
     // and set the serviceEndpoint to the BIP21 URI for the Bitcoin address.
     const service = { id, type, serviceEndpoint: `bitcoin:${address}` };
@@ -801,11 +765,14 @@ export class Resolve {
     const beacon = BeaconFactory.establish(service, sidecar);
 
     // 2.5 Set didUpdate to null.
-    const didUpdate = await beacon.processSignal(signalTx, signalsMetadata) ?? null;
+    const didUpdate = await beacon.processSignal(signalTx, sidecar) ?? null;
 
     // If the updates is null, throw an error
     if (!didUpdate) {
-      throw new MethodError('No didUpdate for beacon', 'PROCESS_BEACON_SIGNALS_ERROR', { tx, signalsMetadata });
+      throw new MethodError(
+        'No didUpdate for beacon', 'PROCESS_BEACON_SIGNALS_ERROR',
+        { tx, sidecar }
+      );
     }
 
     // 2.9 If didUpdate is not null, push didUpdate to updates.
@@ -818,20 +785,20 @@ export class Resolve {
   /**
    * Implements {@link https://dcdpr.github.io/did-btcr2/#confirm-duplicate-update | 7.2.2.4 Confirm Duplicate Update}.
    *
-   * The Confirm Duplicate Update algorithm takes in a {@link DidUpdatePayload | DID Update Payload} and verifies that
+   * The Confirm Duplicate Update algorithm takes in a {@link BTCR2SignedUpdate | signed update} and verifies that
    * the update is a duplicate against the hash history of previously applied updates. The algorithm takes in an update
    * and an array of hashes, updateHashHistory. It throws an error if the update is not a duplicate, otherwise it
    * returns.
    *
    * @public
-   * @param {{ update: DidUpdatePayload; updateHashHistory: string[]; }} params Parameters for confirmDuplicateUpdate.
-   * @param {DidUpdatePayload} params.update The DID Update Payload to confirm.
+   * @param {ConfirmDuplicateParams} params Parameters for confirmDuplicateUpdate.
+   * @param {BTCR2SignedUpdate} params.update The signed update to confirm.
    * @param {Array<string>} params.updateHashHistory The history of hashes for previously applied updates.
    * @returns {Promise<void>} A promise that resolves if the update is a duplicate, otherwise throws an error.
    * @throws {ResolveError} if the update hash does not match the historical hash.
    */
   public static async confirmDuplicateUpdate({ update, updateHashHistory }: {
-    update: DidUpdatePayload;
+    update: BTCR2SignedUpdate;
     updateHashHistory: string[];
   }): Promise<void> {
     // 1. Let unsecuredUpdate be a copy of the update object.
@@ -870,13 +837,13 @@ export class Resolve {
    * @public
    * @param {ApplyDidUpdateParams} params Parameters for applyDidUpdate.
    * @param {DidDocument} params.contemporaryDidDocument The current DID Document to update.
-   * @param {DidUpdatePayload} params.update The DID Update Payload to apply.
+   * @param {BTCR2SignedUpdate} params.update The signed update to apply.
    * @param {Bytes} params.genesisBytes The genesis bytes for the DID Document.
    * @returns {Promise<DidDocument>}
    */
   public static async applyDidUpdate({ contemporaryDidDocument, update }: {
     contemporaryDidDocument: DidDocument;
-    update: DidUpdatePayload;
+    update: BTCR2SignedUpdate;
   }): Promise<DidDocument> {
     // 1. Set capabilityId to update.proof.capability.
     const capabilityId = update.proof?.capability;
