@@ -101,7 +101,7 @@ export interface TargetBlockheightParams {
   targetTime?: UnixTimestamp;
 }
 
-export type ProcessedSidecarData = {
+export type ProcessedSidecarData = SidecarData & {
   updateMap: Map<HashBytes, BTCR2SignedUpdate>;
   casMap: Map<HashBytes, CASAnnouncement>;
   smtMap: Map<string, SMTProof>;
@@ -193,8 +193,8 @@ export class Resolve {
    * @param {string} params.did The DID to be resolved.
    * @param {DidComponents} params.didComponents The decoded components of the did.
    * @param {ResolutionOptions} params.resolutionOptions The options for resolving the DID Document.
-   * @param {DidDocument} params.resolutionOptions.sidecarData The sidecar data for resolving the DID Document.
-   * @param {DidDocument} params.resolutionOptions.sidecarData.initialDocument The offline user-provided DID Document
+   * @param {DidDocument} params.resolutionOptions.sidecar The sidecar data for resolving the DID Document.
+   * @param {DidDocument} params.resolutionOptions.sidecar.initialDocument The offline user-provided DID Document
    * @returns {DidDocument} The resolved DID Document object
    */
   public static async external({ did, didComponents, resolutionOptions }: {
@@ -203,10 +203,10 @@ export class Resolve {
     resolutionOptions: ResolutionOptions;
   }): Promise<DidDocument> {
     // Deconstruct the options
-    const { genesisDocument } = resolutionOptions.sidecarData as SidecarData;
+    const { genesisDocument } = resolutionOptions.sidecar as SidecarData;
 
-    // 1. If resolutionOptions.sidecarData.initialDocument is not null, set initialDocument to the result of passing
-    //    did, didComponents and resolutionOptions.sidecarData.initialDocument into algorithm Sidecar
+    // 1. If resolutionOptions.sidecar.initialDocument is not null, set initialDocument to the result of passing
+    //    did, didComponents and resolutionOptions.sidecar.initialDocument into algorithm Sidecar
     //    Initial Document Validation.
     // 2. Else set initialDocument to the result of passing did and didComponents to the CAS Retrieval algorithm.
     const initialDocument = genesisDocument
@@ -326,7 +326,7 @@ export class Resolve {
     }
 
     //  Make sure options.sidecarData is not null if hrp === x
-    if (hrp === IdentifierHrp.x && !resolutionOptions.sidecarData) {
+    if (hrp === IdentifierHrp.x && !resolutionOptions.sidecar) {
       throw new MethodError('External resolution requires sidecar data', INVALID_DID, resolutionOptions);
     }
 
@@ -353,6 +353,10 @@ export class Resolve {
     initialDocument: DidDocument;
     resolutionOptions: ResolutionOptions;
   }): Promise<DidDocument> {
+    /**
+     * TODO: Process Beacon Signals -> Process <Singleton|CAS|SMT> Beacon
+     * TODO: Procwess updates array -> check update targetVersionId -> confirm duplicate -> apply update -> Check update proof
+     */
     // Set the network from the options or default to mainnet
     const network = resolutionOptions.network!;
 
@@ -363,8 +367,8 @@ export class Resolve {
     // 3. Else set targetTime to the UNIX timestamp for now at the moment of execution.
     const targetTime = resolutionOptions.versionTime ?? DateUtils.toUnixSeconds();
 
-    // 4. Set signalsMetadata to resolutionOptions.sidecarData.signalsMetadata.
-    const sidecar = resolutionOptions.sidecarData;
+    // 4. Set signalsMetadata to resolutionOptions.sidecar.signalsMetadata.
+    const sidecar = resolutionOptions.sidecar;
 
     // 5. Set currentVersionId to 1
     const currentVersionId = '1';

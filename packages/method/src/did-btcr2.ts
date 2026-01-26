@@ -125,7 +125,7 @@ export class DidBtcr2 implements DidMethod {
       // 2. Set didComponents to a map of idType, version, network, and genesisBytes.
       const didComponents = Identifier.decode(did);
 
-      resolutionOptions.sidecar = Resolve.processSidecarData(resolutionOptions.sidecar) as SidecarData;
+      resolutionOptions.sidecar = Resolve.processSidecarData(resolutionOptions.sidecar);
 
       // Set the network based on the decoded identifier
       resolutionOptions.network ??= didComponents.network;
