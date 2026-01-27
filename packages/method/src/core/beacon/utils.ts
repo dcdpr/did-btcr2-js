@@ -248,11 +248,11 @@ export class BeaconUtils {
 
   /**
    * Convert beacon service endpoints from BIP-21 URIs to addresses.
-   * @param {Array<BeaconService>} beacons The list of beacon services.
-   * @returns {Array<BeaconServiceAddress>} An array of beacon services with address: bitcoinAddress.
+   * @param {BeaconService} beacon The beacon service to parse.
+   * @returns {BeaconServiceAddress} The beacon service with the address field extracted from the serviceEndpoint.
    */
-  public static toBeaconServiceAddress(beacons: Array<BeaconService>): Array<BeaconServiceAddress> {
-    return beacons.map((beacon) => ({ ...beacon, address: beacon.serviceEndpoint.replace('bitcoin:', '')}));
+  public static parseBeaconServiceEndpoint(beacon: BeaconService): BeaconServiceAddress {
+    return { ...beacon, address: beacon.serviceEndpoint.replace('bitcoin:', '')};
   }
 
   /**
@@ -261,7 +261,7 @@ export class BeaconUtils {
    * @returns {Map<string, BeaconServiceAddress>} A map of address => beaconService.
    */
   public static getBeaconServiceAddressMap(beacons: Array<BeaconService>): Map<string, BeaconServiceAddress> {
-    const beaconAddrs = this.toBeaconServiceAddress(beacons);
+    const beaconAddrs = beacons.map(this.parseBeaconServiceEndpoint);
     return new Map<string, BeaconServiceAddress>(beaconAddrs.map((beacon) => ([beacon.address, beacon])));
   }
 

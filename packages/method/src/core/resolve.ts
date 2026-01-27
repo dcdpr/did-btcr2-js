@@ -330,20 +330,7 @@ export class Resolve {
     return new DidDocument(currentDocument);
   }
 
-  /**
-   * Implements {@link https://dcdpr.github.io/did-btcr2/#resolve-target-document | 4.2.3 Resolve Target Document}.
-   *
-   * The Resolve Target Document algorithm resolves a DID document from an initial document by walking the Bitcoin
-   * blockchain to identify Beacon Signals that announce DID Update Payloads applicable to the did:btcr2 did being
-   * resolved. It takes as inputs currentDocument, resolutionOptions and network. It returns a valid DID document.
-   *
-   * @public
-   * @param {TargetDocumentParams} params See {@link TargetDocumentParams} for details.
-   * @param {DidDocument} params.currentDocument The initial DID Document to resolve
-   * @param {ResolutionOptions} params.options See {@link ResolutionOptions} for details.
-   * @returns {DidDocument} The resolved DID Document object with a validated single, canonical history
-   */
-  static async targetDocument({ currentDocument, resolutionOptions }: {
+  static async processBeaconSignals({ currentDocument, resolutionOptions }: {
     currentDocument: DidDocument;
     resolutionOptions: ResolutionOptions;
   }): Promise<DidDocument> {
@@ -351,40 +338,43 @@ export class Resolve {
      * TODO: Process Beacon Signals -> Process <Singleton|CAS|SMT> Beacon
      * TODO: Process updates array -> check update targetVersionId -> confirm duplicate -> apply update -> Check update proof
      */
-    // Set the network from the options or default to mainnet
-    const network = resolutionOptions.network!;
+    // // Set the network from the options or default to mainnet
+    // const network = resolutionOptions.network!;
 
-    // 1. If resolutionOptions.versionId is not null, set targetVersionId to resolutionOptions.versionId.
-    const targetVersionId = resolutionOptions.versionId;
+    // // 1. If resolutionOptions.versionId is not null, set targetVersionId to resolutionOptions.versionId.
+    // const targetVersionId = resolutionOptions.versionId;
 
-    // 2. Else if resolutionOptions.versionTime is not null, set targetTime to resolutionOptions.versionTime.
-    // 3. Else set targetTime to the UNIX timestamp for now at the moment of execution.
-    const targetTime = resolutionOptions.versionTime ?? DateUtils.toUnixSeconds();
+    // // 2. Else if resolutionOptions.versionTime is not null, set targetTime to resolutionOptions.versionTime.
+    // // 3. Else set targetTime to the UNIX timestamp for now at the moment of execution.
+    // const targetTime = resolutionOptions.versionTime ?? DateUtils.toUnixSeconds();
 
-    // 4. Set signalsMetadata to resolutionOptions.sidecar.signalsMetadata.
-    const sidecar = resolutionOptions.sidecar;
+    // // 4. Set signalsMetadata to resolutionOptions.sidecar.signalsMetadata.
+    // const sidecar = resolutionOptions.sidecar;
 
-    // 5. Set currentVersionId to 1
-    const currentVersionId = '1';
+    // // 5. Set currentVersionId to 1
+    // const currentVersionId = '1';
 
-    // 6. If currentVersionId equals targetVersionId return currentDocument.
-    if (currentVersionId === targetVersionId) {
-      return new DidDocument(currentDocument);
-    }
+    // // 6. If currentVersionId equals targetVersionId return currentDocument.
+    // if (currentVersionId === targetVersionId) {
+    //   return new DidDocument(currentDocument);
+    // }
 
-    // 10. Set targetDocument to the result of calling the Traverse Bitcoin Blockchain History algorithm
-    // passing in contemporaryDIDDocument, contemporaryBlockheight, currentVersionId, targetVersionId,
-    // targetTime, didDocumentHistory, updateHashHistory, signalsMetadata, and network.
-    const targetDocument = this.traverseBlockchainHistory({
-      contemporaryDidDocument : currentDocument,
-      contemporaryBlockHeight : 0,
-      currentVersionId,
-      targetTime,
-      didDocumentHistory      : new Array(),
-      updateHashHistory       : new Array(),
-      sidecar,
-      network
-    });
+    const beacons = currentDocument.service
+      .filter(BeaconUtils.isBeaconService)
+      .map(BeaconUtils.parseBeaconServiceEndpoint);
+    // // 10. Set targetDocument to the result of calling the Traverse Bitcoin Blockchain History algorithm
+    // // passing in contemporaryDIDDocument, contemporaryBlockheight, currentVersionId, targetVersionId,
+    // // targetTime, didDocumentHistory, updateHashHistory, signalsMetadata, and network.
+    // const targetDocument = this.traverseBlockchainHistory({
+    //   contemporaryDidDocument : currentDocument,
+    //   contemporaryBlockHeight : 0,
+    //   currentVersionId,
+    //   targetTime,
+    //   didDocumentHistory      : new Array(),
+    //   updateHashHistory       : new Array(),
+    //   sidecar,
+    //   network
+    // });
 
     // 11. Return targetDocument.
     return targetDocument;
