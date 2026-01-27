@@ -316,13 +316,13 @@ export class BeaconCoordinator {
    * Announces a new cohort to all subscribers.
    * @param {number} minParticipants The minimum number of participants required for the cohort.
    * @param {string} [network='mutinynet'] The network on which the cohort operates (default is 'signet').
-   * @param {string} [beaconType='SMTAggregateBeacon'] The type of beacon to be used (default is 'SMTAggregateBeacon').
+   * @param {string} [beaconType='SMTBeacon'] The type of beacon to be used (default is 'SMTBeacon').
    * @returns {Promise<AggregateBeaconCohort>} The newly created cohort.
    */
   async advertiseCohort(
     minParticipants: number,
     network: string = 'mutinynet',
-    beaconType: string = 'SMTAggregateBeacon'
+    beaconType: string = 'SMTBeacon'
   ): Promise<AggregateBeaconCohort> {
     const cohort = new AggregateBeaconCohort({ minParticipants, network, beaconType });
     Logger.info(`Advertising new cohort ${cohort.id} ...`);

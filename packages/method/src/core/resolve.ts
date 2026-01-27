@@ -442,10 +442,10 @@ export class Resolve {
     network: string;
   }): Promise<DidDocument> {
     // 1. Set contemporaryHash to the SHA256 hash of the contemporaryDidDocument
-    let contemporaryHash = await canonicalization.process(contemporaryDidDocument, { encoding: 'base58' });
+    let contemporaryHash = canonicalization.process(contemporaryDidDocument, { encoding: 'base58' });
 
     // 2. Find all BTCR2 Beacons in contemporaryDIDDocument.service where service.type equals one of
-    //    SingletonBeacon, CIDAggregateBeacon and SMTAggregateBeacon.
+    //    SingletonBeacon, CASBeacon and SMTBeacon.
     // 3. For each beacon in beacons convert the beacon.serviceEndpoint to a Bitcoin address
     //    following BIP21. Set beacon.address to the Bitcoin address.
     const beacons = BeaconUtils.toBeaconServiceAddress(
@@ -549,7 +549,7 @@ export class Resolve {
    *  - `beacons`: An array of Beacon services in the contemporary DID document. Each Beacon contains properties:
    *      - `id`: The id of the Beacon service in the DID document. A string.
    *      - `type`: The type of the Beacon service in the DID document. A string whose values MUST be
-   *                          either SingletonBeacon, CIDAggregateBeacon or SMTAggregateBeacon.
+   *                          either SingletonBeacon, CASBeacon or SMTBeacon.
    *      - `serviceEndpoint`: A BIP21 URI representing a Bitcoin address.
    *      - `address`: The Bitcoin address decoded from the `serviceEndpoint value.
    *  - `network`: A string identifying the Bitcoin network of the did:btcr2 did. This algorithm MUST query the

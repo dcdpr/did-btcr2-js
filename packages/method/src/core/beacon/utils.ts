@@ -61,7 +61,7 @@ export class BeaconUtils {
     if(!Appendix.isDidService(obj)) return false;
 
     // Return false if the type is not a valid beacon service type.
-    if(!['SingletonBeacon', 'CIDAggregateBeacon', 'SMTAggregateBeacon'].includes(obj.type)) return false;
+    if(!['SingletonBeacon', 'CASBeacon', 'SMTBeacon'].includes(obj.type)) return false;
 
     // Return false if the serviceEndpoint is not a valid BIP21 bitcoin address.
     if ([obj.serviceEndpoint].flat().some(ep => typeof ep === 'string' && !ep.startsWith('bitcoin:'))) return false;

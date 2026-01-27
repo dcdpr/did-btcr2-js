@@ -270,10 +270,10 @@ export class Update {
       // 4.2 If beaconService.type == SingletonBeacon:
       //    4.2.1 Set signalMetadata to the result of passing beaconService and didUpdateInvocation to the Broadcast
       //          Singleton Beacon Signal algorithm.
-      // 4.3 Else If beaconService.type == CIDAggregateBeacon:
+      // 4.3 Else If beaconService.type == CASBeacon:
       //    4.3.1 Set signalMetadata to the result of passing Identifier, beaconService and didUpdateInvocation to
       //          the Broadcast CIDAggregate Beacon Signal algorithm.
-      // 4.4 Else If beaconService.type == SMTAggregateBeacon:
+      // 4.4 Else If beaconService.type == SMTBeacon:
       //    4.4.1 Set signalMetadata to the result of passing Identifier, beaconService and didUpdateInvocation to
       //          the Broadcast SMTAggregate Beacon Signal algorithm.
       // 4.5 Else:

@@ -16,18 +16,18 @@ import { BeaconSidecarData, CIDAggregateSidecar, SignalsMetadata } from '../../u
  * participate in authorizing Bitcoin transactions from this Beacon. In other words, this Beacon SHOULD identify an
  * n-of-n P2TR Bitcoin address where n is the number of unique DID controllers submitting updates through the Beacon.
  *
- * @class CIDAggregateBeacon
- * @type {CIDAggregateBeacon}
+ * @class CASBeacon
+ * @type {CASBeacon}
  * @extends {Beacon}
  */
-export class CIDAggregateBeacon extends Beacon {
+export class CASBeacon extends Beacon {
   /**
-   * Creates an instance of CIDAggregateBeacon.
+   * Creates an instance of CASBeacon.
    * @param {BeaconService} service The service of the Beacon.
    * @param {?BeaconSidecarData} [sidecar] The sidecar data of the Beacon.
    */
   constructor(service: BeaconService, sidecar?: BeaconSidecarData<CIDAggregateSidecar>) {
-    super({ ...service, type: 'CIDAggregateBeacon' }, sidecar);
+    super({ ...service, type: 'CASBeacon' }, sidecar);
   }
   get service(): BeaconService {
     return {
@@ -54,10 +54,10 @@ export class CIDAggregateBeacon extends Beacon {
    * @param {string} id The identifier of the Beacon.
    * @param {string} type The type of the Beacon.
    * @param {DidServiceEndpoint} serviceEndpoint The service endpoint of the Beacon.
-   * @returns {CIDAggregateBeacon} The established CIDAggregate Beacon.
+   * @returns {CASBeacon} The established CIDAggregate Beacon.
    */
-  static establish(id: string, type: string, serviceEndpoint: DidServiceEndpoint): CIDAggregateBeacon {
-    return new CIDAggregateBeacon({ id, type, serviceEndpoint });
+  static establish(id: string, type: string, serviceEndpoint: DidServiceEndpoint): CASBeacon {
+    return new CASBeacon({ id, type, serviceEndpoint });
   }
 
 
@@ -146,7 +146,7 @@ export class CIDAggregateBeacon extends Beacon {
    * adds into their DID document, the Beacon address is converted into a URI following BIP21:
    * {
    *    "id": "#cidAggregateBeacon",
-   *    "type": "CIDAggregateBeacon",
+   *    "type": "CASBeacon",
    *    "serviceEndpoint": "bitcoin:tb1pfdnyc8vxeca2zpsg365sn308dmrpka4e0n9c5axmp2nptdf7j6ts7eqhr8"
    * }
    */

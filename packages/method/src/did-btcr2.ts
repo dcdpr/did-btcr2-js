@@ -118,7 +118,9 @@ export class DidBtcr2 implements DidMethod {
    * @throws {DidError} InvalidDid if the identifier is invalid
    * @example
    * ```ts
-   * const resolution = await DidBtcr2.resolve('did:btcr2:k1q0dygyp3gz969tp46dychzy4q78c2k3js68kvyr0shanzg67jnuez2cfplh')
+   * const resolution = await DidBtcr2.resolve(
+   *  'did:btcr2:k1q0dygyp3gz969tp46dychzy4q78c2k3js68kvyr0shanzg67jnuez2cfplh'
+   * )
    * ```
    */
   static async resolve(did: string, resolutionOptions: ResolutionOptions = {}): Promise<DidResolutionResult> {
@@ -179,7 +181,7 @@ export class DidBtcr2 implements DidMethod {
    * The result of these transformations MUST produce a DID document conformant to the DID Core specification. The
    * verificationMethodId is an identifier for a verificationMethod within the sourceDocument. The verificationMethod
    * identified MUST be a BIP340 Multikey. The beaconIds MUST identify service endpoints with one of the three Beacon
-   * Types SingletonBeacon, CIDAggregateBeacon, and SMTAggregateBeacon.
+   * Types SingletonBeacon, CASBeacon, and SMTBeacon.
    *
    * @param {UpdateParams} params Required parameters for the update operation.
    * @param {string} params.identifier The btcr2 identifier to be updated.
