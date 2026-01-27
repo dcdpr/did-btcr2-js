@@ -22,6 +22,7 @@ import {
   LATE_PUBLISHING_ERROR,
   Logger,
   MethodError,
+  NOT_FOUND,
   ResolveError,
   UnixTimestamp
 } from '@did-btcr2/common';
@@ -37,6 +38,7 @@ import { BeaconUtils } from './beacon/utils.js';
 import { DidComponents } from './identifier.js';
 import { BTCR2SignedUpdate, ResolutionOptions, SMTProof } from './interfaces.js';
 import { CASAnnouncement, SidecarData } from './types.js';
+import { GenesisDocument } from '../utils/genesis-document.js';
 
 export type FindNextSignalsParams = {
   block: BlockV3;
@@ -56,7 +58,7 @@ export type NetworkVersion = {
   version?: string;
   network?: string;
 };
-export type ResolveInitialDocument = {
+export type CurrentDocumentParams = {
   did: string;
   components: DidComponents;
   resolutionOptions: ResolutionOptions;
@@ -65,22 +67,22 @@ export type ResolveInitialDocument = {
 export type ConfirmDuplicateParams = { update: BTCR2SignedUpdate; updateHashHistory: string[]; };
 
 // Deterministic
-export interface ResolveDeterministic {
+export interface DeterministicParams {
   components: DidComponents;
   did: string;
 };
 
 // External
-export interface ResolveExternal {
+export interface ExternalParams {
   components: DidComponents;
   did: string;
   resolutionOptions: ResolutionOptions;
 }
-export interface ResolveSidecar {
+export interface SidecarParams {
   didComponents: DidComponents;
   genesisDocument: DidDocument;
 };
-export interface ResolveCas {
+export interface CasParams {
   did: string;
   didComponents: DidComponents;
 }
@@ -141,15 +143,57 @@ export class Resolve {
     return { updateMap, casMap, smtMap };
   }
 
+
   /**
-   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#if-genesis_bytes-is-a-secp256k1-public-key | if genesis bytes is a secp256k1 Public Key}.
+   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#establish-current-document | 7.2.d Establish current_document}.
    *
-   * @param {ResolveDeterministic} params See {@link ResolveDeterministic} for details.
+   * Creates the Initial Did Document (or current_document (Current DID Document))
+   * by iteratively applying BTCR2 Signed Updates announced by Authorized Beacon Signals.
+   *
+   * @param {CurrentDocumentParams} params See {@link CurrentDocumentParams} for parameter details.
+   * @param {string} params.did The DID to be resolved.
+   * @param {DidComponents} params.didComponents The decoded components of the did.
+   * @param {ResolutionOptions} params.resolutionOptions Options for resolving the DID Document. See {@link ResolutionOptions}.
+   * @returns {Promise<DidDocument>} The resolved DID Document object.
+   * @throws {DidError} if the DID hrp is invalid, no sidecarData passed and hrp = "x".
+   */
+  static async currentDocument({
+    did,
+    didComponents,
+    genesisDocument
+  }: {
+    did: string;
+    didComponents: DidComponents;
+    genesisDocument: GenesisDocument
+  }): Promise<DidDocument> {
+    // Deconstruct the hrp from the components
+    const hrp = didComponents.hrp;
+
+    // Validate the hrp is either 'k' or 'x'
+    if (!(hrp in IdentifierHrp)) {
+      throw new MethodError(`Invalid DID hrp ${hrp}`, INVALID_DID, { hrp });
+    }
+
+    //  Make sure options.sidecarData is not null if hrp === x
+    if (hrp === IdentifierHrp.x && !genesisDocument) {
+      throw new MethodError('External resolution requires genesisDocument', NOT_FOUND);
+    }
+
+    return hrp === IdentifierHrp.k
+      ? this.deterministic({ did, didComponents })
+      : await this.external({ did, didComponents, genesisDocument });
+
+  }
+
+  /**
+   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#if-genesis_bytes-is-a-secp256k1-public-key | 7.2.d.1 if genesis bytes is a secp256k1 Public Key}.
+   *
+   * @param {DeterministicParams} params See {@link DeterministicParams} for details.
    * @param {string} params.did The did-btcr2 version.
    * @param {DidComponents} params.didComponents The decoded components of the did.
    * @returns {DidDocument} The resolved DID Document object.
    */
-  public static deterministic({ did, didComponents }: {
+  static deterministic({ did, didComponents }: {
     did: string;
     didComponents: DidComponents;
   }): DidDocument {
@@ -157,7 +201,10 @@ export class Resolve {
     const { network, genesisBytes } = didComponents;
 
     // Construct a new CompressedSecp256k1PublicKey and deconstruct the publicKey and publicKeyMultibase
-    const { compressed: publicKey, multibase: publicKeyMultibase } = new CompressedSecp256k1PublicKey(genesisBytes);
+    const {
+      compressed: publicKey,
+      multibase: publicKeyMultibase
+    } = new CompressedSecp256k1PublicKey(genesisBytes);
 
     // Generate the service field for the DID Document
     const service = BeaconUtils.generateBeaconServices({
@@ -181,69 +228,55 @@ export class Resolve {
   }
 
   /**
-   * Implements {@link https://dcdpr.github.io/did-btcr2/#external-resolution | 4.2.2.2 External Resolution}.
+   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#if-genesis_bytes-is-a-sha-256-hash | 7.2.d.2 if genesis_bytes is a SHA-256 Hash}.
    *
-   * The External Resolution algorithm externally retrieves an intermediateDocumentRepresentation, either by retrieving
-   * it from {@link https://dcdpr.github.io/did-btcr2/#def-content-addressable-storage | Content Addressable Storage (CAS)}
-   * or from the {@link https://dcdpr.github.io/did-btcr2/#def-sidecar-data | Sidecar Data} provided as part of the
-   * resolution request. It takes in a did:btcr2 did, a didComponents object and a resolutionOptions object.
-   * It returns an initialDocument, which is a conformant DID document validated against the did.
-   *
-   * @param {ResolveExternal} params Required params for calling the external method.
+   * @param {ExternalParams} params see {@link ExternalParams} for details.
    * @param {string} params.did The DID to be resolved.
    * @param {DidComponents} params.didComponents The decoded components of the did.
-   * @param {ResolutionOptions} params.resolutionOptions The options for resolving the DID Document.
-   * @param {DidDocument} params.resolutionOptions.sidecar The sidecar data for resolving the DID Document.
-   * @param {DidDocument} params.resolutionOptions.sidecar.initialDocument The offline user-provided DID Document
+   * @param {GenesisDocument} params.genesisDocument The genesis document for resolving the DID Document.
    * @returns {DidDocument} The resolved DID Document object
    */
-  public static async external({ did, didComponents, resolutionOptions }: {
+  static async external({ did, didComponents, genesisDocument }: {
     did: string;
     didComponents: DidComponents;
-    resolutionOptions: ResolutionOptions;
+    genesisDocument: GenesisDocument;
   }): Promise<DidDocument> {
-    // Deconstruct the options
-    const { genesisDocument } = resolutionOptions.sidecar as SidecarData;
-
-    // 1. If resolutionOptions.sidecar.initialDocument is not null, set initialDocument to the result of passing
-    //    did, didComponents and resolutionOptions.sidecar.initialDocument into algorithm Sidecar
-    //    Initial Document Validation.
-    // 2. Else set initialDocument to the result of passing did and didComponents to the CAS Retrieval algorithm.
-    const initialDocument = genesisDocument
-      ? await this.sidecar({ didComponents, genesisDocument })
+    // If genesisDocument, get initial document from sidecar.
+    // Else get initial document from CAS.
+    const currentDocument = genesisDocument
+      ? this.sidecar({ didComponents, genesisDocument })
       : await this.cas({ did, didComponents });
 
-    // 3. Validate initialDocument is a conformant DID document according to the DID Core 1.1 specification. Else MUST
-    //    raise invalidDidDocument error.
-    DidDocument.validate(initialDocument);
+    // Validate initial document as DID document conformant to DID Core 1.1 specification.
+    DidDocument.validate(currentDocument);
 
-    // 4. Return initialDocument.
-    return initialDocument;
+    // 4. Return currentDocument.
+    return currentDocument;
   }
 
   /**
    * Implements {@link https://dcdpr.github.io/did-btcr2/#sidecar-initial-document-validation | 4.2.2.2.1 Sidecar Initial Document Validation}.
    *
-   * The Sidecar Initial Document Validation algorithm validates an initialDocument against its did, by first
+   * The Sidecar Initial Document Validation algorithm validates an currentDocument against its did, by first
    * constructing the intermediateDocumentRepresentation and verifying the hash of this document matches the bytes
    * encoded within the did. It takes in a did:btcr2 did, didComponents and a
-   * initialDocument. It returns the initialDocument if validated, otherwise it throws an error.
+   * currentDocument. It returns the currentDocument if validated, otherwise it throws an error.
    *
-   * @param {ResolveSidecar} params Required params for calling the sidecar method
+   * @param {SidecarParams} params Required params for calling the sidecar method
    * @param {string} params.did The DID to be resolved
    * @param {DidComponents} params.didComponents The components of the DID did
-   * @param {DidDocument} params.initialDocument The initial DID Document provided by the user
+   * @param {DidDocument} params.currentDocument The initial DID Document provided by the user
    * @returns {DidDocument} The resolved DID Document object
-   * @throws {DidError} InvalidDidDocument if genesisBytes !== initialDocument hashBytes
+   * @throws {DidError} InvalidDidDocument if genesisBytes !== currentDocument hashBytes
    */
-  public static async sidecar({ didComponents, genesisDocument }: ResolveSidecar): Promise<DidDocument> {
-    // Replace the placeholder did with the did throughout the initialDocument.
+  static sidecar({ didComponents, genesisDocument }: SidecarParams): DidDocument {
+    // Replace the placeholder did with the did throughout the currentDocument.
     const intermediateDocument = JSON.parse(
       JSON.stringify(genesisDocument).replaceAll(genesisDocument.id, ID_PLACEHOLDER_VALUE)
     );
 
     // Canonicalize and sha256 hash the intermediateDocument
-    const hashBytes = await canonicalization.process(intermediateDocument, { encoding: 'hex' });
+    const hashBytes = canonicalization.process(intermediateDocument, { encoding: 'hex' });
 
     // Compare the genesisBytes to the hashBytes
     const genesisBytes = bytesToHex(didComponents.genesisBytes);
@@ -263,17 +296,20 @@ export class Resolve {
   /**
    * Implements {@link https://dcdpr.github.io/did-btcr2/#cas-retrieval | 4.2.2.2.2 CAS Retrieval}.
    *
-   * The CAS Retrieval algorithm attempts to retrieve an initialDocument from a Content Addressable Storage (CAS) system
+   * The CAS Retrieval algorithm attempts to retrieve an currentDocument from a Content Addressable Storage (CAS) system
    * by converting the bytes in the did into a Content Identifier (CID). It takes in an did and
-   * an didComponents object. It returns an initialDocument.
+   * an didComponents object. It returns an currentDocument.
    *
-   * @param {ResolveCas} params Required params for calling the cas method
+   * @param {CasParams} params See {@link CasParams} for details.
    * @param {string} params.did BTCR2 DID used to resolve the DID Document
    * @param {DidComponents} params.didComponents BTCR2 DID components used to resolve the DID Document
    * @returns {DidDocument} The resolved DID Document object
    * @throws {MethodError} if the DID Document content is invalid
    */
-  public static async cas({ did, didComponents }: ResolveCas): Promise<DidDocument> {
+  static async cas({ did, didComponents }: {
+    did: string;
+    didComponents: DidComponents;
+  }): Promise<DidDocument> {
     // 1. Set hashBytes to didComponents.genesisBytes.
     const hashBytes = didComponents.genesisBytes;
 
@@ -285,55 +321,13 @@ export class Resolve {
     if (!intermediateDocument || !JSONUtils.isParsable(intermediateDocument)) {
       throw new MethodError(INVALID_DID_DOCUMENT, 'Invalid DID Document content', { intermediateDocument });
     }
-    // 5. Replace the placeholder did with the did throughout the initialDocument.
-    const initialDocument = JSON.parse(
+    // 5. Replace the placeholder did with the did throughout the currentDocument.
+    const currentDocument = JSON.parse(
       intermediateDocument.replaceAll(ID_PLACEHOLDER_VALUE, did)
     );
 
-    // 6. Return initialDocument.
-    return new DidDocument(initialDocument);
-  }
-
-  /**
-   * Implements {@link https://dcdpr.github.io/did-btcr2/#resolve-initial-document | 4.2.2 Resolve Initial Document}.
-   *
-   * This algorithm resolves an initial DID document and validates it against the did for a specific did:btcr2.
-   * The algorithm takes in a did:btcr2 did, did components object, resolutionOptions object and returns
-   * a valid initialDocument for that did.
-   *
-   * @param {ResolveInitialDocument} params See {@link ResolveInitialDocument} for parameter details.
-   * @param {string} params.did The DID to be resolved.
-   * @param {DidComponents} params.didComponents The decoded components of the did.
-   * @param {ResolutionOptions} params.resolutionOptions Options for resolving the DID Document. See {@link ResolutionOptions}.
-   * @returns {Promise<DidDocument>} The resolved DID Document object.
-   * @throws {DidError} if the DID hrp is invalid, no sidecarData passed and hrp = "x".
-   */
-  static async initialDocument({
-    did,
-    didComponents,
-    resolutionOptions
-  }: {
-    did: string;
-    didComponents: DidComponents;
-    resolutionOptions: ResolutionOptions
-  }): Promise<DidDocument> {
-    // Deconstruct the hrp from the components
-    const hrp = didComponents.hrp;
-
-    // Validate the hrp is either 'k' or 'x'
-    if (!(hrp in IdentifierHrp)) {
-      throw new MethodError(`Invalid DID hrp ${hrp}`, INVALID_DID, { hrp });
-    }
-
-    //  Make sure options.sidecarData is not null if hrp === x
-    if (hrp === IdentifierHrp.x && !resolutionOptions.sidecar) {
-      throw new MethodError('External resolution requires sidecar data', INVALID_DID, resolutionOptions);
-    }
-
-    return hrp === IdentifierHrp.k
-      ? this.deterministic({ did, didComponents })
-      : await this.external({ did, didComponents, resolutionOptions });
-
+    // 6. Return currentDocument.
+    return new DidDocument(currentDocument);
   }
 
   /**
@@ -341,21 +335,21 @@ export class Resolve {
    *
    * The Resolve Target Document algorithm resolves a DID document from an initial document by walking the Bitcoin
    * blockchain to identify Beacon Signals that announce DID Update Payloads applicable to the did:btcr2 did being
-   * resolved. It takes as inputs initialDocument, resolutionOptions and network. It returns a valid DID document.
+   * resolved. It takes as inputs currentDocument, resolutionOptions and network. It returns a valid DID document.
    *
    * @public
    * @param {TargetDocumentParams} params See {@link TargetDocumentParams} for details.
-   * @param {DidDocument} params.initialDocument The initial DID Document to resolve
+   * @param {DidDocument} params.currentDocument The initial DID Document to resolve
    * @param {ResolutionOptions} params.options See {@link ResolutionOptions} for details.
    * @returns {DidDocument} The resolved DID Document object with a validated single, canonical history
    */
-  public static async targetDocument({ initialDocument, resolutionOptions }: {
-    initialDocument: DidDocument;
+  static async targetDocument({ currentDocument, resolutionOptions }: {
+    currentDocument: DidDocument;
     resolutionOptions: ResolutionOptions;
   }): Promise<DidDocument> {
     /**
      * TODO: Process Beacon Signals -> Process <Singleton|CAS|SMT> Beacon
-     * TODO: Procwess updates array -> check update targetVersionId -> confirm duplicate -> apply update -> Check update proof
+     * TODO: Process updates array -> check update targetVersionId -> confirm duplicate -> apply update -> Check update proof
      */
     // Set the network from the options or default to mainnet
     const network = resolutionOptions.network!;
@@ -373,16 +367,16 @@ export class Resolve {
     // 5. Set currentVersionId to 1
     const currentVersionId = '1';
 
-    // 6. If currentVersionId equals targetVersionId return initialDocument.
+    // 6. If currentVersionId equals targetVersionId return currentDocument.
     if (currentVersionId === targetVersionId) {
-      return new DidDocument(initialDocument);
+      return new DidDocument(currentDocument);
     }
 
     // 10. Set targetDocument to the result of calling the Traverse Bitcoin Blockchain History algorithm
     // passing in contemporaryDIDDocument, contemporaryBlockheight, currentVersionId, targetVersionId,
     // targetTime, didDocumentHistory, updateHashHistory, signalsMetadata, and network.
     const targetDocument = this.traverseBlockchainHistory({
-      contemporaryDidDocument : initialDocument,
+      contemporaryDidDocument : currentDocument,
       contemporaryBlockHeight : 0,
       currentVersionId,
       targetTime,
@@ -577,7 +571,7 @@ export class Resolve {
    *    Only Beacon Signals included in the Bitcoin blockchain before the targetTime are processed.
    * @returns {Promise<Array<BeaconSignal>>} An array of BeaconSignal objects with blockHeight and signals.
    */
-  public static async findNextSignals({ contemporaryBlockHeight, targetTime, network, beacons }: {
+  static async findNextSignals({ contemporaryBlockHeight, targetTime, network, beacons }: {
     contemporaryBlockHeight: number;
     beacons: Array<BeaconServiceAddress>;
     network: string;
@@ -701,7 +695,7 @@ export class Resolve {
    * @param {Array<BeaconService>} beacons The beacons to process.
    * @returns {Promise<Array<BeaconSignal>>} The beacon signals found in the block.
    */
-  public static async findSignalsRest(beacons: Array<BeaconService>): Promise<Array<BeaconSignal>> {
+  static async findSignalsRest(beacons: Array<BeaconService>): Promise<Array<BeaconSignal>> {
     // Empty array of beaconSignals
     const beaconSignals = new Array<BeaconSignal>();
 
@@ -760,7 +754,7 @@ export class Resolve {
    * @param {SignalsMetadata} signalsMetadata The sidecar data for the DID Document.
    * @returns {BTCR2SignedUpdate[]} The updated DID Document object.
    */
-  public static async processBeaconSignal(signal: BeaconSignal, sidecar: SidecarData): Promise<BTCR2SignedUpdate> {
+  static async processBeaconSignal(signal: BeaconSignal, sidecar: SidecarData): Promise<BTCR2SignedUpdate> {
     // 1. Set updates to an empty array.
     const updates = new Array<BTCR2SignedUpdate>();
 
@@ -816,7 +810,7 @@ export class Resolve {
    * @returns {Promise<void>} A promise that resolves if the update is a duplicate, otherwise throws an error.
    * @throws {ResolveError} if the update hash does not match the historical hash.
    */
-  public static async confirmDuplicateUpdate({ update, updateHashHistory }: {
+  static async confirmDuplicateUpdate({ update, updateHashHistory }: {
     update: BTCR2SignedUpdate;
     updateHashHistory: string[];
   }): Promise<void> {
@@ -860,7 +854,7 @@ export class Resolve {
    * @param {Bytes} params.genesisBytes The genesis bytes for the DID Document.
    * @returns {Promise<DidDocument>}
    */
-  public static async applyDidUpdate({ contemporaryDidDocument, update }: {
+  static async applyDidUpdate({ contemporaryDidDocument, update }: {
     contemporaryDidDocument: DidDocument;
     update: BTCR2SignedUpdate;
   }): Promise<DidDocument> {

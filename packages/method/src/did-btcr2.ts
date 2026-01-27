@@ -99,11 +99,13 @@ export class DidBtcr2 implements DidMethod {
 
   /**
    * Entry point for section {@link https://dcdpr.github.io/did-btcr2/#read | 7.2 Resolve}.
-   * See {@link Resolve} for subclass implementation.
+   * See specification for the {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process | Resolve Process}.
+   * See {@link Resolve | Resolve (class)} for class implementation.
    *
-   * Resolving a did:btcr2 identifier iteratively builds a DID document by applying BTCR2 Updates to an Initial DID
-   * Document that have been committed to the Bitcoin blockchain by Authorized Beacon Signals. The Initial DID Document
-   * is either deterministically created from the DID or provided by Sidecar Data.
+   * Resolving a did:btcr2 identifier iteratively builds a DID document by applying
+   * BTCR2 Updates to an Initial DID Document that have been committed to the Bitcoin
+   * blockchain by Authorized Beacon Signals. The Initial DID Document is either
+   * deterministically created from the DID or provided by Sidecar Data.
    *
    * @param {string} did a valid did:btcr2 identifier to be resolved
    * @param {ResolutionOptions} [resolutionOptions] see {@link https://www.w3.org/TR/did-1.0/#did-resolution-options | ResolutionOptions}
@@ -111,7 +113,7 @@ export class DidBtcr2 implements DidMethod {
    * @param {number} resolutionOptions.versionTime a timestamp used during resolution as a bound for when to stop resolving
    * @param {DidDocument} resolutionOptions.sidecarData data necessary for resolving a DID
    * @param {string} resolutionOptions.network Bitcoin network name (mainnet, testnet, signet, regtest).
-   * @returns {DidResolutionResult} Promise resolving to a DID Resolution Result containing the `targetDocument`
+   * @returns {Promise<DidResolutionResult>} Promise resolving to a DID Resolution Result containing the `targetDocument`
    * @throws {Error} if the resolution fails for any reason
    * @throws {DidError} InvalidDid if the identifier is invalid
    * @example
@@ -121,22 +123,20 @@ export class DidBtcr2 implements DidMethod {
    */
   static async resolve(did: string, resolutionOptions: ResolutionOptions = {}): Promise<DidResolutionResult> {
     try {
-      // 1. Pass identifier to the did:btcr2 Identifier Decoding algorithm, retrieving idType, version, network, and genesisBytes.
-      // 2. Set didComponents to a map of idType, version, network, and genesisBytes.
+      // Decode the did to be resolved
       const didComponents = Identifier.decode(did);
 
-      resolutionOptions.sidecar = Resolve.processSidecarData(resolutionOptions.sidecar);
+      // Establish the current document
+      const genesisDocument = resolutionOptions.genesisDocument;
+      const currentDocument = await Resolve.currentDocument({ did, didComponents, genesisDocument });
+
+      // Process the sidecar data if provided
+      const sidecar = Resolve.processSidecarData(resolutionOptions.sidecar);
 
       // Set the network based on the decoded identifier
-      resolutionOptions.network ??= didComponents.network;
+      const network = resolutionOptions.network ?? didComponents.network;
 
-      // 3. Set initialDocument to the result of running the algorithm in Resolve Initial Document passing in the
-      //    identifier, didComponents and resolutionOptions.
-      const initialDocument = await Resolve.initialDocument({ did, didComponents, resolutionOptions });
-
-      // 4. Set targetDocument to the result of running the algorithm in Resolve Target Document passing in
-      //    initialDocument and resolutionOptions.
-      const targetDocument = await Resolve.targetDocument({ initialDocument, resolutionOptions });
+      const targetDocument = await Resolve.targetDocument({ currentDocument, resolutionOptions });
 
       // 5. Return targetDocument.
       const didResolutionResult: DidResolutionResult = {
