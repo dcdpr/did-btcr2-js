@@ -138,7 +138,7 @@ export class DidBtcr2 implements DidMethod {
       // Set the network based on the decoded identifier
       const network = resolutionOptions.network ?? didComponents.network;
 
-      const targetDocument = await Resolve.targetDocument({ currentDocument, resolutionOptions });
+      const targetDocument = await Resolve.processBeaconSignals({ currentDocument, resolutionOptions });
 
       // 5. Return targetDocument.
       const didResolutionResult: DidResolutionResult = {
@@ -214,7 +214,7 @@ export class DidBtcr2 implements DidMethod {
     // 1. Set unsignedUpdate to the result of passing Identifier, sourceDocument,
     //    sourceVersionId, and documentPatch into the Construct DID Update
     //    Payload algorithm.
-    const didUpdatePayload = await Update.construct({
+    const unsignedUpdate = await Update.construct({
       identifier,
       sourceDocument,
       sourceVersionId,
@@ -244,11 +244,11 @@ export class DidBtcr2 implements DidMethod {
 
     // 4. Set didUpdateInvocation to the result of passing Identifier, unsignedUpdate as didUpdatePayload, and
     //    verificationMethod to the Invoke DID Update Payload algorithm.
-    const didUpdateInvocation = await Update.invoke({ identifier, verificationMethod, didUpdatePayload, });
+    const signedUpdate = await Update.invoke({ identifier, verificationMethod, unsignedUpdate, });
 
     // 5. Set signalsMetadata to the result of passing Identifier, sourceDocument, beaconIds and didUpdateInvocation
     //    to the Announce DID Update algorithm.
-    const signalsMetadata = await Update.announce({ sourceDocument, beaconIds, didUpdateInvocation, });
+    const signalsMetadata = await Update.announce({ sourceDocument, beaconIds, signedUpdate });
 
     // 6. Return signalsMetadata. It is up to implementations to ensure that the signalsMetadata is persisted.
     return signalsMetadata;

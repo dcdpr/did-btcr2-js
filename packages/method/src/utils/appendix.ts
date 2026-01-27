@@ -11,7 +11,7 @@ import {
 import { createHelia } from 'helia';
 import { CID } from 'multiformats';
 import { create as createDigest } from 'multiformats/hashes/digest';
-import { RootCapability } from '../interfaces/crud.js';
+import { RootCapability } from '../core/interfaces.js';
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/#appendix | 9. Appendix} methods.
