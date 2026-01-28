@@ -1,17 +1,15 @@
 import {
+  bitcoin,
   BitcoinCoreRpcClient,
-  BitcoinNetworkConnection,
   BitcoinRestClient,
   BlockV3,
   GENESIS_TX_ID,
-  getNetwork,
   RawTransactionRest,
   RawTransactionV2,
   TXIN_WITNESS_COINBASE
 } from '@did-btcr2/bitcoin';
 import {
   BitcoinNetworkNames,
-  DateUtils,
   HashBytes,
   IdentifierHrp,
   INVALID_DID,
@@ -20,7 +18,6 @@ import {
   JSONPatch,
   JSONUtils,
   LATE_PUBLISHING_ERROR,
-  Logger,
   MethodError,
   NOT_FOUND,
   ResolveError,
@@ -31,14 +28,13 @@ import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';
 import { canonicalization, DidBtcr2 } from '../did-btcr2.js';
 import { Appendix } from '../utils/appendix.js';
-import { DidDocument, ID_PLACEHOLDER_VALUE } from '../utils/did-document.js';
+import { DidDocument, GenesisDocument, ID_PLACEHOLDER_VALUE } from '../utils/did-document.js';
 import { BeaconFactory } from './beacon/factory.js';
 import { BeaconService, BeaconServiceAddress, BeaconSignal } from './beacon/interfaces.js';
 import { BeaconUtils } from './beacon/utils.js';
 import { DidComponents } from './identifier.js';
 import { BTCR2SignedUpdate, ResolutionOptions, SMTProof } from './interfaces.js';
 import { CASAnnouncement, SidecarData } from './types.js';
-import { GenesisDocument } from '../utils/genesis-document.js';
 
 export type FindNextSignalsParams = {
   block: BlockV3;
@@ -109,8 +105,6 @@ export type ProcessedSidecarData = SidecarData & {
   smtMap: Map<string, SMTProof>;
 }
 
-const bitcoin = new BitcoinNetworkConnection();
-
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html | 7.2 Resolve}.
  * @class Resolve
@@ -157,7 +151,7 @@ export class Resolve {
    * @returns {Promise<DidDocument>} The resolved DID Document object.
    * @throws {DidError} if the DID hrp is invalid, no sidecarData passed and hrp = "x".
    */
-  static async currentDocument({
+  static async establishCurrentDocument({
     did,
     didComponents,
     genesisDocument
@@ -198,21 +192,13 @@ export class Resolve {
     didComponents: DidComponents;
   }): DidDocument {
     // Deconstruct the components
-    const { network, genesisBytes } = didComponents;
+    const { genesisBytes } = didComponents;
 
     // Construct a new CompressedSecp256k1PublicKey and deconstruct the publicKey and publicKeyMultibase
-    const {
-      compressed: publicKey,
-      multibase: publicKeyMultibase
-    } = new CompressedSecp256k1PublicKey(genesisBytes);
+    const { multibase: publicKeyMultibase } = new CompressedSecp256k1PublicKey(genesisBytes);
 
     // Generate the service field for the DID Document
-    const service = BeaconUtils.generateBeaconServices({
-      did,
-      publicKey,
-      network : getNetwork(network),
-      type    : 'SingletonBeacon',
-    });
+    const service = BeaconUtils.generateBeaconServices({ did, type: 'SingletonBeacon' });
 
     return new DidDocument({
       id                 : did,
@@ -330,10 +316,17 @@ export class Resolve {
     return new DidDocument(currentDocument);
   }
 
-  static async processBeaconSignals({ currentDocument, resolutionOptions }: {
-    currentDocument: DidDocument;
-    resolutionOptions: ResolutionOptions;
-  }): Promise<DidDocument> {
+  /**
+   * Finds uses the beacon services in the currentDocument to scan for onchain Beacon Signals (transactions) containing
+   * Signal Bytes (last output in OP_RETURN transaction).
+   * @param {DidDocument} currentDocument The current DID Document to process
+   * @param {ResolutionOptions} resolutionOptions The resolution options for processing beacon signals
+   * @returns {Promise<DidDocument>} The updated DID Document after processing Beacon Signals
+   */
+  static async processBeaconSignals(
+    currentDocument: DidDocument,
+    resolutionOptions: ResolutionOptions
+  ): Promise<DidDocument> {
     /**
      * TODO: Process Beacon Signals -> Process <Singleton|CAS|SMT> Beacon
      * TODO: Process updates array -> check update targetVersionId -> confirm duplicate -> apply update -> Check update proof
@@ -376,8 +369,210 @@ export class Resolve {
     //   network
     // });
 
+    const nextSignals = await this.getBeaconSignals(beacons);
+    if (!nextSignals || nextSignals.length === 0) {
+      // 5. If nextSignals is null or empty, return contemporaryDidDocument.
+      return new DidDocument(currentDocument);
+    }
+
     // 11. Return targetDocument.
-    return targetDocument;
+    return currentDocument;
+  }
+
+
+  /**
+   * Implements {@link https://dcdpr.github.io/did-btcr2/#find-next-signals | 4.2.3.3 Find Next Signals}.
+   *
+   * The Find Next Signals algorithm finds the next Bitcoin block containing Beacon Signals from one or more of the
+   * beacons and retuns all Beacon Signals within that block.
+   *
+   * It takes the following inputs:
+   *  - `contemporaryBlockhieght`: The height of the block this function is looking for Beacon Signals in.
+   *                               An integer greater or equal to 0.
+   *  - `targetBlockheight`: The height of the Bitcoin block that the resolution algorithm searches for Beacon Signals
+   *                         up to. An integer greater or equal to 0.
+   *  - `beacons`: An array of Beacon services in the contemporary DID document. Each Beacon contains properties:
+   *      - `id`: The id of the Beacon service in the DID document. A string.
+   *      - `type`: The type of the Beacon service in the DID document. A string whose values MUST be
+   *                          either SingletonBeacon, CIDAggregateBeacon or SMTAggregateBeacon.
+   *      - `serviceEndpoint`: A BIP21 URI representing a Bitcoin address.
+   *      - `address`: The Bitcoin address decoded from the `serviceEndpoint value.
+   *  - `network`: A string identifying the Bitcoin network of the did:btcr2 identifier. This algorithm MUST query the
+   *               Bitcoin blockchain identified by the network.
+   *
+   * It returns a nextSignals struct, containing the following properties:
+   *  - blockheight: The Bitcoin blockheight for the block containing the Beacon Signals.
+   *  - signals: An array of signals. Each signal is a struct containing the following:
+   *      - beaconId: The id for the Beacon that the signal was announced by.
+   *      - beaconType: The type of the Beacon that announced the signal.
+   *      - tx: The Bitcoin transaction that is the Beacon Signal.
+   *
+   * @public
+   * @param {FindNextSignals} params The parameters for the findNextSignals operation.
+   * @param {number} params.contemporaryBlockHeight The blockheight to start looking for beacon signals.
+   * @param {Array<BeaconService>} params.beacons The beacons to look for in the block.
+   * @param {Array<BeaconService>} params.network The bitcoin network to connect to (mainnet, signet, testnet, regtest).
+   * @param {UnixTimestamp} params.targetTime The timestamp used to target specific historical states of a DID document.
+   *    Only Beacon Signals included in the Bitcoin blockchain before the targetTime are processed.
+   * @returns {Promise<Array<BeaconSignal>>} An array of BeaconSignal objects with blockHeight and signals.
+   */
+  public static async findNextSignals({ contemporaryBlockHeight, targetTime, network, beacons }: {
+    contemporaryBlockHeight: number;
+    beacons: Array<BeaconServiceAddress>;
+    network: string;
+    targetTime: UnixTimestamp;
+  }): Promise<Array<BeaconSignal>> {
+    let height = contemporaryBlockHeight;
+
+    // Create an default beaconSignal and beaconSignals array
+    let beaconSignals: BeaconSignals = [];
+
+    // Get the bitcoin network connection
+    bitcoin.setActiveNetwork(network);
+
+    // Opt into REST connection if available
+    if(bitcoin.network.rest) {
+      return await this.findSignalsRest(beacons);
+    }
+
+    // If no rest and no rpc connection is available, throw an error
+    if (!bitcoin.network.rpc) {
+      throw new ResolveError(
+        `No Bitcoin connection available, cannot find next signals`,
+        'NO_BITCOIN_CONNECTION'
+      );
+    }
+
+    // Opt into rpc connection to get the block data at the blockhash
+    let block = await bitcoin.network.rpc.getBlock({ height }) as BlockV3;
+
+    console.info(`Searching for signals, please wait ...`);
+    while (block.time <= targetTime) {
+      // Iterate over each transaction in the block
+      for (const tx of block.tx) {
+        // If the txid is a coinbase, continue ...
+        if (tx.txid === GENESIS_TX_ID) {
+          continue;
+        }
+
+        // Iterate over each input in the transaction
+        for (const vin of tx.vin) {
+
+          // If the vin is a coinbase transaction, continue ...
+          if (vin.coinbase) {
+            continue;
+          }
+
+          // If the vin txinwitness contains a coinbase identifier, continue ...
+          if (vin.txinwitness && vin.txinwitness.length === 1 && vin.txinwitness[0] === TXIN_WITNESS_COINBASE) {
+            continue;
+          }
+
+          // If the txid from the vin is undefined, continue ...
+          if (!vin.txid) {
+            continue;
+          }
+
+          // If the vout from the vin is undefined, continue ...
+          if (vin.vout === undefined) {
+            continue;
+          }
+
+          // Get the previous output transaction data
+          const prevout = await bitcoin.network.rpc.getRawTransaction(vin.txid, 2) as RawTransactionV2;
+
+          // If the previous output vout at the vin.vout index is undefined, continue ...
+          if (!prevout.vout[vin.vout]) {
+            continue;
+          }
+
+          // Get the address from the scriptPubKey from the prevvout (previous output's input at the vout index)
+          const scriptPubKey = prevout.vout[vin.vout].scriptPubKey;
+
+          // If the scriptPubKey.address is undefined, continue ...
+          if (!scriptPubKey.address) {
+            continue;
+          }
+
+          // If the beaconAddress from prevvout scriptPubKey is not a beacon service endpoint address, continue ...
+          const beaconAddresses = BeaconUtils.getBeaconServiceAddressMap(beacons);
+          const beacon = (beaconAddresses.get(scriptPubKey.address) ?? {}) as BeaconServiceAddress;
+          if (!beacon || !(beacon.id && beacon.type)) {
+            continue;
+          }
+
+          // If the prevout.vout[vin.vout].scriptPubKey.asm does not include 'OP_RETURN', continue ...
+          if(!prevout.vout[vin.vout].scriptPubKey.asm.includes('OP_RETURN')) {
+            continue;
+          }
+
+          // Log the found txid and beacon
+          console.info(`Tx ${tx.txid} contains beacon address ${scriptPubKey.address} and OP_RETURN!`, tx);
+
+          // Push the signal object to to signals array
+          beaconSignals.push({
+            beaconId      : beacon.id,
+            beaconType    : beacon.type,
+            beaconAddress : beacon.address,
+            tx,
+            blockheight   : block.height,
+            blocktime     : block.time
+          });
+        };
+      }
+
+      height += 1;
+      const tip = await bitcoin.network.rpc.getBlockCount();
+      if(height > tip) {
+        console.info(`Chain tip reached ${height}, breaking ...`);
+        break;
+      }
+
+      // Reset the block to the next block
+      block = await bitcoin.network.rpc.getBlock({ height }) as BlockV3;
+    }
+
+    return beaconSignals;
+  }
+
+  /**
+   * Helper method for the {@link findNextSignals | Find Next Signals} algorithm.
+   * @param {Array<BeaconService>} beacons The beacons to process.
+   * @returns {Promise<Array<BeaconSignal>>} The beacon signals found in the block.
+   */
+  public static async findSignalsRest(beacons: Array<BeaconService>): Promise<Array<BeaconSignal>> {
+    // Empty array of beaconSignals
+    const beaconSignals = new Array<BeaconSignal>();
+
+    // Iterate over each beacon
+    for (const beacon of beacons) {
+      // Get the transactions for the beacon address via REST
+      const transactions = await bitcoin.network.rest.address.getTxs(beacon.address);
+
+      // If no transactions are found, continue
+      if (!transactions || transactions.length === 0) {
+        continue;
+      }
+
+      // Iterate over each transaction and push a beaconSignal
+      for (const tx of transactions) {
+        for(const vout of tx.vout) {
+          if(vout.scriptpubkey_asm.includes('OP_RETURN')) {
+            beaconSignals.push({
+              beaconId      : beacon.id,
+              beaconType    : beacon.type,
+              beaconAddress : beacon.address,
+              tx,
+              blockheight   : tx.status.block_height,
+              blocktime     : tx.status.block_time,
+            });
+          }
+        }
+      }
+    }
+
+    // Return the beaconSignals
+    return beaconSignals;
   }
 
   /**
@@ -438,9 +633,9 @@ export class Resolve {
     //    SingletonBeacon, CASBeacon and SMTBeacon.
     // 3. For each beacon in beacons convert the beacon.serviceEndpoint to a Bitcoin address
     //    following BIP21. Set beacon.address to the Bitcoin address.
-    const beacons = BeaconUtils.toBeaconServiceAddress(
-      BeaconUtils.getBeaconServices(contemporaryDidDocument)
-    );
+    const beacons = contemporaryDidDocument.service
+      .filter(BeaconUtils.isBeaconService)
+      .map(BeaconUtils.parseBeaconServiceEndpoint);
 
     // 4. Set nextSignals to the result of calling algorithm Find Next Signals passing in contemporaryBlockheight,
     //    beacons and network.
@@ -501,13 +696,13 @@ export class Resolve {
         const { proof, ...unsecuredUpdate } = update;
 
         // 10.2.7 Set updateHash to the result of passing unsecuredUpdate into the JSON Canonicalization and Hash algorithm.
-        const updateHash = await canonicalization.process(unsecuredUpdate, { encoding: 'base58' });
+        const updateHash = canonicalization.process(unsecuredUpdate, { encoding: 'base58' });
 
         // 10.2.8. Push updateHash onto updateHashHistory.
         updateHashHistory.push(updateHash as string);
 
         // 10.2.9. Set contemporaryHash to result of passing contemporaryDIDDocument into the JSON Canonicalization and Hash algorithm.
-        contemporaryHash = await canonicalization.process(contemporaryDidDocument, { encoding: 'base58' });
+        contemporaryHash = canonicalization.process(contemporaryDidDocument, { encoding: 'base58' });
 
         //  10.3. If update.targetVersionId is greater than currentVersionId + 1, MUST throw a LatePublishing error.
       } else if (update.targetVersionId > Number(currentVersionId) + 1) {
@@ -526,60 +721,54 @@ export class Resolve {
 
 
   /**
-   * Implements {@link https://dcdpr.github.io/did-btcr2/#find-next-signals | 4.2.3.3 Find Next Signals}.
-   *
-   * The Find Next Signals algorithm finds the next Bitcoin block containing Beacon Signals from one or more of the
-   * beacons and retuns all Beacon Signals within that block.
-   *
-   * It takes the following inputs:
-   *  - `contemporaryBlockhieght`: The height of the block this function is looking for Beacon Signals in.
-   *                               An integer greater or equal to 0.
-   *  - `targetBlockheight`: The height of the Bitcoin block that the resolution algorithm searches for Beacon Signals
-   *                         up to. An integer greater or equal to 0.
-   *  - `beacons`: An array of Beacon services in the contemporary DID document. Each Beacon contains properties:
-   *      - `id`: The id of the Beacon service in the DID document. A string.
-   *      - `type`: The type of the Beacon service in the DID document. A string whose values MUST be
-   *                          either SingletonBeacon, CASBeacon or SMTBeacon.
-   *      - `serviceEndpoint`: A BIP21 URI representing a Bitcoin address.
-   *      - `address`: The Bitcoin address decoded from the `serviceEndpoint value.
-   *  - `network`: A string identifying the Bitcoin network of the did:btcr2 did. This algorithm MUST query the
-   *               Bitcoin blockchain identified by the network.
-   *
-   * It returns a nextSignals struct, containing the following properties:
-   *  - blockheight: The Bitcoin blockheight for the block containing the Beacon Signals.
-   *  - signals: An array of signals. Each signal is a struct containing the following:
-   *      - beaconId: The id for the Beacon that the signal was announced by.
-   *      - beaconType: The type of the Beacon that announced the signal.
-   *      - tx: The Bitcoin transaction that is the Beacon Signal.
-   *
-   * @public
-   * @param {FindNextSignalsParams} params The parameters for the findNextSignals operation.
-   * @param {number} params.contemporaryBlockHeight The blockheight to start looking for beacon signals.
-   * @param {Array<BeaconService>} params.beacons The beacons to look for in the block.
-   * @param {Array<BeaconService>} params.network The bitcoin network to connect to (mainnet, signet, testnet, regtest).
-   * @param {UnixTimestamp} params.targetTime The timestamp used to target specific historical states of a DID document.
-   *    Only Beacon Signals included in the Bitcoin blockchain before the targetTime are processed.
-   * @returns {Promise<Array<BeaconSignal>>} An array of BeaconSignal objects with blockHeight and signals.
+   * Retrieves the beacon signals for the given array of BeaconService objects
+   * using a esplora/electrs REST API connection via a bitcoin I/O driver.
+   * @param {Array<BeaconService>} beacons Array of BeaconService objects to retrieve signals for
+   * @returns {Promise<Array<BeaconSignal>>} Promise resolving to an array of BeaconSignal objects
    */
-  static async findNextSignals({ contemporaryBlockHeight, targetTime, network, beacons }: {
-    contemporaryBlockHeight: number;
-    beacons: Array<BeaconServiceAddress>;
-    network: string;
-    targetTime: UnixTimestamp;
-  }): Promise<Array<BeaconSignal>> {
-    let height = contemporaryBlockHeight;
+  static async getBeaconSignals(beacons: Array<BeaconService>): Promise<Array<BeaconSignal>> {
+    // Empty array of beaconSignals
+    const beaconSignals = new Array<BeaconSignal>();
 
-    // Create an default beaconSignal and beaconSignals array
-    let beaconSignals: BeaconSignals = [];
+    // Iterate over each beacon
+    for (const beacon of beacons) {
+      const address = beacon.serviceEndpoint.replace('bitcoin:', '');
 
-    // Get the bitcoin network connection
-    bitcoin.setActiveNetwork(network);
+      // Get the transactions for the beacon address via REST
+      const transactions = await bitcoin.network.rest.address.getTxs(address);
 
-    // Opt into REST connection if available
-    if(bitcoin.network.rest) {
-      return await this.findSignalsRest(beacons);
+      // If no transactions are found, continue
+      if (!transactions || transactions.length === 0) {
+        continue;
+      }
+
+      // Iterate over each transaction and push a beaconSignal
+      for (const tx of transactions) {
+        for(const vout of tx.vout) {
+          if(vout.scriptpubkey_asm.includes('OP_RETURN')) {
+            beaconSignals.push({
+              beaconId      : beacon.id,
+              beaconType    : beacon.type,
+              beaconAddress : beacon.address,
+              tx,
+              blockheight   : tx.status.block_height,
+              blocktime     : tx.status.block_time,
+            });
+          }
+        }
+      }
     }
 
+    // Return the beaconSignals
+    return beaconSignals;
+  }
+
+  /**
+   * Finds beacon signals by brute force blockchain traversal.
+   *
+   */
+  static async findBeaconSignals(beacons: Array<BeaconService>, height: number, targetTime: number) {
+    const beaconSignals = new Array<BeaconSignal>();
     // If no rest and no rpc connection is available, throw an error
     if (!bitcoin.network.rpc) {
       throw new ResolveError(
@@ -591,7 +780,7 @@ export class Resolve {
     // Opt into rpc connection to get the block data at the blockhash
     let block = await bitcoin.network.rpc.getBlock({ height }) as BlockV3;
 
-    Logger.info(`Searching for signals, please wait ...`);
+    console.info(`Searching for signals, please wait ...`);
     while (block.time <= targetTime) {
       // Iterate over each transaction in the block
       for (const tx of block.tx) {
@@ -652,7 +841,7 @@ export class Resolve {
           }
 
           // Log the found txid and beacon
-          Logger.info(`Tx ${tx.txid} contains beacon address ${scriptPubKey.address} and OP_RETURN!`, tx);
+          console.info(`Tx ${tx.txid} contains beacon address ${scriptPubKey.address} and OP_RETURN!`, tx);
 
           // Push the signal object to to signals array
           beaconSignals.push({
@@ -669,7 +858,7 @@ export class Resolve {
       height += 1;
       const tip = await bitcoin.network.rpc.getBlockCount();
       if(height > tip) {
-        Logger.info(`Chain tip reached ${height}, breaking ...`);
+        console.info(`Chain tip reached ${height}, breaking ...`);
         break;
       }
 
@@ -677,46 +866,6 @@ export class Resolve {
       block = await bitcoin.network.rpc.getBlock({ height }) as BlockV3;
     }
 
-    return beaconSignals;
-  }
-
-  /**
-   * Helper method for the {@link findNextSignals | Find Next Signals} algorithm.
-   * @param {Array<BeaconService>} beacons The beacons to process.
-   * @returns {Promise<Array<BeaconSignal>>} The beacon signals found in the block.
-   */
-  static async findSignalsRest(beacons: Array<BeaconService>): Promise<Array<BeaconSignal>> {
-    // Empty array of beaconSignals
-    const beaconSignals = new Array<BeaconSignal>();
-
-    // Iterate over each beacon
-    for (const beacon of BeaconUtils.toBeaconServiceAddress(beacons)) {
-      // Get the transactions for the beacon address via REST
-      const transactions = await bitcoin.network.rest.address.getTxs(beacon.address);
-
-      // If no transactions are found, continue
-      if (!transactions || transactions.length === 0) {
-        continue;
-      }
-
-      // Iterate over each transaction and push a beaconSignal
-      for (const tx of transactions) {
-        for(const vout of tx.vout) {
-          if(vout.scriptpubkey_asm.includes('OP_RETURN')) {
-            beaconSignals.push({
-              beaconId      : beacon.id,
-              beaconType    : beacon.type,
-              beaconAddress : beacon.address,
-              tx,
-              blockheight   : tx.status.block_height,
-              blocktime     : tx.status.block_time,
-            });
-          }
-        }
-      }
-    }
-
-    // Return the beaconSignals
     return beaconSignals;
   }
 

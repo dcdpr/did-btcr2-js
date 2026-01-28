@@ -2,6 +2,7 @@ import { JsonPatch, UnixTimestamp } from '@did-btcr2/common';
 import { DidResolutionOptions } from '@web5/dids';
 import { DidDocument } from '../utils/did-document.js';
 import { SidecarData } from './types.js';
+import { BitcoinNetworkConnection } from '@did-btcr2/bitcoin';
 
 export interface RootCapability {
     '@context': string;
@@ -41,9 +42,18 @@ export interface ResolutionOptions extends DidResolutionOptions {
   versionTime?: UnixTimestamp;
 
   /**
-   * See {@link https://dcdpr.github.io/did-btcr2/data-structures.html#sidecar-data-example-panel-show | Sidecar (data structure)}.
+   * Data transmitted via {@link https://dcdpr.github.io/did-btcr2/data-structures.html#sidecar-data-example-panel-show | Sidecar (data structure)}.
+   * Includes Singleton beacon updates, CAS announcements, and SMT proofs.
    */
   sidecar?: SidecarData;
+
+  /**
+   * Optional I/O drivers for certain external operations, such as a Bitcoin
+   * network connection driver for interacting with the Bitcoin network.
+   */
+  drivers?: {
+    bitcoin: BitcoinNetworkConnection;
+  };
 }
 
 /**

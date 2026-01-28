@@ -20,6 +20,7 @@ import { BeaconService } from './beacon/interfaces.js';
 import { Identifier } from './identifier.js';
 import { BTCR2SignedUpdate, DataIntegrityConfig } from './interfaces.js';
 import { BeaconFactory } from './beacon/factory.js';
+import { SidecarData } from './types.js';
 
 export interface ConstructUpdateParams {
     identifier: string;
@@ -240,12 +241,12 @@ export class Update {
     sourceDocument: DidDocument;
     beaconIds: string[];
     signedUpdate: BTCR2SignedUpdate;
-  }): Promise<BTCR2SignedUpdate> {
+  }): Promise<SidecarData> {
     // 1. Set beaconServices to an empty array.
     const beaconServices: BeaconService[] = [];
 
-    // 2. signalMetadata to an empty array.
-    let signalsMetadata;
+    // 2. sidecarData to an empty array.
+    let sidecarData: SidecarData | undefined;
 
     // 3. For beaconId in beaconIds:
     for (const beaconId of beaconIds) {
@@ -276,16 +277,16 @@ export class Update {
       // 4.5 Else:
       //    4.5.1 MUST throw invalidBeacon error.
       const beacon = BeaconFactory.establish(beaconService);
-      signalsMetadata = await beacon.broadcastSignal(signedUpdate);
+      sidecarData = await beacon.broadcastSignal(signedUpdate);
     }
-    if(!signalsMetadata) {
+    if(!sidecarData) {
       throw new MethodError(
-        'Invalid beacon: no signalsMetadata found',
+        'Invalid beacon: no sidecarData found',
         INVALID_DID_DOCUMENT, { beaconServices }
       );
     }
-    Logger.debug('signalsMetadata', signalsMetadata);
-    // Return the signalsMetadata
-    return signalsMetadata;
+    Logger.debug('sidecarData', sidecarData);
+    // Return the sidecarData
+    return sidecarData;
   }
 }

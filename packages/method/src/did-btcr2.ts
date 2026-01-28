@@ -26,6 +26,7 @@ import { DidDocument, DidVerificationMethod } from './utils/did-document.js';
 import { ResolutionOptions } from './core/interfaces.js';
 import { SidecarData } from './core/types.js';
 import { Update } from './core/update.js';
+import { bitcoin } from '@did-btcr2/bitcoin';
 
 // TODO: convert to API driver
 export const canonicalization = new Canonicalization();
@@ -111,7 +112,7 @@ export class DidBtcr2 implements DidMethod {
    * @param {ResolutionOptions} [resolutionOptions] see {@link https://www.w3.org/TR/did-1.0/#did-resolution-options | ResolutionOptions}
    * @param {number} resolutionOptions.versionId the version of the identifier and/or DID document
    * @param {number} resolutionOptions.versionTime a timestamp used during resolution as a bound for when to stop resolving
-   * @param {DidDocument} resolutionOptions.sidecarData data necessary for resolving a DID
+   * @param {DidDocument} resolutionOptions.sidecar data necessary for resolving a DID
    * @param {string} resolutionOptions.network Bitcoin network name (mainnet, testnet, signet, regtest).
    * @returns {Promise<DidResolutionResult>} Promise resolving to a DID Resolution Result containing the `targetDocument`
    * @throws {Error} if the resolution fails for any reason
@@ -128,17 +129,21 @@ export class DidBtcr2 implements DidMethod {
       // Decode the did to be resolved
       const didComponents = Identifier.decode(did);
 
-      // Establish the current document
-      const genesisDocument = resolutionOptions.genesisDocument;
-      const currentDocument = await Resolve.currentDocument({ did, didComponents, genesisDocument });
-
       // Process the sidecar data if provided
       const sidecar = Resolve.processSidecarData(resolutionOptions.sidecar);
 
       // Set the network based on the decoded identifier
       const network = resolutionOptions.network ?? didComponents.network;
 
-      const targetDocument = await Resolve.processBeaconSignals({ currentDocument, resolutionOptions });
+      // Establish a connection to a bitcoin network
+      (resolutionOptions.drivers?.bitcoin ?? bitcoin).setActiveNetwork(network);
+
+      // Establish the current document
+      const genesisDocument = resolutionOptions.genesisDocument;
+
+      const currentDocument = await Resolve.establishCurrentDocument({ did, didComponents, genesisDocument });
+
+      const beaconSignals = await Resolve.processBeaconSignals(currentDocument, resolutionOptions);
 
       // 5. Return targetDocument.
       const didResolutionResult: DidResolutionResult = {
