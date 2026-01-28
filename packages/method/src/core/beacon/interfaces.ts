@@ -1,6 +1,8 @@
 import { RawTransactionRest, RawTransactionV2 } from '@did-btcr2/bitcoin';
 import { UnixTimestamp } from '@did-btcr2/common';
 import { DidServiceEndpoint, DidService as IDidService } from '@web5/dids';
+import { SidecarData } from '../types.js';
+import { BTCR2UnsignedUpdate } from '../interfaces.js';
 
 /**
  * Beacon interface
@@ -34,31 +36,30 @@ export interface IBeacon {
 
     /**
      * Generates a Beacon Signal Transaction
-     * @param {string} didUpdatePayload The DID update payload
+     * @param {string} unsignedUpdate The unsigned BTCR2 update encoded as a string
      * @returns {BeaconSignal} The Beacon Signal
      */
-    generateSignal(didUpdatePayload: string): BeaconSignal;
+    generateSignal(unsignedUpdate: string): BeaconSignal;
 
     /**
      * Processes a Beacon Signal.
      * @param {RawTransactionV2} signal The raw transaction
-     * @param {SidecarData} signalsMetadata The signals metadata from the sidecar data
-     * @returns {Promise<DidUpdatePayload | undefined>} The DID update payload
+     * @param {SidecarData} sidecar The sidecar data
+     * @returns {Promise<BTCR2UnsignedUpdate | undefined>} The unsigned BTCR2 update
      */
-    processSignal(signal: RawTransactionV2, signalsMetadata: SignalsMetadata): Promise<DidUpdatePayload | undefined>;
+    processSignal(signal: RawTransactionV2, sidecar: SidecarData): Promise<BTCR2UnsignedUpdate | undefined>;
 
 
     /**
      * Broadcasts a signal.
-     * @param {DidUpdatePayload} didUpdatePayload The DID update payload.
-     * @returns {Promise<SignalMetadata>} The signal metadata.
+     * @param {BTCR2UnsignedUpdate} unsignedUpdate The unsigned BTCR2 update
+     * @returns {Promise<SidecarData>} The sidecar data.
      */
-    broadcastSignal(didUpdatePayload: DidUpdatePayload): Promise<SignalsMetadata>;
+    broadcastSignal(unsignedUpdate: BTCR2UnsignedUpdate): Promise<SidecarData>;
 }
 
 export interface BeaconService extends IDidService {
     serviceEndpoint: DidServiceEndpoint;
-    casType?: string;
 }
 
 export interface BeaconServiceAddress extends BeaconService {
@@ -94,7 +95,7 @@ export interface BeaconSignal {
  * The current, active Beacons of a DID document are specified in the document’s service property. By updating the DID
  * document, a DID controller can change the set of Beacons they can use to broadcast updates to their DID document over
  * time. Resolution of a DID MUST process signals from all Beacons identified in the latest DID document and apply them
- * in order determined by the version specified by the didUpdatePayload.
+ * in order determined by the version specified by the unsignedUpdate.
  * All resolvers of did:btcr2 DIDs MUST support the core Beacon Types defined in this specification.
  *
  * @abstract
@@ -122,15 +123,15 @@ export abstract class Beacon implements IBeacon {
   /**
    * Generates a Beacon Signal (implemented by subclasses).
    */
-  abstract generateSignal(didUpdatePayload: string): BeaconSignal;
+  abstract generateSignal(unsignedUpdate: string): BeaconSignal;
 
   /**
    * Processes a Beacon Signal (implemented by subclasses).
    */
-  abstract processSignal(signal: RawTransactionRest | RawTransactionV2, signalsMetadata: SignalsMetadata): Promise<DidUpdatePayload | undefined>
+  abstract processSignal(signal: RawTransactionRest | RawTransactionV2, signalsMetadata: SidecarData): Promise<BTCR2UnsignedUpdate | undefined>
 
   /**
    * Broadcasts a Beacon Signal (implemented by subclasses).
    */
-  abstract broadcastSignal(didUpdatePayload: DidUpdatePayload): Promise<SignalsMetadata>;
+  abstract broadcastSignal(unsignedUpdate: BTCR2UnsignedUpdate): Promise<SidecarData>;
 }
