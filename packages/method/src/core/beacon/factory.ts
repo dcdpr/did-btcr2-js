@@ -1,9 +1,9 @@
 import { MethodError } from '@did-btcr2/common';
-import { Beacon, BeaconService } from '../../interfaces/beacon.js';
+import { Beacon, BeaconService } from './interfaces.js';
 import { CIDAggregateSidecar, SidecarData, SMTAggregateSidecar } from '../../utils/types.js';
-import { CIDAggregateBeacon } from './cid-aggregate.js';
+import { CASBeacon } from './cid-aggregate.js';
 import { SingletonBeacon } from './singleton.js';
-import { SMTAggregateBeacon } from './smt-aggregate.js';
+import { SMTBeacon } from './smt-aggregate.js';
 
 /**
  * Beacon Factory pattern to create Beacon instances.
@@ -21,10 +21,10 @@ export class BeaconFactory {
     switch (service.type) {
       case 'SingletonBeacon':
         return new SingletonBeacon(service, sidecar);
-      case 'CIDAggregateBeacon':
-        return new CIDAggregateBeacon(service, sidecar as CIDAggregateSidecar);
-      case 'SMTAggregateBeacon':
-        return new SMTAggregateBeacon(service, sidecar as SMTAggregateSidecar);
+      case 'CASBeacon':
+        return new CASBeacon(service, sidecar as CIDAggregateSidecar);
+      case 'SMTBeacon':
+        return new SMTBeacon(service, sidecar as SMTAggregateSidecar);
       default:
         throw new MethodError(
           'Invalid Beacon Type',

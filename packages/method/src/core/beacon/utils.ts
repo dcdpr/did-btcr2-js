@@ -1,12 +1,14 @@
 import { DidMethodError, KeyBytes, Maybe, MethodError } from '@did-btcr2/common';
 import { DidService } from '@web5/dids';
 import { networks, payments } from 'bitcoinjs-lib';
-import { BeaconService, BeaconServiceAddress } from '../../interfaces/beacon.js';
+import { BeaconService, BeaconServiceAddress } from './interfaces.js';
 import { Appendix } from '../../utils/appendix.js';
 import { DidDocument } from '../../utils/did-document.js';
 import { BeaconFactory } from './factory.js';
+import { getNetwork } from '@did-btcr2/bitcoin';
+import { Identifier } from '../identifier.js';
 export interface GenerateBeaconParams {
-  identifier: string;
+  did: string;
   publicKey: KeyBytes;
   network: networks.Network;
   type: string;
@@ -44,7 +46,7 @@ export class BeaconUtils {
    * @returns {string} The Bitcoin address extracted from the URI
    * @throws {DidMethodError} if the URI is not a valid Bitcoin URI
    */
-  public static parseBitcoinAddress(uri: string): string {
+  static parseBitcoinAddress(uri: string): string {
     if (!uri.startsWith('bitcoin:')) {
       throw new DidMethodError('Invalid Bitcoin URI format', { type: 'BEACON_ERROR' });
     }
@@ -56,12 +58,12 @@ export class BeaconUtils {
    * @param {BeaconService} obj The object to validate
    * @returns {boolean} A boolean indicating whether the object is a Beacon Service
    */
-  public static isBeaconService(obj: Maybe<BeaconService>): boolean {
+  static isBeaconService(obj: Maybe<BeaconService>): boolean {
     // Return false if the given obj is not a valid DidService.
     if(!Appendix.isDidService(obj)) return false;
 
     // Return false if the type is not a valid beacon service type.
-    if(!['SingletonBeacon', 'CIDAggregateBeacon', 'SMTAggregateBeacon'].includes(obj.type)) return false;
+    if(!['SingletonBeacon', 'CASBeacon', 'SMTBeacon'].includes(obj.type)) return false;
 
     // Return false if the serviceEndpoint is not a valid BIP21 bitcoin address.
     if ([obj.serviceEndpoint].flat().some(ep => typeof ep === 'string' && !ep.startsWith('bitcoin:'))) return false;
@@ -79,37 +81,33 @@ export class BeaconUtils {
    * @returns {DidService[]} An array of DidService objects
    * @throws {TypeError} if the didDocument is not provided
    */
-  public static getBeaconServices(didDocument: DidDocument): BeaconService[] {
-    // Filter out any invalid did service objects.
-    const didServices: DidService[] = didDocument.service?.filter(Appendix.isDidService) ?? [];
+  static getBeaconServices(didDocument: DidDocument): BeaconService[] {
     // Filter for valid beacon service objects.
-    return (didServices.filter(this.isBeaconService) ?? []) as BeaconService[];
+    return (didDocument.service.filter(this.isBeaconService) ?? []) as BeaconService[];
   }
 
   /**
-   * Generate all 3 Beacon Service Endpoints for a given public key.
+   * Create the 3 default Beacon Service Endpoints for a given `k` (public-key-based) identifier.
    * @param {GenerateBitcoinAddrsParams} params Required parameters for generating Beacon Services.
    * @param {KeyBytes} params.publicKey Public key bytes used to generate the beacon object serviceEndpoint.
    * @param {Network} params.network Bitcoin network interface from bitcoinlib-js.
    * @returns {Array<Array<string>>} 2D Array of bitcoin addresses (p2pkh, p2wpkh, p2tr).
    * @throws {DidMethodError} if the bitcoin address is invalid.
    */
-  public static generateBeaconAddresses({ identifier, publicKey, network }: {
-    identifier: string;
-    publicKey: KeyBytes;
-    network: networks.Network;
-  }): Array<Array<string>> {
+  static createBeaconServices(did: string): Array<Array<string>> {
     try {
-      const p2pkh = payments.p2pkh({ pubkey: publicKey, network }).address;
-      const p2wpkh = payments.p2wpkh({ pubkey: publicKey, network }).address;
-      const p2tr = payments.p2tr({ network, internalPubkey: publicKey.slice(1, 33) }).address;
+      const components = Identifier.decode(did);
+      const network = getNetwork(components.network);
+      const p2pkh = payments.p2pkh({ pubkey: components.genesisBytes, network }).address;
+      const p2wpkh = payments.p2wpkh({ pubkey: components.genesisBytes, network }).address;
+      const p2tr = payments.p2tr({ network, internalPubkey: components.genesisBytes.slice(1, 33) }).address;
       if (!p2pkh || !p2wpkh || !p2tr) {
         throw new DidMethodError('Failed to generate bitcoin addresses');
       }
       return [
-        [`${identifier}#initialP2PKH`, p2pkh],
-        [`${identifier}#initialP2WPKH`, p2wpkh],
-        [`${identifier}#initialP2TR`, p2tr]
+        [`${did}#initialP2PKH`, p2pkh],
+        [`${did}#initialP2WPKH`, p2wpkh],
+        [`${did}#initialP2TR`, p2tr]
       ];
     } catch (error) {
       console.error(error);
@@ -127,7 +125,7 @@ export class BeaconUtils {
    * @returns {BeaconService} A BeaconService object.
    * @throws {DidMethodError} if the bitcoin address is invalid.
    */
-  public static generateBeaconService({ id, publicKey: pubkey, network, addressType, type }: {
+  static generateBeaconService({ id, publicKey: pubkey, network, addressType, type }: {
     id: string;
     publicKey: KeyBytes;
     network: networks.Network;
@@ -151,7 +149,7 @@ export class BeaconUtils {
    * @param {GenerateBeaconServicesParams} params Required parameters for generating Beacon Services.
    * @returns
    */
-  public static generateBeaconServiceCustom({ id, publicKey: pubkey, network, addressType, type }: {
+  static generateBeaconServiceCustom({ id, publicKey: pubkey, network, addressType, type }: {
     id: string;
     publicKey: KeyBytes;
     network: networks.Network;
@@ -161,7 +159,7 @@ export class BeaconUtils {
     try {
       if(!id.includes('#')) {
         throw new MethodError(
-          'Invalid id format. It should include a fragment identifier (e.g., #initialP2PKH).',
+          'Invalid id format. It should include a fragment did (e.g., #initialP2PKH).',
           'BEACON_ERROR',
           { id }
         );
@@ -182,14 +180,9 @@ export class BeaconUtils {
    * @param {string} params.beaconType Optional beacon type to use (default: SingletonBeacon).
    * @returns {DidService[]} Array of DidService objects.
    */
-  public static generateBeaconServices({ identifier, network, type, publicKey }: {
-    identifier: string;
-    publicKey: KeyBytes;
-    network: networks.Network;
-    type: string;
-  }): Array<BeaconService> {
+  static generateBeaconServices({ did, type }: { did: string; type: string; }): Array<BeaconService> {
     // Generate the bitcoin addresses
-    const bitcoinAddrs = this.generateBeaconAddresses({ identifier, publicKey, network, });
+    const bitcoinAddrs = this.createBeaconServices(did);
 
     // Map the bitcoin addresses to the beacon service
     return bitcoinAddrs.map(([id, address]) => {
@@ -205,21 +198,16 @@ export class BeaconUtils {
   /**
    * Generate a single beacon service.
    * @param {GenerateBeaconParams} params Required parameters for generating a single Beacon Service.
-   * @param {string} params.identifier The identifier for the beacon service.
+   * @param {string} params.did The did for the beacon service.
    * @param {string} params.network The name of the Bitcoin network to use.
    * @param {Uint8Array} params.publicKey Byte array representation of a public key used to generate a new btcr2 key-id-type.
    * @param {string} params.type The type of beacon service to create.
    * @returns {BeaconService} A BeaconService object.
    * @throws {DidMethodError} if the bitcoin address is invalid.
    */
-  public static generateBeacon({ identifier, network, type, publicKey }: {
-    identifier: string;
-    publicKey: KeyBytes;
-    network: networks.Network;
-    type: string;
-  }): BeaconService {
+  static generateBeacon({ did, type }: { did: string; type: string; }): BeaconService {
     // Generate the bitcoin addresses
-    const bitcoinAddrs = this.generateBeaconAddresses({ identifier, publicKey, network, });
+    const bitcoinAddrs = this.createBeaconServices(did);
 
     // Map the bitcoin addresses to the beacon service
     const beacon = bitcoinAddrs.map(([id, address]) => {
@@ -242,17 +230,17 @@ export class BeaconUtils {
    * @param {string} params.bitcoinAddress The bitcoin address to use for the service endpoint.
    * @returns {BeaconService} One BeaconService object.
    */
-  public static manufactureBeacon(params: BeaconService): BeaconService {
+  static manufactureBeacon(params: BeaconService): BeaconService {
     return BeaconFactory.establish(params).service;
   }
 
   /**
    * Convert beacon service endpoints from BIP-21 URIs to addresses.
-   * @param {Array<BeaconService>} beacons The list of beacon services.
-   * @returns {Array<BeaconServiceAddress>} An array of beacon services with address: bitcoinAddress.
+   * @param {BeaconService} beacon The beacon service to parse.
+   * @returns {BeaconServiceAddress} The beacon service with the address field extracted from the serviceEndpoint.
    */
-  public static toBeaconServiceAddress(beacons: Array<BeaconService>): Array<BeaconServiceAddress> {
-    return beacons.map((beacon) => ({ ...beacon, address: beacon.serviceEndpoint.replace('bitcoin:', '')}));
+  static parseBeaconServiceEndpoint(beacon: BeaconService): BeaconServiceAddress {
+    return { ...beacon, address: beacon.serviceEndpoint.replace('bitcoin:', '')};
   }
 
   /**
@@ -260,8 +248,8 @@ export class BeaconUtils {
    * @param {Array<BeaconService>} beacons The list of beacon services.
    * @returns {Map<string, BeaconServiceAddress>} A map of address => beaconService.
    */
-  public static getBeaconServiceAddressMap(beacons: Array<BeaconService>): Map<string, BeaconServiceAddress> {
-    const beaconAddrs = this.toBeaconServiceAddress(beacons);
+  static getBeaconServiceAddressMap(beacons: Array<BeaconService>): Map<string, BeaconServiceAddress> {
+    const beaconAddrs = beacons.map(this.parseBeaconServiceEndpoint);
     return new Map<string, BeaconServiceAddress>(beaconAddrs.map((beacon) => ([beacon.address, beacon])));
   }
 
@@ -270,7 +258,7 @@ export class BeaconUtils {
    * @param {DidDocument} didDocument The DID Document to extract the services from.
    * @returns {string[]} An array of beacon service ids.
    */
-  public static getBeaconServiceIds(didDocument: DidDocument): string[] {
+  static getBeaconServiceIds(didDocument: DidDocument): string[] {
     return this.getBeaconServices(didDocument).map((beacon) => beacon.id);
   }
 }

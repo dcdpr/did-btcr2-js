@@ -1,8 +1,9 @@
 import { RawTransactionV2 } from '@did-btcr2/bitcoin';
-import { DidUpdateInvocation, DidUpdatePayload, MethodError } from '@did-btcr2/common';
 import { DidServiceEndpoint } from '@web5/dids';
-import { Beacon, BeaconService, BeaconSignal } from '../../interfaces/beacon.js';
-import { BeaconSidecarData, CIDAggregateSidecar, SignalsMetadata } from '../../utils/types.js';
+import { Beacon, BeaconService, BeaconSignal } from './interfaces.js';
+import { SidecarData } from '../types.js';
+import { MethodError } from '@did-btcr2/common';
+import { BTCR2SignedUpdate } from '../interfaces.js';
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/#cidaggregate-beacon | 5.2 CIDAggregate Beacon}.
@@ -16,18 +17,18 @@ import { BeaconSidecarData, CIDAggregateSidecar, SignalsMetadata } from '../../u
  * participate in authorizing Bitcoin transactions from this Beacon. In other words, this Beacon SHOULD identify an
  * n-of-n P2TR Bitcoin address where n is the number of unique DID controllers submitting updates through the Beacon.
  *
- * @class CIDAggregateBeacon
- * @type {CIDAggregateBeacon}
+ * @class CASBeacon
+ * @type {CASBeacon}
  * @extends {Beacon}
  */
-export class CIDAggregateBeacon extends Beacon {
+export class CASBeacon extends Beacon {
   /**
-   * Creates an instance of CIDAggregateBeacon.
+   * Creates an instance of CASBeacon.
    * @param {BeaconService} service The service of the Beacon.
    * @param {?BeaconSidecarData} [sidecar] The sidecar data of the Beacon.
    */
-  constructor(service: BeaconService, sidecar?: BeaconSidecarData<CIDAggregateSidecar>) {
-    super({ ...service, type: 'CIDAggregateBeacon' }, sidecar);
+  constructor(service: BeaconService, sidecar?: SidecarData) {
+    super({ ...service, type: 'CASBeacon' }, sidecar);
   }
   get service(): BeaconService {
     return {
@@ -54,21 +55,21 @@ export class CIDAggregateBeacon extends Beacon {
    * @param {string} id The identifier of the Beacon.
    * @param {string} type The type of the Beacon.
    * @param {DidServiceEndpoint} serviceEndpoint The service endpoint of the Beacon.
-   * @returns {CIDAggregateBeacon} The established CIDAggregate Beacon.
+   * @returns {CASBeacon} The established CIDAggregate Beacon.
    */
-  static establish(id: string, type: string, serviceEndpoint: DidServiceEndpoint): CIDAggregateBeacon {
-    return new CIDAggregateBeacon({ id, type, serviceEndpoint });
+  static establish(id: string, type: string, serviceEndpoint: DidServiceEndpoint): CASBeacon {
+    return new CASBeacon({ id, type, serviceEndpoint });
   }
 
 
   /**
    * TODO: Figure out if this is necessary or not.
-   * @param {string} didUpdatePayload The DID Update Payload to generate the signal for.
+   * @param {string} BTCR2SignedUpdate The DID Update Payload to generate the signal for.
    * @returns {BeaconSignal} The generated signal.
    * @throws {MethodError} if the signal is invalid.
    */
-  generateSignal(didUpdatePayload: string): BeaconSignal {
-    throw new MethodError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`, {didUpdatePayload});
+  generateSignal(update: string): BeaconSignal {
+    throw new MethodError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`, {update});
   }
 
 
@@ -95,12 +96,12 @@ export class CIDAggregateBeacon extends Beacon {
    * did:btcr2 identifier being resolved or throws an error.
    *
    * @param {RawTransactionV2} signal Bitcoin transaction representing a Beacon Signal.
-   * @param {SignalsMetadata} signalsMetadata Optional sidecar data for the Beacon Signal.
-   * @returns {Promise<DidUpdatePayload | undefined>} The DID Update payload announced by the Beacon Signal.
+   * @param {SidecarData} sidecar Optional sidecar data for the Beacon Signal.
+   * @returns {Promise<BTCR2SignedUpdate | undefined>} The DID Update payload announced by the Beacon Signal.
    * @throws {DidError} if the signalTx is invalid or the signalsMetadata is invalid.
    */
-  processSignal(signal: RawTransactionV2, signalsMetadata: SignalsMetadata): Promise<DidUpdateInvocation | undefined> {
-    throw new MethodError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`, {signal, signalsMetadata});
+  processSignal(signal: RawTransactionV2, sidecar: SidecarData): Promise<BTCR2SignedUpdate| undefined> {
+    throw new MethodError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`, {signal, sidecar});
   }
 
   /**
@@ -116,12 +117,12 @@ export class CIDAggregateBeacon extends Beacon {
    * transaction before it can be broadcast to the network. It is RECOMMENDED that cohort participants keep a copy of
    * the DID Update Bundle and separately pin it to the CAS.
    *
-   * @param {DidUpdatePayload} didUpdatePayload The verificationMethod object to be used for signing.
+   * @param {BTCR2SignedUpdate} update The verificationMethod object to be used for signing.
    * @returns {SignalsMetadata} Successful output of a bitcoin transaction.
    * @throws {SingletonBeaconError} if the bitcoin address is invalid or unfunded.
    */
-  broadcastSignal(didUpdatePayload: DidUpdatePayload): Promise<SignalsMetadata> {
-    throw new MethodError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`, didUpdatePayload);
+  broadcastSignal(update: BTCR2SignedUpdate): Promise<BTCR2SignedUpdate> {
+    throw new MethodError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`, update);
   }
 
   /**
@@ -146,7 +147,7 @@ export class CIDAggregateBeacon extends Beacon {
    * adds into their DID document, the Beacon address is converted into a URI following BIP21:
    * {
    *    "id": "#cidAggregateBeacon",
-   *    "type": "CIDAggregateBeacon",
+   *    "type": "CASBeacon",
    *    "serviceEndpoint": "bitcoin:tb1pfdnyc8vxeca2zpsg365sn308dmrpka4e0n9c5axmp2nptdf7j6ts7eqhr8"
    * }
    */

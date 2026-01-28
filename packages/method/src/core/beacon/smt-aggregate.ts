@@ -1,7 +1,7 @@
 import { RawTransactionV2 } from '@did-btcr2/bitcoin';
 import { DidUpdatePayload, MethodError } from '@did-btcr2/common';
 import { DidServiceEndpoint } from '@web5/dids';
-import { Beacon, BeaconService, BeaconSignal } from '../../interfaces/beacon.js';
+import { Beacon, BeaconService, BeaconSignal } from './interfaces.js';
 import { BeaconSidecarData, SignalsMetadata, SMTAggregateSidecar } from '../../utils/types.js';
 
 /**
@@ -17,18 +17,18 @@ import { BeaconSidecarData, SignalsMetadata, SMTAggregateSidecar } from '../../u
  * the Beacon broadcasts. If they did not submit an update to their DID in a signal, then they MUST provide a proof of
  * non-inclusion for that signal.
  *
- * @class SMTAggregateBeacon
- * @type {SMTAggregateBeacon}
+ * @class SMTBeacon
+ * @type {SMTBeacon}
  * @extends {Beacon}
  */
-export class SMTAggregateBeacon extends Beacon {
+export class SMTBeacon extends Beacon {
   /**
-   * Creates an instance of SMTAggregateBeacon.
+   * Creates an instance of SMTBeacon.
    * @param {BeaconService} service The Beacon service.
    * @param {?BeaconSidecarData} [sidecar] Optional sidecar data.
    */
   constructor(service: BeaconService, sidecar?: BeaconSidecarData<SMTAggregateSidecar>) {
-    super({ ...service, type: 'SMTAggregateBeacon' }, sidecar);
+    super({ ...service, type: 'SMTBeacon' }, sidecar);
   }
 
   /**
@@ -75,8 +75,8 @@ export class SMTAggregateBeacon extends Beacon {
    * @param {DidServiceEndpoint} serviceEndpoint The service endpoint.
    * @returns {Beacon} The Beacon.
    */
-  public static establish(id: string, type: string, serviceEndpoint: DidServiceEndpoint): SMTAggregateBeacon {
-    return new SMTAggregateBeacon({ id, type, serviceEndpoint });
+  public static establish(id: string, type: string, serviceEndpoint: DidServiceEndpoint): SMTBeacon {
+    return new SMTBeacon({ id, type, serviceEndpoint });
   }
 
   /**

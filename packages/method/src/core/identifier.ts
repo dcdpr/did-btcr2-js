@@ -133,9 +133,6 @@ export class Identifier {
     }
     const dataBytes = new Uint8Array([(nibbles[2 * 0] << 4) | nibbles[2 * 0 + 1], ...genesisBytes]);
 
-    // 15. Set identifier to “did:btcr2:”.
-    // 16. Pass hrp and dataBytes to the Bech32m Encoding algorithm, retrieving encodedString.
-    // 17. Append encodedString to identifier.
     // 18. Return identifier.
     return `did:btcr2:${bech32m.encodeFromBytes(hrp, dataBytes)}`;
   }
