@@ -1,6 +1,6 @@
 import { BitcoinNetworkConnection } from '@did-btcr2/bitcoin';
 import { HexString, MethodError } from '@did-btcr2/common';
-import { BTCR2SignedUpdate } from '@did-btcr2/cryptosuite';
+import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { SidecarData } from '../types.js';
 import { AggregateBeacon, BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js';
 
@@ -20,8 +20,8 @@ export class SMTBeacon extends AggregateBeacon {
    */
   constructor(
     service: BeaconService,
-    signals: Array<BeaconSignal>,
-    sidecar: SidecarData,
+    signals?: Array<BeaconSignal>,
+    sidecar?: SidecarData,
     bitcoin?: BitcoinNetworkConnection
   ) {
     super({ ...service, type: 'SMTBeacon' }, signals, sidecar, bitcoin);
@@ -49,10 +49,10 @@ export class SMTBeacon extends AggregateBeacon {
 
   /**
    * Process SMTBeacon signals.
-   * @returns {Promise<Array<BTCR2SignedUpdate>>} The processed signed update or undefined.
+   * @returns {Promise<Array<SignedBTCR2Update>>} The processed signed update or undefined.
    * @throws {MethodError} if the signal processing fails.
    */
-  async processSignals(): Promise<Array<[BTCR2SignedUpdate, BlockMetadata]>> {
+  async processSignals(): Promise<Array<[SignedBTCR2Update, BlockMetadata]>> {
     throw new MethodError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`);
   }
 

@@ -21,8 +21,8 @@ import {
 import {
   BIP340Cryptosuite,
   BIP340DataIntegrityProof,
-  BTCR2SignedUpdate,
-  BTCR2UnsignedUpdate,
+  SignedBTCR2Update,
+  UnsignedBTCR2Update,
   SchnorrMultikey
 } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
@@ -64,7 +64,7 @@ export class Resolve {
    */
   static processSidecarData(sidecar: Sidecar = {} as Sidecar): SidecarData {
     // BTCR2 Signed Updates map
-    const updateMap = new Map<string, BTCR2SignedUpdate>();
+    const updateMap = new Map<string, SignedBTCR2Update>();
     if(sidecar.updates?.length)
       for(const update of sidecar.updates) {
         updateMap.set(canonicalization.process(update, { encoding: 'hex' }), update);
@@ -211,14 +211,14 @@ export class Resolve {
    * @param {SidecarData} sidecarData The sidecar data containing maps of updates, CAS announcements, and SMT proofs.
    * @param {BitcoinNetworkConnection} bitcoin The bitcoin network connection used to fetch beacon signals
    * @param {boolean} [fullBlockchainTraversal=false] Whether to perform a full blockchain traversal or use an indexer
-   * @returns {Promise<Array<[BTCR2SignedUpdate, BlockMetadata]>>} The array of BTCR2 Signed Updates announced by the Beacon Signals.
+   * @returns {Promise<Array<[SignedBTCR2Update, BlockMetadata]>>} The array of BTCR2 Signed Updates announced by the Beacon Signals.
    */
   static async processBeaconSignals(
     beaconServices: Array<BeaconService>,
     sidecarData: SidecarData,
     bitcoin: BitcoinNetworkConnection,
     fullBlockchainTraversal?: boolean
-  ): Promise<Array<[BTCR2SignedUpdate, BlockMetadata]>> {
+  ): Promise<Array<[SignedBTCR2Update, BlockMetadata]>> {
     // Query indexer or perform a full blockchain traversal for Beacon Signals
     const beaconServicesSignals = !fullBlockchainTraversal
       ? await this.queryBlockchainIndexer(beaconServices, bitcoin)
@@ -226,7 +226,7 @@ export class Resolve {
 
 
     // Set updates to an empty array
-    const unsortedUpdates = new Array<[BTCR2SignedUpdate, BlockMetadata]>();
+    const unsortedUpdates = new Array<[SignedBTCR2Update, BlockMetadata]>();
 
     // Iterate over each beacon service and its signals
     for(const [service, signals] of beaconServicesSignals) {
@@ -244,14 +244,14 @@ export class Resolve {
   /**
    * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process-updates | 7.2.f Process updates Array}.
    * @param {DidDocument} currentDocument The current DID Document to apply the updates to.
-   * @param {Array<[BTCR2SignedUpdate, BlockMetadata]>} unsortedUpdates The unsorted array of BTCR2 Signed Updates and their associated Block Metadata.
+   * @param {Array<[SignedBTCR2Update, BlockMetadata]>} unsortedUpdates The unsorted array of BTCR2 Signed Updates and their associated Block Metadata.
    * @param {string} [versionTime] The optional version time to limit updates to.
    * @param {string} [versionId] The optional version id to limit updates to.
    * @returns {Promise<DidResolutionResponse>} The updated DID Document, number of confirmations, and version id.
    */
   static async processUpdatesArray(
     currentDocument: DidDocument,
-    unsortedUpdates: Array<[BTCR2SignedUpdate, BlockMetadata]>,
+    unsortedUpdates: Array<[SignedBTCR2Update, BlockMetadata]>,
     versionTime?: string,
     versionId?: string
   ): Promise<DidResolutionResponse> {
@@ -317,7 +317,7 @@ export class Resolve {
         // Apply the update to the currentDocument and set it in the response
         response.currentDocument = await this.applyDidUpdate(response.currentDocument, update);
         // Create unsigned_update by removing the proof property from update.
-        const unsignedUpdate = JSONUtils.deleteKeys(update, ['proof']) as BTCR2UnsignedUpdate;
+        const unsignedUpdate = JSONUtils.deleteKeys(update, ['proof']) as UnsignedBTCR2Update;
         // Push the canonicalized unsigned update hash to the updateHashHistory
         updateHashHistory.push(canonicalization.process(unsignedUpdate, { encoding: 'base58' }));
       }
@@ -586,12 +586,12 @@ export class Resolve {
   /**
    * Implements subsection {@link https://dcdpr.github.io/did-btcr2/#confirm-duplicate-update | 7.2.f.1 Confirm Duplicate Update}.
    * This step confirms that an update with a lower-than-expected targetVersionId is a true duplicate.
-   * @param {BTCR2SignedUpdate} update The BTCR2 Signed Update to confirm as a duplicate.
+   * @param {SignedBTCR2Update} update The BTCR2 Signed Update to confirm as a duplicate.
    * @returns {void} Does not return a value, but throws an error if the update is not a valid duplicate.
    */
-  static confirmDuplicateUpdate(update: BTCR2SignedUpdate, updateHashHistory: string[]): void {
+  static confirmDuplicateUpdate(update: SignedBTCR2Update, updateHashHistory: string[]): void {
     // Create unsigned_update by removing the proof property from update.
-    const unsignedUpdate = JSONUtils.deleteKeys(update, ['proof']) as BTCR2UnsignedUpdate;
+    const unsignedUpdate = JSONUtils.deleteKeys(update, ['proof']) as UnsignedBTCR2Update;
 
     // Hash unsignedUpdate with JSON Document Hashing algorithm
     const unsignedUpdateHash = canonicalization.process(unsignedUpdate);
@@ -611,13 +611,13 @@ export class Resolve {
   /**
    * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#apply-update | 7.2.f.3 Apply Update}.
    * @param {DidDocument} currentDocument The current DID Document to apply the update to.
-   * @param {BTCR2SignedUpdate} update The BTCR2 Signed Update to apply.
+   * @param {SignedBTCR2Update} update The BTCR2 Signed Update to apply.
    * @returns {Promise<DidDocument>} The updated DID Document after applying the update.
    * @throws {ResolveError} If the update is invalid or cannot be applied.
    */
   static async applyDidUpdate(
     currentDocument: DidDocument,
-    update: BTCR2SignedUpdate
+    update: SignedBTCR2Update
   ): Promise<DidDocument> {
     // Get the capability id from the to update proof.
     const capabilityId = update.proof?.capability;
