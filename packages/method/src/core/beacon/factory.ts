@@ -18,7 +18,7 @@ export class BeaconFactory {
    * @param {SidecarData} sidecar - The sidecar data associated with the beacon.
    * @returns {Beacon} The established Beacon instance.
    */
-  static establish(service: BeaconService, signals: Array<BeaconSignal>, sidecar: SidecarData): AggregateBeacon {
+  static establish(service: BeaconService, signals?: Array<BeaconSignal>, sidecar?: SidecarData): AggregateBeacon {
     switch (service.type) {
       case 'SingletonBeacon':
         return new SingletonBeacon(service, signals, sidecar);

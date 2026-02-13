@@ -1,6 +1,6 @@
 import { AddressUtxo, BitcoinNetworkConnection } from '@did-btcr2/bitcoin';
 import { HexString, INVALID_SIDECAR_DATA, MethodError, MISSING_UPDATE_DATA, SingletonBeaconError } from '@did-btcr2/common';
-import { BTCR2SignedUpdate } from '@did-btcr2/cryptosuite';
+import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { Kms, Signer } from '@did-btcr2/kms';
 import { opcodes, Psbt, script } from 'bitcoinjs-lib';
@@ -26,8 +26,8 @@ export class SingletonBeacon extends AggregateBeacon {
    */
   constructor(
     service: BeaconService,
-    signals: Array<BeaconSignal>,
-    sidecar: SidecarData,
+    signals?: Array<BeaconSignal>,
+    sidecar?: SidecarData,
     bitcoin?: BitcoinNetworkConnection
   ) {
     super({ ...service, type: 'SingletonBeacon' }, signals, sidecar, bitcoin);
@@ -39,7 +39,7 @@ export class SingletonBeacon extends AggregateBeacon {
    * @param {SidecarData} sidecar The sidecar data.
    * @returns {SingletonBeacon} The Singleton Beacon.
    */
-  static establish(service: BeaconService, signals: Array<BeaconSignal>, sidecar: SidecarData): SingletonBeacon {
+  static establish(service: BeaconService, signals?: Array<BeaconSignal>, sidecar?: SidecarData): SingletonBeacon {
     return new SingletonBeacon(service, signals, sidecar);
   }
 
@@ -55,12 +55,22 @@ export class SingletonBeacon extends AggregateBeacon {
 
   /**
    * Processes an array of Beacon Signals associated with a Singleton Beacon Service.
-   * @returns {Promise<BTCR2SignedUpdate | undefined>} The DID Update payload announced by the Beacon Signal.
+   * @returns {Promise<SignedBTCR2Update | undefined>} The DID Update payload announced by the Beacon Signal.
    * @throws {SingletonBeaconError} if the signalTx is invalid or the signalSidecarData is invalid.
    */
-  async processSignals(): Promise<Array<[BTCR2SignedUpdate, BlockMetadata]>> {
+  async processSignals(): Promise<Array<[SignedBTCR2Update, BlockMetadata]>> {
+    // Ensure this.signals is defined
+    if(!this.signals) {
+      throw new SingletonBeaconError('No beacon signals to process.', 'NO_BEACON_SIGNALS', this);
+    }
+
+    // Ensure this.sidecar is defined
+    if(!this.sidecar) {
+      throw new SingletonBeaconError('No sidecar data available to process signals.', 'NO_SIDECAR_DATA', this);
+    }
+
     // Initialize an empty array to hold the BTCR2 signed updates
-    const updates = new Array<[BTCR2SignedUpdate, BlockMetadata]>();
+    const updates = new Array<[SignedBTCR2Update, BlockMetadata]>();
 
     // Loop through each signal in this.signals
     for(const signal of this.signals || []) {
@@ -68,7 +78,7 @@ export class SingletonBeacon extends AggregateBeacon {
       const updateHash = signal.signalBytes;
 
       // Use the updateHash as the sidecar data lookup key to retrieve the btcr2 update
-      const signedUpdate = this.sidecar.updateMap.get(updateHash);
+      const signedUpdate = this.sidecar?.updateMap.get(updateHash);
 
       // If no btcr2 update is found in sidecar data maps, throw missingUpdateData error.
       if(!signedUpdate) {
@@ -104,8 +114,7 @@ export class SingletonBeacon extends AggregateBeacon {
   /**
    * Broadcasts a SingletonBeacon signal.
    * TODO: Design and implement a way to construct, sign and send via RPC
-   *
-   * @returns {SignedRawTx} Successful output of a bitcoin transaction.
+   * @returns {HexString} Successful output of a bitcoin transaction.
    * @throws {SingletonBeaconError} if the bitcoin address is invalid or unfunded.
    */
   async broadcastSignal(updateHash: HexString): Promise<HexString> {
@@ -145,6 +154,7 @@ export class SingletonBeacon extends AggregateBeacon {
       index          : vout,
       nonWitnessUtxo : Buffer.from(prevTx, 'hex')
     };
+
     // TODO: Figure out a good way to estimate fees
     const spendTx  = new Psbt({ network: this.bitcoin.network.data })
       .addInput(input)
@@ -167,6 +177,7 @@ export class SingletonBeacon extends AggregateBeacon {
       .finalizeAllInputs()
       .extractTransaction()
       .toHex();
+
     if(!spendTx) {
       throw new SingletonBeaconError('Failed to sign raw transaction.', 'RAW_TX_SIGN_FAILED', { spendTx });
     }

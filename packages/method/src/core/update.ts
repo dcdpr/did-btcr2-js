@@ -1,5 +1,4 @@
 import {
-  INVALID_DID_DOCUMENT,
   INVALID_DID_UPDATE,
   INVALID_PUBLIC_KEY_TYPE,
   JSONPatch,
@@ -8,37 +7,18 @@ import {
   PatchOperation,
   UpdateError
 } from '@did-btcr2/common';
-import { BTCR2SignedUpdate, BTCR2UnsignedUpdate, DataIntegrityConfig, SchnorrMultikey } from '@did-btcr2/cryptosuite';
+import { DataIntegrityConfig, SchnorrMultikey, SignedBTCR2Update, UnsignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { Kms } from '@did-btcr2/kms';
-import type { DidService } from '@web5/dids';
 import { canonicalization } from '../did-btcr2.js';
 import { Appendix } from '../utils/appendix.js';
 import { DidDocument, DidVerificationMethod } from '../utils/did-document.js';
+import { BeaconFactory } from './beacon/factory.js';
 import { BeaconService } from './beacon/interfaces.js';
 import { Identifier } from './identifier.js';
-import { SidecarData } from './types.js';
-
-export interface ConstructUpdateParams {
-    identifier: string;
-    sourceDocument: DidDocument;
-    sourceVersionId: number;
-    patch: PatchOperation[];
-}
-
-export interface UpdateParams extends ConstructUpdateParams {
-    verificationMethodId: string;
-    beaconIds: string[];
-}
-
-export type InvokePayloadParams = {
-  identifier: string;
-  BTCR2SignedUpdate: BTCR2SignedUpdate;
-  verificationMethod: DidVerificationMethod;
-}
 
 /**
- * Implements {@link https://dcdpr.github.io/did-btcr2/#update | 4.3 Update}.
+ * Implements {@link https://dcdpr.github.io/did-btcr2/operations/update.html | 7.3 Update}.
  *
  * An update to a did:btcr2 document is an invoked capability using the ZCAP-LD
  * data format, signed by a verificationMethod that has the authority to make
@@ -51,103 +31,80 @@ export type InvokePayloadParams = {
  */
 export class Update {
   /**
-   * Implements {@link https://dcdpr.github.io/did-btcr2/#construct-did-update-payload | 4.3.1 Construct DID Update Payload}.
+   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/update.html#construct-btcr2-unsigned-update | 7.3.b Construct BTCR2 Unsigned Update}.
    *
-   * The Construct DID Update Payload algorithm applies the documentPatch to the sourceDocument and verifies the
-   * resulting targetDocument is a conformant DID document. It takes in a Identifier, sourceDocument,
-   * sourceVersionId, and documentPatch objects. It returns an unsigned DID Update Payload.
+   * This process constructs a BTCR2 Unsigned Update (data structure).
+   * Apply all JSON patches in jsonPatches to didSourceDocument to create didTargetDocument.
+   * didTargetDocument MUST be conformant to DID Core v1.1 [DID-CORE]. An INVALID_DID_UPDATE error
+   * MUST be raised if didTargetDocument.id is not equal to didSourceDocument.id.
    *
-   * @param {ConstructPayloadParams} params See  {@link ConstructPayloadParams} for more details.
-   * @param {string} params.identifier The did-btcr2 identifier to use for verification.
-   * @param {DidDocument} params.sourceDocument The source document to be updated.
-   * @param {string} params.sourceVersionId The versionId of the source document.
-   * @param {DidDocumentPatch} params.patch The JSON patch to be applied to the source document.
-   * @returns {Promise<BTCR2SignedUpdate>} The constructed BTCR2SignedUpdate object.
+   * Construct BTCR2 Unsigned Update conformant to the spec template and return it.
+   *
+   * @param {DidDocument} sourceDocument The source DID document to be updated.
+   * @param {PatchOperation[]} patches The array of JSON Patch operations to apply to the sourceDocument.
+   * @param {number} sourceVersionId The version ID of the source document.
+   * @returns {Promise<SignedBTCR2Update>} The constructed SignedBTCR2Update object.
    * @throws {MethodError} InvalidDid if sourceDocument.id does not match identifier.
    */
-  public static async construct({
-    identifier,
-    sourceDocument,
-    sourceVersionId,
-    patch,
-  }: {
-    identifier: string;
-    sourceDocument: DidDocument;
-    sourceVersionId: number;
-    patch: PatchOperation[];
-  }): Promise<BTCR2UnsignedUpdate> {
-
-    // 1. Check that sourceDocument.id equals identifier else MUST raise invalidDIDUpdate error.
-    if (sourceDocument.id !== identifier) {
-      throw new UpdateError(
-        'Identifier mismatch: sourceDocument.id !== identifier',
-        INVALID_DID_UPDATE, { sourceDocument, identifier }
-      );
-    }
-
-    // 2. Initialize an unsigned update.
-    const unsignedUpdate: BTCR2UnsignedUpdate = {
-    // 3. Set BTCR2SignedUpdate.@context to the following list
+  public static async constructUnsigned(
+    sourceDocument: DidDocument,
+    patches: PatchOperation[],
+    sourceVersionId: number,
+  ): Promise<UnsignedBTCR2Update> {
+    // Initialize an unsigned update conformant to btcr2 spec.
+    const unsignedUpdate: UnsignedBTCR2Update = {
       '@context'      : [
         'https://w3id.org/security/v2',
         'https://w3id.org/zcap/v1',
         'https://w3id.org/json-ld-patch/v1',
         'https://btcr2.dev/context/v1'
       ],
-      // 4. Set BTCR2SignedUpdate.patch to documentPatch.
-      patch,
+      patch           : patches,
       targetHash      : '',
-      targetVersionId : 0,
-      sourceHash      : '',
+      targetVersionId : sourceVersionId + 1,
+      sourceHash      : canonicalization.process(sourceDocument, { encoding: 'base58' }),
     };
 
-    // 5. Set targetDocument to the result of applying the documentPatch to the sourceDocument, following the JSON Patch
-    //    specification.
-    const targetDocument = JSONPatch.apply(sourceDocument, patch) as DidDocument;
+    // Apply all JSON patches to sourceDocument.
+    const targetDocument = JSONPatch.apply(sourceDocument, patches);
 
-    // 6. Validate targetDocument is a conformant DID document, else MUST raise invalidDIDUpdate error.
-    DidDocument.validate(targetDocument);
+    try {
+      // Ensure the targetDocument is conformant to DID Core v1.1.
+      DidDocument.isValid(targetDocument);
+    } catch (error) {
+      // If validation fails, throw an UpdateError with INVALID_DID_UPDATE.
+      throw new UpdateError(
+        'Error validating targetDocument: ' + (error instanceof Error ? error.message : String(error)),
+        INVALID_DID_UPDATE, targetDocument
+      );
+    }
 
-    // 7. Set sourceHashBytes to the result of passing sourceDocument into the JSON Canonicalization and Hash algorithm.
-    // 8. Set BTCR2SignedUpdate.sourceHash to the base58-btc Multibase encoding of sourceHashBytes.
-    unsignedUpdate.sourceHash = (canonicalization.process(sourceDocument, { encoding: 'base58' })).slice(1);
-    // TODO: Question - is base58btc the correct encoding scheme?
+    // Set the targetHash by canonicalizing the targetDocument and encoding it in base58.
+    unsignedUpdate.targetHash = canonicalization.process(targetDocument, { encoding: 'base58' });
 
-    // 9. Set targetHashBytes to the result of passing targetDocument into the JSON Canonicalization and Hash algorithm.
-    // 10. Set BTCR2SignedUpdate.targetHash to the base58-btc Multibase encoding of targetHashBytes.
-    unsignedUpdate.targetHash = (canonicalization.process(targetDocument, { encoding: 'base58' })).slice(1);
-
-    // 11. Set BTCR2SignedUpdate.targetVersionId to sourceVersionId + 1.
-    unsignedUpdate.targetVersionId = sourceVersionId + 1;
-
-    // 12. Return updatePayload.
+    // Return unsignedUpdate.
     return unsignedUpdate;
   }
 
   /**
    * {@link https://dcdpr.github.io/did-btcr2/#invoke-did-update-payload | 4.3.2 Invoke DID Update Payload}.
    *
-   * The Invoke DID Update Payload algorithm takes in a Identifier, an unsigned BTCR2SignedUpdate, and a
+   * The Invoke DID Update Payload algorithm takes in a Identifier, an unsigned SignedBTCR2Update, and a
    * verificationMethod. It retrieves the privateKeyBytes for the verificationMethod and adds a capability invocation in
    * the form of a Data Integrity proof following the Authorization Capabilities (ZCAP-LD) and VC Data Integrity
    * specifications. It returns the invoked DID Update Payload.
    *
-   * @param {InvokePayloadParams} params Required params for calling the invokePayload method
-   * @param {string} params.identifier The did-btcr2 identifier to derive the root capability from
-   * @param {BTCR2SignedUpdate} params.BTCR2SignedUpdate The updatePayload object to be signed
-   * @param {DidVerificationMethod} params.verificationMethod The verificationMethod object to be used for signing
-   * @returns {BTCR2SignedUpdate} Did update payload secured with a proof => BTCR2SignedUpdate
+   * @param {string} identifier The did-btcr2 identifier to derive the root capability from
+   * @param {UnsignedBTCR2Update} unsignedUpdate The updatePayload object to be signed
+   * @param {DidVerificationMethod} verificationMethod The verificationMethod object to be used for signing
+   * @returns {SignedBTCR2Update} Did update payload secured with a proof => SignedBTCR2Update
    * @throws {MethodError} if the privateKeyBytes are invalid
    */
-  public static async invoke({
-    identifier,
-    unsignedUpdate,
-    verificationMethod
-  }: {
-    identifier: string;
-    unsignedUpdate: BTCR2UnsignedUpdate;
-    verificationMethod: DidVerificationMethod;
-  }): Promise<BTCR2SignedUpdate> {
+  public static async constructSigned(
+    identifier: string,
+    unsignedUpdate: UnsignedBTCR2Update,
+    verificationMethod: DidVerificationMethod,
+  ): Promise<SignedBTCR2Update> {
     // Deconstruct the verificationMethod
     const { id: fullId, controller, publicKeyMultibase, secretKeyMultibase } = verificationMethod;
 
@@ -167,10 +124,12 @@ export class Update {
     // 1.2 Retrieve the key pair from the KMS or from the secretKeyMultibase
     const components = Identifier.decode(id);
     const keyUri = new CompressedSecp256k1PublicKey(components.genesisBytes).hex;
-    const keys = secretKeyMultibase
-      ? new SchnorrKeyPair({ secretKey: Secp256k1SecretKey.decode(secretKeyMultibase) })
-      : Kms.getKey(keyUri as string);
-    if (!keys) {
+    const secretKey = secretKeyMultibase ? Secp256k1SecretKey.decode(secretKeyMultibase) : undefined;
+    const keyPair = secretKey
+      ? new SchnorrKeyPair({ secretKey })
+      : Kms.getKey(keyUri);
+
+    if (!keyPair) {
       throw new MethodError(
         'No privateKey found in kms or vm',
         NOT_FOUND, verificationMethod
@@ -178,7 +137,7 @@ export class Update {
     }
 
     // 1.3 Set multikey to the result of passing verificationMethod and privateKeyBytes into the Multikey Creation algorithm.
-    const multikey = SchnorrMultikey.create({ id, controller, keys });
+    const multikey = SchnorrMultikey.create({ id, controller, keyPair });
 
     // 1.4 If the privateKey is not found, throw an error
     if (!multikey) {
@@ -218,10 +177,10 @@ export class Update {
     //     Integrity specification passing in proofOptions.
     const diproof = multikey.toCryptosuite().toDataIntegrityProof();
 
-    // 12. Set BTCR2SignedUpdate to the result of executing the Add Proof algorithm from VC Data Integrity passing
-    //     BTCR2SignedUpdate as the input document, cryptosuite, and the set of proofOptions.
-    // 13. Return BTCR2SignedUpdate.
-    return await diproof.addProof(unsignedUpdate, config);
+    // 12. Set SignedBTCR2Update to the result of executing the Add Proof algorithm from VC Data Integrity passing
+    //     SignedBTCR2Update as the input document, cryptosuite, and the set of proofOptions.
+    // 13. Return SignedBTCR2Update.
+    return diproof.addProof(unsignedUpdate, config);
   }
 
   /**
@@ -229,71 +188,39 @@ export class Update {
    *
    * The Announce DID Update algorithm retrieves beaconServices from the sourceDocument and calls the Broadcast DID
    * Update algorithm corresponding to the type of the Beacon. It takes in a Identifier, sourceDocument, an array of
-   * beaconIds, and a BTCR2SignedUpdate. It returns an array of signalsMetadata, containing the necessary
-   * data to validate the Beacon Signal against the BTCR2SignedUpdate.
+   * beaconIds, and a SignedBTCR2Update. It returns an array of signalsMetadata, containing the necessary
+   * data to validate the Beacon Signal against the SignedBTCR2Update.
    *
    * @param {AnnounceUpdatePayloadParams} params Required params for calling the announcePayload method
    * @param {DidDocument} params.sourceDocument The did-btcr2 did document to derive the root capability from
-   * @param {string[]} params.beaconIds The BTCR2SignedUpdate object to be signed
-   * @param {BTCR2SignedUpdate} params.BTCR2SignedUpdate The verificationMethod object to be used for signing
-   * @returns {BTCR2SignedUpdate} The BTCR2SignedUpdate object containing data to validate the Beacon Signal
+   * @param {string[]} params.beaconIds The SignedBTCR2Update object to be signed
+   * @param {SignedBTCR2Update} params.SignedBTCR2Update The verificationMethod object to be used for signing
+   * @returns {SignedBTCR2Update} The SignedBTCR2Update object containing data to validate the Beacon Signal
    * @throws {MethodError} if the beaconService type is invalid
    */
-  public static async announce({
-    sourceDocument,
-    beaconIds,
-    signedUpdate
-  }: {
-    sourceDocument: DidDocument;
-    beaconIds: string[];
-    signedUpdate: BTCR2SignedUpdate;
-  }): Promise<SidecarData> {
-    // 1. Set beaconServices to an empty array.
-    const beaconServices: BeaconService[] = [];
+  public static async announce(
+    sourceDocument: DidDocument,
+    beaconIds: string[],
+    signedUpdate: SignedBTCR2Update,
+  ): Promise<SignedBTCR2Update> {
+    // Filter sourceDocument services to get beaconServices matching beaconIds
+    const beaconServices = beaconIds.map(
+      (beaconId) => sourceDocument.service.find((s: BeaconService) => s.id === beaconId)
+    );
 
-    // 2. sidecarData to an empty array.
-    let sidecarData: SidecarData | undefined;
+    const results = [];
 
-    // 3. For beaconId in beaconIds:
-    for (const beaconId of beaconIds) {
-      //    3.1 Find the beacon services in the sourceDocument
-      const beaconService = sourceDocument.service.find((s: DidService) => s.id === beaconId);
-
-      //    3.2 If no beaconService MUST throw beaconNotFound error.
-      if (!beaconService) {
-        throw new MethodError('Not found: sourceDocument does not contain beaconId', INVALID_DID_DOCUMENT, { beaconId });
-      }
-
-      //    3.3 Push beaconService to beaconServices.
-      beaconServices.push(beaconService);
-    }
-
-    // 4. For beaconService in beaconServices:
-    for (const beaconService of beaconServices) {
-      // 4.1 Set signalMetadata to null.
-      // 4.2 If beaconService.type == SingletonBeacon:
-      //    4.2.1 Set signalMetadata to the result of passing beaconService and BTCR2SignedUpdate to the Broadcast
-      //          Singleton Beacon Signal algorithm.
-      // 4.3 Else If beaconService.type == CASBeacon:
-      //    4.3.1 Set signalMetadata to the result of passing Identifier, beaconService and BTCR2SignedUpdate to
-      //          the Broadcast CIDAggregate Beacon Signal algorithm.
-      // 4.4 Else If beaconService.type == SMTBeacon:
-      //    4.4.1 Set signalMetadata to the result of passing Identifier, beaconService and BTCR2SignedUpdate to
-      //          the Broadcast SMTAggregate Beacon Signal algorithm.
-      // 4.5 Else:
-      //    4.5.1 MUST throw invalidBeacon error.
-      // const beacon = BeaconFactory.establish(beaconService);
-      // sidecarData = await beacon.broadcastSignal(signedUpdate);
-      console.log('TODO: refactor this code', signedUpdate, beaconService);
-    }
-    if(!sidecarData) {
-      throw new MethodError(
-        'Invalid beacon: no sidecarData found',
-        INVALID_DID_DOCUMENT, { beaconServices }
-      );
+    // Iterate over each beacon service and its signals
+    for(const beaconService of beaconServices) {
+      // Establish a beacon object
+      const beacon = BeaconFactory.establish(beaconService);
+      // Process its signals
+      const result = await beacon.broadcastSignal(signedUpdate);
+      // Append the processed updates to the updates array
+      results.push(...result);
     }
 
     // Return the sidecarData
-    return sidecarData;
+    return signedUpdate;
   }
 }

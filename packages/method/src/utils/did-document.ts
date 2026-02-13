@@ -251,7 +251,7 @@ export class DidDocument implements IDidDocument {
    * @returns {boolean} True if the DID document is valid.
    * @throws {DidDocumentError} If any validation check fails.
    */
-  public static isValid(didDocument: DidDocument): boolean {
+  public static isValid(didDocument: any): boolean {
     if (!this.isValidContext(didDocument?.['@context'])) {
       throw new DidDocumentError('Invalid "@context"', INVALID_DID_DOCUMENT, didDocument);
     }
@@ -370,7 +370,7 @@ export class DidDocument implements IDidDocument {
    * @returns {DidDocument} Validated DID Document.
    * @throws {DidDocumentError} If the DID Document is invalid.
    */
-  public static validate(didDocument: DidDocument | GenesisDocument): DidDocument {
+  public static validate(didDocument: any): DidDocument {
     // Validate the DID Document
     if (didDocument.id === ID_PLACEHOLDER_VALUE) {
       (didDocument as GenesisDocument).validateGenesis();
