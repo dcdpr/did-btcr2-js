@@ -1,70 +1,53 @@
 import { BitcoinNetworkConnection } from '@did-btcr2/bitcoin';
-import { HexString, MethodError } from '@did-btcr2/common';
-import { BTCR2SignedUpdate } from '@did-btcr2/cryptosuite';
+import { KeyBytes } from '@did-btcr2/common';
+import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { SidecarData } from '../types.js';
-import { AggregateBeacon, BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js';
+import { Beacon } from './beacon.js';
+import { SMTBeaconError } from './error.js';
+import { BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js';
 
 /**
- * TODO: Finish implementation
  * Implements {@link https://dcdpr.github.io/did-btcr2/terminology.html#smt-beacon | SMTBeacon}.
  * @class SMTBeacon
  * @type {SMTBeacon}
- * @extends {AggregateBeacon}
+ * @extends {Beacon}
  */
-export class SMTBeacon extends AggregateBeacon {
+export class SMTBeacon extends Beacon {
   /**
-   * Creates an instance of SingletonBeacon.
+   * Creates an instance of SMTBeacon.
    * @param {BeaconService} service The Beacon service.
-   * @param {Array<BeaconSignal>} signals The SingletonBeacon sidecar data.
-   * @param {SidecarData} sidecar The sidecar data.
    */
-  constructor(
-    service: BeaconService,
+  constructor(service: BeaconService) {
+    super({ ...service, type: 'SMTBeacon' });
+  }
+
+  /**
+   * Implements {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process-smt-beacon | 7.2.e.1 Process SMT Beacon}.
+   * @param {Array<BeaconSignal>} signals The array of Beacon Signals to process.
+   * @param {SidecarData} sidecar The sidecar data associated with the SMT Beacon.
+   * @returns {Promise<Array<[SignedBTCR2Update, BlockMetadata]>>} The processed signals.
+   * @throws {SMTBeaconError} if processing fails.
+   */
+  processSignals(
     signals: Array<BeaconSignal>,
-    sidecar: SidecarData,
-    bitcoin?: BitcoinNetworkConnection
-  ) {
-    super({ ...service, type: 'SMTBeacon' }, signals, sidecar, bitcoin);
+    sidecar: SidecarData
+  ): Promise<Array<[SignedBTCR2Update, BlockMetadata]>> {
+    throw new SMTBeaconError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`, {signals, sidecar});
   }
 
   /**
-   * Static, convenience method for establishing a SMTBeacon object.
-   * @param {string} service The Beacon service.
-   * @param {SidecarData} sidecar The sidecar data.
-   * @returns {SingletonBeacon} The Singleton Beacon.
+   * Broadcast CAS Beacon signal to the Bitcoin network.
+   * @param {SignedBTCR2Update} signedUpdate The signed BTCR2 update to broadcast.
+   * @param {KeyBytes} secretKey The secret key for signing the Bitcoin transaction.
+   * @param {BitcoinNetworkConnection} bitcoin The Bitcoin network connection.
+   * @return {Promise<SignedBTCR2Update>} The signed update that was broadcasted.
+   * @throws {SMTBeaconError} if broadcasting fails.
    */
-  static establish(service: BeaconService, signals: Array<BeaconSignal>, sidecar: SidecarData): SMTBeacon {
-    return new SMTBeacon(service, signals, sidecar);
+  async broadcastSignal(
+    signedUpdate: SignedBTCR2Update,
+    secretKey: KeyBytes,
+    bitcoin: BitcoinNetworkConnection
+  ): Promise<SignedBTCR2Update> {
+    throw new SMTBeaconError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`, {signedUpdate, secretKey, bitcoin});
   }
-
-  /**
-   * TODO: Figure out if this is necessary or not.
-   * @param {HexString} updateHash The hash of the BTCR2 update to generate the signal for.
-   * @returns {BeaconSignal} The generated signal.
-   * @throws {MethodError} if the signal is invalid.
-   */
-  generateSignal(updateHash: HexString): BeaconSignal {
-    throw new MethodError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`, {updateHash});
-  }
-
-  /**
-   * Process SMTBeacon signals.
-   * @returns {Promise<Array<BTCR2SignedUpdate>>} The processed signed update or undefined.
-   * @throws {MethodError} if the signal processing fails.
-   */
-  async processSignals(): Promise<Array<[BTCR2SignedUpdate, BlockMetadata]>> {
-    throw new MethodError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`);
-  }
-
-
-  /**
-   * Broadcast a SMTBeacon signal.
-   * @param {HexString} updateHash The hash of the BTCR2 update to broadcast.
-   * @returns {Promise<SignalsMetadata>} The result of the broadcast.
-   * @throws {MethodError} if the broadcast fails.
-   */
-  async broadcastSignal(updateHash: HexString): Promise<HexString> {
-    throw new MethodError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`, {updateHash});
-  }
-
 }

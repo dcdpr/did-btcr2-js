@@ -5,8 +5,8 @@ import {
   SignatureBytes
 } from '@did-btcr2/common';
 import {
-  BTCR2SignedUpdate,
-  BTCR2UnsignedUpdate,
+  SignedBTCR2Update,
+  UnsignedBTCR2Update,
   BTCR2Update,
   DataIntegrityConfig,
   DataIntegrityProofObject
@@ -15,7 +15,7 @@ import { SchnorrMultikey } from '../multikey/index.js';
 
 export interface VerificationResult {
     verified: boolean;
-    verifiedDocument?: BTCR2SignedUpdate;
+    verifiedDocument?: SignedBTCR2Update;
     mediaType?: string;
 }
 
@@ -43,22 +43,22 @@ export interface Cryptosuite {
 
   /**
    * Create a proof for an insecure document.
-   * @param {BTCR2UnsignedUpdate} insecureDocument The document to create a proof for.
+   * @param {UnsignedBTCR2Update} insecureDocument The document to create a proof for.
    * @param {DataIntegrityConfig} config The config to use when creating the proof.
    * @returns {Proof} The proof for the document.
    */
-  createProof(insecureDocument: BTCR2UnsignedUpdate, config: DataIntegrityConfig): DataIntegrityProofObject;
+  createProof(insecureDocument: UnsignedBTCR2Update, config: DataIntegrityConfig): DataIntegrityProofObject;
 
   /**
    * Verify a proof for a secure document.
-   * @param {BTCR2SignedUpdate} secureDocument The secure document to verify.
+   * @param {SignedBTCR2Update} secureDocument The secure document to verify.
    * @returns {VerificationResult} The result of the verification.
    */
-  verifyProof(secureDocument: BTCR2SignedUpdate): VerificationResult;
+  verifyProof(secureDocument: SignedBTCR2Update): VerificationResult;
 
   /**
    * Transform a document (secure didUpdateInvocation or insecure didUpdatePayload) into canonical form.
-   * @param {BTCR2UnsignedUpdate | BTCR2SignedUpdate} document The document to transform.
+   * @param {UnsignedBTCR2Update | SignedBTCR2Update} document The document to transform.
    * @param {DataIntegrityConfig} config The config to use when transforming the document.
    * @returns {string} The canonicalized document.
    * @throws {MethodError} if the document cannot be transformed.

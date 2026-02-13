@@ -1,4 +1,4 @@
-import { HashBytes, W3C_ZCAP_V1 } from '@did-btcr2/common';
+import { HashBytes } from '@did-btcr2/common';
 import { strings } from '@helia/strings';
 import {
   DidDocument,
@@ -109,27 +109,13 @@ export class Appendix {
    * }
    * ```
    */
-  public static deriveRootCapability(identifier: string): RootCapability {
-    // 1. Define rootCapability as an empty object.
-    const rootCapability = {} as RootCapability;
-
-    // 2. Set rootCapability.@context to ‘https://w3id.org/zcap/v1’.
-    rootCapability['@context'] = W3C_ZCAP_V1;
-
-    // 3. Set encodedIdentifier to result of calling algorithm encodeURIComponent(identifier).
-    const encodedIdentifier = encodeURIComponent(identifier);
-
-    // 4. Set rootCapability.id to urn:zcap:root:${encodedIdentifier}.
-    rootCapability.id = `urn:zcap:root:${encodedIdentifier}`;
-
-    // 5. Set rootCapability.controller to identifier.
-    rootCapability.controller = identifier;
-
-    // 6. Set rootCapability.invocationTarget to identifier.
-    rootCapability.invocationTarget = identifier;
-
-    // 7. Return rootCapability.
-    return rootCapability;
+  static deriveRootCapability(identifier: string): RootCapability {
+    return {
+      '@context'       : 'https://w3id.org/zcap/v1',
+      id               : `urn:zcap:root:${encodeURIComponent(identifier)}`,
+      controller       : identifier,
+      invocationTarget : identifier,
+    };
   }
 
 

@@ -1,5 +1,5 @@
 import { HexString } from '@did-btcr2/common';
-import { BTCR2SignedUpdate } from '@did-btcr2/cryptosuite';
+import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { SMTProof } from './interfaces.js';
 
 /**
@@ -41,7 +41,7 @@ export type Sidecar = {
    * Optional array of BTCR2 Signed Updates. Required if the DID being resolved
    * has ever had a published BTCR2 Update.
    */
-  updates?: Array<BTCR2SignedUpdate>
+  updates?: Array<SignedBTCR2Update>
 
   /**
    * Optional array of CAS Announcements. Required if the DID being reslved has
@@ -57,22 +57,39 @@ export type Sidecar = {
 };
 
 /**
+ * The Sidecar data structure used for Singleton Beacons.
+ */
+export type SingletonBeaconSidecarData = Map<HexString, SignedBTCR2Update>;
+/**
+ * The Sidecar data structure used for CAS Beacons.
+ */
+export type CASBeaconSidecarData = Map<HexString, CASAnnouncement>;
+/**
+ * The Sidecar data structure used for SMT Beacons.
+ */
+export type SMTBeaconSidecarData = Map<string, SMTProof>;
+
+/**
  * The Sidecar data structure post-processing used for resolution.
  */
 export type SidecarData = {
   /**
    * Map of BTCR2 Signed Updates by their hash bytes.
-   * @type {Map<HexString, BTCR2SignedUpdate>}
    */
-  updateMap: Map<HexString, BTCR2SignedUpdate>;
+  updateMap: SingletonBeaconSidecarData;
+
   /**
    * Map of CAS Announcements by their hash bytes.
-   * @type {Map<HexString, CASAnnouncement>}
    */
-  casMap: Map<HexString, CASAnnouncement>;
+  casMap: CASBeaconSidecarData;
+
   /**
    * Map of SMT Proofs by their ID.
-   * @type {Map<string, SMTProof>}
    */
-  smtMap: Map<string, SMTProof>;
+  smtMap: SMTBeaconSidecarData;
 }
+
+/**
+ * Union type for all Beacon Sidecar data structures.
+ */
+export type BeaconSidecarData = SingletonBeaconSidecarData | CASBeaconSidecarData | SMTBeaconSidecarData;

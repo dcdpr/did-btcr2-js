@@ -43,17 +43,9 @@ export interface ResolutionOptions extends ResolutionOptionsCore {
   /**
    * Drivers for interacting with external systems, such as the Bitcoin network.
    */
-  drivers: {
+  drivers?: {
     bitcoin?: BitcoinNetworkConnection;
   };
-
-  /**
-   * Flag to signal a full blockchain search for beacon signals from genesis
-   * block to chain tip during resolution, instead of using an indexer.
-   * @type {boolean}
-   * @default false
-   */
-  fullBlockchainTraversal?: boolean;
 }
 
 /**

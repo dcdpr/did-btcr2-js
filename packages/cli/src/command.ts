@@ -1,6 +1,7 @@
-import { DidResolutionResult } from '@web5/dids';
 import { IdentifierTypes, Logger, MethodError, PatchOperation } from '@did-btcr2/common';
-import { DidBtcr2, DidDocument, ResolutionOptions, SidecarData } from '@did-btcr2/method';
+import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import { Btcr2DidDocument, DidBtcr2, ResolutionOptions } from '@did-btcr2/method';
+import { DidResolutionResult } from '@web5/dids';
 
 export type NetworkOption = 'bitcoin' | 'testnet3' | 'testnet4' | 'signet' | 'mutinynet' | 'regtest';
 
@@ -20,14 +21,12 @@ export interface ResolveCommandOptions {
 }
 
 export interface UpdateCommandOptions {
-  identifier: string;
-  sourceDocument: DidDocument;
+  sourceDocument: Btcr2DidDocument;
   sourceVersionId: number;
-  patch: PatchOperation[];
+  patches: PatchOperation[];
   verificationMethodId: string;
-  beaconIds: string[];
+  beaconId: string;
 }
-
 export interface DeactivateCommandOptions {
   // Placeholder for future deactivate payload once implemented.
 }
@@ -41,7 +40,7 @@ export type CommandRequest =
 export type CommandResult =
   | { action: 'create'; did: string; }
   | { action: 'resolve' | 'read'; resolution: DidResolutionResult; }
-  | { action: 'update'; sidecar: SidecarData; }
+  | { action: 'update'; signed: SignedBTCR2Update; }
   | { action: 'deactivate' | 'delete'; message: string; };
 
 export default class Btcr2Command implements CommandInterface {
@@ -62,8 +61,8 @@ export default class Btcr2Command implements CommandInterface {
         return { action: request.action, resolution };
       }
       case 'update': {
-        const sidecar = await DidBtcr2.update(request.options as any);
-        return { action: 'update', sidecar };
+        const signed = await DidBtcr2.update(request.options);
+        return { action: 'update', signed };
       }
       case 'delete':
       case 'deactivate': {

@@ -5,6 +5,7 @@ import { Appendix } from '../../utils/appendix.js';
 import { DidDocument } from '../../utils/did-document.js';
 import { Identifier } from '../identifier.js';
 import { BeaconService } from './interfaces.js';
+import { BeaconError } from './error.js';
 
 /**
  * Static class of utility functions for the Beacon Service
@@ -40,9 +41,6 @@ export class BeaconUtils {
     // Return false if the serviceEndpoint is not a valid BIP21 bitcoin address.
     if ([obj.serviceEndpoint].flat().some(ep => typeof ep === 'string' && !ep.startsWith('bitcoin:'))) return false;
 
-    // Return false if the casType exists and is not a string.
-    if(obj.casType && typeof obj.casType !== 'string') return false;
-
     // Else return true
     return true;
   }
@@ -73,9 +71,11 @@ export class BeaconUtils {
       return addrTypes.map(
         (addrType) => this.createBeaconService(did, addrType, beaconType)
       );
-    } catch (error) {
-      console.error(error);
-      process.exit(1);
+    } catch (error: any) {
+      throw new BeaconError(
+        'Failed to create beacon services: ' + error.message,
+        'BEACON_SERVICE_ERROR', { did, beaconType }
+      );
     }
   }
 
@@ -101,12 +101,13 @@ export class BeaconUtils {
       const serviceEndpoint = `bitcoin:${payments[addressType]({ pubkey, network }).address}`;
       // Return the beacon serviceD
       return { id, type: beaconType, serviceEndpoint, };
-    } catch (error) {
-      console.error(error);
-      process.exit(1);
+    } catch (error: any) {
+      throw new BeaconError(
+        'Failed to create beacon service: ' + error.message,
+        'BEACON_SERVICE_ERROR', { did, beaconType }
+      );
     }
   }
-
 
   /**
    * Generate three default Beacon Service Endpoints for a given `k` (public-key-based) identifier.
@@ -147,9 +148,11 @@ export class BeaconUtils {
           serviceEndpoint : `bitcoin:${p2tr}`
         },
       ];
-    } catch (error) {
-      console.error(error);
-      process.exit(1);
+    } catch (error: any) {
+      throw new BeaconError(
+        'Failed to create beacon services: ' + error.message,
+        'BEACON_SERVICE_ERROR', { id, publicKey, network, beaconType }
+      );
     }
   }
 

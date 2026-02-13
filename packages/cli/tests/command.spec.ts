@@ -1,5 +1,5 @@
 import { IdentifierTypes, Logger, MethodError } from '@did-btcr2/common';
-import { DidBtcr2, DidDocument } from '@did-btcr2/method';
+import { Btcr2DidDocument, DidBtcr2 } from '@did-btcr2/method';
 import Btcr2Command from '../src/command.js';
 import { expect, originalConsoleError, originalConsoleLog, originalConsoleWarn } from './helpers.js';
 
@@ -107,17 +107,16 @@ describe('Btcr2Command', () => {
     const result = await command.execute({
       action  : 'update',
       options : {
-        identifier           : 'did:btcr2:example',
-        sourceDocument       : { id: 'did:btcr2:example' } as DidDocument,
+        sourceDocument       : { id: 'did:btcr2:example' } as Btcr2DidDocument,
         sourceVersionId      : 1,
-        patch                : [],
+        patches              : [],
         verificationMethodId : 'vm',
-        beaconIds            : [],
+        beaconId             : 'b',
       },
     });
     if (result.action !== 'update') throw new Error('Expected update result');
 
-    expect(result.sidecar).to.deep.equal({ updated: true });
+    expect(result.signed).to.deep.equal({ updated: true });
   });
 
   it('warns on deactivate/delete', async () => {

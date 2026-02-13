@@ -9,7 +9,7 @@ import {
   KeyBytes
 } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
-import { DidService, DidDocument as IIDidDocument, DidVerificationMethod as IIDidVerificationMethod } from '@web5/dids';
+import { DidDocument as W3CDidDocument, DidVerificationMethod as W3CDidVerificationMethod } from '@web5/dids';
 import { BeaconService } from '../core/beacon/interfaces.js';
 import { BeaconUtils } from '../core/beacon/utils.js';
 import { Identifier } from '../core/identifier.js';
@@ -36,7 +36,10 @@ export type VerificationRelationships = {
   capabilityDelegation?: Array<string | DidVerificationMethod>;
 }
 
-export interface IDidVerificationMethod extends IIDidVerificationMethod {
+/** Loose type for unvalidated DID document-like input objects. */
+export type DidDocumentLike = Partial<Btcr2DidDocument>;
+
+export interface Btcr2VerificationMethod extends W3CDidVerificationMethod {
   id: string;
   type: string;
   controller: string;
@@ -50,14 +53,14 @@ export interface IDidVerificationMethod extends IIDidVerificationMethod {
  * @type {DidVerificationMethod}
  *
  */
-export class DidVerificationMethod implements IDidVerificationMethod {
+export class DidVerificationMethod implements Btcr2VerificationMethod {
   id: string;
   type: string;
   controller: string;
   publicKeyMultibase: string;
   secretKeyMultibase?: string | undefined;
 
-  constructor({ id, type, controller, publicKeyMultibase, secretKeyMultibase }: IDidVerificationMethod) {
+  constructor({ id, type, controller, publicKeyMultibase, secretKeyMultibase }: Btcr2VerificationMethod) {
     this.id = id;
     this.type = type;
     this.controller = controller;
@@ -72,9 +75,9 @@ export class DidVerificationMethod implements IDidVerificationMethod {
 
 /**
  * BTCR2 DID Document Interface
- * @interface IDidDocument
- * @type {IDidDocument}
- * @extends {IIDidDocument}
+ * @interface Btcr2DidDocument
+ * @type {Btcr2DidDocument}
+ * @extends {W3CDidDocument}
  * @property {string} id - The identifier of the DID Document.
  * @property {Array<string>} [controller] - The controller of the DID Document.
  * @property {Array<string | JSONObject>} ['@context'] - The context of the DID Document.
@@ -85,7 +88,7 @@ export class DidVerificationMethod implements IDidVerificationMethod {
  * @property {Array<string | DidVerificationMethod>} [capabilityDelegation] - The capability delegation methods of the DID Document.
  * @property {Array<BeaconService>} service - The services of the DID Document.
  */
-export interface IDidDocument extends IIDidDocument {
+export interface Btcr2DidDocument extends W3CDidDocument {
   id: string;
   controller?: Array<string>;
   '@context'?: Array<string | JSONObject>;
@@ -101,7 +104,7 @@ export interface IDidDocument extends IIDidDocument {
  * BTCR2 DID Document extends the DidDocument class adding helper methods and properties
  * @class DidDocument
  * @type {DidDocument}
- * @implements {IDidDocument}
+ * @implements {Btcr2DidDocument}
  * @property {string} id - The identifier of the DID Document.
  * @property {Array<string>} [controller] - The controller of the DID Document.
  * @property {Array<string | JSONObject>} ['@context'] - The context of the DID Document.
@@ -112,7 +115,7 @@ export interface IDidDocument extends IIDidDocument {
  * @property {Array<string | DidVerificationMethod>} [capabilityDelegation] - The capability delegation methods of the DID Document.
  * @property {Array<BeaconService>} service - The services of the DID Document.
  */
-export class DidDocument implements IDidDocument {
+export class DidDocument implements Btcr2DidDocument {
   id: string;
   controller?: Array<string>;
   '@context'?: Array<string | JSONObject> = BTCR2_DID_DOCUMENT_CONTEXT;
@@ -124,7 +127,7 @@ export class DidDocument implements IDidDocument {
   service: Array<BeaconService>;
   deactivated?: boolean;
 
-  constructor(document: IDidDocument) {
+  constructor(document: Btcr2DidDocument) {
     // Set the ID and ID type
     const idType = document.id.includes('k')
       ? IdentifierTypes.KEY
@@ -218,7 +221,7 @@ export class DidDocument implements IDidDocument {
         })
       ],
       service
-    } as IDidDocument;
+    } as Btcr2DidDocument;
     return new DidDocument(document);
   }
 
@@ -228,7 +231,7 @@ export class DidDocument implements IDidDocument {
    * @returns {DidDocument} A new DidDocument.
    */
   public static fromExternalIdentifier(data: ExternalData): DidDocument {
-    return new DidDocument(data as IDidDocument);
+    return new DidDocument(data as Btcr2DidDocument);
   }
 
 
@@ -251,7 +254,7 @@ export class DidDocument implements IDidDocument {
    * @returns {boolean} True if the DID document is valid.
    * @throws {DidDocumentError} If any validation check fails.
    */
-  public static isValid(didDocument: DidDocument): boolean {
+  public static isValid(didDocument: DidDocumentLike): boolean {
     if (!this.isValidContext(didDocument?.['@context'])) {
       throw new DidDocumentError('Invalid "@context"', INVALID_DID_DOCUMENT, didDocument);
     }
@@ -276,7 +279,7 @@ export class DidDocument implements IDidDocument {
    * @param {DidDocument['@context']} context The context to validate.
    * @returns {boolean} True if the context is valid.
    */
-  private static isValidContext(context: DidDocument['@context']): boolean {
+  private static isValidContext(context: unknown): boolean {
     if(!context) return false;
     if(!Array.isArray(context)) return false;
     if(!context.every(ctx => typeof ctx === 'string' && BTCR2_DID_DOCUMENT_CONTEXT.includes(ctx))) return false;
@@ -289,7 +292,8 @@ export class DidDocument implements IDidDocument {
    * @param {string} id The id to validate.
    * @returns {boolean} True if the id is valid.
    */
-  private static isValidId(id: string): boolean {
+  private static isValidId(id: unknown): boolean {
+    if (typeof id !== 'string') return false;
     try {
       Identifier.decode(id);
       return true;
@@ -316,7 +320,7 @@ export class DidDocument implements IDidDocument {
    * @param {DidVerificationMethod[]} verificationMethod The verification methods to validate.
    * @returns {boolean} True if the verification methods are valid.
    */
-  private static isValidVerificationMethods(verificationMethod: IIDidVerificationMethod[]): boolean {
+  private static isValidVerificationMethods(verificationMethod: unknown): boolean {
     return Array.isArray(verificationMethod) && verificationMethod.every(Appendix.isDidVerificationMethod);
   }
 
@@ -326,7 +330,7 @@ export class DidDocument implements IDidDocument {
    * @param {DidService[]} service The services to validate.
    * @returns {boolean} True if the services are valid.
    */
-  private static isValidServices(service: DidService[]): boolean {
+  private static isValidServices(service: unknown): boolean {
     return Array.isArray(service) && service.every(BeaconUtils.isBeaconService);
   }
 
@@ -336,33 +340,25 @@ export class DidDocument implements IDidDocument {
    * @param {DidDocument} didDocument The DID Document to validate.
    * @returns {boolean} True if the verification relationships are valid.
    */
-  public static isValidVerificationRelationships(didDocument: DidDocument): boolean {
-    // Define the available verification relationships
-    const possibleVerificationRelationships: (keyof DidDocument)[] = [
+  public static isValidVerificationRelationships(didDocument: DidDocumentLike): boolean {
+    const possibleVerificationRelationships = [
       'authentication',
       'assertionMethod',
       'capabilityInvocation',
       'capabilityDelegation'
-    ];
+    ] as const;
 
-    // Get the DID Document keys
-    const verificationRelationships = Object.keys(didDocument) as Array<keyof DidDocument>;
+    const keys = Object.keys(didDocument);
+    const availableKeys = possibleVerificationRelationships.filter(key => keys.includes(key));
 
-    // Filter the DID Document keys to only those that are in the available verification relationships
-    const availableVerificationRelationships = possibleVerificationRelationships.filter(
-      key => verificationRelationships.includes(key as keyof DidDocument)
-    ) as (keyof DidDocument)[];
-
-    // Check if all available verification relationships are valid
-    return availableVerificationRelationships.every((key) =>
-      // Check if the key exists in the DID Document
-      didDocument[key] &&
-      // Check if the key is an array
-      Array.isArray(didDocument[key]) &&
-      // Check that every value in the array is a string or DidVerificationMethod
-      didDocument[key].every(
-        entry => typeof entry === 'string' || Appendix.isDidVerificationMethod(entry)
-      ));
+    return availableKeys.every((key) => {
+      const value = didDocument[key];
+      return value &&
+        Array.isArray(value) &&
+        value.every(
+          (entry) => typeof entry === 'string' || Appendix.isDidVerificationMethod(entry)
+        );
+    });
   }
 
   /**
@@ -370,7 +366,7 @@ export class DidDocument implements IDidDocument {
    * @returns {DidDocument} Validated DID Document.
    * @throws {DidDocumentError} If the DID Document is invalid.
    */
-  public static validate(didDocument: DidDocument | GenesisDocument): DidDocument {
+  public static validate(didDocument: any): DidDocument {
     // Validate the DID Document
     if (didDocument.id === ID_PLACEHOLDER_VALUE) {
       (didDocument as GenesisDocument).validateGenesis();
@@ -448,7 +444,7 @@ export class GenesisDocument extends DidDocument {
    */
   public toDidDocument(did: string): DidDocument {
     const stringThis = JSON.stringify(this).replaceAll(ID_PLACEHOLDER_VALUE, did);
-    const parseThis = JSON.parse(stringThis) as IDidDocument;
+    const parseThis = JSON.parse(stringThis) as Btcr2DidDocument;
     return new DidDocument(parseThis);
   }
 
@@ -459,7 +455,7 @@ export class GenesisDocument extends DidDocument {
    * @returns {GenesisDocument} The GenesisDocument representation of the DidDocument.
    */
   public static fromDidDocument(didDocument: DidDocument): GenesisDocument {
-    const intermediateDocument = JSONUtils.cloneReplace(didDocument, DID_REGEX, ID_PLACEHOLDER_VALUE) as IDidDocument;
+    const intermediateDocument = JSONUtils.cloneReplace(didDocument, DID_REGEX, ID_PLACEHOLDER_VALUE) as Btcr2DidDocument;
     return new GenesisDocument(intermediateDocument);
   }
 
@@ -518,6 +514,6 @@ export class GenesisDocument extends DidDocument {
    * @returns {DidDocument} The created DidDocument.
    */
   public static fromJSON(object: object | DidDocument): GenesisDocument {
-    return new GenesisDocument(object as IDidDocument);
+    return new GenesisDocument(object as Btcr2DidDocument);
   }
 }

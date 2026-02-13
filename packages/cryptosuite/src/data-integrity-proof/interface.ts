@@ -1,13 +1,13 @@
 import { JsonPatch } from '@did-btcr2/common';
 import { Cryptosuite, VerificationResult } from '../cryptosuite/interface.js';
 
-export type BTCR2Update = BTCR2UnsignedUpdate | BTCR2SignedUpdate;
+export type BTCR2Update = UnsignedBTCR2Update | SignedBTCR2Update;
 
 /**
  * A {@link https://dcdpr.github.io/did-btcr2/terminology.html#btcr2-update | BTCR2 Update} without a data integrity proof.
  * See {@link https://dcdpr.github.io/did-btcr2/data-structures.html#btcr2-unsigned-update | BTCR2 Unsigned Update (data structure)}.
  */
-export interface BTCR2UnsignedUpdate {
+export interface UnsignedBTCR2Update {
     /**
      * JSON-LD context URIs for interpreting this payload, including contexts
      * for ZCAP (capabilities), Data Integrity proofs, and JSON-LD patch ops.
@@ -46,7 +46,7 @@ export interface BTCR2UnsignedUpdate {
  * A {@link https://dcdpr.github.io/did-btcr2/terminology.html#btcr2-signed-update | BTCR2 Update} with a data integrity proof.
  * See {@link https://dcdpr.github.io/did-btcr2/data-structures.html#btcr2-signed-update | BTCR2 Signed Update (data structure)}.
  */
-export interface BTCR2SignedUpdate extends BTCR2UnsignedUpdate {
+export interface SignedBTCR2Update extends UnsignedBTCR2Update {
  /**
   * A digital signature added to a BTCR2 Unsigned Update in order to convert to a BTCR2 Signed Update.
   */
@@ -152,9 +152,9 @@ export interface DataIntegrityProof {
    * Add a proof to a document.
    * @param {BTCR2Update} document The document to add a proof to.
    * @param {DataIntegrityConfig} config The config to use when adding the proof.
-   * @returns {BTCR2SignedUpdate} The document with the added proof.
+   * @returns {SignedBTCR2Update} The document with the added proof.
    */
-  addProof(document: BTCR2Update,config: DataIntegrityConfig): BTCR2SignedUpdate;
+  addProof(document: BTCR2Update,config: DataIntegrityConfig): SignedBTCR2Update;
 
   /**
    * Verify a proof.
