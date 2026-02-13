@@ -41,9 +41,9 @@ const config: DataIntegrityConfig = {
 };
 
 describe('Data Integrity Proof', () => {
-  const secretKey = Secp256k1SecretKey.fromEntropy(SECRET);
-  const keys = new SchnorrKeyPair({ secretKey });
-  const multikey = new SchnorrMultikey({ id, controller, keys });
+  const secretKey = Secp256k1SecretKey.fromBigInt(SECRET);
+  const keyPair = new SchnorrKeyPair({ secretKey });
+  const multikey = new SchnorrMultikey({ id, controller, keyPair });
   const cryptosuite = new BIP340Cryptosuite(multikey);
   const diProof = new BIP340DataIntegrityProof(cryptosuite);
 

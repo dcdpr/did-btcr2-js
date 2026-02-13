@@ -80,12 +80,11 @@ export class DidBtcr2Cli {
       .requiredOption('-m, --verificationMethodId <verificationMethodId>', 'Did document verification method ID as a string')
       .requiredOption('-b, --beaconIds <beaconIds>', 'Beacon IDs as a JSON string array')
       .action(async (options: {
-        identifier: string;
         sourceDocument: string;
         sourceVersionId: number;
-        patch: string;
+        patches: string;
         verificationMethodId: string;
-        beaconIds: string;
+        beaconId: string;
       }) => {
         const parsedOptions = this.parseUpdateOptions(options);
         const result = await this.invokeCommand({ options: parsedOptions, action: 'update', command: new Btcr2Command() });
@@ -223,46 +222,42 @@ export class DidBtcr2Cli {
   /**
    * Parses update command options and throws CLIError on invalid input.
    * @param {object} options The update command options
-   * @param {string} options.identifier The did:btcr2 identifier
    * @param {string} options.sourceDocument The source DID document as a JSON string
    * @param {number} options.sourceVersionId The source version ID as a number
-   * @param {string} options.patch The JSON Patch operations as a JSON string array
+   * @param {string} options.patches The JSON Patch operations as a JSON string array
    * @param {string} options.verificationMethodId The DID document verification method ID as a string
-   * @param {string} options.beaconIds The beacon IDs as a JSON string array
+   * @param {string} options.beaconId The beacon IDs as a JSON string array
    * @returns {UpdateCommandOptions} The parsed update command options
    */
   private parseUpdateOptions(options: {
-    identifier: string;
     sourceDocument: string;
     sourceVersionId: number;
-    patch: string;
+    patches: string;
     verificationMethodId: string;
-    beaconIds: string;
+    beaconId: string;
   }): UpdateCommandOptions {
-    this.validateIdentifier(options.identifier, options);
     const sourceDocument = this.parseJsonOption<UpdateCommandOptions['sourceDocument']>(
       options.sourceDocument,
       'Invalid options. Must be a valid JSON string.',
       options
     );
-    const patch = this.parseJsonOption<UpdateCommandOptions['patch']>(
-      options.patch,
+    const patches = this.parseJsonOption<UpdateCommandOptions['patches']>(
+      options.patches,
       'Invalid options. Must be a valid JSON string.',
       options
     );
-    const beaconIds = this.parseJsonOption<UpdateCommandOptions['beaconIds']>(
-      options.beaconIds,
+    const beaconId = this.parseJsonOption<UpdateCommandOptions['beaconId']>(
+      options.beaconId,
       'Invalid options. Must be a valid JSON string.',
       options
     );
 
     return {
-      identifier           : options.identifier,
       sourceDocument,
       sourceVersionId      : Number(options.sourceVersionId),
-      patch,
+      patches,
       verificationMethodId : options.verificationMethodId,
-      beaconIds,
+      beaconId,
     } as UpdateCommandOptions;
   }
 
@@ -353,7 +348,7 @@ export class DidBtcr2Cli {
         this.log(result.resolution);
         break;
       case 'update':
-        this.log(result.sidecar);
+        this.log(result.signed);
         break;
       case 'deactivate':
       case 'delete':

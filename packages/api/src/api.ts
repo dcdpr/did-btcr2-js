@@ -1,5 +1,6 @@
 import {
   BitcoinCoreRpcClient,
+  BitcoinNetworkConnection,
   BitcoinRestClient,
   BlockV3,
   RawTransactionV2,
@@ -13,6 +14,7 @@ import type {
   Entropy,
   HashBytes,
   Hex,
+  HexString,
   JSONObject,
   KeyBytes,
   PatchOperation,
@@ -21,10 +23,10 @@ import type {
   SignatureBytes
 } from '@did-btcr2/common';
 import { DEFAULT_BLOCK_CONFIRMATIONS, DEFAULT_REST_CONFIG, DEFAULT_RPC_CONFIG, IdentifierTypes, NotImplementedError } from '@did-btcr2/common';
-import type { MultikeyObject } from '@did-btcr2/cryptosuite';
+import type { MultikeyObject, SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
-import type { DidCreateOptions, ResolutionOptions, SidecarData, UpdateParams } from '@did-btcr2/method';
+import type { Btcr2DidDocument, DidCreateOptions, ResolutionOptions, SidecarData } from '@did-btcr2/method';
 import { DidBtcr2, DidDocument, DidDocumentBuilder, Identifier } from '@did-btcr2/method';
 import type { DidResolutionResult, DidService, DidVerificationMethod } from '@web5/dids';
 
@@ -239,24 +241,33 @@ export class DidApi {
    * This delegates to MethodUpdate (which follows the cryptosuite rules internally).
    */
   async update({
-    identifier,
     sourceDocument,
+    patches,
     sourceVersionId,
-    patch,
     verificationMethodId,
-    beaconIds
-  }: UpdateParams): Promise<SidecarData> {
+    beaconId,
+    signingMaterial,
+    bitcoin,
+  }: {
+    sourceDocument: Btcr2DidDocument;
+    patches: PatchOperation[];
+    sourceVersionId: number;
+    verificationMethodId: string;
+    beaconId: string;
+    signingMaterial?: KeyBytes | HexString;
+    bitcoin?: BitcoinNetworkConnection;
+  }): Promise<SignedBTCR2Update> {
     // The Update class exposes the algorithm that creates a DID Update Payload and proof;
     // keep this wrapper narrow so testing can mock MethodUpdate directly.
-    const result = await DidBtcr2.update({
-      identifier,
+    return await DidBtcr2.update({
       sourceDocument,
+      patches,
       sourceVersionId,
-      patch,
       verificationMethodId,
-      beaconIds,
+      beaconId,
+      signingMaterial,
+      bitcoin,
     });
-    return result;
   }
 
   /** Deactivate convenience: applies the standard `deactivated: true` patch. */

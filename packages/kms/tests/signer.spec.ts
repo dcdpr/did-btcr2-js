@@ -24,12 +24,12 @@ describe('Signer', () => {
     expect(ok).to.equal(true);
   });
 
-  it('signEcdsa: returns a signature for a 32-byte hash (basic shape check)', () => {
+  it('sign: returns a signature for a 32-byte hash (basic shape check)', () => {
     const kp = SchnorrKeyPair.generate();
     const signer = new Signer({ keyPair: kp, network: 'signet' });
 
     const hash = sha256(new Uint8Array([9, 8, 7]));
-    const sig = signer.signEcdsa(hash);
+    const sig = signer.sign(hash);
 
     expect(sig).to.be.instanceOf(Uint8Array);
     expect(sig.length).to.be.greaterThan(0);

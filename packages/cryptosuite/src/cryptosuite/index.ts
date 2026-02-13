@@ -13,7 +13,7 @@ import {
 import { sha256 } from '@noble/hashes/sha2';
 import { base58btc } from 'multiformats/bases/base58';
 import { BIP340DataIntegrityProof } from '../data-integrity-proof/index.js';
-import { BTCR2SignedUpdate, BTCR2Update, DataIntegrityConfig, DataIntegrityProofObject } from '../data-integrity-proof/interface.js';
+import { SignedBTCR2Update, BTCR2Update, DataIntegrityConfig, DataIntegrityProofObject } from '../data-integrity-proof/interface.js';
 import { SchnorrMultikey } from '../multikey/index.js';
 import { Cryptosuite, VerificationResult } from './interface.js';
 
@@ -103,10 +103,10 @@ export class BIP340Cryptosuite implements Cryptosuite {
 
   /**
    * Verify a proof for a secure document.
-   * @param {BTCR2SignedUpdate} secureDocument The secure document to verify.
+   * @param {SignedBTCR2Update} secureDocument The secure document to verify.
    * @returns {VerificationResult} The result of the verification.
    */
-  verifyProof(secureDocument: BTCR2SignedUpdate): VerificationResult {
+  verifyProof(secureDocument: SignedBTCR2Update): VerificationResult {
     // Destructure the proof from the secure document and create an unsecured document without the proof
     const { proof, ...unsecureDocument } = secureDocument;
 
@@ -134,7 +134,7 @@ export class BIP340Cryptosuite implements Cryptosuite {
 
   /**
    * Transform a document into canonical form.
-   * @param {BTCR2UnsignedUpdate | BTCR2SignedUpdate} document The document to transform.
+   * @param {UnsignedBTCR2Update | SignedBTCR2Update} document The document to transform.
    * @param {DataIntegrityConfig} config The config to use when transforming the document.
    * @returns {string} The canonicalized document.
    * @throws {MethodError} if the document cannot be transformed.

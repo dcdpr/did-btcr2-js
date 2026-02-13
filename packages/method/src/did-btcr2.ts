@@ -2,15 +2,19 @@ import { BitcoinNetworkConnection } from '@did-btcr2/bitcoin';
 import {
   Canonicalization,
   DocumentBytes,
+  HexString,
   IdentifierHrp,
   INVALID_DID_DOCUMENT,
+  INVALID_DID_UPDATE,
   KeyBytes,
   METHOD_NOT_SUPPORTED,
   MethodError,
   MISSING_UPDATE_DATA,
   PatchOperation,
-  ResolveError
+  ResolveError,
+  UpdateError
 } from '@did-btcr2/common';
+import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import {
   Did,
   DidError,
@@ -21,16 +25,16 @@ import {
 } from '@web5/dids';
 import { initEccLib } from 'bitcoinjs-lib';
 import * as tinysecp from 'tiny-secp256k1';
+import { BeaconService } from './core/beacon/interfaces.js';
 import { BeaconUtils } from './core/beacon/utils.js';
 import { Identifier } from './core/identifier.js';
 import { ResolutionOptions } from './core/interfaces.js';
 import { Resolve } from './core/resolve.js';
-import { SidecarData } from './core/types.js';
 import { Update } from './core/update.js';
 import { Appendix } from './utils/appendix.js';
-import { DidDocument, DidVerificationMethod } from './utils/did-document.js';
+import { Btcr2DidDocument, DidVerificationMethod } from './utils/did-document.js';
 
-// TODO: convert to API driver
+// TODO: convert to API driver?
 export const canonicalization = new Canonicalization();
 
 export type Btcr2Identifier = string;
@@ -44,7 +48,7 @@ export interface DidCreateOptions {
   network?: string;
 }
 
-// TODO: convert to API driver
+// TODO: convert to API driver?
 /** Initialize tiny secp256k1 */
 initEccLib(tinysecp);
 
@@ -62,7 +66,9 @@ initEccLib(tinysecp);
  * @implements {DidMethod}
  */
 export class DidBtcr2 implements DidMethod {
-  /** @type {string} Name of the DID method, as defined in the DID BTCR2 specification */
+  /**
+   * Name of the DID method, as defined in the DID BTCR2 specification
+   */
   static methodName: string = 'btcr2';
 
   /**
@@ -95,7 +101,7 @@ export class DidBtcr2 implements DidMethod {
   }
 
   /**
-   * Entry point for section {@link https://dcdpr.github.io/did-btcr2/#read | 7.2 Resolve}.
+   * Entry point for section {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html | 7.2 Resolve}.
    * See specification for the {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process | Resolve Process}.
    * See {@link Resolve | Resolve (class)} for class implementation.
    *
@@ -104,14 +110,10 @@ export class DidBtcr2 implements DidMethod {
    * blockchain by Authorized Beacon Signals. The Initial DID Document is either
    * deterministically created from the DID or provided by Sidecar Data.
    *
-   * @param {string} did a valid did:btcr2 identifier to be resolved
-   * @param {ResolutionOptions} resolutionOptions see {@link https://www.w3.org/TR/did-1.0/#did-resolution-options | ResolutionOptions}
-   * @param {number} resolutionOptions.versionId optional version of the identifier and/or DID document
-   * @param {number} resolutionOptions.versionTime optional timestamp used during resolution as a bound for when to stop resolving
-   * @param {DidDocument} resolutionOptions.sidecar optional data necessary for resolving a DID
+   * @param {string} did The did:btcr2 identifier to be resolved.
+   * @param {ResolutionOptions} resolutionOptions Options used during the resolution process.
    * @returns {Promise<DidResolutionResult>} Promise resolving to a DID Resolution Result containing the `targetDocument`
-   * @throws {Error} if the resolution fails for any reason
-   * @throws {DidError} InvalidDid if the identifier is invalid
+   * @throws {ResolveError} If the resolution process fails at any step.
    * @example
    * ```ts
    * const resolution = await DidBtcr2.resolve(
@@ -119,7 +121,10 @@ export class DidBtcr2 implements DidMethod {
    * )
    * ```
    */
-  static async resolve(did: string, resolutionOptions: ResolutionOptions = {drivers: {}}): Promise<DidResolutionResult> {
+  static async resolve(
+    did: string,
+    resolutionOptions: ResolutionOptions = { drivers: {} }
+  ): Promise<DidResolutionResult> {
     try {
 
       // Initialize an empty DID Resolution Result
@@ -139,10 +144,13 @@ export class DidBtcr2 implements DidMethod {
       const didComponents = Identifier.decode(did);
 
       // Process sidecar if provided
-      const sidecarData = Resolve.processSidecarData(resolutionOptions.sidecar);
+      const sidecarData = Resolve.sidecarData(resolutionOptions.sidecar);
 
-      // Establish a connection to a bitcoin network
-      if(!resolutionOptions.drivers.bitcoin) {
+      // Check if bitcoin driver provided
+      if(!resolutionOptions?.drivers?.bitcoin) {
+        // If not, initialize default drivers
+        resolutionOptions.drivers = resolutionOptions.drivers || {};
+        // Set bitcoin driver to default BitcoinNetworkConnection
         resolutionOptions.drivers.bitcoin = new BitcoinNetworkConnection();
         // Set the network based on the decoded identifier
         resolutionOptions.drivers.bitcoin.setActiveNetwork(didComponents.network);
@@ -161,20 +169,22 @@ export class DidBtcr2 implements DidMethod {
       }
 
       // Establish the current document
-      const currentDocument = await Resolve.establishCurrentDocument(didComponents, genesisDocument);
+      const currentDocument = await Resolve.currentDocument(didComponents, genesisDocument);
 
       // Extract all Beacon services from the current DID Document
       const beaconServices = currentDocument.service
         .filter(BeaconUtils.isBeaconService)
         .map(BeaconUtils.parseBeaconServiceEndpoint);
 
+      console.log('beaconServices', beaconServices);
+
       // Process the Beacon Signals to get the required updates
-      const unsortedUpdates = await Resolve.processBeaconSignals(
+      const unsortedUpdates = await Resolve.beaconSignals(
         beaconServices,
         sidecarData,
-        resolutionOptions.drivers.bitcoin,
-        resolutionOptions.fullBlockchainTraversal
+        resolutionOptions.drivers.bitcoin
       );
+      console.log('unsortedUpdates', unsortedUpdates);
 
       // If no updates found, return the current document
       if(!unsortedUpdates.length) {
@@ -189,7 +199,7 @@ export class DidBtcr2 implements DidMethod {
       }
 
       // Process the updates to apply updates to bring the current DID Document to its more current state
-      const result = await Resolve.processUpdatesArray(
+      const result = await Resolve.updates(
         currentDocument,
         unsortedUpdates,
         resolutionOptions.versionTime,
@@ -221,92 +231,118 @@ export class DidBtcr2 implements DidMethod {
   }
 
   /**
-   * Entry point for section {@link https://dcdpr.github.io/did-btcr2/#update | 4.3 Update}.
-   * See {@link Update} for implementation details.
+   * Entry point for section {@link https://dcdpr.github.io/did-btcr2/#read | 7.3 Update}.
+   * See specification for the {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process | Resolve Process}.
+   * See {@link Update | Update (class)} for class implementation.
    *
-   * An update to a did:btcr2 document is an invoked capability using the ZCAP-LD data format, signed by a
-   * verificationMethod that has the authority to make the update as specified in the previous DID document. Capability
-   * invocations for updates MUST be authorized using Data Integrity following the bip340-jcs-2025
-   * cryptosuite with a proofPurpose of capabilityInvocation.
-   *
-   * The Update algorithm takes as inputs a Identifier, sourceDocument, sourceVersionId, documentPatch, a
-   * verificationMethodId and an array of beaconIds. The sourceDocument is the DID document being updated. The
-   * documentPatch is a JSON Patch object containing a set of transformations to be applied to the sourceDocument.
-   * The result of these transformations MUST produce a DID document conformant to the DID Core specification. The
-   * verificationMethodId is an identifier for a verificationMethod within the sourceDocument. The verificationMethod
-   * identified MUST be a BIP340 Multikey. The beaconIds MUST identify service endpoints with one of the three Beacon
-   * Types SingletonBeacon, CASBeacon, and SMTBeacon.
-   *
-   * @param {UpdateParams} params Required parameters for the update operation.
-   * @param {string} params.identifier The btcr2 identifier to be updated.
-   * @param {DidDocument} params.sourceDocument The DID document being updated.
-   * @param {string} params.sourceVersionId The versionId of the source document.
-   * @param {PatchOperation} params.documentPatch The JSON patch to be applied to the source document.
-   * @param {string} params.verificationMethodId The verificationMethod ID to sign the update
-   * @param {string[]} params.beaconIds The beacon IDs to announce the update
-   * @returns {Promise<void>} Promise resolving to void
-   * @throws {MethodError} if the verificationMethod type is not `Multikey` or the publicKeyMultibase header is not `zQ3s`
+   * BTCR2 DID documents can be updated by anchoring BTCR2 Updates to Bitcoin transactions. These transactions MAY be
+   * published to the Bitcoin network. Any property in the DID document may be updated except the id. Doing so would
+   * invalidate the DID document.
+   * @param params An object containing the parameters for the update operation.
+   * @param {Btcr2DidDocument} params.sourceDocument The DID document being updated.
+   * @param {PatchOperation[]} params.patches The array of JSON Patch operations to apply to the sourceDocument.
+   * @param {string} params.sourceVersionId The version ID before applying the update.
+   * @param {string} params.verificationMethodId The verificationMethod ID to sign the update with.
+   * @param {string} params.beaconId The beacon ID associated with the update.
+   * @param {KeyBytes | HexString} [params.signingMaterial] Optional signing material (key bytes or hex string).
+   * @param {BitcoinNetworkConnection} [params.bitcoin] Optional Bitcoin network connection for announcing the update. If not provided, a default connection will be initialized.
+   * @return {Promise<SignedBTCR2Update>} Promise resolving to the signed BTCR2 update.
+   * @throws {UpdateError} if no verificationMethod, verificationMethod type is not `Multikey` or the publicKeyMultibase
+   * header is not `zQ3s`
    */
-  public static async update(params: {
-    identifier: string;
-    sourceDocument: DidDocument;
+  static async update({
+    sourceDocument,
+    patches,
+    sourceVersionId,
+    verificationMethodId,
+    beaconId,
+    signingMaterial,
+    bitcoin,
+  }: {
+    sourceDocument: Btcr2DidDocument;
+    patches: PatchOperation[];
     sourceVersionId: number;
-    patch: PatchOperation[];
     verificationMethodId: string;
-    beaconIds: string[];
-  }): Promise<SidecarData> {
-    // Deconstruct the params
-    const {
-      identifier,
-      sourceDocument,
-      sourceVersionId,
-      patch,
-      verificationMethodId: methodId,
-      beaconIds,
-    } = params;
+    beaconId: string;
+    signingMaterial?: KeyBytes | HexString;
+    bitcoin?: BitcoinNetworkConnection;
+  }): Promise<SignedBTCR2Update> {
+    // TODO: provide KMS as alternative
+    // If no signingMaterial provided, throw an UpdateError with INVALID_DID_UPDATE.
+    if (!signingMaterial) {
+      throw new UpdateError(
+        'Missing signing material for update',
+        INVALID_DID_UPDATE, {signingMaterial}
+      );
+    }
 
-    // 1. Set unsignedUpdate to the result of passing Identifier, sourceDocument,
-    //    sourceVersionId, and documentPatch into the Construct DID Update
-    //    Payload algorithm.
-    const unsignedUpdate = await Update.construct({
-      identifier,
-      sourceDocument,
-      sourceVersionId,
-      patch,
-    });
+    // Convert signingMaterial to bytes if it's a hex string
+    const secretKey = typeof signingMaterial === 'string'
+      ? Buffer.from(signingMaterial, 'hex')
+      : signingMaterial;
 
-    // 2. Set verificationMethod to the result of retrieving the verificationMethod
-    //    from sourceDocument using the verificationMethodId.
-    const verificationMethod = this.getSigningMethod(sourceDocument, methodId);
+    // Validate that the verificationMethodId is authorized for capabilityInvocation
+    if(!sourceDocument.capabilityInvocation?.some(vr => vr === verificationMethodId)) {
+      throw new UpdateError(
+        'Invalid verificationMethodId: not authorized for capabilityInvocation',
+        INVALID_DID_DOCUMENT, sourceDocument
+      );
+    }
+
+    // Get the verification method to be used for signing the update
+    const verificationMethod = this.getSigningMethod(sourceDocument, verificationMethodId);
 
     // Validate the verificationMethod exists in the sourceDocument
     if (!verificationMethod) {
-      throw new MethodError('Verification method not found in did document', INVALID_DID_DOCUMENT, sourceDocument);
+      throw new UpdateError(
+        'Invalid verificationMethod: not found in source document',
+        INVALID_DID_DOCUMENT, {sourceDocument, verificationMethodId}
+      );
     }
 
-    // 3. Validate the verificationMethod is a BIP340 Multikey:
-    //    3.1 verificationMethod.type == Multikey
+    // Validate the verificationMethod is of type 'Multikey'
     if (verificationMethod.type !== 'Multikey') {
-      throw new MethodError('Invalid type: must be type "Multikey"', INVALID_DID_DOCUMENT, verificationMethod);
+      throw new UpdateError(
+        'Invalid verificationMethod: verificationMethod.type must be "Multikey"',
+        INVALID_DID_DOCUMENT, verificationMethod
+      );
     }
 
-    //    3.2 verificationMethod.publicKeyMultibase[4] == zQ3s
-    const mbasePrefix = verificationMethod.publicKeyMultibase?.slice(0, 4);
-    if (mbasePrefix !== 'zQ3s') {
-      throw new MethodError(`Invalid publicKeyMultibase prefix ${mbasePrefix}`, INVALID_DID_DOCUMENT, verificationMethod);
+    // Validate the publicKeyMultibase prefix is 'zQ3s'
+    if (verificationMethod.publicKeyMultibase?.slice(0, 4) !== 'zQ3s') {
+      throw new UpdateError(
+        'Invalid verificationMethodId: publicKeyMultibase prefix must start with "zQ3s"',
+        INVALID_DID_DOCUMENT, verificationMethod
+      );
     }
 
-    // 4. Set didUpdateInvocation to the result of passing Identifier, unsignedUpdate as didUpdatePayload, and
-    //    verificationMethod to the Invoke DID Update Payload algorithm.
-    const signedUpdate = await Update.invoke({ identifier, verificationMethod, unsignedUpdate });
+    // Construct an unsigned update following the BTCR2 Update construction algorithm
+    const update = await Update.construct(sourceDocument, patches, sourceVersionId);
 
-    // 5. Set signalsMetadata to the result of passing Identifier, sourceDocument, beaconIds and didUpdateInvocation
-    //    to the Announce DID Update algorithm.
-    const signalsMetadata = await Update.announce({ sourceDocument, beaconIds, signedUpdate });
+    // Sign the unsigned update using the specified verification method
+    const signed = await Update.sign(sourceDocument.id, update, verificationMethod, secretKey);
 
-    // 6. Return signalsMetadata. It is up to implementations to ensure that the signalsMetadata is persisted.
-    return signalsMetadata;
-    // TODO: Should we be applying the patch, producing a target did document and returning it?
+    // Filter sourceDocument services to get beaconServices matching beaconIds
+    const beaconService = sourceDocument.service
+      .filter((service: BeaconService) => service.id === beaconId)
+      .filter((service: BeaconService): service is BeaconService => !!service)
+      .shift();
+
+    // If no matching beacon service found, throw an UpdateError with INVALID_DID_UPDATE.
+    if(!beaconService) {
+      throw new UpdateError(
+        'No beacon service found for provided beaconId',
+        INVALID_DID_UPDATE, {sourceDocument, beaconId}
+      );
+    }
+    // If no bitcoin network connection provided, initialize default
+    bitcoin ??= new BitcoinNetworkConnection();
+
+    // Announce the signed update to the blockchain using the specified beacon(s)
+    // await Update.announce(beaconService, signed, secretKey, bitcoin);
+
+    // Return signed update if announced successfully
+    return signed;
   }
 
   /**
@@ -314,12 +350,12 @@ export class DidBtcr2 implements DidMethod {
    * for signing messages and credentials. If given, the `methodId` parameter is used to select the
    * verification method. If not given, the Identity Key's verification method with an ID fragment
    * of '#initialKey' is used.
-   * @param {DidDocument} didDocument The DID Document of the `did:btcr2` identifier.
+   * @param {Btcr2DidDocument} didDocument The DID Document of the `did:btcr2` identifier.
    * @param {string} [methodId] Optional verification method ID to be used for signing.
    * @returns {DidVerificationMethod} Promise resolving to the {@link DidVerificationMethod} object used for signing.
    * @throws {DidError} if the parsed did method does not match `btcr2` or signing method could not be determined.
    */
-  public static getSigningMethod(didDocument: DidDocument,  methodId?: string): DidVerificationMethod {
+  static getSigningMethod(didDocument: Btcr2DidDocument,  methodId?: string): DidVerificationMethod {
     // Set the default methodId to the first assertionMethod if not given
     methodId ??= '#initialKey';
 

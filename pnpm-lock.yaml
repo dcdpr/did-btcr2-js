@@ -310,6 +310,9 @@ importers:
       '@did-btcr2/common':
         specifier: workspace:*
         version: link:../common
+      '@did-btcr2/cryptosuite':
+        specifier: workspace:*
+        version: link:../cryptosuite
       '@did-btcr2/method':
         specifier: workspace:*
         version: link:../method

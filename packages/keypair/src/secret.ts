@@ -3,7 +3,6 @@ import {
   BIP340_SECRET_KEY_MULTIBASE_PREFIX_HASH,
   Bytes,
   CURVE,
-  Entropy,
   Hex,
   KeyBytes,
   SecretKeyError,
@@ -89,10 +88,10 @@ export class Secp256k1SecretKey implements SecretKey {
 
   /**
    * Instantiates an instance of Secp256k1SecretKey.
-   * @param {Entropy} entropy bytes (Uint8Array) or secret (bigint)
+   * @param {Bytes | bigint} entropy bytes (Uint8Array) or secret (bigint)
    * @throws {SecretKeyError} If entropy is not provided, not a valid 32-byte secret key or not a valid bigint seed
    */
-  constructor(entropy: Entropy) {
+  constructor(entropy: Bytes | bigint) {
     // If entropy not valid bytes or bigint seed, throw an error
     const isBytes = entropy instanceof Uint8Array;
     const isSecret = typeof entropy === 'bigint';
@@ -388,17 +387,27 @@ export class Secp256k1SecretKey implements SecretKey {
   }
 
   /**
-   * Creates a new Secp256k1SecretKey object from a bigint secret.
-   * @param {bigint} entropy The secret bigint
+   * Creates a new Secp256k1SecretKey object from random bytes.
+   * @param {KeyBytes} bytes The secret key bytes
    * @returns {Secp256k1SecretKey} A new Secp256k1SecretKey object
    */
-  public static fromEntropy(entropy: bigint): Secp256k1SecretKey {
-    // Convert the secret bigint to a hex string
-    const hexsecret = entropy.toString(16).padStart(64, '0');
-    // Convert the hex string to a Uint8Array
-    const privateKeyBytes = new Uint8Array(hexsecret.match(/.{2}/g)!.map(byte => parseInt(byte, 16)));
+  public static fromBytes(bytes: KeyBytes): Secp256k1SecretKey {
     // Return a new Secp256k1SecretKey object
-    return new Secp256k1SecretKey(privateKeyBytes);
+    return new Secp256k1SecretKey(bytes);
+  }
+
+  /**
+   * Creates a new Secp256k1SecretKey object from a bigint secret.
+   * @param {bigint} bint The secret bigint
+   * @returns {Secp256k1SecretKey} A new Secp256k1SecretKey object
+   */
+  public static fromBigInt(bint: bigint): Secp256k1SecretKey {
+    // Convert the secret bigint to a hex string
+    const hexsecret = bint.toString(16).padStart(64, '0');
+    // Convert the hex string to a Uint8Array
+    const bytes = new Uint8Array(hexsecret.match(/.{2}/g)!.map(byte => parseInt(byte, 16)));
+    // Return a new Secp256k1SecretKey object
+    return new Secp256k1SecretKey(bytes);
   }
 
   /**
