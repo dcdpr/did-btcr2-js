@@ -57,25 +57,19 @@ export class Update {
    * resulting targetDocument is a conformant DID document. It takes in a Identifier, sourceDocument,
    * sourceVersionId, and documentPatch objects. It returns an unsigned DID Update Payload.
    *
-   * @param {ConstructPayloadParams} params See  {@link ConstructPayloadParams} for more details.
-   * @param {string} params.identifier The did-btcr2 identifier to use for verification.
-   * @param {DidDocument} params.sourceDocument The source document to be updated.
-   * @param {string} params.sourceVersionId The versionId of the source document.
-   * @param {DidDocumentPatch} params.patch The JSON patch to be applied to the source document.
+   * @param {string} identifier The did-btcr2 identifier to use for verification.
+   * @param {DidDocument} sourceDocument The source document to be updated.
+   * @param {string} sourceVersionId The versionId of the source document.
+   * @param {DidDocumentPatch} patch The JSON patch to be applied to the source document.
    * @returns {Promise<BTCR2SignedUpdate>} The constructed BTCR2SignedUpdate object.
    * @throws {MethodError} InvalidDid if sourceDocument.id does not match identifier.
    */
-  public static async construct({
-    identifier,
-    sourceDocument,
-    sourceVersionId,
-    patch,
-  }: {
-    identifier: string;
-    sourceDocument: DidDocument;
-    sourceVersionId: number;
-    patch: PatchOperation[];
-  }): Promise<BTCR2UnsignedUpdate> {
+  public static async construct(
+    identifier: string,
+    sourceDocument: DidDocument,
+    sourceVersionId: number,
+    patch: PatchOperation[],
+  ): Promise<BTCR2UnsignedUpdate> {
 
     // 1. Check that sourceDocument.id equals identifier else MUST raise invalidDIDUpdate error.
     if (sourceDocument.id !== identifier) {
@@ -132,22 +126,17 @@ export class Update {
    * the form of a Data Integrity proof following the Authorization Capabilities (ZCAP-LD) and VC Data Integrity
    * specifications. It returns the invoked DID Update Payload.
    *
-   * @param {InvokePayloadParams} params Required params for calling the invokePayload method
    * @param {string} params.identifier The did-btcr2 identifier to derive the root capability from
    * @param {BTCR2SignedUpdate} params.BTCR2SignedUpdate The updatePayload object to be signed
    * @param {DidVerificationMethod} params.verificationMethod The verificationMethod object to be used for signing
    * @returns {BTCR2SignedUpdate} Did update payload secured with a proof => BTCR2SignedUpdate
    * @throws {MethodError} if the privateKeyBytes are invalid
    */
-  public static async invoke({
-    identifier,
-    unsignedUpdate,
-    verificationMethod
-  }: {
-    identifier: string;
-    unsignedUpdate: BTCR2UnsignedUpdate;
-    verificationMethod: DidVerificationMethod;
-  }): Promise<BTCR2SignedUpdate> {
+  public static async invoke(
+    identifier: string,
+    unsignedUpdate: BTCR2UnsignedUpdate,
+    verificationMethod: DidVerificationMethod,
+  ): Promise<BTCR2SignedUpdate> {
     // Deconstruct the verificationMethod
     const { id: fullId, controller, publicKeyMultibase, secretKeyMultibase } = verificationMethod;
 
@@ -167,10 +156,12 @@ export class Update {
     // 1.2 Retrieve the key pair from the KMS or from the secretKeyMultibase
     const components = Identifier.decode(id);
     const keyUri = new CompressedSecp256k1PublicKey(components.genesisBytes).hex;
-    const keys = secretKeyMultibase
-      ? new SchnorrKeyPair({ secretKey: Secp256k1SecretKey.decode(secretKeyMultibase) })
-      : Kms.getKey(keyUri as string);
-    if (!keys) {
+    const secretKey = secretKeyMultibase ? Secp256k1SecretKey.decode(secretKeyMultibase) : undefined;
+    const keyPair = secretKey
+      ? new SchnorrKeyPair({ secretKey })
+      : Kms.getKey(keyUri);
+
+    if (!keyPair) {
       throw new MethodError(
         'No privateKey found in kms or vm',
         NOT_FOUND, verificationMethod
@@ -221,7 +212,7 @@ export class Update {
     // 12. Set BTCR2SignedUpdate to the result of executing the Add Proof algorithm from VC Data Integrity passing
     //     BTCR2SignedUpdate as the input document, cryptosuite, and the set of proofOptions.
     // 13. Return BTCR2SignedUpdate.
-    return await diproof.addProof(unsignedUpdate, config);
+    return diproof.addProof(unsignedUpdate, config);
   }
 
   /**

@@ -15,9 +15,8 @@ import {
   JSONPatch,
   JSONUtils,
   LATE_PUBLISHING_ERROR,
-  MethodError,
-  MISSING_UPDATE_DATA,
-  ResolveError
+  ResolveError,
+  MISSING_UPDATE_DATA
 } from '@did-btcr2/common';
 import {
   BIP340Cryptosuite,
@@ -95,8 +94,9 @@ export class Resolve {
    * @param {DidComponents} didComponents The decoded components of the did.
    * @param {GenesisDocument} genesisDocument The genesis document for resolving the DID Document.
    * @returns {Promise<DidDocument>} The resolved DID Document object.
-   * @throws {DidError} if the DID hrp is invalid, no sidecarData passed and hrp = "x".
+   * @throws {ResolveError} if the DID hrp is invalid, no sidecarData passed and hrp = "x".
    */
+
   static async establishCurrentDocument(
     didComponents: DidComponents,
     genesisDocument?: object,
@@ -172,7 +172,7 @@ export class Resolve {
    * @param {DidComponents} didComponents BTCR2 DID components used to resolve the DID Document
    * @param {GenesisDocument} genesisDocument The genesis document for resolving the DID Document.
    * @returns {Promise<DidDocument>} The resolved DID Document object
-   * @throws {MethodError} InvalidDidDocument if not conformant to DID Core v1.1
+   * @throws {ResolveError} InvalidDidDocument if not conformant to DID Core v1.1
    */
   static async external(
     didComponents: DidComponents,
@@ -186,7 +186,7 @@ export class Resolve {
 
     // If the genesisBytes do not match the hashBytes, throw an error
     if (genesisBytes !== hashBytes) {
-      throw new MethodError(
+      throw new ResolveError(
         `Initial document mismatch: genesisBytes ${genesisBytes} !== hashBytes ${hashBytes}`,
         INVALID_DID_DOCUMENT, { genesisBytes, hashBytes }
       );
@@ -674,7 +674,7 @@ export class Resolve {
 
     // If the result is not verified, throw INVALID_DID_UPDATE error
     if (!verificationResult.verified) {
-      throw new MethodError(
+      throw new ResolveError(
         'Invalid update: proof not verified',
         INVALID_DID_UPDATE, verificationResult
       );
@@ -695,7 +695,7 @@ export class Resolve {
     // Make sure the update.targetHash equals currentDocumentHash.
     if (updateTargetHash !== currentDocumentHash) {
       // If they do not match, throw INVALID_DID_UPDATE error.
-      throw new MethodError(
+      throw new ResolveError(
         `Invalid update: updateTargetHash !== currentDocumentHash`,
         INVALID_DID_UPDATE, { updateTargetHash, currentDocumentHash }
       );
