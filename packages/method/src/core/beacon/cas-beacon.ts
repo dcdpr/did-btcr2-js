@@ -1,12 +1,11 @@
 import { BitcoinNetworkConnection } from '@did-btcr2/bitcoin';
-import { HexString, MethodError } from '@did-btcr2/common';
+import { KeyBytes, MethodError } from '@did-btcr2/common';
+import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { SidecarData } from '../types.js';
 import { AggregateBeacon, BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js';
-import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/terminology.html#cas-beacon | CAS Beacon}.
- *
  * @class CASBeacon
  * @type {CASBeacon}
  * @extends {AggregateBeacon}
@@ -27,23 +26,30 @@ export class CASBeacon extends AggregateBeacon {
   }
 
   /**
-   * Establish a CASBeacon instance based on the provided service and sidecar data.
-   * @param {BeaconService} service - The beacon service configuration.
-   * @param {SidecarData} sidecar - The sidecar data.
-   * @returns {CASBeacon} The established CASBeacon instance.
+   * Static, convenience method for establishing a beacon object.
+   * @param {BeaconService} service The service of the Beacon.
+   * @param {Array<BeaconSignal>} signals The signals of the Beacon.
+   * @param {SidecarData} sidecar The sidecar data of the Beacon.
+   * @param {BitcoinNetworkConnection} bitcoin The Bitcoin network connection.
+   * @returns {CASBeacon} The CAS Beacon.
    */
-  static establish(service: BeaconService, signals: Array<BeaconSignal>, sidecar: SidecarData): CASBeacon {
-    return new CASBeacon(service, signals, sidecar);
+  static establish(
+    service: BeaconService,
+    signals?: Array<BeaconSignal>,
+    sidecar?: SidecarData,
+    bitcoin?: BitcoinNetworkConnection
+  ): CASBeacon {
+    return new CASBeacon(service, signals, sidecar, bitcoin);
   }
 
   /**
-   * TODO: Figure out if this is necessary or not.
-   * @param {HexString} updateHash The hash of the update to generate the signal for.
+   * Generates a Beacon Signal.
    * @returns {BeaconSignal} The generated signal.
    * @throws {MethodError} if the signal is invalid.
    */
-  generateSignal(updateHash: HexString): BeaconSignal {
-    throw new Error('Method not implemented.' + updateHash);
+  generateSignal(): BeaconSignal {
+    throw new MethodError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`);
+
   }
 
   /**
@@ -56,12 +62,16 @@ export class CASBeacon extends AggregateBeacon {
   }
 
   /**
-   * TODO: Finish implementation
-   * @param {HexString} updateHash The hash of the update to broadcast the signal for.
-   * @returns {Promise<HexString>} The broadcasted signal hash.
+   * Broadcast CAS Beacon signal to the Bitcoin network.
+   * @param {SignedBTCR2Update} signedUpdate The signed BTCR2 update to be broadcasted.
+   * @param {KeyBytes} secretKey The secret key used for signing the update.
+   * @return {Promise<SignedBTCR2Update>} The signed update that was broadcasted.
    * @throws {MethodError} if broadcasting fails.
    */
-  async broadcastSignal(updateHash: HexString): Promise<HexString> {
-    throw new MethodError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`, {updateHash});
+  async broadcastSignal(
+    signedUpdate: SignedBTCR2Update,
+    secretKey: KeyBytes
+  ): Promise<SignedBTCR2Update> {
+    throw new MethodError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`, {signedUpdate, secretKey});
   }
 }

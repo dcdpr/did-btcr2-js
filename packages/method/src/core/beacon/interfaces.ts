@@ -1,8 +1,8 @@
 import { BitcoinNetworkConnection, RawTransactionRest, RawTransactionV2 } from '@did-btcr2/bitcoin';
-import { HexString, UnixTimestamp } from '@did-btcr2/common';
+import { KeyBytes, UnixTimestamp } from '@did-btcr2/common';
+import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { DidServiceEndpoint, DidService as IDidService } from '@web5/dids';
 import { SidecarData } from '../types.js';
-import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 
 /**
  * Represents a Beacon Service, which extends the DID Service with a service endpoint.
@@ -110,7 +110,7 @@ export abstract class AggregateBeacon {
   /**
    * Generates an unsigned update in a Beacon Signal (implemented by subclasses).
    */
-  abstract generateSignal(updateHash: HexString): BeaconSignal;
+  abstract generateSignal(): BeaconSignal;
 
   /**
    * Processes a Beacon Signal (implemented by subclasses).
@@ -120,5 +120,5 @@ export abstract class AggregateBeacon {
   /**
    * Broadcasts a signed update in a Beacon Signal (implemented by subclasses).
    */
-  abstract broadcastSignal(updateHash: HexString): Promise<HexString>;
+  abstract broadcastSignal(signedUpdate: SignedBTCR2Update, secretKey?: KeyBytes): Promise<SignedBTCR2Update>;
 }

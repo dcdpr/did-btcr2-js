@@ -1,11 +1,10 @@
 import { BitcoinNetworkConnection } from '@did-btcr2/bitcoin';
-import { HexString, MethodError } from '@did-btcr2/common';
+import { KeyBytes, MethodError } from '@did-btcr2/common';
 import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { SidecarData } from '../types.js';
 import { AggregateBeacon, BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js';
 
 /**
- * TODO: Finish implementation
  * Implements {@link https://dcdpr.github.io/did-btcr2/terminology.html#smt-beacon | SMTBeacon}.
  * @class SMTBeacon
  * @type {SMTBeacon}
@@ -13,7 +12,7 @@ import { AggregateBeacon, BeaconService, BeaconSignal, BlockMetadata } from './i
  */
 export class SMTBeacon extends AggregateBeacon {
   /**
-   * Creates an instance of SingletonBeacon.
+   * Creates an instance of SMTBeacon.
    * @param {BeaconService} service The Beacon service.
    * @param {Array<BeaconSignal>} signals The SingletonBeacon sidecar data.
    * @param {SidecarData} sidecar The sidecar data.
@@ -28,25 +27,31 @@ export class SMTBeacon extends AggregateBeacon {
   }
 
   /**
-   * Static, convenience method for establishing a SMTBeacon object.
-   * @param {string} service The Beacon service.
-   * @param {SidecarData} sidecar The sidecar data.
-   * @returns {SingletonBeacon} The Singleton Beacon.
+   * Static, convenience method for establishing a beacon object.
+   * @param {BeaconService} service The service of the Beacon.
+   * @param {Array<BeaconSignal>} signals The signals of the Beacon.
+   * @param {SidecarData} sidecar The sidecar data of the Beacon.
+   * @param {BitcoinNetworkConnection} bitcoin The Bitcoin network connection.
+   * @returns {SMTBeacon} The SMT Beacon.
    */
-  static establish(service: BeaconService, signals: Array<BeaconSignal>, sidecar: SidecarData): SMTBeacon {
-    return new SMTBeacon(service, signals, sidecar);
+  static establish(
+    service: BeaconService,
+    signals?: Array<BeaconSignal>,
+    sidecar?: SidecarData,
+    bitcoin?: BitcoinNetworkConnection
+  ): SMTBeacon {
+    return new SMTBeacon(service, signals, sidecar, bitcoin);
   }
 
   /**
-   * TODO: Figure out if this is necessary or not.
-   * @param {HexString} updateHash The hash of the BTCR2 update to generate the signal for.
+   * Generates a Beacon Signal.
    * @returns {BeaconSignal} The generated signal.
    * @throws {MethodError} if the signal is invalid.
    */
-  generateSignal(updateHash: HexString): BeaconSignal {
-    throw new MethodError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`, {updateHash});
-  }
+  generateSignal(): BeaconSignal {
+    throw new MethodError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`);
 
+  }
   /**
    * Process SMTBeacon signals.
    * @returns {Promise<Array<SignedBTCR2Update>>} The processed signed update or undefined.
@@ -59,12 +64,13 @@ export class SMTBeacon extends AggregateBeacon {
 
   /**
    * Broadcast a SMTBeacon signal.
-   * @param {HexString} updateHash The hash of the BTCR2 update to broadcast.
-   * @returns {Promise<SignalsMetadata>} The result of the broadcast.
+   * @param {SignedBTCR2Update} signedUpdate The signed update to be broadcasted.
+   * @param {KeyBytes} secretKey The secret key to sign the update with.
+   * @returns {Promise<SignedBTCR2Update>} The result of the broadcast.
    * @throws {MethodError} if the broadcast fails.
    */
-  async broadcastSignal(updateHash: HexString): Promise<HexString> {
-    throw new MethodError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`, {updateHash});
+  async broadcastSignal(signedUpdate: SignedBTCR2Update, secretKey: KeyBytes): Promise<SignedBTCR2Update> {
+    throw new MethodError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`, {signedUpdate, secretKey});
   }
 
 }
