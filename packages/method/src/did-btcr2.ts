@@ -246,26 +246,31 @@ export class DidBtcr2 implements DidMethod {
     patches: PatchOperation[],
     targetVersionId: number,
     verificationMethodId: string,
+    beaconIds: Array<string>,
     privateKey?: KeyBytes | HexString,
   ): Promise<SignedBTCR2Update> {
-    // Construct an unsigned update following the BTCR2 Update construction algorithm
-    const unsignedUpdate = await Update.constructUnsigned(sourceDocument, patches, targetVersionId);
-
+    // Validate that the verificationMethodId is authorized for capabilityInvocation
+    if(!sourceDocument.capabilityInvocation?.some(vr => vr === verificationMethodId)) {
+      throw new UpdateError(
+        'Invalid verificationMethodId: not authorized for capabilityInvocation',
+        INVALID_DID_DOCUMENT, sourceDocument
+      );
+    }
     // Get the verification method to be used for signing the update
     const verificationMethod = this.getSigningMethod(sourceDocument, verificationMethodId);
 
     // Validate the verificationMethod exists in the sourceDocument
     if (!verificationMethod) {
       throw new UpdateError(
-        'Verification method not found in did document',
-        INVALID_DID_DOCUMENT, sourceDocument
+        'Invalid verificationMethod: not found in source document',
+        INVALID_DID_DOCUMENT, {sourceDocument, verificationMethodId}
       );
     }
 
     // Validate the verificationMethod is of type 'Multikey'
     if (verificationMethod.type !== 'Multikey') {
       throw new UpdateError(
-        'Invalid type: must be type "Multikey"',
+        'Invalid verificationMethod: verificationMethod.type must be "Multikey"',
         INVALID_DID_DOCUMENT, verificationMethod
       );
     }
@@ -273,16 +278,19 @@ export class DidBtcr2 implements DidMethod {
     // Validate the publicKeyMultibase prefix is 'zQ3s'
     if (verificationMethod.publicKeyMultibase?.slice(0, 4) !== 'zQ3s') {
       throw new UpdateError(
-        'Invalid prefix: publicKeyMultibase must start with "zQ3s"',
+        'Invalid verificationMethodId: publicKeyMultibase prefix must start with "zQ3s"',
         INVALID_DID_DOCUMENT, verificationMethod
       );
     }
 
+    // Construct an unsigned update following the BTCR2 Update construction algorithm
+    const unsignedUpdate = await Update.constructUnsigned(sourceDocument, patches, targetVersionId);
+
     // Sign the unsigned update using the specified verification method
-    const signedUpdate = await Update.constructSigned(sourceDocument.id, unsignedUpdate, verificationMethod);
+    const signedUpdate = await Update.constructSigned(sourceDocument.id, unsignedUpdate, verificationMethod, privateKey);
 
     // Announce the signed update to the blockchain using the specified beacon(s)
-    await Update.announce(sourceDocument, ['beaconIds'], signedUpdate);
+    await Update.announce(sourceDocument, beaconIds, signedUpdate, privateKey);
 
     // Return signedUpdate if announced successfully
     return signedUpdate;
