@@ -293,20 +293,23 @@ export class SchnorrMultikey implements Multikey {
 
   /**
    * Creates a `Multikey` instance from a private key
-   * @param {FromPublicKey} params The parameters to create the multikey
    * @param {string} params.id The id of the multikey
    * @param {string} params.controller The controller of the multikey
    * @param {KeyBytes} params.entropy The private key bytes for the multikey
    * @returns {SchnorrMultikey} The new multikey instance
    */
-  public static fromPrivateKey({ id, controller, entropy }: FromSecretKey): SchnorrMultikey {
-    // Create a new PrivateKey from the private key bytes
-    const secretKey = new Secp256k1SecretKey(entropy);
+  public static fromSecretKey(
+    id: string,
+    controller: string,
+    secretKeyb: Bytes
+  ): SchnorrMultikey {
+    // Create a new SecretKey from the secret key bytes
+    const secretKey = new Secp256k1SecretKey(secretKeyb);
 
-    // Compute the public key from the private key
+    // Compute the public key from the secret key
     const publicKey = secretKey.computePublicKey();
 
-    // Create a new Keys from the private key
+    // Create a new Keys from the secret key
     const keyPair = new SchnorrKeyPair({ publicKey, secretKey });
 
     // Return a new Multikey instance
@@ -334,16 +337,24 @@ export class SchnorrMultikey implements Multikey {
 
   /**
    * Creates a `Multikey` instance from a public key multibase.
-   * @param {string} id The id of the multikey.
-   * @param {string} controller The controller of the multikey.
-   * @param {string} publicKeyMultibase The public key multibase of the multikey.
+   * @param {DidVerificationMethod} vm The verification method containing the public key multibase.
+   * @param {string} vm.id The id of the multikey.
+   * @param {string} vm.controller The controller of the multikey.
+   * @param {string} vm.publicKeyMultibase The public key multibase of the multikey.
    * @returns {Multikey} The new multikey instance.
    */
-  public static fromPublicKeyMultibase(
-    id: string,
-    controller: string,
-    publicKeyMultibase: string,
-  ): SchnorrMultikey {
+  public static fromVerificationMethod({
+    id,
+    controller,
+    publicKeyMultibase
+  }: DidVerificationMethod): SchnorrMultikey {
+    if(!publicKeyMultibase) {
+      throw new MultikeyError(
+        'Invalid publicKeyMultibase: cannot be undefined',
+        VERIFICATION_METHOD_ERROR, { publicKeyMultibase }
+      );
+    }
+
     // Decode the public key multibase using base58btc
     const publicKeyMultibaseBytes = base58btc.decode(publicKeyMultibase);
 

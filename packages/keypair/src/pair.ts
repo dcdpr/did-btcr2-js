@@ -16,33 +16,40 @@ import { HexSchnorrKeyPair, MultibaseKeys, RawSchnorrKeyPair, SchnorrKeyPairPara
  */
 export interface KeyPair {
   /**
-   * @type {PublicKey} The public key associated with the SchnorrKeyPair (required).
+   * The public key associated with the SchnorrKeyPair (required).
    */
   readonly publicKey: PublicKey;
 
   /**
-   * @type {SecretKey} The secret key associated with the SchnorrKeyPair (optional).
-   * @throws {KeyPairError} If the secret key is not available.
+   * The secret key associated with the SchnorrKeyPair (optional).
    */
   readonly secretKey?: SecretKey;
 }
 
 /**
- * Encapsulates a CompressedSecp256k1PublicKey and a Secp256k1SecretKey object as a single SchnorrKeyPair object.
+ * Encapsulates paired CompressedSecp256k1PublicKey and Secp256k1SecretKey objects as a single SchnorrKeyPair object.
  * @class SchnorrKeyPair
  * @type {SchnorrKeyPair}
  */
 export class SchnorrKeyPair implements KeyPair {
-  /** @type {Secp256k1SecretKey} The secret key object */
+  /**
+   * The secret key objec
+    */
   #secretKey?: Secp256k1SecretKey;
 
-  /** @type {CompressedSecp256k1PublicKey} The public key object */;
+  /**
+   * The public key object
+   */;
   #publicKey: CompressedSecp256k1PublicKey;
 
-  /** @type {string} The public key in multibase format */
+  /**
+   * The public key in multibase forma
+    */
   #publicKeyMultibase: string;
 
-  /** @type {string} The secret key in multibase format */
+  /**
+   * The secret key in multibase forma
+    */
   #secretKeyMultibase: string;
 
   /**
@@ -165,7 +172,7 @@ export class SchnorrKeyPair implements KeyPair {
    * JSON representation of a Keys.
    * @returns {SchnorrKeyPairObject} The Keys as a JSON object
    */
-  public json(): SchnorrKeyPairObject {
+  json(): SchnorrKeyPairObject {
     return {
       secretKey : this.secretKey.json(),
       publicKey : this.publicKey.json()
@@ -177,7 +184,7 @@ export class SchnorrKeyPair implements KeyPair {
    * @param {SchnorrKeyPairObject} keys The JSON object to initialize the Keys.
    * @returns {SchnorrKeyPair} The initialized Keys object.
    */
-  public static fromJSON(keys: SchnorrKeyPairObject): SchnorrKeyPair {
+  static fromJSON(keys: SchnorrKeyPairObject): SchnorrKeyPair {
     return new SchnorrKeyPair({
       secretKey : Secp256k1SecretKey.fromJSON(keys.secretKey),
       publicKey : CompressedSecp256k1PublicKey.fromJSON(keys.publicKey)
@@ -189,7 +196,7 @@ export class SchnorrKeyPair implements KeyPair {
    * @param {Secp256k1SecretKey | KeyBytes} data The secret key bytes
    * @returns {SchnorrKeyPair} A new SchnorrKeyPair object
    */
-  public static fromSecret(data: KeyBytes | HexString): SchnorrKeyPair {
+  static fromSecret(data: KeyBytes | HexString): SchnorrKeyPair {
 
     // If the data is Secp256k1SecretKey object, get the raw bytes
     // Else if data is string, convert to byte array
@@ -213,11 +220,11 @@ export class SchnorrKeyPair implements KeyPair {
 
   /**
    * Static method creates a new Keys (Secp256k1SecretKey/CompressedSecp256k1PublicKey) from bigint entropy.
-   * @param {bigint} entropy The entropy in bigint form
+   * @param {bigint} bint The entropy in bigint form
    * @returns {SchnorrKeyPair} A new SchnorrKeyPair object
    */
-  public static fromEntropy(entropy: bigint): SchnorrKeyPair {
-    const secretKey = Secp256k1SecretKey.fromEntropy(entropy);
+  static fromBigInt(bint: bigint): SchnorrKeyPair {
+    const secretKey = Secp256k1SecretKey.fromBigInt(bint);
     const publicKey = secretKey.computePublicKey();
     return new SchnorrKeyPair({ secretKey, publicKey });
   }
@@ -227,7 +234,7 @@ export class SchnorrKeyPair implements KeyPair {
    * @param {KeyBytes} keyBytes The key bytes (secret or public).
    * @returns {Hex} The key bytes as a hex string.
    */
-  public static toHex(keyBytes: KeyBytes): Hex {
+  static toHex(keyBytes: KeyBytes): Hex {
     return Buffer.from(keyBytes).toString('hex');
   }
 
@@ -237,7 +244,7 @@ export class SchnorrKeyPair implements KeyPair {
    * @param {SchnorrKeyPair} otherKp The other keys to compare.
    * @returns {boolean} True if the public key and secret key are equal, false otherwise.
    */
-  public static equals(kp: SchnorrKeyPair, otherKp: SchnorrKeyPair): boolean {
+  static equals(kp: SchnorrKeyPair, otherKp: SchnorrKeyPair): boolean {
     // Deconstruct the public keys from the key pairs
     const pk = kp.publicKey;
     const otherPk = otherKp.publicKey;
@@ -262,7 +269,7 @@ export class SchnorrKeyPair implements KeyPair {
    * Static method to generate a new random SchnorrKeyPair instance.
    * @returns {SchnorrKeyPair} A new Secp256k1SecretKey object.
    */
-  public static generate(): SchnorrKeyPair {
+  static generate(): SchnorrKeyPair {
     // Generate random secret key bytes
     const sk = Secp256k1SecretKey.random();
 
