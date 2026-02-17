@@ -652,13 +652,8 @@ export class Resolve {
     // Get the verificationMethod from the DID Document using the verificationMethodId.
     const vm = DidBtcr2.getSigningMethod(currentDocument, verificationMethodId);
 
-    // Split the vmId by the `#` to get the id and controller.
-    const [vmController, vmId] = vm.id.split('#');
-
     // Construct a new SchnorrMultikey.
-    const multikey = SchnorrMultikey.fromPublicKeyMultibase(
-      `#${vmId}`, vmController, vm.publicKeyMultibase
-    );
+    const multikey = SchnorrMultikey.fromVerificationMethod(vm);
 
     // Construct a new BIP340Cryptosuite with the SchnorrMultikey.
     const cryptosuite = new BIP340Cryptosuite(multikey);

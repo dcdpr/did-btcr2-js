@@ -1,18 +1,29 @@
 import { AddressUtxo, BitcoinNetworkConnection } from '@did-btcr2/bitcoin';
-import { HexString, INVALID_SIDECAR_DATA, MethodError, MISSING_UPDATE_DATA, SingletonBeaconError } from '@did-btcr2/common';
+import {
+  HexString,
+  INVALID_DID_UPDATE,
+  INVALID_SIDECAR_DATA,
+  KeyBytes,
+  MethodError,
+  MISSING_UPDATE_DATA,
+  SingletonBeaconError
+} from '@did-btcr2/common';
 import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
-import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
-import { Kms, Signer } from '@did-btcr2/kms';
+import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { Signer } from '@did-btcr2/kms';
 import { opcodes, Psbt, script } from 'bitcoinjs-lib';
 import { base58btc } from 'multiformats/bases/base58';
 import { canonicalization } from '../../did-btcr2.js';
-import { Identifier } from '../identifier.js';
 import { SidecarData } from '../types.js';
-import { AggregateBeacon, BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js';
+import {
+  AggregateBeacon,
+  BeaconService,
+  BeaconSignal,
+  BlockMetadata
+} from './interfaces.js';
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/terminology.html#singleton-beacon | Singleton Beacon}.
- *
  * @class SingletonBeacon
  * @type {SingletonBeacon}
  * @extends {AggregateBeacon}
@@ -34,23 +45,30 @@ export class SingletonBeacon extends AggregateBeacon {
   }
 
   /**
-   * Static, convenience method for establishing a CASBeacon object.
-   * @param {string} service The Beacon service.
-   * @param {SidecarData} sidecar The sidecar data.
+   * Static, convenience method for establishing a beacon object.
+   * @param {BeaconService} service The service of the Beacon.
+   * @param {Array<BeaconSignal>} signals The signals of the Beacon.
+   * @param {SidecarData} sidecar The sidecar data of the Beacon.
+   * @param {BitcoinNetworkConnection} bitcoin The Bitcoin network connection.
    * @returns {SingletonBeacon} The Singleton Beacon.
    */
-  static establish(service: BeaconService, signals?: Array<BeaconSignal>, sidecar?: SidecarData): SingletonBeacon {
-    return new SingletonBeacon(service, signals, sidecar);
+  static establish(
+    service: BeaconService,
+    signals?: Array<BeaconSignal>,
+    sidecar?: SidecarData,
+    bitcoin?: BitcoinNetworkConnection
+  ): SingletonBeacon {
+    return new SingletonBeacon(service, signals, sidecar, bitcoin);
   }
 
   /**
-   * Generates a Beacon Signal for a Singleton Beacon Service.
-   * @param {HexString} updateHash The update hash to be included in the Beacon Signal.
+   * Generates a Beacon Signal.
    * @returns {BeaconSignal} The generated signal.
    * @throws {MethodError} if the signal is invalid.
    */
-  generateSignal(updateHash: HexString): BeaconSignal {
-    throw new MethodError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`, {updateHash});
+  generateSignal(): BeaconSignal {
+    throw new MethodError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`);
+
   }
 
   /**
@@ -117,20 +135,30 @@ export class SingletonBeacon extends AggregateBeacon {
    * @returns {HexString} Successful output of a bitcoin transaction.
    * @throws {SingletonBeaconError} if the bitcoin address is invalid or unfunded.
    */
-  async broadcastSignal(updateHash: HexString): Promise<HexString> {
-    // 1. Initialize an addressURI variable to beacon.serviceEndpoint.
-    // 2. Set bitcoinAddress to the decoding of addressURI following BIP21.
+  async broadcastSignal(
+    signedUpdate: SignedBTCR2Update,
+    secretKey: KeyBytes
+  ): Promise<SignedBTCR2Update> {
+    // Convert the serviceEndpoint to a bitcoin address by removing the 'bitcoin:' prefix
     const bitcoinAddress = this.service.serviceEndpoint.replace('bitcoin:', '');
 
-    // 3. Ensure bitcoinAddress is funded, if not, fund this address.
-    // let inputs: Array<CreateRawTxInputs> = [];
-
+    // Query the Bitcoin network for UTXOs associated with the bitcoinAddress
     const utxos = await this.bitcoin.network.rest.address.getUtxos(bitcoinAddress);
+
+    // If no utxos are found, throw an error indicating the address is unfunded.
     if(!utxos.length) {
-      throw new SingletonBeaconError('No UTXOs found, please fund address!', 'UNFUNDED_BEACON_ADDRESS', { bitcoinAddress });
+      throw new SingletonBeaconError(
+        'No UTXOs found, please fund address!',
+        'UNFUNDED_BEACON_ADDRESS', { bitcoinAddress }
+      );
     }
 
-    const utxo: AddressUtxo = utxos.sort((a, b) => b.status.block_height - a.status.block_height)[0];
+    // Sort utxos by block height and take the most recent one
+    const utxo: AddressUtxo | undefined = utxos.sort(
+      (a, b) => b.status.block_height - a.status.block_height
+    ).shift();
+
+    // If no utxos are found, throw an error.
     if(!utxo) {
       throw new SingletonBeaconError(
         'Beacon bitcoin address unfunded or utxos unconfirmed.',
@@ -138,57 +166,50 @@ export class SingletonBeacon extends AggregateBeacon {
       );
     }
 
-    // 4. Set hashBytes to the result of passing signedUpdate to the JSON Canonicalization and Hash algorithm.
-    const udpateHashBytes = Buffer.from(updateHash, 'hex');
-    if (udpateHashBytes.length !== 32) {
-      throw new SingletonBeaconError('Hash must be 32 bytes');
+    // Canonicalize
+    const updateHash = canonicalization.canonicalhash(signedUpdate);
+    if (updateHash.length !== 32) {
+      throw new SingletonBeaconError(
+        'Invalid length: update hash must be 32 bytes',
+        INVALID_DID_UPDATE, { updateHash, signedUpdate }
+      );
     }
 
-    // 5. Initialize spendTx to a Bitcoin transaction that spends a transaction controlled by the bitcoinAddress and
-    //    contains at least one transaction output. This output MUST have the following format
-    //    [OP_RETURN, OP_PUSH32, hashBytes]
-    const {txid, vout} = utxo;
-    const prevTx = await this.bitcoin.network.rest.transaction.getHex(txid);
-    const input = {
-      hash           : txid,
-      index          : vout,
-      nonWitnessUtxo : Buffer.from(prevTx, 'hex')
-    };
+    // Get the previous tx to the utxo being spent
+    const prevTx = await this.bitcoin.network.rest.transaction.getHex(utxo.txid);
 
-    // TODO: Figure out a good way to estimate fees
-    const spendTx  = new Psbt({ network: this.bitcoin.network.data })
-      .addInput(input)
+    // Construct a spend transaction
+    const spendTx = new Psbt({ network: this.bitcoin.network.data })
+      // Spend tx contains the utxo as its input
+      .addInput({
+        hash           : utxo.txid,
+        index          : utxo.vout,
+        nonWitnessUtxo : Buffer.from(prevTx, 'hex')
+      })
+      // Add a change output minus a fee of 500 sats
       .addOutput({ address: bitcoinAddress, value: BigInt(utxo.value) - BigInt(500) })
-      .addOutput({ script: script.compile([opcodes.OP_RETURN, udpateHashBytes]), value: 0n });
+      // Add an OP_RETURN output containing the update hash
+      .addOutput({ script: script.compile([opcodes.OP_RETURN, updateHash]), value: 0n });
 
-    // 6. Retrieve the cryptographic material, e.g private key or signing capability, associated with the bitcoinAddress
-    //    or service. How this is done is left to the implementer.
-    const components = Identifier.decode(this.service.id);
-    const keyUri = new CompressedSecp256k1PublicKey(components.genesisBytes).hex;
-    const keyPair = Kms.getKey(keyUri as string);
+    // Construct a Schnorr key pair from the secret key
+    const keyPair = SchnorrKeyPair.fromSecret(secretKey);
     if (!keyPair) {
-      throw new Error('Key pair not found.');
+      throw new SingletonBeaconError('Key pair not found.', 'KEY_PAIR_NOT_FOUND', { secretKey });
     }
 
+    // Construct a signer object from the key pair and bitcoin network
     const signer = new Signer({ keyPair, network: this.bitcoin.network.name });
 
-    // 7. Sign the spendTx.
+    // Sign 0th input, finalize extract to hex in prep for broadcast
     const signedTx = spendTx.signInput(0, signer)
       .finalizeAllInputs()
       .extractTransaction()
       .toHex();
 
-    if(!spendTx) {
-      throw new SingletonBeaconError('Failed to sign raw transaction.', 'RAW_TX_SIGN_FAILED', { spendTx });
-    }
+    // Broadcast spendTx to the Bitcoin network.
+    await this.bitcoin.network.rest.transaction.send(signedTx);
 
-    // 8. Broadcast spendTx to the Bitcoin network.
-    const spentTx = await this.bitcoin.network.rest.transaction.send(signedTx);
-    if(!spentTx) {
-      throw new SingletonBeaconError('Failed to send raw transaction.', 'SEND_FAILED', { spentTx });
-    }
-
-    // Return the signed update and the spend tx id.
-    return spentTx;
+    // Return the signed update
+    return signedUpdate;
   }
 }
