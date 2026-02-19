@@ -45,7 +45,7 @@ export class Signer {
    * @param {Bytes} hash The hash to sign.
    * @returns {SignatureBytes} The signature of the hash.
    */
-  signEcdsa(hash: Bytes): SignatureBytes {
+  sign(hash: Bytes): SignatureBytes {
     return this.keyPair.secretKey.sign(hash, { scheme: 'ecdsa' });
   };
 
@@ -54,7 +54,7 @@ export class Signer {
    * @param {Bytes} hash The hash to sign.
    * @returns {SignatureBytes} The Schnorr signature of the hash.
    */
-  sign(hash: Bytes): SignatureBytes {
+  signSchnorr(hash: Bytes): SignatureBytes {
     return this.keyPair.secretKey.sign(hash);
   }
 }

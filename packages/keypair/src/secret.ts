@@ -3,7 +3,6 @@ import {
   BIP340_SECRET_KEY_MULTIBASE_PREFIX_HASH,
   Bytes,
   CURVE,
-  Entropy,
   Hex,
   KeyBytes,
   SecretKeyError,
