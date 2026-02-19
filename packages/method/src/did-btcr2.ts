@@ -238,25 +238,35 @@ export class DidBtcr2 implements DidMethod {
    * BTCR2 DID documents can be updated by anchoring BTCR2 Updates to Bitcoin transactions. These transactions MAY be
    * published to the Bitcoin network. Any property in the DID document may be updated except the id. Doing so would
    * invalidate the DID document.
-   *
-   * @param {Btcr2DidDocument} sourceDocument The DID document being updated.
-   * @param {PatchOperation[]} patches The array of JSON Patch operations to apply to the sourceDocument.
-   * @param {string} sourceVersionId The version ID before applying the update.
-   * @param {string} verificationMethodId The verificationMethod ID to sign the update with.
-   * @param {KeyBytes | HexString} [signingMaterial] Optional signing material (key bytes or hex string).
+   * @param params An object containing the parameters for the update operation.
+   * @param {Btcr2DidDocument} params.sourceDocument The DID document being updated.
+   * @param {PatchOperation[]} params.patches The array of JSON Patch operations to apply to the sourceDocument.
+   * @param {string} params.sourceVersionId The version ID before applying the update.
+   * @param {string} params.verificationMethodId The verificationMethod ID to sign the update with.
+   * @param {string} params.beaconId The beacon ID associated with the update.
+   * @param {KeyBytes | HexString} [params.signingMaterial] Optional signing material (key bytes or hex string).
+   * @param {BitcoinNetworkConnection} [params.bitcoin] Optional Bitcoin network connection for announcing the update. If not provided, a default connection will be initialized.
    * @return {Promise<SignedBTCR2Update>} Promise resolving to the signed BTCR2 update.
    * @throws {UpdateError} if no verificationMethod, verificationMethod type is not `Multikey` or the publicKeyMultibase
    * header is not `zQ3s`
    */
-  static async update(
-    sourceDocument: Btcr2DidDocument,
-    patches: PatchOperation[],
-    sourceVersionId: number,
-    verificationMethodId: string,
-    beaconId: string,
-    signingMaterial?: KeyBytes | HexString,
-    bitcoin?: BitcoinNetworkConnection
-  ): Promise<SignedBTCR2Update> {
+  static async update({
+    sourceDocument,
+    patches,
+    sourceVersionId,
+    verificationMethodId,
+    beaconId,
+    signingMaterial,
+    bitcoin,
+  }: {
+    sourceDocument: Btcr2DidDocument;
+    patches: PatchOperation[];
+    sourceVersionId: number;
+    verificationMethodId: string;
+    beaconId: string;
+    signingMaterial?: KeyBytes | HexString;
+    bitcoin?: BitcoinNetworkConnection;
+  }): Promise<SignedBTCR2Update> {
     // TODO: provide KMS as alternative
     // If no signingMaterial provided, throw an UpdateError with INVALID_DID_UPDATE.
     if (!signingMaterial) {

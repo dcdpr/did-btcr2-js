@@ -39,8 +39,7 @@ export class SingletonBeacon extends Beacon {
   ): Promise<Array<[SignedBTCR2Update, BlockMetadata]>> {
     // Initialize an empty array to hold the BTCR2 signed updates
     const updates = new Array<[SignedBTCR2Update, BlockMetadata]>();
-    console.log('signals', signals);
-    console.log('sidecar', sidecar);
+
     // Loop through each signal in signals
     for(const signal of signals) {
       // Grab the beacon signal bytes hash from the signal

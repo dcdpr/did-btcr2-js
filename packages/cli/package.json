@@ -76,6 +76,7 @@
   },
   "dependencies": {
     "@did-btcr2/common": "workspace:*",
+    "@did-btcr2/cryptosuite": "workspace:*",
     "@did-btcr2/method": "workspace:*",
     "@web5/dids": "^1.2.0",
     "commander": "^13.1.0"

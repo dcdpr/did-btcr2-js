@@ -1,7 +1,7 @@
 import { IdentifierTypes, Logger, MethodError, PatchOperation } from '@did-btcr2/common';
-import { DidBtcr2, DidDocument, ResolutionOptions } from '@did-btcr2/method';
+import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import { Btcr2DidDocument, DidBtcr2, ResolutionOptions } from '@did-btcr2/method';
 import { DidResolutionResult } from '@web5/dids';
-import { SignedBTCR2Update } from '../../cryptosuite/dist/types/data-integrity-proof/interface.js';
 
 export type NetworkOption = 'bitcoin' | 'testnet3' | 'testnet4' | 'signet' | 'mutinynet' | 'regtest';
 
@@ -21,14 +21,12 @@ export interface ResolveCommandOptions {
 }
 
 export interface UpdateCommandOptions {
-  identifier: string;
-  sourceDocument: DidDocument;
+  sourceDocument: Btcr2DidDocument;
   sourceVersionId: number;
-  patch: PatchOperation[];
+  patches: PatchOperation[];
   verificationMethodId: string;
-  beaconIds: string[];
+  beaconId: string;
 }
-
 export interface DeactivateCommandOptions {
   // Placeholder for future deactivate payload once implemented.
 }
@@ -63,7 +61,7 @@ export default class Btcr2Command implements CommandInterface {
         return { action: request.action, resolution };
       }
       case 'update': {
-        const signed = await DidBtcr2.update(request.options as any);
+        const signed = await DidBtcr2.update(request.options);
         return { action: 'update', signed };
       }
       case 'delete':
