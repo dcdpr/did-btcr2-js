@@ -353,7 +353,7 @@ export class DidBtcr2Cli {
         this.log(result.resolution);
         break;
       case 'update':
-        this.log(result.sidecar);
+        this.log(result.signed);
         break;
       case 'deactivate':
       case 'delete':
