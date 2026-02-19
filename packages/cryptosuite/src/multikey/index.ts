@@ -8,7 +8,6 @@ import { BIP340Cryptosuite } from '../cryptosuite/index.js';
 import {
   DidParams,
   FromPublicKey,
-  FromSecretKey,
   Multikey,
   MultikeyObject
 } from './interface.js';

@@ -1,4 +1,4 @@
-import { HashBytes, W3C_ZCAP_V1 } from '@did-btcr2/common';
+import { HashBytes } from '@did-btcr2/common';
 import { strings } from '@helia/strings';
 import {
   DidDocument,
