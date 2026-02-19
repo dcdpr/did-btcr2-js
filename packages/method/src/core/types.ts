@@ -57,22 +57,39 @@ export type Sidecar = {
 };
 
 /**
+ * The Sidecar data structure used for Singleton Beacons.
+ */
+export type SingletonBeaconSidecarData = Map<HexString, SignedBTCR2Update>;
+/**
+ * The Sidecar data structure used for CAS Beacons.
+ */
+export type CASBeaconSidecarData = Map<HexString, CASAnnouncement>;
+/**
+ * The Sidecar data structure used for SMT Beacons.
+ */
+export type SMTBeaconSidecarData = Map<string, SMTProof>;
+
+/**
  * The Sidecar data structure post-processing used for resolution.
  */
 export type SidecarData = {
   /**
    * Map of BTCR2 Signed Updates by their hash bytes.
-   * @type {Map<HexString, SignedBTCR2Update>}
    */
-  updateMap: Map<HexString, SignedBTCR2Update>;
+  updateMap: SingletonBeaconSidecarData;
+
   /**
    * Map of CAS Announcements by their hash bytes.
-   * @type {Map<HexString, CASAnnouncement>}
    */
-  casMap: Map<HexString, CASAnnouncement>;
+  casMap: CASBeaconSidecarData;
+
   /**
    * Map of SMT Proofs by their ID.
-   * @type {Map<string, SMTProof>}
    */
-  smtMap: Map<string, SMTProof>;
+  smtMap: SMTBeaconSidecarData;
 }
+
+/**
+ * Union type for all Beacon Sidecar data structures.
+ */
+export type BeaconSidecarData = SingletonBeaconSidecarData | CASBeaconSidecarData | SMTBeaconSidecarData;

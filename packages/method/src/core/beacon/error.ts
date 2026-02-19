@@ -18,7 +18,6 @@ export class BeaconParticipantError extends MethodError {
   }
 }
 
-
 export class SingletonBeaconError extends MethodError {
   constructor(message: string, type: string = 'SingletonBeaconError', data?: Record<string, any>) {
     super(message, type, data);
@@ -31,14 +30,14 @@ export class AggregateBeaconError extends MethodError {
   }
 }
 
-export class CIDAggregateBeaconError extends MethodError {
-  constructor(message: string, type: string = 'CIDAggregateBeaconError', data?: Record<string, any>) {
+export class CASBeaconError extends MethodError {
+  constructor(message: string, type: string = 'CASBeaconError', data?: Record<string, any>) {
     super(message, type, data);
   }
 }
 
-export class SMTAggregateBeaconError extends MethodError {
-  constructor(message: string, type: string = 'SMTAggregateBeaconError', data?: Record<string, any>) {
+export class SMTBeaconError extends MethodError {
+  constructor(message: string, type: string = 'SMTBeaconError', data?: Record<string, any>) {
     super(message, type, data);
   }
 }

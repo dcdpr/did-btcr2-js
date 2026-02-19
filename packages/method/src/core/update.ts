@@ -1,7 +1,5 @@
 import {
-  HexString,
   INVALID_DID_UPDATE,
-  INVALID_PUBLIC_KEY_TYPE,
   JSONPatch,
   KeyBytes,
   PatchOperation,
@@ -14,9 +12,10 @@ import {
   UnsignedBTCR2Update
 } from '@did-btcr2/cryptosuite';
 import { canonicalization } from '../did-btcr2.js';
-import { DidDocument, DidVerificationMethod } from '../utils/did-document.js';
+import { Btcr2DidDocument, DidDocument, DidVerificationMethod } from '../utils/did-document.js';
 import { BeaconFactory } from './beacon/factory.js';
 import { BeaconService } from './beacon/interfaces.js';
+import { BitcoinNetworkConnection } from '@did-btcr2/bitcoin';
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/operations/update.html | 7.3 Update}.
@@ -35,14 +34,14 @@ export class Update {
    * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/update.html#construct-btcr2-unsigned-update | 7.3.b Construct BTCR2 Unsigned Update}.
    * This process constructs a BTCR2 Unsigned Update conformant to the spec template.
    *
-   * @param {DidDocument} sourceDocument The source DID document to be updated.
+   * @param {Btcr2DidDocument} sourceDocument The source DID document to be updated.
    * @param {PatchOperation[]} patches The array of JSON Patch operations to apply to the sourceDocument.
    * @param {number} sourceVersionId The version ID of the source document.
    * @returns {Promise<SignedBTCR2Update>} The constructed SignedBTCR2Update object.
    * @throws {UpdateError} InvalidDid if sourceDocument.id does not match identifier.
    */
-  static async constructUnsigned(
-    sourceDocument: DidDocument,
+  static async construct(
+    sourceDocument: Btcr2DidDocument,
     patches: PatchOperation[],
     sourceVersionId: number,
   ): Promise<UnsignedBTCR2Update> {
@@ -91,29 +90,16 @@ export class Update {
    * @returns {SignedBTCR2Update} Did update payload secured with a proof => SignedBTCR2Update
    * @throws {UpdateError} if the privateKeyBytes are invalid
    */
-  static async constructSigned(
+  static async sign(
     did: string,
     unsignedUpdate: UnsignedBTCR2Update,
     verificationMethod: DidVerificationMethod,
-    privateKey?: KeyBytes | HexString,
+    secretKey: KeyBytes,
   ): Promise<SignedBTCR2Update> {
     // Parse the controller from the verificationMethod
     const controller = verificationMethod.controller;
     // Parse the fragment from the vmId
     const id = verificationMethod.id.slice(verificationMethod.id.indexOf('#'));
-
-    // If not privateKey provided, throw an UpdateError with INVALID_DID_UPDATE.
-    if (!privateKey) {
-      throw new UpdateError(
-        'Missing privateKey for verification method',
-        INVALID_DID_UPDATE, {verificationMethod, privateKey}
-      );
-    }
-
-    // Convert privateKey to bytes if it's a hex string
-    const secretKey = typeof privateKey === 'string'
-      ? Buffer.from(privateKey, 'hex')
-      : privateKey;
 
     // Construct a Schnorr Multikey
     const multikey = SchnorrMultikey.fromSecretKey(id, controller, secretKey);
@@ -144,57 +130,25 @@ export class Update {
   /**
    * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/update.html#announce-did-update | 7.3.d Announce DID Update}.
    * BTCR2 Signed Updates are announced to the Bitcoin blockchain depending on the Beacon Type.
-   * @param {DidDocument} sourceDocument The did-btcr2 did document to be updated.
-   * @param {string[]} beaconIds The beaconIds to use for announcement.
-   * @param {SignedBTCR2Update} signedUpdate The signed update to be announced.
+   * @param {BeaconService} beaconService The BeaconService object representing the funded beacon to announce the update to.
+   * @param {SignedBTCR2Update} update The signed update object to be announced.
+   * @param {KeyBytes} secretKey The private key used to sign the update for announcement.
    * @returns {SignedBTCR2Update} The SignedBTCR2Update object containing data to validate the Beacon Signal
    * @throws {UpdateError} if the beaconService type is invalid
    */
   static async announce(
-    sourceDocument: DidDocument,
-    beaconIds: string[],
-    signedUpdate: SignedBTCR2Update,
-    privateKey?: KeyBytes | HexString,
+    beaconService: BeaconService,
+    update: SignedBTCR2Update,
+    secretKey: KeyBytes,
+    bitcoin: BitcoinNetworkConnection
   ): Promise<SignedBTCR2Update> {
-    // If not privateKey provided, throw an UpdateError with INVALID_DID_UPDATE.
-    if (!privateKey) {
-      throw new UpdateError(
-        'Missing privateKey announcing update',
-        INVALID_DID_UPDATE, {privateKey}
-      );
-    }
+    // Establish a beacon object
+    const beacon = BeaconFactory.establish(beaconService);
 
-    // Convert privateKey to bytes if it's a hex string
-    const secretKey = typeof privateKey === 'string'
-      ? Buffer.from(privateKey, 'hex')
-      : privateKey;
-
-    // Filter sourceDocument services to get beaconServices matching beaconIds
-    const beaconServices = beaconIds.map(
-      (beaconId) => sourceDocument.service.find((s: BeaconService) => s.id === beaconId)
-    ).filter((s): s is BeaconService => !!s);
-
-    // If no matching beacon services are found, throw an UpdateError with INVALID_DID_UPDATE.
-    if(!beaconServices || !beaconServices.length) {
-      throw new UpdateError(
-        'No matching beacon services found for provided beaconIds',
-        INVALID_DID_UPDATE, {sourceDocument, beaconIds}
-      );
-    }
-
-    const results = [];
-
-    // Iterate over each beacon service and its signals
-    for(const beaconService of beaconServices) {
-      // Establish a beacon object
-      const beacon = BeaconFactory.establish(beaconService);
-      // Process its signals
-      const result = await beacon.broadcastSignal(signedUpdate, secretKey);
-      // Append the processed updates to the updates array
-      results.push(result);
-    }
+    // Broadcast the update
+    const result = await beacon.broadcastSignal(update, secretKey, bitcoin);
 
     // Return the sidecarData
-    return signedUpdate;
+    return result;
   }
 }

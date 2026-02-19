@@ -1,15 +1,14 @@
-import { BitcoinNetworkConnection, RawTransactionRest, RawTransactionV2 } from '@did-btcr2/bitcoin';
-import { KeyBytes, UnixTimestamp } from '@did-btcr2/common';
-import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
-import { DidServiceEndpoint, DidService as IDidService } from '@web5/dids';
-import { SidecarData } from '../types.js';
+import { RawTransactionRest, RawTransactionV2 } from '@did-btcr2/bitcoin';
+import { UnixTimestamp } from '@did-btcr2/common';
+import { DidServiceEndpoint, DidService } from '@web5/dids';
 
 /**
- * Represents a Beacon Service, which extends the DID Service with a service endpoint.
+ * Represents a Beacon Service, which extends a W3C DID Service by setting serviceEndpoint
+ * as a single DidServiceEndpoint.
  * @interface BeaconService
- * @extends IDidService
+ * @extends DidService
  */
-export interface BeaconService extends IDidService {
+export interface BeaconService extends DidService {
     serviceEndpoint: DidServiceEndpoint;
 }
 
@@ -65,60 +64,4 @@ export interface BeaconSignal {
    * Metadata about the block containing the Beacon Signal.
    */
   blockMetadata: BlockMetadata;
-}
-
-/**
- * Abstract class representing an AggregateBeacon.
- * @abstract
- * @class AggregateBeacon
- * @type {AggregateBeacon}
- */
-export abstract class AggregateBeacon {
-  /**
-   * The Beacon service object parsed from the DID Document.
-   */
-  service: BeaconService;
-
-  /**
-   * The array of Beacon Signals associated with this Beacon service.
-   */
-  signals?: Array<BeaconSignal>;
-
-  /**
-   * The sidecar data associated with this Beacon service.
-   * TODO: Make this more specific to Beacon type.
-   */
-  sidecar?: SidecarData;
-
-  /**
-   * The Bitcoin network connection associated with this Beacon service.
-   */
-  bitcoin: BitcoinNetworkConnection;
-
-  constructor(
-    service: BeaconService,
-    signals?: Array<BeaconSignal>,
-    sidecar?: SidecarData,
-    bitcoin?: BitcoinNetworkConnection
-  ) {
-    this.service = service;
-    this.signals = signals;
-    this.sidecar = sidecar;
-    this.bitcoin = bitcoin!;
-  }
-
-  /**
-   * Generates an unsigned update in a Beacon Signal (implemented by subclasses).
-   */
-  abstract generateSignal(): BeaconSignal;
-
-  /**
-   * Processes a Beacon Signal (implemented by subclasses).
-   */
-  abstract processSignals(): Promise<Array<[SignedBTCR2Update, BlockMetadata]>>;
-
-  /**
-   * Broadcasts a signed update in a Beacon Signal (implemented by subclasses).
-   */
-  abstract broadcastSignal(signedUpdate: SignedBTCR2Update, secretKey?: KeyBytes): Promise<SignedBTCR2Update>;
 }
