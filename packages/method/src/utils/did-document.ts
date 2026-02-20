@@ -1,7 +1,9 @@
 import { getNetwork } from '@did-btcr2/bitcoin';
 import {
   BTCR2_DID_DOCUMENT_CONTEXT,
+  Canonicalization,
   DidDocumentError,
+  HashBytes,
   IdentifierTypes,
   INVALID_DID_DOCUMENT,
   JSONObject,
@@ -10,11 +12,11 @@ import {
 } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { DidDocument as W3CDidDocument, DidVerificationMethod as W3CDidVerificationMethod } from '@web5/dids';
+import { payments } from 'bitcoinjs-lib';
 import { BeaconService } from '../core/beacon/interfaces.js';
 import { BeaconUtils } from '../core/beacon/utils.js';
 import { Identifier } from '../core/identifier.js';
 import { Appendix } from './appendix.js';
-import { payments } from 'bitcoinjs-lib';
 
 export const ID_PLACEHOLDER_VALUE = 'did:btcr2:_';
 export const BECH32M_CHARS = '';
@@ -36,8 +38,9 @@ export type VerificationRelationships = {
   capabilityDelegation?: Array<string | DidVerificationMethod>;
 }
 
-/** Loose type for unvalidated DID document-like input objects. */
+/** Loose type for unvalidated DID / Genesis document-like input objects. */
 export type DidDocumentLike = Partial<Btcr2DidDocument>;
+export type GenesisDocumentLike = Partial<Btcr2DidDocument>;
 
 export interface Btcr2VerificationMethod extends W3CDidVerificationMethod {
   id: string;
@@ -79,7 +82,6 @@ export class DidVerificationMethod implements Btcr2VerificationMethod {
  * @type {Btcr2DidDocument}
  * @extends {W3CDidDocument}
  * @property {string} id - The identifier of the DID Document.
- * @property {Array<string>} [controller] - The controller of the DID Document.
  * @property {Array<string | JSONObject>} ['@context'] - The context of the DID Document.
  * @property {Array<DidVerificationMethod>} verificationMethod - The verification methods of the DID Document.
  * @property {Array<string | DidVerificationMethod>} [authentication] - The authentication methods of the DID Document.
@@ -90,7 +92,6 @@ export class DidVerificationMethod implements Btcr2VerificationMethod {
  */
 export interface Btcr2DidDocument extends W3CDidDocument {
   id: string;
-  controller?: Array<string>;
   '@context'?: Array<string | JSONObject>;
   verificationMethod: Array<DidVerificationMethod>;
   authentication?: Array<string | DidVerificationMethod>;
@@ -106,7 +107,6 @@ export interface Btcr2DidDocument extends W3CDidDocument {
  * @type {DidDocument}
  * @implements {Btcr2DidDocument}
  * @property {string} id - The identifier of the DID Document.
- * @property {Array<string>} [controller] - The controller of the DID Document.
  * @property {Array<string | JSONObject>} ['@context'] - The context of the DID Document.
  * @property {Array<DidVerificationMethod>} verificationMethod - The verification methods of the DID Document.
  * @property {Array<string | DidVerificationMethod>} [authentication] - The authentication methods of the DID Document.
@@ -117,8 +117,10 @@ export interface Btcr2DidDocument extends W3CDidDocument {
  */
 export class DidDocument implements Btcr2DidDocument {
   id: string;
-  controller?: Array<string>;
-  '@context'?: Array<string | JSONObject> = BTCR2_DID_DOCUMENT_CONTEXT;
+  '@context'?: Array<string | JSONObject> = [
+    'https://www.w3.org/TR/did-1.1',
+    'https://btcr2.dev/context/v1'
+  ];
   verificationMethod: Array<DidVerificationMethod>;
   authentication?: Array<string | DidVerificationMethod>;
   assertionMethod?: Array<string | DidVerificationMethod>;
@@ -127,9 +129,14 @@ export class DidDocument implements Btcr2DidDocument {
   service: Array<BeaconService>;
   deactivated?: boolean;
 
-  constructor(document: Btcr2DidDocument) {
+  constructor(document: DidDocumentLike) {
+    // Ensure document has an id
+    if(!document.id) {
+      throw new DidDocumentError('DID Document must have an id', INVALID_DID_DOCUMENT, document);
+    }
+
     // Set the ID and ID type
-    const idType = document.id.includes('k')
+    const idType = document.id.includes('k1')
       ? IdentifierTypes.KEY
       : IdentifierTypes.EXTERNAL;
 
@@ -137,15 +144,12 @@ export class DidDocument implements Btcr2DidDocument {
     const isGenesis = document.id === ID_PLACEHOLDER_VALUE;
 
     // Deconstruct the document parts for validation
-    const { id, controller, verificationMethod: vm, service } = document;
+    const { id, verificationMethod: vm, service } = document;
 
     // If not genesis, validate core properties
     if (!isGenesis) {
       if (!DidDocument.isValidId(id)) {
         throw new DidDocumentError(`Invalid id: ${id}`, INVALID_DID_DOCUMENT, document);
-      }
-      if(!DidDocument.isValidController(controller ?? [id])) {
-        throw new DidDocumentError(`Invalid controller: ${controller}`, INVALID_DID_DOCUMENT, document);
       }
       if (!DidDocument.isValidVerificationMethods(vm)) {
         throw new DidDocumentError('Invalid verificationMethod: ' + vm, INVALID_DID_DOCUMENT, document);
@@ -157,10 +161,12 @@ export class DidDocument implements Btcr2DidDocument {
 
     // Set core properties
     this.id = document.id;
-    this.verificationMethod = document.verificationMethod;
-    this.service = document.service;
-    this['@context'] = document['@context'] || BTCR2_DID_DOCUMENT_CONTEXT;
-    this.controller = document.controller || [this.id];
+    this.verificationMethod = document.verificationMethod || [];
+    this.service = document.service || [];
+    this['@context'] = document['@context'] || [
+      'https://www.w3.org/TR/did-1.1',
+      'https://btcr2.dev/context/v1'
+    ];
 
     // Relationships logic based on idType
     if (idType === IdentifierTypes.KEY) {
@@ -180,11 +186,12 @@ export class DidDocument implements Btcr2DidDocument {
 
     // Sanitize the DID Document
     DidDocument.sanitize(this);
+
     // If the DID Document is not an intermediateDocument, validate it
-    if (!isGenesis) {
-      DidDocument.validate(this);
-    } else {
+    if (isGenesis) {
       this.validateGenesis();
+    } else {
+      DidDocument.validate(this);
     }
   }
 
@@ -192,7 +199,7 @@ export class DidDocument implements Btcr2DidDocument {
    * Convert the DidDocument to a JSON object.
    * @returns {DidDocument} The JSON representation of the DidDocument.
    */
-  public json(): DidDocument {
+  public json(): object {
     return Object.fromEntries(Object.entries(this)) as DidDocument;
   }
 
@@ -386,10 +393,6 @@ export class DidDocument implements Btcr2DidDocument {
     if(this.id !== ID_PLACEHOLDER_VALUE) {
       throw new DidDocumentError('Invalid GenesisDocument ID', INVALID_DID_DOCUMENT, this);
     }
-    // Validate the controller
-    if(!this.controller?.every(c => c === ID_PLACEHOLDER_VALUE)) {
-      throw new DidDocumentError('Invalid GenesisDocument controller', INVALID_DID_DOCUMENT, this);
-    }
     // Validate the verificationMethod
     if(!this.verificationMethod.every(vm => vm.id.includes(ID_PLACEHOLDER_VALUE) && vm.controller === ID_PLACEHOLDER_VALUE)) {
       throw new DidDocumentError('Invalid GenesisDocument verificationMethod', INVALID_DID_DOCUMENT, this);
@@ -433,8 +436,8 @@ export class Document {
  * @extends {DidDocument}
  */
 export class GenesisDocument extends DidDocument {
-  constructor(document: object | DidDocument) {
-    super(document as DidDocument);
+  constructor(document: DidDocumentLike) {
+    super(document);
   }
 
   /**
@@ -471,8 +474,7 @@ export class GenesisDocument extends DidDocument {
     relationships: VerificationRelationships,
     service: Array<BeaconService>
   ): GenesisDocument {
-    const id = ID_PLACEHOLDER_VALUE;
-    return new GenesisDocument({ id, ...relationships, verificationMethod, service, });
+    return new GenesisDocument({ id: ID_PLACEHOLDER_VALUE, ...relationships, verificationMethod, service, });
   }
 
   /**
@@ -485,7 +487,7 @@ export class GenesisDocument extends DidDocument {
     const id = ID_PLACEHOLDER_VALUE;
     const address = payments.p2pkh({ pubkey: pk.compressed, network: getNetwork(network) })?.address;
     const services = [{
-      id              : `${id}#key-0`,
+      id              : `${id}#service-0`,
       serviceEndpoint : `bitcoin:${address}`,
       type            : 'SingletonBeacon',
     }];
@@ -515,5 +517,14 @@ export class GenesisDocument extends DidDocument {
    */
   public static fromJSON(object: object | DidDocument): GenesisDocument {
     return new GenesisDocument(object as Btcr2DidDocument);
+  }
+
+  /**
+   * Convert a GenesisDocument to genesis bytes.
+   * @param {GenesisDocument} genesisDocument The GenesisDocument to convert.
+   * @returns {Bytes} The genesis bytes.
+   */
+  static toGenesisBytes(genesisDocument: GenesisDocumentLike): HashBytes {
+    return Canonicalization.andHash(genesisDocument);
   }
 }

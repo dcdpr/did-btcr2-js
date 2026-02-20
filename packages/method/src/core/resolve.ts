@@ -3,6 +3,7 @@ import {
   getNetwork
 } from '@did-btcr2/bitcoin';
 import {
+  Canonicalization,
   DateUtils,
   IdentifierHrp,
   INVALID_DID,
@@ -23,7 +24,7 @@ import {
 } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';
-import { canonicalization, DidBtcr2 } from '../did-btcr2.js';
+import { DidBtcr2 } from '../did-btcr2.js';
 import { Appendix } from '../utils/appendix.js';
 import { DidDocument, ID_PLACEHOLDER_VALUE } from '../utils/did-document.js';
 import { BeaconFactory } from './beacon/factory.js';
@@ -38,10 +39,13 @@ import { CASAnnouncement, Sidecar, SidecarData } from './types.js';
  * The response object for DID Resolution.
  */
 export interface DidResolutionResponse {
-  currentDocument: DidDocument;
-  confirmations: number;
-  versionId: string;
-  updated: string;
+  didDocument: DidDocument;
+  metadata: {
+    confirmations?: number;
+    versionId: string;
+    updated?: string;
+    deactivated?: boolean;
+  }
 }
 
 /**
@@ -79,7 +83,6 @@ export class Resolve {
 
     return new DidDocument({
       id                 : did,
-      controller         : [did],
       verificationMethod : [{
         id                 : `${did}#initialKey`,
         type               : 'Multikey',
@@ -102,7 +105,7 @@ export class Resolve {
     genesisDocument: object,
   ): Promise<DidDocument> {
     // Canonicalize and sha256 hash the currentDocument
-    const hashBytes = canonicalization.process(genesisDocument, { encoding: 'hex' });
+    const hashBytes = Canonicalization.process(genesisDocument, { encoding: 'hex' });
 
     // Compare the genesisBytes to the hashBytes
     const genesisBytes = bytesToHex(didComponents.genesisBytes);
@@ -137,14 +140,14 @@ export class Resolve {
     const updateMap = new Map<string, SignedBTCR2Update>();
     if(sidecar.updates?.length)
       for(const update of sidecar.updates) {
-        updateMap.set(canonicalization.process(update, { encoding: 'hex' }), update);
+        updateMap.set(Canonicalization.process(update, { encoding: 'hex' }), update);
       }
 
     // CAS Announcements map
     const casMap = new Map<string, CASAnnouncement>();
     if(sidecar.casUpdates?.length)
       for(const update of sidecar.casUpdates) {
-        casMap.set(canonicalization.process(update, { encoding: 'hex' }), update);
+        casMap.set(Canonicalization.process(update, { encoding: 'hex' }), update);
       }
 
     // SMT Proofs map
@@ -220,16 +223,18 @@ export class Resolve {
       : await BeaconSignalDiscovery.fullnode(beaconServices, bitcoin);
 
     // Process each beacon's signals in parallel
-    const promises = Array.from(beaconServicesSignals.entries()).map(
-      async ([service, signals]) => {
-        // Skip beacons with no signals
-        if (!signals.length) return [];
-        // Establish a typed beacon and process its signals
-        return BeaconFactory.establish(service).processSignals(signals, sidecarData);
-      }
+    const promises = await Promise.all(
+      Array.from(beaconServicesSignals.entries()).map(
+        async ([service, signals]) => {
+          // Skip beacons with no signals
+          if (!signals.length) return [];
+          // Establish a typed beacon and process its signals
+          return BeaconFactory.establish(service).processSignals(signals, sidecarData);
+        }
+      )
     );
 
-    return (await Promise.all(promises)).flat();
+    return promises.flat();
   }
 
   /**
@@ -258,31 +263,36 @@ export class Resolve {
     );
 
     // Create a default response object
-    const response = {
-      currentDocument,
-      versionId     : `${currentVersionId}`,
-      confirmations : 0,
-      updated       : ''
+    const response: DidResolutionResponse = {
+      didDocument : currentDocument,
+      metadata    : {
+        versionId     : `${currentVersionId}`,
+        confirmations : 0,
+        updated       : '',
+        deactivated   : currentDocument.deactivated || false
+      }
     };
 
     // Iterate over each (update block) pair
     for(const [update, block] of updates) {
       // Get the hash of the current document
-      const currentDocumentHash = canonicalization.process(response.currentDocument, { encoding: 'base58' });
+      const currentDocumentHash = Canonicalization.process(response.didDocument, { encoding: 'base58' });
+
+      // Safely convert block.time to timestamp
+      const blocktime = DateUtils.blocktimeToTimestamp(block.time);
+
+      // Set the updated field to the blocktime of the current update
+      response.metadata.updated = DateUtils.toISOStringNonFractional(blocktime);
 
       // Set confirmations to the block confirmations
-      response.confirmations = block.confirmations;
-
-      // Safely convert versionTime to timestamp
-      const vTime = DateUtils.dateStringToTimestamp(versionTime || '');
-      // Safely convert block.blocktime to timestamp
-      const bTime = DateUtils.blocktimeToTimestamp(block.time);
-      // Set the updated field to the blocktime of the current update
-      response.updated = DateUtils.toISOStringNonFractional(bTime);
+      response.metadata.confirmations = block.confirmations;
 
       // if resolutionOptions.versionTime is defined and the blocktime is more recent, return currentDocument
-      if(vTime < bTime) {
-        return response;
+      if(versionTime) {
+        // Safely convert versionTime to timestamp
+        if(blocktime > DateUtils.dateStringToTimestamp(versionTime)) {
+          return response;
+        }
       }
 
       // Check update.targetVersionId against currentVersionId
@@ -294,23 +304,21 @@ export class Resolve {
 
       // If update.targetVersionId == currentVersionId + 1, apply the update
       else if (update.targetVersionId === currentVersionId + 1) {
-      // Prepend `z` to the sourceHash if it does not start with it
-        const sourceHash = update.sourceHash.startsWith('z') ? update.sourceHash : `z${update.sourceHash}`;
-
         // Check if update.sourceHash !== currentDocumentHash
-        if (sourceHash !== currentDocumentHash) {
+        if (update.sourceHash !== currentDocumentHash) {
           // Raise an INVALID_DID_UPDATE error if they do not match
           throw new ResolveError(
             `Hash mismatch: update.sourceHash !== currentDocumentHash`,
-            INVALID_DID_UPDATE, { sourceHash, currentDocumentHash }
+            INVALID_DID_UPDATE, { sourceHash: update.sourceHash, currentDocumentHash }
           );
         }
         // Apply the update to the currentDocument and set it in the response
-        response.currentDocument = await this.applyUpdate(response.currentDocument, update);
+        response.didDocument = await this.applyUpdate(response.didDocument, update);
+
         // Create unsigned_update by removing the proof property from update.
         const unsignedUpdate = JSONUtils.deleteKeys(update, ['proof']) as UnsignedBTCR2Update;
         // Push the canonicalized unsigned update hash to the updateHashHistory
-        updateHashHistory.push(canonicalization.process(unsignedUpdate, { encoding: 'base58' }));
+        updateHashHistory.push(Canonicalization.process(unsignedUpdate, { encoding: 'base58' }));
       }
 
       // If update.targetVersionId > currentVersionId + 1, throw LATE_PUBLISHING error
@@ -319,15 +327,16 @@ export class Resolve {
           `Version Id Mismatch: targetVersionId cannot be > currentVersionId + 1`,
           'LATE_PUBLISHING_ERROR', {
             targetVersionId  : update.targetVersionId,
-            currentVersionId : String(currentVersionId + 1)
+            currentVersionId : currentVersionId + 1
           }
         );
       }
 
       // Increment currentVersionId
       currentVersionId++;
-      // Set currentVersionId in response
-      response.versionId = `${currentVersionId}`;
+
+      // Set response.versionId to be the new  currentVersionId
+      response.metadata.versionId = `${currentVersionId}`;
 
       // If resolutionOptions.versionId is defined and <= currentVersionId, return currentDocument
       if(currentVersionId >= Number(versionId)) {
@@ -336,6 +345,9 @@ export class Resolve {
 
       // Check if the current document is deactivated before further processing
       if(currentDocument.deactivated) {
+        // Set the response deactivated flag to true
+        response.metadata.deactivated = currentDocument.deactivated;
+        // If deactivated, stop processing further updates and return the response
         return response;
       }
     }
@@ -352,12 +364,12 @@ export class Resolve {
    */
   static confirmDuplicate(update: SignedBTCR2Update, updateHashHistory: string[]): void {
     // Create unsigned_update by removing the proof property from update.
-    const unsignedUpdate = JSONUtils.deleteKeys(update, ['proof']) as UnsignedBTCR2Update;
+    const { proof: _, ...unsignedUpdate } = update;
 
     // Hash unsignedUpdate with JSON Document Hashing algorithm
-    const unsignedUpdateHash = canonicalization.process(unsignedUpdate);
+    const unsignedUpdateHash = Canonicalization.process(unsignedUpdate);
 
-    // 5. Let historicalUpdateHash equal updateHashHistory[updateHashIndex].
+    // Let historicalUpdateHash equal updateHashHistory[updateHashIndex].
     const historicalUpdateHash = updateHashHistory[update.targetVersionId - 2];
 
     // Check if the updateHash matches the historical hash
@@ -420,7 +432,7 @@ export class Resolve {
     const cryptosuite = new BIP340Cryptosuite(multikey);
 
     // Canonicalize the update
-    const canonicalUpdate = canonicalization.canonicalize(update);
+    const canonicalUpdate = Canonicalization.canonicalize(update);
 
     // Construct a DataIntegrityProof with the cryptosuite
     const diProof = new BIP340DataIntegrityProof(cryptosuite);
@@ -443,7 +455,7 @@ export class Resolve {
     DidDocument.validate(updatedDocument);
 
     // Canonicalize and hash the updatedDocument to get the currentDocumentHash.
-    const currentDocumentHash = canonicalization.process(currentDocument, { encoding: 'base58' });
+    const currentDocumentHash = Canonicalization.process(updatedDocument, { encoding: 'base58' });
 
     // Prepare the update targetHash for comparison with currentDocumentHash.
     const updateTargetHash = update.targetHash.startsWith('z') ? update.targetHash : `z${update.targetHash}`;

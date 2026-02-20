@@ -174,7 +174,7 @@ export class SchnorrMultikey implements Multikey {
    */
   public fullId(): string {
     // If the id starts with "#", return concat(controller, id); else return id
-    return `${this.controller}${this.id}`;
+    return this.id.startsWith('#') ? `${this.controller}${this.id}` : this.id;
   }
 
   /**

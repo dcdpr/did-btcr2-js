@@ -22,13 +22,6 @@ export class DidDocumentBuilder {
     }
   }
 
-  withController(controller?: Array<string>): this {
-    if (controller) {
-      this.document.controller = controller ?? [this.document.id!];
-    }
-    return this;
-  }
-
   withAuthentication(authentication: Array<string | DidVerificationMethod>): this {
     if (authentication) {
       this.document.authentication = authentication;

@@ -1,11 +1,10 @@
 import { AddressUtxo, BitcoinNetworkConnection } from '@did-btcr2/bitcoin';
-import { INVALID_SIDECAR_DATA, KeyBytes, MISSING_UPDATE_DATA } from '@did-btcr2/common';
+import { Canonicalization, INVALID_SIDECAR_DATA, KeyBytes, MISSING_UPDATE_DATA } from '@did-btcr2/common';
 import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { Signer } from '@did-btcr2/kms';
 import { opcodes, Psbt, script } from 'bitcoinjs-lib';
 import { base58btc } from 'multiformats/bases/base58';
-import { canonicalization } from '../../did-btcr2.js';
 import { SidecarData } from '../types.js';
 import { Beacon } from './beacon.js';
 import { SingletonBeaconError } from './error.js';
@@ -15,7 +14,7 @@ import { BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js';
  * Implements {@link https://dcdpr.github.io/did-btcr2/terminology.html#singleton-beacon | Singleton Beacon}.
  * @class SingletonBeacon
  * @type {SingletonBeacon}
- * @extends {AggregateBeacon}
+ * @extends {Beacon}
  */
 export class SingletonBeacon extends Beacon {
 
@@ -57,7 +56,7 @@ export class SingletonBeacon extends Beacon {
       }
 
       // Canonicalize, hash and encode to base58 the signed update object found in sidecar or CAS
-      const encodedUpdate = canonicalization.process(signedUpdate, { encoding: 'base58' });
+      const encodedUpdate = Canonicalization.process(signedUpdate, { encoding: 'base58' });
 
       // Encode the signal bytes hex string to base58
       const signalBytes = base58btc.encode(Buffer.from(updateHash, 'hex'));
@@ -122,7 +121,7 @@ export class SingletonBeacon extends Beacon {
     const prevTx = await bitcoin.network.rest.transaction.getHex(utxo.txid);
 
     // Canonicalize and hash the signed update for OP_RETURN output
-    const updateHash = canonicalization.canonicalhash(signedUpdate);
+    const updateHash = Canonicalization.andHash(signedUpdate);
 
     // Construct a spend transaction
     const spendTx = new Psbt({ network: bitcoin.network.data })
@@ -140,9 +139,6 @@ export class SingletonBeacon extends Beacon {
 
     // Construct a Schnorr key pair from the secret key
     const keyPair = SchnorrKeyPair.fromSecret(secretKey);
-    if (!keyPair) {
-      throw new SingletonBeaconError('Key pair not found.', 'KEY_PAIR_NOT_FOUND', { secretKey });
-    }
 
     // Construct a signer object from the key pair and bitcoin network
     const signer = new Signer({ keyPair, network: bitcoin.network.name });
@@ -155,7 +151,9 @@ export class SingletonBeacon extends Beacon {
 
     // Broadcast spendTx to the Bitcoin network.
     const txid = await bitcoin.network.rest.transaction.send(signedTx);
-    console.info(`Broadcasted Singleton Beacon signal with txid ${txid}`);
+
+    // Log the txid of the broadcasted transaction
+    console.info(`Singleton Beacon Signal Broadcasted with txid: ${txid}`);
 
     // Return the signed update
     return signedUpdate;

@@ -1,0 +1,11 @@
+{
+  "genesisKeys": {
+    "secret": "f347125f3c7b5a883ad3cd603cd96b924891f7570181be594e6db3d5a363241e",
+    "public": "02636fc3d69d66c3fa66590c33bed2b7946f5e812706279bbf93caca14d6e46ca4"
+  },
+  "newVmKeys": {
+    "secret": "198a6490a82ebadf5b959b11a9e0e22094bfbd330bc5b3da5c89ff4b72248afd",
+    "public": "02dfa58daaf986fb7a07c57dfa39bcb11004644869c8196de61c4fc70ee8bfbada",
+    "multibase": "zQ3shcTp69TcWb7gonaeT82VEc5kYv2UyZm3Vwmc8Sb7mUJfb"
+  }
+}
