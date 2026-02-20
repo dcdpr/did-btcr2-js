@@ -17,8 +17,6 @@ import { SignedBTCR2Update, BTCR2Update, DataIntegrityConfig, DataIntegrityProof
 import { SchnorrMultikey } from '../multikey/index.js';
 import { Cryptosuite, VerificationResult } from './interface.js';
 
-const canonicalization = new Canonicalization();
-
 /**
  * An implementation of a {@link Cryptosuite} using BIP340 Schnorr signatures and JCS canonicalization.
  * @implements {Cryptosuite}
@@ -157,7 +155,7 @@ export class BIP340Cryptosuite implements Cryptosuite {
     }
 
     // Return the canonicalized document
-    return canonicalization.canonicalize(document);
+    return Canonicalization.canonicalize(document);
   }
 
   /**
@@ -213,7 +211,7 @@ export class BIP340Cryptosuite implements Cryptosuite {
         );
     }
 
-    return canonicalization.canonicalize(config);
+    return Canonicalization.canonicalize(config);
   }
 
   /**

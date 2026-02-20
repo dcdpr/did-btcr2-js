@@ -87,84 +87,77 @@ export class BIP340DataIntegrityProof implements DataIntegrityProof {
     expectedDomain?: string | string[],
     expectedChallenge?: string,
   ): VerificationResult {
-    try {
-      // Parse the document
-      const signedDocument = JSON.parse(document) as SignedBTCR2Update;
+    // Parse the document
+    const signedDocument = JSON.parse(document) as SignedBTCR2Update;
 
-      // Parse the proof from the document
-      const proof = signedDocument.proof;
+    // Parse the proof from the document
+    const proof = signedDocument.proof;
 
-      // Check if the type, proofPurpose, and verificationMethod are defined
-      if (!proof.type || !proof.verificationMethod || !proof.proofPurpose) {
+    // Check if the type, proofPurpose, and verificationMethod are defined
+    if (!proof.type || !proof.verificationMethod || !proof.proofPurpose) {
+      throw new DataIntegrityProofError(
+        'Invalid proof: missing proof.type, proof.verificationMethod and/or proof.proofPurpose',
+        PROOF_VERIFICATION_ERROR, signedDocument
+      );
+    }
+
+    // Check if the expectedPurpose is defined
+    if (expectedPurpose)
+    // Check if expectedPurpose !== proof.proofPurpose
+      if(expectedPurpose !== proof.proofPurpose)
+      // Else throw DataIntegrityProofError
         throw new DataIntegrityProofError(
-          'Invalid proof: missing proof.type, proof.verificationMethod and/or proof.proofPurpose',
-          PROOF_VERIFICATION_ERROR, signedDocument
+          'Proof purpose mismatch: proof.proofPurpose !== expectedPurpose',
+          PROOF_VERIFICATION_ERROR, { proof, expectedPurpose }
         );
-      }
 
-      // Check if the expectedPurpose is defined
-      if (expectedPurpose)
-        // Check if expectedPurpose !== proof.proofPurpose
-        if(expectedPurpose !== proof.proofPurpose)
+    // Check if the expectedChallenge is defined
+    if (expectedChallenge)
+    // Check if expectedChallenge !== proof.challenge
+      if(expectedChallenge !== proof.challenge)
+      // Else throw DataIntegrityProofError
+        throw new DataIntegrityProofError(
+          'Challenge mismatch: proof.challenge !== expectedChallenge',
+          'INVALID_CHALLENGE_ERROR', { proof, expectedChallenge, }
+        );
+
+    // Check if the expectedDomain is defined
+    if(expectedDomain) {
+      // Check if expectedDomain is an array with at least one entry
+      if(Array.isArray(expectedDomain) && expectedDomain.length) {
+        // Check that the domain arrays match in length
+        if(expectedDomain.length !== proof.domain?.length) {
           // Else throw DataIntegrityProofError
           throw new DataIntegrityProofError(
-            'Proof purpose mismatch: proof.proofPurpose !== expectedPurpose',
-            PROOF_VERIFICATION_ERROR, { proof, expectedPurpose }
+            'Domain mismatch: expectedDomain length does not match proof.domain length',
+            PROOF_VERIFICATION_ERROR, { proof, expectedDomain }
           );
-
-      // Check if the expectedChallenge is defined
-      if (expectedChallenge)
-        // Check if expectedChallenge !== proof.challenge
-        if(expectedChallenge !== proof.challenge)
-          // Else throw DataIntegrityProofError
-          throw new DataIntegrityProofError(
-            'Challenge mismatch: proof.challenge !== expectedChallenge',
-            'INVALID_CHALLENGE_ERROR', { proof, expectedChallenge, }
-          );
-
-      // Check if the expectedDomain is defined
-      if(expectedDomain) {
-        // Check if expectedDomain is an array with at least one entry
-        if(Array.isArray(expectedDomain) && expectedDomain.length) {
-          // Check that the domain arrays match in length
-          if(expectedDomain.length !== proof.domain?.length) {
-            // Else throw DataIntegrityProofError
-            throw new DataIntegrityProofError(
-              'Domain mismatch: expectedDomain length does not match proof.domain length',
-              PROOF_VERIFICATION_ERROR, { proof, expectedDomain }
-            );
-          }
-          // Check that each entry in expectedDomain can be found in proof.domain
-          else if(expectedDomain.every(url => proof.domain?.includes(url))) {
-            // Else throw DataIntegrityProofError
-            throw new DataIntegrityProofError(
-              'Domain mismatch: expectedDomain and proof.domain do not match',
-              PROOF_VERIFICATION_ERROR, { proof, expectedDomain }
-            );
-          }
         }
-        // Else expectedDomain is a string, check that it matches proof.domain
-        else if(proof.domain !== expectedDomain) {
+        // Check that each entry in expectedDomain can be found in proof.domain
+        else if(expectedDomain.every(url => proof.domain?.includes(url))) {
+          // Else throw DataIntegrityProofError
           throw new DataIntegrityProofError(
-            'Domain mismatch: proof.domain !== expectedDomain',
+            'Domain mismatch: expectedDomain and proof.domain do not match',
             PROOF_VERIFICATION_ERROR, { proof, expectedDomain }
           );
         }
       }
-
-      // Verify the proof
-      const result = this.cryptosuite.verifyProof(signedDocument);
-
-      // Add the mediaType to the verification result
-      result.mediaType = mediaType;
-
-      // Return the verification result
-      return result;
-    } catch (error) {
-      throw new DataIntegrityProofError(
-        'Error verifying proof: ' + (error instanceof Error ? error.message : String(error)),
-        PROOF_VERIFICATION_ERROR, {document, mediaType, expectedPurpose, expectedDomain, expectedChallenge}
-      );
+      // Else expectedDomain is a string, check that it matches proof.domain
+      else if(proof.domain !== expectedDomain) {
+        throw new DataIntegrityProofError(
+          'Domain mismatch: proof.domain !== expectedDomain',
+          PROOF_VERIFICATION_ERROR, { proof, expectedDomain }
+        );
+      }
     }
+
+    // Verify the proof
+    const result = this.cryptosuite.verifyProof(signedDocument);
+
+    // Add the mediaType to the verification result
+    result.mediaType = mediaType;
+
+    // Return the verification result
+    return result;
   }
 }

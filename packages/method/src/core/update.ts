@@ -1,4 +1,5 @@
 import {
+  Canonicalization,
   INVALID_DID_UPDATE,
   JSONPatch,
   KeyBytes,
@@ -11,7 +12,6 @@ import {
   SignedBTCR2Update,
   UnsignedBTCR2Update
 } from '@did-btcr2/cryptosuite';
-import { canonicalization } from '../did-btcr2.js';
 import { Btcr2DidDocument, DidDocument, DidVerificationMethod } from '../utils/did-document.js';
 import { BeaconFactory } from './beacon/factory.js';
 import { BeaconService } from './beacon/interfaces.js';
@@ -56,7 +56,7 @@ export class Update {
       patch           : patches,
       targetHash      : '',
       targetVersionId : sourceVersionId + 1,
-      sourceHash      : canonicalization.process(sourceDocument, { encoding: 'base58' }),
+      sourceHash      : Canonicalization.process(sourceDocument, { encoding: 'base58' }),
     };
 
     // Apply all JSON patches to sourceDocument.
@@ -74,7 +74,7 @@ export class Update {
     }
 
     // Set the targetHash by canonicalizing the targetDocument and encoding it in base58.
-    unsignedUpdate.targetHash = canonicalization.process(targetDocument, { encoding: 'base58' });
+    unsignedUpdate.targetHash = Canonicalization.process(targetDocument, { encoding: 'base58' });
 
     // Return unsignedUpdate.
     return unsignedUpdate;

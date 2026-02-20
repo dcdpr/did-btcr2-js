@@ -1,0 +1,10 @@
+{
+  "did:btcr2:x1qfk62y9txdl683h3qwyfzqxumxkfdt8534g0kjhhgjqhtudvc0r2yskhaf7#key-0": {
+    "secret": "d52e07ccc5655d2ad10c4129a8fc7cf110e4e079569c6963909b7c3c64ba8b97",
+    "public": "027999d3be34a180e78bd107c95dfd30ff8102c54b23842989f3b55a96fd65f906"
+  },
+  "did:btcr2:x1qfk62y9txdl683h3qwyfzqxumxkfdt8534g0kjhhgjqhtudvc0r2yskhaf7#key-1": {
+    "secret": "e70dc3d454070e0d23da46fac2b119ef8a04590bde7422e602e8528ddef0899d",
+    "public": "02e499b904d13ee68ee7623b2e9dc0ffc3821618e8e42c96cd8bce3d12fdbd05d3"
+  }
+}

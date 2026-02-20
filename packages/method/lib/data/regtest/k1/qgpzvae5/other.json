@@ -1,0 +1,11 @@
+{
+  "genesisKeys": {
+    "secret": "e22653896e77b451b02e7ca2a140e351cdd596727ad95eacd7e66e73841c6b57",
+    "public": "0226773412ff9a836bb59b67cdcb6f90411ec485b9bb30714e03ce9208558ffdb8"
+  },
+  "newSingletonBeaconP2PKHKeys": {
+    "secret": "49460a1d08b58630ec801ae05ee4737f8d3dbac97781dee87c7946558998b7c8",
+    "public": "0258f76c4f85af5dbc5f101884f3c0396121bed27eaf8beaef8d08782ee0e3ee9f",
+    "address": "mjixpoTrtBV9xBYuzKRd8DxHA8xRu888i9"
+  }
+}

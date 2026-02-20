@@ -1,0 +1,40 @@
+{
+    "signedUpdate": {
+        "@context": [
+            "https://w3id.org/security/v2",
+            "https://w3id.org/zcap/v1",
+            "https://w3id.org/json-ld-patch/v1",
+            "https://btcr2.dev/context/v1"
+        ],
+        "patch": [
+            {
+                "op": "replace",
+                "path": "/verificationMethod/0",
+                "value": {
+                    "id": "did:btcr2:k1qgpxxm7r66wkdsl6vevscva762megm67synsvfumh7fu4js56mjxefq8jg4q3#initialKey",
+                    "type": "Multikey",
+                    "controller": "did:btcr2:k1qgpxxm7r66wkdsl6vevscva762megm67synsvfumh7fu4js56mjxefq8jg4q3",
+                    "publicKeyMultibase": "zQ3shcTp69TcWb7gonaeT82VEc5kYv2UyZm3Vwmc8Sb7mUJfb"
+                }
+            }
+        ],
+        "targetHash": "z4JC9vW68dvXRHBFSEJPE7R73yocTnMtRg5ftXAjwdAhZ",
+        "targetVersionId": 2,
+        "sourceHash": "z5x3bYavpzjH1b4aQYsLCqmMHpLovcCbUKThAh3LM5uFG",
+        "proof": {
+            "@context": [
+                "https://w3id.org/security/v2",
+                "https://w3id.org/zcap/v1",
+                "https://w3id.org/json-ld-patch/v1",
+                "https://btcr2.dev/context/v1"
+            ],
+            "cryptosuite": "bip340-jcs-2025",
+            "type": "DataIntegrityProof",
+            "verificationMethod": "did:btcr2:k1qgpxxm7r66wkdsl6vevscva762megm67synsvfumh7fu4js56mjxefq8jg4q3#initialKey",
+            "proofPurpose": "capabilityInvocation",
+            "capability": "urn:zcap:root:did%3Abtcr2%3Ak1qgpxxm7r66wkdsl6vevscva762megm67synsvfumh7fu4js56mjxefq8jg4q3",
+            "capabilityAction": "Write",
+            "proofValue": "zWRqPAGGAnkueB4V3b5Au83njcJKAwsusmATSYoERucHojRWthR3t9L87vobUbqKwrtdXNEZ2mhPVLxCxt24pvMu"
+        }
+    }
+}

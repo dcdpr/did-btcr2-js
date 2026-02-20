@@ -1,6 +1,5 @@
 import { BitcoinNetworkConnection } from '@did-btcr2/bitcoin';
 import {
-  Canonicalization,
   DocumentBytes,
   HexString,
   IdentifierHrp,
@@ -33,9 +32,6 @@ import { Resolve } from './core/resolve.js';
 import { Update } from './core/update.js';
 import { Appendix } from './utils/appendix.js';
 import { Btcr2DidDocument, DidVerificationMethod } from './utils/did-document.js';
-
-// TODO: convert to API driver?
-export const canonicalization = new Canonicalization();
 
 export type Btcr2Identifier = string;
 
@@ -123,18 +119,20 @@ export class DidBtcr2 implements DidMethod {
    */
   static async resolve(
     did: string,
-    resolutionOptions: ResolutionOptions = { drivers: {} }
+    resolutionOptions: ResolutionOptions = {}
   ): Promise<DidResolutionResult> {
     try {
+      // Set versionId from resolutionOptions
+      const versionId = resolutionOptions.versionId;
 
       // Initialize an empty DID Resolution Result
       const didResolutionResult: DidResolutionResult = {
         '@context'            : 'https://w3id.org/did-resolution/v1',
         didResolutionMetadata : { contentType: 'application/ld+json' },
         didDocumentMetadata   : {
+          versionId,
           deactivated   : false,
           updated       : undefined,
-          versionId     : resolutionOptions.versionId,
           confirmations : undefined,
         },
         didDocument : null,
@@ -146,6 +144,30 @@ export class DidBtcr2 implements DidMethod {
       // Process sidecar if provided
       const sidecarData = Resolve.sidecarData(resolutionOptions.sidecar);
 
+      // Parse the genesis document from the resolution options if provided
+      const genesisDocument = resolutionOptions.sidecar?.genesisDocument;
+
+      // Since genesisDocument is optional, check if it exists
+      if(!genesisDocument) {
+        // If no genesisDocument and x HRP, throw MISSING_UPDATE_DATA error
+        if(didComponents.hrp === IdentifierHrp.x)
+          throw new ResolveError(
+            'External resolution requires genesisDocument',
+            MISSING_UPDATE_DATA, resolutionOptions
+          );
+      }
+
+      // Establish the current document
+      const currentDocument = await Resolve.currentDocument(didComponents, genesisDocument);
+
+      // Set the didDocument in didResolutionResult based on currentDocument
+      didResolutionResult.didDocument = currentDocument;
+
+      // Extract all Beacon services from the current DID Document
+      const beaconServices = currentDocument.service
+        .filter(BeaconUtils.isBeaconService)
+        .map(BeaconUtils.parseBeaconServiceEndpoint);
+
       // Check if bitcoin driver provided
       if(!resolutionOptions?.drivers?.bitcoin) {
         // If not, initialize default drivers
@@ -156,43 +178,21 @@ export class DidBtcr2 implements DidMethod {
         resolutionOptions.drivers.bitcoin.setActiveNetwork(didComponents.network);
       }
 
-      // Parse the genesis document from the resolution options if provided
-      const genesisDocument = resolutionOptions.sidecar?.genesisDocument;
-      // Since genesisDocument is optional, check if it exists
-      if(!genesisDocument) {
-        // If no genesisDocument and x HRP, throw MISSING_UPDATE_DATA error
-        if(didComponents.hrp === IdentifierHrp.x)
-          throw new ResolveError(
-            'External resolution requires genesisDocument',
-            MISSING_UPDATE_DATA, { resolutionOptions }
-          );
-      }
-
-      // Establish the current document
-      const currentDocument = await Resolve.currentDocument(didComponents, genesisDocument);
-
-      // Extract all Beacon services from the current DID Document
-      const beaconServices = currentDocument.service
-        .filter(BeaconUtils.isBeaconService)
-        .map(BeaconUtils.parseBeaconServiceEndpoint);
-
-      console.log('beaconServices', beaconServices);
+      // Get the bitcoin driver from the resolution options
+      const bitcoin = resolutionOptions.drivers.bitcoin;
 
       // Process the Beacon Signals to get the required updates
       const unsortedUpdates = await Resolve.beaconSignals(
         beaconServices,
         sidecarData,
-        resolutionOptions.drivers.bitcoin
+        bitcoin
       );
-      console.log('unsortedUpdates', unsortedUpdates);
 
       // If no updates found, return the current document
       if(!unsortedUpdates.length) {
-        // Set the current document in the didResolutionResult
-        didResolutionResult.didDocument = currentDocument;
-
-        // Set the deactivated status in the didDocumentMetadata
+        // Set all of the required fields in the didResolutionResult
         didResolutionResult.didDocumentMetadata.deactivated = !!currentDocument.deactivated;
+        didResolutionResult.didDocumentMetadata.versionId = versionId ?? '1';
 
         // Return the didResolutionResult early
         return didResolutionResult;
@@ -203,14 +203,12 @@ export class DidBtcr2 implements DidMethod {
         currentDocument,
         unsortedUpdates,
         resolutionOptions.versionTime,
-        resolutionOptions.versionId
+        versionId
       );
 
       // Set all of the required fields in the didResolutionResult
-      didResolutionResult.didDocument = result.currentDocument;
-      didResolutionResult.didDocumentMetadata.confirmations = result.confirmations;
-      didResolutionResult.didDocumentMetadata.versionId = result.versionId;
-      didResolutionResult.didDocumentMetadata.deactivated = !!result.currentDocument.deactivated;
+      didResolutionResult.didDocument = result.didDocument;
+      didResolutionResult.didDocumentMetadata = result.metadata;
 
       // Return didResolutionResult;
       return didResolutionResult;
@@ -339,7 +337,7 @@ export class DidBtcr2 implements DidMethod {
     bitcoin ??= new BitcoinNetworkConnection();
 
     // Announce the signed update to the blockchain using the specified beacon(s)
-    // await Update.announce(beaconService, signed, secretKey, bitcoin);
+    await Update.announce(beaconService, signed, secretKey, bitcoin);
 
     // Return signed update if announced successfully
     return signed;

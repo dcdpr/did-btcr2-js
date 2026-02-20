@@ -1,22 +1,14 @@
 import { expect } from 'chai';
 import { DidBtcr2 } from '../src/did-btcr2.js';
+import data from './data/deterministic-data.js';
 
 /**
- * Resolve Deterministic Test Cases
+ * Resolve Deterministic (k1) Test Cases
  */
-describe('Resolve Deterministic', () => {
-  const dids = [
-    'did:btcr2:k1qqpkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5dsaaw53r',
-    'did:btcr2:k1q5pkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5dsfnpvmj',
-    'did:btcr2:k1qgpkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5ds4tgr4f',
-    'did:btcr2:k1qypkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5dsekdtnx',
-    'did:btcr2:k1qvpkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5ds3qtuhv',
-    'did:btcr2:k1qspkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5dsdczneh'
-  ];
-
-  it('should resolve each deterministic key identifier to its correponding did document',
+describe('Resolve Deterministic (k1)', () => {
+  it('should resolve each deterministic (k1) identifier to its correponding DID document',
     async () => {
-      for(const did of dids) {
+      for(const {did} of data) {
         const result = await DidBtcr2.resolve(did);
         expect(result).to.have.property('didDocument');
         expect(result).to.have.property('didResolutionMetadata');
