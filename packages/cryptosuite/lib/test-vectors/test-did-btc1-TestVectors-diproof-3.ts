@@ -1,3 +1,4 @@
+import { Canonicalization } from '@did-btcr2/common';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { Identifier } from '../../../method/src/index.js';
 import { SchnorrMultikey } from '../../src/index.js';
@@ -42,10 +43,8 @@ const id = '#initialKey';
 const controller = 'did:btcr2:k1qgpzs6takyvuhv3dy8epaqhwee6eamxttprpn4k48ft4xyvw5sp3mvqqavunt';
 const components = Identifier.decode(controller);
 console.log('components:', components);
-const keys = new SchnorrKeyPair({ publicKey: components.genesisBytes });
-const diProof = Multikey.initialize({ id, controller, keyPair })
-  .toCryptosuite('bip340-jcs-2025')
-  .toDataIntegrityProof();
-const document = await JSON.canonicalization.canonicalize(securedDocument);
-const verifiedProof = await diProof.verifyProof({ document, expectedPurpose: 'capabilityInvocation' });
+const keyPair = new SchnorrKeyPair({ publicKey: components.genesisBytes });
+const diProof = SchnorrMultikey.create({ id, controller, keyPair }).toCryptosuite().toDataIntegrityProof();
+const document = Canonicalization.canonicalize(securedDocument);
+const verifiedProof = diProof.verifyProof(document, 'capabilityInvocation');
 console.log('verifiedProof', verifiedProof);

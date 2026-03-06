@@ -77,11 +77,16 @@ export class DidBtcr2 implements DidMethod {
    * @param {string} options.network The Bitcoin network to use for the identifier, e.g. 'bitcoin', 'testnet', etc. Defaults to 'bitcoin'.
    * @returns {Promise<Btcr2Identifier>} Promise resolving to a Btcr2Identifier string.
    * @throws {MethodError} if any of the checks fail
+   * @example
+   * ```ts
+   * const genesisBytes = SchnorrKeyPair.generate().publicKey.compressed;
+   * const did = DidBtcr2.create(genesisBytes, { idType: 'KEY', network: 'regtest' });
+   * ```
    */
-  static async create(
+  static create(
     genesisBytes: KeyBytes | DocumentBytes,
     options?: DidCreateOptions
-  ): Promise<Btcr2Identifier> {
+  ): Btcr2Identifier {
     // Deconstruct the idType, version and network from the options, setting defaults if not given
     const { idType, version = 1, network = 'bitcoin' } = options || {};
 
@@ -113,7 +118,7 @@ export class DidBtcr2 implements DidMethod {
    * @example
    * ```ts
    * const resolution = await DidBtcr2.resolve(
-   *  'did:btcr2:k1q0dygyp3gz969tp46dychzy4q78c2k3js68kvyr0shanzg67jnuez2cfplh'
+   *  'did:btcr2:k1qgpr45cheptyjekl3cex80xfnkwhxnlclecwwf92gvdjrszm2uwhzlcxu5xte'
    * )
    * ```
    */
@@ -160,9 +165,6 @@ export class DidBtcr2 implements DidMethod {
       // Establish the current document
       const currentDocument = await Resolve.currentDocument(didComponents, genesisDocument);
 
-      // Set the didDocument in didResolutionResult based on currentDocument
-      didResolutionResult.didDocument = currentDocument;
-
       // Extract all Beacon services from the current DID Document
       const beaconServices = currentDocument.service
         .filter(BeaconUtils.isBeaconService)
@@ -190,7 +192,9 @@ export class DidBtcr2 implements DidMethod {
 
       // If no updates found, return the current document
       if(!unsortedUpdates.length) {
-        // Set all of the required fields in the didResolutionResult
+        // Set the didDocument in didResolutionResult based on currentDocument
+        didResolutionResult.didDocument = currentDocument;
+        // Set other required fields in the didResolutionResult
         didResolutionResult.didDocumentMetadata.deactivated = !!currentDocument.deactivated;
         didResolutionResult.didDocumentMetadata.versionId = versionId ?? '1';
 

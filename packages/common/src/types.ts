@@ -26,13 +26,13 @@ export type Point = {
 }
 export type PublicKeyObject = {
   point: Point;
-  hex: Hex;
+  hex: HexString;
   multibase: MultibaseObject;
 };
 export type SecretKeyObject = {
   bytes: Array<number>;
   seed?: string;
-  hex?: Hex;
+  hex?: HexString;
 };
 export type SchnorrKeyPair = {
   secretKey: KeyBytes;

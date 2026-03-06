@@ -2,16 +2,17 @@ import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { SchnorrMultikey } from '../../src/index.js';
 import data from '../data/test-data.js';
 
-const { did, document, keyPair } = data;
+const { did, document, keyPair: kp } = data;
+console.log('did', did);
 
-const keys = new SchnorrKeyPair(keyPair);
+const keyPair = new SchnorrKeyPair(kp);
 console.log('keyPair', keyPair);
 
 const { verificationMethod } = document;
 const { id, controller } = verificationMethod[0];
 
-const message = Buffer.from('hello, world');
-const multikey = new SchnorrMultikey({ id, controller, keys });
+const message = 'hello, world';
+const multikey = new SchnorrMultikey({ id, controller, keyPair });
 console.log('multikey', multikey);
 
 const signature = multikey.sign(message);

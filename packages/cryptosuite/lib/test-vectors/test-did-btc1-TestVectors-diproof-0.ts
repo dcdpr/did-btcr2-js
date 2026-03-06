@@ -1,6 +1,5 @@
-import { ProofOptions } from '@did-btcr2/common';
-import { SchnorrKeyPair, SecretKey } from '@did-btcr2/keypair';
-import { SchnorrMultikey } from '../../src/index.js';
+import { SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
+import { DataIntegrityConfig, SchnorrMultikey } from '../../src/index.js';
 
 const unsecuredDocument = {
   '@context' : [
@@ -21,25 +20,25 @@ const unsecuredDocument = {
 } as any;
 const id = '#initialKey';
 const controller = 'did:btcr2:k1q2ddta4gt5n7u6d3xwhdyua57t6awrk55ut82qvurfm0qnrxx5nw7vnsy65';
-const SECRET = 52464508790539176856770556715241483442035423615466097401201513777400180778402n;
-const options: ProofOptions = {
+const nEntropy = 52464508790539176856770556715241483442035423615466097401201513777400180778402n;
+const config: DataIntegrityConfig = {
+  '@context' : [
+    'https://w3id.org/security/v2',
+    'https://w3id.org/zcap/v1',
+    'https://w3id.org/json-ld-patch/v1',
+    'https://btcr2.dev/context/v1'
+  ],
   type               : 'DataIntegrityProof',
   cryptosuite        : 'bip340-jcs-2025',
   verificationMethod : 'did:btcr2:k1q2ddta4gt5n7u6d3xwhdyua57t6awrk55ut82qvurfm0qnrxx5nw7vnsy65#initialKey',
   proofPurpose       : 'attestationMethod'
 };
 
-const secretKey = SecretKey.fromSecret(SECRET);
-const keys = new SchnorrKeyPair({ secretKey });
-const diProof = SchnorrMultikey.initialize({ id, controller, keys })
-  .toCryptosuite('bip340-jcs-2025')
+const secretKey = Secp256k1SecretKey.fromBigInt(nEntropy);
+const keyPair = new SchnorrKeyPair({ secretKey });
+const diProof = SchnorrMultikey.create({ id, controller, keyPair })
+  .toCryptosuite()
   .toDataIntegrityProof();
-const securedDocument = await diProof.addProof({ document: unsecuredDocument, options });
-
-const verifiedProof = await diProof.verifyProof({
-  document        : JSON.stringify(securedDocument),
-  expectedPurpose : 'attestationMethod',
-  mediaType       : 'application/json'
-});
-
+const securedDocument = diProof.addProof(unsecuredDocument, config);
+const verifiedProof = diProof.verifyProof(JSON.stringify(securedDocument), 'attestationMethod');
 console.log(verifiedProof);

@@ -36,7 +36,7 @@ const genesisBytes = GenesisDocument.toGenesisBytes({
   ]
 });
 const genesisHex = Canonicalization.toHex(genesisBytes);
-const did = await DidBtcr2.create(genesisBytes, {
+const did = DidBtcr2.create(genesisBytes, {
   idType  : 'EXTERNAL',
   network : 'bitcoin'
 });

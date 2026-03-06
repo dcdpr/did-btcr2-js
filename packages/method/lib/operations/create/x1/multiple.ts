@@ -22,7 +22,7 @@ for(const network of networks) {
   const genesisBytes = Canonicalization.andHash(genesisDocument);
   const genesisHex = Canonicalization.toHex(genesisBytes);
 
-  const did = await DidBtcr2.create(genesisBytes, { idType: 'EXTERNAL', network: 'regtest' });
+  const did = DidBtcr2.create(genesisBytes, { idType: 'EXTERNAL', network: 'regtest' });
   results.push({
     did,
     network,

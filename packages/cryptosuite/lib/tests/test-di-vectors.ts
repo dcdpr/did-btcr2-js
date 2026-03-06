@@ -1,6 +1,7 @@
+import { Canonicalization } from '@did-btcr2/common';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { base58btc } from 'multiformats/bases/base58';
-import { Cryptosuite, DataIntegrityProof, Multikey } from '../../src/index.js';
+import { SchnorrMultikey } from '../../src/index.js';
 
 const securedDocument = {
   '@context' : [
@@ -42,13 +43,10 @@ const controller = 'did:btcr2:regtest:k1qdh2ef3aqne63sdhq8tr7c8zv9lyl5xy4llj8uw3
 const publicKeyMultibase = 'zQ3shn68faoXE2EqCTtefQXNLgaTa7ZohG2ftZjgXphStJsGc';
 const publicKey = base58btc.decode(publicKeyMultibase).slice(2);
 console.log('publicKey', publicKey);
-const keys = new SchnorrKeyPair({ publicKey });
-const multikey = new Multikey({ id, controller, keyPair });
-const cryptosuite = new Cryptosuite({ cryptosuite: 'bip340-jcs-2025', multikey });
-const diProof = new DataIntegrityProof(cryptosuite);
-
-const verifiedProof = await diProof.verifyProof({
-  document        : await JSON.canonicalization.canonicalize(securedDocument),
-  expectedPurpose : 'capabilityInvocation',
-});
+const keyPair = new SchnorrKeyPair({ publicKey });
+const diProof = new SchnorrMultikey({ id, controller, keyPair }).toCryptosuite().toDataIntegrityProof();
+const verifiedProof = diProof.verifyProof(
+  Canonicalization.canonicalize(securedDocument),
+  'capabilityInvocation'
+);
 console.log('verifiedProof', verifiedProof);

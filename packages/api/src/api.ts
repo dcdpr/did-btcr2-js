@@ -215,7 +215,7 @@ export class DidApi {
     genesisBytes: KeyBytes;
     options: DidCreateOptions;
   }) {
-    return await DidBtcr2.create(genesisBytes, options);
+    return DidBtcr2.create(genesisBytes, options);
   }
 
   /**
@@ -225,7 +225,7 @@ export class DidApi {
     genesisBytes: DocumentBytes;
     options: DidCreateOptions;
   }) {
-    return await DidBtcr2.create(genesisBytes, options);
+    return DidBtcr2.create(genesisBytes, options);
   }
 
   /**

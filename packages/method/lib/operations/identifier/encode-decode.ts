@@ -1,11 +1,11 @@
 import { bytesToHex } from '@noble/hashes/utils';
 import { Identifier } from '../../../src/index.js';
-
 import { Logger } from '@did-btcr2/common';
+import data from '../../../tests/data/encode-data.js';
 
-for(const {did, identifierComponents: idcomps} of vectors) {
-  Logger.log('Encoding', idcomps);
-  const encoded = Identifier.encode(idcomps);
+for(const {did, components} of data) {
+  Logger.log('Encoding', components);
+  const encoded = Identifier.encode(components);
   if(encoded !== did){
     console.log(`encoded ${encoded} !== did ${did}`);
   }
@@ -13,15 +13,15 @@ for(const {did, identifierComponents: idcomps} of vectors) {
   Logger.log('Decoding', encoded);
   const {version, network, genesisBytes} = Identifier.decode(encoded);
   console.log('genesisBytes', genesisBytes);
-  if(version !== idcomps.version) {
-    console.log(`decoded.version ${version} !== ${idcomps.version}`);
+  if(version !== components.version) {
+    console.log(`decoded.version ${version} !== ${components.version}`);
   }
-  if(network !== idcomps.network) {
-    console.log(`decoded.network ${network} === ${idcomps.network}`);
+  if(network !== components.network) {
+    console.log(`decoded.network ${network} === ${components.network}`);
   }
 
-  if(bytesToHex(genesisBytes) !== bytesToHex(idcomps.genesisBytes)) {
-    console.log(`decoded.genesisBytes ${bytesToHex(genesisBytes)} !== ${bytesToHex(idcomps.genesisBytes)}`);
+  if(bytesToHex(genesisBytes) !== bytesToHex(components.genesisBytes)) {
+    console.log(`decoded.genesisBytes ${bytesToHex(genesisBytes)} !== ${bytesToHex(components.genesisBytes)}`);
   }
   console.log('\n--------------------------------------------------');
 }

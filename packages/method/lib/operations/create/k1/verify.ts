@@ -3,7 +3,7 @@ import output from '../../../data/regtest/k1/qgpr45ch/create/output.json' with {
 import { DidBtcr2 } from '../../../../src/did-btcr2.js';
 
 const genesisBytes = Buffer.from(input.genesisBytes, 'hex');
-const did = await DidBtcr2.create(genesisBytes, {
+const did = DidBtcr2.create(genesisBytes, {
   idType  : 'KEY',
   version : input.version,
   network : input.network,
