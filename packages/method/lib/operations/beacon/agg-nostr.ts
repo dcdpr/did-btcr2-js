@@ -3,7 +3,7 @@ import { BeaconCoordinator } from '../../../src/core/beacon/aggregation/coordina
 import { DidBtcr2, NostrAdapter } from '../../../src/index.js';
 
 const kp = SchnorrKeyPair.generate();
-const did = await DidBtcr2.create(kp.raw.public, { idType: 'KEY' });
+const did = DidBtcr2.create(kp.raw.public, { idType: 'KEY' });
 const keys = kp.raw;
 const protocol = new NostrAdapter();
 

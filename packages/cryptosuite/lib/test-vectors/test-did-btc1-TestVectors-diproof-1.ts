@@ -1,5 +1,5 @@
 // NOTE: Does not verify due to bad input data!
-
+import { Canonicalization } from '@did-btcr2/common';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { Identifier } from '../../../method/src/index.js';
 import { SchnorrMultikey } from '../../src/index.js';
@@ -91,12 +91,10 @@ const components = Identifier.decode(controller);
 console.log('components:', components);
 const publicKey = components.genesisBytes;
 console.log('publicKey:', publicKey);
-const keys = new SchnorrKeyPair({ publicKey });
-const publicKeyMultibase = keys.publicKey.multibase;
+const keyPair = new SchnorrKeyPair({ publicKey });
+const publicKeyMultibase = keyPair.publicKey.multibase;
 console.log('publicKeyMultibase', publicKeyMultibase);
-const diProof = SchnorrMultikey.initialize({ id, controller, keys })
-  .toCryptosuite('bip340-jcs-2025')
-  .toDataIntegrityProof();
-const document = await JSON.canonicalization.canonicalize(securedDocument);
-const verifiedProof = await diProof.verifyProof({ document, expectedPurpose: 'capabilityInvocation' });
+const diProof = SchnorrMultikey.create({ id, controller, keyPair }).toCryptosuite().toDataIntegrityProof();
+const document = Canonicalization.canonicalize(securedDocument);
+const verifiedProof = diProof.verifyProof(document, 'capabilityInvocation');
 console.log(verifiedProof);

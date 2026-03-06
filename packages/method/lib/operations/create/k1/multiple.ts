@@ -15,7 +15,7 @@ const results = [];
 for(const network of networks) {
   const kp = SchnorrKeyPair.generate();
   const genesisBytes = kp.publicKey.compressed;
-  const did = await DidBtcr2.create(genesisBytes, { idType: 'KEY', network });
+  const did = DidBtcr2.create(genesisBytes, { idType: 'KEY', network });
   results.push({did, genesisBytes: kp.publicKey.hex, network, secretKey: kp.secretKey.hex});
 }
 console.log(JSON.stringify(results, null, 2));

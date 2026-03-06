@@ -10,7 +10,7 @@ const genesisDocument = GenesisDocument.fromPublicKey(pubkey, 'regtest');
 const genesisBytes = Canonicalization.andHash(genesisDocument);
 const genesisHex = Canonicalization.toHex(genesisBytes);
 
-const did = await DidBtcr2.create(genesisBytes, { idType: 'EXTERNAL', network: 'regtest' });
+const did = DidBtcr2.create(genesisBytes, { idType: 'EXTERNAL', network: 'regtest' });
 
 console.log('did:', did);
 console.log('genesisHex:', genesisHex);

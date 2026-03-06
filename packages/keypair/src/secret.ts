@@ -4,6 +4,7 @@ import {
   Bytes,
   CURVE,
   Hex,
+  HexString,
   KeyBytes,
   SecretKeyError,
   SecretKeyObject,
@@ -154,9 +155,9 @@ export class Secp256k1SecretKey implements SecretKey {
 
   /**
    * Returns the raw secret key as a hex string.
-   * @returns {Hex} The secret key as a hex string
+   * @returns {HexString} The secret key as a hex string
    */
-  get hex(): Hex {
+  get hex(): HexString {
     // Convert the raw secret key bytes to a hex string
     return Buffer.from(this.bytes).toString('hex');
   }

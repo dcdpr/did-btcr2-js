@@ -1,5 +1,5 @@
-import { BitcoinNetworkConnection } from "../src/bitcoin.js";
-import { BlockV3 } from "../src/types.js";
+import { BitcoinNetworkConnection } from '../src/bitcoin.js';
+import { BlockV3 } from '../src/types.js';
 
 
 const bitcoin = new BitcoinNetworkConnection({ });

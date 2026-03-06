@@ -51,7 +51,7 @@ export default class Btcr2Command implements CommandInterface {
         const { type, bytes, network } = request.options;
         const idType = type === 'k' ? IdentifierTypes.KEY : IdentifierTypes.EXTERNAL;
         const genesisBytes = Buffer.from(bytes, 'hex');
-        const did = await DidBtcr2.create(genesisBytes, { idType, network });
+        const did = DidBtcr2.create(genesisBytes, { idType, network });
         return { action: 'create', did };
       }
       case 'read':

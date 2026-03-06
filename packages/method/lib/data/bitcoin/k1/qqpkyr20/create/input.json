@@ -1,7 +1,0 @@
-{
-    "idType": "KEY",
-    "version": 1,
-    "network": "bitcoin",
-    "genesisBytes": "03620d4fb8d5c40b0dc2f9fd84636d85487e51ecf55fbcd5ccf08c6ac148bc8a36",
-    "secret": "80d5427d3191c13a0c8e7279abc538a31a1ea210158d38022a80b2fac1660a79"
-}

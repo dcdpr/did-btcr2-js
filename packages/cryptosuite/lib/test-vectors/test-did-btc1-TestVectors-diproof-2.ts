@@ -1,6 +1,6 @@
+import { Canonicalization } from '@did-btcr2/common';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
-import { hexToBytes } from '@noble/hashes/utils';
-import { Appendix, Identifier } from '../../../method/src/index.js';
+import { Identifier } from '../../../method/src/index.js';
 import { SchnorrMultikey } from '../../src/index.js';
 
 const securedDocument = {
@@ -45,12 +45,10 @@ const components = Identifier.decode(controller);
 console.log('components:', components);
 const publicKey = components.genesisBytes;
 console.log('publicKey:', publicKey);
-const keys = new SchnorrKeyPair({ publicKey });
-const publicKeyJson = keys.publicKey.json();
+const keyPair = new SchnorrKeyPair({ publicKey });
+const publicKeyJson = keyPair.publicKey.json();
 console.log('publicKeyJson', publicKeyJson);
-const diProof = SchnorrMultikey.initialize({ id, controller, keys })
-  .toCryptosuite('bip340-jcs-2025')
-  .toDataIntegrityProof();
-const document = await JSON.canonicalization.canonicalize(securedDocument);
-const verifiedProof = await diProof.verifyProof({ document, expectedPurpose: 'capabilityInvocation' });
+const diProof = SchnorrMultikey.create({ id, controller, keyPair }).toCryptosuite().toDataIntegrityProof();
+const document = Canonicalization.canonicalize(securedDocument);
+const verifiedProof = diProof.verifyProof(document, 'capabilityInvocation');
 console.log('verifiedProof', verifiedProof);

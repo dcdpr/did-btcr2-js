@@ -9,14 +9,14 @@ describe('Create External (x1)', () => {
   it('should create an external (x1) identifier from genesis document bytes on bitcoin (mainnet)',
     async () => {
       const {genesisBytes, did, network} = data[0];
-      const result = await DidBtcr2.create(genesisBytes, { idType: 'EXTERNAL', network });
+      const result = DidBtcr2.create(genesisBytes, { idType: 'EXTERNAL', network });
       expect(result).to.equal(did);
     });
 
   it('should create an external (x1) identifiers from genesis document bytes on each network',
     async () => {
       for(const {genesisBytes, did, network} of data) {
-        const result = await DidBtcr2.create(genesisBytes, { idType: 'EXTERNAL', network });
+        const result = DidBtcr2.create(genesisBytes, { idType: 'EXTERNAL', network });
         expect(result).to.equal(did);
       }
     });

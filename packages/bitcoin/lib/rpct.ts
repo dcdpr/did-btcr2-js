@@ -1,4 +1,5 @@
-import { JsonRpcTransport } from "../src/index.js";
+import { JsonRpcTransport } from '../src/index.js';
 
 const transport = new JsonRpcTransport({ host: 'http' });
 
+console.log(transport);
