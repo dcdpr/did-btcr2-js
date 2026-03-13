@@ -44,7 +44,14 @@ import {
   VerificationResult
 } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
-import { KeyIdentifier, KeyManager, Kms } from '@did-btcr2/kms';
+import {
+  type GenerateKeyOptions,
+  type ImportKeyOptions,
+  KeyIdentifier,
+  KeyManager,
+  Kms,
+  type SignOptions,
+} from '@did-btcr2/kms';
 import type { Btcr2DidDocument, DidCreateOptions, ResolutionOptions } from '@did-btcr2/method';
 import { DidBtcr2, DidDocument, DidDocumentBuilder, Identifier, IdentifierComponents } from '@did-btcr2/method';
 import { Did, type DidResolutionResult, type DidService, type DidVerificationMethod } from '@web5/dids';
@@ -243,7 +250,7 @@ export type BitcoinApiConfig = {
  */
 export type ApiConfig = {
   btc?: BitcoinApiConfig;
-  kms?: Kms;
+  kms?: KeyManager;
   /** Optional logger. Defaults to a silent no-op logger. */
   logger?: Logger;
 };
@@ -922,8 +929,8 @@ export class KeyManagerApi {
   }
 
   /** Generate a new key directly in the KMS. */
-  generateKey(): KeyIdentifier {
-    return this.kms.generateKey();
+  generateKey(options?: GenerateKeyOptions): KeyIdentifier {
+    return this.kms.generateKey(options);
   }
 
   /** Set the active key by its identifier. */
@@ -937,7 +944,7 @@ export class KeyManagerApi {
   }
 
   /** Import a Schnorr keypair into the KMS. */
-  import(kp: SchnorrKeyPair, options: { id?: KeyIdentifier; setActive?: boolean } = {}): KeyIdentifier {
+  import(kp: SchnorrKeyPair, options?: ImportKeyOptions): KeyIdentifier {
     return this.kms.importKey(kp, options);
   }
 
@@ -970,15 +977,16 @@ export class KeyManagerApi {
    * Sign data via the KMS.
    * @param data The data to sign (must be non-empty).
    * @param id Optional key identifier; uses the active key if omitted.
+   * @param options Signing options (scheme defaults to 'schnorr').
    */
-  sign(data: Bytes, id?: KeyIdentifier): SignatureBytes {
+  sign(data: Bytes, id?: KeyIdentifier, options?: SignOptions): SignatureBytes {
     assertBytes(data, 'data');
-    return this.kms.sign(data, id);
+    return this.kms.sign(data, id, options);
   }
 
   /** Verify a signature via the KMS. */
-  verify(signature: SignatureBytes, data: Bytes, id?: KeyIdentifier): boolean {
-    return this.kms.verify(signature, data, id);
+  verify(signature: SignatureBytes, data: Bytes, id?: KeyIdentifier, options?: SignOptions): boolean {
+    return this.kms.verify(signature, data, id, options);
   }
 
   /** Compute a SHA-256 digest. */

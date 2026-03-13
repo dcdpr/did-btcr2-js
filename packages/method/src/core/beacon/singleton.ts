@@ -2,7 +2,6 @@ import { AddressUtxo, BitcoinConnection } from '@did-btcr2/bitcoin';
 import { Canonicalization, INVALID_SIDECAR_DATA, KeyBytes, MISSING_UPDATE_DATA } from '@did-btcr2/common';
 import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
-import { Signer } from '@did-btcr2/kms';
 import { opcodes, Psbt, script } from 'bitcoinjs-lib';
 import { base58btc } from 'multiformats/bases/base58';
 import { SidecarData } from '../types.js';
@@ -137,11 +136,12 @@ export class SingletonBeacon extends Beacon {
       // Add an OP_RETURN output containing the update hash
       .addOutput({ script: script.compile([opcodes.OP_RETURN, updateHash]), value: 0n });
 
-    // Construct a Schnorr key pair from the secret key
+    // Construct a key pair and PSBT signer from the secret key
     const keyPair = SchnorrKeyPair.fromSecret(secretKey);
-
-    // Construct a signer object from the key pair and bitcoin network
-    const signer = new Signer({ keyPair, network: bitcoin.name });
+    const signer = {
+      publicKey : keyPair.publicKey.compressed,
+      sign      : (hash: Uint8Array) => keyPair.secretKey.sign(hash, { scheme: 'ecdsa' }),
+    };
 
     // Sign 0th input, finalize extract to hex in prep for broadcast
     const signedTx = spendTx.signInput(0, signer)

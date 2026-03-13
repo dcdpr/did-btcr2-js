@@ -97,7 +97,7 @@
     "vitepress": "^1.6.3",
     "vitepress-plugin-mermaid": "^2.0.17"
   },
-  "packageManager": "pnpm@10.20.0",
+  "packageManager": "pnpm@10.32.1",
   "pnpm": {
     "onlyBuiltDependencies": [
       "@ipshipyard/node-datachannel",
