@@ -1,86 +1,124 @@
 import { Bytes, HashBytes, KeyBytes, SignatureBytes } from '@did-btcr2/common';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 
+/** Opaque key identifier string. */
 export type KeyIdentifier = string;
 
+/** Supported signature schemes. */
+export type SigningScheme = 'schnorr' | 'ecdsa';
+
+/** Options for sign and verify operations. */
+export type SignOptions = {
+  /** Signature scheme. Defaults to 'schnorr'. */
+  scheme?: SigningScheme;
+};
+
+/** Stored key entry with optional secret key and metadata tags. */
+export type KeyEntry = {
+  /** Secret key bytes. Undefined for public-key-only (watch-only) entries. */
+  secretKey?: KeyBytes;
+  /** Compressed secp256k1 public key bytes. Always present. */
+  publicKey: KeyBytes;
+  /** Arbitrary metadata tags (e.g. derivation path, account, DID). */
+  tags?: Record<string, string>;
+};
+
+/** Options for importing a key. */
+export type ImportKeyOptions = {
+  /** Custom key identifier. Auto-generated URN if omitted. */
+  id?: KeyIdentifier;
+  /** Whether to set this key as the active key. Defaults to false. */
+  setActive?: boolean;
+  /** Metadata tags to associate with the key. */
+  tags?: Record<string, string>;
+};
+
+/** Options for generating a key. */
+export type GenerateKeyOptions = {
+  /** Whether to set the generated key as the active key. Defaults to false. */
+  setActive?: boolean;
+  /** Metadata tags to associate with the key. */
+  tags?: Record<string, string>;
+};
+
 /**
- * The interface for the Kms class.
+ * Interface for key management operations.
  * @interface KeyManager
- * @type {KeyManager}
  */
 export interface KeyManager {
-  /**
-   * The ID of the active key.
-   * @readonly
-   * @type {KeyIdentifier}
-   */
-  readonly activeKeyId?: KeyIdentifier
+  /** The ID of the active key. */
+  readonly activeKeyId?: KeyIdentifier;
 
   /**
-   * Set the active key id.
-   * @param id The key id to set as active.
+   * Set the active key.
+   * @param id The key identifier to set as active.
+   * @throws {KeyManagerError} If the key is not found.
    */
   setActiveKey(id: KeyIdentifier): void;
 
   /**
-   * Import a key pair.
-   * @param {SchnorrKeyPair} keyPair The secret key to import.
-   * @param {{ id?: KeyIdentifier, setActive?: boolean }} options The options for importing the key pair.
-   * @param {KeyIdentifier} [options.id] The ID of the key to import (optional).
-   * @param {boolean} [options.setActive] Whether to set the key as active (optional, default: false).
-   * @returns {KeyIdentifier} A promise that resolves to the key identifier of the imported key.
+   * Import a key pair. May be public-key-only for watch-only entries.
+   * @param keyPair The key pair to import.
+   * @param options Import options.
+   * @returns The key identifier of the imported key.
+   * @throws {KeyManagerError} If the key already exists.
    */
-  importKey(keyPair: SchnorrKeyPair, options: { id?: KeyIdentifier; setActive?: boolean }): KeyIdentifier;
+  importKey(keyPair: SchnorrKeyPair, options?: ImportKeyOptions): KeyIdentifier;
 
   /**
-   * Removes a key from the key store.
-   * @param {KeyIdentifier} id The key identifier of the key to remove.
-   * @param {{ force?: boolean }} options The options for removing the key.
-   * @param {boolean} [options.force] Whether to force the removal of the key.
-   * @returns {void} A promise that resolves when the key is removed.
+   * Remove a key from the store.
+   * @param id The key identifier to remove.
+   * @param options Removal options.
+   * @throws {KeyManagerError} If removing the active key without force, or key not found.
    */
-  removeKey(id: KeyIdentifier, options: { force?: boolean }): void;
+  removeKey(id: KeyIdentifier, options?: { force?: boolean }): void;
 
   /**
-   * Lists all key identifiers in the key store.
-   * @returns {KeyIdentifier[]} An array of key identifiers.
+   * List all key identifiers.
+   * @returns Array of key identifiers.
    */
   listKeys(): KeyIdentifier[];
 
   /**
-   * Gets the public key associated with the ID or active key.
-   * @param {KeyIdentifier} [id] The ID of the key to get the public key for.
-   * @returns {KeyBytes} A promise resolving to the public key bytes.
+   * Get the compressed public key bytes for a key.
+   * @param id Key identifier. Uses active key if omitted.
+   * @returns Compressed secp256k1 public key bytes.
+   * @throws {KeyManagerError} If key not found or no active key set.
    */
   getPublicKey(id?: KeyIdentifier): KeyBytes;
 
   /**
-   * Signs the given data using the key associated with the key ID.
-   * @param {Bytes} data The data to sign.
-   * @param {KeyIdentifier} [id] The ID of the key to sign the data with.
-   * @returns {SignatureBytes} A promise resolving to the signature of the data.
+   * Sign data using the specified key.
+   * @param data The data to sign.
+   * @param id Key identifier. Uses active key if omitted.
+   * @param options Signing options (scheme defaults to 'schnorr').
+   * @returns The signature bytes.
+   * @throws {KeyManagerError} If key not found, no active key, or key cannot sign.
    */
-  sign(data: Bytes, id?: KeyIdentifier): SignatureBytes;
+  sign(data: Bytes, id?: KeyIdentifier, options?: SignOptions): SignatureBytes;
 
   /**
-   * Verifies a signature using the key associated with the key ID.
-   * @param {KeyIdentifier} id The ID of the key to verify the signature with.
-   * @param {SignatureBytes} signature The signature to verify.
-   * @param {Hex} data The data to verify the signature with.
-   * @returns {boolean} A promise resolving to a boolean indicating the verification result.
+   * Verify a signature using the specified key.
+   * @param signature The signature to verify.
+   * @param data The data that was signed.
+   * @param id Key identifier. Uses active key if omitted.
+   * @param options Verification options (scheme defaults to 'schnorr').
+   * @returns True if the signature is valid.
+   * @throws {KeyManagerError} If key not found or no active key set.
    */
-  verify(signature: SignatureBytes, data: Bytes, id?: KeyIdentifier): boolean;
+  verify(signature: SignatureBytes, data: Bytes, id?: KeyIdentifier, options?: SignOptions): boolean;
 
   /**
-   * Computes the hash of the given data.
-   * @param {Uint8Array} data The data to hash.
-   * @returns {HashBytes} The hash of the data.
+   * Compute a SHA-256 hash of the given data.
+   * @param data The data to hash.
+   * @returns The hash bytes.
    */
   digest(data: Uint8Array): HashBytes;
 
   /**
-   * Generates a new key pair and stores it in the key store.
-   * @returns {KeyIdentifier} The identifier of the newly generated key.
+   * Generate a new key pair and store it.
+   * @param options Generation options.
+   * @returns The key identifier of the generated key.
    */
-  generateKey(): KeyIdentifier;
+  generateKey(options?: GenerateKeyOptions): KeyIdentifier;
 }

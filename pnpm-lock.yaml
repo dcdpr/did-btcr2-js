@@ -668,15 +668,9 @@ importers:
 
   packages/kms:
     dependencies:
-      '@did-btcr2/bitcoin':
-        specifier: workspace:*
-        version: link:../bitcoin
       '@did-btcr2/common':
         specifier: workspace:*
         version: link:../common
-      '@did-btcr2/cryptosuite':
-        specifier: workspace:*
-        version: link:../cryptosuite
       '@did-btcr2/keypair':
         specifier: workspace:*
         version: link:../keypair
@@ -768,9 +762,6 @@ importers:
       '@did-btcr2/keypair':
         specifier: workspace:*
         version: link:../keypair
-      '@did-btcr2/kms':
-        specifier: workspace:*
-        version: link:../kms
       '@helia/strings':
         specifier: ^4.0.2
         version: 4.1.0
