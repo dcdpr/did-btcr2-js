@@ -15,4 +15,16 @@ describe('CLIError', () => {
     expect(error.type).to.equal('CUSTOM');
     expect(error.data).to.deep.equal(data);
   });
+
+  it('has name set to CLIError regardless of type', () => {
+    const error = new CLIError('msg', 'INVALID_ARGUMENT_ERROR');
+    expect(error.name).to.equal('CLIError');
+    expect(error.type).to.equal('INVALID_ARGUMENT_ERROR');
+  });
+
+  it('defaults type to CLIError when not specified', () => {
+    const error = new CLIError('oops');
+    expect(error.type).to.equal('CLIError');
+    expect(error.name).to.equal('CLIError');
+  });
 });

@@ -145,6 +145,7 @@ dist
 ### Node Patch ###
 # Serverless Webpack directories
 .webpack/
+.corepack/
 
 # Optional stylelint cache
 
@@ -171,3 +172,7 @@ release/
 # VitePress output folders
 docs/.vitepress/dist
 docs/.vitepress/cache
+
+# LLM output
+CLAUDE.md
+.claude/
