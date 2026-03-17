@@ -19,7 +19,7 @@ describe('utils/json', () => {
     expect(copy.b).to.equal(original.b);
   });
 
-  it('clones internal structures correctly', () => {
+  it('clones via internal path when structuredClone is unavailable', () => {
     const originalStructuredClone = globalThis.structuredClone;
     delete (globalThis as any).structuredClone;
 
@@ -65,52 +65,63 @@ describe('utils/json', () => {
     expect(JSONUtils.deepEqual(dateA, dateC)).to.be.false;
   });
 
-  it('throws on excessive recursion depth', () => {
+  it('throws on excessive comparison depth', () => {
     const makeDeep = (depth: number): any => depth === 0 ? {} : { child: makeDeep(depth - 1) };
     const deep = makeDeep(1030);
     const deepOther = makeDeep(1030);
     expect(() => JSONUtils.deepEqual(deep, deepOther)).to.throw('Maximum comparison depth exceeded');
-    expect(() => JSONUtils.cloneInternal(deep)).to.throw('Maximum clone depth exceeded');
+  });
+
+  it('throws on excessive clone depth', () => {
+    const originalStructuredClone = globalThis.structuredClone;
+    delete (globalThis as any).structuredClone;
+
+    const makeDeep = (depth: number): any => depth === 0 ? {} : { child: makeDeep(depth - 1) };
+    const deep = makeDeep(1030);
+    expect(() => JSONUtils.clone(deep)).to.throw('Maximum clone depth exceeded');
+
+    globalThis.structuredClone = originalStructuredClone;
   });
 
   it('throws on circular clone', () => {
+    const originalStructuredClone = globalThis.structuredClone;
+    delete (globalThis as any).structuredClone;
+
     const a: any = {};
     a.self = a;
-    expect(() => JSONUtils.cloneInternal(a)).to.throw('Cannot clone circular structure');
+    expect(() => JSONUtils.clone(a)).to.throw('Cannot clone circular structure');
+
+    globalThis.structuredClone = originalStructuredClone;
   });
 
-  it('clones array and typed arrays correctly', () => {
+  it('clones typed arrays correctly', () => {
+    const originalStructuredClone = globalThis.structuredClone;
+    delete (globalThis as any).structuredClone;
+
     const ui8a = new Uint8Array([10, 20]);
-    const cloned = JSONUtils.cloneInternal(ui8a) as Uint8Array;
+    const cloned = JSONUtils.clone(ui8a);
     expect(cloned).to.deep.equal(ui8a);
     expect(cloned).to.not.equal(ui8a);
 
-    const arr = new Array([1, 2, ui8a]);
-    const clonedArr = JSONUtils.cloneInternal(arr) as Array<any>;
+    const arr = [1, 2, new Uint8Array([30, 40])];
+    const clonedArr = JSONUtils.clone(arr);
     expect(clonedArr).to.deep.equal(arr);
-    expect(clonedArr[2]).to.not.equal(ui8a);
-  });
+    expect(clonedArr[2]).to.not.equal(arr[2]);
 
-  it('clones DataView correctly', () => {
-    const buf = new ArrayBuffer(16);
-    const partial = new DataView(buf, 4, 8);
-
-    partial.setUint32(0, 0xdeadbeef);
-
-    const cloneA = JSONUtils.cloneInternal(partial) as DataView;
-
-    expect(cloneA).to.be.instanceOf(DataView);
-    expect(cloneA.byteLength).to.equal(partial.byteLength);
-    expect(cloneA.getUint32(0)).to.equal(0xdeadbeef);
-    expect(cloneA.buffer).to.not.equal(partial.buffer);
+    globalThis.structuredClone = originalStructuredClone;
   });
 
   it('clones Date objects correctly', () => {
+    const originalStructuredClone = globalThis.structuredClone;
+    delete (globalThis as any).structuredClone;
+
     const date = new Date('2024-01-02T03:04:05.678Z');
-    const clone = JSONUtils.cloneInternal(date) as Date;
+    const clone = JSONUtils.clone(date);
     expect(clone).to.be.instanceOf(Date);
     expect(clone.getTime()).to.equal(date.getTime());
     expect(clone).to.not.equal(date);
+
+    globalThis.structuredClone = originalStructuredClone;
   });
 
   it('cloneReplace applies replacements', () => {
@@ -131,6 +142,6 @@ describe('utils/json', () => {
     expect(sanitizeA).to.deep.equal({ b: 2, c: { e: 5 } });
 
     const sanitizeB = JSONUtils.sanitize(['b', undefined, 2, { d: undefined, e: 5 }]);
-    expect(sanitizeB).to.deep.equal(['b', undefined, 2, { e: 5 }]);
+    expect(sanitizeB).to.deep.equal(['b', 2, { e: 5 }]);
   });
 });

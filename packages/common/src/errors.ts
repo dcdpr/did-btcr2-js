@@ -94,7 +94,6 @@ export const {
   INTERNAL_ERROR,
   INVALID_DID_DOCUMENT,
   INVALID_DID_UPDATE,
-  INVALID_DID_DOCUMENT_LENGTH,
   INVALID_DID_URL,
   INVALID_PREVIOUS_DID_PROOF,
   INVALID_PUBLIC_KEY,
@@ -102,9 +101,6 @@ export const {
   INVALID_PUBLIC_KEY_LENGTH,
   INVALID_PUBLIC_KEY_TYPE,
   INVALID_SIGNATURE,
-  NOT_FOUND,
-  REPRESENTATION_NOT_SUPPORTED,
-  UNSUPPORTED_PUBLIC_KEY_TYPE,
   PROOF_VERIFICATION_ERROR,
   PROOF_GENERATION_ERROR,
   PROOF_SERIALIZATION_ERROR,
@@ -113,12 +109,10 @@ export const {
   LATE_PUBLISHING_ERROR,
   INVALID_SIDECAR_DATA,
   MISSING_UPDATE_DATA,
-  INVALID_UPDATE,
-  INVALID_DOMAIN_ERROR,
   MISSING_RESOLUTION_OPTIONS
 } = MethodErrorCode;
 
-export type ErrorOptions = {
+type ErrorOptions = {
   type?: string;
   name?: string;
   data?: any;
@@ -169,7 +163,7 @@ export class DidMethodError extends Error {
 }
 
 export class MethodError extends DidMethodError {
-  constructor(message: string, type: string, data?: Record<string, any>) {
+  constructor(message: string, type: string = 'MethodError', data?: Record<string, any>) {
     super(message, { type, name: type, data });
   }
 }
@@ -188,7 +182,7 @@ export class UpdateError extends DidMethodError {
 
 export class ResolveError extends DidMethodError {
   constructor(message: string, type: string = 'ResolveError', data?: Record<string, any>) {
-    super(message, { type, name: 'ResolveError', data });
+    super(message, { type, name: type, data });
   }
 }
 
@@ -254,12 +248,6 @@ export class SingletonBeaconError extends DidMethodError {
 
 export class CIDAggregateBeaconError extends DidMethodError {
   constructor(message: string, type: string = 'CIDAggregateBeaconError', data?: Record<string, any>) {
-    super(message, { type, name: type, data });
-  }
-}
-
-export class SMTAggregateBeaconError extends DidMethodError {
-  constructor(message: string, type: string = 'SMTAggregateBeaconError', data?: Record<string, any>) {
     super(message, { type, name: type, data });
   }
 }

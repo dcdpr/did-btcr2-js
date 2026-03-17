@@ -1,4 +1,4 @@
-import { Logger, Maybe } from '@did-btcr2/common';
+import { Maybe } from '@did-btcr2/common';
 import { RawSchnorrKeyPair } from '@did-btcr2/keypair';
 import { BeaconCoordinatorError } from '../error.js';
 import { AggregateBeaconCohort } from './cohort/index.js';
@@ -6,12 +6,12 @@ import {
   BEACON_COHORT_ADVERT,
   BEACON_COHORT_NONCE_CONTRIBUTION,
   BEACON_COHORT_OPT_IN,
-  BEACON_COHORT_OPT_IN_ACCEPT,
   BEACON_COHORT_REQUEST_SIGNATURE,
   BEACON_COHORT_SIGNATURE_AUTHORIZATION
 } from './cohort/messages/constants.js';
 import { BeaconCohortAdvertMessage } from './cohort/messages/keygen/cohort-advert.js';
 import { BeaconCohortReadyMessage } from './cohort/messages/keygen/cohort-ready.js';
+import { BeaconCohortOptInAcceptMessage } from './cohort/messages/keygen/opt-in-accept.js';
 import { BeaconCohortOptInMessage, CohortOptInMessage } from './cohort/messages/keygen/opt-in.js';
 import { BeaconCohortAggregatedNonceMessage } from './cohort/messages/sign/aggregated-nonce.js';
 import { BeaconCohortNonceContributionMessage, CohortNonceContributionMessage } from './cohort/messages/sign/nonce-contribution.js';
@@ -98,7 +98,7 @@ export class BeaconCoordinator {
    * @returns {void}
    */
   start(): void {
-    Logger.info(`Setting up BeaconCoordinator ${this.name} (${this.did}) on ${this.protocol.name} ...`);
+    console.info(`Setting up BeaconCoordinator ${this.name} (${this.did}) on ${this.protocol.name} ...`);
     this.protocol.registerMessageHandler(BEACON_COHORT_OPT_IN, this.#handleOptIn.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_REQUEST_SIGNATURE, this.#handleRequestSignature.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_NONCE_CONTRIBUTION, this.#handleNonceContribution.bind(this));
@@ -117,7 +117,7 @@ export class BeaconCoordinator {
     const participant = optIn.from;
     const participantPk = optIn.body?.participantPk;
     if(!cohortId || !participant || !participantPk) {
-      Logger.warn(`Invalid opt-in message from ${participant}: missing cohortId, participant or participantPk`);
+      console.warn(`Invalid opt-in message from ${participant}: missing cohortId, participant or participantPk`);
       return;
     }
     const cohort = this.cohorts.find(c => c.id === cohortId);
@@ -142,16 +142,16 @@ export class BeaconCoordinator {
     const signatureRequest = BeaconCohortRequestSignatureMessage.fromJSON(message);
     const cohortId = signatureRequest.body?.cohortId;
     if (!cohortId) {
-      Logger.warn(`Signature request missing cohort ID from ${signatureRequest.from}`);
+      console.warn(`Signature request missing cohort ID from ${signatureRequest.from}`);
       return;
     }
     const cohort = this.cohorts.find(c => c.id === cohortId);
     if (!cohort) {
-      Logger.error(`Cohort with ID ${cohortId} not found.`);
+      console.error(`Cohort with ID ${cohortId} not found.`);
       return;
     }
     cohort.addSignatureRequest(signatureRequest);
-    Logger.info(`Received signature request from ${signatureRequest.from} for cohort ${cohortId}.`);
+    console.info(`Received signature request from ${signatureRequest.from} for cohort ${cohortId}.`);
   }
 
   /**
@@ -164,12 +164,12 @@ export class BeaconCoordinator {
     const nonceContribMessage = BeaconCohortNonceContributionMessage.fromJSON(message);
     const cohortId = nonceContribMessage.body?.cohortId;
     if (!cohortId) {
-      Logger.warn(`Nonce contribution message missing cohort ID from ${nonceContribMessage.from}`);
+      console.warn(`Nonce contribution message missing cohort ID from ${nonceContribMessage.from}`);
       return;
     }
     const sessionId = nonceContribMessage.body?.sessionId;
     if (!sessionId) {
-      Logger.warn(`Nonce contribution message missing session ID from ${nonceContribMessage.from}`);
+      console.warn(`Nonce contribution message missing session ID from ${nonceContribMessage.from}`);
       return;
     }
     // Get the signing session using the cohort ID from the message.
@@ -177,7 +177,7 @@ export class BeaconCoordinator {
 
     // If the signing session does not exist, log an error and return.
     if(!signingSession) {
-      Logger.error(`Session ${cohortId || sessionId} not found.`);
+      console.error(`Session ${cohortId || sessionId} not found.`);
       return;
     }
 
@@ -190,12 +190,12 @@ export class BeaconCoordinator {
     }
     const nonceContribution = nonceContribMessage.body?.nonceContribution;
     if(!nonceContribution) {
-      Logger.warn(`Nonce contribution message missing nonce contribution from ${nonceContribMessage.from}`);
+      console.warn(`Nonce contribution message missing nonce contribution from ${nonceContribMessage.from}`);
       return;
     }
     // Add the nonce contribution to the signing session.
     signingSession.addNonceContribution(nonceContribMessage.from, nonceContribution);
-    Logger.info(`Nonce contribution received from ${nonceContribMessage.from} for session ${sessionId}.`);
+    console.info(`Nonce contribution received from ${nonceContribMessage.from} for session ${sessionId}.`);
 
     if (signingSession.status !== SIGNING_SESSION_STATUS.NONCE_CONTRIBUTIONS_RECEIVED) {
       await this.sendAggregatedNonce(signingSession);
@@ -211,17 +211,17 @@ export class BeaconCoordinator {
     const sigAuthMessage = BeaconCohortSignatureAuthorizationMessage.fromJSON(message);
     const cohortId = sigAuthMessage.body?.cohortId;
     if (!cohortId) {
-      Logger.warn(`Signature authorization message missing cohort ID from ${sigAuthMessage.from}`);
+      console.warn(`Signature authorization message missing cohort ID from ${sigAuthMessage.from}`);
       return;
     }
     const sessionId = sigAuthMessage.body?.sessionId;
     if (!sessionId) {
-      Logger.warn(`Signature authorization message missing session ID from ${sigAuthMessage.from}`);
+      console.warn(`Signature authorization message missing session ID from ${sigAuthMessage.from}`);
       return;
     }
     const signingSession = this.activeSigningSessions.get(cohortId || sessionId);
     if (!signingSession) {
-      Logger.error(`Session ${sessionId} not found.`);
+      console.error(`Session ${sessionId} not found.`);
       return;
     }
 
@@ -240,12 +240,12 @@ export class BeaconCoordinator {
     }
     const partialSignature = sigAuthMessage.body?.partialSignature;
     if (!partialSignature) {
-      Logger.warn(`Signature authorization message missing partial signature from ${sigAuthMessage.from}`);
+      console.warn(`Signature authorization message missing partial signature from ${sigAuthMessage.from}`);
       return;
     }
     // Add the signature authorization to the signing session.
     signingSession.addPartialSignature(sigAuthMessage.from, partialSignature);
-    Logger.info(`Received partial signature from ${sigAuthMessage.from} for session ${sessionId}.`);
+    console.info(`Received partial signature from ${sigAuthMessage.from} for session ${sessionId}.`);
 
     if(signingSession.partialSignatures.size === signingSession.cohort.participants.length) {
       signingSession.status = SIGNING_SESSION_STATUS.PARTIAL_SIGNATURES_RECEIVED;
@@ -253,7 +253,7 @@ export class BeaconCoordinator {
 
     if (signingSession.status === SIGNING_SESSION_STATUS.PARTIAL_SIGNATURES_RECEIVED) {
       const signature = await signingSession.generateFinalSignature();
-      Logger.info(`Final signature ${Buffer.from(signature).toString('hex')} generated for session ${signingSession.id}`);
+      console.info(`Final signature ${Buffer.from(signature).toString('hex')} generated for session ${signingSession.id}`);
     }
   }
 
@@ -263,14 +263,14 @@ export class BeaconCoordinator {
    * @returns {Promise<void>}
    */
   private async _startKeyGeneration(cohort: AggregateBeaconCohort): Promise<void> {
-    Logger.info(`Starting key generation for cohort ${cohort.id} with participants: ${cohort.participants.join(', ')}`);
+    console.info(`Starting key generation for cohort ${cohort.id} with participants: ${cohort.participants.join(', ')}`);
     cohort.finalize();
     for(const participant of cohort.participants) {
       const message = cohort.getCohortReadyMessage(participant, this.did);
-      Logger.info(`Sending BEACON_COHORT_READY message to ${participant}`);
+      console.info(`Sending BEACON_COHORT_READY message to ${participant}`);
       await this.protocol.sendMessage(message, participant, this.did);
     }
-    Logger.info(`Finished sending BEACON_COHORT_READY message to ${cohort.participants.length} participants`);
+    console.info(`Finished sending BEACON_COHORT_READY message to ${cohort.participants.length} participants`);
   }
 
   /**
@@ -279,12 +279,8 @@ export class BeaconCoordinator {
    * @returns {Promise<void>}
    */
   async acceptSubscription(participant: string): Promise<void> {
-    Logger.info(`Accepting subscription from ${participant}`);
-    const message = {
-      type : BEACON_COHORT_OPT_IN_ACCEPT,
-      to   : participant,
-      from : this.did
-    };
+    console.info(`Accepting subscription from ${participant}`);
+    const message = new BeaconCohortOptInAcceptMessage({ to: participant, from: this.did });
     await this.protocol.sendMessage(message, this.did, participant);
   }
 
@@ -295,7 +291,7 @@ export class BeaconCoordinator {
    */
   async sendAggregatedNonce(session: BeaconCohortSigningSession): Promise<void> {
     const aggregatedNonce = session.generateAggregatedNonce();
-    Logger.info(`Aggregated Nonces for session ${session.id}:`, aggregatedNonce);
+    console.info(`Aggregated Nonces for session ${session.id}:`, aggregatedNonce);
 
     session.status = SIGNING_SESSION_STATUS.AWAITING_PARTIAL_SIGNATURES;
     for (const participant of session.cohort.participants) {
@@ -306,10 +302,10 @@ export class BeaconCoordinator {
         sessionId       : session.id,
         aggregatedNonce : aggregatedNonce
       });
-      Logger.info(`Sending AGGREGATED_NONCE message to ${participant}`);
+      console.info(`Sending AGGREGATED_NONCE message to ${participant}`);
       await this.protocol.sendMessage(message, participant, this.did);
     }
-    Logger.info(`Successfully sent aggregated nonce message to all participants in session ${session.id}.`);
+    console.info(`Successfully sent aggregated nonce message to all participants in session ${session.id}.`);
   }
 
   /**
@@ -325,7 +321,7 @@ export class BeaconCoordinator {
     beaconType: string = 'SMTBeacon'
   ): Promise<AggregateBeaconCohort> {
     const cohort = new AggregateBeaconCohort({ minParticipants, network, beaconType });
-    Logger.info(`Advertising new cohort ${cohort.id} ...`);
+    console.info(`Advertising new cohort ${cohort.id} ...`);
     this.cohorts.push(cohort);
     const message = new BeaconCohortAdvertMessage({
       from       : this.did,
@@ -334,9 +330,9 @@ export class BeaconCoordinator {
       network    : cohort.network,
       beaconType
     });
-    Logger.info(`Sending ${BEACON_COHORT_ADVERT} message to network ...`, message);
+    console.info(`Sending ${BEACON_COHORT_ADVERT} message to network ...`, message);
     await this.protocol.sendMessage(message, this.did);
-    Logger.info(`Cohort ${cohort.id} advertised successfully.`);
+    console.info(`Cohort ${cohort.id} advertised successfully.`);
     return cohort;
   }
 
@@ -349,13 +345,13 @@ export class BeaconCoordinator {
   async announceCohortReady(cohortId: string): Promise<AggregateBeaconCohort> {
     const cohort = this.cohorts.find(c => c.id === cohortId);
     if (!cohort) {
-      Logger.error(`Cohort with ID ${cohortId} not found.`);
+      console.error(`Cohort with ID ${cohortId} not found.`);
       throw new BeaconCoordinatorError(
         `Cohort with ID ${cohortId} not found.`,
         'COHORT_NOT_FOUND', { cohortId }
       );
     }
-    Logger.info(`Announcing cohort ${cohort.id} to ${cohort.participants.length} subscribers...`);
+    console.info(`Announcing cohort ${cohort.id} to ${cohort.participants.length} subscribers...`);
     this.cohorts.push(cohort);
     for (const participant of cohort.participants) {
       const message = new BeaconCohortReadyMessage({
@@ -365,7 +361,7 @@ export class BeaconCoordinator {
         beaconAddress : cohort.beaconAddress,
         cohortKeys    : cohort.cohortKeys,
       });
-      Logger.info(`Sending ${BEACON_COHORT_ADVERT} message to ${participant}`);
+      console.info(`Sending ${BEACON_COHORT_ADVERT} message to ${participant}`);
 
       await this.protocol.sendMessage(message, this.did, participant);
     }
@@ -379,24 +375,24 @@ export class BeaconCoordinator {
    * @throws {BeaconCoordinatorError} If the cohort with the given ID is not found.
    */
   async startSigningSession(cohortId: string): Promise<BeaconCohortSigningSession> {
-    Logger.info(`Attempting to start signing session for cohort ${cohortId}`);
+    console.info(`Attempting to start signing session for cohort ${cohortId}`);
     const cohort = this.cohorts.find(c => c.id === cohortId);
     if (!cohort) {
-      Logger.error(`Cohort with ID ${cohortId} not found.`);
+      console.error(`Cohort with ID ${cohortId} not found.`);
       throw new BeaconCoordinatorError(`Cohort with ID ${cohortId} not found.`, 'COHORT_NOT_FOUND');
     }
-    Logger.info(`Cohort ${cohortId} found. Starting signing session.`);
+    console.info(`Cohort ${cohortId} found. Starting signing session.`);
     const signingSession = cohort.startSigningSession();
-    Logger.info(`Starting signing session ${signingSession.id} for cohort ${cohortId}`);
+    console.info(`Starting signing session ${signingSession.id} for cohort ${cohortId}`);
     for (const participant of cohort.participants) {
       const msg = signingSession.getAuthorizationRequest(participant, this.did);
-      Logger.info(`Sending authorization request to ${participant}`);
+      console.info(`Sending authorization request to ${participant}`);
       await this.protocol.sendMessage(msg, this.did, participant).catch(error => {
-        Logger.error(`Error sending authorization request to ${participant}: ${error.message}`);
+        console.error(`Error sending authorization request to ${participant}: ${error.message}`);
       });
     }
     this.activeSigningSessions.set(cohortId, signingSession);
-    Logger.info(`Signing session ${signingSession.id} started for cohort ${cohortId}`);
+    console.info(`Signing session ${signingSession.id} started for cohort ${cohortId}`);
     return signingSession;
   }
 
@@ -412,7 +408,7 @@ export class BeaconCoordinator {
       did      : service.did,
       keys     : service.keys,
     });
-    Logger.info(`BeaconCoordinator ${coordinator.name} initialized with DID ${coordinator.did}. Run .start() to listen for messages`);
+    console.info(`BeaconCoordinator ${coordinator.name} initialized with DID ${coordinator.did}. Run .start() to listen for messages`);
     return coordinator;
   }
 }

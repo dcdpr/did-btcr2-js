@@ -3,7 +3,8 @@ import {
   getNetwork
 } from '@did-btcr2/bitcoin';
 import {
-  Canonicalization,
+  canonicalHash,
+  canonicalize,
   DateUtils,
   IdentifierHrp,
   INVALID_DID,
@@ -23,7 +24,7 @@ import {
   UnsignedBTCR2Update
 } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
-import { bytesToHex } from '@noble/hashes/utils';
+import { hex } from '@scure/base';
 import { DidBtcr2 } from '../did-btcr2.js';
 import { Appendix } from '../utils/appendix.js';
 import { DidDocument, ID_PLACEHOLDER_VALUE } from '../utils/did-document.js';
@@ -104,15 +105,19 @@ export class Resolve {
     didComponents: DidComponents,
     genesisDocument: object,
   ): Promise<DidDocument> {
-    // Canonicalize and sha256 hash the currentDocument
-    const hashBytes = Canonicalization.process(genesisDocument, { encoding: 'hex' });
-
+    // Get the genesis bytes from the did components
     const { genesisBytes } = didComponents;
 
+    // Convert the genesis bytes to a hex string
+    const genesisHex = hex.encode(genesisBytes);
+
+    // Canonicalize and sha256 hash the currentDocument
+    const hashBytes = canonicalHash(genesisDocument);
+
     // If the genesisBytes do not match the hashBytes, throw an error
-    if (bytesToHex(genesisBytes) !== hashBytes) {
+    if (genesisHex !== hashBytes) {
       throw new ResolveError(
-        `Initial document mismatch: genesisBytes ${bytesToHex(genesisBytes)} !== hashBytes ${hashBytes}`,
+        `Initial document mismatch: genesisBytes ${genesisHex} !== hashBytes ${hashBytes}`,
         INVALID_DID_DOCUMENT, { genesisBytes, hashBytes }
       );
     }
@@ -139,14 +144,14 @@ export class Resolve {
     const updateMap = new Map<string, SignedBTCR2Update>();
     if(sidecar.updates?.length)
       for(const update of sidecar.updates) {
-        updateMap.set(Canonicalization.process(update, { encoding: 'hex' }), update);
+        updateMap.set(canonicalHash(update, { encoding: 'hex' }), update);
       }
 
     // CAS Announcements map
     const casMap = new Map<string, CASAnnouncement>();
     if(sidecar.casUpdates?.length)
       for(const update of sidecar.casUpdates) {
-        casMap.set(Canonicalization.process(update, { encoding: 'hex' }), update);
+        casMap.set(canonicalHash(update, { encoding: 'hex' }), update);
       }
 
     // SMT Proofs map
@@ -275,10 +280,12 @@ export class Resolve {
     // Iterate over each (update block) pair
     for(const [update, block] of updates) {
       // Get the hash of the current document
-      const currentDocumentHash = Canonicalization.process(response.didDocument, { encoding: 'base58btc' });
+      const currentDocumentHash = canonicalHash(response.didDocument, { encoding: 'base64url' });
 
       // Safely convert block.time to timestamp
       const blocktime = DateUtils.blocktimeToTimestamp(block.time);
+
+      // TODO: How to detect if block is unconfirmed and exit gracefully or return without it
 
       // Set the updated field to the blocktime of the current update
       response.metadata.updated = DateUtils.toISOStringNonFractional(blocktime);
@@ -317,7 +324,7 @@ export class Resolve {
         // Create unsigned_update by removing the proof property from update.
         const unsignedUpdate = JSONUtils.deleteKeys(update, ['proof']) as UnsignedBTCR2Update;
         // Push the canonicalized unsigned update hash to the updateHashHistory
-        updateHashHistory.push(Canonicalization.process(unsignedUpdate, { encoding: 'base58btc' }));
+        updateHashHistory.push(canonicalHash(unsignedUpdate, { encoding: 'base64url' }));
       }
 
       // If update.targetVersionId > currentVersionId + 1, throw LATE_PUBLISHING error
@@ -366,7 +373,7 @@ export class Resolve {
     const { proof: _, ...unsignedUpdate } = update;
 
     // Hash unsignedUpdate with JSON Document Hashing algorithm
-    const unsignedUpdateHash = Canonicalization.process(unsignedUpdate);
+    const unsignedUpdateHash = canonicalHash(unsignedUpdate);
 
     // Let historicalUpdateHash equal updateHashHistory[updateHashIndex].
     const historicalUpdateHash = updateHashHistory[update.targetVersionId - 2];
@@ -431,7 +438,7 @@ export class Resolve {
     const cryptosuite = new BIP340Cryptosuite(multikey);
 
     // Canonicalize the update
-    const canonicalUpdate = Canonicalization.canonicalize(update);
+    const canonicalUpdate = canonicalize(update);
 
     // Construct a DataIntegrityProof with the cryptosuite
     const diProof = new BIP340DataIntegrityProof(cryptosuite);
@@ -454,7 +461,7 @@ export class Resolve {
     DidDocument.validate(updatedDocument);
 
     // Canonicalize and hash the updatedDocument to get the currentDocumentHash.
-    const currentDocumentHash = Canonicalization.process(updatedDocument, { encoding: 'base58btc' });
+    const currentDocumentHash = canonicalHash(updatedDocument, { encoding: 'base64url' });
 
     // Prepare the update targetHash for comparison with currentDocumentHash.
     const updateTargetHash = update.targetHash;

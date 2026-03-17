@@ -31,10 +31,9 @@ export class DateUtils {
   }
 
   /**
-   * Validate if a string is a valid UTC date string.
-   * @param {string} dateString - The date string to validate.
-   * @returns {boolean} True if valid, otherwise false.
-   * @throws {Error} If the date string is invalid.
+   * Parse a date string into a Date object.
+   * @param {string} dateString - The date string to parse.
+   * @returns {Date} The parsed Date, or Date(0) (Unix epoch) if the string is invalid.
    */
   static dateStringToTimestamp(dateString: string): Date {
     const date = new Date(dateString);

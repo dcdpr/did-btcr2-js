@@ -1,9 +1,9 @@
-import { Canonicalization } from '../src/canonicalization.js';
+import { canonicalHash } from '../src/canonicalization.js';
 
 const sourceDocument = {
   'id'       : 'did:btcr2:k1qgpr45cheptyjekl3cex80xfnkwhxnlclecwwf92gvdjrszm2uwhzlcxu5xte',
   '@context' : [
-    'https://www.w3.org/TR/did-1.1',
+    'https://www.w3.org/ns/did/v1.1',
     'https://btcr2.dev/context/v1'
   ],
   'verificationMethod' : [
@@ -44,5 +44,5 @@ const sourceDocument = {
     }
   ]
 };
-const canonicalhash = Canonicalization.process(sourceDocument, { encoding: 'base64url' });
-console.log('canonicalhash:', canonicalhash);
+const result = canonicalHash(sourceDocument, { encoding: 'base64url' });
+console.log('canonicalhash:', result);

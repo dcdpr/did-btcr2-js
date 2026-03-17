@@ -1,5 +1,5 @@
-import { Maybe } from '@did-btcr2/common';
 import { AggregateBeaconMessageType } from '../cohort/messages/index.js';
+import { BaseMessage } from '../cohort/messages/base.js';
 import { RawSchnorrKeyPair } from '@did-btcr2/keypair';
 
 /**
@@ -34,7 +34,7 @@ export interface CommunicationService {
   setKeys(keys: ServiceAdapterIdentity<RawSchnorrKeyPair>): void;
   registerMessageHandler(messageType: string, handler: MessageHandler): void;
   sendMessage(
-    message: Maybe<AggregateBeaconMessageType>,
+    message: AggregateBeaconMessageType | BaseMessage,
     sender: string,
     recipient?: string
   ): Promise<void | Promise<string>[]>;

@@ -1,8 +1,9 @@
 import { getNetwork } from '@did-btcr2/bitcoin';
 import {
   BTCR2_DID_DOCUMENT_CONTEXT,
-  Canonicalization,
+  canonicalize,
   DidDocumentError,
+  hash,
   HashBytes,
   IdentifierTypes,
   INVALID_DID_DOCUMENT,
@@ -120,8 +121,8 @@ export interface Btcr2DidDocument extends W3CDidDocument {
 export class DidDocument implements Btcr2DidDocument {
   id: string;
   '@context'?: Array<string | JSONObject> = [
-    'https://www.w3.org/TR/did-1.1',
-    'https://btcr2.dev/context/v1'
+    'https://www.w3.org/ns/did/v1.1',
+    'https://btcr2.dev/context/v1',
   ];
   verificationMethod: Array<DidVerificationMethod>;
   authentication?: Array<string | DidVerificationMethod>;
@@ -166,7 +167,7 @@ export class DidDocument implements Btcr2DidDocument {
     this.verificationMethod = document.verificationMethod || [];
     this.service = document.service || [];
     this['@context'] = document['@context'] || [
-      'https://www.w3.org/TR/did-1.1',
+      'https://www.w3.org/ns/did/v1.1',
       'https://btcr2.dev/context/v1'
     ];
 
@@ -319,18 +320,6 @@ export class DidDocument implements Btcr2DidDocument {
     } catch {
       return false;
     }
-  }
-
-  /**
-   * Validates that the controller exists and is correctly formatted.
-   * @param {Array<string>} controller The controller to validate.
-   * @returns {boolean} True if the controller is valid.
-   */
-  private static isValidController(controller: Array<string>): boolean {
-    if(!controller) return false;
-    if(!Array.isArray(controller)) return false;
-    if(!controller.every(c => typeof c === 'string')) return false;
-    return true;
   }
 
   /**
@@ -537,6 +526,6 @@ export class GenesisDocument extends DidDocument {
    * @returns {Bytes} The genesis bytes.
    */
   static toGenesisBytes(genesisDocument: GenesisDocumentLike): HashBytes {
-    return Canonicalization.andHash(genesisDocument);
+    return hash(canonicalize(genesisDocument));
   }
 }

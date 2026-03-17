@@ -1,11 +1,13 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { stdin, stdout } from 'node:process';
 import * as readline from 'node:readline/promises';
 
 import { BitcoinConnection, getNetwork } from '@did-btcr2/bitcoin';
-import { Canonicalization, PatchOperation } from '@did-btcr2/common';
+import { canonicalize, PatchOperation } from '@did-btcr2/common';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { sha256 } from '@noble/hashes/sha2';
+import { hex } from '@scure/base';
 import { payments } from 'bitcoinjs-lib';
 
 import { Identifier } from '../src/core/identifier.js';
@@ -19,17 +21,20 @@ import { GenesisDocument } from '../src/utils/did-document.js';
  * Test Vector Generator CLI
  *
  * Incrementally generates did:btcr2 test vectors through a stepped workflow:
- *   create → update (+ announce) → resolve
+ *   create → update (--offline) → fund → announce → resolve
  *
  * Each step reads output from the previous step and produces its own
  * input/output JSON files under lib/data/{network}/{type}/{hash}/.
  *
  * Usage:
- *   pnpm generate:vector -- create [--type key|external] [--network regtest] [--genesis <hex>]
- *   pnpm generate:vector -- <update|resolve> --hash <hash> [--interactive] [--offline]
- *   pnpm generate:vector -- list [--network <net>] [--type key|external]
+ *   pnpm generate:vector create [--type key|external] [--network regtest] [--genesis <hex>]
+ *   pnpm generate:vector update --hash <hash> [--interactive] [--offline]
+ *   pnpm generate:vector fund --hash <hash> [--amount <btc>]
+ *   pnpm generate:vector announce --hash <hash>
+ *   pnpm generate:vector resolve --hash <hash> [--offline]
+ *   pnpm generate:vector list [--network <net>] [--type key|external]
  */
-const ACTIONS = ['create', 'update', 'resolve', 'list'] as const;
+const ACTIONS = ['create', 'update', 'fund', 'announce', 'resolve', 'list'] as const;
 type Action = typeof ACTIONS[number];
 
 const args = process.argv.slice(2);
@@ -69,11 +74,13 @@ function printHelp(): never {
   did:btcr2 Test Vector Generator
 
   Usage:
-    pnpm generate:vector -- <action> [options]
+    pnpm generate:vector <action> [options]
 
   Actions:
     create          Create a new DID and initial test vector files
     update          Construct, sign, and announce an update to a live Bitcoin node
+    fund            Fund a beacon address via RPC sendtoaddress + mine a block
+    announce        Announce a previously created update (retry a failed announcement)
     resolve         Resolve a DID against a live Bitcoin node
     list            Show existing test vectors
 
@@ -81,20 +88,24 @@ function printHelp(): never {
     --type <key|external>   Identifier type (create and list only, default: key)
     --network <name>        Bitcoin network name (create and list only, default: regtest)
     --genesis <hex>         Genesis bytes hex: pubkey for key, sha256 hash for external (create only)
-    --hash <hash>           8-character short hash of target vector (update, resolve)
+    --hash <hash>           8-character short hash of target vector (update, fund, announce, resolve)
     --interactive           Enable interactive patch builder (update only)
+    --amount <btc>          BTC amount to send (fund only, default: 0.001)
     --offline               Skip on-chain announcement (update) or live resolution (resolve)
 
   Examples:
-    pnpm generate:vector -- create
-    pnpm generate:vector -- create --type external --network mutinynet
-    pnpm generate:vector -- update --hash q5ps09nu
-    pnpm generate:vector -- update --hash q5ps09nu --interactive
-    pnpm generate:vector -- update --hash q5ps09nu --offline
-    pnpm generate:vector -- resolve --hash q5ps09nu
-    pnpm generate:vector -- resolve --hash q5ps09nu --offline
-    pnpm generate:vector -- list
-    pnpm generate:vector -- list --network regtest --type key
+    pnpm generate:vector create
+    pnpm generate:vector create --type external --network mutinynet
+    pnpm generate:vector update --hash q5ps09nu
+    pnpm generate:vector update --hash q5ps09nu --interactive
+    pnpm generate:vector update --hash q5ps09nu --offline
+    pnpm generate:vector fund --hash q5ps09nu
+    pnpm generate:vector fund --hash q5ps09nu --amount 0.01
+    pnpm generate:vector announce --hash q5ps09nu
+    pnpm generate:vector resolve --hash q5ps09nu
+    pnpm generate:vector resolve --hash q5ps09nu --offline
+    pnpm generate:vector list
+    pnpm generate:vector list --network regtest --type key
 `);
   process.exit(0);
 }
@@ -206,6 +217,7 @@ function findVectorDir(hash: string): string {
   }
   for (const net of readdirSync(DATA_DIR)) {
     const netDir = join(DATA_DIR, net);
+    if (!statSync(netDir).isDirectory()) continue;
     for (const type of readdirSync(netDir)) {
       const candidate = join(netDir, type, hash);
       if (existsSync(join(candidate, 'create', 'output.json'))) {
@@ -254,7 +266,7 @@ function loadVectorContext(hash: string): VectorContext {
  */
 function requireBitcoinConnection(net: string): BitcoinConnection {
   try {
-    return BitcoinConnection.forNetwork(net as any);
+    return BitcoinConnection.forNetwork(net as any, {rpc: { username: 'polaruser', password: 'polarpass' },});
   } catch (err: any) {
     console.error(`Error: Failed to connect to Bitcoin network "${net}".`);
     console.error(`  ${err.message}`);
@@ -345,7 +357,7 @@ async function promptForKeypair(
 
   // If the user provides a public key, create a keypair from it (no secret key)
   if (pubkeyInput.trim()) {
-    const pubkeyBytes = Canonicalization.fromHex(pubkeyInput.trim());
+    const pubkeyBytes = hex.decode(pubkeyInput.trim());
     const kp = new SchnorrKeyPair({ publicKey: pubkeyBytes });
     ctx.generatedKeys.push({ label, secretHex: '', publicHex: pubkeyInput.trim() });
     console.log(`  User-provided pubkey (stored as "${label}" — fill in secretKey if needed)`);
@@ -378,15 +390,20 @@ async function buildServiceValue(
   const addrTypeRaw = await rl.question('  address type (p2pkh | p2wpkh | p2tr) [p2pkh]: ');
   const addrType = (['p2pkh', 'p2wpkh', 'p2tr'].includes(addrTypeRaw) ? addrTypeRaw : 'p2pkh') as AddressType;
 
+  // Default fragment follows naming conventions per identifier type
+  const serviceIdx = path.split('/').pop()!;
+  const defaultFragment = ctx.idType === 'KEY'
+    ? `initial${addrType.toUpperCase()}`
+    : `service-${serviceIdx}`;
+
+  const idInput = await rl.question(`  id fragment (e.g. "additionalP2PKH" or "#additionalP2PKH") [${defaultFragment}]: `);
+  const fragment = idInput.trim()
+    ? idInput.trim().replace(/^#/, '')
+    : defaultFragment;
+
   const label = `service${path.replace(/\//g, '-')}`;
   const kp = await promptForKeypair(rl, ctx, label);
   const address = deriveAddress(kp.publicKey.compressed, ctx.network, addrType);
-
-  // k1 DIDs use convention-based fragment names; x1 DIDs use indexed names
-  const serviceIdx = path.split('/').pop()!;
-  const fragment = ctx.idType === 'KEY'
-    ? `initial${addrType.toUpperCase()}`
-    : `service-${serviceIdx}`;
 
   return {
     id              : `${ctx.did}#${fragment}`,
@@ -454,7 +471,7 @@ async function buildVmValue(
     return buildVmValue(rl, ctx, path);
   }
 
-  const label = `verificationMethod${path.replace(/\//g, '-')}`;
+  const label = `verificationMethod-${fragment}`;
   const kp = await promptForKeypair(rl, ctx, label);
 
   return {
@@ -606,7 +623,7 @@ async function stepCreate() {
 
     if (genesisHexInput.trim()) {
       // User provided a public key hex — validate it as a secp256k1 key
-      const pubkeyBytes = Canonicalization.fromHex(genesisHexInput.trim());
+      const pubkeyBytes = hex.decode(genesisHexInput.trim());
       const kp = new SchnorrKeyPair({ publicKey: pubkeyBytes });
       genesisBytes = kp.publicKey.compressed;
       other.genesisKeys = { secret: '', public: genesisHexInput.trim() };
@@ -643,12 +660,12 @@ async function stepCreate() {
       try {
         const parsed = JSON.parse(genesisHexInput.trim());
         genesisDocument = GenesisDocument.fromJSON(parsed);
-        genesisBytes = Canonicalization.andHash(genesisDocument);
+        genesisBytes = sha256(canonicalize(genesisDocument));
         other.genesisDocument = genesisDocument;
         console.log(`Using provided genesis document`);
-        console.log(`  hash:  ${Canonicalization.toHex(genesisBytes)}`);
+        console.log(`  hash:  ${hex.encode(genesisBytes)}`);
       } catch {
-        genesisBytes = Canonicalization.fromHex(genesisHexInput.trim());
+        genesisBytes = hex.decode(genesisHexInput.trim());
         console.log(`Using provided genesis bytes`);
         console.log(`  hex:  ${genesisHexInput.trim()}`);
       }
@@ -658,12 +675,12 @@ async function stepCreate() {
       const kp = SchnorrKeyPair.generate();
       const { secretHex, publicHex } = keypairHex(kp);
       genesisDocument = GenesisDocument.fromPublicKey(kp.publicKey.compressed, network);
-      genesisBytes = Canonicalization.andHash(genesisDocument);
+      genesisBytes = GenesisDocument.toGenesisBytes(genesisDocument);
       other.genesisKeys = { secret: secretHex, public: publicHex };
       other.genesisDocument = genesisDocument;
       console.log(`Genesis keypair and document generated`);
       console.log(`  public:  ${publicHex}`);
-      console.log(`  hash:    ${Canonicalization.toHex(genesisBytes)}`);
+      console.log(`  hash:    ${hex.encode(genesisBytes)}`);
     }
   }
 
@@ -676,7 +693,7 @@ async function stepCreate() {
   console.log(`Short hash:  ${hash}`);
 
   // Write the create step's test vector files
-  const genesisHex = Canonicalization.toHex(genesisBytes);
+  const genesisHex = hex.encode(genesisBytes);
 
   writeJSON(join(dir, 'create'), 'input.json', {
     idType       : idType === 'KEY' ? 'KEY' : 'EXTERNAL',
@@ -691,7 +708,7 @@ async function stepCreate() {
   writeJSON(dir, 'other.json', other);
 
   console.log(`\n[create] done — hash: ${hash}`);
-  console.log(`  Next: pnpm generate:vector -- update --hash ${hash}`);
+  console.log(`  Next: pnpm generate:vector update --hash ${hash} --offline`);
 }
 
 // ── Step: Update ────────────────────────────────────────────────────────────
@@ -768,7 +785,7 @@ async function stepUpdate(hash: string = hashArg) {
     did,
     unsignedUpdate,
     verificationMethod,
-    Canonicalization.fromHex(genesisSecretHex)
+    hex.decode(genesisSecretHex)
   );
 
   console.log(`Update signed (targetVersionId: ${signedUpdate.targetVersionId})`);
@@ -810,32 +827,156 @@ async function stepUpdate(hash: string = hashArg) {
   //    Skipped with --offline.
   if (offline) {
     console.log(`\n[update] done (offline — announcement skipped)`);
-    console.log(`  Next: pnpm generate:vector -- resolve --hash ${hash}`);
+    console.log(`  Next: pnpm generate:vector fund --hash ${hash}`);
     return;
+  }
+
+  await announceUpdate(dir, did, idType, network);
+
+  console.log(`\n[update] done`);
+  console.log(`  Next: pnpm generate:vector resolve --hash ${hash}`);
+}
+
+// ── Step: Fund ──────────────────────────────────────────────────────────────
+
+/**
+ * Funds one or more beacon addresses for a vector's DID document via
+ * RPC sendtoaddress, then mines a block to confirm the funding tx(s).
+ *
+ * Rebuilds the source DID document and extracts all beacon service
+ * endpoints (bitcoin: URIs). For each, sends the specified BTC amount
+ * from the node wallet and logs the funding txid.
+ *
+ * @param {string} [hash=hashArg] 8-character short hash of the target vector.
+ */
+async function stepFund(hash: string = hashArg) {
+  if (!hash) throw new Error('--hash is required for the fund action');
+
+  const { dir, did, idType, network } = loadVectorContext(hash);
+  const amount = parseFloat(flag('amount', '0.001'));
+  console.log(`\n[fund] network=${network} hash=${hash} amount=${amount} BTC\n`);
+
+  // Rebuild the source document to locate beacon services
+  const didComponents = Identifier.decode(did);
+  let sourceDocument: any;
+
+  if (idType === 'KEY') {
+    sourceDocument = Resolve.deterministic(didComponents);
+  } else {
+    const other = requireFile(join(dir, 'other.json'));
+    if (!other.genesisDocument) {
+      throw new Error('other.json is missing genesisDocument (required for x1)');
+    }
+    sourceDocument = await Resolve.external(didComponents, other.genesisDocument);
+  }
+
+  // Find all beacon services with bitcoin: endpoints
+  const beaconServices = (sourceDocument.service ?? [])
+    .filter((s: any) => s.serviceEndpoint?.startsWith('bitcoin:'));
+
+  if (beaconServices.length === 0) {
+    throw new Error('No beacon services with bitcoin: endpoints found in the DID document');
   }
 
   const bitcoin = requireBitcoinConnection(network);
 
-  // Find the beacon service matching the beaconId used during signing
+  if(!bitcoin.rpc) throw new Error('Bitcoin RPC client not initialized');
+
+  for (const svc of beaconServices) {
+    const address = svc.serviceEndpoint.replace('bitcoin:', '');
+    console.log(`  Funding ${svc.id}`);
+    console.log(`    address: ${address}`);
+    const tx = await bitcoin.rpc.sendToAddress(address, amount);
+    console.log(`    txid:    ${tx.txid}`);
+  }
+
+  // Mine a block so the funding tx(s) are confirmed (required by broadcastSignal's UTXO check)
+  const minerAddress = await bitcoin.rpc.getNewAddress('bech32');
+  const blocks = await bitcoin.rpc.generateToAddress(6, minerAddress);
+  console.log(`\n  Mined block ${blocks[0]} to confirm funding tx(s)`);
+
+  console.log(`\n[fund] done`);
+  console.log(`  Next: pnpm generate:vector announce --hash ${hash}`);
+}
+
+// ── Announce Helper ─────────────────────────────────────────────────────────
+
+/**
+ * Reads a previously persisted signed update from disk and announces it
+ * on-chain via the beacon service referenced in the update's input metadata.
+ *
+ * Shared by {@link stepUpdate} (live mode) and {@link stepAnnounce}.
+ *
+ * @param {string} dir   Absolute path to the vector's root directory.
+ * @param {string} did   The did:btcr2 identifier string.
+ * @param {string} idType Identifier type: "KEY" or "EXTERNAL".
+ * @param {string} network Bitcoin network name.
+ */
+async function announceUpdate(
+  dir: string,
+  did: string,
+  idType: string,
+  network: string,
+): Promise<void> {
+  const { signedUpdate } = requireFile(join(dir, 'update', 'output.json'));
+  const { beaconId, signingMaterial } = requireFile(join(dir, 'update', 'input.json'));
+
+  // Rebuild the source document to locate the beacon service
+  const didComponents = Identifier.decode(did);
+  let sourceDocument: any;
+
+  if (idType === 'KEY') {
+    sourceDocument = Resolve.deterministic(didComponents);
+  } else {
+    const other = requireFile(join(dir, 'other.json'));
+    if (!other.genesisDocument) {
+      throw new Error('other.json is missing genesisDocument (required for x1)');
+    }
+    sourceDocument = await Resolve.external(didComponents, other.genesisDocument);
+  }
+
   const beaconService = sourceDocument.service
     .find((s: any) => s.id === beaconId);
 
   if (!beaconService) {
-    console.error(`Error: No beacon service found matching beaconId "${beaconId}"`);
-    process.exit(1);
+    throw new Error(`No beacon service found matching beaconId "${beaconId}"`);
   }
+
+  const bitcoin = requireBitcoinConnection(network);
 
   console.log(`\nAnnouncing update via beacon ...`);
   console.log(`  beacon:   ${beaconService.id}`);
   console.log(`  type:     ${beaconService.type}`);
   console.log(`  endpoint: ${beaconService.serviceEndpoint}`);
 
-  const secretKey = Canonicalization.fromHex(genesisSecretHex);
+  const secretKey = hex.decode(signingMaterial);
   await Update.announce(beaconService, signedUpdate, secretKey, bitcoin);
 
   console.log(`Update announced to Bitcoin (${network})`);
-  console.log(`\n[update] done`);
-  console.log(`  Next: pnpm generate:vector -- resolve --hash ${hash}`);
+}
+
+// ── Step: Announce ──────────────────────────────────────────────────────────
+
+/**
+ * Announces a previously created (but unannounced) update on-chain.
+ *
+ * Reads the signed update and beacon metadata from the update step's
+ * persisted files, then broadcasts via the beacon service.
+ * Useful for retrying a failed announcement without re-running the
+ * full update (construct + sign) pipeline.
+ *
+ * @param {string} [hash=hashArg] 8-character short hash of the target vector.
+ */
+async function stepAnnounce(hash: string = hashArg) {
+  if (!hash) throw new Error('--hash is required for the announce action');
+
+  const { dir, did, idType, network, typePrefix } = loadVectorContext(hash);
+  console.log(`\n[announce] type=${typePrefix} network=${network} hash=${hash}\n`);
+
+  await announceUpdate(dir, did, idType, network);
+
+  console.log(`\n[announce] done`);
+  console.log(`  Next: pnpm generate:vector resolve --hash ${hash}`);
 }
 
 // ── Step: Resolve ───────────────────────────────────────────────────────────
@@ -950,10 +1091,10 @@ function listVectors(): VectorEntry[] {
 
   for (const net of readdirSync(DATA_DIR).sort()) {
     const netDir = join(DATA_DIR, net);
-    if (!existsSync(netDir)) continue;
+    if (!statSync(netDir).isDirectory()) continue;
     for (const type of readdirSync(netDir).sort()) {
       const typeDir = join(netDir, type);
-      if (!existsSync(typeDir)) continue;
+      if (!statSync(typeDir).isDirectory()) continue;
       for (const hash of readdirSync(typeDir).sort()) {
         const hashDir = join(typeDir, hash);
         const outputFile = join(hashDir, 'create', 'output.json');
@@ -1028,7 +1169,7 @@ async function stepList() {
 
   if (allVectors.length === 0) {
     console.log('\nNo vectors found. Create one first:');
-    console.log('  pnpm generate:vector -- --type key --network regtest\n');
+    console.log('  pnpm generate:vector create --type key --network regtest\n');
     return;
   }
 
@@ -1095,10 +1236,12 @@ async function main() {
   if (!action) return printHelp();
 
   switch (action) {
-    case 'create':  return stepCreate();
-    case 'update':  return stepUpdate();
-    case 'resolve': return stepResolve();
-    case 'list':    return stepList();
+    case 'create':   return stepCreate();
+    case 'update':   return stepUpdate();
+    case 'fund':     return stepFund();
+    case 'announce': return stepAnnounce();
+    case 'resolve':  return stepResolve();
+    case 'list':     return stepList();
   }
 }
 

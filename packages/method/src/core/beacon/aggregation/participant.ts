@@ -1,4 +1,4 @@
-import { KeyBytes, Logger, Maybe } from '@did-btcr2/common';
+import { KeyBytes, Maybe } from '@did-btcr2/common';
 import { HDKey } from '@scure/bip32';
 import { mnemonicToSeedSync } from '@scure/bip39';
 import * as musig2 from '@scure/btc-signer/musig2';
@@ -130,7 +130,7 @@ export class BeaconParticipant {
     this.protocol = protocol || new NostrAdapter();
     this.protocol.setKeys({ public: pk, secret });
     this.cohortKeyState.set('__UNSET__', this.beaconKeyIndex);
-    Logger.debug(`BeaconParticipant initialized with DID: ${this.did}, Name: ${this.name}, Key Index: ${this.beaconKeyIndex}`);
+    console.debug(`BeaconParticipant initialized with DID: ${this.did}, Name: ${this.name}, Key Index: ${this.beaconKeyIndex}`);
   }
 
   /**
@@ -138,7 +138,7 @@ export class BeaconParticipant {
    * @returns {void}
    */
   public start(): void {
-    Logger.info(`Setting up BeaconParticipant ${this.name} (${this.did}) on ${this.protocol.name} ...`);
+    console.info(`Setting up BeaconParticipant ${this.name} (${this.did}) on ${this.protocol.name} ...`);
     this.protocol.registerMessageHandler(BEACON_COHORT_ADVERT, this._handleCohortAdvert.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_OPT_IN_ACCEPT, this._handleSubscribeAccept.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_READY, this._handleCohortReady.bind(this));
@@ -171,10 +171,10 @@ export class BeaconParticipant {
       this.beaconKeyIndex = this.cohortKeyState.size + 1;
     }
     if(this.cohortKeyState.has(cohortId)) {
-      Logger.warn(`Cohort key state for cohort ${cohortId} already exists. Updating key index.`);
+      console.warn(`Cohort key state for cohort ${cohortId} already exists. Updating key index.`);
     }
     this.cohortKeyState.set(cohortId, this.beaconKeyIndex);
-    Logger.info(`Cohort key state updated. Next beacon key index: ${this.beaconKeyIndex + 1}`);
+    console.info(`Cohort key state updated. Next beacon key index: ${this.beaconKeyIndex + 1}`);
   }
 
   /**
@@ -196,7 +196,7 @@ export class BeaconParticipant {
     }
 
     if (this.cohortKeyState.has(cohortId)) {
-      Logger.warn(`Cohort key state already exists for ${cohortId}. Skipping migration from '__UNSET__'.`);
+      console.warn(`Cohort key state already exists for ${cohortId}. Skipping migration from '__UNSET__'.`);
       this.cohortKeyState.delete(unsetKey);
       return;
     }
@@ -204,7 +204,7 @@ export class BeaconParticipant {
     this.setCohortKey(cohortId);
     this.cohortKeyState.delete(unsetKey);
 
-    Logger.info(`Finalized '__UNSET__' CohortKeyState with ${cohortId} for ${this.did}`);
+    console.info(`Finalized '__UNSET__' CohortKeyState with ${cohortId} for ${this.did}`);
   }
 
   /**
@@ -226,25 +226,25 @@ export class BeaconParticipant {
    * @returns {Promise<void>}
    */
   public async _handleCohortAdvert(message: Maybe<CohortAdvertMessage>): Promise<void> {
-    Logger.debug('_handleCohortAdvert', message);
+    console.debug('_handleCohortAdvert', message);
     const cohortAdvertMessage = BeaconCohortAdvertMessage.fromJSON(message);
-    Logger.info(`Received new cohort announcement from ${cohortAdvertMessage.from}`, cohortAdvertMessage);
+    console.info(`Received new cohort announcement from ${cohortAdvertMessage.from}`, cohortAdvertMessage);
 
     const cohortId = cohortAdvertMessage.body?.cohortId;
     if (!cohortId) {
-      Logger.warn('Received malformed cohort advert message: missing cohortId', cohortAdvertMessage);
+      console.warn('Received malformed cohort advert message: missing cohortId', cohortAdvertMessage);
       return;
     }
 
     const network = cohortAdvertMessage.body?.network;
     if (!network) {
-      Logger.warn('Received malformed cohort advert message: missing network', cohortAdvertMessage);
+      console.warn('Received malformed cohort advert message: missing network', cohortAdvertMessage);
       return;
     }
 
     const minParticipants = cohortAdvertMessage.body?.cohortSize;
     if (!cohortId || !network || !minParticipants) {
-      Logger.warn('Received malformed cohort advert message: missing minParticipants', cohortAdvertMessage);
+      console.warn('Received malformed cohort advert message: missing minParticipants', cohortAdvertMessage);
       return;
     }
 
@@ -271,30 +271,30 @@ export class BeaconParticipant {
     const cohortId = cohortSetMessage.body?.cohortId;
     const cohort = this.cohorts.find(c => c.id === cohortId);
     if (!cohortId || !cohort) {
-      Logger.warn(`Cohort with ID ${cohortId} not found or not joined by participant ${this.did}.`);
+      console.warn(`Cohort with ID ${cohortId} not found or not joined by participant ${this.did}.`);
       return;
     }
     this.finalizeUnsetCohortKey(cohortId);
     const participantPkBytes = this.getCohortKey(cohortId).publicKey;
     if(!participantPkBytes) {
-      Logger.error(`Failed to derive public key for cohort ${cohortId}`);
+      console.error(`Failed to derive public key for cohort ${cohortId}`);
       return;
     }
     const participantPk = Buffer.from(participantPkBytes).toString('hex');
     const beaconAddress = cohortSetMessage.body?.beaconAddress;
     if(!beaconAddress) {
-      Logger.error(`Beacon address not provided in cohort set message for ${cohortId}`);
+      console.error(`Beacon address not provided in cohort set message for ${cohortId}`);
       return;
     }
     const cohortKeys = cohortSetMessage.body?.cohortKeys;
     if(!cohortKeys) {
-      Logger.error(`Cohort keys not provided in cohort set message for ${cohortId}`);
+      console.error(`Cohort keys not provided in cohort set message for ${cohortId}`);
       return;
     }
     const keys = cohortKeys.map(key => Buffer.from(key).toString('hex'));
     cohort.validateCohort([participantPk], keys, beaconAddress);
-    Logger.info(`BeaconParticipant w/ pk ${participantPk} successfully joined cohort ${cohortId} with beacon address ${beaconAddress}.`);
-    Logger.info(`Cohort status: ${cohort.status}`);
+    console.info(`BeaconParticipant w/ pk ${participantPk} successfully joined cohort ${cohortId} with beacon address ${beaconAddress}.`);
+    console.info(`Cohort status: ${cohort.status}`);
   }
 
   /**
@@ -306,17 +306,17 @@ export class BeaconParticipant {
     const authRequest = BeaconCohortAuthorizationRequestMessage.fromJSON(message);
     const cohort = this.cohorts.find(c => c.id === authRequest.body?.cohortId);
     if (!cohort) {
-      Logger.warn(`Authorization request for unknown cohort ${authRequest.body?.cohortId} from ${authRequest.from}`);
+      console.warn(`Authorization request for unknown cohort ${authRequest.body?.cohortId} from ${authRequest.from}`);
       return;
     }
     const id = authRequest.body?.sessionId;
     if (!id) {
-      Logger.warn(`Authorization request missing session ID from ${authRequest.from}`);
+      console.warn(`Authorization request missing session ID from ${authRequest.from}`);
       return;
     }
     const pendingTx = authRequest.body?.pendingTx;
     if (!pendingTx) {
-      Logger.warn(`Authorization request missing pending transaction from ${authRequest.from}`);
+      console.warn(`Authorization request missing pending transaction from ${authRequest.from}`);
       return;
     }
     const session = new BeaconCohortSigningSession({
@@ -338,23 +338,23 @@ export class BeaconParticipant {
     const aggNonceMessage = BeaconCohortAggregatedNonceMessage.fromJSON(message);
     const sessionId = aggNonceMessage.body?.sessionId;
     if (!sessionId) {
-      Logger.warn(`Aggregated nonce message missing session ID from ${aggNonceMessage.from}`);
+      console.warn(`Aggregated nonce message missing session ID from ${aggNonceMessage.from}`);
       return;
     }
     const session = this.activeSigningSessions.get(sessionId);
     if (!session) {
-      Logger.warn(`Aggregated nonce message received for unknown session ${sessionId}`);
+      console.warn(`Aggregated nonce message received for unknown session ${sessionId}`);
       return;
     }
     const aggregatedNonce = aggNonceMessage.body?.aggregatedNonce;
     if (!aggregatedNonce) {
-      Logger.warn(`Aggregated nonce message missing aggregated nonce from ${aggNonceMessage.from}`);
+      console.warn(`Aggregated nonce message missing aggregated nonce from ${aggNonceMessage.from}`);
       return;
     }
     session.aggregatedNonce = aggregatedNonce;
     const participantSk = this.getCohortKey(session.cohort.id).privateKey;
     if(!participantSk) {
-      Logger.error(`Failed to derive secret key for cohort ${session.cohort.id}`);
+      console.error(`Failed to derive secret key for cohort ${session.cohort.id}`);
       return;
     }
     const partialSig = session.generatePartialSignature(participantSk);
@@ -368,7 +368,7 @@ export class BeaconParticipant {
    */
   public async subscribeToCoordinator(coordinatorDid: string): Promise<any> {
     if(this.coordinatorDids.includes(coordinatorDid)) {
-      Logger.info(`Already subscribed to coordinator ${coordinatorDid}`);
+      console.info(`Already subscribed to coordinator ${coordinatorDid}`);
       return;
     }
     const subMessage = new BeaconCohortSubscribeMessage({ to: coordinatorDid, from: this.did });
@@ -382,16 +382,16 @@ export class BeaconParticipant {
    * @returns {Promise<void>}
    */
   public async joinCohort(cohortId: string, coordinatorDid: string): Promise<void> {
-    Logger.info(`BeaconParticipant ${this.did} joining cohort ${cohortId} with coordinator ${coordinatorDid}`);
+    console.info(`BeaconParticipant ${this.did} joining cohort ${cohortId} with coordinator ${coordinatorDid}`);
     this.finalizeUnsetCohortKey(cohortId);
     const cohort = this.cohorts.find(c => c.id === cohortId);
     if (!cohort) {
-      Logger.warn(`Cohort with ID ${cohortId} not found.`);
+      console.warn(`Cohort with ID ${cohortId} not found.`);
       return;
     }
     const pk = this.getCohortKey(cohortId).publicKey;
     if(!pk) {
-      Logger.error(`Failed to derive public key for cohort ${cohortId} at index ${this.beaconKeyIndex}`);
+      console.error(`Failed to derive public key for cohort ${cohortId} at index ${this.beaconKeyIndex}`);
       return;
     }
     this.setCohortKey(cohortId);
@@ -415,11 +415,11 @@ export class BeaconParticipant {
   public async requestCohortSignature(cohortId: string, data: string): Promise<boolean> {
     const cohort = this.cohorts.find(c => c.id === cohortId);
     if (!cohort) {
-      Logger.warn(`Cohort with ID ${cohortId} not found.`);
+      console.warn(`Cohort with ID ${cohortId} not found.`);
       return false;
     }
     if(cohort.status !== COHORT_STATUS.COHORT_SET_STATUS) {
-      Logger.warn(`Cohort ${cohortId} not in a set state. Current status: ${cohort.status}`);
+      console.warn(`Cohort ${cohortId} not in a set state. Current status: ${cohort.status}`);
       return false;
     }
     const reqSigMessage = new BeaconCohortRequestSignatureMessage({
@@ -469,16 +469,14 @@ export class BeaconParticipant {
     session: BeaconCohortSigningSession
   ): Promise<void> {
     const nonceContributionMessage = BeaconCohortNonceContributionMessage.fromJSON({
-      to        : cohort.coordinatorDid,
-      from      : this.did,
-      body : {
-        sessionId : session.id,
-        cohortId  : cohort.id,
-        nonceContribution
-      }
+      to                : cohort.coordinatorDid,
+      from              : this.did,
+      sessionId         : session.id,
+      cohortId          : cohort.id,
+      nonceContribution
     });
     await this.protocol.sendMessage(nonceContributionMessage, this.did, cohort.coordinatorDid);
-    Logger.info(`Nonce contribution sent for session ${session.id} in cohort ${cohort.id} by participant ${this.did}`);
+    console.info(`Nonce contribution sent for session ${session.id} in cohort ${cohort.id} by participant ${this.did}`);
   }
 
   /**
@@ -496,7 +494,7 @@ export class BeaconParticipant {
       partialSignature : partialSig,
     });
     await this.protocol.sendMessage(sigAuthMessage, this.did, session.cohort.coordinatorDid);
-    Logger.info(`Partial signature sent for session ${session.id} in cohort ${session.cohort.id} by participant ${this.did}`);
+    console.info(`Partial signature sent for session ${session.id} in cohort ${session.cohort.id} by participant ${this.did}`);
   }
 
   /**

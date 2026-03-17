@@ -1,15 +1,14 @@
 import {
   CanonicalizedProofConfig,
   HashBytes,
-  HashHex,
   SignatureBytes
 } from '@did-btcr2/common';
 import {
-  SignedBTCR2Update,
-  UnsignedBTCR2Update,
   BTCR2Update,
   DataIntegrityConfig,
-  DataIntegrityProofObject
+  DataIntegrityProofObject,
+  SignedBTCR2Update,
+  UnsignedBTCR2Update
 } from '../data-integrity-proof/interface.js';
 import { SchnorrMultikey } from '../multikey/index.js';
 
@@ -69,9 +68,9 @@ export interface Cryptosuite {
    * Generate a hash of the canonical proof configuration and document.
    * @param {string} canonicalConfig The canonicalized proof configuration.
    * @param {string} canonicalDocument The canonicalized document.
-   * @returns {HashHex} The hash string of the proof configuration and document.
+   * @returns {HashBytes} The hash bytes of the proof configuration and document.
    */
-  generateHash(canonicalConfig: string, canonicalDocument: string): HashHex;
+  generateHash(canonicalConfig: string, canonicalDocument: string): HashBytes;
 
   /**
    * Configure the proof by canonicalzing it.

@@ -6,7 +6,7 @@ const currentDocument = {
     'did:btcr2:k1qqpkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5dsaaw53r'
   ],
   '@context' : [
-    'https://www.w3.org/TR/did-1.1',
+    'https://www.w3.org/ns/did/v1.1',
     'https://btcr2.dev/context/v1'
   ],
   'verificationMethod' : [

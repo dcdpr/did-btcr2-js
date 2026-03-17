@@ -4,7 +4,7 @@ import { JSONObject } from './types.js';
 
 const { applyPatch, compare, deepClone } = jsonPatch;
 
-export type PatchOpCode = 'add' | 'remove' | 'replace' | 'move' | 'copy' | 'test' | (string & {});
+export type PatchOpCode = 'add' | 'remove' | 'replace' | 'move' | 'copy' | 'test';
 /**
  * A JSON Patch operation, as defined in {@link https://datatracker.ietf.org/doc/html/rfc6902 | RFC 6902}.
  */
@@ -41,7 +41,7 @@ export class JSONPatch {
       throw new MethodError('Invalid JSON Patch operations', 'JSON_PATCH_APPLY_ERROR', { error: validationError });
     }
     try {
-      const result = applyPatch(docClone, operations as Operation[], true, mutate);
+      const result = applyPatch(docClone, operations as Operation[], false, mutate);
       if (result.newDocument === undefined) {
         throw new MethodError('JSON Patch application failed', 'JSON_PATCH_APPLY_ERROR', { result });
       }

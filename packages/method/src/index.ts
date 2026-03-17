@@ -46,6 +46,5 @@ export * from './core/update.js';
 export * from './utils/appendix.js';
 export * from './utils/did-document-builder.js';
 export * from './utils/did-document.js';
-export * from './utils/general.js';
 
 export * from './did-btcr2.js';

@@ -52,6 +52,7 @@ export interface RpcMethodMap {
   signmessage:                    { params: [string, string];                                         result: string };
   verifymessage:                  { params: [string, string, string];                                 result: boolean };
   deriveaddresses:                { params: [string, number[]?];                                      result: DerivedAddresses[] };
+  generatetoaddress:              { params: [number, string];                                         result: string[] };
 }
 
 /** Method names that have typed definitions in {@link RpcMethodMap}. */
@@ -203,6 +204,11 @@ export class BitcoinCoreRpcClient implements BitcoinRpcClient {
   /** Derives one or more addresses corresponding to an output descriptor. */
   public async deriveAddresses(descriptor: string, range?: Array<number>): Promise<Array<DerivedAddresses>> {
     return await this.executeRpc('deriveaddresses', [descriptor, range]);
+  }
+
+  /** Mines blocks to a given address (regtest/signet only). Returns array of block hashes. */
+  public async generateToAddress(nblocks: number, address: string): Promise<string[]> {
+    return await this.executeRpc('generatetoaddress', [nblocks, address]);
   }
 
   /** Returns the total available balance. */

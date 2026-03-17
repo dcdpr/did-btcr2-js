@@ -8,47 +8,70 @@ Visit [btcr2.dev](https://btcr2.dev/impls/ts) to learn more about how to use [@d
 
 ## Test Vector Generator
 
-An incremental CLI tool for generating did:btcr2 test vectors. It produces JSON files that mirror the structure expected by the test suite under `lib/data/`.
+An incremental CLI tool for generating did:btcr2 test vectors through a stepped workflow: `create` → `update` (offline) → `fund` → `announce` → `resolve`. It produces JSON files under `lib/data/`.
 
-The `create` step runs offline. All subsequent steps only need `--hash` — the type and network are derived from the DID itself.
+The first positional argument is the action. `create` runs offline. All subsequent actions only need `--hash` — the type and network are derived from the DID itself.
 
 ### Quick Start
 
 ```bash
 # From packages/method/
 
-# 1. Create a new DID (only step that takes --type and --network)
-pnpm generate:vector -- --type key --network regtest
+# 1. Create a new DID (only action that takes --type and --network)
+pnpm generate:vector create
+pnpm generate:vector create --type external --network mutinynet
 
-# 2. Add update vectors (use the hash printed by step 1)
-pnpm generate:vector -- --step update --hash <hash>
+# 2. Construct and sign an update offline (use the hash printed by step 1)
+pnpm generate:vector update --hash <hash> --offline
 
-# 3. Add resolve vectors (offline — builds sidecar input)
-pnpm generate:vector -- --step resolve --hash <hash>
-
-# 4. Announce update to Bitcoin (requires live node)
+# 3. Fund the beacon address(es)
 source .env
-pnpm generate:vector -- --step announce --hash <hash>
+pnpm generate:vector fund --hash <hash>
 
-# 5. Resolve against live Bitcoin node
-pnpm generate:vector -- --step resolve-live --hash <hash>
+# 4. Announce the signed update on-chain
+pnpm generate:vector announce --hash <hash>
+
+# 5. Resolve the DID against a live Bitcoin node
+pnpm generate:vector resolve --hash <hash>
+
+# List existing vectors
+pnpm generate:vector list
+pnpm generate:vector list --network regtest --type key
 ```
 
-### CLI Flags
+### CLI Reference
 
-| Flag | Values | Default | Description |
-|------|--------|---------|-------------|
-| `--step` | `create`, `update`, `resolve`, `announce`, `resolve-live` | `create` | Which step to run |
-| `--type` | `key`, `external` | `key` | DID identifier type — **create only** |
-| `--network` | `regtest`, `bitcoin`, `mutinynet`, etc. | `regtest` | Bitcoin network — **create only** |
-| `--genesis` | hex string | prompt / auto-generate | Genesis bytes hex — **create only** (see below) |
-| `--hash` | 8-char short hash | — | Vector identifier (required for all steps except `create`) |
-| `--interactive` | flag (no value) | off | Enable interactive patch builder (used with `update`) |
+```
+pnpm generate:vector <action> [options]
+```
+
+#### Actions
+
+| Action | Description |
+|--------|-------------|
+| `create` | Create a new DID and initial test vector files |
+| `update` | Construct and sign an update (optionally announce) |
+| `fund` | Fund beacon address(es) via RPC `sendtoaddress` + mine a block |
+| `announce` | Announce a previously signed update on-chain |
+| `resolve` | Resolve a DID against a live Bitcoin node |
+| `list` | Show existing test vectors |
+
+#### Options
+
+| Flag | Values | Default | Applies to | Description |
+|------|--------|---------|------------|-------------|
+| `--type` | `key`, `external` | `key` | `create`, `list` | DID identifier type |
+| `--network` | `regtest`, `bitcoin`, `mutinynet`, etc. | `regtest` | `create`, `list` | Bitcoin network |
+| `--genesis` | hex string | prompt / auto-generate | `create` | Genesis bytes hex (see below) |
+| `--hash` | 8-char short hash | — | `update`, `fund`, `announce`, `resolve` | Vector identifier (required) |
+| `--interactive` | flag (no value) | off | `update` | Enable interactive patch builder |
+| `--amount` | BTC amount | `0.001` | `fund` | BTC amount to send to each beacon address |
+| `--offline` | flag (no value) | off | `update`, `resolve` | Skip on-chain announcement or live resolution |
 
 > After `create`, the hash uniquely identifies the vector. The script finds the directory
 > automatically and derives the type and network from the stored DID.
 
-### Steps
+### Actions
 
 #### `create`
 
@@ -59,12 +82,12 @@ Creates a DID and writes the initial vector files. The `--genesis` flag behavior
 
 ```bash
 # Auto-generate everything
-pnpm generate:vector -- --type key --network regtest
-pnpm generate:vector -- --type external --network regtest
+pnpm generate:vector create
+pnpm generate:vector create --type external --network regtest
 
 # Bring your own genesis bytes
-pnpm generate:vector -- --type key --network regtest --genesis 02abc...def
-pnpm generate:vector -- --type external --network regtest --genesis 82830a78...f83a99
+pnpm generate:vector create --type key --genesis 02abc...def
+pnpm generate:vector create --type external --network regtest --genesis 82830a78...f83a99
 ```
 
 **Outputs:**
@@ -85,9 +108,18 @@ Reads back the create output, rebuilds the source document, constructs and signs
 
 **With `--interactive`:** prompts for JSON Patch operations with smart auto-generation (see below).
 
+**With `--offline`:** builds and signs the update but skips the on-chain announcement. This is the typical workflow — use `fund` and `announce` as separate steps afterward.
+
+**Without `--offline`:** also announces the update on-chain immediately (requires a funded beacon address and `BITCOIN_NETWORK_CONFIG`).
+
 ```bash
-pnpm generate:vector -- --step update --hash <hash>
-pnpm generate:vector -- --step update --hash <hash> --interactive
+# Recommended: sign offline, then fund and announce separately
+pnpm generate:vector update --hash <hash> --offline
+pnpm generate:vector update --hash <hash> --offline --interactive
+
+# Or sign and announce in one step (beacon must already be funded)
+source .env
+pnpm generate:vector update --hash <hash>
 ```
 
 **Outputs:**
@@ -98,58 +130,71 @@ lib/data/{network}/{type}/{hash}/
   other.json           # (updated with generated keys)
 ```
 
-#### `resolve`
+#### `fund`
 
-Assembles a sidecar from the signed update (and genesis document for x1 types) and writes the resolve input. Offline — no Bitcoin node needed.
+Funds all beacon service addresses in the DID document via RPC `sendtoaddress`, then mines blocks to confirm the funding transaction(s). **Requires a live Bitcoin node with a loaded wallet.**
 
 ```bash
-pnpm generate:vector -- --step resolve --hash <hash>
+source .env
+pnpm generate:vector fund --hash <hash>
+pnpm generate:vector fund --hash <hash> --amount 0.01
+```
+
+> Requires `BITCOIN_NETWORK_CONFIG` to be set with connection info
+> for the DID's network. Source your `.env` file or export it directly.
+
+#### `announce`
+
+Announces a previously signed update on-chain via the beacon service. Reads the signed update and beacon metadata from the `update` step's persisted files. Useful for retrying a failed announcement without re-running the full update pipeline.
+
+```bash
+source .env
+pnpm generate:vector announce --hash <hash>
+```
+
+> Requires `BITCOIN_NETWORK_CONFIG` to be set with connection info
+> for the DID's network. Source your `.env` file or export it directly.
+
+#### `resolve`
+
+Resolves a DID against a live Bitcoin node. Assembles a sidecar from the signed update (if the update step has been run) and the genesis document (for x1 types).
+
+**With `--offline`:** writes only the sidecar input file without connecting to Bitcoin.
+
+```bash
+# Resolve against a live Bitcoin node
+source .env
+pnpm generate:vector resolve --hash <hash>
+
+# Offline — build sidecar input only
+pnpm generate:vector resolve --hash <hash> --offline
 ```
 
 **Outputs:**
 ```
 lib/data/{network}/{type}/{hash}/
   resolve/input.json   # { did, resolutionOptions: { sidecar } }
+  resolve/output.json  # { didDocument, didResolutionMetadata, didDocumentMetadata } (live only)
 ```
 
-#### `announce`
+> Live resolution requires `BITCOIN_NETWORK_CONFIG` to be set with connection info
+> for the DID's network. Source your `.env` file or export it directly.
 
-Broadcasts the signed update to Bitcoin via the beacon service. **Requires a live Bitcoin node.**
+#### `list`
+
+Displays existing test vectors filtered by network and type. If `--network` or `--type` are not provided, prompts interactively.
 
 ```bash
-source .env
-pnpm generate:vector -- --step announce --hash <hash>
+pnpm generate:vector list
+pnpm generate:vector list --network regtest --type key
 ```
-
-Reads `update/input.json` (for the beacon service and signing material) and `update/output.json` (for the signed update), then calls `Update.announce()` to broadcast to Bitcoin.
-
-#### `resolve-live`
-
-Resolves the DID against a live Bitcoin node and writes the resolution result. **Requires a live Bitcoin node.**
-
-```bash
-source .env
-pnpm generate:vector -- --step resolve-live --hash <hash>
-```
-
-Reads `resolve/input.json`, injects the Bitcoin driver, calls `DidBtcr2.resolve()`, and writes the result.
-
-**Outputs:**
-```
-lib/data/{network}/{type}/{hash}/
-  resolve/output.json  # { didDocument, didResolutionMetadata, didDocumentMetadata }
-```
-
-> Both `announce` and `resolve-live` require `BITCOIN_NETWORK_CONFIG` to be set with
-> connection info for the DID's network. Source your `.env` file or export it directly.
-> The script validates the connection before proceeding and exits cleanly if misconfigured.
 
 ### Interactive Mode
 
 Pass `--interactive` to the `update` step to build custom patches. The tool detects common patch targets and auto-generates values.
 
 ```bash
-pnpm generate:vector -- --step update --hash <hash> --interactive
+pnpm generate:vector update --hash <hash> --interactive
 ```
 
 #### Service patches (`/service/<n>`)
@@ -225,5 +270,6 @@ lib/data/{network}/{type}/{hash}/
     output.json
   resolve/
     input.json
+    output.json    # (live mode only)
   other.json
 ```
