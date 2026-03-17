@@ -1,9 +1,9 @@
 import { AddressUtxo, BitcoinConnection } from '@did-btcr2/bitcoin';
-import { Canonicalization, INVALID_SIDECAR_DATA, KeyBytes, MISSING_UPDATE_DATA } from '@did-btcr2/common';
+import { canonicalHash, canonicalize, hash, INVALID_SIDECAR_DATA, KeyBytes, MISSING_UPDATE_DATA } from '@did-btcr2/common';
 import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { base64urlnopad } from '@scure/base';
 import { opcodes, Psbt, script } from 'bitcoinjs-lib';
-import { base58btc } from 'multiformats/bases/base58';
 import { SidecarData } from '../types.js';
 import { Beacon } from './beacon.js';
 import { SingletonBeaconError } from './error.js';
@@ -20,7 +20,6 @@ export class SingletonBeacon extends Beacon {
   /**
    * Creates an instance of SingletonBeacon.
    * @param {BeaconService} service The BeaconService object representing the funded beacon to announce the update to.
-   *
    */
   constructor(service: BeaconService) {
     super({ ...service, type: 'SingletonBeacon' });
@@ -54,11 +53,12 @@ export class SingletonBeacon extends Beacon {
         );
       }
 
-      // Canonicalize, hash and encode to base58btc the signed update object found in sidecar or CAS
-      const encodedUpdate = Canonicalization.process(signedUpdate, { encoding: 'base58btc' });
+      // TODO: Review for simplification how we are encoding and comparing
+      // Canonicalize, hash and encode to base64url the signed update object found in sidecar or CAS
+      const encodedUpdate = canonicalHash(signedUpdate, { encoding: 'base64url' });
 
-      // Encode the signal bytes hex string to base58btc
-      const signalBytes = base58btc.encode(Buffer.from(updateHash, 'hex'));
+      // Encode the signal bytes hex string to base64url
+      const signalBytes = base64urlnopad.encode(Buffer.from(updateHash, 'hex'));
 
       // Check for mismatch between found sidecar/cas update hash and onchain beacon signal hash
       if (encodedUpdate !== signalBytes) {
@@ -120,7 +120,7 @@ export class SingletonBeacon extends Beacon {
     const prevTx = await bitcoin.rest.transaction.getHex(utxo.txid);
 
     // Canonicalize and hash the signed update for OP_RETURN output
-    const updateHash = Canonicalization.andHash(signedUpdate);
+    const updateHash = hash(canonicalize(signedUpdate));
 
     // Construct a spend transaction
     const spendTx = new Psbt({ network: bitcoin.data })

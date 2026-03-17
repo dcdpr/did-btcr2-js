@@ -1,5 +1,5 @@
 import {
-  Canonicalization,
+  canonicalHash,
   INVALID_DID_UPDATE,
   JSONPatch,
   KeyBytes,
@@ -56,7 +56,7 @@ export class Update {
       patch           : patches,
       targetHash      : '',
       targetVersionId : sourceVersionId + 1,
-      sourceHash      : Canonicalization.process(sourceDocument, { encoding: 'base58btc' }),
+      sourceHash      : canonicalHash(sourceDocument, { encoding: 'base64url' }),
     };
 
     // Apply all JSON patches to sourceDocument.
@@ -73,8 +73,8 @@ export class Update {
       );
     }
 
-    // Set the targetHash by canonicalizing the targetDocument and encoding it in base58.
-    unsignedUpdate.targetHash = Canonicalization.process(targetDocument, { encoding: 'base58btc' });
+    // Set the targetHash by canonicalizing the targetDocument and encoding it in base64url.
+    unsignedUpdate.targetHash = canonicalHash(targetDocument, { encoding: 'base64url' });
 
     // Return unsignedUpdate.
     return unsignedUpdate;

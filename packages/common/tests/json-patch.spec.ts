@@ -1,10 +1,10 @@
 import { expect } from 'chai';
-import { JSONPatch, MethodError } from '../src/index.js';
+import { JSONPatch, MethodError, type PatchOperation } from '../src/index.js';
 
 describe('JSONPatch', () => {
   it('applies patches without mutating the source', () => {
     const source = { a: 1, nested: { b: 2 } };
-    const ops = [
+    const ops: PatchOperation[] = [
       { op: 'replace', path: '/a', value: 3 },
       { op: 'add', path: '/nested/c', value: 4 }
     ];
@@ -16,7 +16,7 @@ describe('JSONPatch', () => {
 
   it('can mutate the source when requested', () => {
     const source = { items: [1] };
-    const ops = [{ op: 'add', path: '/items/1', value: 2 }];
+    const ops: PatchOperation[] = [{ op: 'add', path: '/items/1', value: 2 }];
     const result = JSONPatch.apply(source, ops, { mutate: true });
     expect(result).to.equal(source);
     expect(source.items).to.deep.equal([1, 2]);

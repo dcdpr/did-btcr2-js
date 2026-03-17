@@ -1,7 +1,8 @@
-import { Maybe, NotImplementedError } from '@did-btcr2/common';
+import { NotImplementedError } from '@did-btcr2/common';
 import { RawSchnorrKeyPair, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { Identifier } from '../../../../identifier.js';
 import { AggregateBeaconMessageType } from '../../cohort/messages/index.js';
+import { BaseMessage } from '../../cohort/messages/base.js';
 import { CommunicationService, MessageHandler, ServiceAdapterConfig, ServiceAdapterIdentity } from '../service.js';
 
 /**
@@ -101,13 +102,13 @@ export class DidCommAdapter implements CommunicationService {
   /**
    * Sends a message to a recipient using the Nostr protocol.
    * This method is a placeholder and should be implemented with actual Nostr message sending logic.
-   * @param {Maybe<AggregateBeaconMessageType>} _message The message to send, typically containing the content and metadata.
+   * @param {AggregateBeaconMessageType} _message The message to send, typically containing the content and metadata.
    * @param {string} _recipient The public key or identifier of the recipient.
    * @param {string} _sender The public key or identifier of the sender.
    * @returns {Promise<void>} A promise that resolves when the message is sent.
    */
   public async sendMessage(
-    _message: Maybe<AggregateBeaconMessageType>,
+    _message: AggregateBeaconMessageType | BaseMessage,
     _recipient: string,
     _sender: string
   ): Promise<void | Promise<string>[]> {

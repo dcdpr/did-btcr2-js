@@ -1,6 +1,6 @@
 // TODO: Finish nostr adapter implementation. Rethink patterns used.
 
-import { Did, Maybe } from '@did-btcr2/common';
+import { Did } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey, RawSchnorrKeyPair, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { nonceGen } from '@scure/btc-signer/musig2';
 import { Event, EventTemplate, Filter, finalizeEvent, nip44 } from 'nostr-tools';
@@ -18,6 +18,7 @@ import {
   BEACON_COHORT_SIGNATURE_AUTHORIZATION
 } from '../../cohort/messages/constants.js';
 import { AggregateBeaconMessage, AggregateBeaconMessageType } from '../../cohort/messages/index.js';
+import { BaseMessage } from '../../cohort/messages/base.js';
 import { CommunicationAdapterError } from '../error.js';
 import { CommunicationService, MessageHandler, ServiceAdapter, ServiceAdapterConfig, ServiceAdapterIdentity } from '../service.js';
 
@@ -190,12 +191,12 @@ export class NostrAdapter implements CommunicationService {
    * TODO: Clean up and complete this method.
    * Sends a message to a recipient using the Nostr protocol.
    * This method is a placeholder and should be implemented with actual Nostr message sending logic.
-   * @param {Maybe<AggregateBeaconMessageType>} message The message to send, typically containing the content and metadata.
+   * @param {AggregateBeaconMessageType} message The message to send, typically containing the content and metadata.
    * @param {Did} from The identifier of the sender.
    * @param {Did} [to] The identifier of the recipient.
    * @returns {Promise<void>} A promise that resolves when the message is sent.
    */
-  public async sendMessage(message: Maybe<AggregateBeaconMessageType>, from: Did, to?: Did): Promise<void | Promise<string>[]> {
+  public async sendMessage(message: AggregateBeaconMessageType | BaseMessage, from: Did, to?: Did): Promise<void | Promise<string>[]> {
     // Check if the sender and recipient DIDs are valid identifiers
     if(
       [from, to]

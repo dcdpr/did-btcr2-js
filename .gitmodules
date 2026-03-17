@@ -1,0 +1,3 @@
+[submodule "packages/method/lib/data"]
+	path = packages/method/lib/data
+	url = https://github.com/dcdpr/did-btcr2-test-suite.git

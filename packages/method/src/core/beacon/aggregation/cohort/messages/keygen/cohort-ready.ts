@@ -3,7 +3,7 @@ import { BaseMessage } from '../base.js';
 import { BEACON_COHORT_READY } from '../constants.js';
 
 export interface CohortReadyMessage {
-  type?: typeof BEACON_COHORT_READY;
+  type?: string;
   to: string;
   from: string;
   cohortId: string;

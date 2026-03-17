@@ -1,4 +1,3 @@
-import { Logger } from '@did-btcr2/common';
 import * as musig2 from '@scure/btc-signer/musig2';
 import { Transaction } from 'bitcoinjs-lib';
 import { AggregateBeaconError } from '../../error.js';
@@ -166,7 +165,7 @@ export class BeaconCohortSigningSession implements SigningSession {
     }
 
     if (this.nonceContributions.get(from)) {
-      Logger.warn(`WARNING: Nonce contribution already received from ${from}.`);
+      console.warn(`WARNING: Nonce contribution already received from ${from}.`);
     }
 
     this.nonceContributions.set(from, nonceContribution);
@@ -210,7 +209,7 @@ export class BeaconCohortSigningSession implements SigningSession {
     }
 
     if(this.partialSignatures.get(from)) {
-      Logger.warn(`WARNING: Partial signature already received from ${from}.`);
+      console.warn(`WARNING: Partial signature already received from ${from}.`);
     }
 
     this.partialSignatures.set(from, partialSignature);
@@ -236,7 +235,7 @@ export class BeaconCohortSigningSession implements SigningSession {
     }
 
     const sigSum = [...this.partialSignatures.values()].reduce((sum, sig) => sum + bigEndianToInt(sig), 0n);
-    Logger.info(`Aggregated Signature computed: ${sigSum}`);
+    console.info(`Aggregated Signature computed: ${sigSum}`);
 
     this.aggregatedNonce ??= this.generateAggregatedNonce();
 

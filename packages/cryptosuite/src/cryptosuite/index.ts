@@ -1,5 +1,5 @@
 import {
-  Canonicalization,
+  canonicalize,
   CanonicalizedProofConfig,
   CryptosuiteError,
   DateUtils,
@@ -86,7 +86,7 @@ export class BIP340Cryptosuite implements Cryptosuite {
     // Cast the config to a data integrity proof object
     const proof = config as DataIntegrityProofObject;
 
-    // Encode the proof bytes to base
+    // Encode the proof bytes to base58btc
     proof.proofValue = base58btc.encode(serialized);
 
     // Set the proof cryptosuite
@@ -155,14 +155,14 @@ export class BIP340Cryptosuite implements Cryptosuite {
     }
 
     // Return the canonicalized document
-    return Canonicalization.canonicalize(document);
+    return canonicalize(document);
   }
 
   /**
    * Generate a hash of the canonical proof configuration and document.
    * @param {string} config The canonicalized proof configuration.
    * @param {string} document The canonicalized document.
-   * @returns {HashHex} The hash string of the proof configuration and document.
+   * @returns {HashBytes} The hash bytes of the proof configuration and document.
    */
   generateHash(config: string, document: string): HashBytes {
     // Convert the canonical proof config to buffer and sha256 hash it
@@ -211,7 +211,7 @@ export class BIP340Cryptosuite implements Cryptosuite {
         );
     }
 
-    return Canonicalization.canonicalize(config);
+    return canonicalize(config);
   }
 
   /**

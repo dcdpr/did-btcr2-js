@@ -16,7 +16,6 @@ import {
   ResolveError,
   SecretKeyError,
   SingletonBeaconError,
-  SMTAggregateBeaconError,
   UpdateError
 } from '../src/index.js';
 
@@ -44,7 +43,6 @@ describe('errors', () => {
     expect(new ProofError('some message').name).to.equal('ProofError');
     expect(new SingletonBeaconError('some message').name).to.equal('SingletonBeaconError');
     expect(new CIDAggregateBeaconError('some message').name).to.equal('CIDAggregateBeaconError');
-    expect(new SMTAggregateBeaconError('some message').name).to.equal('SMTAggregateBeaconError');
     expect(new CanonicalizationError('some message').name).to.equal('CanonicalizationError');
     expect(new NotImplementedError('some message').name).to.equal('NotImplementedError');
   });

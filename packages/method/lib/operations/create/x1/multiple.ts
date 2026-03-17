@@ -1,5 +1,6 @@
-import { Canonicalization } from '@did-btcr2/common';
+import { canonicalize, hash } from '@did-btcr2/common';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { hex } from '@scure/base';
 import { DidBtcr2 } from '../../../../src/did-btcr2.js';
 import { GenesisDocument } from '../../../../src/index.js';
 
@@ -19,8 +20,8 @@ for(const network of networks) {
   const kp = SchnorrKeyPair.generate();
 
   const genesisDocument = GenesisDocument.fromPublicKey(kp.publicKey.compressed, network);
-  const genesisBytes = Canonicalization.andHash(genesisDocument);
-  const genesisHex = Canonicalization.toHex(genesisBytes);
+  const genesisBytes = hash(canonicalize(genesisDocument));
+  const genesisHex = hex.encode(genesisBytes);
 
   const did = DidBtcr2.create(genesisBytes, { idType: 'EXTERNAL', network: 'regtest' });
   results.push({

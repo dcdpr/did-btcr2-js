@@ -45,7 +45,6 @@ export interface DidCreateOptions {
   network?: string;
 }
 
-// TODO: convert to API driver?
 /** Initialize tiny secp256k1 */
 initEccLib(tinysecp);
 
@@ -265,7 +264,6 @@ export class DidBtcr2 implements DidMethod {
     signingMaterial?: KeyBytes | HexString;
     bitcoin?: BitcoinConnection;
   }): Promise<SignedBTCR2Update> {
-    // TODO: provide KMS as alternative
     // If no signingMaterial provided, throw an UpdateError with INVALID_DID_UPDATE.
     if (!signingMaterial) {
       throw new UpdateError(

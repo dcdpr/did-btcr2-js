@@ -1,4 +1,4 @@
-import { Canonicalization } from '@did-btcr2/common';
+import { canonicalize } from '@did-btcr2/common';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { base58btc } from 'multiformats/bases/base58';
 import { SchnorrMultikey } from '../../src/index.js';
@@ -46,7 +46,7 @@ console.log('publicKey', publicKey);
 const keyPair = new SchnorrKeyPair({ publicKey });
 const diProof = new SchnorrMultikey({ id, controller, keyPair }).toCryptosuite().toDataIntegrityProof();
 const verifiedProof = diProof.verifyProof(
-  Canonicalization.canonicalize(securedDocument),
+  canonicalize(securedDocument),
   'capabilityInvocation'
 );
 console.log('verifiedProof', verifiedProof);

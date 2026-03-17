@@ -207,7 +207,7 @@ export class JSONUtils {
       }
 
       if (candidate && typeof candidate === 'object') {
-        const result: any = Array.isArray(candidate) ? [] : {};
+        const result: any = {};
         for (const key of Object.keys(candidate)) {
           if (keySet.has(key)) continue;
           result[key] = walk(candidate[key]);
@@ -229,7 +229,7 @@ export class JSONUtils {
   static sanitize<T>(value: T): T {
     const walk = (candidate: any): any => {
       if (Array.isArray(candidate)) {
-        return candidate.map(item => walk(item));
+        return candidate.filter(item => item !== undefined).map(item => walk(item));
       }
 
       if (candidate && typeof candidate === 'object') {
@@ -249,14 +249,7 @@ export class JSONUtils {
     return walk(value);
   }
 
-  /**
-   * Internal function to clone JSON values with options.
-   * @param {T} value - The value to clone.
-   * @param {CloneOptions} options - The cloning options.
-   * @param {WeakMap<object, any>} seen - A WeakMap to track seen objects for circular reference detection.
-   * @returns {any} The cloned value.
-   */
-  static cloneInternal<T>(
+  private static cloneInternal<T>(
     value: T,
     options: CloneOptions = {},
     seen: WeakMap<object, any> = new WeakMap<object, any>(),

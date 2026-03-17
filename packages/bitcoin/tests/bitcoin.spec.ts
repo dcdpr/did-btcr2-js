@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { BitcoinConnection } from '../src/bitcoin.js';
+import { BitcoinConnection } from '../src/connection.js';
 import { EsploraProtocol } from '../src/client/rest/protocol.js';
 import { JsonRpcProtocol } from '../src/client/rpc/protocol.js';
 import { HttpExecutor, HttpRequest } from '../src/client/http.js';

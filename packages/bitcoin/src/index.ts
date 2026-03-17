@@ -1,5 +1,5 @@
 // Core
-export { BitcoinConnection, type BitcoinConnectionOptions } from './bitcoin.js';
+export { BitcoinConnection, type BitcoinConnectionOptions } from './connection.js';
 
 // Sans-I/O protocol layer
 export type { HttpRequest, HttpExecutor } from './client/http.js';

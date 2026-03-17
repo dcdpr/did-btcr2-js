@@ -2,7 +2,6 @@ import {
   BIP340_PUBLIC_KEY_MULTIBASE_PREFIX,
   BIP340_PUBLIC_KEY_MULTIBASE_PREFIX_HASH,
   Bytes,
-  CURVE,
   Hex,
   KeyBytes,
   MultibaseObject,
@@ -181,7 +180,7 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
    * @returns {Uint8Array} The 65-byte uncompressed public key (0x04, x, y).
    */
   get uncompressed(): KeyBytes {
-    const uncompressed = this.liftX();
+    const uncompressed = tinysecp.pointCompress(this.compressed, false);
     return uncompressed;
   }
 
@@ -383,65 +382,6 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
   }
 
   /**
-   * Computes modular exponentiation: (base^exp) % mod.
-   * Used for computing modular square roots.
-   * @param {bigint} base The base value
-   * @param {bigint} exp The exponent value
-   * @param {bigint} mod The modulus value
-   * @returns {bigint} The result of the modular exponentiation
-   */
-  modPow(base: bigint, exp: bigint, mod: bigint): bigint {
-    let result = 1n;
-    while (exp > 0n) {
-      if (exp & 1n) result = (result * base) % mod;
-      base = (base * base) % mod;
-      exp >>= 1n;
-    }
-    return result;
-  };
-
-  /**
-   * Computes `sqrt(a) mod p` using Tonelli-Shanks algorithm.
-   * This finds `y` such that `y^2 ≡ a mod p`.
-   * @param {bigint} a The value to find the square root of
-   * @param {bigint} p The prime modulus
-   * @returns {bigint} The square root of `a` mod `p`
-   */
-  sqrtMod(a: bigint, p: bigint): bigint {
-    return this.modPow(a, (p + 1n) >> 2n, p);
-  };
-
-  /**
-   * Lifts a 32-byte x-only coordinate into a full secp256k1 point (x, y).
-   * @param xBytes 32-byte x-coordinate
-   * @returns {Uint8Array} 65-byte uncompressed public key (starts with `0x04`)
-   */
-  liftX(): Uint8Array {
-    // Ensure x-coordinate is 32 bytes
-    if (this.x.length !== 32) {
-      throw new PublicKeyError('Invalid argument: x-coordinate length must be 32 bytes', 'LIFT_X_ERROR');
-    }
-
-    // Convert x from Uint8Array → BigInt
-    const x = BigInt('0x' + Buffer.from(this.x).toString('hex'));
-    if (x <= 0n || x >= CURVE.p) {
-      throw new PublicKeyError('Invalid conversion: x out of range as BigInt', 'LIFT_X_ERROR');
-    }
-
-    // Compute y² = x³ + 7 mod p
-    const ySquared = BigInt((x ** 3n + CURVE.b) % CURVE.p);
-
-    // Compute y (do not enforce parity)
-    const y = this.sqrtMod(ySquared, CURVE.p);
-
-    // Convert x and y to Uint8Array
-    const yBytes = Buffer.from(y.toString(16).padStart(64, '0'), 'hex');
-
-    // Return 65-byte uncompressed public key: `0x04 || x || y`
-    return new Uint8Array(Buffer.concat([Buffer.from([0x04]), Buffer.from(this.x), yBytes]));
-  };
-
-  /**
    * Static method to validate a public key.
    * @param {Hex} pk The public key in hex (Uint8Array or string) format.
    * @returns {boolean} True if the public key is valid, false otherwise.
@@ -506,9 +446,7 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
     }
 
     // Compute the public key from the secret key
-    const secret = sk instanceof Secp256k1SecretKey
-      ? sk
-      : new Secp256k1SecretKey(sk);
+    const secret = sk instanceof Secp256k1SecretKey ? sk : new Secp256k1SecretKey(sk);
 
     // Return a new CompressedSecp256k1PublicKey object
     return secret.computePublicKey();
