@@ -5,6 +5,6 @@ import { DidMethodError } from '@did-btcr2/common';
  */
 export class CLIError extends DidMethodError {
   constructor(message: string, type: string = 'CLIError', data?: Record<string, any>) {
-    super(message, { type, name: type, data });
+    super(message, { type, name: 'CLIError', data });
   }
 }
