@@ -2,6 +2,7 @@ import { expect } from 'chai';
 import { Secp256k1SecretKey } from '../src/secret.js';
 import { CompressedSecp256k1PublicKey } from '../src/public.js';
 import { SecretKeyError } from '@did-btcr2/common';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
 
 describe('Secp256k1SecretKey', () => {
   const bytes = new Uint8Array([
@@ -27,6 +28,34 @@ describe('Secp256k1SecretKey', () => {
     it('should throw SecretKeyError if seed is invalid byte array', () => {
       expect(() => new Secp256k1SecretKey(new Uint8Array([0])))
         .to.throw(SecretKeyError, 'Invalid bytes: must be a valid 32-byte secret key');
+    });
+  });
+
+  describe('edge cases', () => {
+    it('should reject all-zeros 32-byte key', () => {
+      expect(() => new Secp256k1SecretKey(new Uint8Array(32)))
+        .to.throw(SecretKeyError);
+    });
+
+    it('should accept bigint 1n (minimum valid scalar)', () => {
+      const sk = new Secp256k1SecretKey(1n);
+      expect(sk.isValid()).to.be.true;
+      expect(sk.seed).to.equal(1n);
+    });
+
+    it('should accept secp256k1.Point.Fn.ORDER - 1 (maximum valid scalar)', () => {
+      const sk = new Secp256k1SecretKey(secp256k1.Point.Fn.ORDER - 1n);
+      expect(sk.isValid()).to.be.true;
+    });
+
+    it('should reject secp256k1.Point.Fn.ORDER (out of range)', () => {
+      expect(() => new Secp256k1SecretKey(secp256k1.Point.Fn.ORDER))
+        .to.throw(SecretKeyError);
+    });
+
+    it('should reject secp256k1.Point.Fn.ORDER + 1 (out of range)', () => {
+      expect(() => new Secp256k1SecretKey(secp256k1.Point.Fn.ORDER + 1n))
+        .to.throw(SecretKeyError);
     });
   });
 
@@ -61,10 +90,16 @@ describe('Secp256k1SecretKey', () => {
       expect(secretKey.hex).to.equal(hex);
     });
 
-    it('should equal Secp256k1SecretKey', () => {
+    it('should be valid', () => {
       expect(secretKey.isValid()).to.be.true;
     });
 
+    it('should defensive-copy input bytes', () => {
+      const input = new Uint8Array(bytes);
+      const sk = new Secp256k1SecretKey(input);
+      input.fill(0);
+      expect(sk.bytes).to.deep.equal(bytes);
+    });
   });
 
   describe('with bigint seed', () => {
@@ -97,6 +132,85 @@ describe('Secp256k1SecretKey', () => {
     it('should be valid', () => {
       expect(secretKey.isValid()).to.be.true;
     });
+  });
 
+  describe('sign and verify', () => {
+    const secretKey = new Secp256k1SecretKey(bytes);
+    const publicKey = secretKey.computePublicKey();
+    const message = new Uint8Array(32).fill(0xab);
+
+    it('should sign and verify with schnorr (default)', () => {
+      const signature = secretKey.sign(message);
+      expect(signature).to.be.instanceOf(Uint8Array);
+      expect(signature.length).to.equal(64);
+      expect(publicKey.verify(signature, message)).to.be.true;
+    });
+
+    it('should sign and verify with schnorr (explicit)', () => {
+      const signature = secretKey.sign(message, { scheme: 'schnorr' });
+      expect(publicKey.verify(signature, message, { scheme: 'schnorr' })).to.be.true;
+    });
+
+    it('should sign and verify with ecdsa', () => {
+      const signature = secretKey.sign(message, { scheme: 'ecdsa' });
+      expect(signature).to.be.instanceOf(Uint8Array);
+      expect(signature.length).to.equal(64);
+      expect(publicKey.verify(signature, message, { scheme: 'ecdsa' })).to.be.true;
+    });
+
+    it('should reject tampered message', () => {
+      const signature = secretKey.sign(message);
+      const tampered = new Uint8Array(32).fill(0xcd);
+      expect(publicKey.verify(signature, tampered)).to.be.false;
+    });
+
+    it('should reject wrong public key', () => {
+      const signature = secretKey.sign(message);
+      const otherKey = Secp256k1SecretKey.generate().computePublicKey();
+      expect(otherKey.verify(signature, message)).to.be.false;
+    });
+  });
+
+  describe('exportJSON and fromJSON round-trip', () => {
+    const secretKey = new Secp256k1SecretKey(bytes);
+
+    it('should round-trip through exportJSON/fromJSON', () => {
+      const json = secretKey.exportJSON();
+      const restored = Secp256k1SecretKey.fromJSON(json);
+      expect(restored.equals(secretKey)).to.be.true;
+      expect(restored.hex).to.equal(secretKey.hex);
+    });
+
+    it('should produce safe output from toJSON', () => {
+      const safe = secretKey.toJSON();
+      expect(safe).to.deep.equal({ type: 'Secp256k1SecretKey' });
+      expect(safe).to.not.have.property('bytes');
+      expect(safe).to.not.have.property('hex');
+    });
+
+    it('should not expose secrets via JSON.stringify', () => {
+      const json = JSON.stringify(secretKey);
+      expect(json).to.not.contain(hex);
+      expect(json).to.equal('{"type":"Secp256k1SecretKey"}');
+    });
+  });
+
+  describe('destroy', () => {
+    it('should zero out key material', () => {
+      const sk = new Secp256k1SecretKey(bytes);
+      expect(sk.isValid()).to.be.true;
+      sk.destroy();
+      expect(sk.bytes).to.deep.equal(new Uint8Array(32));
+    });
+  });
+
+  describe('decode', () => {
+    it('should decode a valid secretKeyMultibase string', () => {
+      const sk = new Secp256k1SecretKey(bytes);
+      const encoded = sk.multibase;
+      const decoded = Secp256k1SecretKey.decode(encoded);
+      expect(decoded.length).to.equal(34);
+      expect(decoded.slice(2)).to.deep.equal(bytes);
+    });
   });
 });

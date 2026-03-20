@@ -1,6 +1,5 @@
 import { getNetwork } from '@did-btcr2/bitcoin';
 import {
-  BTCR2_DID_DOCUMENT_CONTEXT,
   canonicalize,
   DidDocumentError,
   hash,
@@ -19,6 +18,10 @@ import { BeaconUtils } from '../core/beacon/utils.js';
 import { Identifier } from '../core/identifier.js';
 import { Appendix } from './appendix.js';
 
+export const BTCR2_DID_DOCUMENT_CONTEXT = [
+  'https://www.w3.org/ns/did/v1.1',
+  'https://btcr2.dev/context/v1',
+];
 export const ID_PLACEHOLDER_VALUE = 'did:btcr2:_';
 export const BECH32M_CHARS = '';
 export const DID_REGEX = /did:btcr2:(x1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]*)/g;

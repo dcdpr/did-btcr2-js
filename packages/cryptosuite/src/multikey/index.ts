@@ -270,7 +270,7 @@ export class SchnorrMultikey implements Multikey {
       controller         : this.controller,
       fullId             : this.fullId(),
       signer             : this.signer,
-      keyPair            : this.keyPair.toJSON(),
+      keyPair            : this.keyPair.exportJSON(),
       verificationMethod : this.toVerificationMethod()
     };
   }

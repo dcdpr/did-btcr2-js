@@ -1,6 +1,6 @@
 {
   "name": "@did-btcr2/keypair",
-  "version": "0.10.1",
+  "version": "0.11.0",
   "type": "module",
   "description": "JavaScript/TypeScript implementation of secp256k1 public/private key pairs with BIP340 schnorr signatures. Used by various parts of the did-btcr2-js monorepo.",
   "main": "./dist/cjs/index.js",
@@ -88,9 +88,9 @@
   },
   "dependencies": {
     "@did-btcr2/common": "workspace:*",
+    "@noble/curves": "^2.0.1",
     "@noble/hashes": "^1.7.1",
-    "multiformats": "^13.3.2",
-    "tiny-secp256k1": "^2.2.3"
+    "@scure/base": "^2.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",
