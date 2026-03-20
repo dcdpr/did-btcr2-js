@@ -1,8 +1,5 @@
 import {
-  BIP340_SECRET_KEY_MULTIBASE_PREFIX,
-  BIP340_SECRET_KEY_MULTIBASE_PREFIX_HASH,
   Bytes,
-  CURVE,
   Hex,
   HexString,
   KeyBytes,
@@ -11,12 +8,17 @@ import {
   SignatureBytes
 } from '@did-btcr2/common';
 import { sha256 } from '@noble/hashes/sha2';
-import { getRandomValues, randomBytes } from 'crypto';
-import { base58btc } from 'multiformats/bases/base58';
-import * as tinysecp from 'tiny-secp256k1';
-import { SchnorrKeyPair } from './pair.js';
+import { bytesToHex } from '@noble/hashes/utils';
+import { secp256k1, schnorr } from '@noble/curves/secp256k1.js';
+import { getRandomValues, timingSafeEqual } from 'crypto';
+import { base58 } from '@scure/base';
 import { CompressedSecp256k1PublicKey } from './public.js';
 import { CryptoOptions } from './types.js';
+
+/** Fixed secret key header bytes per the Data Integrity BIP340 Cryptosuite spec: [0x81, 0x26] */
+const BIP340_SECRET_KEY_MULTIBASE_PREFIX: Bytes = new Uint8Array([0x81, 0x26]);
+/** Hash of the BIP-340 Multikey secret key prefix */
+const BIP340_SECRET_KEY_MULTIBASE_PREFIX_HASH: string = bytesToHex(sha256(BIP340_SECRET_KEY_MULTIBASE_PREFIX));
 
 /**
  * General SecretKey interface for the Secp256k1SecretKey class.
@@ -45,10 +47,10 @@ export interface SecretKey {
 
   /**
    * Checks if this secret key is equal to another secret key.
-   * @param {Secp256k1SecretKey} other The other secret key to compare.
+   * @param {SecretKey} other The other secret key to compare.
    * @returns {boolean} True if the private keys are equal.
    */
-  equals(other: Secp256k1SecretKey): boolean;
+  equals(other: SecretKey): boolean;
 
   /**
    * Uses the secret key to compute the corresponding public key.
@@ -73,13 +75,13 @@ export interface SecretKey {
  */
 export class Secp256k1SecretKey implements SecretKey {
   /** @type {KeyBytes} The entropy for the secret key as a byte array */
-  readonly #bytes?: KeyBytes;
+  #bytes?: KeyBytes;
 
   /** @type {bigint} The entropy for the secret key as a bigint */
-  readonly #seed?: bigint;
+  #seed?: bigint;
 
   /** @type {string} The secret key as a secretKeyMultibase */
-  readonly #multibase: string;
+  #multibase: string;
 
   /**
    * Instantiates an instance of Secp256k1SecretKey.
@@ -97,14 +99,14 @@ export class Secp256k1SecretKey implements SecretKey {
       );
     }
 
-    // If bytes and bytes are not length 32
+    // If bytes and length is 32, defensive-copy and derive seed
     if (isBytes && entropy.length === 32) {
-      this.#bytes = entropy;
-      this.#seed = Secp256k1SecretKey.toSecret(entropy);
+      this.#bytes = new Uint8Array(entropy);
+      this.#seed = Secp256k1SecretKey.toSecret(this.#bytes);
     }
 
-    // If secret and secret is not a valid bigint, throw error
-    if (isSecret && !(entropy < 1n || entropy >= CURVE.n)) {
+    // If bigint in valid range [1, n), convert to bytes
+    if (isSecret && entropy >= 1n && entropy < secp256k1.Point.Fn.ORDER) {
       this.#bytes = Secp256k1SecretKey.toBytes(entropy);
       this.#seed = entropy;
     }
@@ -116,15 +118,25 @@ export class Secp256k1SecretKey implements SecretKey {
       );
     }
 
-    if(!this.#seed || (this.#seed < 1n || this.#seed >= CURVE.n)) {
+    if(!this.#seed || this.#seed < 1n || this.#seed >= secp256k1.Point.Fn.ORDER) {
       throw new SecretKeyError(
-        'Invalid seed: must must be valid bigint',
+        'Invalid seed: must be valid bigint',
         'CONSTRUCTOR_ERROR'
       );
     }
 
     // Set the secret key multibase
     this.#multibase = this.encode();
+  }
+
+  /**
+   * Zeros out secret key material from memory.
+   * The instance should not be used after calling this method.
+   */
+  public destroy(): void {
+    if (this.#bytes) this.#bytes.fill(0);
+    this.#seed = undefined;
+    this.#multibase = '';
   }
 
   /**
@@ -171,33 +183,19 @@ export class Secp256k1SecretKey implements SecretKey {
    * @returns {string} The secret key in BIP340 multibase format.
    */
   public encode(): string {
-    // Convert Uint8Array bytes to an Array
     const secretKeyBytes = Array.from(this.bytes);
-
-    if(secretKeyBytes.length !== 32) {
-      throw new SecretKeyError(
-        'Invalid secret key: must be a valid 32-byte secret key',
-        'ENCODE_MULTIBASE_ERROR'
-      );
-    }
-    // Convert prefix to an array
     const mbaseBytes = Array.from(BIP340_SECRET_KEY_MULTIBASE_PREFIX);
-
-    // Push the secret key bytes at the end of the prefix
     mbaseBytes.push(...secretKeyBytes);
-
-    // Encode the bytes in base58btc format and return
-    return base58btc.encode(Uint8Array.from(mbaseBytes));
+    return 'z' + base58.encode(Uint8Array.from(mbaseBytes));
   }
 
   /**
    * Checks if this secret key is equal to another.
-   * @param {Secp256k1SecretKey} other The other secret key
+   * @param {SecretKey} other The other secret key
    * @returns {boolean} True if the private keys are equal, false otherwise
    */
-  public equals(other: Secp256k1SecretKey): boolean {
-    // Compare the hex strings of the private keys
-    return this.hex === other.hex;
+  public equals(other: SecretKey): boolean {
+    return timingSafeEqual(this.bytes, other.bytes);
   }
 
   /**
@@ -205,33 +203,22 @@ export class Secp256k1SecretKey implements SecretKey {
    * @returns {CompressedSecp256k1PublicKey} The computed public key
    */
   public computePublicKey(): CompressedSecp256k1PublicKey {
-    // Derive the public key from the secret key
-    const publicKeyBytes = tinysecp.pointFromScalar(this.bytes, true);
-
-    // If no public key, throw error
-    if (!publicKeyBytes) {
-      throw new SecretKeyError(
-        'Invalid compute: failed to derive public key',
-        'COMPUTE_PUBLIC_KEY_ERROR'
-      );
-    }
-
-    // If public key is not compressed, throw error
-    if(publicKeyBytes.length !== 33) {
-      throw new SecretKeyError(
-        'Invalid compute: public key not compressed format',
-        'COMPUTE_PUBLIC_KEY_ERROR'
-      );
-    }
-
-    return new CompressedSecp256k1PublicKey(publicKeyBytes);
+    return new CompressedSecp256k1PublicKey(secp256k1.getPublicKey(this.bytes));
   }
 
   /**
-   * Converts the secret key to a JSON object.
+   * Safe JSON representation. Does not expose secret material.
+   * Called implicitly by JSON.stringify(). Use exportJSON() for full serialization.
+   */
+  public toJSON(): { type: string } {
+    return { type: 'Secp256k1SecretKey' };
+  }
+
+  /**
+   * Exports the secret key as a JSON object. Contains sensitive material.
    * @returns {SecretKeyObject} The secret key as a JSON object
    */
-  public toJSON(): SecretKeyObject {
+  public exportJSON(): SecretKeyObject {
     return {
       bytes : Array.from(this.bytes),
       seed  : this.seed.toString(),
@@ -239,12 +226,22 @@ export class Secp256k1SecretKey implements SecretKey {
     };
   }
 
+  /** @override Prevents secret material from appearing in console.log */
+  public toString(): string {
+    return '[Secp256k1SecretKey]';
+  }
+
+  /** @override Prevents secret material from appearing in Node.js inspect */
+  [Symbol.for('nodejs.util.inspect.custom')](): string {
+    return '[Secp256k1SecretKey]';
+  }
+
   /**
    * Checks if the secret key is valid.
    * @returns {boolean} True if the secret key is valid, false otherwise
    */
   public isValid(): boolean {
-    return tinysecp.isPrivate(this.bytes);
+    return secp256k1.utils.isValidSecretKey(this.bytes);
   }
 
   /**
@@ -252,16 +249,12 @@ export class Secp256k1SecretKey implements SecretKey {
    * @returns {boolean} True if the public key is valid, false otherwise
    */
   public hasValidPublicKey(): boolean {
-    // Compute the public key from the secret key and compress it
-    const pk = this.computePublicKey();
-
-    // If the public key is not valid, return false
-    if (!tinysecp.isPoint(pk.compressed)) {
+    try {
+      this.computePublicKey();
+      return true;
+    } catch {
       return false;
     }
-
-    // Return true if the computed public key equals the provided public key
-    return true;
   }
 
   /**
@@ -276,14 +269,12 @@ export class Secp256k1SecretKey implements SecretKey {
     // Set default options if not provided
     opts ??= { scheme: 'schnorr' };
 
-    // Sign ecdsa and return
     if(opts.scheme === 'ecdsa') {
-      return tinysecp.sign(data, this.bytes);
+      return secp256k1.sign(data, this.bytes);
     }
 
-    // Sign schnorr and return
     if(opts.scheme === 'schnorr') {
-      return tinysecp.signSchnorr(data, this.bytes, randomBytes(32));
+      return schnorr.sign(data, this.bytes);
     }
 
     throw new SecretKeyError(`Invalid scheme: ${opts.scheme}.`, 'SIGN_ERROR', opts);
@@ -296,7 +287,7 @@ export class Secp256k1SecretKey implements SecretKey {
    */
   public static decode(multibase: string): Bytes {
     // Decode the public key multibase string
-    const decoded = base58btc.decode(multibase);
+    const decoded = base58.decode(multibase.slice(1));
 
     // If the public key bytes are not 35 bytes, throw an error
     if(decoded.length !== 34) {
@@ -334,23 +325,6 @@ export class Secp256k1SecretKey implements SecretKey {
   }
 
   /**
-   * Converts a Secp256k1SecretKey or KeyBytes to a SchnorrKeyPair.
-   * @param {KeyBytes} bytes The secret key bytes
-   * @returns {SchnorrKeyPair} The SchnorrKeyPair object containing the public and private keys
-   * @throws {SecretKeyError} If the secret key is not valid
-   */
-  public static toKeyPair(bytes: KeyBytes): SchnorrKeyPair {
-    // Create a new Secp256k1SecretKey from the bytes
-    const secretKey = new Secp256k1SecretKey(bytes);
-
-    // Compute the public key from the secret key
-    const publicKey = secretKey.computePublicKey();
-
-    // Create a new Pair from the public key and secret key
-    return new SchnorrKeyPair({ publicKey, secretKey });
-  }
-
-  /**
    * Convert a bigint secret to secret key bytes.
    * @param {KeyBytes} bytes The secret key bytes
    * @returns {bigint} The secret key bytes as a bigint secret
@@ -372,7 +346,7 @@ export class Secp256k1SecretKey implements SecretKey {
     );
 
     // If bytes are not a valid secp256k1 secret key, throw error
-    if (!tinysecp.isPrivate(bytes)) {
+    if (!secp256k1.utils.isValidSecretKey(bytes)) {
       throw new SecretKeyError(
         'Invalid secret key: secret out of valid range',
         'SET_PRIVATE_KEY_ERROR'
@@ -382,27 +356,12 @@ export class Secp256k1SecretKey implements SecretKey {
   }
 
   /**
-   * Creates a new Secp256k1SecretKey object from random bytes.
-   * @param {KeyBytes} bytes The secret key bytes
-   * @returns {Secp256k1SecretKey} A new Secp256k1SecretKey object
-   */
-  public static fromBytes(bytes: KeyBytes): Secp256k1SecretKey {
-    // Return a new Secp256k1SecretKey object
-    return new Secp256k1SecretKey(bytes);
-  }
-
-  /**
    * Creates a new Secp256k1SecretKey object from a bigint secret.
    * @param {bigint} bint The secret bigint
    * @returns {Secp256k1SecretKey} A new Secp256k1SecretKey object
    */
   public static fromBigInt(bint: bigint): Secp256k1SecretKey {
-    // Convert the secret bigint to a hex string
-    const hexsecret = bint.toString(16).padStart(64, '0');
-    // Convert the hex string to a Uint8Array
-    const bytes = new Uint8Array(hexsecret.match(/.{2}/g)!.map(byte => parseInt(byte, 16)));
-    // Return a new Secp256k1SecretKey object
-    return new Secp256k1SecretKey(bytes);
+    return new Secp256k1SecretKey(Secp256k1SecretKey.toBytes(bint));
   }
 
   /**
@@ -410,11 +369,12 @@ export class Secp256k1SecretKey implements SecretKey {
    * @returns {KeyBytes} Uint8Array of 32 random bytes.
    */
   public static random(): KeyBytes {
-    // Generate empty 32-byte array
     const byteArray = new Uint8Array(32);
-
-    // Use the getRandomValues function to fill the byteArray with random values
-    return getRandomValues(byteArray);
+    // Retry until bytes fall in valid scalar range [1, n)
+    do {
+      getRandomValues(byteArray);
+    } while (!secp256k1.utils.isValidSecretKey(byteArray));
+    return byteArray;
   }
 
   /**

@@ -4,7 +4,6 @@ import type { HDKey } from '@scure/bip32';
 export type Bytes = Uint8Array;
 export type Hex = Bytes | string;
 export type HexString = string;
-export type HashHex = string;
 
 export type DocumentBytes = Bytes;
 export type SignatureBytes = Bytes;

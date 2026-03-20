@@ -298,7 +298,7 @@ export class KeyPairApi {
 
   /** Serialize a keypair to a JSON object. */
   toJSON(kp: SchnorrKeyPair): SchnorrKeyPairObject {
-    return kp.toJSON();
+    return kp.exportJSON();
   }
 
   /** Compare two keypairs for equality. */
@@ -1041,7 +1041,7 @@ export class DidApi {
       idType : IdentifierTypes.KEY,
       network,
     });
-    return { keyPair: kp.toJSON(), did };
+    return { keyPair: kp.exportJSON(), did };
   }
 
   /**

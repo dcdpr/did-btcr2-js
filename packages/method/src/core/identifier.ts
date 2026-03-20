@@ -287,7 +287,7 @@ export class Identifier {
         network      : 'regtest'
       }
     );
-    return { keyPair: keyPair.toJSON(), did };
+    return { keyPair: keyPair.exportJSON(), did };
   }
 
   /**

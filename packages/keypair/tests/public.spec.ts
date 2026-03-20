@@ -1,6 +1,7 @@
 import { expect } from 'chai';
 import { CompressedSecp256k1PublicKey } from '../src/public.js';
-import { BIP340_PUBLIC_KEY_MULTIBASE_PREFIX, PublicKeyError } from '@did-btcr2/common';
+import { PublicKeyError } from '@did-btcr2/common';
+import { BIP340_PUBLIC_KEY_MULTIBASE_PREFIX } from '../src/public.js';
 
 describe('CompressedSecp256k1PublicKey', () => {
   const hex = '027f87843047622ad7556ed37c981e096a6bf606e7ccfc2ef3db1e9148ccb4cbb9';
@@ -103,6 +104,37 @@ describe('CompressedSecp256k1PublicKey', () => {
 
     it('should encode the x-coordinate and match the expected multibase', () => {
       expect(publicKey.encode()).to.equal(multibase.encoded);
+    });
+
+    it('should decode the multibase to 35-byte prefix + compressed key', () => {
+      const decoded = publicKey.decode();
+      expect(decoded.length).to.equal(35);
+      expect(decoded.slice(2)).to.deep.equal(compressed);
+    });
+
+    it('should not leak internal state via multibase getter', () => {
+      const mb1 = publicKey.multibase;
+      const mb2 = publicKey.multibase;
+      mb1.key[0] = 999;
+      expect(mb2.key[0]).to.not.equal(999);
+    });
+  });
+
+  describe('fromJSON round-trip', () => {
+    const publicKey = new CompressedSecp256k1PublicKey(compressed);
+
+    it('should round-trip through toJSON/fromJSON', () => {
+      const json = publicKey.toJSON();
+      const restored = CompressedSecp256k1PublicKey.fromJSON(json);
+      expect(restored.equals(publicKey)).to.be.true;
+      expect(restored.hex).to.equal(publicKey.hex);
+    });
+
+    it('should not mutate the JSON input on fromJSON', () => {
+      const json = publicKey.toJSON();
+      const originalX = [...json.point.x];
+      CompressedSecp256k1PublicKey.fromJSON(json);
+      expect(json.point.x).to.deep.equal(originalX);
     });
   });
 });

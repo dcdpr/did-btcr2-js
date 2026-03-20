@@ -3,6 +3,7 @@ import {
   HexString,
   KeyBytes,
   KeyPairError,
+  PublicKeyObject,
   SchnorrKeyPairObject
 } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey, PublicKey } from './public.js';
@@ -32,25 +33,8 @@ export interface KeyPair {
  * @type {SchnorrKeyPair}
  */
 export class SchnorrKeyPair implements KeyPair {
-  /**
-   * The secret key objec
-    */
   #secretKey?: Secp256k1SecretKey;
-
-  /**
-   * The public key object
-   */;
   #publicKey: CompressedSecp256k1PublicKey;
-
-  /**
-   * The public key in multibase forma
-    */
-  #publicKeyMultibase: string;
-
-  /**
-   * The secret key in multibase forma
-    */
-  #secretKeyMultibase: string;
 
   /**
    * Creates an instance of Keys. Must provide a at least a secret key.
@@ -83,8 +67,13 @@ export class SchnorrKeyPair implements KeyPair {
       this.#publicKey = this.#secretKey!.computePublicKey();
     }
 
-    this.#publicKeyMultibase = this.#publicKey.multibase.encoded;
-    this.#secretKeyMultibase = this.#secretKey ? this.#secretKey.multibase : '';
+    // Validate that an explicitly provided public key matches the secret key
+    if (this.#secretKey && params.publicKey) {
+      const derived = this.#secretKey.computePublicKey();
+      if (!this.#publicKey.equals(derived)) {
+        throw new KeyPairError('Public key does not match secret key', 'CONSTRUCTOR_ERROR');
+      }
+    }
   }
 
   /**
@@ -112,18 +101,13 @@ export class SchnorrKeyPair implements KeyPair {
    * @throws {KeyPairError} If the public key is not a valid pair with the secret key.
    */
   set publicKey(publicKey: CompressedSecp256k1PublicKey) {
-    // If the public key is not a valid pair with the secret key, throw an error
-    if(this.secretKey) {
-      if(!this.secretKey.hasValidPublicKey()) {
-        throw new KeyPairError('Secret key is not valid', 'SECRET_KEY_ERROR');
+    if(this.#secretKey) {
+      const derived = this.#secretKey.computePublicKey();
+      if(!publicKey.equals(derived)) {
+        throw new KeyPairError('Public key does not match secret key', 'PUBLIC_KEY_ERROR');
       }
-      const cPk = this.secretKey.computePublicKey();
-      if(!publicKey.equals(cPk))
-        throw new KeyPairError('Public key is not a valid pair with the secret key', 'PUBLIC_KEY_ERROR');
     }
     this.#publicKey = publicKey;
-    this.#publicKeyMultibase = publicKey.multibase.encoded;
-    this.#secretKeyMultibase = this.#secretKey ? this.#secretKey.multibase : '';
   }
 
   /**
@@ -131,8 +115,15 @@ export class SchnorrKeyPair implements KeyPair {
    * @returns {CompressedSecp256k1PublicKey} The CompressedSecp256k1PublicKey object
    */
   get publicKey(): CompressedSecp256k1PublicKey {
-    const publicKey = this.#publicKey;
-    return publicKey;
+    return this.#publicKey;
+  }
+
+  /**
+   * Whether this key pair contains a secret key.
+   * @returns {boolean} True if the secret key is present.
+   */
+  get hasSecretKey(): boolean {
+    return !!this.#secretKey;
   }
 
   /**
@@ -142,7 +133,7 @@ export class SchnorrKeyPair implements KeyPair {
   get raw(): RawSchnorrKeyPair {
     return {
       public : this.publicKey.x,
-      secret : this.secretKey ? this.secretKey.bytes : undefined
+      secret : this.#secretKey ? this.#secretKey.bytes : undefined
     };
   }
 
@@ -153,7 +144,7 @@ export class SchnorrKeyPair implements KeyPair {
   get hex(): HexSchnorrKeyPair {
     return {
       public : this.publicKey.hex,
-      secret : this.#secretKey ? this.secretKey.hex : undefined
+      secret : this.#secretKey ? this.#secretKey.hex : undefined
     };
   }
 
@@ -163,20 +154,41 @@ export class SchnorrKeyPair implements KeyPair {
    */
   get multibase(): MultibaseKeys {
     return {
-      publicKeyMultibase : this.#publicKeyMultibase,
-      secretKeyMultibase : this.#secretKeyMultibase,
+      publicKeyMultibase : this.#publicKey.multibase.encoded,
+      secretKeyMultibase : this.#secretKey ? this.#secretKey.multibase : '',
     };
   }
 
   /**
-   * JSON representation of a Keys.
-   * @returns {SchnorrKeyPairObject} The Keys as a JSON object
+   * Safe JSON representation. Only includes the public key.
+   * Called implicitly by JSON.stringify(). Use exportJSON() for full serialization.
+   * @returns {{ publicKey: PublicKeyObject }} The JSON representation of the public key
    */
-  toJSON(): SchnorrKeyPairObject {
+  toJSON(): { publicKey: PublicKeyObject } {
+    return { publicKey: this.publicKey.toJSON() };
+  }
+
+  /**
+   * Exports the full key pair as a JSON object. Contains sensitive material.
+   * @returns {SchnorrKeyPairObject} The key pair as a JSON object
+   * @throws {KeyPairError} If the secret key is not available
+   */
+  exportJSON(): SchnorrKeyPairObject {
+    if (!this.#secretKey) {
+      throw new KeyPairError(
+        'Cannot export: secret key required. Use publicKey.toJSON() for public-key-only pairs.',
+        'SERIALIZE_ERROR'
+      );
+    }
     return {
-      secretKey : this.secretKey.toJSON(),
+      secretKey : this.#secretKey.exportJSON(),
       publicKey : this.publicKey.toJSON()
     };
+  }
+
+  /** @override Prevents secret material from appearing in Node.js inspect */
+  [Symbol.for('nodejs.util.inspect.custom')](): string {
+    return `[SchnorrKeyPair ${this.publicKey.hex}]`;
   }
 
   /**
@@ -245,24 +257,7 @@ export class SchnorrKeyPair implements KeyPair {
    * @returns {boolean} True if the public key and secret key are equal, false otherwise.
    */
   static equals(kp: SchnorrKeyPair, otherKp: SchnorrKeyPair): boolean {
-    // Deconstruct the public keys from the key pairs
-    const pk = kp.publicKey;
-    const otherPk = otherKp.publicKey;
-
-    // If publicKeys present, use to compare as hex strings.
-    if(pk && otherPk) {
-      return pk.hex === otherPk.hex;
-    }
-
-    // Deconstruct the secret keys from the key pairs
-    const sk = kp.secretKey;
-    const otherSk = otherKp.secretKey;
-    if(sk && otherSk) {
-      // Get the public key hex strings for both key pair publicKeys
-      return sk.hex === otherSk.hex;
-    }
-
-    throw new KeyPairError('Cannot compare invalid key pair(s)', 'KEYPAIR_EQUALS_ERROR');
+    return kp.publicKey.equals(otherKp.publicKey);
   }
 
   /**

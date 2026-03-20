@@ -125,4 +125,77 @@ describe('SchnorrKeyPair instantiated', () => {
       expect(keys.publicKey).to.be.instanceOf(CompressedSecp256k1PublicKey);
     });
   });
+
+  describe('mismatched secret and public key', () => {
+    it('should throw when public key does not match secret key', () => {
+      const otherPair = SchnorrKeyPair.generate();
+      expect(() => new SchnorrKeyPair({
+        secretKey : bytes.secretKey,
+        publicKey : otherPair.publicKey.compressed
+      })).to.throw(KeyPairError, 'Public key does not match secret key');
+    });
+  });
+
+  describe('hasSecretKey predicate', () => {
+    it('should return true for full key pairs', () => {
+      const kp = new SchnorrKeyPair({ secretKey: bytes.secretKey });
+      expect(kp.hasSecretKey).to.be.true;
+    });
+
+    it('should return false for public-key-only pairs', () => {
+      const kp = new SchnorrKeyPair({ publicKey: bytes.publicKey });
+      expect(kp.hasSecretKey).to.be.false;
+    });
+  });
+
+  describe('public-key-only getters', () => {
+    const kp = new SchnorrKeyPair({ publicKey: bytes.publicKey });
+
+    it('raw should return public bytes and undefined secret', () => {
+      const raw = kp.raw;
+      expect(raw.public).to.be.instanceOf(Uint8Array);
+      expect(raw.secret).to.be.undefined;
+    });
+
+    it('hex should return public hex and undefined secret', () => {
+      const hex = kp.hex;
+      expect(typeof hex.public).to.equal('string');
+      expect(hex.secret).to.be.undefined;
+    });
+
+    it('multibase should return public multibase and empty secret', () => {
+      const mb = kp.multibase;
+      expect(mb.publicKeyMultibase).to.be.a('string').and.not.empty;
+      expect(mb.secretKeyMultibase).to.equal('');
+    });
+
+    it('toJSON should return only public key', () => {
+      const json = kp.toJSON();
+      expect(json).to.have.property('publicKey');
+      expect(json).to.not.have.property('secretKey');
+    });
+
+    it('exportJSON should throw', () => {
+      expect(() => kp.exportJSON())
+        .to.throw(KeyPairError, 'Cannot export: secret key required');
+    });
+  });
+
+  describe('exportJSON and fromJSON round-trip', () => {
+    it('should round-trip through exportJSON/fromJSON', () => {
+      const original = new SchnorrKeyPair({ secretKey: bytes.secretKey });
+      const json = original.exportJSON();
+      const restored = SchnorrKeyPair.fromJSON(json);
+      expect(SchnorrKeyPair.equals(original, restored)).to.be.true;
+      expect(restored.secretKey.hex).to.equal(original.secretKey.hex);
+    });
+
+    it('should not expose secrets via JSON.stringify', () => {
+      const kp = new SchnorrKeyPair({ secretKey: bytes.secretKey });
+      const json = JSON.stringify(kp);
+      const parsed = JSON.parse(json);
+      expect(parsed).to.have.property('publicKey');
+      expect(parsed).to.not.have.property('secretKey');
+    });
+  });
 });
