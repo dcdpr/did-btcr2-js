@@ -8,10 +8,7 @@ import {
   KeyBytes,
   METHOD_NOT_SUPPORTED,
   MethodError,
-  MISSING_RESOLUTION_OPTIONS,
-  MISSING_UPDATE_DATA,
   PatchOperation,
-  ResolveError,
   UpdateError
 } from '@did-btcr2/common';
 import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
@@ -20,21 +17,16 @@ import {
   DidError,
   DidErrorCode,
   DidMethod,
-  DidResolutionResult,
-  EMPTY_DID_RESOLUTION_RESULT
 } from '@web5/dids';
 import { initEccLib } from 'bitcoinjs-lib';
 import * as tinysecp from 'tiny-secp256k1';
 import { BeaconService } from './core/beacon/interfaces.js';
-import { BeaconUtils } from './core/beacon/utils.js';
 import { Identifier } from './core/identifier.js';
 import { ResolutionOptions } from './core/interfaces.js';
-import { Resolve } from './core/resolve.js';
+import { Resolver } from './core/resolver.js';
 import { Update } from './core/update.js';
 import { Appendix } from './utils/appendix.js';
 import { Btcr2DidDocument, DidVerificationMethod } from './utils/did-document.js';
-
-export type Btcr2Identifier = string;
 
 export interface DidCreateOptions {
   /** Type of identifier to create (key or external) */
@@ -75,7 +67,7 @@ export class DidBtcr2 implements DidMethod {
    * @param {string} options.idType The type of identifier to create, either 'KEY' or 'EXTERNAL'. Defaults to 'KEY'.
    * @param {number} options.version The version number of the did:btcr2 specification to use for creating the identifier. Defaults to 1.
    * @param {string} options.network The Bitcoin network to use for the identifier, e.g. 'bitcoin', 'testnet', etc. Defaults to 'bitcoin'.
-   * @returns {Promise<Btcr2Identifier>} Promise resolving to a Btcr2Identifier string.
+   * @returns {Promise<string>} Promise resolving to an identifier string.
    * @throws {MethodError} if any of the checks fail
    * @example
    * ```ts
@@ -83,7 +75,7 @@ export class DidBtcr2 implements DidMethod {
    * const did = DidBtcr2.create(genesisBytes, { idType: 'KEY', network: 'regtest' });
    * ```
    */
-  static create(genesisBytes: KeyBytes | DocumentBytes, options?: DidCreateOptions): Btcr2Identifier {
+  static create(genesisBytes: KeyBytes | DocumentBytes, options?: DidCreateOptions): string {
     // Deconstruct the idType, version and network from the options, setting defaults if not given
     const { idType, version = 1, network = 'bitcoin' } = options || {};
 
@@ -100,131 +92,48 @@ export class DidBtcr2 implements DidMethod {
 
   /**
    * Entry point for section {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html | 7.2 Resolve}.
-   * See specification for the {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process | Resolve Process}.
-   * See {@link Resolve | Resolve (class)} for class implementation.
    *
-   * Resolving a did:btcr2 identifier iteratively builds a DID document by applying
-   * BTCR2 Updates to an Initial DID Document that have been committed to the Bitcoin
-   * blockchain by Authorized Beacon Signals. The Initial DID Document is either
-   * deterministically created from the DID or provided by Sidecar Data.
+   * Factory method that performs pure setup and returns a {@link Resolver} state machine.
+   * The caller drives resolution by calling `resolver.resolve()` and `resolver.provide()`.
+   * Analogous to Rust's `Document::read()`.
    *
    * @param {string} did The did:btcr2 identifier to be resolved.
    * @param {ResolutionOptions} resolutionOptions Options used during the resolution process.
-   * @returns {Promise<DidResolutionResult>} Promise resolving to a DID Resolution Result containing the `targetDocument`
-   * @throws {ResolveError} If the resolution process fails at any step.
+   * @returns {Resolver} A sans-I/O state machine the caller drives to completion.
    * @example
    * ```ts
-   * const resolution = await DidBtcr2.resolve(
-   *  'did:btcr2:k1qgpr45cheptyjekl3cex80xfnkwhxnlclecwwf92gvdjrszm2uwhzlcxu5xte'
-   * )
+   * const resolver = DidBtcr2.resolve(did, { sidecar });
+   * let state = resolver.resolve();
+   * while (state.status === 'action-required') {
+   *   for (const need of state.needs) { ... provide data ... }
+   *   state = resolver.resolve();
+   * }
+   * const { didDocument, metadata } = state.result;
    * ```
    */
-  static async resolve(
+  static resolve(
     did: string,
     resolutionOptions: ResolutionOptions = {}
-  ): Promise<DidResolutionResult> {
-    try {
-      // Set versionId from resolutionOptions
-      const versionId = resolutionOptions.versionId;
+  ): Resolver {
+    // Decode the did to be resolved
+    const didComponents = Identifier.decode(did);
 
-      // Initialize an empty DID Resolution Result
-      const didResolutionResult: DidResolutionResult = {
-        '@context'            : 'https://w3id.org/did-resolution/v1',
-        didResolutionMetadata : { contentType: 'application/ld+json' },
-        didDocumentMetadata   : {
-          versionId,
-          deactivated   : false,
-          updated       : undefined,
-          confirmations : undefined,
-        },
-        didDocument : null,
-      };
+    // Process sidecar if provided
+    const sidecarData = Resolver.sidecarData(resolutionOptions.sidecar);
 
-      // Decode the did to be resolved
-      const didComponents = Identifier.decode(did);
+    // Establish the current document for KEY identifiers (pure, synchronous).
+    // For EXTERNAL identifiers, defer to the Resolver's GenesisDocument phase
+    // since validation (Resolve.external) is async.
+    const currentDocument = didComponents.hrp === IdentifierHrp.k
+      ? Resolver.deterministic(didComponents)
+      : null;
 
-      // Process sidecar if provided
-      const sidecarData = Resolve.sidecarData(resolutionOptions.sidecar);
-
-      // Parse the genesis document from the resolution options if provided
-      const genesisDocument = resolutionOptions.sidecar?.genesisDocument;
-
-      // Since genesisDocument is optional, check if it exists
-      if(!genesisDocument) {
-        // If no genesisDocument and x HRP, throw MISSING_UPDATE_DATA error
-        if(didComponents.hrp === IdentifierHrp.x)
-          throw new ResolveError(
-            'External resolution requires genesisDocument',
-            MISSING_UPDATE_DATA, resolutionOptions
-          );
-      }
-
-      // Establish the current document
-      const currentDocument = await Resolve.currentDocument(didComponents, genesisDocument);
-
-      // Extract all Beacon services from the current DID Document
-      const beaconServices = currentDocument.service
-        .filter(BeaconUtils.isBeaconService)
-        .map(BeaconUtils.parseBeaconServiceEndpoint);
-
-      // Check if bitcoin driver provided
-      if(!resolutionOptions?.drivers?.bitcoin) {
-        throw new ResolveError(
-          'Bitcoin connection required for resolve. Pass a configured driver via '
-          + 'resolutionOptions.drivers.bitcoin or use DidBtcr2Api which injects it automatically.',
-          MISSING_RESOLUTION_OPTIONS, resolutionOptions
-        );
-      }
-
-      // Get the bitcoin driver from the resolution options
-      const bitcoin = resolutionOptions.drivers.bitcoin;
-
-      // Process the Beacon Signals to get the required updates
-      const unsortedUpdates = await Resolve.beaconSignals(
-        beaconServices,
-        sidecarData,
-        bitcoin
-      );
-
-      // If no updates found, return the current document
-      if(!unsortedUpdates.length) {
-        // Set the didDocument in didResolutionResult based on currentDocument
-        didResolutionResult.didDocument = currentDocument;
-        // Set other required fields in the didResolutionResult
-        didResolutionResult.didDocumentMetadata.deactivated = !!currentDocument.deactivated;
-        didResolutionResult.didDocumentMetadata.versionId = versionId ?? '1';
-
-        // Return the didResolutionResult early
-        return didResolutionResult;
-      }
-
-      // Process the updates to apply updates to bring the current DID Document to its more current state
-      const result = await Resolve.updates(
-        currentDocument,
-        unsortedUpdates,
-        resolutionOptions.versionTime,
-        versionId
-      );
-
-      // Set all of the required fields in the didResolutionResult
-      didResolutionResult.didDocument = result.didDocument;
-      didResolutionResult.didDocumentMetadata = result.metadata;
-
-      // Return didResolutionResult;
-      return didResolutionResult;
-    } catch (error: any) {
-      // Rethrow any unexpected errors that are not a `ResolveError`.
-      if (!(error instanceof ResolveError)) throw new Error(error.message ?? error, { cause: error });
-
-      // Return a DID Resolution Result with the appropriate error code.
-      return {
-        ...EMPTY_DID_RESOLUTION_RESULT,
-        didResolutionMetadata : {
-          error : error.type,
-          ...error.message && { errorMessage: error.message }
-        }
-      };
-    }
+    // Return the sans-I/O state machine
+    return new Resolver(didComponents, sidecarData, currentDocument, {
+      versionId       : resolutionOptions.versionId,
+      versionTime     : resolutionOptions.versionTime,
+      genesisDocument : resolutionOptions.sidecar?.genesisDocument
+    });
   }
 
   /**
@@ -313,10 +222,10 @@ export class DidBtcr2 implements DidMethod {
     }
 
     // Construct an unsigned update following the BTCR2 Update construction algorithm
-    const update = await Update.construct(sourceDocument, patches, sourceVersionId);
+    const update = Update.construct(sourceDocument, patches, sourceVersionId);
 
     // Sign the unsigned update using the specified verification method
-    const signed = await Update.sign(sourceDocument.id, update, verificationMethod, secretKey);
+    const signed = Update.sign(sourceDocument.id, update, verificationMethod, secretKey);
 
     // Filter sourceDocument services to get beaconServices matching beaconIds
     const beaconService = sourceDocument.service

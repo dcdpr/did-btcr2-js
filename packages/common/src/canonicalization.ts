@@ -79,11 +79,11 @@ export function hash(canonicalized: string): HashBytes {
  * Encodes hash bytes using the specified encoding.
  *
  * @param {HashBytes} hashBytes - The hash bytes to encode.
- * @param {CanonicalizationEncoding} [encoding='hex'] - The encoding format.
+ * @param {CanonicalizationEncoding} [encoding='base64url'] - The encoding format.
  * @returns {string} The encoded string.
  * @throws {CanonicalizationError} If the encoding is not supported.
  */
-export function encodeHash(hashBytes: HashBytes, encoding: CanonicalizationEncoding = 'hex'): string {
+export function encode(hashBytes: HashBytes, encoding: CanonicalizationEncoding = 'base64url'): string {
   const normalized = normalizeEncoding(encoding);
   switch (normalized) {
     case 'hex':       return hex.encode(hashBytes);
@@ -96,11 +96,11 @@ export function encodeHash(hashBytes: HashBytes, encoding: CanonicalizationEncod
  * Decodes an encoded hash string back to bytes.
  *
  * @param {string} encoded - The encoded hash string.
- * @param {CanonicalizationEncoding} [encoding='hex'] - The encoding format.
+ * @param {CanonicalizationEncoding} [encoding='base64url'] - The encoding format.
  * @returns {HashBytes} The decoded hash bytes.
  * @throws {CanonicalizationError} If the encoding is not supported.
  */
-export function decodeHash(encoded: string, encoding: CanonicalizationEncoding = 'hex'): HashBytes {
+export function decode(encoded: string, encoding: CanonicalizationEncoding = 'base64url'): HashBytes {
   const normalized = normalizeEncoding(encoding);
   switch (normalized) {
     case 'hex':       return hex.decode(encoded);
@@ -110,7 +110,7 @@ export function decodeHash(encoded: string, encoding: CanonicalizationEncoding =
 }
 
 /**
- * Implements {@link http://dcdpr.github.io/did-btcr2/#json-canonicalization-and-hash | 9.2 JSON Canonicalization and Hash}.
+ * Implements {@link https://dcdpr.github.io/did-btcr2/algorithms.html#json-document-hashing | 8.c JSON Document Hashing}.
  *
  * Full pipeline: Canonicalize (JCS) -> Hash (SHA-256) -> Encode.
  *
@@ -120,6 +120,6 @@ export function decodeHash(encoded: string, encoding: CanonicalizationEncoding =
  */
 export function canonicalHash(object: Record<any, any>, options?: CanonicalizationOptions): string {
   const algorithm = normalizeAlgorithm(options?.algorithm ?? 'jcs');
-  const encoding = normalizeEncoding(options?.encoding ?? 'hex');
-  return encodeHash(hash(canonicalize(object, algorithm)), encoding);
+  const encoding = normalizeEncoding(options?.encoding ?? 'base64url');
+  return encode(hash(canonicalize(object, algorithm)), encoding);
 }

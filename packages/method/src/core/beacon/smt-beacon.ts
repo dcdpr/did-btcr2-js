@@ -1,10 +1,11 @@
 import { BitcoinConnection } from '@did-btcr2/bitcoin';
 import { KeyBytes } from '@did-btcr2/common';
 import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { BeaconProcessResult } from '../resolver.js';
 import { SidecarData } from '../types.js';
 import { Beacon } from './beacon.js';
 import { SMTBeaconError } from './error.js';
-import { BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js';
+import { BeaconService, BeaconSignal } from './interfaces.js';
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/terminology.html#smt-beacon | SMTBeacon}.
@@ -25,13 +26,13 @@ export class SMTBeacon extends Beacon {
    * Implements {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process-smt-beacon | 7.2.e.1 Process SMT Beacon}.
    * @param {Array<BeaconSignal>} signals The array of Beacon Signals to process.
    * @param {SidecarData} sidecar The sidecar data associated with the SMT Beacon.
-   * @returns {Promise<Array<[SignedBTCR2Update, BlockMetadata]>>} The processed signals.
+   * @returns {BeaconProcessResult} The processed signals.
    * @throws {SMTBeaconError} if processing fails.
    */
   processSignals(
     signals: Array<BeaconSignal>,
     sidecar: SidecarData
-  ): Promise<Array<[SignedBTCR2Update, BlockMetadata]>> {
+  ): BeaconProcessResult {
     throw new SMTBeaconError('Method not implemented.', `METHOD_NOT_IMPLEMENTED`, {signals, sidecar});
   }
 

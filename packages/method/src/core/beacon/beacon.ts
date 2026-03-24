@@ -1,8 +1,9 @@
 import { KeyBytes } from '@did-btcr2/common';
 import { BitcoinConnection } from '@did-btcr2/bitcoin';
-import { SignedBTCR2Update } from '../../../../cryptosuite/dist/types/data-integrity-proof/interface.js';
+import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { BeaconProcessResult } from '../resolver.js';
 import { SidecarData } from '../types.js';
-import { BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js';
+import { BeaconService, BeaconSignal } from './interfaces.js';
 
 /**
  * Abstract base class for all BTCR2 Beacon types.
@@ -32,15 +33,18 @@ export abstract class Beacon {
   /**
    * Processes an array of Beacon Signals to extract BTCR2 Signed Updates.
    * Used during the resolve path.
+   *
+   * Returns successfully resolved updates and any data needs that must be
+   * satisfied before remaining signals can be processed.
+   *
    * @param {Array<BeaconSignal>} signals The beacon signals discovered on-chain.
    * @param {SidecarData} sidecar The processed sidecar data containing update/CAS/SMT maps.
-   * @returns {Promise<Array<[SignedBTCR2Update, BlockMetadata]>>} The updates announced by the signals.
+   * @returns {BeaconProcessResult} The updates and any data needs.
    */
   abstract processSignals(
     signals: Array<BeaconSignal>,
     sidecar: SidecarData,
-  ): Promise<Array<[SignedBTCR2Update, BlockMetadata]>>;
-
+  ): BeaconProcessResult;
 
   /**
    * Broadcasts a signed update as a Beacon Signal to the Bitcoin network.

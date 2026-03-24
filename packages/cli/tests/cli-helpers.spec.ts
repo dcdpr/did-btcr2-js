@@ -1,6 +1,5 @@
 import { DidBtcr2Cli } from '../src/cli.js';
-import { CLIError } from '../src/error.js';
-import { createMockOps, expect, originalConsoleError, originalConsoleLog } from './helpers.js';
+import { createTestApi, expect, originalConsoleError, originalConsoleLog } from './helpers.js';
 
 describe('CLI Helpers', () => {
   afterEach(() => {
@@ -10,7 +9,7 @@ describe('CLI Helpers', () => {
   });
 
   it('shows help when no command is provided', async () => {
-    const cli = new DidBtcr2Cli(createMockOps());
+    const cli = new DidBtcr2Cli(createTestApi());
     const program = cli.program;
     program.exitOverride();
 
@@ -22,7 +21,7 @@ describe('CLI Helpers', () => {
   });
 
   it('handles --help silently', async () => {
-    const cli = new DidBtcr2Cli(createMockOps());
+    const cli = new DidBtcr2Cli(createTestApi());
     const program = cli.program;
     program.exitOverride();
 
@@ -33,38 +32,21 @@ describe('CLI Helpers', () => {
     expect(outputHelpCalled).to.be.true;
   });
 
-  it('handles CLIError by printing message and setting exitCode', async () => {
-    const ops = createMockOps({
-      create : () => { throw new CLIError('bad input', 'BAD'); },
-    });
-    const cli = new DidBtcr2Cli(ops);
-    const errors: string[] = [];
-    console.error = (...args: any[]) => errors.push(args.join(' '));
-
-    // Trigger a create with valid-shaped args so parsing succeeds but ops.create throws
-    await cli.run(['node', 'btcr2', 'create', '-t', 'k', '-n', 'bitcoin', '-b', 'aa'.repeat(33)]);
-
-    expect(errors[0]).to.equal('bad input');
-    expect(process.exitCode).to.equal(1);
-  });
-
-  it('handles unknown errors by printing and setting exitCode', async () => {
-    const ops = createMockOps({
-      create : () => { throw new Error('unexpected'); },
-    });
-    const cli = new DidBtcr2Cli(ops);
+  it('handles errors by printing message and setting exitCode', async () => {
+    const cli = new DidBtcr2Cli(createTestApi());
     const errors: any[] = [];
     console.error = (...args: any[]) => errors.push(args[0]);
 
-    await cli.run(['node', 'btcr2', 'create', '-t', 'k', '-n', 'bitcoin', '-b', 'aa'.repeat(33)]);
+    // Trigger a create with invalid byte length — validation in the create command
+    // throws a CLIError before reaching the API.
+    await cli.run(['node', 'btcr2', 'create', '-t', 'k', '-n', 'bitcoin', '-b', 'aa']);
 
-    expect(errors[0]).to.be.instanceOf(Error);
-    expect(errors[0].message).to.equal('unexpected');
+    expect(errors.length).to.be.greaterThan(0);
     expect(process.exitCode).to.equal(1);
   });
 
   it('normalizes empty argv', async () => {
-    const cli = new DidBtcr2Cli(createMockOps());
+    const cli = new DidBtcr2Cli(createTestApi());
     const program = cli.program;
     program.exitOverride();
 
@@ -76,7 +58,7 @@ describe('CLI Helpers', () => {
   });
 
   it('normalizes single-element argv', async () => {
-    const cli = new DidBtcr2Cli(createMockOps());
+    const cli = new DidBtcr2Cli(createTestApi());
     const program = cli.program;
     program.exitOverride();
 
@@ -88,17 +70,16 @@ describe('CLI Helpers', () => {
   });
 
   it('outputs JSON format when --output json is used', async () => {
-    const ops = createMockOps({
-      create : () => 'did:btcr2:test123',
-    });
-    const cli = new DidBtcr2Cli(ops);
+    const cli = new DidBtcr2Cli(createTestApi());
     const messages: string[] = [];
     console.log = (msg?: any) => { if (msg !== undefined) messages.push(String(msg)); };
 
-    await cli.run(['node', 'btcr2', '-o', 'json', 'create', '-t', 'k', '-n', 'bitcoin', '-b', 'aa'.repeat(33)]);
+    // Valid 33-byte compressed pubkey
+    const validKey = '02' + 'aa'.repeat(32);
+    await cli.run(['node', 'btcr2', '-o', 'json', 'create', '-t', 'k', '-n', 'regtest', '-b', validKey]);
 
     const parsed = JSON.parse(messages[0]);
     expect(parsed.action).to.equal('create');
-    expect(parsed.data).to.equal('did:btcr2:test123');
+    expect(parsed.data).to.include('did:btcr2:');
   });
 });

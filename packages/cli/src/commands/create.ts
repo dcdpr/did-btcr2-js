@@ -1,11 +1,10 @@
-import { IdentifierTypes } from '@did-btcr2/common';
+import type { DidBtcr2Api } from '@did-btcr2/api';
 import { Command } from 'commander';
 import { CLIError } from '../error.js';
 import { formatResult } from '../output.js';
 import {
   CreateCommandOptions,
   GlobalOptions,
-  MethodOperations,
   NetworkOption,
   SUPPORTED_NETWORKS,
 } from '../types.js';
@@ -18,7 +17,7 @@ const EXPECTED_BYTES: Record<'k' | 'x', { length: number; label: string }> = {
 
 export function registerCreateCommand(
   program : Command,
-  ops     : MethodOperations,
+  api     : DidBtcr2Api,
   globals : () => GlobalOptions,
 ): void {
   program
@@ -37,9 +36,9 @@ export function registerCreateCommand(
     )
     .action(async (options: { type: string; network: string; bytes: string }) => {
       const parsed = validateCreateOptions(options);
-      const idType = parsed.type === 'k' ? IdentifierTypes.KEY : IdentifierTypes.EXTERNAL;
+      const type = parsed.type === 'k' ? 'deterministic' : 'external';
       const genesisBytes = Buffer.from(parsed.bytes, 'hex');
-      const data = ops.create(genesisBytes, { idType, network: parsed.network });
+      const data = api.createDid(type, genesisBytes, { network: parsed.network });
       const result = { action: 'create' as const, data };
       console.log(formatResult(result, globals()));
     });

@@ -2,7 +2,7 @@ import { MethodError } from '@did-btcr2/common';
 import { Beacon } from './beacon.js';
 import { CASBeacon } from './cas-beacon.js';
 import { BeaconService } from './interfaces.js';
-import { SingletonBeacon } from './singleton.js';
+import { SingletonBeacon } from './singleton-beacon.js';
 import { SMTBeacon } from './smt-beacon.js';
 
 /**

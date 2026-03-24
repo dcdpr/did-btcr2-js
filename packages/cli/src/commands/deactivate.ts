@@ -1,14 +1,15 @@
+import type { DidBtcr2Api } from '@did-btcr2/api';
 import { Command } from 'commander';
 import { CLIError } from '../error.js';
 import { formatResult } from '../output.js';
-import { GlobalOptions, MethodOperations, UpdateCommandOptions } from '../types.js';
+import { GlobalOptions, UpdateCommandOptions } from '../types.js';
 
 /** The JSON Patch that marks a DID document as permanently deactivated. */
 const DEACTIVATION_PATCH = [{ op: 'add' as const, path: '/deactivated', value: true }];
 
 export function registerDeactivateCommand(
   program : Command,
-  ops     : MethodOperations,
+  api     : DidBtcr2Api,
   globals : () => GlobalOptions,
 ): void {
   program
@@ -46,7 +47,7 @@ export function registerDeactivateCommand(
         verificationMethodId : options.verificationMethodId,
         beaconId             : options.beaconId as UpdateCommandOptions['beaconId'],
       };
-      const data = await ops.update(parsed);
+      const data = await api.btcr2.update(parsed);
       const result = { action: 'deactivate' as const, data };
       console.log(formatResult(result, globals()));
     });

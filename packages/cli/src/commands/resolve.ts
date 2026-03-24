@@ -1,13 +1,14 @@
-import { Identifier } from '@did-btcr2/method';
+import type { DidBtcr2Api } from '@did-btcr2/api';
+import { Identifier } from '@did-btcr2/api';
 import { Command } from 'commander';
 import { readFile } from 'node:fs/promises';
 import { CLIError } from '../error.js';
 import { formatResult } from '../output.js';
-import { GlobalOptions, MethodOperations, ResolveCommandOptions } from '../types.js';
+import { GlobalOptions, ResolveCommandOptions } from '../types.js';
 
 export function registerResolveCommand(
   program : Command,
-  ops     : MethodOperations,
+  api     : DidBtcr2Api,
   globals : () => GlobalOptions,
 ): void {
   program
@@ -23,7 +24,7 @@ export function registerResolveCommand(
       resolutionOptionsPath?: string;
     }) => {
       const parsed = await validateResolveOptions(options);
-      const data = await ops.resolve(parsed.identifier, parsed.options);
+      const data = await api.resolveDid(parsed.identifier, parsed.options);
       const result = { action: 'resolve' as const, data };
       console.log(formatResult(result, globals()));
     });
@@ -34,49 +35,24 @@ async function validateResolveOptions(options: {
   resolutionOptions?: string;
   resolutionOptionsPath?: string;
 }): Promise<ResolveCommandOptions> {
-  validateIdentifier(options.identifier, options);
-  const resolutionOptions = await parseResolutionOptions(options);
-  return {
-    identifier : options.identifier,
-    ...(resolutionOptions && { options: resolutionOptions }),
-  };
-}
+  // Validate identifier format early
+  Identifier.decode(options.identifier);
 
-function validateIdentifier(identifier: string, data: Record<string, any>): void {
-  try {
-    Identifier.decode(identifier);
-  } catch {
-    throw new CLIError(
-      'Invalid identifier. Must be a valid did:btcr2 identifier.',
-      'INVALID_ARGUMENT_ERROR',
-      data
-    );
-  }
-}
-
-function parseJson<T>(value: string, errorMessage: string, data: Record<string, any>): T {
-  try {
-    return JSON.parse(value) as T;
-  } catch {
-    throw new CLIError(errorMessage, 'INVALID_ARGUMENT_ERROR', data);
-  }
-}
-
-async function parseResolutionOptions(options: {
-  resolutionOptions?: string;
-  resolutionOptionsPath?: string;
-}): Promise<any> {
+  let resolutionOptions = undefined;
   if (options.resolutionOptions) {
-    return parseJson(
-      options.resolutionOptions,
-      'Invalid resolution options. Must be a valid JSON string.',
-      options
-    );
-  }
-  if (options.resolutionOptionsPath) {
     try {
-      const data = await readFile(options.resolutionOptionsPath, 'utf-8');
-      return JSON.parse(data);
+      resolutionOptions = JSON.parse(options.resolutionOptions);
+    } catch {
+      throw new CLIError(
+        'Invalid resolution options. Must be a valid JSON string.',
+        'INVALID_ARGUMENT_ERROR',
+        options
+      );
+    }
+  } else if (options.resolutionOptionsPath) {
+    try {
+      const content = await readFile(options.resolutionOptionsPath, 'utf-8');
+      resolutionOptions = JSON.parse(content);
     } catch {
       throw new CLIError(
         'Invalid resolution options path. Must be a valid path to a JSON file.',
@@ -85,5 +61,5 @@ async function parseResolutionOptions(options: {
       );
     }
   }
-  return undefined;
+  return { identifier: options.identifier, options: resolutionOptions };
 }

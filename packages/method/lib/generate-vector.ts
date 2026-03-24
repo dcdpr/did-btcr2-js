@@ -10,9 +10,9 @@ import { sha256 } from '@noble/hashes/sha2';
 import { hex } from '@scure/base';
 import { payments } from 'bitcoinjs-lib';
 
+import { BeaconSignalDiscovery } from '../src/core/beacon/signal-discovery.js';
 import { Identifier } from '../src/core/identifier.js';
-import { ResolutionOptions } from '../src/core/interfaces.js';
-import { Resolve } from '../src/core/resolve.js';
+import { Resolver } from '../src/core/resolver.js';
 import { Update } from '../src/core/update.js';
 import { DidBtcr2 } from '../src/did-btcr2.js';
 import { GenesisDocument } from '../src/utils/did-document.js';
@@ -160,7 +160,7 @@ function readJSON(filepath: string): any {
  * @returns {{ secretHex: string; publicHex: string }} The hex-encoded key material.
  */
 function keypairHex(kp: SchnorrKeyPair): { secretHex: string; publicHex: string } {
-  const j = kp.toJSON();
+  const j = kp.exportJSON();
   return { secretHex: j.secretKey.hex!, publicHex: j.publicKey.hex };
 }
 
@@ -743,12 +743,12 @@ async function stepUpdate(hash: string = hashArg) {
   let sourceDocument: any;
 
   if (idType === 'KEY') {
-    sourceDocument = Resolve.deterministic(didComponents);
+    sourceDocument = Resolver.deterministic(didComponents);
   } else {
     if (!other.genesisDocument) {
       throw new Error('other.json is missing genesisDocument (required for x1)');
     }
-    sourceDocument = await Resolve.external(didComponents, other.genesisDocument);
+    sourceDocument = await Resolver.external(didComponents, other.genesisDocument);
   }
 
   console.log(`Source document rebuilt`);
@@ -780,8 +780,8 @@ async function stepUpdate(hash: string = hashArg) {
   const beaconId = idType === 'KEY' ? `${did}#initialP2PKH` : `${did}#service-0`;
 
   const verificationMethod = DidBtcr2.getSigningMethod(sourceDocument, vmId);
-  const unsignedUpdate = await Update.construct(sourceDocument, patches, 1);
-  const signedUpdate = await Update.sign(
+  const unsignedUpdate = Update.construct(sourceDocument, patches, 1);
+  const signedUpdate = Update.sign(
     did,
     unsignedUpdate,
     verificationMethod,
@@ -861,13 +861,13 @@ async function stepFund(hash: string = hashArg) {
   let sourceDocument: any;
 
   if (idType === 'KEY') {
-    sourceDocument = Resolve.deterministic(didComponents);
+    sourceDocument = Resolver.deterministic(didComponents);
   } else {
     const other = requireFile(join(dir, 'other.json'));
     if (!other.genesisDocument) {
       throw new Error('other.json is missing genesisDocument (required for x1)');
     }
-    sourceDocument = await Resolve.external(didComponents, other.genesisDocument);
+    sourceDocument = await Resolver.external(didComponents, other.genesisDocument);
   }
 
   // Find all beacon services with bitcoin: endpoints
@@ -926,13 +926,13 @@ async function announceUpdate(
   let sourceDocument: any;
 
   if (idType === 'KEY') {
-    sourceDocument = Resolve.deterministic(didComponents);
+    sourceDocument = Resolver.deterministic(didComponents);
   } else {
     const other = requireFile(join(dir, 'other.json'));
     if (!other.genesisDocument) {
       throw new Error('other.json is missing genesisDocument (required for x1)');
     }
-    sourceDocument = await Resolve.external(didComponents, other.genesisDocument);
+    sourceDocument = await Resolver.external(didComponents, other.genesisDocument);
   }
 
   const beaconService = sourceDocument.service
@@ -979,8 +979,6 @@ async function stepAnnounce(hash: string = hashArg) {
   console.log(`  Next: pnpm generate:vector resolve --hash ${hash}`);
 }
 
-// ── Step: Resolve ───────────────────────────────────────────────────────────
-
 /**
  * Resolves a DID and writes the resolution test vector files.
  *
@@ -1026,8 +1024,6 @@ async function stepResolve(hash: string = hashArg) {
     sidecar.genesisDocument = other.genesisDocument;
   }
 
-  const resolutionOptions: ResolutionOptions = { sidecar } as ResolutionOptions;
-
   // Write the resolve input regardless of mode
   writeJSON(join(dir, 'resolve'), 'input.json', {
     did,
@@ -1040,20 +1036,39 @@ async function stepResolve(hash: string = hashArg) {
     return;
   }
 
-  // Live mode: connect to Bitcoin and resolve the DID
+  // Live mode: create the Resolver state machine and drive it
   const bitcoin = requireBitcoinConnection(network);
-  resolutionOptions.drivers = { bitcoin };
+  const resolver = DidBtcr2.resolve(did, { sidecar });
 
   console.log(`Resolving ${did} ...`);
-  const resolution = await DidBtcr2.resolve(did, resolutionOptions);
 
-  if (resolution.didResolutionMetadata.error) {
-    console.error(`Resolution error: ${resolution.didResolutionMetadata.error}`);
-    console.error(`  ${resolution.didResolutionMetadata.errorMessage ?? ''}`);
-    process.exit(1);
+  let state = resolver.resolve();
+  while(state.status === 'action-required') {
+    for(const need of state.needs) {
+      switch(need.kind) {
+        case 'NeedGenesisDocument':
+          throw new Error(`Genesis document required but not in sidecar for ${did}`);
+
+        case 'NeedBeaconSignals': {
+          console.log(`  Fetching beacon signals for ${need.beaconServices.length} service(s) ...`);
+          const signals = await BeaconSignalDiscovery.indexer(
+            [...need.beaconServices], bitcoin
+          );
+          resolver.provide(need, signals);
+          break;
+        }
+
+        case 'NeedCASAnnouncement':
+          throw new Error(`CAS announcement not in sidecar: ${need.announcementHash}`);
+
+        case 'NeedSignedUpdate':
+          throw new Error(`Signed update not in sidecar: ${need.updateHash}`);
+      }
+    }
+    state = resolver.resolve();
   }
 
-  writeJSON(join(dir, 'resolve'), 'output.json', resolution);
+  writeJSON(join(dir, 'resolve'), 'output.json', state.result);
 
   console.log(`\n[resolve] done`);
 }

@@ -1,4 +1,3 @@
-import { BitcoinConnection } from '@did-btcr2/bitcoin';
 import { DidResolutionOptions } from '@web5/dids';
 import { Sidecar } from './types.js';
 
@@ -12,8 +11,12 @@ export interface RootCapability {
 /**
  * See {@link https://dcdpr.github.io/did-btcr2/data-structures.html#resolution-options-example-panel-show | Resolution Options}
  * for data structure details.
+ *
+ * Resolution is now fully sans-I/O via the {@link Resolver} state machine.
+ * External data (Bitcoin signals, CAS data) is provided through the
+ * `resolver.resolve()` / `resolver.provide()` protocol.
  */
-export interface ResolutionOptionsCore extends DidResolutionOptions {
+export interface ResolutionOptions extends DidResolutionOptions {
   /**
    * Optional ASCII string representation of the specific version of a DID document
    * to be resolved.
@@ -32,20 +35,6 @@ export interface ResolutionOptionsCore extends DidResolutionOptions {
    * Includes Singleton beacon updates, CAS announcements, and SMT proofs.
    */
   sidecar?: Sidecar;
-}
-
-/**
- * Full set of resolution options for the did:btcr2 method. See {@link ResolutionOptionsCore}
- * for the resolution options defined by the specification.
- * @extends ResolutionOptionsCore
- */
-export interface ResolutionOptions extends ResolutionOptionsCore {
-  /**
-   * Drivers for interacting with external systems, such as the Bitcoin network.
-   */
-  drivers?: {
-    bitcoin?: BitcoinConnection;
-  };
 }
 
 /**

@@ -37,14 +37,14 @@ export class Update {
    * @param {Btcr2DidDocument} sourceDocument The source DID document to be updated.
    * @param {PatchOperation[]} patches The array of JSON Patch operations to apply to the sourceDocument.
    * @param {number} sourceVersionId The version ID of the source document.
-   * @returns {Promise<SignedBTCR2Update>} The constructed SignedBTCR2Update object.
+   * @returns {UnsignedBTCR2Update} The constructed UnsignedBTCR2Update object.
    * @throws {UpdateError} InvalidDid if sourceDocument.id does not match identifier.
    */
-  static async construct(
+  static construct(
     sourceDocument: Btcr2DidDocument,
     patches: PatchOperation[],
     sourceVersionId: number,
-  ): Promise<UnsignedBTCR2Update> {
+  ): UnsignedBTCR2Update {
     // Initialize an unsigned update conformant to btcr2 spec.
     const unsignedUpdate: UnsignedBTCR2Update = {
       '@context'      : [
@@ -56,7 +56,7 @@ export class Update {
       patch           : patches,
       targetHash      : '',
       targetVersionId : sourceVersionId + 1,
-      sourceHash      : canonicalHash(sourceDocument, { encoding: 'base64url' }),
+      sourceHash      : canonicalHash(sourceDocument),
     };
 
     // Apply all JSON patches to sourceDocument.
@@ -74,7 +74,7 @@ export class Update {
     }
 
     // Set the targetHash by canonicalizing the targetDocument and encoding it in base64url.
-    unsignedUpdate.targetHash = canonicalHash(targetDocument, { encoding: 'base64url' });
+    unsignedUpdate.targetHash = canonicalHash(targetDocument);
 
     // Return unsignedUpdate.
     return unsignedUpdate;
@@ -90,12 +90,12 @@ export class Update {
    * @returns {SignedBTCR2Update} Did update payload secured with a proof => SignedBTCR2Update
    * @throws {UpdateError} if the privateKeyBytes are invalid
    */
-  static async sign(
+  static sign(
     did: string,
     unsignedUpdate: UnsignedBTCR2Update,
     verificationMethod: DidVerificationMethod,
     secretKey: KeyBytes,
-  ): Promise<SignedBTCR2Update> {
+  ): SignedBTCR2Update {
     // Parse the controller from the verificationMethod
     const controller = verificationMethod.controller;
     // Parse the fragment from the vmId

@@ -1,9 +1,9 @@
 import { AddressUtxo, BitcoinConnection } from '@did-btcr2/bitcoin';
-import { canonicalHash, canonicalize, hash, INVALID_SIDECAR_DATA, KeyBytes, MISSING_UPDATE_DATA } from '@did-btcr2/common';
+import { canonicalize, decode, encode, hash, KeyBytes } from '@did-btcr2/common';
 import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
-import { base64urlnopad } from '@scure/base';
 import { opcodes, Psbt, script } from 'bitcoinjs-lib';
+import type { BeaconProcessResult, DataNeed } from '../resolver.js';
 import { SidecarData } from '../types.js';
 import { Beacon } from './beacon.js';
 import { SingletonBeaconError } from './error.js';
@@ -27,54 +27,38 @@ export class SingletonBeacon extends Beacon {
 
   /**
    * Processes an array of Beacon Signals associated with a Singleton Beacon Service.
-   * @returns {Promise<SignedBTCR2Update | undefined>} The DID Update payload announced by the Beacon Signal.
-   * @throws {SingletonBeaconError} if the signalTx is invalid or the signalSidecarData is invalid.
+   * @param {Array<BeaconSignal>} signals The beacon signals discovered on-chain.
+   * @param {SidecarData} sidecar The processed sidecar data.
+   * @returns {BeaconProcessResult} Successfully resolved updates and any data needs.
    */
-  async processSignals(
+  processSignals(
     signals: Array<BeaconSignal>,
     sidecar: SidecarData
-  ): Promise<Array<[SignedBTCR2Update, BlockMetadata]>> {
-    // Initialize an empty array to hold the BTCR2 signed updates
+  ): BeaconProcessResult {
     const updates = new Array<[SignedBTCR2Update, BlockMetadata]>();
+    const needs = new Array<DataNeed>();
 
-    // Loop through each signal in signals
     for(const signal of signals) {
-      // Grab the beacon signal bytes hash from the signal
-      const updateHash = signal.signalBytes;
+      // Decode signal bytes from hex and re-encode to base64url for sidecar lookup
+      const updateHash = encode(decode(signal.signalBytes, 'hex'));
 
-      // Use the updateHash as the sidecar data lookup key to retrieve the btcr2 update
+      // Look up the signed update in sidecar updateMap
       const signedUpdate = sidecar.updateMap.get(updateHash);
 
-      // If no btcr2 update is found in sidecar data maps, throw missingUpdateData error.
       if(!signedUpdate) {
-        throw new SingletonBeaconError(
-          `BTCR2 Signed Update not found for update hash ${updateHash}.`,
-          MISSING_UPDATE_DATA, signal
-        );
+        // Data not available — emit a need instead of throwing
+        needs.push({
+          kind             : 'NeedSignedUpdate',
+          updateHash,
+          beaconServiceId  : this.service.id
+        });
+        continue;
       }
 
-      // TODO: Review for simplification how we are encoding and comparing
-      // Canonicalize, hash and encode to base64url the signed update object found in sidecar or CAS
-      const encodedUpdate = canonicalHash(signedUpdate, { encoding: 'base64url' });
-
-      // Encode the signal bytes hex string to base64url
-      const signalBytes = base64urlnopad.encode(Buffer.from(updateHash, 'hex'));
-
-      // Check for mismatch between found sidecar/cas update hash and onchain beacon signal hash
-      if (encodedUpdate !== signalBytes) {
-        // If mismatch, throw invalidSidecarData error.
-        throw new SingletonBeaconError(
-          `Hash mismatch: sidecar update ${encodedUpdate} !== signal bytes ${signalBytes}.`,
-          INVALID_SIDECAR_DATA, { encodedUpdate, signalBytes }
-        );
-      }
-
-      // Push signedUpdate to updates array
       updates.push([signedUpdate, signal.blockMetadata]);
     }
 
-    // Return the array of signed updates
-    return updates;
+    return { updates, needs };
   }
   /**
    * Broadcasts a SingletonBeacon signal to the Bitcoin network.

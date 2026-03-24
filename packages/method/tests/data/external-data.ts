@@ -2,9 +2,9 @@ import { hex } from '@scure/base';
 
 export default [
   {
-    'did'             : 'did:btcr2:x1qr2qkklutnvsrnpzfq6vu85pc2n52a7wntxzg58xszvg84nvec6es50qxme',
+    'did'             : 'did:btcr2:x1qqh89yza5ypfw2eud2r0c8rkdc9wcu0n5d09520evfpu637lynyjyj33xgn',
     'network'         : 'bitcoin',
-    'genesisBytes'    : hex.decode('d40b5bfc5cd901cc224834ce1e81c2a74577ce9acc2450e6809883d66cce3598'),
+    'genesisBytes'    : hex.decode('2e72905da102972b3c6a86fc1c766e0aec71f3a35e5a29f96243cd47df24c922'),
     'secretKey'       : 'cce7c5dbfc6675f79baf4a2bc0416f9bdd2a4e42b84c50795ee1990ce2cf685f',
     'genesisDocument' : {
       'id'       : 'did:btcr2:_',
@@ -42,9 +42,9 @@ export default [
     }
   },
   {
-    'did'             : 'did:btcr2:x1qhg4zn3uhgua0vft2jlvfzmd0ptwjyjw2n40tc2edy8udsvrrmpdvq90fvk',
+    'did'             : 'did:btcr2:x1q4jzzjhqpua2rruh527cxxlap7y32wsf75fkhp7wfc4gsdut46r4qgs0q5t',
     'network'         : 'mutinynet',
-    'genesisBytes'    : hex.decode('d1514e3cba39d7b12b54bec48b6d7856e9124e54eaf5e159690fc6c1831ec2d6'),
+    'genesisBytes'    : hex.decode('64214ae00f3aa18f97a2bd831bfd0f89153a09f5136b87ce4e2a88378bae8750'),
     'secretKey'       : '09b4d3303dd644a230431842fd63420fe049ae8958c8e31066674bc602f16dda',
     'genesisDocument' : {
       'id'       : 'did:btcr2:_',
@@ -82,9 +82,9 @@ export default [
     }
   },
   {
-    'did'             : 'did:btcr2:x1qgqeq5dzura3ed8zcc86yvwdemhcgae42cu5fa5smske9ylsv7wr62hegar',
+    'did'             : 'did:btcr2:x1qt3ygxdusc6e0hncnyz6qyl5dm4dhk2ee9gz7vnr4eedna22mfu0quflere',
     'network'         : 'regtest',
-    'genesisBytes'    : hex.decode('019051a2e0fb1cb4e2c60fa231cdceef847735563944f690dc2d9293f0679c3d'),
+    'genesisBytes'    : hex.decode('e24419bc863597de789905a013f46eeadbd959c9502f3263ae72d9f54ada78f0'),
     'secretKey'       : 'a850d590e8e499b9860e97ab826fb94c1f1b91d7f4707b29f1a9bb9b5b68f4e0',
     'genesisDocument' : {
       'id'       : 'did:btcr2:_',
@@ -122,9 +122,9 @@ export default [
     }
   },
   {
-    'did'             : 'did:btcr2:x1qy2nm3n6tpawv2m2z0z2qg696wwk4umc9xptu59mey7kwczhwl9qzvvadj3',
+    'did'             : 'did:btcr2:x1qya6vknk7z39cf3h4m3cpnj92n2exmwe4h29putcjd5tkrrxf5qrqzx200h',
     'network'         : 'signet',
-    'genesisBytes'    : hex.decode('153dc67a587ae62b6a13c4a02345d39d6af3782982be50bbc93d67605777ca01'),
+    'genesisBytes'    : hex.decode('3ba65a76f0a25c2637aee380ce4554d5936dd9add450f1789368bb0c664d0030'),
     'secretKey'       : 'ab4884c90b11b5142120f0a9b315c9a0b177ce6cae036795450646c7b5d3eb9c',
     'genesisDocument' : {
       'id'       : 'did:btcr2:_',
@@ -162,9 +162,9 @@ export default [
     }
   },
   {
-    'did'             : 'did:btcr2:x1q0ryu6z0gwyjksl8dgj5gpq20khuxy00dzm2f5eh83y43x9gc7wsw0gp2mh',
+    'did'             : 'did:btcr2:x1qdmddq885hv9r590s8ep97s0cu9vm4qfn57h53exx4hcxhlzsjwqgmgm0zu',
     'network'         : 'testnet3',
-    'genesisBytes'    : hex.decode('c64e684f43892b43e76a2544040a7dafc311ef68b6a4d3373c495898a8c79d07'),
+    'genesisBytes'    : hex.decode('76d680e7a5d851d0af81f212fa0fc70acdd4099d3d7a4726356f835fe2849c04'),
     'secretKey'       : '1d88c851de18e909caa15dcd01b2687c63e37b61a3c3f62c9c796f4690b0675a',
     'genesisDocument' : {
       'id'       : 'did:btcr2:_',
@@ -202,9 +202,9 @@ export default [
     }
   },
   {
-    'did'             : 'did:btcr2:x1qshuft56xhzstmschcjmslts3y4kakdvv4gjr5dpghhuwu2s804fjycl9q9',
+    'did'             : 'did:btcr2:x1q379mhzgt5764yccdq9jx0a5fths38j2ngrly3tfcsa9sax0xgpe2n9d70x',
     'network'         : 'testnet4',
-    'genesisBytes'    : hex.decode('2fc4ae9a35c505ee18be25b87d70892b6ed9ac655121d1a145efc771503bea99'),
+    'genesisBytes'    : hex.decode('7c5ddc485d3daa9318680b233fb44aef089e4a9a07f24569c43a5874cf320395'),
     'secretKey'       : 'd2e0289f309fa8e68d2576e07864e2aafd4caebbfb6f26780da3c30c4b7bcffa',
     'genesisDocument' : {
       'id'       : 'did:btcr2:_',
