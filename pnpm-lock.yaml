@@ -310,6 +310,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@did-btcr2/api':
+        specifier: workspace:*
+        version: link:../api
       '@did-btcr2/common':
         specifier: workspace:*
         version: link:../common

@@ -1,5 +1,5 @@
 import { Command, CommanderError } from 'commander';
-import { DidBtcr2 } from '@did-btcr2/method';
+import { DidBtcr2Api, createApi } from '@did-btcr2/api';
 import {
   registerCreateCommand,
   registerDeactivateCommand,
@@ -7,29 +7,22 @@ import {
   registerUpdateCommand,
 } from './commands/index.js';
 import { CLIError } from './error.js';
-import { GlobalOptions, MethodOperations } from './types.js';
+import { GlobalOptions } from './types.js';
 import { VERSION } from './version.js';
-
-/** Default MethodOperations delegating to DidBtcr2 static methods. */
-const defaultOps: MethodOperations = {
-  create  : (genesisBytes, options) => DidBtcr2.create(genesisBytes, options),
-  resolve : (identifier, options) => DidBtcr2.resolve(identifier, options),
-  update  : (params) => DidBtcr2.update(params),
-};
 
 /**
  * CLI tool for the did:btcr2 method.
  */
 export class DidBtcr2Cli {
   public readonly program: Command;
-  private readonly ops: MethodOperations;
+  private readonly api: DidBtcr2Api;
 
   /**
-   * Initializes the CLI with optional custom MethodOperations.
-   * @param {MethodOperations} ops - Custom operations for create, resolve, and update.
+   * Initializes the CLI with an optional pre-configured API instance.
+   * @param {DidBtcr2Api} api - Optional API instance. Defaults to an unconfigured instance.
    */
-  constructor(ops: MethodOperations = defaultOps) {
-    this.ops = ops;
+  constructor(api: DidBtcr2Api = createApi()) {
+    this.api = api;
     this.program = new Command('btcr2')
       .version(`btcr2 ${VERSION}`, '-v, --version', 'Output the current version')
       .description('CLI tool for the did:btcr2 method')
@@ -39,10 +32,10 @@ export class DidBtcr2Cli {
 
     const globals = (): GlobalOptions => this.program.opts() as GlobalOptions;
 
-    registerCreateCommand(this.program, this.ops, globals);
-    registerResolveCommand(this.program, this.ops, globals);
-    registerUpdateCommand(this.program, this.ops, globals);
-    registerDeactivateCommand(this.program, this.ops, globals);
+    registerCreateCommand(this.program, this.api, globals);
+    registerResolveCommand(this.program, this.api, globals);
+    registerUpdateCommand(this.program, this.api, globals);
+    registerDeactivateCommand(this.program, this.api, globals);
   }
 
   /**

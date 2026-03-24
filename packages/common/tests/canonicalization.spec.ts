@@ -4,8 +4,8 @@ import {
   canonicalize,
   canonicalHash,
   CanonicalizationError,
-  decodeHash,
-  encodeHash,
+  decode,
+  encode,
   hash,
 } from '../src/index.js';
 
@@ -34,15 +34,15 @@ describe('canonicalization', () => {
   });
 
   it('throws on unsupported encoding', () => {
-    expect(() => encodeHash(new Uint8Array(32), 'base64' as any))
+    expect(() => encode(new Uint8Array(32), 'base64' as any))
       .to.throw(CanonicalizationError, 'Unsupported encoding');
   });
 
-  it('canonicalizes with JCS by default', () => {
+  it('canonicalizes with JCS by default (base64url encoding)', () => {
     const result = canonicalHash(simpleObject);
     const again = canonicalHash(simpleObject);
     expect(result).to.equal(again);
-    expect(result).to.match(/^[0-9a-f]+$/);
+    expect(result).to.equal('QyWM_3g_5wNtikMDP4MK38YOwDc4JHNUisdCuIgpJ3c');
   });
 
   it('supports base58 encoding', () => {
@@ -62,9 +62,9 @@ describe('canonicalization', () => {
 
   it('validates algorithm and encoding through public API', () => {
     expect(() => canonicalize({}, 'jcs')).to.not.throw();
-    expect(() => encodeHash(new Uint8Array(32), 'hex')).to.not.throw();
+    expect(() => encode(new Uint8Array(32), 'hex')).to.not.throw();
     expect(() => canonicalize({}, 'bad' as any)).to.throw(CanonicalizationError);
-    expect(() => encodeHash(new Uint8Array(32), 'bad' as any)).to.throw(CanonicalizationError);
+    expect(() => encode(new Uint8Array(32), 'bad' as any)).to.throw(CanonicalizationError);
   });
 
   it('produces a canonical hash for a complex object', () => {
@@ -73,31 +73,31 @@ describe('canonicalization', () => {
   });
 
   it('produces a hex-encoded SHA-256 hash of a canonicalized object', () => {
-    const result = encodeHash(hash(canonicalComplexObject), 'hex');
+    const result = encode(hash(canonicalComplexObject), 'hex');
     expect(result).to.equal('6a5e300f065a6541f9cd3deec24ba4caed6d5a2a3b219f16e9357459ffa01938');
   });
 
   it('produces a base58 encoded SHA-256 hash of a canonicalized object', () => {
-    const result = encodeHash(hash(canonicalComplexObject), 'base58');
+    const result = encode(hash(canonicalComplexObject), 'base58');
     expect(result).to.equal('8ADWw43bTgn9z3n7NjuzrM1GfJa1aNCaaK4RJpwe3sCK');
   });
 
   it('produces a base64url encoded SHA-256 hash of a canonicalized object', () => {
-    const result = encodeHash(hash(canonicalComplexObject), 'base64url');
+    const result = encode(hash(canonicalComplexObject), 'base64url');
     expect(result).to.equal('al4wDwZaZUH5zT3uwkukyu1tWio7IZ8W6TV0Wf-gGTg');
   });
 
   it('encodes and decodes hash bytes round-trip', () => {
-    const hexEncoded = encodeHash(hashComplexObject, 'hex');
+    const hexEncoded = encode(hashComplexObject, 'hex');
     expect(hexEncoded).to.equal('6a5e300f065a6541f9cd3deec24ba4caed6d5a2a3b219f16e9357459ffa01938');
-    expect(decodeHash(hexEncoded, 'hex')).to.deep.equal(hashComplexObject);
+    expect(decode(hexEncoded, 'hex')).to.deep.equal(hashComplexObject);
 
-    const b58Encoded = encodeHash(hashComplexObject, 'base58');
+    const b58Encoded = encode(hashComplexObject, 'base58');
     expect(b58Encoded).to.equal('8ADWw43bTgn9z3n7NjuzrM1GfJa1aNCaaK4RJpwe3sCK');
-    expect(decodeHash(b58Encoded, 'base58')).to.deep.equal(hashComplexObject);
+    expect(decode(b58Encoded, 'base58')).to.deep.equal(hashComplexObject);
 
-    const b64urlEncoded = encodeHash(hashComplexObject, 'base64url');
+    const b64urlEncoded = encode(hashComplexObject, 'base64url');
     expect(b64urlEncoded).to.equal('al4wDwZaZUH5zT3uwkukyu1tWio7IZ8W6TV0Wf-gGTg');
-    expect(decodeHash(b64urlEncoded, 'base64url')).to.deep.equal(hashComplexObject);
+    expect(decode(b64urlEncoded, 'base64url')).to.deep.equal(hashComplexObject);
   });
 });

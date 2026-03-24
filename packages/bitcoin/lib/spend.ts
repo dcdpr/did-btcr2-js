@@ -1,11 +1,11 @@
-import { Psbt } from 'bitcoinjs-lib';
-import { BitcoinConnection } from '../src/bitcoin.js';
-import { AddressUtxo } from '../src/types.js';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
-import { Canonicalization } from '@did-btcr2/common';
+import { Psbt } from 'bitcoinjs-lib';
+import { BitcoinConnection } from '../src/connection.js';
+import { AddressUtxo } from '../src/types.js';
+import { decode } from '@did-btcr2/common';
 
 const bitcoin = BitcoinConnection.forNetwork('regtest');
-const secretKey = Canonicalization.fromHex('b8e9cdde0453f6608df2dde9f4b0000416537361d08b8981ea0187455113c259');
+const secretKey = decode('b8e9cdde0453f6608df2dde9f4b0000416537361d08b8981ea0187455113c259', 'hex');
 const keys = SchnorrKeyPair.fromSecret(secretKey);
 const sender = 'mh9sw9VFe82gNUBbuLXAkBhS42Z1c6JH8E';
 const receiver = 'mv6FGwgr91ZzW4vT5GWEoXDPMk29j1LRpP';
@@ -25,7 +25,7 @@ console.log('prevTx:', prevTx);
 const input = {
   hash           : txid,
   index          : vout,
-  nonWitnessUtxo : Canonicalization.fromHex(prevTx)
+  nonWitnessUtxo : decode(prevTx, 'hex')
 };
 console.log('input:', input);
 const signedSpendTx  = new Psbt({ network: bitcoin.data })

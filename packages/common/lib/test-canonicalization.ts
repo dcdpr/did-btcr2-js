@@ -44,5 +44,5 @@ const sourceDocument = {
     }
   ]
 };
-const result = canonicalHash(sourceDocument, { encoding: 'base64url' });
+const result = canonicalHash(sourceDocument);
 console.log('canonicalhash:', result);
