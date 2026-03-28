@@ -311,7 +311,7 @@ export class BeaconCoordinator {
    * Builds the aggregated data structure for a cohort once all updates are collected.
    * Dispatches to the appropriate builder based on the cohort's beaconType:
    * - CASBeacon: builds a CAS Announcement (DID → updateHash map)
-   * - SMTBeacon: builds a BTCR2MerkleTree (not yet implemented)
+   * - SMTBeacon: builds a BTCR2MerkleTree with per-participant proofs
    *
    * @param {string} cohortId The ID of the cohort to build aggregated data for.
    * @returns {void}
@@ -331,11 +331,11 @@ export class BeaconCoordinator {
         console.info(`CAS Announcement built for cohort ${cohortId}: ${Object.keys(announcement).length} DID entries.`);
         break;
       }
-      case 'SMTBeacon':
-        throw new BeaconCoordinatorError(
-          'SMT tree building not yet implemented.',
-          'METHOD_NOT_IMPLEMENTED', { cohortId, beaconType: cohort.beaconType }
-        );
+      case 'SMTBeacon': {
+        const proofs = cohort.buildSMTTree();
+        console.info(`SMT tree built for cohort ${cohortId}: ${proofs.size} proofs generated.`);
+        break;
+      }
       default:
         throw new BeaconCoordinatorError(
           `Unsupported beacon type: ${cohort.beaconType}`,
