@@ -1,8 +1,10 @@
 import { expect } from 'chai';
+import { randomBytes } from 'crypto';
 import { canonicalHash, encode, hash, canonicalize } from '@did-btcr2/common';
+import { BTCR2MerkleTree, hashToHex } from '@did-btcr2/smt';
 import { DidBtcr2 } from '../src/did-btcr2.js';
 import { BeaconService, BeaconSignal } from '../src/core/beacon/interfaces.js';
-import { NeedBeaconSignals, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate } from '../src/core/resolver.js';
+import { NeedBeaconSignals, NeedCASAnnouncement, NeedGenesisDocument, NeedSMTProof, NeedSignedUpdate } from '../src/core/resolver.js';
 import deterministicData from './data/deterministic-data.js';
 import externalData from './data/external-data.js';
 
@@ -316,6 +318,161 @@ describe('Resolver', () => {
       // Resolve.updates will fail on hash mismatch). The point is testing
       // the multi-round data-need protocol, not update application.
       // So we just verify we got through the NeedCASAnnouncement → NeedSignedUpdate flow.
+    });
+  });
+
+  describe('missing SMT sidecar data needs', () => {
+    it('emits NeedSMTProof when SMT signal has no matching sidecar proof', () => {
+      const { genesisDocument } = externalData[2]; // regtest
+
+      // Build a genesis document with an SMT beacon service
+      const smtGenesisDoc = JSON.parse(JSON.stringify(genesisDocument));
+      smtGenesisDoc.service[0].type = 'SMTBeacon';
+
+      // Compute correct genesis bytes for modified document
+      const smtGenesisBytes = hash(canonicalize(smtGenesisDoc));
+      const smtDid = DidBtcr2.create(smtGenesisBytes, { idType: 'EXTERNAL', version: 1, network: 'regtest' });
+
+      const resolver = DidBtcr2.resolve(smtDid, { sidecar: { genesisDocument: smtGenesisDoc } });
+
+      // First resolve — needs beacon signals
+      let state = resolver.resolve();
+      if(state.status !== 'action-required') return;
+      expect(state.needs[0].kind).to.equal('NeedBeaconSignals');
+      const beaconNeed = state.needs[0] as NeedBeaconSignals;
+
+      // Provide a fake SMT beacon signal (root hash not in sidecar)
+      const fakeRootHash = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
+      const smtService = beaconNeed.beaconServices[0] as BeaconService;
+      const fakeSignals = new Map<BeaconService, Array<BeaconSignal>>();
+      fakeSignals.set(smtService, [{
+        tx            : {} as any,
+        signalBytes   : fakeRootHash,
+        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+      }]);
+      resolver.provide(beaconNeed, fakeSignals);
+
+      // Resolve should return NeedSMTProof
+      state = resolver.resolve();
+      expect(state.status).to.equal('action-required');
+      if(state.status !== 'action-required') return;
+      expect(state.needs[0].kind).to.equal('NeedSMTProof');
+
+      const smtNeed = state.needs[0] as NeedSMTProof;
+      expect(smtNeed.beaconServiceId).to.equal(smtService.id);
+      expect(smtNeed.smtRootHash).to.equal(fakeRootHash);
+    });
+  });
+
+  describe('multi-round SMT resolution', () => {
+    it('progresses through NeedSMTProof → NeedSignedUpdate', () => {
+      const { genesisDocument } = externalData[2]; // regtest
+
+      // Build a genesis document with an SMT beacon service
+      const smtGenesisDoc = JSON.parse(JSON.stringify(genesisDocument));
+      smtGenesisDoc.service[0].type = 'SMTBeacon';
+
+      const smtGenesisBytes = hash(canonicalize(smtGenesisDoc));
+      const smtDid = DidBtcr2.create(smtGenesisBytes, { idType: 'EXTERNAL', version: 1, network: 'regtest' });
+
+      // Build a fake signed update
+      const fakeUpdate = { '@context': ['test'], patch: [], targetHash: 'fake', targetVersionId: 2, sourceHash: 'fake' };
+
+      // Build a real SMT tree containing this DID's update
+      const nonce = randomBytes(32);
+      const signedUpdateBytes = new TextEncoder().encode(canonicalize(fakeUpdate));
+      const tree = new BTCR2MerkleTree();
+      tree.addEntries([{ did: smtDid, nonce, signedUpdate: signedUpdateBytes }]);
+      tree.finalize();
+
+      // Get the root hash (for signal bytes) and proof (for sidecar)
+      const rootHashHex = hashToHex(tree.rootHash);
+      const smtProof = tree.proof(smtDid);
+
+      const resolver = DidBtcr2.resolve(smtDid, { sidecar: { genesisDocument: smtGenesisDoc } });
+
+      // Step 1: NeedBeaconSignals
+      let state = resolver.resolve();
+      if(state.status !== 'action-required') return;
+      const beaconNeed = state.needs[0] as NeedBeaconSignals;
+      const smtService = beaconNeed.beaconServices[0] as BeaconService;
+
+      // Provide signal whose bytes = SMT root hash
+      const fakeSignals = new Map<BeaconService, Array<BeaconSignal>>();
+      fakeSignals.set(smtService, [{
+        tx            : {} as any,
+        signalBytes   : rootHashHex,
+        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+      }]);
+      resolver.provide(beaconNeed, fakeSignals);
+
+      // Step 2: NeedSMTProof (proof not in sidecar)
+      state = resolver.resolve();
+      expect(state.status).to.equal('action-required');
+      if(state.status !== 'action-required') return;
+      expect(state.needs[0].kind).to.equal('NeedSMTProof');
+
+      // Provide the SMT proof
+      resolver.provide(state.needs[0] as NeedSMTProof, smtProof);
+
+      // Step 3: NeedSignedUpdate (update not in sidecar)
+      state = resolver.resolve();
+      expect(state.status).to.equal('action-required');
+      if(state.status !== 'action-required') return;
+      expect(state.needs[0].kind).to.equal('NeedSignedUpdate');
+
+      const updateNeed = state.needs[0] as NeedSignedUpdate;
+      expect(updateNeed.beaconServiceId).to.equal(smtService.id);
+
+      // The updateHash should be the base64url encoding of the proof's updateId
+      const expectedUpdateHash = canonicalHash(fakeUpdate);
+      expect(updateNeed.updateHash).to.equal(expectedUpdateHash);
+    });
+
+    it('skips non-inclusion proofs (no updateId)', () => {
+      const { genesisDocument } = externalData[2]; // regtest
+
+      // Build a genesis document with an SMT beacon service
+      const smtGenesisDoc = JSON.parse(JSON.stringify(genesisDocument));
+      smtGenesisDoc.service[0].type = 'SMTBeacon';
+
+      const smtGenesisBytes = hash(canonicalize(smtGenesisDoc));
+      const smtDid = DidBtcr2.create(smtGenesisBytes, { idType: 'EXTERNAL', version: 1, network: 'regtest' });
+
+      // Build a tree with a non-inclusion entry (no signedUpdate)
+      const nonce = randomBytes(32);
+      const tree = new BTCR2MerkleTree();
+      tree.addEntries([{ did: smtDid, nonce }]);
+      tree.finalize();
+
+      const rootHashHex = hashToHex(tree.rootHash);
+      const smtProof = tree.proof(smtDid);
+
+      // Non-inclusion proof should have no updateId
+      expect(smtProof.updateId).to.be.undefined;
+
+      const resolver = DidBtcr2.resolve(smtDid, {
+        sidecar : { genesisDocument: smtGenesisDoc, smtProofs: [smtProof] }
+      });
+
+      // Step 1: NeedBeaconSignals
+      let state = resolver.resolve();
+      if(state.status !== 'action-required') return;
+      const beaconNeed = state.needs[0] as NeedBeaconSignals;
+      const smtService = beaconNeed.beaconServices[0] as BeaconService;
+
+      // Provide signal with the root hash
+      const fakeSignals = new Map<BeaconService, Array<BeaconSignal>>();
+      fakeSignals.set(smtService, [{
+        tx            : {} as any,
+        signalBytes   : rootHashHex,
+        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+      }]);
+      resolver.provide(beaconNeed, fakeSignals);
+
+      // Should resolve (non-inclusion skipped, no updates, no needs)
+      state = resolver.resolve();
+      expect(state.status).to.equal('resolved');
     });
   });
 
