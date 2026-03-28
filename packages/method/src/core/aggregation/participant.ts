@@ -1,9 +1,10 @@
 import { KeyBytes, Maybe } from '@did-btcr2/common';
+import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { HDKey } from '@scure/bip32';
 import { mnemonicToSeedSync } from '@scure/bip39';
 import * as musig2 from '@scure/btc-signer/musig2';
 import { Transaction } from 'bitcoinjs-lib';
-import { BeaconParticipantError } from '../error.js';
+import { BeaconParticipantError } from '../beacon/error.js';
 import { AggregateBeaconCohort } from './cohort/index.js';
 import {
   BEACON_COHORT_ADVERT,
@@ -17,6 +18,7 @@ import { BeaconCohortReadyMessage, CohortReadyMessage } from './cohort/messages/
 import { BeaconCohortOptInAcceptMessage, CohortOptInAcceptMessage } from './cohort/messages/keygen/opt-in-accept.js';
 import { BeaconCohortOptInMessage } from './cohort/messages/keygen/opt-in.js';
 import { BeaconCohortSubscribeMessage } from './cohort/messages/keygen/subscribe.js';
+import { BeaconCohortSubmitUpdateMessage } from './cohort/messages/update/submit-update.js';
 import { BeaconCohortAggregatedNonceMessage, CohortAggregatedNonceMessage } from './cohort/messages/sign/aggregated-nonce.js';
 import { BeaconCohortAuthorizationRequestMessage, CohortAuthorizationRequestMessage } from './cohort/messages/sign/authorization-request.js';
 import { BeaconCohortNonceContributionMessage } from './cohort/messages/sign/nonce-contribution.js';
@@ -404,6 +406,36 @@ export class BeaconParticipant {
 
     await this.protocol.sendMessage(optInMessage, this.did, coordinatorDid);
     cohort.status = COHORT_STATUS.COHORT_OPTED_IN;
+  }
+
+  /**
+   * Submits a signed DID update to the cohort coordinator during the Announce Updates phase.
+   * @param {string} cohortId The ID of the cohort to submit the update to.
+   * @param {SignedBTCR2Update} signedUpdate The participant's signed update to include in the aggregation.
+   * @returns {Promise<void>}
+   */
+  public async submitUpdate(cohortId: string, signedUpdate: SignedBTCR2Update): Promise<void> {
+    const cohort = this.cohorts.find(c => c.id === cohortId);
+    if(!cohort) {
+      throw new BeaconParticipantError(
+        `Cohort with ID ${cohortId} not found.`,
+        'COHORT_NOT_FOUND', { cohortId }
+      );
+    }
+    if(cohort.status !== COHORT_STATUS.COHORT_SET_STATUS && cohort.status !== COHORT_STATUS.COLLECTING_UPDATES) {
+      throw new BeaconParticipantError(
+        `Cohort ${cohortId} is not accepting updates. Current status: ${cohort.status}`,
+        'UPDATE_SUBMISSION_ERROR', { cohortId, status: cohort.status }
+      );
+    }
+    const message = new BeaconCohortSubmitUpdateMessage({
+      to           : cohort.coordinatorDid,
+      from         : this.did,
+      cohortId,
+      signedUpdate : signedUpdate as unknown as Record<string, unknown>,
+    });
+    await this.protocol.sendMessage(message, this.did, cohort.coordinatorDid);
+    console.info(`Update submitted for cohort ${cohortId} by participant ${this.did}`);
   }
 
   /**

@@ -37,7 +37,7 @@ export class CASBeacon extends Beacon {
    * For each signal, the signalBytes contain the hex-encoded hash of a CAS Announcement.
    * The CAS Announcement maps DIDs to their base64url-encoded update hashes.
    * This method looks up the CAS Announcement from the sidecar, extracts the update
-   * hash for the DID being resolved, and retrieves the corresponding signed update.
+   * hash for the DID being resolved, and retrieves the corresponding signed update from sidecar.
    *
    * @param {Array<BeaconSignal>} signals The array of Beacon Signals to process.
    * @param {SidecarData} sidecar The sidecar data associated with the CAS Beacon.

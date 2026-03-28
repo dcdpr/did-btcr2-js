@@ -1,6 +1,7 @@
+import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { keyAggExport, keyAggregate, sortKeys } from '@scure/btc-signer/musig2';
 import { payments, Transaction } from 'bitcoinjs-lib';
-import { BeaconCoordinatorError } from '../../error.js';
+import { BeaconCoordinatorError } from '../../beacon/error.js';
 import { BeaconCohortSigningSession } from '../session/index.js';
 import { BeaconCohortReadyMessage } from './messages/keygen/cohort-ready.js';
 import { BeaconCohortRequestSignatureMessage } from './messages/sign/request-signature.js';
@@ -22,6 +23,7 @@ export interface BeaconCohort {
   status: COHORT_STATUS_TYPE;
   network: string;
   pendingSignatureRequests?: Record<string, string>;
+  pendingUpdates?: Map<string, SignedBTCR2Update>;
   participants?: Array<string>;
   cohortKeys?: Array<Uint8Array>;
   trMerkleRoot?: Uint8Array;
@@ -94,6 +96,13 @@ export class AggregateBeaconCohort implements BeaconCohort {
    * @type {string}
    */
   public beaconType: string;
+
+  /**
+   * Pending DID updates submitted by participants during the Announce Updates phase.
+   * Keyed by participant DID, valued by their signed update.
+   * @type {Map<string, SignedBTCR2Update>}
+   */
+  public pendingUpdates: Map<string, SignedBTCR2Update> = new Map();
 
   /**
    * Creates a new Musig2Cohort instance.
@@ -245,6 +254,53 @@ export class AggregateBeaconCohort implements BeaconCohort {
   }
 
   /**
+   * Adds a signed DID update from a participant during the Announce Updates phase.
+   * Transitions the cohort to COLLECTING_UPDATES on the first update, and to
+   * UPDATES_COLLECTED once all participants have submitted.
+   * @param {string} participantDid The DID of the participant submitting the update.
+   * @param {SignedBTCR2Update} signedUpdate The participant's signed update.
+   * @throws {BeaconCoordinatorError} If the participant is not in the cohort or the cohort
+   *   is not in a valid state for accepting updates.
+   */
+  public addUpdate(participantDid: string, signedUpdate: SignedBTCR2Update): void {
+    if(this.status !== COHORT_STATUS.COHORT_SET_STATUS && this.status !== COHORT_STATUS.COLLECTING_UPDATES) {
+      throw new BeaconCoordinatorError(
+        `Cohort ${this.id} is not accepting updates. Current status: ${this.status}`,
+        'UPDATE_SUBMISSION_ERROR', { cohortId: this.id, status: this.status }
+      );
+    }
+
+    if(!this.participants.includes(participantDid)) {
+      throw new BeaconCoordinatorError(
+        `Participant ${participantDid} is not in cohort ${this.id}.`,
+        'UPDATE_SUBMISSION_ERROR', { cohortId: this.id, participantDid }
+      );
+    }
+
+    if(this.pendingUpdates.has(participantDid)) {
+      console.warn(`Update already received from ${participantDid} for cohort ${this.id}. Replacing.`);
+    }
+
+    this.pendingUpdates.set(participantDid, signedUpdate);
+
+    if(this.status === COHORT_STATUS.COHORT_SET_STATUS) {
+      this.status = COHORT_STATUS.COLLECTING_UPDATES;
+    }
+
+    if(this.hasAllUpdates()) {
+      this.status = COHORT_STATUS.UPDATES_COLLECTED;
+    }
+  }
+
+  /**
+   * Checks whether all participants have submitted their updates.
+   * @returns {boolean} True if all participants have submitted updates.
+   */
+  public hasAllUpdates(): boolean {
+    return this.pendingUpdates.size === this.participants.length;
+  }
+
+  /**
    * Validates a signature request message to ensure it is from a participant in the cohort.
    * @param {BeaconCohortRequestSignatureMessage} message The signature request message to validate.
    * @returns {boolean} True if the message is valid, false otherwise.
@@ -294,6 +350,7 @@ export class AggregateBeaconCohort implements BeaconCohort {
       status                   : this.status,
       network                  : this.network,
       pendingSignatureRequests : this.pendingSignatureRequests,
+      pendingUpdates           : this.pendingUpdates,
       participants             : this.participants,
       cohortKeys               : this.cohortKeys,
       trMerkleRoot             : this.trMerkleRoot,

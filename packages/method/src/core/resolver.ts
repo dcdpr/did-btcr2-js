@@ -407,8 +407,6 @@ export class Resolver {
     return response;
   }
 
-  // ─── Private static: update internals ──────────────────────────────
-
   /**
    * Implements subsection {@link https://dcdpr.github.io/did-btcr2/#confirm-duplicate-update | 7.2.f.1 Confirm Duplicate Update}.
    * This step confirms that an update with a lower-than-expected targetVersionId is a true duplicate.

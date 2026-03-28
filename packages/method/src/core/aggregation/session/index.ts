@@ -1,6 +1,6 @@
 import * as musig2 from '@scure/btc-signer/musig2';
 import { Transaction } from 'bitcoinjs-lib';
-import { AggregateBeaconError } from '../../error.js';
+import { AggregateBeaconError } from '../../beacon/error.js';
 import { AggregateBeaconCohort } from '../cohort/index.js';
 import { BeaconCohortAuthorizationRequestMessage } from '../cohort/messages/sign/authorization-request.js';
 import { SIGNING_SESSION_STATUS, SIGNING_SESSION_STATUS_TYPE } from './status.js';

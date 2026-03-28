@@ -5,7 +5,7 @@ import { CompressedSecp256k1PublicKey, RawSchnorrKeyPair, SchnorrKeyPair, Secp25
 import { nonceGen } from '@scure/btc-signer/musig2';
 import { Event, EventTemplate, Filter, finalizeEvent, nip44 } from 'nostr-tools';
 import { SimplePool } from 'nostr-tools/pool';
-import { Identifier } from '../../../../identifier.js';
+import { Identifier } from '../../../identifier.js';
 import {
   BEACON_COHORT_ADVERT,
   BEACON_COHORT_AGGREGATED_NONCE,

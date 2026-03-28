@@ -1,13 +1,15 @@
 import { Maybe } from '@did-btcr2/common';
+import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { RawSchnorrKeyPair } from '@did-btcr2/keypair';
-import { BeaconCoordinatorError } from '../error.js';
+import { BeaconCoordinatorError } from '../beacon/error.js';
 import { AggregateBeaconCohort } from './cohort/index.js';
 import {
   BEACON_COHORT_ADVERT,
   BEACON_COHORT_NONCE_CONTRIBUTION,
   BEACON_COHORT_OPT_IN,
   BEACON_COHORT_REQUEST_SIGNATURE,
-  BEACON_COHORT_SIGNATURE_AUTHORIZATION
+  BEACON_COHORT_SIGNATURE_AUTHORIZATION,
+  BEACON_COHORT_SUBMIT_UPDATE
 } from './cohort/messages/constants.js';
 import { BeaconCohortAdvertMessage } from './cohort/messages/keygen/cohort-advert.js';
 import { BeaconCohortReadyMessage } from './cohort/messages/keygen/cohort-ready.js';
@@ -17,6 +19,7 @@ import { BeaconCohortAggregatedNonceMessage } from './cohort/messages/sign/aggre
 import { BeaconCohortNonceContributionMessage, CohortNonceContributionMessage } from './cohort/messages/sign/nonce-contribution.js';
 import { BeaconCohortRequestSignatureMessage, CohortRequestSignatureMessage } from './cohort/messages/sign/request-signature.js';
 import { BeaconCohortSignatureAuthorizationMessage, CohortSignatureAuthorizationMessage } from './cohort/messages/sign/signature-authorization.js';
+import { BeaconCohortSubmitUpdateMessage, CohortSubmitUpdateMessage } from './cohort/messages/update/submit-update.js';
 import { NostrAdapter } from './communication/adapter/nostr.js';
 import { CommunicationFactory } from './communication/factory.js';
 import { CommunicationService, Service, ServiceAdapterIdentity } from './communication/service.js';
@@ -100,6 +103,7 @@ export class BeaconCoordinator {
   start(): void {
     console.info(`Setting up BeaconCoordinator ${this.name} (${this.did}) on ${this.protocol.name} ...`);
     this.protocol.registerMessageHandler(BEACON_COHORT_OPT_IN, this.#handleOptIn.bind(this));
+    this.protocol.registerMessageHandler(BEACON_COHORT_SUBMIT_UPDATE, this.#handleSubmitUpdate.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_REQUEST_SIGNATURE, this.#handleRequestSignature.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_NONCE_CONTRIBUTION, this.#handleNonceContribution.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_SIGNATURE_AUTHORIZATION, this.#handleSignatureAuthorization.bind(this));
@@ -130,6 +134,33 @@ export class BeaconCoordinator {
         await this._startKeyGeneration(cohort);
       }
     }
+  }
+
+  /**
+   * Handles update submission messages from participants during the Announce Updates phase.
+   * Validates the message, finds the cohort, and delegates to cohort.addUpdate().
+   * @param {CohortSubmitUpdateMessage} message The message containing the signed update.
+   * @returns {Promise<void>}
+   */
+  async #handleSubmitUpdate(message: Maybe<CohortSubmitUpdateMessage>): Promise<void> {
+    const submitMessage = BeaconCohortSubmitUpdateMessage.fromJSON(message);
+    const cohortId = submitMessage.body?.cohortId;
+    if(!cohortId) {
+      console.warn(`Submit update message missing cohort ID from ${submitMessage.from}`);
+      return;
+    }
+    const cohort = this.cohorts.find(c => c.id === cohortId);
+    if(!cohort) {
+      console.error(`Cohort with ID ${cohortId} not found.`);
+      return;
+    }
+    const signedUpdate = submitMessage.body?.signedUpdate;
+    if(!signedUpdate) {
+      console.warn(`Submit update message missing signed update from ${submitMessage.from}`);
+      return;
+    }
+    cohort.addUpdate(submitMessage.from, signedUpdate as unknown as SignedBTCR2Update);
+    console.info(`Update received from ${submitMessage.from} for cohort ${cohortId}. Collected ${cohort.pendingUpdates.size}/${cohort.participants.length} updates.`);
   }
 
   /**
