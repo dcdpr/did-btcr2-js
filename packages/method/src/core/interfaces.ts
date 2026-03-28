@@ -64,11 +64,11 @@ export interface SMTProof {
    */
   id: string;
   /**
-   * Optional 256-bit nonce generated for each update. MUST be encoded as a string using the "base64url" [RFC4648] encoding.
+   * Optional 256-bit nonce generated for each update. Hex-encoded (64 chars).
    */
   nonce?: string;
   /**
-   * Optional BTCR2 Signed Update (data structure) hashed with the JSON Document Hashing algorithm.
+   * Optional hex-encoded canonical hash of the BTCR2 Signed Update.
    */
   updateId?: string;
   /**

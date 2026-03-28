@@ -5,11 +5,10 @@ import {
   verifySerializedProof,
   HASH_BYTE_LENGTH,
 } from '../src/index.js';
+import { randomBytes } from '@noble/curves/utils.js';
 
 function randomHash(): Uint8Array {
-  const buf = new Uint8Array(HASH_BYTE_LENGTH);
-  crypto.getRandomValues(buf);
-  return buf;
+  return randomBytes(HASH_BYTE_LENGTH);
 }
 
 function makeEntry(did: string, include = true): TreeEntry {

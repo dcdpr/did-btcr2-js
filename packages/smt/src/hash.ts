@@ -103,7 +103,7 @@ export function hexToBigInt(hex: string, padded: boolean): bigint {
 }
 
 /**
- * Constant-time comparison of two 32-byte hashes using `crypto.timingSafeEqual`.
+ * Constant-time comparison of two 32-byte hashes using `equalBytes`.
  * Returns false if either hash has an invalid length.
  */
 export function hashesEqual(a: Uint8Array, b: Uint8Array): boolean {

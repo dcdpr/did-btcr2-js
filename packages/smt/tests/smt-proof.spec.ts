@@ -1,13 +1,12 @@
+import { randomBytes } from '@noble/hashes/utils';
 import { expect } from 'chai';
 import {
-  OptimizedSMT, SMTProof, hashToBigInt,
   HASH_BYTE_LENGTH,
+  OptimizedSMT, SMTProof, hashToBigInt,
 } from '../src/index.js';
 
 function randomHash(): Uint8Array {
-  const buf = new Uint8Array(HASH_BYTE_LENGTH);
-  crypto.getRandomValues(buf);
-  return buf;
+  return randomBytes(HASH_BYTE_LENGTH);
 }
 
 function randomBigInt(): bigint {

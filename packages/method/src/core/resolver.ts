@@ -81,8 +81,17 @@ export interface NeedSignedUpdate {
   readonly beaconServiceId: string;
 }
 
+/** The resolver needs an SMT Proof whose root hash matches smtRootHash. */
+export interface NeedSMTProof {
+  readonly kind: 'NeedSMTProof';
+  /** Hex-encoded SHA-256 root hash of the Sparse Merkle Tree. */
+  readonly smtRootHash: string;
+  /** The beacon service that produced this signal. */
+  readonly beaconServiceId: string;
+}
+
 /** Discriminated union of all data the resolver may request from the caller. */
-export type DataNeed = NeedGenesisDocument | NeedBeaconSignals | NeedCASAnnouncement | NeedSignedUpdate;
+export type DataNeed = NeedGenesisDocument | NeedBeaconSignals | NeedCASAnnouncement | NeedSignedUpdate | NeedSMTProof;
 
 /**
  * Output of {@link Resolver.resolve}. Analogous to Rust's `ResolverState` enum.
@@ -683,7 +692,8 @@ export class Resolver {
   provide(need: NeedBeaconSignals, data: Map<BeaconService, Array<BeaconSignal>>): void;
   provide(need: NeedCASAnnouncement, data: CASAnnouncement): void;
   provide(need: NeedSignedUpdate, data: SignedBTCR2Update): void;
-  provide(need: DataNeed, data: object | Map<BeaconService, Array<BeaconSignal>> | CASAnnouncement | SignedBTCR2Update): void {
+  provide(need: NeedSMTProof, data: SMTProof): void;
+  provide(need: DataNeed, data: object | Map<BeaconService, Array<BeaconSignal>> | CASAnnouncement | SignedBTCR2Update | SMTProof): void {
     switch(need.kind) {
       case 'NeedGenesisDocument': {
         this.#providedGenesisDocument = data;
@@ -707,6 +717,19 @@ export class Resolver {
       case 'NeedSignedUpdate': {
         const update = data as SignedBTCR2Update;
         this.#sidecarData.updateMap.set(canonicalHash(update, { encoding: 'hex' }), update);
+        break;
+      }
+
+      case 'NeedSMTProof': {
+        const smtNeed = need as NeedSMTProof;
+        const proof = data as SMTProof;
+        if(proof.id !== smtNeed.smtRootHash) {
+          throw new ResolveError(
+            `SMT proof root hash mismatch: expected ${smtNeed.smtRootHash}, got ${proof.id}`,
+            INVALID_DID_UPDATE, { expected: smtNeed.smtRootHash, actual: proof.id }
+          );
+        }
+        this.#sidecarData.smtMap.set(smtNeed.smtRootHash, proof);
         break;
       }
     }
