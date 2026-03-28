@@ -1,7 +1,9 @@
+import { canonicalHash, canonicalize, hash } from '@did-btcr2/common';
 import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { keyAggExport, keyAggregate, sortKeys } from '@scure/btc-signer/musig2';
 import { payments, Transaction } from 'bitcoinjs-lib';
 import { BeaconCoordinatorError } from '../../beacon/error.js';
+import { CASAnnouncement } from '../../types.js';
 import { BeaconCohortSigningSession } from '../session/index.js';
 import { BeaconCohortReadyMessage } from './messages/keygen/cohort-ready.js';
 import { BeaconCohortRequestSignatureMessage } from './messages/sign/request-signature.js';
@@ -24,6 +26,8 @@ export interface BeaconCohort {
   network: string;
   pendingSignatureRequests?: Record<string, string>;
   pendingUpdates?: Map<string, SignedBTCR2Update>;
+  casAnnouncement?: CASAnnouncement;
+  signalBytes?: Uint8Array;
   participants?: Array<string>;
   cohortKeys?: Array<Uint8Array>;
   trMerkleRoot?: Uint8Array;
@@ -103,6 +107,21 @@ export class AggregateBeaconCohort implements BeaconCohort {
    * @type {Map<string, SignedBTCR2Update>}
    */
   public pendingUpdates: Map<string, SignedBTCR2Update> = new Map();
+
+  /**
+   * Built CAS Announcement mapping participant DIDs to their update hashes.
+   * Populated by buildCASAnnouncement() after all updates are collected.
+   * @type {CASAnnouncement}
+   */
+  public casAnnouncement?: CASAnnouncement;
+
+  /**
+   * Signal bytes to commit on-chain (hash of aggregated data structure).
+   * For CAS beacons: SHA-256 of the canonicalized CAS Announcement.
+   * For SMT beacons: the Merkle root hash.
+   * @type {Uint8Array}
+   */
+  public signalBytes?: Uint8Array;
 
   /**
    * Creates a new Musig2Cohort instance.
@@ -301,6 +320,35 @@ export class AggregateBeaconCohort implements BeaconCohort {
   }
 
   /**
+   * Builds a CAS Announcement from collected participant updates.
+   * Maps each participant DID to the base64url-encoded canonical hash of their signed update.
+   * Computes signal bytes as the SHA-256 hash of the canonicalized announcement.
+   * Transitions the cohort to DATA_AGGREGATED status.
+   *
+   * @returns {CASAnnouncement} The built CAS Announcement.
+   * @throws {BeaconCoordinatorError} If updates have not been fully collected.
+   */
+  public buildCASAnnouncement(): CASAnnouncement {
+    if(this.status !== COHORT_STATUS.UPDATES_COLLECTED) {
+      throw new BeaconCoordinatorError(
+        `Cannot build CAS Announcement: cohort ${this.id} status is ${this.status}, expected UPDATES_COLLECTED.`,
+        'AGGREGATION_ERROR', { cohortId: this.id, status: this.status }
+      );
+    }
+
+    const announcement: CASAnnouncement = {};
+    for(const [did, signedUpdate] of this.pendingUpdates) {
+      announcement[did] = canonicalHash(signedUpdate);
+    }
+
+    this.casAnnouncement = announcement;
+    this.signalBytes = hash(canonicalize(announcement));
+    this.status = COHORT_STATUS.DATA_AGGREGATED;
+
+    return announcement;
+  }
+
+  /**
    * Validates a signature request message to ensure it is from a participant in the cohort.
    * @param {BeaconCohortRequestSignatureMessage} message The signature request message to validate.
    * @returns {boolean} True if the message is valid, false otherwise.
@@ -351,6 +399,8 @@ export class AggregateBeaconCohort implements BeaconCohort {
       network                  : this.network,
       pendingSignatureRequests : this.pendingSignatureRequests,
       pendingUpdates           : this.pendingUpdates,
+      casAnnouncement          : this.casAnnouncement,
+      signalBytes              : this.signalBytes,
       participants             : this.participants,
       cohortKeys               : this.cohortKeys,
       trMerkleRoot             : this.trMerkleRoot,

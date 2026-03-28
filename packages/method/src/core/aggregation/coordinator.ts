@@ -131,7 +131,7 @@ export class BeaconCoordinator {
       await this.acceptSubscription(participant);
       // If the cohort has enough participants, start the key generation process.
       if (cohort.participants.length >= cohort.minParticipants) {
-        await this._startKeyGeneration(cohort);
+        await this.#startKeyGeneration(cohort);
       }
     }
   }
@@ -187,6 +187,7 @@ export class BeaconCoordinator {
 
   /**
    * Handles nonce contribution messages from participants.
+   * @private
    * @param {CohortNonceContributionMessage} message The message containing the nonce contribution.
    * @returns {Promise<void>}
    */
@@ -235,6 +236,7 @@ export class BeaconCoordinator {
 
   /**
    * Handles signature authorization messages from participants.
+   * @private
    * @param {Maybe<CohortSignatureAuthorizationMessage>} message The message containing the signature authorization request.
    * @returns {Promise<void>}
    */
@@ -290,10 +292,11 @@ export class BeaconCoordinator {
 
   /**
    * Starts the key generation process for a cohort once it has enough participants.
+   * @private
    * @param {Musig2Cohort} cohort The cohort for which to start key generation.
    * @returns {Promise<void>}
    */
-  private async _startKeyGeneration(cohort: AggregateBeaconCohort): Promise<void> {
+  async #startKeyGeneration(cohort: AggregateBeaconCohort): Promise<void> {
     console.info(`Starting key generation for cohort ${cohort.id} with participants: ${cohort.participants.join(', ')}`);
     cohort.finalize();
     for(const participant of cohort.participants) {
@@ -302,6 +305,43 @@ export class BeaconCoordinator {
       await this.protocol.sendMessage(message, participant, this.did);
     }
     console.info(`Finished sending BEACON_COHORT_READY message to ${cohort.participants.length} participants`);
+  }
+
+  /**
+   * Builds the aggregated data structure for a cohort once all updates are collected.
+   * Dispatches to the appropriate builder based on the cohort's beaconType:
+   * - CASBeacon: builds a CAS Announcement (DID → updateHash map)
+   * - SMTBeacon: builds a BTCR2MerkleTree (not yet implemented)
+   *
+   * @param {string} cohortId The ID of the cohort to build aggregated data for.
+   * @returns {void}
+   * @throws {BeaconCoordinatorError} If the cohort is not found or the beacon type is unsupported.
+   */
+  buildAggregatedData(cohortId: string): void {
+    const cohort = this.cohorts.find(c => c.id === cohortId);
+    if(!cohort) {
+      throw new BeaconCoordinatorError(
+        `Cohort with ID ${cohortId} not found.`,
+        'COHORT_NOT_FOUND', { cohortId }
+      );
+    }
+    switch(cohort.beaconType) {
+      case 'CASBeacon': {
+        const announcement = cohort.buildCASAnnouncement();
+        console.info(`CAS Announcement built for cohort ${cohortId}: ${Object.keys(announcement).length} DID entries.`);
+        break;
+      }
+      case 'SMTBeacon':
+        throw new BeaconCoordinatorError(
+          'SMT tree building not yet implemented.',
+          'METHOD_NOT_IMPLEMENTED', { cohortId, beaconType: cohort.beaconType }
+        );
+      default:
+        throw new BeaconCoordinatorError(
+          `Unsupported beacon type: ${cohort.beaconType}`,
+          'UNSUPPORTED_BEACON_TYPE', { cohortId, beaconType: cohort.beaconType }
+        );
+    }
   }
 
   /**
