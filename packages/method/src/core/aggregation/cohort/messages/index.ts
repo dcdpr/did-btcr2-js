@@ -7,7 +7,10 @@ import {
   BEACON_COHORT_OPT_IN_ACCEPT,
   BEACON_COHORT_READY,
   BEACON_COHORT_REQUEST_SIGNATURE,
-  BEACON_COHORT_SIGNATURE_AUTHORIZATION
+  BEACON_COHORT_DISTRIBUTE_DATA,
+  BEACON_COHORT_SIGNATURE_AUTHORIZATION,
+  BEACON_COHORT_SUBMIT_UPDATE,
+  BEACON_COHORT_VALIDATION_ACK
 } from './constants.js';
 import { CohortAdvertMessage } from './keygen/cohort-advert.js';
 import { CohortReadyMessage } from './keygen/cohort-ready.js';
@@ -19,6 +22,9 @@ import { CohortAuthorizationRequestMessage } from './sign/authorization-request.
 import { CohortNonceContributionMessage } from './sign/nonce-contribution.js';
 import { CohortRequestSignatureMessage } from './sign/request-signature.js';
 import { CohortSignatureAuthorizationMessage } from './sign/signature-authorization.js';
+import { CohortDistributeDataMessage } from './update/distribute-data.js';
+import { CohortSubmitUpdateMessage } from './update/submit-update.js';
+import { CohortValidationAckMessage } from './update/validation-ack.js';
 
 export type KeyGenMessageType =
   | CohortAdvertMessage
@@ -27,6 +33,11 @@ export type KeyGenMessageType =
   | CohortOptInAcceptMessage
   | CohortSubscribeMessage;
 
+export type UpdateMessageType =
+  | CohortSubmitUpdateMessage
+  | CohortDistributeDataMessage
+  | CohortValidationAckMessage;
+
 export type SignMessageType =
   | CohortAggregatedNonceMessage
   | CohortAuthorizationRequestMessage
@@ -34,7 +45,7 @@ export type SignMessageType =
   | CohortRequestSignatureMessage
   | CohortSignatureAuthorizationMessage;
 
-export type AggregateBeaconMessageType = KeyGenMessageType | SignMessageType;
+export type AggregateBeaconMessageType = KeyGenMessageType | UpdateMessageType | SignMessageType;
 
 /**
  * AggregateBeaconMessage is a utility class that provides constants and type checks
@@ -56,6 +67,16 @@ export class AggregateBeaconMessage {
     ['BEACON_COHORT_OPT_IN_ACCEPT', 'BEACON_COHORT_OPT_IN_ACCEPT'],
   ]);
 
+  static BEACON_COHORT_SUBMIT_UPDATE = BEACON_COHORT_SUBMIT_UPDATE;
+  static BEACON_COHORT_DISTRIBUTE_DATA = BEACON_COHORT_DISTRIBUTE_DATA;
+  static BEACON_COHORT_VALIDATION_ACK = BEACON_COHORT_VALIDATION_ACK;
+
+  static BEACON_COHORT_UPDATE_MESSAGES: Map<string, string> = new Map([
+    ['BEACON_COHORT_SUBMIT_UPDATE', 'BEACON_COHORT_SUBMIT_UPDATE'],
+    ['BEACON_COHORT_DISTRIBUTE_DATA', 'BEACON_COHORT_DISTRIBUTE_DATA'],
+    ['BEACON_COHORT_VALIDATION_ACK', 'BEACON_COHORT_VALIDATION_ACK'],
+  ]);
+
   static BEACON_COHORT_REQUEST_SIGNATURE = BEACON_COHORT_REQUEST_SIGNATURE;
   static BEACON_COHORT_AUTHORIZATION_REQUEST = BEACON_COHORT_AUTHORIZATION_REQUEST;
   static BEACON_COHORT_NONCE_CONTRIBUTION = BEACON_COHORT_NONCE_CONTRIBUTION;
@@ -75,6 +96,9 @@ export class AggregateBeaconMessage {
     BEACON_COHORT_OPT_IN,
     BEACON_COHORT_READY,
     BEACON_COHORT_OPT_IN_ACCEPT,
+    BEACON_COHORT_SUBMIT_UPDATE,
+    BEACON_COHORT_DISTRIBUTE_DATA,
+    BEACON_COHORT_VALIDATION_ACK,
     BEACON_COHORT_REQUEST_SIGNATURE,
     BEACON_COHORT_AUTHORIZATION_REQUEST,
     BEACON_COHORT_NONCE_CONTRIBUTION,
@@ -88,7 +112,9 @@ export class AggregateBeaconMessage {
    * @returns
    */
   static isValidType(type: string): boolean {
-    return this.BEACON_COHORT_KEY_GEN_MESSAGES.has(type) || this.BEACON_COHORT_SIGN_MESSAGES.has(type);
+    return this.BEACON_COHORT_KEY_GEN_MESSAGES.has(type)
+      || this.BEACON_COHORT_UPDATE_MESSAGES.has(type)
+      || this.BEACON_COHORT_SIGN_MESSAGES.has(type);
   }
 
   /**
@@ -100,7 +126,9 @@ export class AggregateBeaconMessage {
     if(!this.isValidType(type)) {
       return undefined;
     }
-    return this.BEACON_COHORT_KEY_GEN_MESSAGES.get(type) || this.BEACON_COHORT_SIGN_MESSAGES.get(type);
+    return this.BEACON_COHORT_KEY_GEN_MESSAGES.get(type)
+      || this.BEACON_COHORT_UPDATE_MESSAGES.get(type)
+      || this.BEACON_COHORT_SIGN_MESSAGES.get(type);
   }
 
   /**
@@ -123,6 +151,19 @@ export class AggregateBeaconMessage {
       BEACON_COHORT_READY,
       BEACON_COHORT_OPT_IN,
       BEACON_COHORT_OPT_IN_ACCEPT,
+    ].includes(value);
+  }
+
+  /**
+   * Checks if the provided type is a valid UpdateMessageType.
+   * @param {string} value - The message type to check.
+   * @returns {boolean} - Returns true if the type is an update message type, otherwise false.
+   */
+  static isUpdateMessageValue(value: string): boolean {
+    return this.isValidValue(value) && [
+      BEACON_COHORT_SUBMIT_UPDATE,
+      BEACON_COHORT_DISTRIBUTE_DATA,
+      BEACON_COHORT_VALIDATION_ACK,
     ].includes(value);
   }
 

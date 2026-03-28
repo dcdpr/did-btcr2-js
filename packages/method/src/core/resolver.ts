@@ -75,8 +75,17 @@ export interface NeedSignedUpdate {
   readonly beaconServiceId: string;
 }
 
+/** The resolver needs an SMT Proof whose root hash matches smtRootHash. */
+export interface NeedSMTProof {
+  readonly kind: 'NeedSMTProof';
+  /** Hex-encoded SHA-256 root hash of the Sparse Merkle Tree. */
+  readonly smtRootHash: string;
+  /** The beacon service that produced this signal. */
+  readonly beaconServiceId: string;
+}
+
 /** Discriminated union of all data the resolver may request from the caller. */
-export type DataNeed = NeedGenesisDocument | NeedBeaconSignals | NeedCASAnnouncement | NeedSignedUpdate;
+export type DataNeed = NeedGenesisDocument | NeedBeaconSignals | NeedCASAnnouncement | NeedSignedUpdate | NeedSMTProof;
 
 /**
  * Output of {@link Resolver.resolve}. Analogous to Rust's `ResolverState` enum.
@@ -398,8 +407,6 @@ export class Resolver {
     return response;
   }
 
-  // ─── Private static: update internals ──────────────────────────────
-
   /**
    * Implements subsection {@link https://dcdpr.github.io/did-btcr2/#confirm-duplicate-update | 7.2.f.1 Confirm Duplicate Update}.
    * This step confirms that an update with a lower-than-expected targetVersionId is a true duplicate.
@@ -675,7 +682,8 @@ export class Resolver {
   provide(need: NeedBeaconSignals, data: Map<BeaconService, Array<BeaconSignal>>): void;
   provide(need: NeedCASAnnouncement, data: CASAnnouncement): void;
   provide(need: NeedSignedUpdate, data: SignedBTCR2Update): void;
-  provide(need: DataNeed, data: object | Map<BeaconService, Array<BeaconSignal>> | CASAnnouncement | SignedBTCR2Update): void {
+  provide(need: NeedSMTProof, data: SMTProof): void;
+  provide(need: DataNeed, data: object | Map<BeaconService, Array<BeaconSignal>> | CASAnnouncement | SignedBTCR2Update | SMTProof): void {
     switch(need.kind) {
       case 'NeedGenesisDocument': {
         this.#providedGenesisDocument = data;
@@ -699,6 +707,13 @@ export class Resolver {
       case 'NeedSignedUpdate': {
         const update = data as SignedBTCR2Update;
         this.#sidecarData.updateMap.set(canonicalHash(update), update);
+        break;
+      }
+
+      case 'NeedSMTProof': {
+        const smtNeed = need as NeedSMTProof;
+        const proof = data as SMTProof;
+        this.#sidecarData.smtMap.set(smtNeed.smtRootHash, proof);
         break;
       }
     }

@@ -5,6 +5,10 @@ export const BEACON_COHORT_OPT_IN = `${BEACON_COHORT_MESSAGE_PREFIX}/musig2/keyg
 export const BEACON_COHORT_OPT_IN_ACCEPT = `${BEACON_COHORT_MESSAGE_PREFIX}/musig2/keygen/beacon/cohort_opt_in_accept`;
 export const BEACON_COHORT_READY = `${BEACON_COHORT_MESSAGE_PREFIX}/musig2/keygen/beacon/cohort_ready`;
 
+export const BEACON_COHORT_SUBMIT_UPDATE = `${BEACON_COHORT_MESSAGE_PREFIX}/musig2/update/beacon/cohort_submit_update`;
+export const BEACON_COHORT_DISTRIBUTE_DATA = `${BEACON_COHORT_MESSAGE_PREFIX}/musig2/update/beacon/cohort_distribute_data`;
+export const BEACON_COHORT_VALIDATION_ACK = `${BEACON_COHORT_MESSAGE_PREFIX}/musig2/update/beacon/cohort_validation_ack`;
+
 export const BEACON_COHORT_REQUEST_SIGNATURE = `${BEACON_COHORT_MESSAGE_PREFIX}/musig2/sign/beacon/cohort_request_signature`;
 export const BEACON_COHORT_AUTHORIZATION_REQUEST = `${BEACON_COHORT_MESSAGE_PREFIX}/musig2/sign/beacon/cohort_authorization_request`;
 export const BEACON_COHORT_NONCE_CONTRIBUTION = `${BEACON_COHORT_MESSAGE_PREFIX}/musig2/sign/beacon/cohort_nonce_contribution`;

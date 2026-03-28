@@ -762,6 +762,9 @@ importers:
       '@did-btcr2/keypair':
         specifier: workspace:*
         version: link:../keypair
+      '@did-btcr2/smt':
+        specifier: workspace:*
+        version: link:../smt
       '@helia/strings':
         specifier: ^4.0.2
         version: 4.1.0

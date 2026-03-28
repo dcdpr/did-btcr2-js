@@ -1,14 +1,17 @@
-import { KeyBytes, Maybe } from '@did-btcr2/common';
+import { canonicalHash, canonicalize, KeyBytes, Maybe } from '@did-btcr2/common';
+import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import { hashToHex, verifySerializedProof, didToIndex, hexToHash, blockHash, SerializedSMTProof } from '@did-btcr2/smt';
 import { HDKey } from '@scure/bip32';
 import { mnemonicToSeedSync } from '@scure/bip39';
 import * as musig2 from '@scure/btc-signer/musig2';
 import { Transaction } from 'bitcoinjs-lib';
-import { BeaconParticipantError } from '../error.js';
+import { BeaconParticipantError } from '../beacon/error.js';
 import { AggregateBeaconCohort } from './cohort/index.js';
 import {
   BEACON_COHORT_ADVERT,
   BEACON_COHORT_AGGREGATED_NONCE,
   BEACON_COHORT_AUTHORIZATION_REQUEST,
+  BEACON_COHORT_DISTRIBUTE_DATA,
   BEACON_COHORT_OPT_IN_ACCEPT,
   BEACON_COHORT_READY
 } from './cohort/messages/constants.js';
@@ -17,6 +20,9 @@ import { BeaconCohortReadyMessage, CohortReadyMessage } from './cohort/messages/
 import { BeaconCohortOptInAcceptMessage, CohortOptInAcceptMessage } from './cohort/messages/keygen/opt-in-accept.js';
 import { BeaconCohortOptInMessage } from './cohort/messages/keygen/opt-in.js';
 import { BeaconCohortSubscribeMessage } from './cohort/messages/keygen/subscribe.js';
+import { BeaconCohortDistributeDataMessage, CohortDistributeDataMessage } from './cohort/messages/update/distribute-data.js';
+import { BeaconCohortSubmitUpdateMessage } from './cohort/messages/update/submit-update.js';
+import { BeaconCohortValidationAckMessage } from './cohort/messages/update/validation-ack.js';
 import { BeaconCohortAggregatedNonceMessage, CohortAggregatedNonceMessage } from './cohort/messages/sign/aggregated-nonce.js';
 import { BeaconCohortAuthorizationRequestMessage, CohortAuthorizationRequestMessage } from './cohort/messages/sign/authorization-request.js';
 import { BeaconCohortNonceContributionMessage } from './cohort/messages/sign/nonce-contribution.js';
@@ -104,6 +110,13 @@ export class BeaconParticipant {
   public activeSigningSessions: ActiveSigningSessions = new Map<string, BeaconCohortSigningSession>();
 
   /**
+   * Signed updates submitted by this participant, keyed by cohort ID.
+   * Used for validating aggregated data received from the coordinator.
+   * @type {Map<string, SignedBTCR2Update>}
+   */
+  public submittedUpdates: Map<string, SignedBTCR2Update> = new Map();
+
+  /**
    * Creates an instance of BeaconParticipant.
    * @param {BeaconParticipantParams} params The parameters for the participant.
    * @param {Seed | Mnemonic} params.ent The seed or mnemonic to derive the HD key.
@@ -142,6 +155,7 @@ export class BeaconParticipant {
     this.protocol.registerMessageHandler(BEACON_COHORT_ADVERT, this._handleCohortAdvert.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_OPT_IN_ACCEPT, this._handleSubscribeAccept.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_READY, this._handleCohortReady.bind(this));
+    this.protocol.registerMessageHandler(BEACON_COHORT_DISTRIBUTE_DATA, this._handleDistributeData.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_AUTHORIZATION_REQUEST, this._handleAuthorizationRequest.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_AGGREGATED_NONCE, this._handleAggregatedNonce.bind(this));
     this.protocol.start();
@@ -298,6 +312,107 @@ export class BeaconParticipant {
   }
 
   /**
+   * Handles aggregated data distribution from the coordinator.
+   * Validates the data matches this participant's submitted update, then sends a validation ack.
+   * For CAS beacons: verifies the CAS Announcement maps this participant's DID to the correct update hash.
+   * For SMT beacons: verifies the SMT proof includes this participant's update with valid Merkle inclusion.
+   * @param {Maybe<CohortDistributeDataMessage>} message The distribute data message.
+   * @returns {Promise<void>}
+   */
+  public async _handleDistributeData(message: Maybe<CohortDistributeDataMessage>): Promise<void> {
+    const distMessage = BeaconCohortDistributeDataMessage.fromJSON(message);
+    const cohortId = distMessage.body?.cohortId;
+    if(!cohortId) {
+      console.warn(`Distribute data message missing cohort ID from ${distMessage.from}`);
+      return;
+    }
+    const cohort = this.cohorts.find(c => c.id === cohortId);
+    if(!cohort) {
+      console.warn(`Cohort with ID ${cohortId} not found for participant ${this.did}.`);
+      return;
+    }
+    const submittedUpdate = this.submittedUpdates.get(cohortId);
+    if(!submittedUpdate) {
+      console.warn(`No submitted update found for cohort ${cohortId} by participant ${this.did}.`);
+      return;
+    }
+
+    const beaconType = distMessage.body?.beaconType;
+    let approved = false;
+
+    if(beaconType === 'CASBeacon') {
+      approved = this.#validateCASAnnouncement(distMessage, submittedUpdate);
+    } else if(beaconType === 'SMTBeacon') {
+      approved = this.#validateSMTProof(distMessage, submittedUpdate);
+    } else {
+      console.error(`Unsupported beacon type: ${beaconType}`);
+    }
+
+    const ackMessage = new BeaconCohortValidationAckMessage({
+      to       : cohort.coordinatorDid,
+      from     : this.did,
+      cohortId,
+      approved,
+    });
+    await this.protocol.sendMessage(ackMessage, this.did, cohort.coordinatorDid);
+    console.info(`Validation ack sent for cohort ${cohortId}: ${approved ? 'approved' : 'rejected'}`);
+  }
+
+  /**
+   * Validates a CAS Announcement by checking that this participant's DID maps
+   * to the canonical hash of their submitted signed update.
+   */
+  #validateCASAnnouncement(message: BeaconCohortDistributeDataMessage, submittedUpdate: SignedBTCR2Update): boolean {
+    const casAnnouncement = message.body?.casAnnouncement;
+    if(!casAnnouncement) {
+      console.error('CAS Announcement missing from distribute data message.');
+      return false;
+    }
+    const expectedHash = canonicalHash(submittedUpdate);
+    const actualHash = casAnnouncement[this.did];
+    if(actualHash !== expectedHash) {
+      console.error(`CAS Announcement hash mismatch for ${this.did}: expected ${expectedHash}, got ${actualHash}`);
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Validates an SMT proof by checking Merkle inclusion of this participant's update.
+   * Verifies the proof's updateId matches the expected hash and the Merkle path is valid.
+   */
+  #validateSMTProof(message: BeaconCohortDistributeDataMessage, submittedUpdate: SignedBTCR2Update): boolean {
+    const smtProof = message.body?.smtProof as unknown as SerializedSMTProof | undefined;
+    if(!smtProof) {
+      console.error('SMT proof missing from distribute data message.');
+      return false;
+    }
+    if(!smtProof.updateId || !smtProof.nonce) {
+      console.error('SMT proof missing updateId or nonce.');
+      return false;
+    }
+
+    // Verify updateId matches the hash of the canonicalized submitted update
+    const canonicalBytes = new TextEncoder().encode(canonicalize(submittedUpdate));
+    const expectedUpdateId = hashToHex(blockHash(canonicalBytes));
+    if(smtProof.updateId !== expectedUpdateId) {
+      console.error(`SMT proof updateId mismatch: expected ${expectedUpdateId}, got ${smtProof.updateId}`);
+      return false;
+    }
+
+    // Verify Merkle inclusion
+    const index = didToIndex(this.did);
+    const candidateHash = blockHash(blockHash(hexToHash(smtProof.nonce)), hexToHash(smtProof.updateId));
+    const valid = verifySerializedProof(smtProof, index, candidateHash);
+    if(!valid) {
+      console.error(`SMT Merkle proof verification failed for ${this.did}`);
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
    * Handles an authorization request message.
    * @param {Maybe<CohortAuthorizationRequestMessage>} message The authorization request message.
    * @returns {Promise<void>}
@@ -404,6 +519,37 @@ export class BeaconParticipant {
 
     await this.protocol.sendMessage(optInMessage, this.did, coordinatorDid);
     cohort.status = COHORT_STATUS.COHORT_OPTED_IN;
+  }
+
+  /**
+   * Submits a signed DID update to the cohort coordinator during the Announce Updates phase.
+   * @param {string} cohortId The ID of the cohort to submit the update to.
+   * @param {SignedBTCR2Update} signedUpdate The participant's signed update to include in the aggregation.
+   * @returns {Promise<void>}
+   */
+  public async submitUpdate(cohortId: string, signedUpdate: SignedBTCR2Update): Promise<void> {
+    const cohort = this.cohorts.find(c => c.id === cohortId);
+    if(!cohort) {
+      throw new BeaconParticipantError(
+        `Cohort with ID ${cohortId} not found.`,
+        'COHORT_NOT_FOUND', { cohortId }
+      );
+    }
+    if(cohort.status !== COHORT_STATUS.COHORT_SET_STATUS && cohort.status !== COHORT_STATUS.COLLECTING_UPDATES) {
+      throw new BeaconParticipantError(
+        `Cohort ${cohortId} is not accepting updates. Current status: ${cohort.status}`,
+        'UPDATE_SUBMISSION_ERROR', { cohortId, status: cohort.status }
+      );
+    }
+    const message = new BeaconCohortSubmitUpdateMessage({
+      to           : cohort.coordinatorDid,
+      from         : this.did,
+      cohortId,
+      signedUpdate : signedUpdate as unknown as Record<string, unknown>,
+    });
+    await this.protocol.sendMessage(message, this.did, cohort.coordinatorDid);
+    this.submittedUpdates.set(cohortId, signedUpdate);
+    console.info(`Update submitted for cohort ${cohortId} by participant ${this.did}`);
   }
 
   /**

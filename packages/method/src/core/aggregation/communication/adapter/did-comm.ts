@@ -1,6 +1,6 @@
 import { NotImplementedError } from '@did-btcr2/common';
 import { RawSchnorrKeyPair, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
-import { Identifier } from '../../../../identifier.js';
+import { Identifier } from '../../../identifier.js';
 import { AggregateBeaconMessageType } from '../../cohort/messages/index.js';
 import { BaseMessage } from '../../cohort/messages/base.js';
 import { CommunicationService, MessageHandler, ServiceAdapterConfig, ServiceAdapterIdentity } from '../service.js';

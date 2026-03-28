@@ -14,6 +14,11 @@ export type BaseBody = {
   pendingTx?: string;
   beaconType?: string;
   data?: string;
+  signedUpdate?: Record<string, unknown>;
+  casAnnouncement?: Record<string, string>;
+  smtProof?: Record<string, unknown>;
+  signalBytesHex?: string;
+  approved?: boolean;
 };
 
 export type Base = {

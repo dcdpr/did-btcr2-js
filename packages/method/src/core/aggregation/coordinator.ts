@@ -1,13 +1,19 @@
+import { BitcoinConnection } from '@did-btcr2/bitcoin';
 import { Maybe } from '@did-btcr2/common';
+import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { RawSchnorrKeyPair } from '@did-btcr2/keypair';
-import { BeaconCoordinatorError } from '../error.js';
+import { address as btcAddress, opcodes, script, Transaction } from 'bitcoinjs-lib';
+import { BeaconCoordinatorError } from '../beacon/error.js';
 import { AggregateBeaconCohort } from './cohort/index.js';
+import { COHORT_STATUS } from './cohort/status.js';
 import {
   BEACON_COHORT_ADVERT,
   BEACON_COHORT_NONCE_CONTRIBUTION,
   BEACON_COHORT_OPT_IN,
   BEACON_COHORT_REQUEST_SIGNATURE,
-  BEACON_COHORT_SIGNATURE_AUTHORIZATION
+  BEACON_COHORT_SIGNATURE_AUTHORIZATION,
+  BEACON_COHORT_SUBMIT_UPDATE,
+  BEACON_COHORT_VALIDATION_ACK
 } from './cohort/messages/constants.js';
 import { BeaconCohortAdvertMessage } from './cohort/messages/keygen/cohort-advert.js';
 import { BeaconCohortReadyMessage } from './cohort/messages/keygen/cohort-ready.js';
@@ -17,6 +23,9 @@ import { BeaconCohortAggregatedNonceMessage } from './cohort/messages/sign/aggre
 import { BeaconCohortNonceContributionMessage, CohortNonceContributionMessage } from './cohort/messages/sign/nonce-contribution.js';
 import { BeaconCohortRequestSignatureMessage, CohortRequestSignatureMessage } from './cohort/messages/sign/request-signature.js';
 import { BeaconCohortSignatureAuthorizationMessage, CohortSignatureAuthorizationMessage } from './cohort/messages/sign/signature-authorization.js';
+import { BeaconCohortDistributeDataMessage } from './cohort/messages/update/distribute-data.js';
+import { BeaconCohortSubmitUpdateMessage, CohortSubmitUpdateMessage } from './cohort/messages/update/submit-update.js';
+import { BeaconCohortValidationAckMessage, CohortValidationAckMessage } from './cohort/messages/update/validation-ack.js';
 import { NostrAdapter } from './communication/adapter/nostr.js';
 import { CommunicationFactory } from './communication/factory.js';
 import { CommunicationService, Service, ServiceAdapterIdentity } from './communication/service.js';
@@ -100,6 +109,8 @@ export class BeaconCoordinator {
   start(): void {
     console.info(`Setting up BeaconCoordinator ${this.name} (${this.did}) on ${this.protocol.name} ...`);
     this.protocol.registerMessageHandler(BEACON_COHORT_OPT_IN, this.#handleOptIn.bind(this));
+    this.protocol.registerMessageHandler(BEACON_COHORT_SUBMIT_UPDATE, this.#handleSubmitUpdate.bind(this));
+    this.protocol.registerMessageHandler(BEACON_COHORT_VALIDATION_ACK, this.#handleValidationAck.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_REQUEST_SIGNATURE, this.#handleRequestSignature.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_NONCE_CONTRIBUTION, this.#handleNonceContribution.bind(this));
     this.protocol.registerMessageHandler(BEACON_COHORT_SIGNATURE_AUTHORIZATION, this.#handleSignatureAuthorization.bind(this));
@@ -127,9 +138,63 @@ export class BeaconCoordinator {
       await this.acceptSubscription(participant);
       // If the cohort has enough participants, start the key generation process.
       if (cohort.participants.length >= cohort.minParticipants) {
-        await this._startKeyGeneration(cohort);
+        await this.#startKeyGeneration(cohort);
       }
     }
+  }
+
+  /**
+   * Handles update submission messages from participants during the Announce Updates phase.
+   * Validates the message, finds the cohort, and delegates to cohort.addUpdate().
+   * @param {CohortSubmitUpdateMessage} message The message containing the signed update.
+   * @returns {Promise<void>}
+   */
+  async #handleSubmitUpdate(message: Maybe<CohortSubmitUpdateMessage>): Promise<void> {
+    const submitMessage = BeaconCohortSubmitUpdateMessage.fromJSON(message);
+    const cohortId = submitMessage.body?.cohortId;
+    if(!cohortId) {
+      console.warn(`Submit update message missing cohort ID from ${submitMessage.from}`);
+      return;
+    }
+    const cohort = this.cohorts.find(c => c.id === cohortId);
+    if(!cohort) {
+      console.error(`Cohort with ID ${cohortId} not found.`);
+      return;
+    }
+    const signedUpdate = submitMessage.body?.signedUpdate;
+    if(!signedUpdate) {
+      console.warn(`Submit update message missing signed update from ${submitMessage.from}`);
+      return;
+    }
+    cohort.addUpdate(submitMessage.from, signedUpdate as unknown as SignedBTCR2Update);
+    console.info(`Update received from ${submitMessage.from} for cohort ${cohortId}. Collected ${cohort.pendingUpdates.size}/${cohort.participants.length} updates.`);
+  }
+
+  /**
+   * Handles validation acknowledgment messages from participants.
+   * @private
+   * @param {CohortValidationAckMessage} message The message containing the validation ack.
+   * @returns {Promise<void>}
+   */
+  async #handleValidationAck(message: Maybe<CohortValidationAckMessage>): Promise<void> {
+    const ackMessage = BeaconCohortValidationAckMessage.fromJSON(message);
+    const cohortId = ackMessage.body?.cohortId;
+    if(!cohortId) {
+      console.warn(`Validation ack message missing cohort ID from ${ackMessage.from}`);
+      return;
+    }
+    const cohort = this.cohorts.find(c => c.id === cohortId);
+    if(!cohort) {
+      console.error(`Cohort with ID ${cohortId} not found.`);
+      return;
+    }
+    const approved = ackMessage.body?.approved;
+    if(approved === undefined) {
+      console.warn(`Validation ack message missing approved field from ${ackMessage.from}`);
+      return;
+    }
+    cohort.addValidation(ackMessage.from, approved);
+    console.info(`Validation ack from ${ackMessage.from} for cohort ${cohortId}: ${approved ? 'approved' : 'rejected'}. ${cohort.validationAcks.size}/${cohort.participants.length} validations received.`);
   }
 
   /**
@@ -156,6 +221,7 @@ export class BeaconCoordinator {
 
   /**
    * Handles nonce contribution messages from participants.
+   * @private
    * @param {CohortNonceContributionMessage} message The message containing the nonce contribution.
    * @returns {Promise<void>}
    */
@@ -204,6 +270,7 @@ export class BeaconCoordinator {
 
   /**
    * Handles signature authorization messages from participants.
+   * @private
    * @param {Maybe<CohortSignatureAuthorizationMessage>} message The message containing the signature authorization request.
    * @returns {Promise<void>}
    */
@@ -259,10 +326,11 @@ export class BeaconCoordinator {
 
   /**
    * Starts the key generation process for a cohort once it has enough participants.
+   * @private
    * @param {Musig2Cohort} cohort The cohort for which to start key generation.
    * @returns {Promise<void>}
    */
-  private async _startKeyGeneration(cohort: AggregateBeaconCohort): Promise<void> {
+  async #startKeyGeneration(cohort: AggregateBeaconCohort): Promise<void> {
     console.info(`Starting key generation for cohort ${cohort.id} with participants: ${cohort.participants.join(', ')}`);
     cohort.finalize();
     for(const participant of cohort.participants) {
@@ -271,6 +339,193 @@ export class BeaconCoordinator {
       await this.protocol.sendMessage(message, participant, this.did);
     }
     console.info(`Finished sending BEACON_COHORT_READY message to ${cohort.participants.length} participants`);
+  }
+
+  /**
+   * Builds the aggregated data structure for a cohort once all updates are collected.
+   * Dispatches to the appropriate builder based on the cohort's beaconType:
+   * - CASBeacon: builds a CAS Announcement (DID → updateHash map)
+   * - SMTBeacon: builds a BTCR2MerkleTree with per-participant proofs
+   *
+   * @param {string} cohortId The ID of the cohort to build aggregated data for.
+   * @returns {void}
+   * @throws {BeaconCoordinatorError} If the cohort is not found or the beacon type is unsupported.
+   */
+  buildAggregatedData(cohortId: string): void {
+    const cohort = this.cohorts.find(c => c.id === cohortId);
+    if(!cohort) {
+      throw new BeaconCoordinatorError(
+        `Cohort with ID ${cohortId} not found.`,
+        'COHORT_NOT_FOUND', { cohortId }
+      );
+    }
+    switch(cohort.beaconType) {
+      case 'CASBeacon': {
+        const announcement = cohort.buildCASAnnouncement();
+        console.info(`CAS Announcement built for cohort ${cohortId}: ${Object.keys(announcement).length} DID entries.`);
+        break;
+      }
+      case 'SMTBeacon': {
+        const proofs = cohort.buildSMTTree();
+        console.info(`SMT tree built for cohort ${cohortId}: ${proofs.size} proofs generated.`);
+        break;
+      }
+      default:
+        throw new BeaconCoordinatorError(
+          `Unsupported beacon type: ${cohort.beaconType}`,
+          'UNSUPPORTED_BEACON_TYPE', { cohortId, beaconType: cohort.beaconType }
+        );
+    }
+  }
+
+  /**
+   * Distributes the aggregated data to all participants for validation.
+   * For CAS beacons, sends the full CAS Announcement to each participant.
+   * For SMT beacons, sends each participant's individual SMT proof.
+   * Transitions the cohort to AWAITING_VALIDATION status.
+   *
+   * @param {string} cohortId The ID of the cohort to distribute data for.
+   * @returns {Promise<void>}
+   * @throws {BeaconCoordinatorError} If the cohort is not found or not in DATA_AGGREGATED state.
+   */
+  async distributeAggregatedData(cohortId: string): Promise<void> {
+    const cohort = this.cohorts.find(c => c.id === cohortId);
+    if(!cohort) {
+      throw new BeaconCoordinatorError(
+        `Cohort with ID ${cohortId} not found.`,
+        'COHORT_NOT_FOUND', { cohortId }
+      );
+    }
+    if(!cohort.signalBytes) {
+      throw new BeaconCoordinatorError(
+        `Cohort ${cohortId} has no signal bytes. Call buildAggregatedData() first.`,
+        'DISTRIBUTION_ERROR', { cohortId }
+      );
+    }
+
+    const signalBytesHex = Buffer.from(cohort.signalBytes).toString('hex');
+
+    for(const participant of cohort.participants) {
+      const message = new BeaconCohortDistributeDataMessage({
+        to              : participant,
+        from            : this.did,
+        cohortId,
+        beaconType      : cohort.beaconType,
+        signalBytesHex,
+        casAnnouncement : cohort.beaconType === 'CASBeacon' ? cohort.casAnnouncement : undefined,
+        smtProof        : cohort.beaconType === 'SMTBeacon' ? cohort.smtProofs?.get(participant) as unknown as Record<string, unknown> : undefined,
+      });
+      await this.protocol.sendMessage(message, this.did, participant);
+      console.info(`Distributed aggregated data to ${participant} for cohort ${cohortId}`);
+    }
+
+    cohort.status = COHORT_STATUS.AWAITING_VALIDATION;
+    console.info(`Aggregated data distributed to ${cohort.participants.length} participants for cohort ${cohortId}. Awaiting validation.`);
+  }
+
+  /**
+   * Builds an unsigned Bitcoin transaction for the beacon cohort.
+   * The transaction spends the beacon UTXO and commits signal bytes via OP_RETURN.
+   *
+   * Structure:
+   * - Input 0: beacon Taproot UTXO
+   * - Output 0: change back to beacon address (value minus fee)
+   * - Output 1: OP_RETURN with signal bytes (CAS announcement hash or SMT root)
+   *
+   * @param {string} cohortId The ID of the cohort to build the transaction for.
+   * @param {BitcoinConnection} bitcoin The Bitcoin network connection for UTXO lookup.
+   * @returns {Promise<Transaction>} The unsigned transaction ready for MuSig2 signing.
+   * @throws {BeaconCoordinatorError} If the cohort is not found, has no signal bytes, or has no funded UTXO.
+   */
+  async buildBeaconTransaction(cohortId: string, bitcoin: BitcoinConnection): Promise<Transaction> {
+    const cohort = this.cohorts.find(c => c.id === cohortId);
+    if(!cohort) {
+      throw new BeaconCoordinatorError(
+        `Cohort with ID ${cohortId} not found.`,
+        'COHORT_NOT_FOUND', { cohortId }
+      );
+    }
+    if(!cohort.signalBytes) {
+      throw new BeaconCoordinatorError(
+        `Cohort ${cohortId} has no signal bytes. Call buildAggregatedData() first.`,
+        'TRANSACTION_BUILD_ERROR', { cohortId }
+      );
+    }
+    if(!cohort.beaconAddress) {
+      throw new BeaconCoordinatorError(
+        `Cohort ${cohortId} has no beacon address.`,
+        'TRANSACTION_BUILD_ERROR', { cohortId }
+      );
+    }
+
+    // Fetch UTXOs for the beacon Taproot address
+    const utxos = await bitcoin.rest.address.getUtxos(cohort.beaconAddress);
+    if(!utxos.length) {
+      throw new BeaconCoordinatorError(
+        'No UTXOs found for beacon address. Please fund address!',
+        'UNFUNDED_BEACON_ADDRESS', { bitcoinAddress: cohort.beaconAddress }
+      );
+    }
+
+    // Select the most recent confirmed UTXO
+    const utxo = utxos.sort(
+      (a, b) => b.status.block_height - a.status.block_height
+    ).shift()!;
+
+    // Build the unsigned transaction
+    const tx = new Transaction();
+    tx.version = 2;
+
+    // Input: beacon UTXO (txid reversed for bitcoinjs-lib internal byte order)
+    tx.addInput(Buffer.from(utxo.txid, 'hex').reverse(), utxo.vout);
+
+    // Output 0: change back to beacon Taproot address
+    // TODO: calculate fee based on transaction vsize and current fee rates
+    const changeScript = btcAddress.toOutputScript(cohort.beaconAddress, bitcoin.data);
+    tx.addOutput(changeScript, BigInt(utxo.value) - 500n);
+
+    // Output 1: OP_RETURN with signal bytes
+    const opReturnScript = script.compile([opcodes.OP_RETURN, Buffer.from(cohort.signalBytes)]);
+    tx.addOutput(opReturnScript, 0n);
+
+    console.info(`Built beacon transaction for cohort ${cohortId}: input ${utxo.txid}:${utxo.vout}, change ${utxo.value - 500} sats`);
+    return tx;
+  }
+
+  /**
+   * Broadcasts the signed beacon transaction to the Bitcoin network.
+   * Called after the MuSig2 signing session produces a final aggregated signature.
+   * Sets the Taproot key-path witness on the input and broadcasts.
+   *
+   * @param {string} cohortId The ID of the cohort whose transaction to broadcast.
+   * @param {BitcoinConnection} bitcoin The Bitcoin network connection for broadcasting.
+   * @returns {Promise<string>} The txid of the broadcast transaction.
+   * @throws {BeaconCoordinatorError} If no signing session exists or signature is missing.
+   */
+  async broadcastSignedTransaction(cohortId: string, bitcoin: BitcoinConnection): Promise<string> {
+    const session = this.activeSigningSessions.get(cohortId);
+    if(!session) {
+      throw new BeaconCoordinatorError(
+        `No active signing session for cohort ${cohortId}.`,
+        'BROADCAST_ERROR', { cohortId }
+      );
+    }
+    if(!session.signature) {
+      throw new BeaconCoordinatorError(
+        `Signing session for cohort ${cohortId} has no final signature.`,
+        'BROADCAST_ERROR', { cohortId }
+      );
+    }
+
+    // Set the Taproot key-path witness: [schnorrSignature]
+    session.pendingTx.setWitness(0, [Buffer.from(session.signature)]);
+
+    // Serialize and broadcast
+    const signedTxHex = session.pendingTx.toHex();
+    const txid = await bitcoin.rest.transaction.send(signedTxHex);
+
+    console.info(`Beacon transaction broadcast for cohort ${cohortId} with txid: ${txid}`);
+    return txid;
   }
 
   /**
@@ -370,19 +625,31 @@ export class BeaconCoordinator {
 
   /**
    * Starts a signing session for a given cohort.
+   * If a BitcoinConnection is provided, builds the real beacon transaction first
+   * (spending the beacon UTXO with an OP_RETURN containing signal bytes).
+   * Otherwise, uses an empty transaction (for testing or external TX construction).
+   *
    * @param {string} cohortId The ID of the cohort for which to start a signing session.
+   * @param {BitcoinConnection} [bitcoin] Optional Bitcoin connection for building the beacon transaction.
    * @returns {Promise<BeaconCohortSigningSession>} The started signing session.
    * @throws {BeaconCoordinatorError} If the cohort with the given ID is not found.
    */
-  async startSigningSession(cohortId: string): Promise<BeaconCohortSigningSession> {
+  async startSigningSession(cohortId: string, bitcoin?: BitcoinConnection): Promise<BeaconCohortSigningSession> {
     console.info(`Attempting to start signing session for cohort ${cohortId}`);
     const cohort = this.cohorts.find(c => c.id === cohortId);
     if (!cohort) {
       console.error(`Cohort with ID ${cohortId} not found.`);
       throw new BeaconCoordinatorError(`Cohort with ID ${cohortId} not found.`, 'COHORT_NOT_FOUND');
     }
+
+    // Build the real beacon transaction if a Bitcoin connection is available
+    let pendingTx: Transaction | undefined;
+    if(bitcoin) {
+      pendingTx = await this.buildBeaconTransaction(cohortId, bitcoin);
+    }
+
     console.info(`Cohort ${cohortId} found. Starting signing session.`);
-    const signingSession = cohort.startSigningSession();
+    const signingSession = cohort.startSigningSession(pendingTx);
     console.info(`Starting signing session ${signingSession.id} for cohort ${cohortId}`);
     for (const participant of cohort.participants) {
       const msg = signingSession.getAuthorizationRequest(participant, this.did);
