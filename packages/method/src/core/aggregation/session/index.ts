@@ -241,6 +241,7 @@ export class BeaconCohortSigningSession implements SigningSession {
 
     const session = new musig2.Session(this.aggregatedNonce!, this.cohort.cohortKeys, this.cohort.trMerkleRoot);
     this.signature = session.partialSigAgg([...this.partialSignatures.values()]);
+    this.status = SIGNING_SESSION_STATUS.SIGNATURE_COMPLETE;
 
     return this.signature;
   }

@@ -14,7 +14,9 @@ export * from './core/aggregation/cohort/messages/sign/authorization-request.js'
 export * from './core/aggregation/cohort/messages/sign/nonce-contribution.js';
 export * from './core/aggregation/cohort/messages/sign/request-signature.js';
 export * from './core/aggregation/cohort/messages/sign/signature-authorization.js';
+export * from './core/aggregation/cohort/messages/update/distribute-data.js';
 export * from './core/aggregation/cohort/messages/update/submit-update.js';
+export * from './core/aggregation/cohort/messages/update/validation-ack.js';
 
 export * from './core/aggregation/communication/adapter/did-comm.js';
 export * from './core/aggregation/communication/adapter/nostr.js';

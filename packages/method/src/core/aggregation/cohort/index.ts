@@ -30,6 +30,7 @@ export interface BeaconCohort {
   casAnnouncement?: CASAnnouncement;
   smtProofs?: Map<string, SerializedSMTProof>;
   signalBytes?: Uint8Array;
+  validationAcks?: Set<string>;
   participants?: Array<string>;
   cohortKeys?: Array<Uint8Array>;
   trMerkleRoot?: Uint8Array;
@@ -131,6 +132,12 @@ export class AggregateBeaconCohort implements BeaconCohort {
    * @type {Uint8Array}
    */
   public signalBytes?: Uint8Array;
+
+  /**
+   * Set of participant DIDs that have validated the aggregated data.
+   * @type {Set<string>}
+   */
+  public validationAcks: Set<string> = new Set();
 
   /**
    * Creates a new Musig2Cohort instance.
@@ -400,6 +407,44 @@ export class AggregateBeaconCohort implements BeaconCohort {
   }
 
   /**
+   * Records a validation acknowledgment from a participant.
+   * Once all participants have approved, transitions to VALIDATED status.
+   * @param {string} participantDid The DID of the participant sending the ack.
+   * @param {boolean} approved Whether the participant approved the aggregated data.
+   * @throws {BeaconCoordinatorError} If the cohort is not awaiting validation,
+   *   the participant is unknown, or the participant rejected.
+   */
+  public addValidation(participantDid: string, approved: boolean): void {
+    if(this.status !== COHORT_STATUS.AWAITING_VALIDATION) {
+      throw new BeaconCoordinatorError(
+        `Cohort ${this.id} is not awaiting validation. Current status: ${this.status}`,
+        'VALIDATION_ERROR', { cohortId: this.id, status: this.status }
+      );
+    }
+
+    if(!this.participants.includes(participantDid)) {
+      throw new BeaconCoordinatorError(
+        `Participant ${participantDid} is not in cohort ${this.id}.`,
+        'VALIDATION_ERROR', { cohortId: this.id, participantDid }
+      );
+    }
+
+    if(!approved) {
+      this.status = COHORT_STATUS.COHORT_FAILED;
+      throw new BeaconCoordinatorError(
+        `Participant ${participantDid} rejected the aggregated data for cohort ${this.id}.`,
+        'VALIDATION_REJECTED', { cohortId: this.id, participantDid }
+      );
+    }
+
+    this.validationAcks.add(participantDid);
+
+    if(this.validationAcks.size === this.participants.length) {
+      this.status = COHORT_STATUS.VALIDATED;
+    }
+  }
+
+  /**
    * Validates a signature request message to ensure it is from a participant in the cohort.
    * @param {BeaconCohortRequestSignatureMessage} message The signature request message to validate.
    * @returns {boolean} True if the message is valid, false otherwise.
@@ -421,18 +466,18 @@ export class AggregateBeaconCohort implements BeaconCohort {
 
   /**
    * Starts a signing session for the cohort.
-   * @returns {BeaconCohortSigningSession} The request signature message for the signing session.
+   * @param {Transaction} [pendingTx] Optional pre-built transaction to sign. If not provided, an empty Transaction is used.
+   * @returns {BeaconCohortSigningSession} The signing session for the cohort.
    */
-  public startSigningSession(): BeaconCohortSigningSession {
+  public startSigningSession(pendingTx?: Transaction): BeaconCohortSigningSession {
     console.debug(`Starting signing session for cohort ${this.id} with status ${this.status}`);
-    if(this.status !== COHORT_STATUS.COHORT_SET_STATUS) {
-      throw new BeaconCoordinatorError(`Cohort ${this.id} is not set.`);
+    if(this.status !== COHORT_STATUS.COHORT_SET_STATUS && this.status !== COHORT_STATUS.VALIDATED) {
+      throw new BeaconCoordinatorError(`Cohort ${this.id} is not ready for signing. Status: ${this.status}`);
     }
-    // const smtRootBytes = new Uint8Array(32).map(() => Math.floor(Math.random() * 256));
     const cohort = new AggregateBeaconCohort(this);
     return new BeaconCohortSigningSession({
       cohort,
-      pendingTx         : new Transaction(),
+      pendingTx         : pendingTx || new Transaction(),
       processedRequests : this.pendingSignatureRequests,
     });
   }
@@ -453,6 +498,7 @@ export class AggregateBeaconCohort implements BeaconCohort {
       casAnnouncement          : this.casAnnouncement,
       smtProofs                : this.smtProofs,
       signalBytes              : this.signalBytes,
+      validationAcks           : this.validationAcks,
       participants             : this.participants,
       cohortKeys               : this.cohortKeys,
       trMerkleRoot             : this.trMerkleRoot,
