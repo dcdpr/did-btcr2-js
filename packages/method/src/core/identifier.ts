@@ -292,6 +292,23 @@ export class Identifier {
   }
 
   /**
+   * Extracts the compressed secp256k1 public key from a KEY-type did:btcr2 identifier.
+   * @param {string} did The did:btcr2 identifier to extract the public key from.
+   * @returns {CompressedSecp256k1PublicKey} The compressed public key.
+   * @throws {IdentifierError} If the DID is EXTERNAL type (genesis bytes are a hash, not a pubkey).
+   */
+  static getPublicKey(did: string): CompressedSecp256k1PublicKey {
+    const { idType, genesisBytes } = Identifier.decode(did);
+    if(idType !== 'KEY') {
+      throw new IdentifierError(
+        `Cannot extract public key from EXTERNAL DID: ${did}. EXTERNAL DIDs encode a document hash, not a public key.`,
+        INVALID_DID, { did, idType }
+      );
+    }
+    return new CompressedSecp256k1PublicKey(genesisBytes);
+  }
+
+  /**
    * Validates a did:btcr2 identifier.
    * @param {string} identifier The did:btcr2 identifier to validate.
    * @returns {boolean} True if the identifier is valid, false otherwise.

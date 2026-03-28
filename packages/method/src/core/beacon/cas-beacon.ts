@@ -1,15 +1,21 @@
-import type { AddressUtxo, BitcoinConnection } from '@did-btcr2/bitcoin';
+import type { BitcoinConnection } from '@did-btcr2/bitcoin';
 import type { KeyBytes } from '@did-btcr2/common';
 import { canonicalHash, canonicalize, decode, encode, hash } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
-import { hexToBytes } from '@noble/hashes/utils';
-import { opcodes, Psbt, script } from 'bitcoinjs-lib';
 import type { BeaconProcessResult, DataNeed } from '../resolver.js';
 import type { SidecarData } from '../types.js';
+import type { BroadcastOptions } from './beacon.js';
 import { Beacon } from './beacon.js';
-import { CASBeaconError } from './error.js';
-import type { BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js';
+import type { BeaconService, BeaconSignal, BlockMetadata, CasPublishFn } from './interfaces.js';
+
+/**
+ * CAS-specific broadcast options — extends {@link BroadcastOptions} with an optional
+ * `casPublish` callback used to publish the CAS Announcement off-chain after the
+ * OP_RETURN signal is broadcast.
+ */
+export interface CASBroadcastOptions extends BroadcastOptions {
+  casPublish?: CasPublishFn;
+}
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/terminology.html#cas-beacon | CAS Beacon}.
@@ -39,7 +45,7 @@ export class CASBeacon extends Beacon {
    * For each signal, the signalBytes contain the hex-encoded hash of a CAS Announcement.
    * The CAS Announcement maps DIDs to their base64url-encoded update hashes.
    * This method looks up the CAS Announcement from the sidecar, extracts the update
-   * hash for the DID being resolved, and retrieves the corresponding signed update.
+   * hash for the DID being resolved, and retrieves the corresponding signed update from sidecar.
    *
    * @param {Array<BeaconSignal>} signals The array of Beacon Signals to process.
    * @param {SidecarData} sidecar The sidecar data associated with the CAS Beacon.
@@ -106,99 +112,45 @@ export class CASBeacon extends Beacon {
   /**
    * Broadcasts a CAS Beacon signal to the Bitcoin network.
    *
-   * Creates a CAS Announcement mapping the DID to the update hash, then broadcasts
-   * the hash of the announcement via OP_RETURN. The CAS Announcement is distributed
-   * to resolvers via sidecar data.
+   * Creates a CAS Announcement mapping the DID to the update hash, broadcasts the hash of the
+   * announcement via OP_RETURN, and optionally publishes the announcement off-chain via the
+   * supplied `casPublish` callback. UTXO selection, PSBT construction, fee estimation, signing,
+   * and broadcast are delegated to {@link Beacon.buildSignAndBroadcast}.
    *
    * @param {SignedBTCR2Update} signedUpdate The signed BTCR2 update to broadcast.
    * @param {KeyBytes} secretKey The secret key for signing the Bitcoin transaction.
    * @param {BitcoinConnection} bitcoin The Bitcoin network connection.
+   * @param {CASBroadcastOptions} [options] Optional broadcast configuration, including a
+   *   `casPublish` callback to publish the announcement off-chain and a `feeEstimator`.
    * @returns {Promise<SignedBTCR2Update>} The signed update that was broadcast.
-   * @throws {CASBeaconError} if the bitcoin address is invalid or unfunded.
+   * @throws {BeaconError} if the bitcoin address is invalid, unfunded, or UTXO cannot cover the fee.
    */
   async broadcastSignal(
     signedUpdate: SignedBTCR2Update,
     secretKey: KeyBytes,
-    bitcoin: BitcoinConnection
+    bitcoin: BitcoinConnection,
+    options?: CASBroadcastOptions
   ): Promise<SignedBTCR2Update> {
     // Extract the DID from the beacon service id (strip the #fragment)
     const did = this.service.id.split('#')[0];
 
-    // Hash the signed update (base64url for the CAS Announcement entry)
+    // Hash the signed update (base64urlnopad for the CAS Announcement entry per spec)
     const updateHash = canonicalHash(signedUpdate);
 
     // Create the CAS Announcement mapping this DID to its update hash
     const casAnnouncement = { [did]: updateHash };
 
-    // TODO: Publish CAS Announcement to content-addressed store (e.g., IPFS via Helia)
-
     // Canonicalize and hash the CAS Announcement for the OP_RETURN output
     const announcementHash = hash(canonicalize(casAnnouncement));
 
-    // Convert the serviceEndpoint to a bitcoin address by removing the 'bitcoin:' prefix
-    const bitcoinAddress = this.service.serviceEndpoint.replace('bitcoin:', '');
+    // Delegate UTXO selection, PSBT construction, fee estimation, signing, and broadcast
+    await this.buildSignAndBroadcast(announcementHash, secretKey, bitcoin, options);
 
-    // Query the Bitcoin network for UTXOs associated with the bitcoinAddress
-    const utxos = await bitcoin.rest.address.getUtxos(bitcoinAddress);
-
-    // If no utxos are found, throw an error indicating the address is unfunded.
-    if(!utxos.length) {
-      throw new CASBeaconError(
-        'No UTXOs found, please fund address!',
-        'UNFUNDED_BEACON_ADDRESS', { bitcoinAddress }
-      );
+    // Publish CAS Announcement to content-addressed store if callback provided
+    if(options?.casPublish) {
+      await options.casPublish(casAnnouncement);
     }
 
-    // Sort utxos by block height and take the most recent one
-    const utxo: AddressUtxo | undefined = utxos.sort(
-      (a, b) => b.status.block_height - a.status.block_height
-    ).shift();
-
-    // If no utxos are found, throw an error.
-    if(!utxo) {
-      throw new CASBeaconError(
-        'Beacon bitcoin address unfunded or utxos unconfirmed.',
-        'UNFUNDED_BEACON_ADDRESS', { bitcoinAddress }
-      );
-    }
-
-    // Get the previous tx to the utxo being spent
-    const prevTx = await bitcoin.rest.transaction.getHex(utxo.txid);
-
-    // Construct a spend transaction
-    const spendTx = new Psbt({ network: bitcoin.data })
-      // Spend tx contains the utxo as its input
-      .addInput({
-        hash           : utxo.txid,
-        index          : utxo.vout,
-        nonWitnessUtxo : hexToBytes(prevTx)
-      })
-      // Add a change output minus a fee of 500 sats
-      // TODO: calculate fee based on transaction vsize and current fee rates
-      .addOutput({ address: bitcoinAddress, value: BigInt(utxo.value) - BigInt(500) })
-      // Add an OP_RETURN output containing the CAS Announcement hash
-      .addOutput({ script: script.compile([opcodes.OP_RETURN, announcementHash]), value: 0n });
-
-    // Construct a key pair and PSBT signer from the secret key
-    const keyPair = SchnorrKeyPair.fromSecret(secretKey);
-    const signer = {
-      publicKey : keyPair.publicKey.compressed,
-      sign      : (hash: Uint8Array) => keyPair.secretKey.sign(hash, { scheme: 'ecdsa' }),
-    };
-
-    // Sign 0th input, finalize extract to hex in prep for broadcast
-    const signedTx = spendTx.signInput(0, signer)
-      .finalizeAllInputs()
-      .extractTransaction()
-      .toHex();
-
-    // Broadcast spendTx to the Bitcoin network.
-    const txid = await bitcoin.rest.transaction.send(signedTx);
-
-    // Log the txid of the broadcasted transaction
-    console.info(`CAS Beacon Signal Broadcasted with txid: ${txid}`);
-
-    // Return the signed update
     return signedUpdate;
   }
 }

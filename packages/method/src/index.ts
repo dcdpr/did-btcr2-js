@@ -1,32 +1,15 @@
-export * from './core/beacon/aggregation/cohort/index.js';
-export * from './core/beacon/aggregation/cohort/status.js';
+// Aggregation
+export * from './core/aggregation/service.js';
+export * from './core/aggregation/participant.js';
+export * from './core/aggregation/cohort.js';
+export * from './core/aggregation/signing-session.js';
+export * from './core/aggregation/phases.js';
+export * from './core/aggregation/errors.js';
+export * from './core/aggregation/messages/index.js';
+export * from './core/aggregation/transport/index.js';
+export * from './core/aggregation/runner/index.js';
 
-export * from './core/beacon/aggregation/cohort/messages/base.js';
-export * from './core/beacon/aggregation/cohort/messages/constants.js';
-export * from './core/beacon/aggregation/cohort/messages/index.js';
-export * from './core/beacon/aggregation/cohort/messages/keygen//subscribe.js';
-export * from './core/beacon/aggregation/cohort/messages/keygen/cohort-advert.js';
-export * from './core/beacon/aggregation/cohort/messages/keygen/cohort-ready.js';
-export * from './core/beacon/aggregation/cohort/messages/keygen/opt-in-accept.js';
-export * from './core/beacon/aggregation/cohort/messages/keygen/opt-in.js';
-export * from './core/beacon/aggregation/cohort/messages/sign/aggregated-nonce.js';
-export * from './core/beacon/aggregation/cohort/messages/sign/authorization-request.js';
-export * from './core/beacon/aggregation/cohort/messages/sign/nonce-contribution.js';
-export * from './core/beacon/aggregation/cohort/messages/sign/request-signature.js';
-export * from './core/beacon/aggregation/cohort/messages/sign/signature-authorization.js';
-
-export * from './core/beacon/aggregation/communication/adapter/did-comm.js';
-export * from './core/beacon/aggregation/communication/adapter/nostr.js';
-
-export * from './core/beacon/aggregation/communication/error.js';
-export * from './core/beacon/aggregation/communication/factory.js';
-export * from './core/beacon/aggregation/communication/service.js';
-
-export * from './core/beacon/aggregation/coordinator.js';
-export * from './core/beacon/aggregation/participant.js';
-export * from './core/beacon/aggregation/session/index.js';
-export * from './core/beacon/aggregation/session/status.js';
-
+// Beacons
 export * from './core/beacon/beacon.js';
 export * from './core/beacon/cas-beacon.js';
 export * from './core/beacon/error.js';
@@ -37,14 +20,17 @@ export * from './core/beacon/singleton-beacon.js';
 export * from './core/beacon/smt-beacon.js';
 export * from './core/beacon/utils.js';
 
+// Core
 export * from './core/identifier.js';
 export * from './core/interfaces.js';
 export * from './core/resolver.js';
 export * from './core/types.js';
 export * from './core/update.js';
 
+// Utils
 export * from './utils/appendix.js';
 export * from './utils/did-document-builder.js';
 export * from './utils/did-document.js';
 
+// Facade
 export * from './did-btcr2.js';

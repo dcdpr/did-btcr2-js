@@ -1,15 +1,16 @@
+import { randomBytes } from '@noble/curves/utils.js';
 import { expect } from 'chai';
 import {
-  OptimizedSMT,
-  serializeProof, deserializeProof, verifySerializedProof,
-  hashToBigInt, hashToHex,
+  deserializeProof,
   HASH_BYTE_LENGTH, HASH_HEX_LENGTH,
+  hashToBigInt, hashToHex,
+  OptimizedSMT,
+  serializeProof,
+  verifySerializedProof,
 } from '../src/index.js';
 
 function randomHash(): Uint8Array {
-  const buf = new Uint8Array(HASH_BYTE_LENGTH);
-  crypto.getRandomValues(buf);
-  return buf;
+  return randomBytes(HASH_BYTE_LENGTH);
 }
 
 function randomBigInt(): bigint {
