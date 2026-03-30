@@ -10,10 +10,11 @@ import {
 import { sha256 } from '@noble/hashes/sha2';
 import { bytesToHex } from '@noble/hashes/utils';
 import { secp256k1, schnorr } from '@noble/curves/secp256k1.js';
-import { getRandomValues, timingSafeEqual } from 'crypto';
+import { randomBytes } from '@noble/hashes/utils';
 import { base58 } from '@scure/base';
 import { CompressedSecp256k1PublicKey } from './public.js';
 import { CryptoOptions } from './types.js';
+import { equalBytes } from '@noble/curves/utils.js';
 
 /** Fixed secret key header bytes per the Data Integrity BIP340 Cryptosuite spec: [0x81, 0x26] */
 const BIP340_SECRET_KEY_MULTIBASE_PREFIX: Bytes = new Uint8Array([0x81, 0x26]);
@@ -195,7 +196,7 @@ export class Secp256k1SecretKey implements SecretKey {
    * @returns {boolean} True if the private keys are equal, false otherwise
    */
   public equals(other: SecretKey): boolean {
-    return timingSafeEqual(this.bytes, other.bytes);
+    return equalBytes(this.bytes, other.bytes);
   }
 
   /**
@@ -369,10 +370,10 @@ export class Secp256k1SecretKey implements SecretKey {
    * @returns {KeyBytes} Uint8Array of 32 random bytes.
    */
   public static random(): KeyBytes {
-    const byteArray = new Uint8Array(32);
+    let byteArray: Uint8Array;
     // Retry until bytes fall in valid scalar range [1, n)
     do {
-      getRandomValues(byteArray);
+      byteArray = randomBytes(32);
     } while (!secp256k1.utils.isValidSecretKey(byteArray));
     return byteArray;
   }

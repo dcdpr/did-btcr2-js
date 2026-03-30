@@ -6,13 +6,12 @@ import {
   PublicKeyError,
   PublicKeyObject
 } from '@did-btcr2/common';
-
-/** Fixed public key header bytes per the Data Integrity BIP340 Cryptosuite spec: [0xe7, 0x01] */
-export const BIP340_PUBLIC_KEY_MULTIBASE_PREFIX: Bytes = new Uint8Array([0xe7, 0x01]);
 import { secp256k1, schnorr } from '@noble/curves/secp256k1.js';
-import { timingSafeEqual } from 'crypto';
+import { equalBytes } from '@noble/curves/utils.js';
 import { base58 } from '@scure/base';
 import { CryptoOptions } from './types.js';
+
+export const BIP340_PUBLIC_KEY_MULTIBASE_PREFIX: Bytes = new Uint8Array([0xe7, 0x01]);
 
 /**
  * Point Interface representing an (x, y) coordinate on the secp256k1 curve.
@@ -321,7 +320,7 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
    * @returns {boolean} True if the public keys are equal, false otherwise.
    */
   equals(other: PublicKey): boolean {
-    return timingSafeEqual(this.compressed, other.compressed);
+    return equalBytes(this.compressed, other.compressed);
   }
 
   /**
