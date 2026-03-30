@@ -1,5 +1,6 @@
 import { Maybe } from '@did-btcr2/common';
 import { RawSchnorrKeyPair } from '@did-btcr2/keypair';
+import { bytesToHex } from '@noble/hashes/utils';
 import { BeaconCoordinatorError } from '../error.js';
 import { AggregateBeaconCohort } from './cohort/index.js';
 import {
@@ -253,7 +254,7 @@ export class BeaconCoordinator {
 
     if (signingSession.status === SIGNING_SESSION_STATUS.PARTIAL_SIGNATURES_RECEIVED) {
       const signature = await signingSession.generateFinalSignature();
-      console.info(`Final signature ${Buffer.from(signature).toString('hex')} generated for session ${signingSession.id}`);
+      console.info(`Final signature ${bytesToHex(signature)} generated for session ${signingSession.id}`);
     }
   }
 

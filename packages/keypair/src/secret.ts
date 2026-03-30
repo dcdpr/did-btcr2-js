@@ -166,7 +166,7 @@ export class Secp256k1SecretKey implements SecretKey {
    */
   get hex(): HexString {
     // Convert the raw secret key bytes to a hex string
-    return Buffer.from(this.bytes).toString('hex');
+    return bytesToHex(this.bytes);
   }
 
 
@@ -302,7 +302,7 @@ export class Secp256k1SecretKey implements SecretKey {
     const prefix = decoded.slice(0, 2);
 
     // Compute the prefix hash
-    const prefixHash = Buffer.from(sha256(prefix)).toString('hex');
+    const prefixHash = bytesToHex(sha256(prefix));
 
     // If the prefix hash does not equal the BIP340 prefix hash, throw an error
     if (prefixHash !== BIP340_SECRET_KEY_MULTIBASE_PREFIX_HASH) {

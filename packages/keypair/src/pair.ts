@@ -6,6 +6,7 @@ import {
   PublicKeyObject,
   SchnorrKeyPairObject
 } from '@did-btcr2/common';
+import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import { CompressedSecp256k1PublicKey, PublicKey } from './public.js';
 import { Secp256k1SecretKey, SecretKey } from './secret.js';
 import { HexSchnorrKeyPair, MultibaseKeys, RawSchnorrKeyPair, SchnorrKeyPairParams } from './types.js';
@@ -214,7 +215,7 @@ export class SchnorrKeyPair implements KeyPair {
     // Else if data is string, convert to byte array
     // Else must be bytes, use them
     const secret = typeof data === 'string'
-      ? Buffer.from(data, 'hex')
+      ? hexToBytes(data)
       : data;
 
     // Check the lenth
@@ -247,7 +248,7 @@ export class SchnorrKeyPair implements KeyPair {
    * @returns {Hex} The key bytes as a hex string.
    */
   static toHex(keyBytes: KeyBytes): Hex {
-    return Buffer.from(keyBytes).toString('hex');
+    return bytesToHex(keyBytes);
   }
 
   /**

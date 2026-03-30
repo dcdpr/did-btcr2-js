@@ -1,6 +1,6 @@
 {
     "name": "@did-btcr2/method",
-    "version": "0.25.0",
+    "version": "0.25.1",
     "type": "module",
     "description": "Reference implementation for the did:btcr2 DID method written in TypeScript and JavaScript. did:btcr2 is a censorship resistant DID Method using the Bitcoin blockchain as a Verifiable Data Registry to announce changes to the DID document. This is the core method implementation for the did-btcr2-js monorepo.",
     "main": "./dist/cjs/index.js",
@@ -115,8 +115,7 @@
         "dotenv": "^16.5.0",
         "helia": "^5.2.1",
         "multiformats": "^13.3.1",
-        "nostr-tools": "^2.15.0",
-        "tiny-secp256k1": "^2.2.3"
+        "nostr-tools": "^2.15.0"
     },
     "devDependencies": {
         "@eslint/js": "^9.22.0",

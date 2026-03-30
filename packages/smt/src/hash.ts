@@ -1,4 +1,7 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
+import { equalBytes } from '@noble/curves/utils.js';
+import { sha256 } from '@noble/hashes/sha2';
+import { concatBytes } from '@noble/hashes/utils';
+import { base64 } from '@scure/base';
 import { HASH_BYTE_LENGTH, HASH_HEX_LENGTH } from './constants.js';
 
 /**
@@ -21,11 +24,7 @@ export function validateHash(hash: Uint8Array): void {
  * SHA-256 digest of all `blocks` concatenated in order.
  */
 export function blockHash(...blocks: Uint8Array[]): Uint8Array {
-  const sha256 = createHash('sha256');
-  for (const block of blocks) {
-    sha256.update(block);
-  }
-  return new Uint8Array(sha256.digest());
+  return sha256(concatBytes(...blocks));
 }
 
 /**
@@ -109,7 +108,7 @@ export function hexToBigInt(hex: string, padded: boolean): bigint {
  */
 export function hashesEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (!isValidHash(a) || !isValidHash(b)) return false;
-  return timingSafeEqual(a, b);
+  return equalBytes(a, b);
 }
 
 /**
@@ -117,7 +116,7 @@ export function hashesEqual(a: Uint8Array, b: Uint8Array): boolean {
  */
 export function hashToBase64(hash: Uint8Array): string {
   validateHash(hash);
-  return Buffer.from(hash).toString('base64');
+  return base64.encode(hash);
 }
 
 /**
@@ -125,8 +124,7 @@ export function hashToBase64(hash: Uint8Array): string {
  * Throws `RangeError` if the decoded result is not 32 bytes.
  */
 export function base64ToHash(b64: string): Uint8Array {
-  const buf = Buffer.from(b64, 'base64');
-  const hash = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+  const hash = base64.decode(b64);
   if (hash.length !== HASH_BYTE_LENGTH) {
     throw new RangeError(`Invalid base64 hash: expected ${HASH_BYTE_LENGTH} decoded bytes, got ${hash.length}`);
   }
@@ -144,7 +142,7 @@ export function bigIntToBase64(value: bigint, padded: boolean): string {
     const firstNonZero = bytes.findIndex(b => b !== 0x00);
     bytes = firstNonZero === -1 ? new Uint8Array(1) : bytes.slice(firstNonZero);
   }
-  return Buffer.from(bytes).toString('base64');
+  return base64.encode(bytes);
 }
 
 /**
@@ -152,8 +150,7 @@ export function bigIntToBase64(value: bigint, padded: boolean): string {
  * When `padded` is true, the decoded bytes must be exactly 32.
  */
 export function base64ToBigInt(b64: string, padded: boolean): bigint {
-  const buf = Buffer.from(b64, 'base64');
-  const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+  const bytes = base64.decode(b64);
   if (padded && bytes.length !== HASH_BYTE_LENGTH) {
     throw new RangeError(`Invalid padded base64 bigint: expected ${HASH_BYTE_LENGTH} decoded bytes, got ${bytes.length}`);
   }

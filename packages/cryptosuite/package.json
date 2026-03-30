@@ -1,6 +1,6 @@
 {
   "name": "@did-btcr2/cryptosuite",
-  "version": "6.0.3",
+  "version": "6.0.4",
   "type": "module",
   "description": "W3C Data Integrity proof suite using BIP-340 Schnorr signatures over JCS-canonicalized documents. Creates and verifies bip340-jcs-2025 proofs for did:btcr2 DID updates.",
   "main": "./dist/cjs/index.js",
@@ -92,11 +92,7 @@
     "@noble/curves": "^1.8.1",
     "@noble/hashes": "^1.7.1",
     "@web5/dids": "^1.2.0",
-    "jsonld-document-loader": "^2.3.0",
-    "jsonld-signatures": "^11.5.0",
-    "multiformats": "^13.3.2",
-    "rdf-canonize": "^4.0.1",
-    "tiny-secp256k1": "^2.2.3"
+    "multiformats": "^13.3.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.20.0",

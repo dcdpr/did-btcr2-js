@@ -1,4 +1,5 @@
 import { KeyBytes, Maybe } from '@did-btcr2/common';
+import { bytesToHex } from '@noble/hashes/utils';
 import { HDKey } from '@scure/bip32';
 import { mnemonicToSeedSync } from '@scure/bip39';
 import * as musig2 from '@scure/btc-signer/musig2';
@@ -280,7 +281,7 @@ export class BeaconParticipant {
       console.error(`Failed to derive public key for cohort ${cohortId}`);
       return;
     }
-    const participantPk = Buffer.from(participantPkBytes).toString('hex');
+    const participantPk = bytesToHex(participantPkBytes);
     const beaconAddress = cohortSetMessage.body?.beaconAddress;
     if(!beaconAddress) {
       console.error(`Beacon address not provided in cohort set message for ${cohortId}`);
@@ -291,7 +292,7 @@ export class BeaconParticipant {
       console.error(`Cohort keys not provided in cohort set message for ${cohortId}`);
       return;
     }
-    const keys = cohortKeys.map(key => Buffer.from(key).toString('hex'));
+    const keys = cohortKeys.map(key => bytesToHex(new Uint8Array(key)));
     cohort.validateCohort([participantPk], keys, beaconAddress);
     console.info(`BeaconParticipant w/ pk ${participantPk} successfully joined cohort ${cohortId} with beacon address ${beaconAddress}.`);
     console.info(`Cohort status: ${cohort.status}`);

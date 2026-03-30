@@ -23,14 +23,6 @@ module.exports = {
     inject: [require.resolve('node-stdlib-browser/helpers/esbuild/shim')],
     plugins: [
         polyfillProviderPlugin(polyfills),
-        {
-            name: 'alias-ecc',
-            setup(build) {
-                build.onResolve({ filter: /^tiny-secp256k1$/ }, () => ({
-                    path: require.resolve('@bitcoinerlab/secp256k1'),
-                }));
-            },
-        },
     ],
     loader: { '.wasm': 'binary' },
     define: { 'global': 'globalThis' },

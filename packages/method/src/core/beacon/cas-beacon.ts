@@ -2,6 +2,7 @@ import { AddressUtxo, BitcoinConnection } from '@did-btcr2/bitcoin';
 import { canonicalHash, canonicalize, decode, encode, hash, KeyBytes } from '@did-btcr2/common';
 import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { hexToBytes } from '@noble/hashes/utils';
 import { opcodes, Psbt, script } from 'bitcoinjs-lib';
 import type { BeaconProcessResult, DataNeed } from '../resolver.js';
 import { SidecarData } from '../types.js';
@@ -166,7 +167,7 @@ export class CASBeacon extends Beacon {
       .addInput({
         hash           : utxo.txid,
         index          : utxo.vout,
-        nonWitnessUtxo : Buffer.from(prevTx, 'hex')
+        nonWitnessUtxo : hexToBytes(prevTx)
       })
       // Add a change output minus a fee of 500 sats
       // TODO: calculate fee based on transaction vsize and current fee rates
