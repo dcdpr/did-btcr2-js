@@ -8,6 +8,7 @@ import {
 } from '@did-btcr2/common';
 import { secp256k1, schnorr } from '@noble/curves/secp256k1.js';
 import { equalBytes } from '@noble/curves/utils.js';
+import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import { base58 } from '@scure/base';
 import { CryptoOptions } from './types.js';
 
@@ -140,7 +141,7 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
     // Convert hex string to Uint8Array if necessary
     const keyBytes = initialBytes instanceof Uint8Array
       ? initialBytes
-      : Uint8Array.from(Buffer.from(initialBytes, 'hex'));
+      : hexToBytes(initialBytes);
 
     // If the byte length is not 33, throw an error
     if(!keyBytes || keyBytes.length !== 33) {
@@ -249,7 +250,7 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
    * @returns {string} The public key as a hex string.
    */
   get hex(): string {
-    const hex = Buffer.from(this.compressed).toString('hex');
+    const hex = bytesToHex(this.compressed);
     return hex;
   }
 

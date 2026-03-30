@@ -11,6 +11,7 @@ import {
   SignatureBytes
 } from '@did-btcr2/common';
 import { sha256 } from '@noble/hashes/sha2';
+import { concatBytes, utf8ToBytes } from '@noble/hashes/utils';
 import { base58btc } from 'multiformats/bases/base58';
 import { BIP340DataIntegrityProof } from '../data-integrity-proof/index.js';
 import { SignedBTCR2Update, BTCR2Update, DataIntegrityConfig, DataIntegrityProofObject } from '../data-integrity-proof/interface.js';
@@ -165,14 +166,14 @@ export class BIP340Cryptosuite implements Cryptosuite {
    * @returns {HashBytes} The hash bytes of the proof configuration and document.
    */
   generateHash(config: string, document: string): HashBytes {
-    // Convert the canonical proof config to buffer and sha256 hash it
-    const configHash = sha256(Buffer.from(config, 'utf-8'));
+    // Convert the canonical proof config to bytes and sha256 hash it
+    const configHash = sha256(utf8ToBytes(config));
 
-    // Convert the canonical document to buffer and sha256 hash it
-    const documentHash = sha256(Buffer.from(document, 'utf-8'));
+    // Convert the canonical document to bytes and sha256 hash it
+    const documentHash = sha256(utf8ToBytes(document));
 
     // Concatenate the hashes
-    const combinedHash = Buffer.concat([configHash, documentHash]);
+    const combinedHash = concatBytes(configHash, documentHash);
 
     // sha256 hash the combined hashes and return
     return sha256(combinedHash);

@@ -1,3 +1,4 @@
+import { hexToBytes } from '@noble/hashes/utils';
 import { keyAggExport, keyAggregate, sortKeys } from '@scure/btc-signer/musig2';
 import { payments, Transaction } from 'bitcoinjs-lib';
 import { BeaconCoordinatorError } from '../../error.js';
@@ -133,7 +134,7 @@ export class AggregateBeaconCohort implements BeaconCohort {
         );
       }
     }
-    this.cohortKeys = cohortKeys.map(key => Buffer.from(key, 'hex'));
+    this.cohortKeys = cohortKeys.map(key => hexToBytes(key));
     const calculatedAddress = this.calulateBeaconAddress();
     if (calculatedAddress !== beaconAddress) {
       this.status = COHORT_STATUS.COHORT_FAILED;

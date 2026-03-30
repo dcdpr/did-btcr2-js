@@ -2,6 +2,7 @@
 
 import { Did } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey, RawSchnorrKeyPair, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
+import { bytesToHex } from '@noble/hashes/utils';
 import { nonceGen } from '@scure/btc-signer/musig2';
 import { Event, EventTemplate, Filter, finalizeEvent, nip44 } from 'nostr-tools';
 import { SimplePool } from 'nostr-tools/pool';
@@ -217,10 +218,10 @@ export class NostrAdapter implements CommunicationService {
     //   this.config.coordinatorDids.push(recipient);
     // }
 
-    const tags = [['p', Buffer.from(sender.x).toString('hex')]];
+    const tags = [['p', bytesToHex(sender.x)]];
     if(to) {
       const recipient = new CompressedSecp256k1PublicKey(Identifier.decode(to).genesisBytes);
-      tags.push(['p', Buffer.from(recipient.x).toString('hex')]);
+      tags.push(['p', bytesToHex(recipient.x)]);
     }
     const { type } = message as any ?? {};
     if(!type) {

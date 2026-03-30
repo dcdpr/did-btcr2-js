@@ -18,8 +18,9 @@ import {
   DidErrorCode,
   DidMethod,
 } from '@web5/dids';
+import * as ecc from '@bitcoinerlab/secp256k1';
+import { hexToBytes } from '@noble/hashes/utils';
 import { initEccLib } from 'bitcoinjs-lib';
-import * as tinysecp from 'tiny-secp256k1';
 import { BeaconService } from './core/beacon/interfaces.js';
 import { Identifier } from './core/identifier.js';
 import { ResolutionOptions } from './core/interfaces.js';
@@ -37,8 +38,8 @@ export interface DidCreateOptions {
   network?: string;
 }
 
-/** Initialize tiny secp256k1 */
-initEccLib(tinysecp);
+/** Initialize secp256k1 ECC library */
+initEccLib(ecc);
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2 | did:btcr2 DID Method Specification}.
@@ -183,7 +184,7 @@ export class DidBtcr2 implements DidMethod {
 
     // Convert signingMaterial to bytes if it's a hex string
     const secretKey = typeof signingMaterial === 'string'
-      ? Buffer.from(signingMaterial, 'hex')
+      ? hexToBytes(signingMaterial)
       : signingMaterial;
 
     // Validate that the verificationMethodId is authorized for capabilityInvocation
