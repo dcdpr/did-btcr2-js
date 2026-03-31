@@ -38,7 +38,7 @@ export class BeaconSignalDiscovery {
       beaconServiceSignals.set(beaconService, []);
       // Get the transactions for the beacon address via REST
       const beaconSignals = await bitcoin.rest.address.getTxs(
-        beaconService.serviceEndpoint as string
+        BeaconUtils.parseBitcoinAddress(beaconService.serviceEndpoint as string)
       );
 
       // If no signals are found, continue
