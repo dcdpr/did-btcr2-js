@@ -1,6 +1,6 @@
 {
   "name": "@did-btcr2/keypair",
-  "version": "0.11.2",
+  "version": "0.11.3",
   "type": "module",
   "description": "Secp256k1 key pairs with BIP-340 Schnorr and ECDSA signing, multibase encoding, and constant-time operations.",
   "main": "./dist/cjs/index.js",
@@ -87,7 +87,7 @@
     "version:new": "[ -z \"$NEW_VERSION\" ] && echo 'ERROR: NEW_VERSION is not set' && exit 1 || (git checkout -b $NEW_VERSION && git tag $NEW_VERSION && pnpm version:no-git $NEW_VERSION)"
   },
   "dependencies": {
-    "@did-btcr2/common": "workspace:*",
+    "@did-btcr2/common": "workspace:^",
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^1.7.1",
     "@scure/base": "^2.0.0"
