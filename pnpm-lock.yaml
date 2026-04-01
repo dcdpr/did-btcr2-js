@@ -78,22 +78,22 @@ importers:
         specifier: ^1.2.0
         version: 1.2.0
       '@did-btcr2/bitcoin':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../bitcoin
       '@did-btcr2/common':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../common
       '@did-btcr2/cryptosuite':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../cryptosuite
       '@did-btcr2/keypair':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../keypair
       '@did-btcr2/kms':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../kms
       '@did-btcr2/method':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../method
       '@helia/strings':
         specifier: ^4.0.2
@@ -220,10 +220,10 @@ importers:
   packages/bitcoin:
     dependencies:
       '@did-btcr2/common':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../common
       '@did-btcr2/keypair':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../keypair
       '@noble/curves':
         specifier: ^1.9.7
@@ -311,16 +311,16 @@ importers:
   packages/cli:
     dependencies:
       '@did-btcr2/api':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../api
       '@did-btcr2/common':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../common
       '@did-btcr2/cryptosuite':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../cryptosuite
       '@did-btcr2/method':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../method
       '@web5/dids':
         specifier: ^1.2.0
@@ -487,10 +487,10 @@ importers:
   packages/cryptosuite:
     dependencies:
       '@did-btcr2/common':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../common
       '@did-btcr2/keypair':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../keypair
       '@noble/curves':
         specifier: ^1.8.1
@@ -575,7 +575,7 @@ importers:
   packages/keypair:
     dependencies:
       '@did-btcr2/common':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../common
       '@noble/curves':
         specifier: ^2.0.1
@@ -657,10 +657,10 @@ importers:
   packages/kms:
     dependencies:
       '@did-btcr2/common':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../common
       '@did-btcr2/keypair':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../keypair
       '@noble/hashes':
         specifier: ^2.0.1
@@ -739,16 +739,16 @@ importers:
         specifier: ^1.2.0
         version: 1.2.0
       '@did-btcr2/bitcoin':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../bitcoin
       '@did-btcr2/common':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../common
       '@did-btcr2/cryptosuite':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../cryptosuite
       '@did-btcr2/keypair':
-        specifier: workspace:*
+        specifier: workspace:^
         version: link:../keypair
       '@helia/strings':
         specifier: ^4.0.2
