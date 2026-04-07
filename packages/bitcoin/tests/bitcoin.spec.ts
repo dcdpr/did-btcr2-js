@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import { BitcoinConnection } from '../src/connection.js';
 import { EsploraProtocol } from '../src/client/rest/protocol.js';
 import { JsonRpcProtocol } from '../src/client/rpc/protocol.js';
-import { HttpExecutor, HttpRequest } from '../src/client/http.js';
+import type { HttpExecutor, HttpRequest } from '../src/client/http.js';
 
 /**
  * BitcoinConnection Test Suite

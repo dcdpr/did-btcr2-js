@@ -32,6 +32,10 @@
     "clean:tests": "pnpm --recursive --stream clean:tests",
     "clean:test-coverage": "pnpm --recursive --stream clean:test-coverage",
     "build": "pnpm --recursive --stream build",
+    "build:ts": "tsc -b",
+    "build:ts:watch": "tsc -b --watch",
+    "build:ts:clean": "tsc -b --clean",
+    "build:ts:force": "tsc -b --force",
     "build:test": "pnpm --recursive --stream build:test",
     "build:tests": "pnpm --recursive --stream build:tests",
     "build:all": "pnpm --recursive --stream build:all",
@@ -104,7 +108,8 @@
       "@ipshipyard/node-datachannel",
       "classic-level",
       "dtrace-provider",
-      "esbuild"
+      "esbuild",
+      "node-datachannel"
     ]
   }
 }

@@ -1,12 +1,13 @@
-import {
+import type {
   BitcoinConnection,
   BlockV3,
+  RawTransactionV2} from '@did-btcr2/bitcoin';
+import {
   GENESIS_TX_ID,
-  RawTransactionV2,
   TXIN_WITNESS_COINBASE
 } from '@did-btcr2/bitcoin';
 import { ResolveError } from '@did-btcr2/common';
-import { BeaconService, BeaconSignal } from './interfaces.js';
+import type { BeaconService, BeaconSignal } from './interfaces.js';
 import { BeaconUtils } from './utils.js';
 
 /**

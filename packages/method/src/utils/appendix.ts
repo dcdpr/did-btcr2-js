@@ -1,17 +1,20 @@
-import { HashBytes } from '@did-btcr2/common';
-import { strings } from '@helia/strings';
-import {
+import type { HashBytes } from '@did-btcr2/common';
+import type {
   DidDocument,
+  DidService,
+  DidVerificationMethod} from '@web5/dids';
+import {
   DidError,
   DidErrorCode,
-  DidService,
-  DidVerificationMethod,
   DidVerificationRelationship
 } from '@web5/dids';
-import { createHelia } from 'helia';
 import { CID } from 'multiformats';
 import { create as createDigest } from 'multiformats/hashes/digest';
-import { RootCapability } from '../core/interfaces.js';
+import type { RootCapability } from '../core/interfaces.js';
+
+// helia and @helia/strings are ESM-only and depend on native modules (libp2p / node-datachannel).
+// Lazy-load them via dynamic import so this file can be bundled into CJS without pulling in the
+// native binaries at bundle time. Node supports `await import(esm)` from CJS at runtime.
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/#appendix | 9. Appendix} methods.
@@ -214,6 +217,10 @@ export class Appendix {
   static async fetchFromCas(hashBytes: HashBytes): Promise<string | undefined> {
     // Construct CID from hash bytes
     const cid = CID.create(1, 1, createDigest(1, hashBytes));
+
+    // Lazy-load helia to avoid bundling its native deps into downstream CJS builds.
+    const { createHelia } = await import('helia');
+    const { strings } = await import('@helia/strings');
 
     // Connect to IPFS/Helia node
     const helia = await createHelia();

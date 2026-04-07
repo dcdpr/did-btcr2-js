@@ -4,8 +4,9 @@ import { payments, Transaction } from 'bitcoinjs-lib';
 import { BeaconCoordinatorError } from '../../error.js';
 import { BeaconCohortSigningSession } from '../session/index.js';
 import { BeaconCohortReadyMessage } from './messages/keygen/cohort-ready.js';
-import { BeaconCohortRequestSignatureMessage } from './messages/sign/request-signature.js';
-import { COHORT_STATUS, COHORT_STATUS_TYPE } from './status.js';
+import type { BeaconCohortRequestSignatureMessage } from './messages/sign/request-signature.js';
+import type { COHORT_STATUS_TYPE } from './status.js';
+import { COHORT_STATUS } from './status.js';
 
 export type Musig2CohortObject = {
     id?: string;

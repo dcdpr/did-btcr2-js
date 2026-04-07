@@ -1,15 +1,19 @@
-import {
+import type {
   Hex,
   HexString,
   KeyBytes,
-  KeyPairError,
   PublicKeyObject,
   SchnorrKeyPairObject
 } from '@did-btcr2/common';
+import {
+  KeyPairError
+} from '@did-btcr2/common';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
-import { CompressedSecp256k1PublicKey, PublicKey } from './public.js';
-import { Secp256k1SecretKey, SecretKey } from './secret.js';
-import { HexSchnorrKeyPair, MultibaseKeys, RawSchnorrKeyPair, SchnorrKeyPairParams } from './types.js';
+import type { PublicKey } from './public.js';
+import { CompressedSecp256k1PublicKey } from './public.js';
+import type { SecretKey } from './secret.js';
+import { Secp256k1SecretKey } from './secret.js';
+import type { HexSchnorrKeyPair, MultibaseKeys, RawSchnorrKeyPair, SchnorrKeyPairParams } from './types.js';
 
 /**
  * General KeyPair interface used by SchnorrKeyPair class.
@@ -133,7 +137,7 @@ export class SchnorrKeyPair implements KeyPair {
    */
   get raw(): RawSchnorrKeyPair {
     return {
-      public : this.publicKey.x,
+      public : this.publicKey.compressed,
       secret : this.#secretKey ? this.#secretKey.bytes : undefined
     };
   }

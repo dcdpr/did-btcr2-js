@@ -1,5 +1,5 @@
-import { DidResolutionOptions } from '@web5/dids';
-import { Sidecar } from './types.js';
+import type { DidResolutionOptions } from '@web5/dids';
+import type { Sidecar } from './types.js';
 
 export interface RootCapability {
     '@context': string;

@@ -1,19 +1,21 @@
 import { getNetwork } from '@did-btcr2/bitcoin';
+import type {
+  HashBytes,
+  JSONObject,
+  KeyBytes
+} from '@did-btcr2/common';
 import {
   canonicalize,
   DidDocumentError,
   hash,
-  HashBytes,
   IdentifierTypes,
   INVALID_DID_DOCUMENT,
-  JSONObject,
-  JSONUtils,
-  KeyBytes
+  JSONUtils
 } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
-import { DidDocument as W3CDidDocument, DidVerificationMethod as W3CDidVerificationMethod } from '@web5/dids';
+import type { DidDocument as W3CDidDocument, DidVerificationMethod as W3CDidVerificationMethod } from '@web5/dids';
 import { payments } from 'bitcoinjs-lib';
-import { BeaconService } from '../core/beacon/interfaces.js';
+import type { BeaconService } from '../core/beacon/interfaces.js';
 import { BeaconUtils } from '../core/beacon/utils.js';
 import { Identifier } from '../core/identifier.js';
 import { Appendix } from './appendix.js';

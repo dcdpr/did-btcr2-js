@@ -1,6 +1,7 @@
 import { BitcoinRpcError } from '../../errors.js';
-import { RpcConfig } from '../../types.js';
-import { HttpExecutor, defaultHttpExecutor } from '../http.js';
+import type { RpcConfig } from '../../types.js';
+import type { HttpExecutor} from '../http.js';
+import { defaultHttpExecutor } from '../http.js';
 import { safeText } from '../utils.js';
 import { JsonRpcProtocol } from './protocol.js';
 

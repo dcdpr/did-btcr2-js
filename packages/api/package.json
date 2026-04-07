@@ -1,6 +1,6 @@
 {
     "name": "@did-btcr2/api",
-    "version": "0.3.1",
+    "version": "0.3.2",
     "type": "module",
     "description": "SDK for accessing the did:btcr2 method functionality.",
     "main": "./dist/cjs/index.js",
@@ -73,7 +73,7 @@
         "reinstall": "pnpm install --force",
         "build": "pnpm clean:build && pnpm build:esm && pnpm build:cjs && pnpm build:browser",
         "build:esm": "rimraf dist/esm dist/types && pnpm tsc -p tsconfig.json",
-        "build:cjs": "rimraf dist/cjs && tsc -p tsconfig.cjs.json && echo '{\"type\": \"commonjs\"}' > ./dist/cjs/package.json",
+        "build:cjs": "tsup && echo '{\"type\": \"commonjs\"}' > ./dist/cjs/package.json",
         "build:browser": "rimraf dist/browser.mjs dist/browser.js && node build/bundles.js",
         "build:tests": "pnpm clean:tests && pnpm tsc -p tests/tsconfig.json",
         "build:all": "pnpm build && pnpm build:tests",
@@ -131,6 +131,7 @@
         "mocha-junit-reporter": "^2.2.1",
         "node-stdlib-browser": "^1.3.1",
         "rimraf": "^6.0.1",
+        "tsup": "^8.5.1",
         "typedoc-plugin-markdown": "^4.7.0",
         "typescript": "^5.6.2",
         "typescript-eslint": "^8.19.1"

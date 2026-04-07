@@ -1,13 +1,15 @@
-import {
+import type {
   Bytes,
   HashBytes,
   KeyBytes,
-  KeyManagerError,
   SignatureBytes
+} from '@did-btcr2/common';
+import {
+  KeyManagerError
 } from '@did-btcr2/common';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { sha256 } from '@noble/hashes/sha2.js';
-import {
+import type {
   GenerateKeyOptions,
   ImportKeyOptions,
   KeyEntry,
@@ -15,7 +17,8 @@ import {
   KeyManager,
   SignOptions,
 } from './interface.js';
-import { KeyValueStore, MemoryStore } from './store.js';
+import type { KeyValueStore} from './store.js';
+import { MemoryStore } from './store.js';
 
 /**
  * Key Management System for the did:btcr2 DID method.

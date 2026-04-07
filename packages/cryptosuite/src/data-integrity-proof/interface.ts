@@ -1,5 +1,5 @@
-import { PatchOperation } from '@did-btcr2/common';
-import { Cryptosuite, VerificationResult } from '../cryptosuite/interface.js';
+import type { PatchOperation } from '@did-btcr2/common';
+import type { Cryptosuite, VerificationResult } from '../cryptosuite/interface.js';
 
 export type BTCR2Update = UnsignedBTCR2Update | SignedBTCR2Update;
 

@@ -1,6 +1,7 @@
-import jsonPatch, { Operation } from 'fast-json-patch';
+import type { Operation } from 'fast-json-patch';
+import jsonPatch from 'fast-json-patch';
 import { MethodError } from './errors.js';
-import { JSONObject } from './types.js';
+import type { JSONObject } from './types.js';
 
 const { applyPatch, compare, deepClone } = jsonPatch;
 

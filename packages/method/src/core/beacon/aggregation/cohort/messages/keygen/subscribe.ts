@@ -1,4 +1,5 @@
-import { JSONUtils, Maybe } from '@did-btcr2/common';
+import type { Maybe } from '@did-btcr2/common';
+import { JSONUtils } from '@did-btcr2/common';
 import { BaseMessage } from '../base.js';
 import { BEACON_COHORT_OPT_IN_ACCEPT } from '../constants.js';
 

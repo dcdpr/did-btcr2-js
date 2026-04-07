@@ -3,8 +3,9 @@ import { HDKey } from '@scure/bip32';
 import { bech32, base64url } from '@scure/base';
 import { generateMnemonic, mnemonicToSeed } from '@scure/bip39';
 import { wordlist } from '@scure/bip39/wordlists/english';
-import { Jwk, LocalKeyManager } from '@web5/crypto';
-import { DidDocument } from '@web5/dids';
+import type { Jwk} from '@web5/crypto';
+import { LocalKeyManager } from '@web5/crypto';
+import type { DidDocument } from '@web5/dids';
 import { initEccLib, networks, payments } from 'bitcoinjs-lib';
 
 import * as ecc from 'tiny-secp256k1';

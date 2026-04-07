@@ -1,21 +1,23 @@
 import type { Bytes, Entropy, HexString, KeyBytes, SchnorrKeyPairObject, SignatureBytes } from '@did-btcr2/common';
-import {
-  BIP340Cryptosuite,
-  BIP340DataIntegrityProof,
+import type {
   BTCR2Update,
   DataIntegrityConfig,
   DataIntegrityProofObject,
-  type FromPublicKey,
-  type Multikey,
-  SchnorrMultikey,
   SignedBTCR2Update,
   UnsignedBTCR2Update,
   VerificationResult
 } from '@did-btcr2/cryptosuite';
+import {
+  BIP340Cryptosuite,
+  BIP340DataIntegrityProof,
+  type FromPublicKey,
+  type Multikey,
+  SchnorrMultikey
+} from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
-import { KeyIdentifier } from '@did-btcr2/kms';
+import type { KeyIdentifier } from '@did-btcr2/kms';
 import type { DidVerificationMethod } from '@web5/dids';
-import { KeyManagerApi } from './kms.js';
+import type { KeyManagerApi } from './kms.js';
 
 /**
  * Schnorr keypair operations.

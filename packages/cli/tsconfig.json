@@ -1,15 +1,19 @@
 {
-  "extends": "../../tsconfig.json",
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
+    "composite": true,
+    "rootDir": ".",
+    "outDir": "dist/esm",
     "declarationDir": "dist/types",
-    "outDir": "dist/esm"
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    "lib": ["ES2022"],
+    "types": ["node"]
   },
-  "include": [
-    "src",
-    "bin/btcr2.ts"
-  ],
-  "exclude": [
-    "node_modules",
-    "lib"
+  "include": ["src", "bin/btcr2.ts"],
+  "references": [
+    { "path": "../common" },
+    { "path": "../cryptosuite" },
+    { "path": "../method" },
+    { "path": "../api" }
   ]
 }

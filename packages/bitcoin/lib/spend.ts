@@ -1,7 +1,7 @@
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { Psbt } from 'bitcoinjs-lib';
 import { BitcoinConnection } from '../src/connection.js';
-import { AddressUtxo } from '../src/types.js';
+import type { AddressUtxo } from '../src/types.js';
 import { decode } from '@did-btcr2/common';
 
 const bitcoin = BitcoinConnection.forNetwork('regtest');

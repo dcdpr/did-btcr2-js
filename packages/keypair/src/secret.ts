@@ -1,11 +1,13 @@
-import {
+import type {
   Bytes,
   Hex,
   HexString,
   KeyBytes,
-  SecretKeyError,
   SecretKeyObject,
   SignatureBytes
+} from '@did-btcr2/common';
+import {
+  SecretKeyError
 } from '@did-btcr2/common';
 import { sha256 } from '@noble/hashes/sha2';
 import { bytesToHex } from '@noble/hashes/utils';
@@ -13,7 +15,7 @@ import { secp256k1, schnorr } from '@noble/curves/secp256k1.js';
 import { randomBytes } from '@noble/hashes/utils';
 import { base58 } from '@scure/base';
 import { CompressedSecp256k1PublicKey } from './public.js';
-import { CryptoOptions } from './types.js';
+import type { CryptoOptions } from './types.js';
 import { equalBytes } from '@noble/curves/utils.js';
 
 /** Fixed secret key header bytes per the Data Integrity BIP340 Cryptosuite spec: [0x81, 0x26] */

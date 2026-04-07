@@ -1,6 +1,6 @@
 import { StringUtils } from '@did-btcr2/common';
-import { RestConfig } from '../../types.js';
-import { HttpRequest } from '../http.js';
+import type { RestConfig } from '../../types.js';
+import type { HttpRequest } from '../http.js';
 
 const HEX64_RE = /^[0-9a-f]{64}$/i;
 

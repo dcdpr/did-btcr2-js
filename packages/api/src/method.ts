@@ -1,12 +1,12 @@
-import { BitcoinConnection } from '@did-btcr2/bitcoin';
+import type { BitcoinConnection } from '@did-btcr2/bitcoin';
 import type { DocumentBytes, HexString, KeyBytes, PatchOperation } from '@did-btcr2/common';
 import { IdentifierTypes, NotImplementedError } from '@did-btcr2/common';
-import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import type { Btcr2DidDocument, CASAnnouncement, DidCreateOptions, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, ResolutionOptions } from '@did-btcr2/method';
 import { BeaconSignalDiscovery, DidBtcr2 } from '@did-btcr2/method';
 import type { DidResolutionResult, DidVerificationMethod } from '@web5/dids';
-import { BitcoinApi } from './bitcoin.js';
-import { CasApi } from './cas.js';
+import type { BitcoinApi } from './bitcoin.js';
+import type { CasApi } from './cas.js';
 import { assertBytes, assertCompressedPubkey, assertString, NOOP_LOGGER } from './helpers.js';
 import type { Logger } from './types.js';
 

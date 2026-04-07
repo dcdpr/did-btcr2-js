@@ -9,16 +9,16 @@ import {
   BEACON_COHORT_REQUEST_SIGNATURE,
   BEACON_COHORT_SIGNATURE_AUTHORIZATION
 } from './constants.js';
-import { CohortAdvertMessage } from './keygen/cohort-advert.js';
-import { CohortReadyMessage } from './keygen/cohort-ready.js';
-import { CohortOptInAcceptMessage } from './keygen/opt-in-accept.js';
-import { CohortOptInMessage } from './keygen/opt-in.js';
-import { CohortSubscribeMessage } from './keygen/subscribe.js';
-import { CohortAggregatedNonceMessage } from './sign/aggregated-nonce.js';
-import { CohortAuthorizationRequestMessage } from './sign/authorization-request.js';
-import { CohortNonceContributionMessage } from './sign/nonce-contribution.js';
-import { CohortRequestSignatureMessage } from './sign/request-signature.js';
-import { CohortSignatureAuthorizationMessage } from './sign/signature-authorization.js';
+import type { CohortAdvertMessage } from './keygen/cohort-advert.js';
+import type { CohortReadyMessage } from './keygen/cohort-ready.js';
+import type { CohortOptInAcceptMessage } from './keygen/opt-in-accept.js';
+import type { CohortOptInMessage } from './keygen/opt-in.js';
+import type { CohortSubscribeMessage } from './keygen/subscribe.js';
+import type { CohortAggregatedNonceMessage } from './sign/aggregated-nonce.js';
+import type { CohortAuthorizationRequestMessage } from './sign/authorization-request.js';
+import type { CohortNonceContributionMessage } from './sign/nonce-contribution.js';
+import type { CohortRequestSignatureMessage } from './sign/request-signature.js';
+import type { CohortSignatureAuthorizationMessage } from './sign/signature-authorization.js';
 
 export type KeyGenMessageType =
   | CohortAdvertMessage

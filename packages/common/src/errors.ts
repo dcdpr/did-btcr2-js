@@ -118,8 +118,14 @@ type ErrorOptions = {
   data?: any;
 }
 
+// V8-specific Error.captureStackTrace — not in standard JS, declared here as an
+// optional type augmentation so browser-compat packages don't need @types/node.
+type V8ErrorConstructor = ErrorConstructor & {
+  captureStackTrace?: (target: object, ctor: Function) => void;
+};
+
 export class NotImplementedError extends Error {
-  name: string = 'NotImplementedError';
+  override name: string = 'NotImplementedError';
   type: string = 'NotImplementedError';
 
   constructor(message: string, options: ErrorOptions = {}) {
@@ -133,14 +139,12 @@ export class NotImplementedError extends Error {
 
     // Captures the stack trace in V8 engines (like Chrome, Edge, and Node.js).
     // In non-V8 environments, the stack trace will still be captured.
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, NotImplementedError);
-    }
+    (Error as V8ErrorConstructor).captureStackTrace?.(this, NotImplementedError);
   }
 }
 
 export class DidMethodError extends Error {
-  name: string = 'DidMethodError';
+  override name: string = 'DidMethodError';
   type: string = 'DidMethodError';
   data?: Record<string, any>;
 
@@ -156,9 +160,7 @@ export class DidMethodError extends Error {
 
     // Captures the stack trace in V8 engines (like Chrome, Edge, and Node.js).
     // In non-V8 environments, the stack trace will still be captured.
-    if (Error.captureStackTrace) {
-      Error.captureStackTrace(this, DidMethodError);
-    }
+    (Error as V8ErrorConstructor).captureStackTrace?.(this, DidMethodError);
   }
 }
 

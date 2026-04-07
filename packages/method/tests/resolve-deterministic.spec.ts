@@ -1,7 +1,7 @@
 import { expect } from 'chai';
 import { DidBtcr2 } from '../src/did-btcr2.js';
-import { BeaconService, BeaconSignal } from '../src/core/beacon/interfaces.js';
-import { NeedBeaconSignals } from '../src/core/resolver.js';
+import type { BeaconService, BeaconSignal } from '../src/core/beacon/interfaces.js';
+import type { NeedBeaconSignals } from '../src/core/resolver.js';
 import data from './data/deterministic-data.js';
 
 /**

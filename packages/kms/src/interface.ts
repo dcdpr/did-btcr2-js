@@ -1,5 +1,5 @@
-import { Bytes, HashBytes, KeyBytes, SignatureBytes } from '@did-btcr2/common';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import type { Bytes, HashBytes, KeyBytes, SignatureBytes } from '@did-btcr2/common';
+import type { SchnorrKeyPair } from '@did-btcr2/keypair';
 
 /** Opaque key identifier string. */
 export type KeyIdentifier = string;

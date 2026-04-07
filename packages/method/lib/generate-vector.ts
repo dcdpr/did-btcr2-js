@@ -4,7 +4,8 @@ import { stdin, stdout } from 'node:process';
 import * as readline from 'node:readline/promises';
 
 import { BitcoinConnection, getNetwork } from '@did-btcr2/bitcoin';
-import { canonicalize, PatchOperation } from '@did-btcr2/common';
+import type { PatchOperation } from '@did-btcr2/common';
+import { canonicalize } from '@did-btcr2/common';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { sha256 } from '@noble/hashes/sha2';
 import { hex } from '@scure/base';
@@ -1001,7 +1002,6 @@ async function stepResolve(hash: string = hashArg) {
   if (!hash) throw new Error('--hash is required for the resolve action');
 
   const { dir, did, idType, network } = loadVectorContext(hash);
-  const other = requireFile(join(dir, 'other.json'));
 
   console.log(`\n[resolve] hash=${hash} mode=${offline ? 'offline' : 'live'}\n`);
 
@@ -1020,15 +1020,18 @@ async function stepResolve(hash: string = hashArg) {
 
   // For x1 (EXTERNAL) DIDs, the genesis document must be included
   // since it cannot be derived deterministically from the identifier.
-  if (idType === 'EXTERNAL' && other.genesisDocument) {
-    sidecar.genesisDocument = other.genesisDocument;
+  if (idType === 'EXTERNAL') {
+    const other = requireFile(join(dir, 'other.json'));
+    if(other.genesisDocument) {
+      sidecar.genesisDocument = other.genesisDocument;
+    }
   }
 
   // Write the resolve input regardless of mode
-  writeJSON(join(dir, 'resolve'), 'input.json', {
-    did,
-    resolutionOptions : { sidecar },
-  });
+  // writeJSON(join(dir, 'resolve'), 'input.json', {
+  //   did,
+  //   resolutionOptions : { sidecar },
+  // });
 
   if (offline) {
     // Offline mode: only build the sidecar data, no live resolution

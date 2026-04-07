@@ -1,16 +1,9 @@
 {
-  "extends": "../tsconfig.json",
+  "extends": "../../../tsconfig.base.tests.json",
   "compilerOptions": {
-    "outDir": "compiled",
-    "declarationDir": "compiled/types",
-    "sourceMap": true,
-    "resolveJsonModule": true
+    "rootDir": "..",
+    "outDir": "compiled"
   },
-  "include": [
-    "../src",
-    ".",
-  ],
-  "exclude": [
-    "./compiled"
-  ]
+  "include": ["../src", "."],
+  "exclude": ["./compiled"]
 }

@@ -1,7 +1,7 @@
 import { DataIntegrityProofError, PROOF_GENERATION_ERROR, PROOF_VERIFICATION_ERROR } from '@did-btcr2/common';
-import { BIP340Cryptosuite } from '../cryptosuite/index.js';
-import { VerificationResult } from '../cryptosuite/interface.js';
-import { SignedBTCR2Update, UnsignedBTCR2Update, DataIntegrityConfig, DataIntegrityProof } from './interface.js';
+import type { BIP340Cryptosuite } from '../cryptosuite/index.js';
+import type { VerificationResult } from '../cryptosuite/interface.js';
+import type { SignedBTCR2Update, UnsignedBTCR2Update, DataIntegrityConfig, DataIntegrityProof } from './interface.js';
 
 /**
  * Implements section {@link https://dcdpr.github.io/data-integrity-schnorr-secp256k1/#dataintegrityproof | 2.2.1 DataIntegrityProof}

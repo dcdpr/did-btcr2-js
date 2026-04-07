@@ -3,7 +3,7 @@ import { BitcoinCoreRpcClient } from '../src/client/rpc/index.js';
 import { JsonRpcTransport } from '../src/client/rpc/json-rpc.js';
 import { JsonRpcProtocol } from '../src/client/rpc/protocol.js';
 import { BitcoinRpcError } from '../src/errors.js';
-import { HttpExecutor, HttpRequest } from '../src/client/http.js';
+import type { HttpExecutor, HttpRequest } from '../src/client/http.js';
 
 /** Creates an RPC client backed by a mock executor that returns a configurable result. */
 function createMockRpcClient(

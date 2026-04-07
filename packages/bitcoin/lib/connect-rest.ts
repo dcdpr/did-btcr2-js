@@ -1,5 +1,5 @@
 import { Bitcoin } from '../../src/bitcoin/index.js';
-import { BlockV3 } from '../../method/src/index.js';
+import type { BlockV3 } from '../../method/src/index.js';
 
 const bitcoin = new Bitcoin();
 const height = await bitcoin.active.rest.getBlockCount();

@@ -1,8 +1,8 @@
 import type { DidBtcr2Api } from '@did-btcr2/api';
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { CLIError } from '../error.js';
 import { formatResult } from '../output.js';
-import { GlobalOptions, UpdateCommandOptions } from '../types.js';
+import type { GlobalOptions, UpdateCommandOptions } from '../types.js';
 
 /** The JSON Patch that marks a DID document as permanently deactivated. */
 const DEACTIVATION_PATCH = [{ op: 'add' as const, path: '/deactivated', value: true }];

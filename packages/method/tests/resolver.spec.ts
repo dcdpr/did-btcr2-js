@@ -1,8 +1,8 @@
 import { expect } from 'chai';
 import { canonicalHash, encode, hash, canonicalize } from '@did-btcr2/common';
 import { DidBtcr2 } from '../src/did-btcr2.js';
-import { BeaconService, BeaconSignal } from '../src/core/beacon/interfaces.js';
-import { NeedBeaconSignals, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate } from '../src/core/resolver.js';
+import type { BeaconService, BeaconSignal } from '../src/core/beacon/interfaces.js';
+import type { NeedBeaconSignals, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate } from '../src/core/resolver.js';
 import deterministicData from './data/deterministic-data.js';
 import externalData from './data/external-data.js';
 

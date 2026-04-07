@@ -1,9 +1,10 @@
 import { SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { expect } from 'chai';
+import type {
+  DataIntegrityConfig} from '../src/index.js';
 import {
   BIP340Cryptosuite,
   BIP340DataIntegrityProof,
-  DataIntegrityConfig,
   SchnorrMultikey
 } from '../src/index.js';
 

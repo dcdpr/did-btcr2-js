@@ -1,5 +1,5 @@
 import BitcoinRpc from '../../src/bitcoin/rpc-client.js';
-import { BlockV3 } from '../../method/src/index.js';
+import type { BlockV3 } from '../../method/src/index.js';
 
 const rpc = BitcoinRpc.connect();
 let height = 0;

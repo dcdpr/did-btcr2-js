@@ -1,9 +1,9 @@
-import { KeyBytes } from '@did-btcr2/common';
-import { BitcoinConnection } from '@did-btcr2/bitcoin';
-import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { KeyBytes } from '@did-btcr2/common';
+import type { BitcoinConnection } from '@did-btcr2/bitcoin';
+import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import type { BeaconProcessResult } from '../resolver.js';
-import { SidecarData } from '../types.js';
-import { BeaconService, BeaconSignal } from './interfaces.js';
+import type { SidecarData } from '../types.js';
+import type { BeaconService, BeaconSignal } from './interfaces.js';
 
 /**
  * Abstract base class for all BTCR2 Beacon types.

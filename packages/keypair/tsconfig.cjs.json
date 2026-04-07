@@ -1,12 +1,7 @@
 {
-  "extends": "./tsconfig.json",
+  "extends": "../../tsconfig.base.cjs.json",
   "compilerOptions": {
-    "outDir": "dist/cjs",
-    "declaration": false,
-    "declarationDir": null,
-    "declarationMap": false,
+    "outDir": "dist/cjs"
   },
-  "include": [
-    "src",
-  ]
+  "include": ["src"]
 }

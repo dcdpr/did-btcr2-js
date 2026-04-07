@@ -1,4 +1,4 @@
-import { JSONObject, Prototyped, Unprototyped } from '../types.js';
+import type { JSONObject, Prototyped, Unprototyped } from '../types.js';
 
 /**
  * Options for cloning JSON values.

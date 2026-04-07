@@ -1,6 +1,6 @@
 import { expect } from './helpers.js';
 import { formatResult } from '../src/output.js';
-import { CommandResult, GlobalOptions } from '../src/types.js';
+import type { CommandResult, GlobalOptions } from '../src/types.js';
 
 const textOpts: GlobalOptions = { output: 'text', verbose: false, quiet: false };
 const jsonOpts: GlobalOptions = { output: 'json', verbose: false, quiet: false };

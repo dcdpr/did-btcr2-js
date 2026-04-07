@@ -1,6 +1,6 @@
 {
     "name": "@did-btcr2/smt",
-    "version": "0.2.2",
+    "version": "0.2.3",
     "type": "module",
     "description": "Optimized Sparse Merkle Tree with converge bitmap proofs, depth-byte padding, and did:btcr2-specific leaf hash construction.",
     "main": "./dist/cjs/index.js",

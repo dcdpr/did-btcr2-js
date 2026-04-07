@@ -1,4 +1,4 @@
-import { CommandResult, GlobalOptions } from './types.js';
+import type { CommandResult, GlobalOptions } from './types.js';
 
 /**
  * Formats a CommandResult for console output.

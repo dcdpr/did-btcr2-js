@@ -1,6 +1,6 @@
-import { RawTransactionRest, RawTransactionV2 } from '@did-btcr2/bitcoin';
-import { UnixTimestamp } from '@did-btcr2/common';
-import { DidServiceEndpoint, DidService } from '@web5/dids';
+import type { RawTransactionRest, RawTransactionV2 } from '@did-btcr2/bitcoin';
+import type { UnixTimestamp } from '@did-btcr2/common';
+import type { DidServiceEndpoint, DidService } from '@web5/dids';
 
 /**
  * Represents a Beacon Service, which extends a W3C DID Service by setting serviceEndpoint

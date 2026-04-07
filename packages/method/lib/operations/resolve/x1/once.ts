@@ -1,4 +1,5 @@
-import { DidBtcr2, ResolutionOptions } from '../../../../src/index.js';
+import type { ResolutionOptions } from '../../../../src/index.js';
+import { DidBtcr2 } from '../../../../src/index.js';
 import input from '../../../data/regtest/x1/q2sdlt8v/resolve/input.json' with { type: 'json' };
 
 const did = input.did;

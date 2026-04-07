@@ -1,6 +1,6 @@
 import { JSONUtils } from '@did-btcr2/common';
 import { BitcoinRpcError } from '../../errors.js';
-import {
+import type {
   BlockResponse,
   BlockV0,
   BlockV1,
@@ -23,8 +23,8 @@ import {
   VerbosityLevel,
   WalletTransaction
 } from '../../types.js';
-import { HttpExecutor } from '../http.js';
-import { BitcoinRpcClient } from './interface.js';
+import type { HttpExecutor } from '../http.js';
+import type { BitcoinRpcClient } from './interface.js';
 import { JsonRpcTransport } from './json-rpc.js';
 
 // ── Typed RPC method map ────────────────────────────────────────────

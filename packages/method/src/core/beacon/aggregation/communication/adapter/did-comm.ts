@@ -1,9 +1,10 @@
 import { NotImplementedError } from '@did-btcr2/common';
-import { RawSchnorrKeyPair, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
+import type { RawSchnorrKeyPair} from '@did-btcr2/keypair';
+import { SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { Identifier } from '../../../../identifier.js';
-import { AggregateBeaconMessageType } from '../../cohort/messages/index.js';
-import { BaseMessage } from '../../cohort/messages/base.js';
-import { CommunicationService, MessageHandler, ServiceAdapterConfig, ServiceAdapterIdentity } from '../service.js';
+import type { AggregateBeaconMessageType } from '../../cohort/messages/index.js';
+import type { BaseMessage } from '../../cohort/messages/base.js';
+import type { CommunicationService, MessageHandler, ServiceAdapterConfig, ServiceAdapterIdentity } from '../service.js';
 
 /**
  * DidCommAdapterConfig is a configuration class for the DidCommAdapter.

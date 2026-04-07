@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import { JsonRpcTransport } from '../src/client/rpc/json-rpc.js';
 import { JsonRpcProtocol } from '../src/client/rpc/protocol.js';
 import { BitcoinRpcError } from '../src/errors.js';
-import { HttpExecutor, HttpRequest } from '../src/client/http.js';
+import type { HttpExecutor, HttpRequest } from '../src/client/http.js';
 
 // ── JsonRpcProtocol (sans-I/O) ────────────────────────────────────────
 
