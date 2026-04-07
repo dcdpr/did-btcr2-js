@@ -2,7 +2,7 @@ import { sha256 } from '@noble/hashes/sha2';
 import { base58, base64urlnopad, hex } from '@scure/base';
 import { canonicalize as jcsa } from 'json-canonicalize';
 import { CanonicalizationError } from './errors.js';
-import { HashBytes } from './types.js';
+import type { HashBytes } from './types.js';
 
 export type CanonicalizationAlgorithm = 'jcs' | 'rdfc';
 export type CanonicalizationEncoding = 'hex' | 'base58' | 'base64url';

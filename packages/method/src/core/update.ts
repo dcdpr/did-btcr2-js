@@ -1,21 +1,25 @@
+import type {
+  KeyBytes,
+  PatchOperation} from '@did-btcr2/common';
 import {
   canonicalHash,
   INVALID_DID_UPDATE,
   JSONPatch,
-  KeyBytes,
-  PatchOperation,
   UpdateError
 } from '@did-btcr2/common';
-import {
+import type {
   DataIntegrityConfig,
-  SchnorrMultikey,
   SignedBTCR2Update,
   UnsignedBTCR2Update
 } from '@did-btcr2/cryptosuite';
-import { Btcr2DidDocument, DidDocument, DidVerificationMethod } from '../utils/did-document.js';
+import {
+  SchnorrMultikey
+} from '@did-btcr2/cryptosuite';
+import type { Btcr2DidDocument, DidVerificationMethod } from '../utils/did-document.js';
+import { DidDocument } from '../utils/did-document.js';
 import { BeaconFactory } from './beacon/factory.js';
-import { BeaconService } from './beacon/interfaces.js';
-import { BitcoinConnection } from '@did-btcr2/bitcoin';
+import type { BeaconService } from './beacon/interfaces.js';
+import type { BitcoinConnection } from '@did-btcr2/bitcoin';
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/operations/update.html | 7.3 Update}.

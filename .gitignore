@@ -177,3 +177,4 @@ docs/.vitepress/cache
 # LLM output
 CLAUDE.md
 .claude/
+TODO.md

@@ -20,6 +20,8 @@ Visit [dcdpr.github.io/did-btcr2](https://dcdpr.github.io/did-btcr2/) to read th
 
 Visit [dcdpr.github.io/did-btcr2](https://dcdpr.github.io/did-btcr2) to learn more about the different packages in this monorepo.
 
+For contributors: see [docs/build-system.md](docs/build-system.md) for a complete reference of the monorepo build pipeline (tsconfig layout, ESM/CJS dual-build, tsup bundling, project references, test pipeline, publishing workflow).
+
 ## Method Documentation 
 
 Visit [btcr2.dev](https://btcr2.dev/impls/ts) to learn more about the TypeScript implementation: [@did-btcr2/method](https://www.npmjs.com/package/@did-btcr2/method)

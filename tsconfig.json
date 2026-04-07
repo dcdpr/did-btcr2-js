@@ -1,20 +1,15 @@
 {
-  "compilerOptions": {
-    "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
-    "strict": true,
-    "declaration": true,
-    "declarationMap": true,
-    "sourceMap": true,
-    "esModuleInterop": true,
-    "resolveJsonModule": true,
-    "skipLibCheck": true,
-    "declarationDir": "dist/types",
-    "outDir": "dist/esm",
-  },
-  "exclude": [
-    "eslint.config.cjs",
-    "node_modules",
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "files": [],
+  "references": [
+    { "path": "packages/common" },
+    { "path": "packages/keypair" },
+    { "path": "packages/cryptosuite" },
+    { "path": "packages/bitcoin" },
+    { "path": "packages/kms" },
+    { "path": "packages/smt" },
+    { "path": "packages/method" },
+    { "path": "packages/api" },
+    { "path": "packages/cli" }
   ]
 }

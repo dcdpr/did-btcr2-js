@@ -1,5 +1,6 @@
 import { Command, CommanderError } from 'commander';
-import { DidBtcr2Api, createApi } from '@did-btcr2/api';
+import type { DidBtcr2Api} from '@did-btcr2/api';
+import { createApi } from '@did-btcr2/api';
 import {
   registerCreateCommand,
   registerDeactivateCommand,
@@ -7,7 +8,7 @@ import {
   registerUpdateCommand,
 } from './commands/index.js';
 import { CLIError } from './error.js';
-import { GlobalOptions } from './types.js';
+import type { GlobalOptions } from './types.js';
 import { VERSION } from './version.js';
 
 /**
@@ -21,7 +22,7 @@ export class DidBtcr2Cli {
    * Initializes the CLI with an optional pre-configured API instance.
    * @param {DidBtcr2Api} api - Optional API instance. Defaults to an unconfigured instance.
    */
-  constructor(api: DidBtcr2Api = createApi()) {
+  constructor(api: DidBtcr2Api = createApi({ btc: { network: 'mutinynet' } })) {
     this.api = api;
     this.program = new Command('btcr2')
       .version(`btcr2 ${VERSION}`, '-v, --version', 'Output the current version')

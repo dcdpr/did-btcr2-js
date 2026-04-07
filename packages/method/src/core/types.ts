@@ -1,6 +1,5 @@
-import { HexString } from '@did-btcr2/common';
-import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
-import { SMTProof } from './interfaces.js';
+import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { SMTProof } from './interfaces.js';
 
 /**
  * {@link https://dcdpr.github.io/did-btcr2/data-structures.html#cas-announcement | CAS Announcement }
@@ -59,11 +58,11 @@ export type Sidecar = {
 /**
  * The Sidecar data structure used for Singleton Beacons.
  */
-export type SingletonBeaconSidecarData = Map<HexString, SignedBTCR2Update>;
+export type SingletonBeaconSidecarData = Map<string, SignedBTCR2Update>;
 /**
  * The Sidecar data structure used for CAS Beacons.
  */
-export type CASBeaconSidecarData = Map<HexString, CASAnnouncement>;
+export type CASBeaconSidecarData = Map<string, CASAnnouncement>;
 /**
  * The Sidecar data structure used for SMT Beacons.
  */

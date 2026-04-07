@@ -1,6 +1,6 @@
-import { AggregateBeaconMessageType } from '../cohort/messages/index.js';
-import { BaseMessage } from '../cohort/messages/base.js';
-import { RawSchnorrKeyPair } from '@did-btcr2/keypair';
+import type { AggregateBeaconMessageType } from '../cohort/messages/index.js';
+import type { BaseMessage } from '../cohort/messages/base.js';
+import type { RawSchnorrKeyPair } from '@did-btcr2/keypair';
 
 /**
  * ServiceAdapterConfig defines the configuration structure for the Nostr communication service.

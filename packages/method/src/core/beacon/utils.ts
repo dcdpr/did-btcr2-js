@@ -1,10 +1,12 @@
 import { getNetwork } from '@did-btcr2/bitcoin';
-import { DidMethodError, KeyBytes, Maybe, MethodError } from '@did-btcr2/common';
-import { networks, payments } from 'bitcoinjs-lib';
+import type { KeyBytes, Maybe} from '@did-btcr2/common';
+import { DidMethodError, MethodError } from '@did-btcr2/common';
+import type { networks} from 'bitcoinjs-lib';
+import { payments } from 'bitcoinjs-lib';
 import { Appendix } from '../../utils/appendix.js';
-import { DidDocument } from '../../utils/did-document.js';
+import type { DidDocument } from '../../utils/did-document.js';
 import { Identifier } from '../identifier.js';
-import { BeaconService } from './interfaces.js';
+import type { BeaconService } from './interfaces.js';
 import { BeaconError } from './error.js';
 
 /**

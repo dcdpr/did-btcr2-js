@@ -1,10 +1,10 @@
 import type { DidBtcr2Api } from '@did-btcr2/api';
 import { Identifier } from '@did-btcr2/api';
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { readFile } from 'node:fs/promises';
 import { CLIError } from '../error.js';
 import { formatResult } from '../output.js';
-import { GlobalOptions, ResolveCommandOptions } from '../types.js';
+import type { GlobalOptions, ResolveCommandOptions } from '../types.js';
 
 export function registerResolveCommand(
   program : Command,
@@ -23,7 +23,9 @@ export function registerResolveCommand(
       resolutionOptions?: string;
       resolutionOptionsPath?: string;
     }) => {
+      console.log('resolve command options prevalidation', options);
       const parsed = await validateResolveOptions(options);
+      console.log('resolve command options postvalidation', options);
       const data = await api.resolveDid(parsed.identifier, parsed.options);
       const result = { action: 'resolve' as const, data };
       console.log(formatResult(result, globals()));

@@ -1,5 +1,5 @@
-import { Maybe } from '@did-btcr2/common';
-import { RawSchnorrKeyPair } from '@did-btcr2/keypair';
+import type { Maybe } from '@did-btcr2/common';
+import type { RawSchnorrKeyPair } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';
 import { BeaconCoordinatorError } from '../error.js';
 import { AggregateBeaconCohort } from './cohort/index.js';
@@ -13,15 +13,19 @@ import {
 import { BeaconCohortAdvertMessage } from './cohort/messages/keygen/cohort-advert.js';
 import { BeaconCohortReadyMessage } from './cohort/messages/keygen/cohort-ready.js';
 import { BeaconCohortOptInAcceptMessage } from './cohort/messages/keygen/opt-in-accept.js';
-import { BeaconCohortOptInMessage, CohortOptInMessage } from './cohort/messages/keygen/opt-in.js';
+import type { CohortOptInMessage } from './cohort/messages/keygen/opt-in.js';
+import { BeaconCohortOptInMessage } from './cohort/messages/keygen/opt-in.js';
 import { BeaconCohortAggregatedNonceMessage } from './cohort/messages/sign/aggregated-nonce.js';
-import { BeaconCohortNonceContributionMessage, CohortNonceContributionMessage } from './cohort/messages/sign/nonce-contribution.js';
-import { BeaconCohortRequestSignatureMessage, CohortRequestSignatureMessage } from './cohort/messages/sign/request-signature.js';
-import { BeaconCohortSignatureAuthorizationMessage, CohortSignatureAuthorizationMessage } from './cohort/messages/sign/signature-authorization.js';
+import type { CohortNonceContributionMessage } from './cohort/messages/sign/nonce-contribution.js';
+import { BeaconCohortNonceContributionMessage } from './cohort/messages/sign/nonce-contribution.js';
+import type { CohortRequestSignatureMessage } from './cohort/messages/sign/request-signature.js';
+import { BeaconCohortRequestSignatureMessage } from './cohort/messages/sign/request-signature.js';
+import type { CohortSignatureAuthorizationMessage } from './cohort/messages/sign/signature-authorization.js';
+import { BeaconCohortSignatureAuthorizationMessage } from './cohort/messages/sign/signature-authorization.js';
 import { NostrAdapter } from './communication/adapter/nostr.js';
 import { CommunicationFactory } from './communication/factory.js';
-import { CommunicationService, Service, ServiceAdapterIdentity } from './communication/service.js';
-import { BeaconCohortSigningSession } from './session/index.js';
+import type { CommunicationService, Service, ServiceAdapterIdentity } from './communication/service.js';
+import type { BeaconCohortSigningSession } from './session/index.js';
 import { SIGNING_SESSION_STATUS } from './session/status.js';
 
 /**

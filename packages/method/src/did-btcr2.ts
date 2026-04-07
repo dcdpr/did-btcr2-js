@@ -1,33 +1,35 @@
-import { BitcoinConnection } from '@did-btcr2/bitcoin';
-import {
+import type { BitcoinConnection } from '@did-btcr2/bitcoin';
+import type {
   DocumentBytes,
   HexString,
+  KeyBytes,
+  PatchOperation} from '@did-btcr2/common';
+import {
   IdentifierHrp,
   INVALID_DID_DOCUMENT,
   INVALID_DID_UPDATE,
-  KeyBytes,
   METHOD_NOT_SUPPORTED,
   MethodError,
-  PatchOperation,
   UpdateError
 } from '@did-btcr2/common';
-import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type {
+  DidMethod} from '@web5/dids';
 import {
   Did,
   DidError,
-  DidErrorCode,
-  DidMethod,
+  DidErrorCode
 } from '@web5/dids';
 import * as ecc from '@bitcoinerlab/secp256k1';
 import { hexToBytes } from '@noble/hashes/utils';
 import { initEccLib } from 'bitcoinjs-lib';
-import { BeaconService } from './core/beacon/interfaces.js';
+import type { BeaconService } from './core/beacon/interfaces.js';
 import { Identifier } from './core/identifier.js';
-import { ResolutionOptions } from './core/interfaces.js';
+import type { ResolutionOptions } from './core/interfaces.js';
 import { Resolver } from './core/resolver.js';
 import { Update } from './core/update.js';
 import { Appendix } from './utils/appendix.js';
-import { Btcr2DidDocument, DidVerificationMethod } from './utils/did-document.js';
+import type { Btcr2DidDocument, DidVerificationMethod } from './utils/did-document.js';
 
 export interface DidCreateOptions {
   /** Type of identifier to create (key or external) */

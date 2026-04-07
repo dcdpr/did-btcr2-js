@@ -12,23 +12,26 @@ import {
   LATE_PUBLISHING_ERROR,
   ResolveError
 } from '@did-btcr2/common';
+import type {
+  SignedBTCR2Update,
+  UnsignedBTCR2Update
+} from '@did-btcr2/cryptosuite';
 import {
   BIP340Cryptosuite,
   BIP340DataIntegrityProof,
-  SchnorrMultikey,
-  SignedBTCR2Update,
-  UnsignedBTCR2Update
+  SchnorrMultikey
 } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { DidBtcr2 } from '../did-btcr2.js';
 import { Appendix } from '../utils/appendix.js';
 import { DidDocument, ID_PLACEHOLDER_VALUE } from '../utils/did-document.js';
 import { BeaconFactory } from './beacon/factory.js';
-import { BeaconService, BeaconSignal, BlockMetadata } from './beacon/interfaces.js';
+import type { BeaconService, BeaconSignal, BlockMetadata } from './beacon/interfaces.js';
 import { BeaconUtils } from './beacon/utils.js';
-import { DidComponents, Identifier } from './identifier.js';
-import { SMTProof } from './interfaces.js';
-import { CASAnnouncement, Sidecar, SidecarData } from './types.js';
+import type { DidComponents} from './identifier.js';
+import { Identifier } from './identifier.js';
+import type { SMTProof } from './interfaces.js';
+import type { CASAnnouncement, Sidecar, SidecarData } from './types.js';
 
 /**
  * The response object for DID Resolution.
@@ -398,8 +401,6 @@ export class Resolver {
     return response;
   }
 
-  // ─── Private static: update internals ──────────────────────────────
-
   /**
    * Implements subsection {@link https://dcdpr.github.io/did-btcr2/#confirm-duplicate-update | 7.2.f.1 Confirm Duplicate Update}.
    * This step confirms that an update with a lower-than-expected targetVersionId is a true duplicate.
@@ -517,8 +518,6 @@ export class Resolver {
     //  Return final updatedDocument.
     return updatedDocument;
   }
-
-  // ─── Instance: state machine ───────────────────────────────────────
 
   /**
    * Advance the state machine. Returns either:

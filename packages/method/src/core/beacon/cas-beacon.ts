@@ -1,14 +1,15 @@
-import { AddressUtxo, BitcoinConnection } from '@did-btcr2/bitcoin';
-import { canonicalHash, canonicalize, decode, encode, hash, KeyBytes } from '@did-btcr2/common';
-import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { AddressUtxo, BitcoinConnection } from '@did-btcr2/bitcoin';
+import type { KeyBytes } from '@did-btcr2/common';
+import { canonicalHash, canonicalize, decode, encode, hash } from '@did-btcr2/common';
+import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { hexToBytes } from '@noble/hashes/utils';
 import { opcodes, Psbt, script } from 'bitcoinjs-lib';
 import type { BeaconProcessResult, DataNeed } from '../resolver.js';
-import { SidecarData } from '../types.js';
+import type { SidecarData } from '../types.js';
 import { Beacon } from './beacon.js';
 import { CASBeaconError } from './error.js';
-import { BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js';
+import type { BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js';
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/terminology.html#cas-beacon | CAS Beacon}.

@@ -1,16 +1,16 @@
-import {
+import type {
   CanonicalizedProofConfig,
   HashBytes,
   SignatureBytes
 } from '@did-btcr2/common';
-import {
+import type {
   BTCR2Update,
   DataIntegrityConfig,
   DataIntegrityProofObject,
   SignedBTCR2Update,
   UnsignedBTCR2Update
 } from '../data-integrity-proof/interface.js';
-import { SchnorrMultikey } from '../multikey/index.js';
+import type { SchnorrMultikey } from '../multikey/index.js';
 
 export interface VerificationResult {
     verified: boolean;

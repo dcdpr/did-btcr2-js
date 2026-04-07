@@ -1,22 +1,24 @@
+import type {
+  CanonicalizedProofConfig,
+  HashBytes,
+  SignatureBytes
+} from '@did-btcr2/common';
 import {
   canonicalize,
-  CanonicalizedProofConfig,
   CryptosuiteError,
   DateUtils,
-  HashBytes,
   MethodError,
   PROOF_GENERATION_ERROR,
   PROOF_SERIALIZATION_ERROR,
-  PROOF_VERIFICATION_ERROR,
-  SignatureBytes
+  PROOF_VERIFICATION_ERROR
 } from '@did-btcr2/common';
 import { sha256 } from '@noble/hashes/sha2';
 import { concatBytes, utf8ToBytes } from '@noble/hashes/utils';
 import { base58btc } from 'multiformats/bases/base58';
 import { BIP340DataIntegrityProof } from '../data-integrity-proof/index.js';
-import { SignedBTCR2Update, BTCR2Update, DataIntegrityConfig, DataIntegrityProofObject } from '../data-integrity-proof/interface.js';
-import { SchnorrMultikey } from '../multikey/index.js';
-import { Cryptosuite, VerificationResult } from './interface.js';
+import type { SignedBTCR2Update, BTCR2Update, DataIntegrityConfig, DataIntegrityProofObject } from '../data-integrity-proof/interface.js';
+import type { SchnorrMultikey } from '../multikey/index.js';
+import type { Cryptosuite, VerificationResult } from './interface.js';
 
 /**
  * An implementation of a {@link Cryptosuite} using BIP340 Schnorr signatures and JCS canonicalization.

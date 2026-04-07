@@ -1,5 +1,6 @@
 import { SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
-import { DataIntegrityConfig, SchnorrMultikey } from '../../src/index.js';
+import type { DataIntegrityConfig} from '../../src/index.js';
+import { SchnorrMultikey } from '../../src/index.js';
 
 const unsecuredDocument = {
   '@context' : [

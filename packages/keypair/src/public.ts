@@ -1,16 +1,18 @@
-import {
+import type {
   Bytes,
   Hex,
   KeyBytes,
   MultibaseObject,
-  PublicKeyError,
   PublicKeyObject
+} from '@did-btcr2/common';
+import {
+  PublicKeyError
 } from '@did-btcr2/common';
 import { secp256k1, schnorr } from '@noble/curves/secp256k1.js';
 import { equalBytes } from '@noble/curves/utils.js';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import { base58 } from '@scure/base';
-import { CryptoOptions } from './types.js';
+import type { CryptoOptions } from './types.js';
 
 export const BIP340_PUBLIC_KEY_MULTIBASE_PREFIX: Bytes = new Uint8Array([0xe7, 0x01]);
 

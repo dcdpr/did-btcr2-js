@@ -1,4 +1,4 @@
-import { ProofOptions } from '@did-btcr2/common';
+import type { ProofOptions } from '@did-btcr2/common';
 import { SchnorrKeyPair, SecretKey } from '@did-btcr2/keypair';
 import { Cryptosuite, DataIntegrityProof, SchnorrMultikey } from '../../src/index.js';
 

@@ -1,5 +1,5 @@
 import { BitcoinConnection } from '../src/bitcoin.js';
-import { BlockV3 } from '../src/types.js';
+import type { BlockV3 } from '../src/types.js';
 
 const bitcoin = BitcoinConnection.forNetwork('regtest');
 const height = await bitcoin.rpc!.getBlockCount();

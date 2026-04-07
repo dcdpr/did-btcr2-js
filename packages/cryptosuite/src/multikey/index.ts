@@ -1,11 +1,12 @@
-import { Bytes, Hex, MultikeyError, SignatureBytes, VERIFICATION_METHOD_ERROR } from '@did-btcr2/common';
+import type { Bytes, Hex, SignatureBytes} from '@did-btcr2/common';
+import { MultikeyError, VERIFICATION_METHOD_ERROR } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { schnorr, secp256k1 } from '@noble/curves/secp256k1';
-import { DidVerificationMethod } from '@web5/dids';
+import type { DidVerificationMethod } from '@web5/dids';
 import { randomBytes } from '@noble/hashes/utils';
 import { base58btc } from 'multiformats/bases/base58';
 import { BIP340Cryptosuite } from '../cryptosuite/index.js';
-import {
+import type {
   DidParams,
   FromPublicKey,
   Multikey,

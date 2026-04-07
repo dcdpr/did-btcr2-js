@@ -1,7 +1,7 @@
 import { NotImplementedError } from '@did-btcr2/common';
 import { NostrAdapter } from './adapter/nostr.js';
 import { CommunicationServiceError } from './error.js';
-import { CommunicationService, Service } from './service.js';
+import type { CommunicationService, Service } from './service.js';
 
 /**
  * Communication Factory pattern to create Communication Service instances.

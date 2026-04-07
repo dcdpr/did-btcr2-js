@@ -1,10 +1,10 @@
 import { MethodError } from '@did-btcr2/common';
-import { networks } from 'bitcoinjs-lib';
-import { HttpExecutor } from './client/http.js';
+import type { networks } from 'bitcoinjs-lib';
+import type { HttpExecutor } from './client/http.js';
 import { BitcoinRestClient } from './client/rest/index.js';
 import { BitcoinCoreRpcClient } from './client/rpc/index.js';
 import { getNetwork } from './network.js';
-import { NetworkName, RestConfig, RpcConfig } from './types.js';
+import type { NetworkName, RestConfig, RpcConfig } from './types.js';
 import { DEFAULT_BITCOIN_NETWORK_CONFIG } from './constants.js';
 
 /**

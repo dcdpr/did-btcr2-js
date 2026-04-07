@@ -1,8 +1,8 @@
 import type { DidBtcr2Api } from '@did-btcr2/api';
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { CLIError } from '../error.js';
 import { formatResult } from '../output.js';
-import { GlobalOptions, UpdateCommandOptions } from '../types.js';
+import type { GlobalOptions, UpdateCommandOptions } from '../types.js';
 
 export function registerUpdateCommand(
   program : Command,

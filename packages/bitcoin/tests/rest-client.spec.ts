@@ -6,7 +6,7 @@ import { BitcoinTransaction } from '../src/client/rest/transaction.js';
 import { EsploraProtocol } from '../src/client/rest/protocol.js';
 import { DEFAULT_BITCOIN_NETWORK_CONFIG } from '../src/constants.js';
 import { BitcoinRestError } from '../src/errors.js';
-import { HttpExecutor, HttpRequest } from '../src/client/http.js';
+import type { HttpExecutor, HttpRequest } from '../src/client/http.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────
 

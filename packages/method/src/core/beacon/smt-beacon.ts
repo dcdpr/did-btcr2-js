@@ -1,11 +1,11 @@
-import { BitcoinConnection } from '@did-btcr2/bitcoin';
-import { KeyBytes } from '@did-btcr2/common';
-import { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { BitcoinConnection } from '@did-btcr2/bitcoin';
+import type { KeyBytes } from '@did-btcr2/common';
+import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import type { BeaconProcessResult } from '../resolver.js';
-import { SidecarData } from '../types.js';
+import type { SidecarData } from '../types.js';
 import { Beacon } from './beacon.js';
 import { SMTBeaconError } from './error.js';
-import { BeaconService, BeaconSignal } from './interfaces.js';
+import type { BeaconService, BeaconSignal } from './interfaces.js';
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/terminology.html#smt-beacon | SMTBeacon}.

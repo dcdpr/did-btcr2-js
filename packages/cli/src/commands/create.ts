@@ -1,11 +1,12 @@
 import type { DidBtcr2Api } from '@did-btcr2/api';
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { CLIError } from '../error.js';
 import { formatResult } from '../output.js';
-import {
+import type {
   CreateCommandOptions,
   GlobalOptions,
-  NetworkOption,
+  NetworkOption} from '../types.js';
+import {
   SUPPORTED_NETWORKS,
 } from '../types.js';
 

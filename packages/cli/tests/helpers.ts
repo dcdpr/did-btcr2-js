@@ -1,6 +1,7 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { createApi, DidBtcr2Api } from '@did-btcr2/api';
+import type { DidBtcr2Api } from '@did-btcr2/api';
+import { createApi } from '@did-btcr2/api';
 
 chai.use(chaiAsPromised);
 export const { expect } = chai;

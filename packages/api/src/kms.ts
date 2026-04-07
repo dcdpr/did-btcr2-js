@@ -1,10 +1,11 @@
 import type { Bytes, HashBytes, SignatureBytes } from '@did-btcr2/common';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import type { SchnorrKeyPair } from '@did-btcr2/keypair';
+import type {
+  KeyIdentifier,
+  KeyManager} from '@did-btcr2/kms';
 import {
   type GenerateKeyOptions,
   type ImportKeyOptions,
-  KeyIdentifier,
-  KeyManager,
   Kms,
   type SignOptions,
 } from '@did-btcr2/kms';

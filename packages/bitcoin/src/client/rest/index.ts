@@ -3,8 +3,9 @@ import { BitcoinAddress } from './address.js';
 import { BitcoinBlock } from './block.js';
 import { BitcoinTransaction } from './transaction.js';
 import { EsploraProtocol } from './protocol.js';
-import { RestConfig } from '../../types.js';
-import { HttpExecutor, HttpRequest, defaultHttpExecutor } from '../http.js';
+import type { RestConfig } from '../../types.js';
+import type { HttpExecutor, HttpRequest} from '../http.js';
+import { defaultHttpExecutor } from '../http.js';
 
 /**
  * Esplora REST API client for Bitcoin.

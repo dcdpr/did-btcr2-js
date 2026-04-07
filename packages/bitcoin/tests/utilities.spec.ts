@@ -1,6 +1,7 @@
 import { networks } from 'bitcoinjs-lib';
 import { expect } from 'chai';
-import { defaultHttpExecutor, HttpRequest } from '../src/client/http.js';
+import type { HttpRequest } from '../src/client/http.js';
+import { defaultHttpExecutor } from '../src/client/http.js';
 import { safeText, toBase64 } from '../src/client/utils.js';
 import { BitcoinRestError, BitcoinRpcError } from '../src/errors.js';
 import { getNetwork } from '../src/network.js';

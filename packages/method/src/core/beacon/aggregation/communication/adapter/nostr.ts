@@ -1,11 +1,12 @@
 // TODO: Finish nostr adapter implementation. Rethink patterns used.
 
-import { Did } from '@did-btcr2/common';
-import { CompressedSecp256k1PublicKey, RawSchnorrKeyPair, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
+import type { Did } from '@did-btcr2/common';
+import type { RawSchnorrKeyPair} from '@did-btcr2/keypair';
+import { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';
 import { nonceGen } from '@scure/btc-signer/musig2';
-import { Event, EventTemplate, Filter, finalizeEvent, nip44 } from 'nostr-tools';
-import { SimplePool } from 'nostr-tools/pool';
+import type { Event, EventTemplate, Filter} from 'nostr-tools';
+import { finalizeEvent, nip44, SimplePool } from 'nostr-tools';
 import { Identifier } from '../../../../identifier.js';
 import {
   BEACON_COHORT_ADVERT,
@@ -18,10 +19,11 @@ import {
   BEACON_COHORT_REQUEST_SIGNATURE,
   BEACON_COHORT_SIGNATURE_AUTHORIZATION
 } from '../../cohort/messages/constants.js';
-import { AggregateBeaconMessage, AggregateBeaconMessageType } from '../../cohort/messages/index.js';
-import { BaseMessage } from '../../cohort/messages/base.js';
+import type { AggregateBeaconMessageType } from '../../cohort/messages/index.js';
+import { AggregateBeaconMessage } from '../../cohort/messages/index.js';
+import type { BaseMessage } from '../../cohort/messages/base.js';
 import { CommunicationAdapterError } from '../error.js';
-import { CommunicationService, MessageHandler, ServiceAdapter, ServiceAdapterConfig, ServiceAdapterIdentity } from '../service.js';
+import type { CommunicationService, MessageHandler, ServiceAdapter, ServiceAdapterConfig, ServiceAdapterIdentity } from '../service.js';
 
 /**
  * TODO: Determine set of default Nostr relays to use.

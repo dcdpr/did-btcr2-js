@@ -1,4 +1,4 @@
-import { KeyBytes, Maybe } from '@did-btcr2/common';
+import type { KeyBytes, Maybe } from '@did-btcr2/common';
 import { bytesToHex } from '@noble/hashes/utils';
 import { HDKey } from '@scure/bip32';
 import { mnemonicToSeedSync } from '@scure/bip39';
@@ -13,19 +13,24 @@ import {
   BEACON_COHORT_OPT_IN_ACCEPT,
   BEACON_COHORT_READY
 } from './cohort/messages/constants.js';
-import { BeaconCohortAdvertMessage, CohortAdvertMessage } from './cohort/messages/keygen/cohort-advert.js';
-import { BeaconCohortReadyMessage, CohortReadyMessage } from './cohort/messages/keygen/cohort-ready.js';
-import { BeaconCohortOptInAcceptMessage, CohortOptInAcceptMessage } from './cohort/messages/keygen/opt-in-accept.js';
+import type { CohortAdvertMessage } from './cohort/messages/keygen/cohort-advert.js';
+import { BeaconCohortAdvertMessage } from './cohort/messages/keygen/cohort-advert.js';
+import type { CohortReadyMessage } from './cohort/messages/keygen/cohort-ready.js';
+import { BeaconCohortReadyMessage } from './cohort/messages/keygen/cohort-ready.js';
+import type { CohortOptInAcceptMessage } from './cohort/messages/keygen/opt-in-accept.js';
+import { BeaconCohortOptInAcceptMessage } from './cohort/messages/keygen/opt-in-accept.js';
 import { BeaconCohortOptInMessage } from './cohort/messages/keygen/opt-in.js';
 import { BeaconCohortSubscribeMessage } from './cohort/messages/keygen/subscribe.js';
-import { BeaconCohortAggregatedNonceMessage, CohortAggregatedNonceMessage } from './cohort/messages/sign/aggregated-nonce.js';
-import { BeaconCohortAuthorizationRequestMessage, CohortAuthorizationRequestMessage } from './cohort/messages/sign/authorization-request.js';
+import type { CohortAggregatedNonceMessage } from './cohort/messages/sign/aggregated-nonce.js';
+import { BeaconCohortAggregatedNonceMessage } from './cohort/messages/sign/aggregated-nonce.js';
+import type { CohortAuthorizationRequestMessage } from './cohort/messages/sign/authorization-request.js';
+import { BeaconCohortAuthorizationRequestMessage } from './cohort/messages/sign/authorization-request.js';
 import { BeaconCohortNonceContributionMessage } from './cohort/messages/sign/nonce-contribution.js';
 import { BeaconCohortRequestSignatureMessage } from './cohort/messages/sign/request-signature.js';
 import { BeaconCohortSignatureAuthorizationMessage } from './cohort/messages/sign/signature-authorization.js';
 import { COHORT_STATUS } from './cohort/status.js';
 import { NostrAdapter } from './communication/adapter/nostr.js';
-import { CommunicationService } from './communication/service.js';
+import type { CommunicationService } from './communication/service.js';
 import { BeaconCohortSigningSession } from './session/index.js';
 
 type Seed = KeyBytes;

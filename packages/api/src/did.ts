@@ -3,8 +3,8 @@ import type { DocumentBytes } from '@did-btcr2/common';
 import { IdentifierTypes } from '@did-btcr2/common';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import type { SchnorrKeyPairObject } from '@did-btcr2/common';
-import type { DidCreateOptions } from '@did-btcr2/method';
-import { Identifier, IdentifierComponents } from '@did-btcr2/method';
+import type { DidCreateOptions , IdentifierComponents } from '@did-btcr2/method';
+import { Identifier } from '@did-btcr2/method';
 import { Did } from '@web5/dids';
 import { assertBytes, assertString } from './helpers.js';
 

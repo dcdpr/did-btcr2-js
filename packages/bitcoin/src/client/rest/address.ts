@@ -1,6 +1,6 @@
-import { AddressInfo, AddressUtxo, RawTransactionRest } from '../../types.js';
-import { HttpRequest } from '../http.js';
-import { EsploraProtocol } from './protocol.js';
+import type { AddressInfo, AddressUtxo, RawTransactionRest } from '../../types.js';
+import type { HttpRequest } from '../http.js';
+import type { EsploraProtocol } from './protocol.js';
 
 /**
  * Address-related Esplora REST API operations.

@@ -1,4 +1,4 @@
-import { Command } from 'commander';
+import type { Command } from 'commander';
 import { DidBtcr2Cli } from '../src/cli.js';
 import { Identifier } from '@did-btcr2/method';
 

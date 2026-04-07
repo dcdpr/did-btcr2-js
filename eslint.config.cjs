@@ -71,6 +71,15 @@ module.exports = [
       '@typescript-eslint/no-explicit-any'       : 'off',
       '@typescript-eslint/no-non-null-assertion' : 'off',
       '@typescript-eslint/ban-ts-comment'        : 'off',
+      '@typescript-eslint/consistent-type-imports': [
+        'error',
+        {
+          prefer              : 'type-imports',
+          fixStyle            : 'separate-type-imports',
+          disallowTypeAnnotations: true
+        }
+      ],
+      '@typescript-eslint/no-import-type-side-effects': 'error',
       'mocha/no-exclusive-tests'                 : 'warn',
       'mocha/no-setup-in-describe'               : 'off',
       'mocha/no-mocha-arrows'                    : 'off',

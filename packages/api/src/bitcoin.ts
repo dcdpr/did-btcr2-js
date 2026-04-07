@@ -1,7 +1,8 @@
+import type {
+  BitcoinCoreRpcClient,
+  BitcoinRestClient} from '@did-btcr2/bitcoin';
 import {
   BitcoinConnection,
-  BitcoinCoreRpcClient,
-  BitcoinRestClient,
   type RawTransactionRest
 } from '@did-btcr2/bitcoin';
 import { assertString } from './helpers.js';

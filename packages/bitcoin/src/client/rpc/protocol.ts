@@ -1,6 +1,6 @@
 import { BitcoinRpcError } from '../../errors.js';
-import { RpcConfig } from '../../types.js';
-import { HttpRequest } from '../http.js';
+import type { RpcConfig } from '../../types.js';
+import type { HttpRequest } from '../http.js';
 import { toBase64 } from '../utils.js';
 
 /**

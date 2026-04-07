@@ -1,7 +1,8 @@
-import { BitcoinNetworkNames, Bytes, DocumentBytes, IdentifierError, IdentifierTypes, INVALID_DID, KeyBytes, METHOD_NOT_SUPPORTED, SchnorrKeyPairObject } from '@did-btcr2/common';
+import type { Bytes, DocumentBytes, KeyBytes, SchnorrKeyPairObject } from '@did-btcr2/common';
+import { BitcoinNetworkNames, IdentifierError, IdentifierTypes, INVALID_DID, METHOD_NOT_SUPPORTED } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { bech32m } from '@scure/base';
-import { DidCreateOptions } from '../did-btcr2.js';
+import type { DidCreateOptions } from '../did-btcr2.js';
 
 /**
  * Components of a did:btcr2 identifier.
