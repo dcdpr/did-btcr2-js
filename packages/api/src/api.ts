@@ -267,7 +267,7 @@ export class DidBtcr2Api {
    * Release internal references. After disposal, accessing `btc`, `btcr2`,
    * or calling top-level methods will throw.
    *
-   * Note: the underlying {@link BitcoinConnection} does not hold persistent
+   * Note: the underlying `BitcoinConnection` does not hold persistent
    * connections, so this is primarily a guard against accidental reuse.
    */
   dispose(): void {

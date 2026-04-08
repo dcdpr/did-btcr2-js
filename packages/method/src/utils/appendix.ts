@@ -70,10 +70,10 @@ export class Appendix {
   }
 
   /**
-   * Extracts the verification methods from a given DID Document
-   * @param {DidDocument} params.didDocument The DID Document to extract the verification methods from
-   * @returns {DidVerificationMethod[]} An array of DidVerificationMethod objects
-   * @throws {TypeError} if the didDocument is not provided
+   * Extracts the verification methods from a given DID Document.
+   * @param didDocument The DID Document to extract the verification methods from
+   * @returns An array of DidVerificationMethod objects
+   * @throws TypeError if the didDocument is not provided
    */
   public static getVerificationMethods(didDocument: DidDocument): DidVerificationMethod[] {
     if (!didDocument) throw new TypeError(`Required parameter missing: 'didDocument'`);

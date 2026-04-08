@@ -44,11 +44,11 @@ export class SchnorrKeyPair implements KeyPair {
   /**
    * Creates an instance of Keys. Must provide a at least a secret key.
    * Can optionally provide both a secret and public key, but must be a valid pair.
-   * @param {SchnorrKeyPairParams} params The parameters to initialize the Keys object.
-   * @param {CompressedSecp256k1PublicKey | KeyBytes} params.publicKey The public key object or bytes
-   * @param {Secp256k1SecretKey | KeyBytes} [params.secret] The secret key object or bytes
-   * @throws {KeyPairError} If neither a public key or secret key is provided.
-   * @throws {KeyPairError} If the public key is not a valid pair with the secret key.
+   * @param params The parameters to initialize the Keys object.
+   * @param params.publicKey The public key object or bytes
+   * @param params.secretKey The secret key object or bytes (optional)
+   * @throws KeyPairError If neither a public key or secret key is provided.
+   * @throws KeyPairError If the public key is not a valid pair with the secret key.
    */
   constructor(params: SchnorrKeyPairParams = {}) {
     // If no secret key or public key, throw an error

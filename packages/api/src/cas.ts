@@ -110,7 +110,7 @@ export class CasApi {
   /**
    * Publish a JSON object to the CAS.
    * The object is JCS-canonicalized before storage; the returned hash
-   * matches what {@link canonicalHash} would produce.
+   * matches what `canonicalHash` (from @did-btcr2/common) would produce.
    * @param object The JSON object to publish.
    * @returns The base64url-encoded SHA-256 hash (content address).
    */
