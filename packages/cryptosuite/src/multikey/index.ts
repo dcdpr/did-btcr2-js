@@ -292,11 +292,11 @@ export class SchnorrMultikey implements Multikey {
   }
 
   /**
-   * Creates a `Multikey` instance from a private key
-   * @param {string} params.id The id of the multikey
-   * @param {string} params.controller The controller of the multikey
-   * @param {KeyBytes} params.entropy The private key bytes for the multikey
-   * @returns {SchnorrMultikey} The new multikey instance
+   * Creates a `Multikey` instance from a private key.
+   * @param id The id of the multikey
+   * @param controller The controller of the multikey
+   * @param secretKeyb The private key bytes for the multikey
+   * @returns The new multikey instance
    */
   public static fromSecretKey(
     id: string,

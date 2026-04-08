@@ -53,7 +53,7 @@ export class DidMethodApi {
   }
 
   /**
-   * Resolve a DID by driving the sans-I/O {@link Resolver} state machine.
+   * Resolve a DID by driving the sans-I/O `Resolver` state machine (from @did-btcr2/method).
    * If a Bitcoin connection is configured on the API, it is used automatically
    * to fetch beacon signals. Sidecar data flows through `options.sidecar`.
    * @param did The DID to resolve.

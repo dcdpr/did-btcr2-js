@@ -12,7 +12,7 @@ import { BeaconUtils } from './utils.js';
 
 /**
  * Static utility class for discovering Beacon Signals on the Bitcoin blockchain.
- * Extracted from {@link Resolve} for single-responsibility and independent testability.
+ * Extracted from `Resolver` for single-responsibility and independent testability.
  *
  * @class BeaconSignalDiscovery
  */

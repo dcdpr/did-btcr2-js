@@ -1,24 +1,97 @@
 {
-    "$schema": "https://typedoc-plugin-markdown.org/schema.json",
-    "plugin": [
-        "typedoc-plugin-markdown",
-        "typedoc-vitepress-theme"
-    ],
-    "out": "docs/packages",
-    "docsRoot": "./docs",
-    "entryPointStrategy": "packages",
-    "entryPoints": [
-        "packages/*"
-    ],
-    "packageOptions": {
-        "entryPoints": [
-            "src/index.ts"
-        ]
-    },
-    "hideBreadcrumbs": true,
-    "hidePageHeader": true,
-    "useHTMLEncodedBrackets": true,
-    "sanitizeComments": true,
+  "$schema": "https://typedoc.org/schema.json",
+  "name": "did-btcr2-js",
+  "out": ".docs-site",
+  "entryPointStrategy": "packages",
+  "entryPoints": [
+    "packages/common",
+    "packages/keypair",
+    "packages/cryptosuite",
+    "packages/bitcoin",
+    "packages/kms",
+    "packages/smt",
+    "packages/method",
+    "packages/api",
+    "packages/cli"
+  ],
+  "packageOptions": {
+    "entryPoints": ["src/index.ts"],
     "readme": "none",
-    "entryFileName": "index"
+    "blockTags": [
+      "@param",
+      "@returns",
+      "@return",
+      "@throws",
+      "@example",
+      "@see",
+      "@remarks",
+      "@deprecated",
+      "@category",
+      "@module",
+      "@internal",
+      "@inheritDoc",
+      "@typeParam",
+      "@template",
+      "@property",
+      "@extends",
+      "@implements",
+      "@name",
+      "@constructor",
+      "@class",
+      "@type",
+      "@constant",
+      "@virtual",
+      "@override",
+      "@defaultValue",
+      "@yields"
+    ],
+    "externalSymbolLinkMappings": {
+      "typescript": {
+        "Response": "https://developer.mozilla.org/en-US/docs/Web/API/Response"
+      },
+      "@types/node": {
+        "__global.Response": "https://developer.mozilla.org/en-US/docs/Web/API/Response"
+      }
+    },
+    "validation": {
+      "notExported": false,
+      "invalidLink": false,
+      "rewrittenLink": false,
+      "notDocumented": false,
+      "unusedMergeModuleWith": false
+    }
+  },
+  "projectDocuments": [
+    "docs/index.md",
+    "docs/architecture/*.md",
+    "docs/contributing/*.md",
+    "docs/adr/*.md"
+  ],
+  "includeVersion": false,
+  "githubPages": false,
+  "hideGenerator": false,
+  "navigation": {
+    "includeCategories": false,
+    "includeGroups": false,
+    "includeFolders": true
+  },
+  "sort": ["static-first", "required-first", "alphabetical"],
+  "categorizeByGroup": true,
+  "kindSortOrder": [
+    "Reference",
+    "Project",
+    "Module",
+    "Namespace",
+    "Enum",
+    "EnumMember",
+    "Class",
+    "Interface",
+    "TypeAlias",
+    "Constructor",
+    "Property",
+    "Variable",
+    "Function",
+    "Accessor",
+    "Method"
+  ]
 }

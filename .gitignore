@@ -170,9 +170,8 @@ temp
 # Release build output
 release/
 
-# VitePress output folders
-docs/.vitepress/dist
-docs/.vitepress/cache
+# Local docs build output (TypeDoc unified site)
+.docs-site/
 
 # LLM output
 CLAUDE.md

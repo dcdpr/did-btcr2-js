@@ -17,9 +17,10 @@
   ],
   "scripts": {
     "purge": "pnpm npkill -d $(pwd)/packages -t dist && pnpm npkill -d $(pwd) -t node_modules",
-    "docs:dev": "vitepress dev docs",
-    "docs:build": "typedoc --options typedoc.json && vitepress build docs",
-    "docs:deploy": "pnpm docs:build && gh-pages -d docs/.vitepress/dist",
+    "docs:build": "typedoc",
+    "docs:dev": "typedoc --watch --preserveWatchOutput",
+    "docs:serve": "npx --yes serve .docs-site -l 3000",
+    "docs:clean": "rimraf .docs-site",
     "reinstall": "pnpm --recursive --stream reinstall",
     "wipe": "pnpm --recursive --stream wipe",
     "wipe:install": "pnpm --recursive --stream wipe:install",
@@ -80,7 +81,6 @@
     "node": ">=22.0.0"
   },
   "devDependencies": {
-    "@braintree/sanitize-url": "^7.1.1",
     "@changesets/changelog-github": "^0.5.1",
     "@changesets/cli": "^2.28.0",
     "@eslint/js": "^9.22.0",
@@ -88,19 +88,13 @@
     "@typescript-eslint/eslint-plugin": "^8.24.1",
     "@typescript-eslint/parser": "^8.26.1",
     "audit-ci": "^7.1.0",
-    "cytoscape": "^3.33.1",
-    "cytoscape-cose-bilkent": "^4.1.0",
-    "dayjs": "^1.11.18",
     "debug": "^4.4.3",
     "eslint-plugin-mocha": "^10.5.0",
     "globals": "^15.15.0",
     "npkill": "^0.12.2",
+    "rimraf": "^6.0.1",
     "typedoc": "^0.28.1",
-    "typedoc-plugin-markdown": "^4.7.0",
-    "typedoc-vitepress-theme": "^1.1.2",
-    "typescript": "^5.7.3",
-    "vitepress": "^1.6.3",
-    "vitepress-plugin-mermaid": "^2.0.17"
+    "typescript": "^5.7.3"
   },
   "packageManager": "pnpm@10.33.0",
   "pnpm": {

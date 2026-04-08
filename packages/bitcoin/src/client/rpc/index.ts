@@ -31,7 +31,7 @@ import { JsonRpcTransport } from './json-rpc.js';
 
 /**
  * Maps Bitcoin Core JSON-RPC method names to their parameter and return types.
- * Used by {@link BitcoinCoreRpcClient.executeRpc} for compile-time safety.
+ * Used by `BitcoinCoreRpcClient.executeRpc` for compile-time safety.
  */
 export interface RpcMethodMap {
   getbestblockhash:               { params: [];                                                       result: string };
