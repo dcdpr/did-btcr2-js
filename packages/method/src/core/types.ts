@@ -57,10 +57,12 @@ export type Sidecar = {
 
 /**
  * The Sidecar data structure used for Singleton Beacons.
+ * Map keyed by hex-encoded canonical hash of the signed update.
  */
 export type SingletonBeaconSidecarData = Map<string, SignedBTCR2Update>;
 /**
  * The Sidecar data structure used for CAS Beacons.
+ * Map keyed by hex-encoded canonical hash of the CAS announcement.
  */
 export type CASBeaconSidecarData = Map<string, CASAnnouncement>;
 /**

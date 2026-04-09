@@ -1,6 +1,6 @@
 import type { AddressUtxo, BitcoinConnection } from '@did-btcr2/bitcoin';
 import type { KeyBytes } from '@did-btcr2/common';
-import { canonicalize, decode, encode, hash } from '@did-btcr2/common';
+import { canonicalize, hash } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { hexToBytes } from '@noble/hashes/utils';
@@ -41,8 +41,8 @@ export class SingletonBeacon extends Beacon {
     const needs = new Array<DataNeed>();
 
     for(const signal of signals) {
-      // Decode signal bytes from hex and re-encode to base64url for sidecar lookup
-      const updateHash = encode(decode(signal.signalBytes, 'hex'));
+      // Signal bytes are hex — matches hex-keyed sidecar maps directly
+      const updateHash = signal.signalBytes;
 
       // Look up the signed update in sidecar updateMap
       const signedUpdate = sidecar.updateMap.get(updateHash);

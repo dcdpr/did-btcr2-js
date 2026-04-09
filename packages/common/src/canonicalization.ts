@@ -5,7 +5,7 @@ import { CanonicalizationError } from './errors.js';
 import type { HashBytes } from './types.js';
 
 export type CanonicalizationAlgorithm = 'jcs' | 'rdfc';
-export type CanonicalizationEncoding = 'hex' | 'base58' | 'base64url';
+export type CanonicalizationEncoding = 'hex' | 'base58' | 'base64urlnopad';
 
 export interface CanonicalizationOptions {
   algorithm?: CanonicalizationAlgorithm;
@@ -13,7 +13,7 @@ export interface CanonicalizationOptions {
 }
 
 const SUPPORTED_ALGORITHMS: ReadonlySet<CanonicalizationAlgorithm> = new Set(['jcs']);
-const SUPPORTED_ENCODINGS: ReadonlySet<CanonicalizationEncoding> = new Set(['hex', 'base58', 'base64url']);
+const SUPPORTED_ENCODINGS: ReadonlySet<CanonicalizationEncoding> = new Set(['hex', 'base58', 'base64urlnopad']);
 
 /**
  * Normalizes and validates the canonicalization algorithm.
@@ -79,16 +79,16 @@ export function hash(canonicalized: string): HashBytes {
  * Encodes hash bytes using the specified encoding.
  *
  * @param {HashBytes} hashBytes - The hash bytes to encode.
- * @param {CanonicalizationEncoding} [encoding='base64url'] - The encoding format.
+ * @param {CanonicalizationEncoding} [encoding='base64urlnopad'] - The encoding format.
  * @returns {string} The encoded string.
  * @throws {CanonicalizationError} If the encoding is not supported.
  */
-export function encode(hashBytes: HashBytes, encoding: CanonicalizationEncoding = 'base64url'): string {
+export function encode(hashBytes: HashBytes, encoding: CanonicalizationEncoding = 'base64urlnopad'): string {
   const normalized = normalizeEncoding(encoding);
   switch (normalized) {
     case 'hex':       return hex.encode(hashBytes);
     case 'base58':    return base58.encode(hashBytes);
-    case 'base64url': return base64urlnopad.encode(hashBytes);
+    case 'base64urlnopad': return base64urlnopad.encode(hashBytes);
   }
 }
 
@@ -96,17 +96,30 @@ export function encode(hashBytes: HashBytes, encoding: CanonicalizationEncoding 
  * Decodes an encoded hash string back to bytes.
  *
  * @param {string} encoded - The encoded hash string.
- * @param {CanonicalizationEncoding} [encoding='base64url'] - The encoding format.
+ * @param {CanonicalizationEncoding} [encoding='base64urlnopad'] - The encoding format.
  * @returns {HashBytes} The decoded hash bytes.
  * @throws {CanonicalizationError} If the encoding is not supported.
  */
-export function decode(encoded: string, encoding: CanonicalizationEncoding = 'base64url'): HashBytes {
+export function decode(encoded: string, encoding: CanonicalizationEncoding = 'base64urlnopad'): HashBytes {
   const normalized = normalizeEncoding(encoding);
   switch (normalized) {
     case 'hex':       return hex.decode(encoded);
     case 'base58':    return base58.decode(encoded);
-    case 'base64url': return base64urlnopad.decode(encoded);
+    case 'base64urlnopad': return base64urlnopad.decode(encoded);
   }
+}
+
+/**
+ * Implements {@link https://dcdpr.github.io/did-btcr2/algorithms.html#json-document-hashing | 8.c JSON Document Hashing}.
+ *
+ * Pipeline: Canonicalize (JCS) -> Hash (SHA-256) -> raw bytes.
+ *
+ * @param {Record<any, any>} object - The object to process.
+ * @param {CanonicalizationAlgorithm} [algorithm='jcs'] - The canonicalization algorithm.
+ * @returns {HashBytes} The raw SHA-256 hash bytes (Uint8Array).
+ */
+export function canonicalHashBytes(object: Record<any, any>, algorithm: CanonicalizationAlgorithm = 'jcs'): HashBytes {
+  return hash(canonicalize(object, normalizeAlgorithm(algorithm)));
 }
 
 /**
@@ -120,6 +133,6 @@ export function decode(encoded: string, encoding: CanonicalizationEncoding = 'ba
  */
 export function canonicalHash(object: Record<any, any>, options?: CanonicalizationOptions): string {
   const algorithm = normalizeAlgorithm(options?.algorithm ?? 'jcs');
-  const encoding = normalizeEncoding(options?.encoding ?? 'base64url');
+  const encoding = normalizeEncoding(options?.encoding ?? 'base64urlnopad');
   return encode(hash(canonicalize(object, algorithm)), encoding);
 }

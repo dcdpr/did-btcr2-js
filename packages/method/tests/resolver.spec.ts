@@ -103,8 +103,8 @@ describe('Resolver', () => {
 
       const need = state.needs[0] as NeedGenesisDocument;
       expect(need.kind).to.equal('NeedGenesisDocument');
-      // genesisHash should be base64url encoding of the genesis bytes
-      expect(need.genesisHash).to.equal(encode(genesisBytes));
+      // genesisHash should be hex encoding of the genesis bytes
+      expect(need.genesisHash).to.equal(encode(genesisBytes, 'hex'));
     });
 
     it('proceeds to NeedBeaconSignals after providing genesis document', () => {
@@ -280,9 +280,10 @@ describe('Resolver', () => {
 
       // Build a fake signed update and CAS announcement that reference each other
       const fakeUpdate = { '@context': ['test'], patch: [], targetHash: 'fake', targetVersionId: 2, sourceHash: 'fake' };
-      const updateHash = canonicalHash(fakeUpdate);
+      const updateHash = canonicalHash(fakeUpdate);        // base64urlnopad (stored in announcement per spec)
+      const updateHashHex = canonicalHash(fakeUpdate, { encoding: 'hex' }); // hex (for assertion, matches beacon output)
 
-      // CAS announcement maps DID → update hash
+      // CAS announcement maps DID → update hash (base64urlnopad per spec)
       const announcement = { [casDid]: updateHash };
       const announcementHashHex = canonicalHash(announcement, { encoding: 'hex' });
 
@@ -309,7 +310,7 @@ describe('Resolver', () => {
       expect(state.status).to.equal('action-required');
       if(state.status !== 'action-required') return;
       expect(state.needs[0].kind).to.equal('NeedSignedUpdate');
-      expect((state.needs[0] as NeedSignedUpdate).updateHash).to.equal(updateHash);
+      expect((state.needs[0] as NeedSignedUpdate).updateHash).to.equal(updateHashHex);
 
       // Provide the signed update — but since it's fake with wrong hashes,
       // we expect it to resolve to complete (update will be collected but

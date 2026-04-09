@@ -1,10 +1,10 @@
-import { canonicalize, decode as decodeHash } from '@did-btcr2/common';
+import type { HashBytes } from '@did-btcr2/common';
+import { canonicalize, decode as decodeHash, encode as encodeHash } from '@did-btcr2/common';
 import type { Helia } from 'helia';
 import { CID } from 'multiformats/cid';
 import * as raw from 'multiformats/codecs/raw';
 import { create as createDigest } from 'multiformats/hashes/digest';
 import { sha256 } from 'multiformats/hashes/sha2';
-import { assertString } from './helpers.js';
 
 /**
  * Executor interface for content-addressed storage.
@@ -36,7 +36,7 @@ export class IpfsCasExecutor implements CasExecutor {
   }
 
   async retrieve(hash: string): Promise<Uint8Array | null> {
-    const hashBytes = decodeHash(hash, 'base64url');
+    const hashBytes = decodeHash(hash, 'base64urlnopad');
     const cid = CID.create(1, raw.code, createDigest(sha256.code, hashBytes));
     try {
       return await this.#helia.blockstore.get(cid);
@@ -96,12 +96,12 @@ export class CasApi {
   }
 
   /**
-   * Retrieve a JSON object from the CAS by its base64url SHA-256 hash.
-   * @param hash Base64url-encoded SHA-256 hash of the JCS-canonicalized object.
+   * Retrieve a JSON object from the CAS by its SHA-256 hash bytes.
+   * @param hashBytes Raw SHA-256 hash bytes of the JCS-canonicalized object.
    * @returns The parsed JSON object, or `null` if not found.
    */
-  async retrieve(hash: string): Promise<object | null> {
-    assertString(hash, 'hash');
+  async retrieve(hashBytes: HashBytes): Promise<object | null> {
+    const hash = encodeHash(hashBytes, 'base64urlnopad');
     const bytes = await this.#executor.retrieve(hash);
     if (!bytes) return null;
     return JSON.parse(new TextDecoder().decode(bytes)) as object;
