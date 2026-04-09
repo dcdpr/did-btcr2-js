@@ -12,10 +12,6 @@ import { CID } from 'multiformats';
 import { create as createDigest } from 'multiformats/hashes/digest';
 import type { RootCapability } from '../core/interfaces.js';
 
-// helia and @helia/strings are ESM-only and depend on native modules (libp2p / node-datachannel).
-// Lazy-load them via dynamic import so this file can be bundled into CJS without pulling in the
-// native binaries at bundle time. Node supports `await import(esm)` from CJS at runtime.
-
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/#appendix | 9. Appendix} methods.
  *
@@ -230,8 +226,3 @@ export class Appendix {
     return await node.get(cid, {});
   }
 }
-
-
-
-
-

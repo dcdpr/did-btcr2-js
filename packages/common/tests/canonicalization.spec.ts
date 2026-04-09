@@ -38,7 +38,7 @@ describe('canonicalization', () => {
       .to.throw(CanonicalizationError, 'Unsupported encoding');
   });
 
-  it('canonicalizes with JCS by default (base64url encoding)', () => {
+  it('canonicalizes with JCS by default (base64urlnopad encoding)', () => {
     const result = canonicalHash(simpleObject);
     const again = canonicalHash(simpleObject);
     expect(result).to.equal(again);
@@ -50,8 +50,8 @@ describe('canonicalization', () => {
     expect(base58).to.equal('5X7XVwWA1NrC4JcuT7teDrhYpVQNA9LhHR3s2Ci6XUWz');
   });
 
-  it('supports base64url encoding', () => {
-    const base64url = canonicalHash(simpleObject, { encoding: 'base64url' });
+  it('supports base64urlnopad encoding', () => {
+    const base64url = canonicalHash(simpleObject, { encoding: 'base64urlnopad' });
     expect(base64url).to.equal('QyWM_3g_5wNtikMDP4MK38YOwDc4JHNUisdCuIgpJ3c');
   });
 
@@ -82,8 +82,8 @@ describe('canonicalization', () => {
     expect(result).to.equal('8ADWw43bTgn9z3n7NjuzrM1GfJa1aNCaaK4RJpwe3sCK');
   });
 
-  it('produces a base64url encoded SHA-256 hash of a canonicalized object', () => {
-    const result = encode(hash(canonicalComplexObject), 'base64url');
+  it('produces a base64urlnopad encoded SHA-256 hash of a canonicalized object', () => {
+    const result = encode(hash(canonicalComplexObject), 'base64urlnopad');
     expect(result).to.equal('al4wDwZaZUH5zT3uwkukyu1tWio7IZ8W6TV0Wf-gGTg');
   });
 
@@ -96,8 +96,8 @@ describe('canonicalization', () => {
     expect(b58Encoded).to.equal('8ADWw43bTgn9z3n7NjuzrM1GfJa1aNCaaK4RJpwe3sCK');
     expect(decode(b58Encoded, 'base58')).to.deep.equal(hashComplexObject);
 
-    const b64urlEncoded = encode(hashComplexObject, 'base64url');
+    const b64urlEncoded = encode(hashComplexObject, 'base64urlnopad');
     expect(b64urlEncoded).to.equal('al4wDwZaZUH5zT3uwkukyu1tWio7IZ8W6TV0Wf-gGTg');
-    expect(decode(b64urlEncoded, 'base64url')).to.deep.equal(hashComplexObject);
+    expect(decode(b64urlEncoded, 'base64urlnopad')).to.deep.equal(hashComplexObject);
   });
 });

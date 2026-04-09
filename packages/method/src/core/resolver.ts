@@ -1,6 +1,7 @@
 import { getNetwork } from '@did-btcr2/bitcoin';
 import {
   canonicalHash,
+  canonicalHashBytes,
   canonicalize,
   DateUtils,
   encode as encodeHash,
@@ -12,6 +13,7 @@ import {
   LATE_PUBLISHING_ERROR,
   ResolveError
 } from '@did-btcr2/common';
+import type { HashBytes } from '@did-btcr2/common';
 import type {
   SignedBTCR2Update,
   UnsignedBTCR2Update
@@ -32,6 +34,7 @@ import type { DidComponents} from './identifier.js';
 import { Identifier } from './identifier.js';
 import type { SMTProof } from './interfaces.js';
 import type { CASAnnouncement, Sidecar, SidecarData } from './types.js';
+import { equalBytes } from '@noble/curves/utils.js';
 
 /**
  * The response object for DID Resolution.
@@ -49,7 +52,7 @@ export interface DidResolutionResponse {
 /** The resolver needs a genesis document whose hash matches genesisHash. */
 export interface NeedGenesisDocument {
   readonly kind: 'NeedGenesisDocument';
-  /** Base64url-encoded SHA-256 hash from the DID identifier's genesisBytes. */
+  /** Hex-encoded SHA-256 hash from the DID identifier's genesisBytes. */
   readonly genesisHash: string;
 }
 
@@ -63,7 +66,7 @@ export interface NeedBeaconSignals {
 /** The resolver needs a CAS Announcement whose canonical hash matches announcementHash. */
 export interface NeedCASAnnouncement {
   readonly kind: 'NeedCASAnnouncement';
-  /** Base64url-encoded canonical hash of the CAS Announcement. */
+  /** Hex-encoded canonical hash of the CAS Announcement. */
   readonly announcementHash: string;
   /** The beacon service that produced this signal. */
   readonly beaconServiceId: string;
@@ -72,7 +75,7 @@ export interface NeedCASAnnouncement {
 /** The resolver needs a SignedBTCR2Update whose canonical hash matches updateHash. */
 export interface NeedSignedUpdate {
   readonly kind: 'NeedSignedUpdate';
-  /** Base64url-encoded canonical hash of the signed update. */
+  /** Hex-encoded canonical hash of the signed update. */
   readonly updateHash: string;
   /** The beacon service that produced this signal. */
   readonly beaconServiceId: string;
@@ -223,22 +226,22 @@ export class Resolver {
     didComponents: DidComponents,
     genesisDocument: object,
   ): DidDocument {
-    // Encode the genesis bytes from the did components
-    const genesisBytes = encodeHash(didComponents.genesisBytes);
+    // Canonicalize and sha256 hash the genesis document
+    const genesisDocumentHash = canonicalHashBytes(genesisDocument);
 
-    // Canonicalize and sha256 hash the currentDocument
-    const genesisDocumentBytes = canonicalHash(genesisDocument);
-
-    // If the genesisBytes do not match the hashBytes, throw an error
-    if (genesisBytes !== genesisDocumentBytes) {
+    // Compare genesis bytes from identifier against the document hash (byte comparison)
+    if (!equalBytes(didComponents.genesisBytes, genesisDocumentHash)) {
       throw new ResolveError(
-        `Initial document mismatch: genesisBytes !== genesisDocumentBytes`,
-        INVALID_DID_DOCUMENT, { genesisBytes, genesisDocumentBytes }
+        `Initial document mismatch: genesisBytes !== genesisDocumentHash`,
+        INVALID_DID_DOCUMENT, {
+          genesisBytes        : encodeHash(didComponents.genesisBytes, 'hex'),
+          genesisDocumentHash : encodeHash(genesisDocumentHash, 'hex')
+        }
       );
     }
 
     // Encode the did from the didComponents
-    const did = Identifier.encode(decodeHash(genesisBytes), didComponents);
+    const did = Identifier.encode(didComponents.genesisBytes, didComponents);
 
     // Replace the placeholder did with the did throughout the currentDocument.
     const currentDocument = JSON.parse(
@@ -259,14 +262,14 @@ export class Resolver {
     const updateMap = new Map<string, SignedBTCR2Update>();
     if(sidecar.updates?.length)
       for(const update of sidecar.updates) {
-        updateMap.set(canonicalHash(update), update);
+        updateMap.set(canonicalHash(update, { encoding: 'hex' }), update);
       }
 
     // CAS Announcements map
     const casMap = new Map<string, CASAnnouncement>();
     if(sidecar.casUpdates?.length)
       for(const update of sidecar.casUpdates) {
-        casMap.set(canonicalHash(update), update);
+        casMap.set(canonicalHash(update, { encoding: 'hex' }), update);
       }
 
     // SMT Proofs map
@@ -296,8 +299,8 @@ export class Resolver {
     // Start the version number being processed at 1
     let currentVersionId = 1;
 
-    // Initialize an empty array to hold the update hashes
-    const updateHashHistory: string[] = [];
+    // Initialize an empty array to hold the update hashes (raw bytes)
+    const updateHashHistory: HashBytes[] = [];
 
     // 1. Sort updates by targetVersionId (ascending), using blockheight as tie-breaker
     const updates = unsortedUpdates.sort(([upd0, blk0], [upd1, blk1]) =>
@@ -317,8 +320,8 @@ export class Resolver {
 
     // Iterate over each (update block) pair
     for(const [update, block] of updates) {
-      // Get the hash of the current document
-      const currentDocumentHash = canonicalHash(response.didDocument);
+      // Get the hash of the current document as raw bytes
+      const currentDocumentHash = canonicalHashBytes(response.didDocument);
 
       // Safely convert block.time to timestamp
       const blocktime = DateUtils.blocktimeToTimestamp(block.time);
@@ -348,12 +351,15 @@ export class Resolver {
 
       // If update.targetVersionId == currentVersionId + 1, apply the update
       else if (update.targetVersionId === currentVersionId + 1) {
-        // Check if update.sourceHash !== currentDocumentHash
-        if (update.sourceHash !== currentDocumentHash) {
-          // Raise an INVALID_DID_UPDATE error if they do not match
+        // Check if update.sourceHash !== currentDocumentHash (byte comparison)
+        const sourceHashBytes = decodeHash(update.sourceHash, 'base64urlnopad');
+        if (!equalBytes(sourceHashBytes, currentDocumentHash)) {
           throw new ResolveError(
             `Hash mismatch: update.sourceHash !== currentDocumentHash`,
-            INVALID_DID_UPDATE, { sourceHash: update.sourceHash, currentDocumentHash }
+            INVALID_DID_UPDATE, {
+              sourceHash          : update.sourceHash,
+              currentDocumentHash : encodeHash(currentDocumentHash, 'hex')
+            }
           );
         }
         // Apply the update to the currentDocument and set it in the response
@@ -361,8 +367,8 @@ export class Resolver {
 
         // Create unsigned_update by removing the proof property from update.
         const unsignedUpdate = JSONUtils.deleteKeys(update, ['proof']) as UnsignedBTCR2Update;
-        // Push the canonicalized unsigned update hash to the updateHashHistory
-        updateHashHistory.push(canonicalHash(unsignedUpdate));
+        // Push the canonicalized unsigned update hash bytes to the updateHashHistory
+        updateHashHistory.push(canonicalHashBytes(unsignedUpdate));
       }
 
       // If update.targetVersionId > currentVersionId + 1, throw LATE_PUBLISHING error
@@ -405,24 +411,27 @@ export class Resolver {
    * Implements subsection {@link https://dcdpr.github.io/did-btcr2/#confirm-duplicate-update | 7.2.f.1 Confirm Duplicate Update}.
    * This step confirms that an update with a lower-than-expected targetVersionId is a true duplicate.
    * @param {SignedBTCR2Update} update The BTCR2 Signed Update to confirm as a duplicate.
-   * @param {string[]} updateHashHistory The accumulated hash history for comparison.
+   * @param {HashBytes[]} updateHashHistory The accumulated hash history for comparison.
    * @returns {void} Does not return a value, but throws an error if the update is not a valid duplicate.
    */
-  private static confirmDuplicate(update: SignedBTCR2Update, updateHashHistory: string[]): void {
+  private static confirmDuplicate(update: SignedBTCR2Update, updateHashHistory: HashBytes[]): void {
     // Create unsigned_update by removing the proof property from update.
     const { proof: _, ...unsignedUpdate } = update;
 
-    // Hash unsignedUpdate with JSON Document Hashing algorithm
-    const unsignedUpdateHash = canonicalHash(unsignedUpdate);
+    // Hash unsignedUpdate with JSON Document Hashing algorithm (raw bytes)
+    const unsignedUpdateHash = canonicalHashBytes(unsignedUpdate);
 
     // Let historicalUpdateHash equal updateHashHistory[updateHashIndex].
     const historicalUpdateHash = updateHashHistory[update.targetVersionId - 2];
 
-    // Check if the updateHash matches the historical hash
-    if (updateHashHistory[update.targetVersionId - 2] !== unsignedUpdateHash) {
+    // Check if the updateHash matches the historical hash (byte comparison)
+    if (!equalBytes(historicalUpdateHash, unsignedUpdateHash)) {
       throw new ResolveError(
-        `Invalid duplicate: ${unsignedUpdateHash} does not match ${historicalUpdateHash}`,
-        LATE_PUBLISHING_ERROR, { unsignedUpdateHash, updateHashHistory }
+        `Invalid duplicate: unsigned update hash does not match historical hash`,
+        LATE_PUBLISHING_ERROR, {
+          unsignedUpdateHash : encodeHash(unsignedUpdateHash, 'hex'),
+          historicalHash     : encodeHash(historicalUpdateHash, 'hex')
+        }
       );
     }
   }
@@ -500,14 +509,14 @@ export class Resolver {
     // Verify that updatedDocument is conformant to DID Core v1.1.
     DidDocument.validate(updatedDocument);
 
-    // Canonicalize and hash the updatedDocument to get the currentDocumentHash.
-    const currentDocumentHash = canonicalHash(updatedDocument);
+    // Canonicalize and hash the updatedDocument to get the currentDocumentHash (raw bytes).
+    const currentDocumentHash = canonicalHashBytes(updatedDocument);
 
     // Prepare the update targetHash for comparison with currentDocumentHash.
-    const updateTargetHash = update.targetHash;
+    const updateTargetHash = decodeHash(update.targetHash);
 
     // Make sure the update.targetHash equals currentDocumentHash.
-    if (update.targetHash !== currentDocumentHash) {
+    if (!equalBytes(updateTargetHash, currentDocumentHash)) {
       // If they do not match, throw INVALID_DID_UPDATE error.
       throw new ResolveError(
         `Invalid update: update.targetHash !== currentDocumentHash`,
@@ -545,7 +554,7 @@ export class Resolver {
           }
 
           // Need genesis document from caller
-          const genesisHash = encodeHash(this.#didComponents.genesisBytes);
+          const genesisHash = encodeHash(this.#didComponents.genesisBytes, 'hex');
           return {
             status : 'action-required',
             needs  : [{ kind: 'NeedGenesisDocument', genesisHash }]
@@ -691,13 +700,13 @@ export class Resolver {
 
       case 'NeedCASAnnouncement': {
         const announcement = data as CASAnnouncement;
-        this.#sidecarData.casMap.set(canonicalHash(announcement), announcement);
+        this.#sidecarData.casMap.set(canonicalHash(announcement, { encoding: 'hex' }), announcement);
         break;
       }
 
       case 'NeedSignedUpdate': {
         const update = data as SignedBTCR2Update;
-        this.#sidecarData.updateMap.set(canonicalHash(update), update);
+        this.#sidecarData.updateMap.set(canonicalHash(update, { encoding: 'hex' }), update);
         break;
       }
     }

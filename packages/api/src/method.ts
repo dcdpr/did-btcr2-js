@@ -1,6 +1,6 @@
 import type { BitcoinConnection } from '@did-btcr2/bitcoin';
 import type { DocumentBytes, HexString, KeyBytes, PatchOperation } from '@did-btcr2/common';
-import { IdentifierTypes, NotImplementedError } from '@did-btcr2/common';
+import { decode as decodeHash, IdentifierTypes, NotImplementedError } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import type { Btcr2DidDocument, CASAnnouncement, DidCreateOptions, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, ResolutionOptions } from '@did-btcr2/method';
 import { BeaconSignalDiscovery, DidBtcr2 } from '@did-btcr2/method';
@@ -96,7 +96,7 @@ export class DidMethodApi {
                 );
               }
               this.#log.debug('Fetching genesis document from CAS: %s', need.genesisHash);
-              const doc = await this.#cas.retrieve(need.genesisHash);
+              const doc = await this.#cas.retrieve(decodeHash(need.genesisHash, 'hex'));
               if(!doc) {
                 throw new Error(
                   `Genesis document not found in CAS (hash: ${need.genesisHash}).`
@@ -114,7 +114,7 @@ export class DidMethodApi {
                 );
               }
               this.#log.debug('Fetching CAS announcement from CAS: %s', need.announcementHash);
-              const announcement = await this.#cas.retrieve(need.announcementHash);
+              const announcement = await this.#cas.retrieve(decodeHash(need.announcementHash, 'hex'));
               if(!announcement) {
                 throw new Error(
                   `CAS announcement not found in CAS (hash: ${need.announcementHash}).`
@@ -132,7 +132,7 @@ export class DidMethodApi {
                 );
               }
               this.#log.debug('Fetching signed update from CAS: %s', need.updateHash);
-              const update = await this.#cas.retrieve(need.updateHash);
+              const update = await this.#cas.retrieve(decodeHash(need.updateHash, 'hex'));
               if(!update) {
                 throw new Error(
                   `Signed update not found in CAS (hash: ${need.updateHash}).`

@@ -57,8 +57,8 @@ export class CASBeacon extends Beacon {
     const did = this.service.id.split('#')[0];
 
     for(const signal of signals) {
-      // Decode signal bytes from hex and re-encode to base64url for sidecar lookup
-      const announcementHash = encode(decode(signal.signalBytes, 'hex'));
+      // Signal bytes are hex — matches hex-keyed sidecar maps directly
+      const announcementHash = signal.signalBytes;
 
       // Look up the CAS Announcement in sidecar casMap
       const casAnnouncement = sidecar.casMap.get(announcementHash);
@@ -74,12 +74,15 @@ export class CASBeacon extends Beacon {
       }
 
       // Look up this DID's update hash in the CAS Announcement
-      const updateHash = casAnnouncement[did];
+      // Announcement values are base64urlnopad per spec — convert to hex for map lookup
+      const updateHashEncoded = casAnnouncement[did];
 
       // If no entry for this DID, this announcement doesn't contain an update for us — skip
-      if(!updateHash) {
+      if(!updateHashEncoded) {
         continue;
       }
+
+      const updateHash = encode(decode(updateHashEncoded, 'base64urlnopad'), 'hex');
 
       // Look up the signed update in sidecar updateMap
       const signedUpdate = sidecar.updateMap.get(updateHash);
