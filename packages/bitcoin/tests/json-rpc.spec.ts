@@ -4,8 +4,6 @@ import { JsonRpcProtocol } from '../src/client/rpc/protocol.js';
 import { BitcoinRpcError } from '../src/errors.js';
 import type { HttpExecutor, HttpRequest } from '../src/client/http.js';
 
-// ── JsonRpcProtocol (sans-I/O) ────────────────────────────────────────
-
 describe('JsonRpcProtocol', () => {
   describe('construction', () => {
     it('uses default URL when host is not provided', () => {
@@ -207,7 +205,7 @@ describe('JsonRpcProtocol', () => {
   });
 });
 
-// ── JsonRpcTransport ───────────────────────────────────────────────────
+
 
 describe('JsonRpcTransport', () => {
   /** Creates a transport with a mock executor. */

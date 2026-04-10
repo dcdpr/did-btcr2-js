@@ -8,8 +8,6 @@ import { DEFAULT_BITCOIN_NETWORK_CONFIG } from '../src/constants.js';
 import { BitcoinRestError } from '../src/errors.js';
 import type { HttpExecutor, HttpRequest } from '../src/client/http.js';
 
-// ── Helpers ────────────────────────────────────────────────────────────
-
 const VALID_TXID = 'a'.repeat(64);
 const VALID_HASH = 'b'.repeat(64);
 
@@ -59,8 +57,6 @@ function createMockSubClient() {
   };
   return { protocol, exec, seen };
 }
-
-// ── EsploraProtocol (sans-I/O) ────────────────────────────────────────
 
 describe('EsploraProtocol', () => {
   const protocol = new EsploraProtocol({ host: 'https://mempool.space/api' });
@@ -190,7 +186,7 @@ describe('EsploraProtocol', () => {
   });
 });
 
-// ── BitcoinRestClient ──────────────────────────────────────────────────
+
 
 describe('BitcoinRestClient', () => {
   describe('construction', () => {
@@ -277,8 +273,6 @@ describe('BitcoinRestClient', () => {
   });
 });
 
-// ── BitcoinTransaction sub-client ──────────────────────────────────────
-
 describe('BitcoinTransaction', () => {
   it('get() delegates to protocol.getTx()', async () => {
     const { protocol, exec, seen } = createMockSubClient();
@@ -334,8 +328,6 @@ describe('BitcoinTransaction', () => {
     expect(await rest.transaction.isConfirmed(VALID_TXID)).to.equal(true);
   });
 });
-
-// ── BitcoinBlock sub-client ────────────────────────────────────────────
 
 describe('BitcoinBlock', () => {
   it('count() delegates to protocol.getBlockTipHeight()', async () => {
@@ -399,8 +391,6 @@ describe('BitcoinBlock', () => {
     expect(height).to.equal(808080);
   });
 });
-
-// ── BitcoinAddress sub-client ──────────────────────────────────────────
 
 describe('BitcoinAddress', () => {
   it('getTxs() delegates to protocol.getAddressTxs()', async () => {

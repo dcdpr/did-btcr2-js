@@ -111,8 +111,6 @@ function printHelp(): never {
   process.exit(0);
 }
 
-// ── File I/O Helpers ────────────────────────────────────────────────────────
-
 /** Root directory for all generated test vector data. */
 const DATA_DIR = join(import.meta.dirname, 'data');
 
@@ -180,8 +178,6 @@ function requireFile(filepath: string): any {
   }
   return readJSON(filepath);
 }
-
-// ── Vector Context ──────────────────────────────────────────────────────────
 
 /**
  * Metadata derived from an existing vector's create/output.json.
@@ -254,7 +250,7 @@ function loadVectorContext(hash: string): VectorContext {
   };
 }
 
-// ── Bitcoin Connection ──────────────────────────────────────────────────────
+
 
 /**
  * Validates the BITCOIN_NETWORK_CONFIG environment variable and returns
@@ -276,7 +272,7 @@ function requireBitcoinConnection(net: string): BitcoinConnection {
   }
 }
 
-// ── Address Derivation ──────────────────────────────────────────────────────
+
 
 /** Supported Bitcoin address types for beacon service endpoints. */
 type AddressType = 'p2pkh' | 'p2wpkh' | 'p2tr';
@@ -312,7 +308,7 @@ function deriveAddress(publicKey: Uint8Array, net: string, addrType: AddressType
   return address;
 }
 
-// ── Interactive Mode ────────────────────────────────────────────────────────
+
 
 /**
  * Shared state passed through interactive prompts during the update step.
@@ -483,7 +479,7 @@ async function buildVmValue(
   };
 }
 
-// ── Patch Construction ──────────────────────────────────────────────────────
+
 
 /**
  * Walks the user through building an array of JSON Patch (RFC 6902) operations.
@@ -585,8 +581,6 @@ function defaultBeaconRotationPatch(
 
   return { patches, newBeaconKeypair };
 }
-
-// ── Step: Create ────────────────────────────────────────────────────────────
 
 /**
  * Creates a new did:btcr2 identifier and writes the initial test vector files.
@@ -712,8 +706,6 @@ async function stepCreate() {
   console.log(`  Next: pnpm generate:vector update --hash ${hash} --offline`);
 }
 
-// ── Step: Update ────────────────────────────────────────────────────────────
-
 /**
  * Constructs, signs, and announces a BTCR2 update against an existing vector's DID.
  *
@@ -838,8 +830,6 @@ async function stepUpdate(hash: string = hashArg) {
   console.log(`  Next: pnpm generate:vector resolve --hash ${hash}`);
 }
 
-// ── Step: Fund ──────────────────────────────────────────────────────────────
-
 /**
  * Funds one or more beacon addresses for a vector's DID document via
  * RPC sendtoaddress, then mines a block to confirm the funding tx(s).
@@ -900,7 +890,7 @@ async function stepFund(hash: string = hashArg) {
   console.log(`  Next: pnpm generate:vector announce --hash ${hash}`);
 }
 
-// ── Announce Helper ─────────────────────────────────────────────────────────
+
 
 /**
  * Reads a previously persisted signed update from disk and announces it
@@ -955,8 +945,6 @@ async function announceUpdate(
 
   console.log(`Update announced to Bitcoin (${network})`);
 }
-
-// ── Step: Announce ──────────────────────────────────────────────────────────
 
 /**
  * Announces a previously created (but unannounced) update on-chain.
@@ -1075,8 +1063,6 @@ async function stepResolve(hash: string = hashArg) {
 
   console.log(`\n[resolve] done`);
 }
-
-// ── Step: List ──────────────────────────────────────────────────────────────
 
 /**
  * Metadata for a single test vector discovered in lib/data/.
@@ -1247,7 +1233,7 @@ async function stepList() {
   }
 }
 
-// ── Main ────────────────────────────────────────────────────────────────────
+
 
 async function main() {
   // If no recognized action was provided, print help

@@ -9,8 +9,6 @@ export type NetworkName =
   | 'mutinynet'
   | 'regtest';
 
-// ── REST types ──────────────────────────────────────────────────────
-
 export type TransactionStatus = {
   confirmed: boolean;
   block_height: number;
@@ -110,8 +108,6 @@ export interface RestApiCallParams {
 
 export type RestResponse = Response;
 
-// ── RPC types ───────────────────────────────────────────────────────
-
 export interface RpcConfig {
   headers?: Record<string, string>;
   host?: string;
@@ -197,7 +193,7 @@ export type ChainInfo = {
   warnings?: string;
 };
 
-// ── Block types ─────────────────────────────────────────────────────
+
 
 export type Block = {
   hash: string;
@@ -232,8 +228,6 @@ export interface BlockV3 extends Block {
 }
 
 export type BlockResponse = BlockV0 | BlockV1 | BlockV2 | BlockV3;
-
-// ── Transaction types ───────────────────────────────────────────────
 
 export type Transaction = {
   hex: string;
@@ -482,4 +476,3 @@ export type MethodNameInLowerCase =
   | 'signrawtransactionwithwallet'
   | 'send'
   | 'sendall';
-
