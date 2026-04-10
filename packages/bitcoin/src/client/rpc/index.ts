@@ -27,8 +27,6 @@ import type { HttpExecutor } from '../http.js';
 import type { BitcoinRpcClient } from './interface.js';
 import { JsonRpcTransport } from './json-rpc.js';
 
-// ── Typed RPC method map ────────────────────────────────────────────
-
 /**
  * Maps Bitcoin Core JSON-RPC method names to their parameter and return types.
  * Used by `BitcoinCoreRpcClient.executeRpc` for compile-time safety.
@@ -57,8 +55,6 @@ export interface RpcMethodMap {
 
 /** Method names that have typed definitions in {@link RpcMethodMap}. */
 export type TypedRpcMethod = keyof RpcMethodMap;
-
-// ── Client ──────────────────────────────────────────────────────────
 
 /**
  * Bitcoin Core RPC client.

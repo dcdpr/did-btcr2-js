@@ -39,8 +39,6 @@ export class EsploraProtocol {
     };
   }
 
-  // ── validation ─────────────────────────────────────────────────────
-
   private static assertHex64(value: string, label: string): void {
     if (!HEX64_RE.test(value)) {
       throw new Error(`Invalid ${label}: expected 64-char hex string`);
@@ -52,8 +50,6 @@ export class EsploraProtocol {
       throw new Error('Invalid address: contains illegal characters');
     }
   }
-
-  // ── helpers ──────────────────────────────────────────────────────────
 
   private get(path: string): HttpRequest {
     return {
@@ -71,8 +67,6 @@ export class EsploraProtocol {
       body,
     };
   }
-
-  // ── Transaction ──────────────────────────────────────────────────────
 
   /** GET /tx/:txid */
   getTx(txid: string): HttpRequest {
@@ -97,8 +91,6 @@ export class EsploraProtocol {
     return this.post('/tx', hex, { 'Content-Type': 'text/plain' });
   }
 
-  // ── Block ────────────────────────────────────────────────────────────
-
   /** GET /blocks/tip/height */
   getBlockTipHeight(): HttpRequest {
     return this.get('/blocks/tip/height');
@@ -114,8 +106,6 @@ export class EsploraProtocol {
   getBlockHeight(height: number): HttpRequest {
     return this.get(`/block-height/${height}`);
   }
-
-  // ── Address ──────────────────────────────────────────────────────────
 
   /** GET /address/:address/txs */
   getAddressTxs(address: string): HttpRequest {
