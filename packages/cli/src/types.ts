@@ -36,7 +36,14 @@ export type CommandResult =
   | { action: 'deactivate'; data: SignedBTCR2Update };
 
 export interface GlobalOptions {
-  output  : OutputFormat;
-  verbose : boolean;
-  quiet   : boolean;
+  output     : OutputFormat;
+  verbose    : boolean;
+  quiet      : boolean;
+  config?    : string;
+  profile?   : string;
+  btcRest?   : string;
+  btcRpcUrl? : string;
+  btcRpcUser?: string;
+  btcRpcPass?: string;
+  casGateway?: string;
 }

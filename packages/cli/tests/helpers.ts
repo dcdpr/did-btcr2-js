@@ -1,7 +1,7 @@
 import * as chai from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import type { DidBtcr2Api } from '@did-btcr2/api';
 import { createApi } from '@did-btcr2/api';
+import type { ApiFactory } from '../src/config.js';
 
 chai.use(chaiAsPromised);
 export const { expect } = chai;
@@ -11,9 +11,10 @@ export const originalConsoleError = console.error;
 export const originalConsoleWarn = console.warn;
 
 /**
- * Creates a DidBtcr2Api instance for testing.
- * No Bitcoin or CAS configured — suitable for create-only tests.
+ * Creates an {@link ApiFactory} for testing.
+ * No Bitcoin or CAS configured — suitable for create-only tests and
+ * argument-validation tests (which throw before reaching the API).
  */
-export function createTestApi(): DidBtcr2Api {
-  return createApi();
+export function createTestApiFactory(): ApiFactory {
+  return () => createApi();
 }

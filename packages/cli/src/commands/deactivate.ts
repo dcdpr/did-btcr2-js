@@ -1,5 +1,5 @@
-import type { DidBtcr2Api } from '@did-btcr2/api';
 import type { Command } from 'commander';
+import { deriveNetwork, type ApiFactory } from '../config.js';
 import { CLIError } from '../error.js';
 import { formatResult } from '../output.js';
 import type { GlobalOptions, UpdateCommandOptions } from '../types.js';
@@ -9,7 +9,7 @@ const DEACTIVATION_PATCH = [{ op: 'add' as const, path: '/deactivated', value: t
 
 export function registerDeactivateCommand(
   program : Command,
-  api     : DidBtcr2Api,
+  factory : ApiFactory,
   globals : () => GlobalOptions,
 ): void {
   program
@@ -47,6 +47,16 @@ export function registerDeactivateCommand(
         verificationMethodId : options.verificationMethodId,
         beaconId             : options.beaconId as UpdateCommandOptions['beaconId'],
       };
+      const did = parsed.sourceDocument?.id;
+      if (!did) {
+        throw new CLIError(
+          'Source document must contain an "id" field.',
+          'INVALID_ARGUMENT_ERROR',
+          options
+        );
+      }
+      const network = deriveNetwork(did);
+      const api = factory(network, globals());
       const data = await api.btcr2.update(parsed);
       const result = { action: 'deactivate' as const, data };
       console.log(formatResult(result, globals()));

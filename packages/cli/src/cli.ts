@@ -1,12 +1,11 @@
 import { Command, CommanderError } from 'commander';
-import type { DidBtcr2Api} from '@did-btcr2/api';
-import { createApi } from '@did-btcr2/api';
 import {
   registerCreateCommand,
   registerDeactivateCommand,
   registerResolveCommand,
   registerUpdateCommand,
 } from './commands/index.js';
+import { defaultApiFactory, type ApiFactory } from './config.js';
 import { CLIError } from './error.js';
 import type { GlobalOptions } from './types.js';
 import { VERSION } from './version.js';
@@ -16,27 +15,38 @@ import { VERSION } from './version.js';
  */
 export class DidBtcr2Cli {
   public readonly program: Command;
-  private readonly api: DidBtcr2Api;
 
   /**
-   * Initializes the CLI with an optional pre-configured API instance.
-   * @param {DidBtcr2Api} api - Optional API instance. Defaults to an unconfigured instance.
+   * Initializes the CLI with an optional API factory.
+   *
+   * The factory is called lazily by each command with the appropriate
+   * network derived from the DID being operated on. Defaults to
+   * {@link defaultApiFactory} which uses public endpoints (mempool.space)
+   * for known networks and localhost Polar for regtest.
+   *
+   * @param factory - Optional API factory. Defaults to {@link defaultApiFactory}.
    */
-  constructor(api: DidBtcr2Api = createApi({ btc: { network: 'mutinynet' } })) {
-    this.api = api;
+  constructor(factory: ApiFactory = defaultApiFactory) {
     this.program = new Command('btcr2')
       .version(`btcr2 ${VERSION}`, '-v, --version', 'Output the current version')
       .description('CLI tool for the did:btcr2 method')
       .option('-o, --output <format>', 'Output format <json|text>', 'text')
       .option('--verbose', 'Verbose output', false)
-      .option('--quiet', 'Suppress non-essential output', false);
+      .option('--quiet', 'Suppress non-essential output', false)
+      .option('-c, --config <path>', 'Path to config file (default: $XDG_CONFIG_HOME/btcr2/config.json)')
+      .option('--profile <name>', 'Config profile name (default: auto-detected from network)')
+      .option('--btc-rest <url>', 'Override Bitcoin REST endpoint (Esplora API)')
+      .option('--btc-rpc-url <url>', 'Override Bitcoin Core RPC endpoint')
+      .option('--btc-rpc-user <user>', 'Bitcoin Core RPC username')
+      .option('--btc-rpc-pass <pass>', 'Bitcoin Core RPC password')
+      .option('--cas-gateway <url>', 'IPFS HTTP gateway for CAS reads');
 
     const globals = (): GlobalOptions => this.program.opts() as GlobalOptions;
 
-    registerCreateCommand(this.program, this.api, globals);
-    registerResolveCommand(this.program, this.api, globals);
-    registerUpdateCommand(this.program, this.api, globals);
-    registerDeactivateCommand(this.program, this.api, globals);
+    registerCreateCommand(this.program, factory, globals);
+    registerResolveCommand(this.program, factory, globals);
+    registerUpdateCommand(this.program, factory, globals);
+    registerDeactivateCommand(this.program, factory, globals);
   }
 
   /**

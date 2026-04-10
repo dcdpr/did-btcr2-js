@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DidBtcr2Cli } from '../src/cli.js';
 import { CLIError } from '../src/error.js';
-import { createTestApi, expect, originalConsoleLog } from './helpers.js';
+import { createTestApiFactory, expect, originalConsoleLog } from './helpers.js';
 
 function getSubcommand(cli: DidBtcr2Cli, name: string): Command {
   const command = cli.program.commands.find((cmd: Command) => cmd.name() === name);
@@ -19,7 +19,7 @@ describe('DidBtcr2Cli', () => {
 
   describe('create', () => {
     it('rejects invalid type', async () => {
-      const cli = new DidBtcr2Cli(createTestApi());
+      const cli = new DidBtcr2Cli(createTestApiFactory());
       const create = getSubcommand(cli, 'create');
       await expect(
         create.parseAsync(['-t', 'z', '-n', 'bitcoin', '-b', 'aa'.repeat(33)], { from: 'user' })
@@ -27,7 +27,7 @@ describe('DidBtcr2Cli', () => {
     });
 
     it('rejects invalid network', async () => {
-      const cli = new DidBtcr2Cli(createTestApi());
+      const cli = new DidBtcr2Cli(createTestApiFactory());
       const create = getSubcommand(cli, 'create');
       await expect(
         create.parseAsync(['-t', 'k', '-n', 'not-a-network', '-b', 'aa'.repeat(33)], { from: 'user' })
@@ -35,7 +35,7 @@ describe('DidBtcr2Cli', () => {
     });
 
     it('rejects empty bytes', async () => {
-      const cli = new DidBtcr2Cli(createTestApi());
+      const cli = new DidBtcr2Cli(createTestApiFactory());
       const create = getSubcommand(cli, 'create');
       await expect(
         create.parseAsync(['-t', 'k', '-n', 'bitcoin', '-b', ''], { from: 'user' })
@@ -43,7 +43,7 @@ describe('DidBtcr2Cli', () => {
     });
 
     it('rejects wrong byte length for type=k', async () => {
-      const cli = new DidBtcr2Cli(createTestApi());
+      const cli = new DidBtcr2Cli(createTestApiFactory());
       const create = getSubcommand(cli, 'create');
       await expect(
         create.parseAsync(['-t', 'k', '-n', 'bitcoin', '-b', 'aa'], { from: 'user' })
@@ -51,7 +51,7 @@ describe('DidBtcr2Cli', () => {
     });
 
     it('rejects wrong byte length for type=x', async () => {
-      const cli = new DidBtcr2Cli(createTestApi());
+      const cli = new DidBtcr2Cli(createTestApiFactory());
       const create = getSubcommand(cli, 'create');
       await expect(
         create.parseAsync(['-t', 'x', '-n', 'bitcoin', '-b', 'aa'.repeat(33)], { from: 'user' })
@@ -59,7 +59,7 @@ describe('DidBtcr2Cli', () => {
     });
 
     it('creates a deterministic DID with valid input', async () => {
-      const cli = new DidBtcr2Cli(createTestApi());
+      const cli = new DidBtcr2Cli(createTestApiFactory());
       const messages: string[] = [];
       console.log = (msg?: any) => { if (msg !== undefined) messages.push(String(msg)); };
 
@@ -71,7 +71,7 @@ describe('DidBtcr2Cli', () => {
     });
 
     it('creates an external DID with valid input', async () => {
-      const cli = new DidBtcr2Cli(createTestApi());
+      const cli = new DidBtcr2Cli(createTestApiFactory());
       const messages: string[] = [];
       console.log = (msg?: any) => { if (msg !== undefined) messages.push(String(msg)); };
 
@@ -84,7 +84,7 @@ describe('DidBtcr2Cli', () => {
 
   describe('resolve', () => {
     it('rejects invalid identifiers', async () => {
-      const cli = new DidBtcr2Cli(createTestApi());
+      const cli = new DidBtcr2Cli(createTestApiFactory());
       const resolve = getSubcommand(cli, 'resolve');
       await expect(
         resolve.parseAsync(['-i', 'not-a-did'], { from: 'user' })
@@ -93,7 +93,7 @@ describe('DidBtcr2Cli', () => {
 
     it('rejects invalid resolution options JSON', async () => {
       const validDid = 'did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47';
-      const cli = new DidBtcr2Cli(createTestApi());
+      const cli = new DidBtcr2Cli(createTestApiFactory());
       const resolve = getSubcommand(cli, 'resolve');
       await expect(
         resolve.parseAsync(['-i', validDid, '-r', 'not json'], { from: 'user' })
@@ -102,7 +102,7 @@ describe('DidBtcr2Cli', () => {
 
     it('reads resolution options from a file', async () => {
       const validDid = 'did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47';
-      const cli = new DidBtcr2Cli(createTestApi());
+      const cli = new DidBtcr2Cli(createTestApiFactory());
       const tempPath = join(tmpdir(), 'btcr2-resolve-test.json');
       await writeFile(tempPath, '{"versionId":"1"}', 'utf-8');
 
@@ -119,7 +119,7 @@ describe('DidBtcr2Cli', () => {
 
     it('rejects invalid resolution options file path', async () => {
       const validDid = 'did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47';
-      const cli = new DidBtcr2Cli(createTestApi());
+      const cli = new DidBtcr2Cli(createTestApiFactory());
       const resolve = getSubcommand(cli, 'resolve');
       await expect(
         resolve.parseAsync(['-i', validDid, '-p', '/no/file/here.json'], { from: 'user' })
@@ -129,7 +129,7 @@ describe('DidBtcr2Cli', () => {
 
   describe('update', () => {
     it('rejects invalid JSON for --source-document', async () => {
-      const cli = new DidBtcr2Cli(createTestApi());
+      const cli = new DidBtcr2Cli(createTestApiFactory());
       const update = getSubcommand(cli, 'update');
       await expect(
         update.parseAsync(['-s', '{bad', '--source-version-id', '1', '-p', '[]', '-m', 'vm', '-b', '[]'], { from: 'user' })
@@ -137,7 +137,7 @@ describe('DidBtcr2Cli', () => {
     });
 
     it('rejects invalid JSON for --patches', async () => {
-      const cli = new DidBtcr2Cli(createTestApi());
+      const cli = new DidBtcr2Cli(createTestApiFactory());
       const update = getSubcommand(cli, 'update');
       await expect(
         update.parseAsync(['-s', '{}', '--source-version-id', '1', '-p', 'not json', '-m', 'vm', '-b', '[]'], { from: 'user' })
@@ -145,7 +145,7 @@ describe('DidBtcr2Cli', () => {
     });
 
     it('rejects invalid JSON for --beacon-id', async () => {
-      const cli = new DidBtcr2Cli(createTestApi());
+      const cli = new DidBtcr2Cli(createTestApiFactory());
       const update = getSubcommand(cli, 'update');
       await expect(
         update.parseAsync(['-s', '{}', '--source-version-id', '1', '-p', '[]', '-m', 'vm', '-b', 'not json'], { from: 'user' })
@@ -155,7 +155,7 @@ describe('DidBtcr2Cli', () => {
 
   describe('deactivate', () => {
     it('rejects invalid JSON for --source-document', async () => {
-      const cli = new DidBtcr2Cli(createTestApi());
+      const cli = new DidBtcr2Cli(createTestApiFactory());
       const deactivate = getSubcommand(cli, 'deactivate');
       await expect(
         deactivate.parseAsync(['-s', '{bad', '--source-version-id', '1', '-m', 'vm', '-b', '[]'], { from: 'user' })
@@ -163,7 +163,7 @@ describe('DidBtcr2Cli', () => {
     });
 
     it('rejects invalid JSON for --beacon-id', async () => {
-      const cli = new DidBtcr2Cli(createTestApi());
+      const cli = new DidBtcr2Cli(createTestApiFactory());
       const deactivate = getSubcommand(cli, 'deactivate');
       await expect(
         deactivate.parseAsync(['-s', '{}', '--source-version-id', '1', '-m', 'vm', '-b', 'not json'], { from: 'user' })

@@ -7,7 +7,6 @@ import type { CasConfig } from './cas.js';
 /**
  * Pluggable logger interface. All methods are optional-call; the default
  * implementation is a silent no-op.
- * @public
  */
 export type Logger = {
   debug(message: string, ...args: unknown[]): void;
@@ -23,7 +22,6 @@ export type Logger = {
  * than a union. This local alias provides compile-time safety at the API
  * facade level. Upstream runtime validation in `Identifier.encode()` still
  * catches invalid values.
- * @public
  */
 export type IdType = 'KEY' | 'EXTERNAL';
 
@@ -38,13 +36,11 @@ export type IdType = 'KEY' | 'EXTERNAL';
  * api.resolveDid(did); // OK
  * api.btc.getTransaction(did); // Type error — DidString is not TxId
  * ```
- * @public
  */
 export type DidString = string & { readonly __brand: 'DidString' };
 
 /**
  * A branded string representing a Bitcoin transaction ID (64-char hex).
- * @public
  */
 export type TxId = string & { readonly __brand: 'TxId' };
 
@@ -62,7 +58,6 @@ export type TxId = string & { readonly __brand: 'TxId' };
  *   console.log(result.error, result.errorMessage);
  * }
  * ```
- * @public
  */
 export type ResolutionResult =
   | { ok: true;  document: Btcr2DidDocument; metadata: DidResolutionResult['didDocumentMetadata']; raw: DidResolutionResult }
@@ -85,7 +80,6 @@ export type ResolutionResult =
  * // Use regtest with custom RPC credentials, default REST
  * { network: 'regtest', rpc: { host: 'http://mynode:18443', username: 'u', password: 'p' } }
  * ```
- * @public
  */
 export type BitcoinApiConfig = {
   /** Bitcoin network name (e.g., 'regtest', 'testnet4', 'bitcoin'). */
@@ -111,7 +105,6 @@ export type BitcoinApiConfig = {
 
 /**
  * Top-level API configuration options.
- * @public
  */
 export type ApiConfig = {
   btc?: BitcoinApiConfig;

@@ -1,5 +1,7 @@
+import { createApi } from '@did-btcr2/api';
 import { DidBtcr2Cli } from '../src/cli.js';
-import { createTestApi, expect, originalConsoleError, originalConsoleLog } from './helpers.js';
+import type { ApiFactory, ConnectionOverrides } from '../src/config.js';
+import { createTestApiFactory, expect, originalConsoleError, originalConsoleLog } from './helpers.js';
 
 describe('CLI Helpers', () => {
   afterEach(() => {
@@ -9,7 +11,7 @@ describe('CLI Helpers', () => {
   });
 
   it('shows help when no command is provided', async () => {
-    const cli = new DidBtcr2Cli(createTestApi());
+    const cli = new DidBtcr2Cli(createTestApiFactory());
     const program = cli.program;
     program.exitOverride();
 
@@ -21,7 +23,7 @@ describe('CLI Helpers', () => {
   });
 
   it('handles --help silently', async () => {
-    const cli = new DidBtcr2Cli(createTestApi());
+    const cli = new DidBtcr2Cli(createTestApiFactory());
     const program = cli.program;
     program.exitOverride();
 
@@ -33,7 +35,7 @@ describe('CLI Helpers', () => {
   });
 
   it('handles errors by printing message and setting exitCode', async () => {
-    const cli = new DidBtcr2Cli(createTestApi());
+    const cli = new DidBtcr2Cli(createTestApiFactory());
     const errors: any[] = [];
     console.error = (...args: any[]) => errors.push(args[0]);
 
@@ -46,7 +48,7 @@ describe('CLI Helpers', () => {
   });
 
   it('normalizes empty argv', async () => {
-    const cli = new DidBtcr2Cli(createTestApi());
+    const cli = new DidBtcr2Cli(createTestApiFactory());
     const program = cli.program;
     program.exitOverride();
 
@@ -58,7 +60,7 @@ describe('CLI Helpers', () => {
   });
 
   it('normalizes single-element argv', async () => {
-    const cli = new DidBtcr2Cli(createTestApi());
+    const cli = new DidBtcr2Cli(createTestApiFactory());
     const program = cli.program;
     program.exitOverride();
 
@@ -70,7 +72,7 @@ describe('CLI Helpers', () => {
   });
 
   it('outputs JSON format when --output json is used', async () => {
-    const cli = new DidBtcr2Cli(createTestApi());
+    const cli = new DidBtcr2Cli(createTestApiFactory());
     const messages: string[] = [];
     console.log = (msg?: any) => { if (msg !== undefined) messages.push(String(msg)); };
 
@@ -81,5 +83,50 @@ describe('CLI Helpers', () => {
     const parsed = JSON.parse(messages[0]);
     expect(parsed.action).to.equal('create');
     expect(parsed.data).to.include('did:btcr2:');
+  });
+
+  it('passes --btc-rest override to factory on resolve', async () => {
+    let capturedNetwork: string | undefined;
+    let capturedOverrides: ConnectionOverrides | undefined;
+    const spy: ApiFactory = (network, overrides) => {
+      capturedNetwork = network;
+      capturedOverrides = overrides;
+      return createApi(); // unconfigured — resolve will fail, that's OK
+    };
+    const cli = new DidBtcr2Cli(spy);
+    console.error = () => {}; // suppress error output from expected failure
+
+    const validDid = 'did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47';
+    await cli.run([
+      'node', 'btcr2',
+      '--btc-rest', 'http://custom:3000',
+      'resolve', '-i', validDid,
+    ]);
+
+    expect(capturedNetwork).to.be.a('string');
+    expect(capturedOverrides?.btcRest).to.equal('http://custom:3000');
+  });
+
+  it('passes --btc-rpc-* overrides to factory on resolve', async () => {
+    let capturedOverrides: ConnectionOverrides | undefined;
+    const spy: ApiFactory = (_network, overrides) => {
+      capturedOverrides = overrides;
+      return createApi();
+    };
+    const cli = new DidBtcr2Cli(spy);
+    console.error = () => {};
+
+    const validDid = 'did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47';
+    await cli.run([
+      'node', 'btcr2',
+      '--btc-rpc-url', 'http://node:18443',
+      '--btc-rpc-user', 'alice',
+      '--btc-rpc-pass', 'secret',
+      'resolve', '-i', validDid,
+    ]);
+
+    expect(capturedOverrides?.btcRpcUrl).to.equal('http://node:18443');
+    expect(capturedOverrides?.btcRpcUser).to.equal('alice');
+    expect(capturedOverrides?.btcRpcPass).to.equal('secret');
   });
 });
