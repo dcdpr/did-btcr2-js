@@ -6,7 +6,7 @@ import type { KeyIdentifier } from '@did-btcr2/kms';
 import type { Btcr2DidDocument, DidCreateOptions, ResolutionOptions } from '@did-btcr2/method';
 import type { DidResolutionResult } from '@web5/dids';
 import { BitcoinApi } from './bitcoin.js';
-import { CasApi, type CasConfig } from './cas.js';
+import { CasApi, DEFAULT_CAS_GATEWAY, type CasConfig } from './cas.js';
 import { CryptoApi } from './crypto.js';
 import { DidApi } from './did.js';
 import { assertString, NOOP_LOGGER } from './helpers.js';
@@ -67,19 +67,16 @@ export class DidBtcr2Api {
 
   /**
    * CAS API sub-facade (lazily initialized).
-   * Only available when `cas` config was provided to the constructor.
-   * @throws {Error} If the instance has been disposed or no CAS config was provided.
+   *
+   * When no `cas` config was provided to the constructor, defaults to a
+   * read-only {@link HttpGatewayCasExecutor} backed by the public IPFS
+   * gateway (`https://ipfs.io`). Override via `createApi({ cas: { ... } })`.
+   * @throws {Error} If the instance has been disposed.
    */
   get cas(): CasApi {
     this.#assertNotDisposed();
     if (!this.#cas) {
-      if (!this.#casConfig) {
-        throw new Error(
-          'CAS not configured. Pass a cas config to createApi(), e.g.: '
-          + 'createApi({ cas: { helia: await createHelia() } })'
-        );
-      }
-      this.#cas = new CasApi(this.#casConfig);
+      this.#cas = new CasApi(this.#casConfig ?? { gateway: DEFAULT_CAS_GATEWAY });
     }
     return this.#cas;
   }
@@ -93,7 +90,7 @@ export class DidBtcr2Api {
     if (!this.#btcr2) {
       this.#btcr2 = new DidMethodApi(
         this.#btcConfig ? this.btc : undefined,
-        this.#casConfig ? this.cas : undefined,
+        this.cas,
         this.#log
       );
     }

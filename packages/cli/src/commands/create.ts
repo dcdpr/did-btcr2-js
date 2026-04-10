@@ -1,5 +1,5 @@
-import type { DidBtcr2Api } from '@did-btcr2/api';
 import type { Command } from 'commander';
+import type { ApiFactory } from '../config.js';
 import { CLIError } from '../error.js';
 import { formatResult } from '../output.js';
 import type {
@@ -18,7 +18,7 @@ const EXPECTED_BYTES: Record<'k' | 'x', { length: number; label: string }> = {
 
 export function registerCreateCommand(
   program : Command,
-  api     : DidBtcr2Api,
+  factory : ApiFactory,
   globals : () => GlobalOptions,
 ): void {
   program
@@ -37,6 +37,7 @@ export function registerCreateCommand(
     )
     .action(async (options: { type: string; network: string; bytes: string }) => {
       const parsed = validateCreateOptions(options);
+      const api = factory();
       const type = parsed.type === 'k' ? 'deterministic' : 'external';
       const genesisBytes = Buffer.from(parsed.bytes, 'hex');
       const data = api.createDid(type, genesisBytes, { network: parsed.network });
