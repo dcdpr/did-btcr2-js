@@ -87,7 +87,11 @@ export interface AggregationParticipantRunnerOptions {
  *   keys: myKeys,
  *   shouldJoin: async (advert) => advert.beaconType === 'CASBeacon',
  *   onProvideUpdate: async ({ beaconAddress }) => {
+<<<<<<< Updated upstream
  *     return Update.sign(myDid, unsigned, vm, secretKey);
+=======
+ *     return Updater.sign(myDid, unsigned, vm, secretKey);
+>>>>>>> Stashed changes
  *   },
  * });
  *

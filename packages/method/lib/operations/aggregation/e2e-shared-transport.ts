@@ -21,7 +21,7 @@ import {
   AggregationServiceRunner,
   DidBtcr2,
   Resolver,
-  Update,
+  Updater,
 } from '../../../src/index.js';
 
 interface ActorEntry {
@@ -128,14 +128,14 @@ function buildSignedUpdate(did: string, kp: SchnorrKeyPair, beaconAddress: strin
     network      : 'mutinynet',
   });
   const vm = doc.verificationMethod![0];
-  const unsigned = Update.construct(doc, [{
+  const unsigned = Updater.construct(doc, [{
     op    : 'add', path  : '/service/-', value : {
       id              : `${did}#beacon-cas`,
       type            : 'CASBeacon',
       serviceEndpoint : `bitcoin:${beaconAddress}`,
     }
   }], 1);
-  return Update.sign(did, unsigned, vm, kp.raw.secret!);
+  return Updater.sign(did, unsigned, vm, kp.raw.secret!);
 }
 
 const service = new AggregationServiceRunner({

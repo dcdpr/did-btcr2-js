@@ -1,9 +1,10 @@
 import type { BitcoinConnection } from '@did-btcr2/bitcoin';
 import type { DocumentBytes, HexString, KeyBytes, PatchOperation } from '@did-btcr2/common';
-import { decode as decodeHash, IdentifierTypes, NotImplementedError } from '@did-btcr2/common';
+import { decode as decodeHash, IdentifierTypes, INVALID_DID_UPDATE, NotImplementedError, UpdateError } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import type { Btcr2DidDocument, CASAnnouncement, DidCreateOptions, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, ResolutionOptions } from '@did-btcr2/method';
-import { BeaconSignalDiscovery, DidBtcr2 } from '@did-btcr2/method';
+import { BeaconFactory, BeaconSignalDiscovery, DidBtcr2 } from '@did-btcr2/method';
+import { hexToBytes } from '@noble/hashes/utils';
 import type { DidResolutionResult, DidVerificationMethod } from '@web5/dids';
 import type { BitcoinApi } from './bitcoin.js';
 import type { CasApi } from './cas.js';
@@ -162,8 +163,16 @@ export class DidMethodApi {
   }
 
   /**
-   * Update an existing DID document. If a Bitcoin connection is configured on
-   * the API, it is injected automatically.
+   * Update an existing DID document by driving the sans-I/O {@link Updater} state
+   * machine (from @did-btcr2/method). This method handles the I/O side:
+   * - Signing: supplies the secret key to `NeedSigningKey`.
+   * - Broadcast: establishes a beacon via {@link BeaconFactory} and calls
+   *   `broadcastSignal()` with the bitcoin connection configured on the API.
+   *
+   * For multi-party aggregation of SMT/CAS beacons, the caller should drive the
+   * Updater directly and delegate `NeedBroadcast` to the aggregation runner
+   * rather than using this high-level method.
+   *
    * @param params The update parameters.
    * @returns The signed update.
    */
@@ -184,16 +193,79 @@ export class DidMethodApi {
     signingMaterial?: KeyBytes | HexString;
     bitcoin?: BitcoinConnection;
   }): Promise<SignedBTCR2Update> {
-    const btcConnection = bitcoin ?? this.#btc?.connection ?? undefined;
-    return await DidBtcr2.update({
+    if(!signingMaterial) {
+      throw new UpdateError(
+        'Missing signing material for update',
+        INVALID_DID_UPDATE, { signingMaterial }
+      );
+    }
+
+    const btcConnection = bitcoin ?? this.#btc?.connection;
+    if(!btcConnection) {
+      throw new UpdateError(
+        'Bitcoin connection required for update. Pass a configured `bitcoin` parameter '
+        + 'or configure a BitcoinApi on the DidBtcr2Api instance.',
+        INVALID_DID_UPDATE, { beaconId }
+      );
+    }
+
+    // Normalize signing material to raw bytes
+    const secretKey: KeyBytes = typeof signingMaterial === 'string'
+      ? hexToBytes(signingMaterial)
+      : signingMaterial;
+
+    this.#log.debug('Updating DID', sourceDocument.id, { beaconId, verificationMethodId });
+
+    // Factory validates and returns a sans-I/O state machine
+    const updater = DidBtcr2.update({
       sourceDocument,
       patches,
       sourceVersionId,
       verificationMethodId,
       beaconId,
-      signingMaterial,
-      bitcoin : btcConnection,
     });
+
+    // Drive the state machine. All I/O (signing delegation, Bitcoin broadcast)
+    // happens inside the need-handlers below — the Updater itself is pure.
+    let state = updater.advance();
+    while(state.status === 'action-required') {
+      for(const need of state.needs) {
+        switch(need.kind) {
+          case 'NeedSigningKey': {
+            this.#log.debug('Providing signing key for', need.verificationMethodId);
+            updater.provide(need, secretKey);
+            break;
+          }
+          case 'NeedFunding': {
+            this.#log.debug('Checking funding for beacon address %s', need.beaconAddress);
+            const utxos = await btcConnection.rest.address.getUtxos(need.beaconAddress);
+            if(!utxos.length) {
+              throw new UpdateError(
+                `Beacon address ${need.beaconAddress} is unfunded. `
+                + 'Send BTC to this address before broadcasting the update.',
+                INVALID_DID_UPDATE, { beaconAddress: need.beaconAddress }
+              );
+            }
+            this.#log.debug('Beacon address funded (%d UTXOs)', utxos.length);
+            updater.provide(need);
+            break;
+          }
+          case 'NeedBroadcast': {
+            this.#log.debug(
+              'Broadcasting signed update via %s beacon', need.beaconService.type
+            );
+            const beacon = BeaconFactory.establish(need.beaconService);
+            await beacon.broadcastSignal(need.signedUpdate, secretKey, btcConnection);
+            updater.provide(need);
+            break;
+          }
+        }
+      }
+      state = updater.advance();
+    }
+
+    this.#log.debug('DID update complete', sourceDocument.id);
+    return state.result.signedUpdate;
   }
 
   /**

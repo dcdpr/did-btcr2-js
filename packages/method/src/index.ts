@@ -14,6 +14,7 @@ export * from './core/beacon/beacon.js';
 export * from './core/beacon/cas-beacon.js';
 export * from './core/beacon/error.js';
 export * from './core/beacon/factory.js';
+export * from './core/beacon/fee-estimator.js';
 export * from './core/beacon/interfaces.js';
 export * from './core/beacon/signal-discovery.js';
 export * from './core/beacon/singleton-beacon.js';
@@ -25,7 +26,7 @@ export * from './core/identifier.js';
 export * from './core/interfaces.js';
 export * from './core/resolver.js';
 export * from './core/types.js';
-export * from './core/update.js';
+export * from './core/updater.js';
 
 // Utils
 export * from './utils/appendix.js';
