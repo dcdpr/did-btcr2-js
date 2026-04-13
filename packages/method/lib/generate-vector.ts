@@ -14,7 +14,7 @@ import { payments } from 'bitcoinjs-lib';
 import { BeaconSignalDiscovery } from '../src/core/beacon/signal-discovery.js';
 import { Identifier } from '../src/core/identifier.js';
 import { Resolver } from '../src/core/resolver.js';
-import { Update } from '../src/core/update.js';
+import { Updater } from '../src/core/updater.js';
 import { DidBtcr2 } from '../src/did-btcr2.js';
 import { GenesisDocument } from '../src/utils/did-document.js';
 
@@ -773,8 +773,8 @@ async function stepUpdate(hash: string = hashArg) {
   const beaconId = idType === 'KEY' ? `${did}#initialP2PKH` : `${did}#service-0`;
 
   const verificationMethod = DidBtcr2.getSigningMethod(sourceDocument, vmId);
-  const unsignedUpdate = Update.construct(sourceDocument, patches, 1);
-  const signedUpdate = Update.sign(
+  const unsignedUpdate = Updater.construct(sourceDocument, patches, 1);
+  const signedUpdate = Updater.sign(
     did,
     unsignedUpdate,
     verificationMethod,
@@ -941,7 +941,7 @@ async function announceUpdate(
   console.log(`  endpoint: ${beaconService.serviceEndpoint}`);
 
   const secretKey = hex.decode(signingMaterial);
-  await Update.announce(beaconService, signedUpdate, secretKey, bitcoin);
+  await Updater.announce(beaconService, signedUpdate, secretKey, bitcoin);
 
   console.log(`Update announced to Bitcoin (${network})`);
 }

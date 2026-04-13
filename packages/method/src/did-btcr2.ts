@@ -1,7 +1,5 @@
-import type { BitcoinConnection } from '@did-btcr2/bitcoin';
 import type {
   DocumentBytes,
-  HexString,
   KeyBytes,
   PatchOperation} from '@did-btcr2/common';
 import {
@@ -12,7 +10,6 @@ import {
   MethodError,
   UpdateError
 } from '@did-btcr2/common';
-import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import type {
   DidMethod} from '@web5/dids';
 import {
@@ -21,13 +18,12 @@ import {
   DidErrorCode
 } from '@web5/dids';
 import * as ecc from '@bitcoinerlab/secp256k1';
-import { hexToBytes } from '@noble/hashes/utils';
 import { initEccLib } from 'bitcoinjs-lib';
 import type { BeaconService } from './core/beacon/interfaces.js';
 import { Identifier } from './core/identifier.js';
 import type { ResolutionOptions } from './core/interfaces.js';
 import { Resolver } from './core/resolver.js';
-import { Update } from './core/update.js';
+import { Updater } from './core/updater.js';
 import { Appendix } from './utils/appendix.js';
 import type { Btcr2DidDocument, DidVerificationMethod } from './utils/did-document.js';
 
@@ -140,55 +136,41 @@ export class DidBtcr2 implements DidMethod {
   }
 
   /**
-   * Entry point for section {@link https://dcdpr.github.io/did-btcr2/#read | 7.3 Update}.
-   * See specification for the {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process | Resolve Process}.
-   * See {@link Update | Update (class)} for class implementation.
+   * Entry point for section {@link https://dcdpr.github.io/did-btcr2/#update | 7.3 Update}.
    *
-   * BTCR2 DID documents can be updated by anchoring BTCR2 Updates to Bitcoin transactions. These transactions MAY be
-   * published to the Bitcoin network. Any property in the DID document may be updated except the id. Doing so would
-   * invalidate the DID document.
-   * @param params An object containing the parameters for the update operation.
+   * Factory method that validates the update parameters and returns a sans-I/O
+   * {@link Updater} state machine. The caller drives the updater through its
+   * phases (Construct → Sign → Broadcast → Complete) by calling `advance()` and
+   * `provide()`. The method package performs **zero I/O** — signing key retrieval
+   * (or KMS delegation) and the on-chain broadcast are the caller's responsibility.
+   *
+   * For a fully-wired version with Bitcoin broadcast and key handling, see
+   * `DidMethodApi.update()` in `@did-btcr2/api`.
+   *
+   * @param params Update construction parameters.
    * @param {Btcr2DidDocument} params.sourceDocument The DID document being updated.
-   * @param {PatchOperation[]} params.patches The array of JSON Patch operations to apply to the sourceDocument.
-   * @param {string} params.sourceVersionId The version ID before applying the update.
-   * @param {string} params.verificationMethodId The verificationMethod ID to sign the update with.
-   * @param {string} params.beaconId The beacon ID associated with the update.
-   * @param {KeyBytes | HexString} [params.signingMaterial] Optional signing material (key bytes or hex string).
-   * @param {BitcoinConnection} [params.bitcoin] Optional Bitcoin network connection for announcing the update. If not provided, a default connection will be initialized.
-   * @return {Promise<SignedBTCR2Update>} Promise resolving to the signed BTCR2 update.
-   * @throws {UpdateError} if no verificationMethod, verificationMethod type is not `Multikey` or the publicKeyMultibase
-   * header is not `zQ3s`
+   * @param {PatchOperation[]} params.patches The JSON Patch operations to apply.
+   * @param {number} params.sourceVersionId The version ID before applying the update.
+   * @param {string} params.verificationMethodId The verification method ID to sign with.
+   * @param {string} params.beaconId The beacon service ID to broadcast through.
+   * @returns {Updater} A sans-I/O state machine for driving the update.
+   * @throws {UpdateError} If the verification method is not authorized, not found,
+   *   not of type `Multikey`, or does not have a `zQ3s` publicKeyMultibase prefix.
+   *   Also throws if the beacon service is not found.
    */
-  static async update({
+  static update({
     sourceDocument,
     patches,
     sourceVersionId,
     verificationMethodId,
     beaconId,
-    signingMaterial,
-    bitcoin,
   }: {
     sourceDocument: Btcr2DidDocument;
     patches: PatchOperation[];
     sourceVersionId: number;
     verificationMethodId: string;
     beaconId: string;
-    signingMaterial?: KeyBytes | HexString;
-    bitcoin?: BitcoinConnection;
-  }): Promise<SignedBTCR2Update> {
-    // If no signingMaterial provided, throw an UpdateError with INVALID_DID_UPDATE.
-    if (!signingMaterial) {
-      throw new UpdateError(
-        'Missing signing material for update',
-        INVALID_DID_UPDATE, {signingMaterial}
-      );
-    }
-
-    // Convert signingMaterial to bytes if it's a hex string
-    const secretKey = typeof signingMaterial === 'string'
-      ? hexToBytes(signingMaterial)
-      : signingMaterial;
-
+  }): Updater {
     // Validate that the verificationMethodId is authorized for capabilityInvocation
     if(!sourceDocument.capabilityInvocation?.some(vr => vr === verificationMethodId)) {
       throw new UpdateError(
@@ -201,15 +183,15 @@ export class DidBtcr2 implements DidMethod {
     const verificationMethod = this.getSigningMethod(sourceDocument, verificationMethodId);
 
     // Validate the verificationMethod exists in the sourceDocument
-    if (!verificationMethod) {
+    if(!verificationMethod) {
       throw new UpdateError(
         'Invalid verificationMethod: not found in source document',
-        INVALID_DID_DOCUMENT, {sourceDocument, verificationMethodId}
+        INVALID_DID_DOCUMENT, { sourceDocument, verificationMethodId }
       );
     }
 
     // Validate the verificationMethod is of type 'Multikey'
-    if (verificationMethod.type !== 'Multikey') {
+    if(verificationMethod.type !== 'Multikey') {
       throw new UpdateError(
         'Invalid verificationMethod: verificationMethod.type must be "Multikey"',
         INVALID_DID_DOCUMENT, verificationMethod
@@ -217,46 +199,34 @@ export class DidBtcr2 implements DidMethod {
     }
 
     // Validate the publicKeyMultibase prefix is 'zQ3s'
-    if (verificationMethod.publicKeyMultibase?.slice(0, 4) !== 'zQ3s') {
+    if(verificationMethod.publicKeyMultibase?.slice(0, 4) !== 'zQ3s') {
       throw new UpdateError(
         'Invalid verificationMethodId: publicKeyMultibase prefix must start with "zQ3s"',
         INVALID_DID_DOCUMENT, verificationMethod
       );
     }
 
-    // Construct an unsigned update following the BTCR2 Update construction algorithm
-    const update = Update.construct(sourceDocument, patches, sourceVersionId);
-
-    // Sign the unsigned update using the specified verification method
-    const signed = Update.sign(sourceDocument.id, update, verificationMethod, secretKey);
-
-    // Filter sourceDocument services to get beaconServices matching beaconIds
+    // Find the beacon service matching the given beaconId
     const beaconService = sourceDocument.service
       .filter((service: BeaconService) => service.id === beaconId)
       .filter((service: BeaconService): service is BeaconService => !!service)
       .shift();
 
-    // If no matching beacon service found, throw an UpdateError with INVALID_DID_UPDATE.
     if(!beaconService) {
       throw new UpdateError(
         'No beacon service found for provided beaconId',
-        INVALID_DID_UPDATE, {sourceDocument, beaconId}
-      );
-    }
-    // Require an explicit bitcoin connection — no silent env-var fallback
-    if (!bitcoin) {
-      throw new UpdateError(
-        'Bitcoin connection required for update. Pass a configured `bitcoin` parameter '
-        + 'or use DidBtcr2Api which injects it automatically.',
-        INVALID_DID_UPDATE, { beaconId }
+        INVALID_DID_UPDATE, { sourceDocument, beaconId }
       );
     }
 
-    // Announce the signed update to the blockchain using the specified beacon(s)
-    await Update.announce(beaconService, signed, secretKey, bitcoin);
-
-    // Return signed update if announced successfully
-    return signed;
+    // Return a sans-I/O state machine the caller will drive
+    return new Updater({
+      sourceDocument,
+      patches,
+      sourceVersionId,
+      verificationMethod,
+      beaconService,
+    });
   }
 
   /**

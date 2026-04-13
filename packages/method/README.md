@@ -16,7 +16,8 @@ pnpm add @did-btcr2/method
 |---|---|
 | Create a DID (offline, deterministic or external) | `DidBtcr2.create()` |
 | Resolve a DID (sans-I/O state machine) | `DidBtcr2.resolve()` |
-| Construct, sign, and announce updates | `Update.construct()`, `Update.sign()`, `Update.announce()` |
+| Update a DID (sans-I/O state machine) | `DidBtcr2.update()` → `Updater` |
+| Update utilities (construct, sign, announce) | `Updater.construct()`, `Updater.sign()`, `Updater.announce()` |
 | Beacon types (Singleton, CAS, SMT) | `SingletonBeacon`, `CASBeacon`, `SMTBeacon` |
 | Fee estimation (pluggable) | `FeeEstimator`, `StaticFeeEstimator` |
 | Multi-party aggregation (MuSig2) | `AggregationServiceRunner`, `AggregationParticipantRunner` |
@@ -63,17 +64,45 @@ const { didDocument, metadata } = state.result;
 
 See [`src/core/resolver.ts`](./src/core/resolver.ts) for the full `DataNeed` union and phase transitions.
 
-### Construct and Sign an Update
+### Update a DID
+
+`DidBtcr2.update()` returns a sans-I/O state machine — the counterpart to the Resolver. The caller drives the update by fulfilling typed data needs (signing key, funding confirmation, broadcast).
 
 ```typescript
-import { Update, Resolver } from '@did-btcr2/method';
+import { DidBtcr2, Updater } from '@did-btcr2/method';
 
-const doc = Resolver.deterministic({ genesisBytes: keys.publicKey.compressed, /* ... */ });
-const unsigned = await Update.construct(doc, [
-  { op: 'add', path: '/service/-', value: { /* new service */ } },
-], 1);
-const signed = Update.sign(did, unsigned, doc.verificationMethod![0], keys.raw.secret!);
+const updater = DidBtcr2.update({
+  sourceDocument,
+  patches              : [{ op: 'add', path: '/service/-', value: newService }],
+  sourceVersionId      : 1,
+  verificationMethodId : '#initialKey',
+  beaconId             : '#beacon-0',
+});
+
+let state = updater.advance();
+while (state.status === 'action-required') {
+  for (const need of state.needs) {
+    switch (need.kind) {
+      case 'NeedSigningKey':
+        updater.provide(need, secretKeyBytes);
+        break;
+      case 'NeedFunding':
+        // Check UTXOs at need.beaconAddress, fund if needed
+        updater.provide(need);
+        break;
+      case 'NeedBroadcast':
+        await Updater.announce(need.beaconService, need.signedUpdate, secretKey, bitcoin);
+        updater.provide(need);
+        break;
+    }
+  }
+  state = updater.advance();
+}
+
+const { signedUpdate } = state.result;
 ```
+
+See [`src/core/updater.ts`](./src/core/updater.ts) for the full `UpdaterDataNeed` union and phase transitions.
 
 ### Update Aggregation (Multi-Party MuSig2)
 
@@ -125,4 +154,4 @@ Tests run from compiled JS, so run `pnpm build:tests` before `pnpm test` after a
 - **[`docs/beacon-system-overview.md`](./docs/beacon-system-overview.md)** — Beacon architecture, Singleton / CAS / SMT behavior, signal discovery
 - **[`docs/aggregation.md`](./docs/aggregation.md)** — Multi-party aggregation protocol, Runner and state machine APIs, e2e examples
 - **[`docs/test-vectors.md`](./docs/test-vectors.md)** — CLI tool for generating did:btcr2 test vectors via a stepped workflow
-- **Source reference** — See JSDoc comments on public classes; the most important entry points are `DidBtcr2` (facade), `Resolver` (read path), `Update` (write path), and the aggregation runners.
+- **Source reference** — See JSDoc comments on public classes; the most important entry points are `DidBtcr2` (facade), `Resolver` (read path), `Updater` (write path), and the aggregation runners.

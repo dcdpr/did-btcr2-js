@@ -6,7 +6,7 @@ import { hexToBytes } from '@noble/hashes/utils';
 import { DidBtcr2 } from '../src/did-btcr2.js';
 import type { BeaconService, BeaconSignal } from '../src/core/beacon/interfaces.js';
 import type { NeedBeaconSignals, NeedCASAnnouncement, NeedGenesisDocument, NeedSMTProof, NeedSignedUpdate } from '../src/core/resolver.js';
-import { Update } from '../src/core/update.js';
+import { Updater } from '../src/core/updater.js';
 import deterministicData from './data/deterministic-data.js';
 import externalData from './data/external-data.js';
 
@@ -512,8 +512,8 @@ describe('Resolver', () => {
       }];
 
       const vm = sourceDocument.verificationMethod![0]!;
-      const unsigned = Update.construct(sourceDocument, patches, 1);
-      const signed = Update.sign(did, unsigned, vm, secretKey);
+      const unsigned = Updater.construct(sourceDocument, patches, 1);
+      const signed = Updater.sign(did, unsigned, vm, secretKey);
       const updateHashHex = canonicalHash(signed, { encoding: 'hex' });
 
       // Build the sidecar with the update pre-loaded

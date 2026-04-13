@@ -17,7 +17,7 @@ import {
   DidBtcr2,
   NostrTransport,
   Resolver,
-  Update,
+  Updater,
 } from '../../../src/index.js';
 
 const RELAY = process.env.RELAY ?? 'ws://localhost:7777';
@@ -64,14 +64,14 @@ const result = await AggregationParticipantRunner.joinFirst({
       network      : 'mutinynet',
     });
     const vm = doc.verificationMethod![0];
-    const unsigned = Update.construct(doc, [{
+    const unsigned = Updater.construct(doc, [{
       op    : 'add', path  : '/service/-', value : {
         id              : `${myDid}#beacon-cas`,
         type            : 'CASBeacon',
         serviceEndpoint : `bitcoin:${beaconAddress}`,
       }
     }], 1);
-    return Update.sign(myDid, unsigned, vm, myKeys.raw.secret!);
+    return Updater.sign(myDid, unsigned, vm, myKeys.raw.secret!);
   },
 });
 
