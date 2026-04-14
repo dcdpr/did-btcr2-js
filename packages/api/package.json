@@ -85,7 +85,6 @@
         "prepublish": "pnpm build"
     },
     "dependencies": {
-        "@bitcoinerlab/secp256k1": "^1.2.0",
         "@did-btcr2/bitcoin": "workspace:^",
         "@did-btcr2/common": "workspace:^",
         "@did-btcr2/cryptosuite": "workspace:^",
@@ -103,13 +102,11 @@
         "@web5/common": "^1.1.0",
         "@web5/crypto": "^1.0.6",
         "@web5/dids": "^1.2.0",
-        "bitcoinjs-lib": "7.0.0-rc.0",
         "canonicalize": "^2.1.0",
         "dotenv": "^16.5.0",
         "helia": "^5.2.1",
         "multiformats": "^13.3.1",
-        "nostr-tools": "^2.15.0",
-        "tiny-secp256k1": "^2.2.3"
+        "nostr-tools": "^2.15.0"
     },
     "devDependencies": {
         "@eslint/js": "^9.22.0",

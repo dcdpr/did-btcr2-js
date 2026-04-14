@@ -1,5 +1,6 @@
+import type { Transaction } from '@scure/btc-signer';
+import { SigHash } from '@scure/btc-signer';
 import * as musig2 from '@scure/btc-signer/musig2';
-import { Transaction } from 'bitcoinjs-lib';
 import type { AggregationCohort } from './cohort.js';
 import { SigningSessionError } from './errors.js';
 import type { SigningSessionPhaseType } from './phases.js';
@@ -79,11 +80,11 @@ export class BeaconSigningSession {
         'SIGHASH_ERROR'
       );
     }
-    return this.pendingTx.hashForWitnessV1(
+    return this.pendingTx.preimageWitnessV1(
       0,
       this.prevOutScripts,
-      this.prevOutValues,
-      Transaction.SIGHASH_DEFAULT
+      SigHash.DEFAULT,
+      this.prevOutValues
     );
   }
 
@@ -92,6 +93,12 @@ export class BeaconSigningSession {
       throw new SigningSessionError(
         `Nonce contributions not expected. Current phase: ${this.phase}`,
         'INVALID_PHASE', { phase: this.phase }
+      );
+    }
+    if(!this.cohort.participants.includes(participantDid)) {
+      throw new SigningSessionError(
+        `Participant ${participantDid} is not a member of cohort ${this.cohort.id}.`,
+        'UNKNOWN_PARTICIPANT', { cohortId: this.cohort.id, participantDid }
       );
     }
     if(nonceContribution.length !== 66) {
@@ -132,6 +139,12 @@ export class BeaconSigningSession {
         'INVALID_PHASE'
       );
     }
+    if(!this.cohort.participants.includes(participantDid)) {
+      throw new SigningSessionError(
+        `Participant ${participantDid} is not a member of cohort ${this.cohort.id}.`,
+        'UNKNOWN_PARTICIPANT', { cohortId: this.cohort.id, participantDid }
+      );
+    }
     if(this.partialSignatures.has(participantDid)) {
       throw new SigningSessionError(
         `Duplicate partial signature from ${participantDid}.`,
@@ -159,9 +172,47 @@ export class BeaconSigningSession {
       this.aggregatedNonce,
       this.cohort.cohortKeys,
       this.sigHash,
-      [this.cohort.trMerkleRoot],
+      [this.cohort.tapTweak],
       [true]
     );
+
+    // Pre-verify each partial signature against the signer's public key before
+    // aggregating (BIP-327 §2.3.5). Delegating verification to partialSigAgg
+    // alone makes it impossible to attribute a bad contribution; pinpointing
+    // the offending participant lets the service blame and retry without the
+    // whole cohort.
+    //
+    // partialSigVerify(partialSig, pubNonces, i) needs pubNonces ordered to
+    // match cohort.cohortKeys, and `i` is the signer's position in that array.
+    const pubNoncesByIndex: Uint8Array[] = new Array(this.cohort.cohortKeys.length);
+    for(const [did, nonce] of this.nonceContributions) {
+      const idx = this.cohort.indexOfParticipant(did);
+      if(idx < 0) {
+        throw new SigningSessionError(
+          `Cannot verify nonce from ${did}: participant key missing from cohort.`,
+          'UNKNOWN_PARTICIPANT_KEY', { participantDid: did }
+        );
+      }
+      pubNoncesByIndex[idx] = nonce;
+    }
+
+    for(const [did, partialSig] of this.partialSignatures) {
+      const idx = this.cohort.indexOfParticipant(did);
+      if(idx < 0) {
+        throw new SigningSessionError(
+          `Cannot verify partial signature from ${did}: participant key missing from cohort.`,
+          'UNKNOWN_PARTICIPANT_KEY', { participantDid: did }
+        );
+      }
+      const ok = session.partialSigVerify(partialSig, pubNoncesByIndex, idx);
+      if(!ok) {
+        throw new SigningSessionError(
+          `Bad partial signature from ${did}.`,
+          'BAD_PARTIAL_SIG', { participantDid: did, index: idx }
+        );
+      }
+    }
+
     this.signature = session.partialSigAgg([...this.partialSignatures.values()]);
     this.phase = SigningSessionPhase.Complete;
     return this.signature;
@@ -181,6 +232,10 @@ export class BeaconSigningSession {
   /**
    * Generates a partial signature using the participant's secret key + secret nonce.
    * Requires the aggregated nonce to have been set first (via the service).
+   *
+   * Zeros the stored `secretNonce` after use. JS cannot truly erase memory (GC
+   * and immutable strings), but overwriting the bytes shortens the exposure
+   * window and prevents accidental reuse or serialization of a spent nonce.
    */
   public generatePartialSignature(participantSecretKey: Uint8Array): Uint8Array {
     if(!this.aggregatedNonce) {
@@ -193,10 +248,13 @@ export class BeaconSigningSession {
       this.aggregatedNonce,
       this.cohort.cohortKeys,
       this.sigHash,
-      [this.cohort.trMerkleRoot],
+      [this.cohort.tapTweak],
       [true]
     );
-    return session.sign(this.secretNonce, participantSecretKey);
+    const partialSig = session.sign(this.secretNonce, participantSecretKey);
+    this.secretNonce.fill(0);
+    this.secretNonce = undefined;
+    return partialSig;
   }
 
   public isComplete(): boolean {

@@ -1,7 +1,4 @@
-import { BitcoinConnection } from '../src/bitcoin.js';
-import type { BlockV3 } from '../src/types.js';
+import { BitcoinConnection } from '../src/connection.js';
 
-const bitcoin = BitcoinConnection.forNetwork('regtest');
-const height = await bitcoin.rpc!.getBlockCount();
-const block = await bitcoin.rpc!.getBlock({ height }) as BlockV3;
-console.log(`block #${height}`, block);
+const bitcoin = BitcoinConnection.forNetwork('regtest', { rpc: { host: 'http://localhost:18443', username: 'polaruser', password: 'polarpass' } });
+console.log('Bitcoin RPC connection:', bitcoin);

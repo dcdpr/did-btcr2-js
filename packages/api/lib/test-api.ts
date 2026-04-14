@@ -1,6 +1,5 @@
 import type { NetworkName } from '@did-btcr2/api';
-import { DidBtcr2Api } from '@did-btcr2/api';
-import { createHelia } from 'helia';
+import { DEFAULT_CAS_GATEWAY, DidBtcr2Api } from '@did-btcr2/api';
 
 const did = 'did:btcr2:k1q5prr73dxh76el6tfl09skfm49uqxxqra8cqxszy9yntqt852ulecrsrxkp82';
 const resolutionOptions = {
@@ -41,7 +40,7 @@ const resolutionOptions = {
     ]
   }
 };
-const apiConfig = { btc: { network: 'mutinynet' as NetworkName }, cas: { helia: await createHelia() } };
+const apiConfig = { btc: { network: 'mutinynet' as NetworkName }, cas: { gateway: DEFAULT_CAS_GATEWAY } };
 const api = new DidBtcr2Api(apiConfig);
 const resolutionResult = await api.resolveDid(did, resolutionOptions as any);
 console.log('resolutionResult', JSON.stringify(resolutionResult, null, 2));

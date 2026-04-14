@@ -15,8 +15,8 @@
  */
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';
+import { p2tr, Transaction } from '@scure/btc-signer';
 import * as musig2 from '@scure/btc-signer/musig2';
-import { payments, Transaction } from 'bitcoinjs-lib';
 import {
   AggregationServiceRunner,
   DidBtcr2,
@@ -26,7 +26,7 @@ import {
 const RELAY = process.env.RELAY ?? 'ws://localhost:7777';
 const MIN_PARTICIPANTS = Number(process.env.MIN_PARTICIPANTS ?? '2');
 
-const serviceKeys = SchnorrKeyPair.generate();
+const serviceKeys = SchnorrKeyPair.fromSecret('cbd42da155c70d5a8806a1f68bfb802097e152f28230990d8e3c979e78e52d1d');
 const serviceDid = DidBtcr2.create(serviceKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
 
 const transport = new NostrTransport({ relays: [RELAY] });
@@ -47,13 +47,16 @@ const service = new AggregationServiceRunner({
     void beaconAddress;
     const cohort = service.session.cohorts[0];
     const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-    const payment = payments.p2tr({ internalPubkey: aggPk });
+    const payment = p2tr(aggPk);
     const prevOutValue = 100000n;
-    const tx = new Transaction();
-    tx.version = 2;
-    tx.addInput(new Uint8Array(32), 0);
-    tx.addOutput(payment.output!, prevOutValue - 500n);
-    return { tx, prevOutScripts: [payment.output!], prevOutValues: [prevOutValue] };
+    const tx = new Transaction({ version: 2 });
+    tx.addInput({
+      txid        : '00'.repeat(32),
+      index       : 0,
+      witnessUtxo : { amount: prevOutValue, script: payment.script },
+    });
+    tx.addOutput({ script: payment.script, amount: prevOutValue - 500n });
+    return { tx, prevOutScripts: [payment.script], prevOutValues: [prevOutValue] };
   },
 });
 
@@ -82,5 +85,5 @@ const result = await service.run();
 console.log('\n══ COMPLETE ══');
 console.log('Final signature:', bytesToHex(result.signature));
 console.log('Beacon address:', service.session.getCohort(result.cohortId)!.beaconAddress);
-
+console.log('Signed transaction:', bytesToHex(result.signedTx.toBytes()));
 process.exit(0);
