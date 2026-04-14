@@ -3,8 +3,8 @@ import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import type { SchnorrKeyPair } from '@did-btcr2/keypair';
 import type { SerializedSMTProof} from '@did-btcr2/smt';
 import { blockHash, didToIndex, hashToHex, hexToHash, verifySerializedProof } from '@did-btcr2/smt';
-import { bytesToHex } from '@noble/hashes/utils';
-import { Transaction } from 'bitcoinjs-lib';
+import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
+import { Transaction } from '@scure/btc-signer';
 import { AggregationCohort } from './cohort.js';
 import { AggregationParticipantError } from './errors.js';
 import type { BaseMessage } from './messages/base.js';
@@ -425,11 +425,11 @@ export class AggregationParticipant {
       );
     }
 
-    const tx = Transaction.fromHex(state.signingRequest.pendingTxHex);
+    const tx = Transaction.fromRaw(hexToBytes(state.signingRequest.pendingTxHex));
 
     // Derive UTXO metadata for Taproot sighash (BIP-341).
     // The beacon TX's change output (index 0) uses the same Taproot address as the input.
-    const prevOutScripts = tx.outs.length > 0 ? [tx.outs[0].script] : [];
+    const prevOutScripts = tx.outputsLength > 0 ? [tx.getOutput(0).script!] : [];
     const prevOutValues = [BigInt(state.signingRequest.prevOutValue)];
 
     const session = new BeaconSigningSession({

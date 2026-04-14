@@ -1,5 +1,6 @@
+import type { Transaction } from '@scure/btc-signer';
+import { SigHash } from '@scure/btc-signer';
 import * as musig2 from '@scure/btc-signer/musig2';
-import { Transaction } from 'bitcoinjs-lib';
 import type { AggregationCohort } from './cohort.js';
 import { SigningSessionError } from './errors.js';
 import type { SigningSessionPhaseType } from './phases.js';
@@ -79,11 +80,11 @@ export class BeaconSigningSession {
         'SIGHASH_ERROR'
       );
     }
-    return this.pendingTx.hashForWitnessV1(
+    return this.pendingTx.preimageWitnessV1(
       0,
       this.prevOutScripts,
-      this.prevOutValues,
-      Transaction.SIGHASH_DEFAULT
+      SigHash.DEFAULT,
+      this.prevOutValues
     );
   }
 

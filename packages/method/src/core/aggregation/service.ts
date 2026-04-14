@@ -1,7 +1,7 @@
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import type { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';
-import type { Transaction } from 'bitcoinjs-lib';
+import type { Transaction } from '@scure/btc-signer';
 import { AggregationCohort } from './cohort.js';
 import { AggregationServiceError } from './errors.js';
 import type { BaseMessage } from './messages/base.js';
@@ -429,7 +429,7 @@ export class AggregationService {
         to           : participantDid,
         cohortId,
         sessionId    : session.id,
-        pendingTx    : txData.tx.toHex(),
+        pendingTx    : txData.tx.hex,
         prevOutValue : txData.prevOutValues[0]?.toString() ?? '0',
       }));
     }
@@ -507,8 +507,8 @@ export class AggregationService {
       // All partial sigs received — generate final signature
       const signature = state.signingSession.generateFinalSignature();
 
-      // Set Taproot key-path witness
-      state.signingSession.pendingTx.setWitness(0, [signature]);
+      // Set Taproot key-path witness (finalScriptWitness injects the aggregated MuSig2 sig)
+      state.signingSession.pendingTx.updateInput(0, { finalScriptWitness: [signature] });
 
       state.result = {
         cohortId,

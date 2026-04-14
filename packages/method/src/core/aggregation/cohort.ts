@@ -2,9 +2,10 @@ import { canonicalHash, canonicalize, hash } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import type { SerializedSMTProof, TreeEntry } from '@did-btcr2/smt';
 import { BTCR2MerkleTree } from '@did-btcr2/smt';
+import { schnorr } from '@noble/curves/secp256k1.js';
 import { hexToBytes, randomBytes } from '@noble/hashes/utils';
+import { p2tr } from '@scure/btc-signer';
 import { keyAggExport, keyAggregate, sortKeys } from '@scure/btc-signer/musig2';
-import { crypto as btcCrypto, payments } from 'bitcoinjs-lib';
 import type { CASAnnouncement } from '../types.js';
 import { AggregationCohortError } from './errors.js';
 
@@ -105,11 +106,11 @@ export class AggregationCohort {
     }
     const keyAggContext = keyAggregate(this.#cohortKeys);
     const aggPubkey = keyAggExport(keyAggContext);
-    const payment = payments.p2tr({ internalPubkey: aggPubkey });
+    const payment = p2tr(aggPubkey);
 
-    // BIP-341: key-path-only P2TR has no script tree, so payment.hash is null.
-    // Compute the tweak: taggedHash("TapTweak", internalPubkey).
-    this.trMerkleRoot = payment.hash ?? btcCrypto.taggedHash('TapTweak', aggPubkey);
+    // BIP-341: key-path-only P2TR has no script tree. Compute the tweak:
+    // taggedHash("TapTweak", internalPubkey).
+    this.trMerkleRoot = schnorr.utils.taggedHash('TapTweak', aggPubkey);
 
     if(!payment.address) {
       throw new AggregationCohortError(
