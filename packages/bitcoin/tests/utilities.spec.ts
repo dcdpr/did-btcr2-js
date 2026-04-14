@@ -1,4 +1,4 @@
-import { networks } from 'bitcoinjs-lib';
+import { NETWORK, TEST_NETWORK } from '@scure/btc-signer';
 import { expect } from 'chai';
 import type { HttpRequest } from '../src/client/http.js';
 import { defaultHttpExecutor } from '../src/client/http.js';
@@ -95,19 +95,23 @@ describe('defaultHttpExecutor', () => {
 });
 
 describe('Network', () => {
-  it('maps bitcoin to networks.bitcoin', () => {
-    expect(getNetwork('bitcoin')).to.equal(networks.bitcoin);
+  it('maps bitcoin to mainnet NETWORK', () => {
+    expect(getNetwork('bitcoin')).to.equal(NETWORK);
   });
 
-  it('maps testnet variants to networks.testnet', () => {
-    expect(getNetwork('testnet3')).to.equal(networks.testnet);
-    expect(getNetwork('testnet4')).to.equal(networks.testnet);
-    expect(getNetwork('signet')).to.equal(networks.testnet);
-    expect(getNetwork('mutinynet')).to.equal(networks.testnet);
+  it('maps testnet variants to TEST_NETWORK', () => {
+    expect(getNetwork('testnet3')).to.equal(TEST_NETWORK);
+    expect(getNetwork('testnet4')).to.equal(TEST_NETWORK);
+    expect(getNetwork('signet')).to.equal(TEST_NETWORK);
+    expect(getNetwork('mutinynet')).to.equal(TEST_NETWORK);
   });
 
-  it('maps regtest to networks.regtest', () => {
-    expect(getNetwork('regtest')).to.equal(networks.regtest);
+  it('maps regtest to its own bcrt params', () => {
+    const regtest = getNetwork('regtest');
+    expect(regtest.bech32).to.equal('bcrt');
+    expect(regtest.pubKeyHash).to.equal(0x6f);
+    expect(regtest.scriptHash).to.equal(0xc4);
+    expect(regtest.wif).to.equal(0xef);
   });
 
   it('throws on unknown network', () => {

@@ -20,6 +20,7 @@ This guide is a step-by-step walkthrough. If you've never used the aggregation s
 10. [Power-User: State Machine Layer](#power-user-state-machine-layer)
 11. [Running the E2E Demos](#running-the-e2e-demos)
 12. [Production Deployment Notes](#production-deployment-notes)
+13. [Extension Points](#extension-points)
 
 ---
 
@@ -94,7 +95,7 @@ Every actor (service or participant) needs a `Transport` to send and receive mes
 A single `Transport` instance can serve multiple registered actors. In production each process typically registers exactly one actor (its own identity); in tests one transport often serves several actors at once for easy in-process round-trips.
 
 ```typescript
-import { NostrTransport } from '@did-btcr2/method';
+import { NostrTransport, SILENT_LOGGER } from '@did-btcr2/method';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { DidBtcr2 } from '@did-btcr2/method';
 
@@ -107,7 +108,14 @@ const did = DidBtcr2.create(keys.publicKey.compressed, {
 
 // 2. Create transport pointing at one or more Nostr relays
 const transport = new NostrTransport({
-  relays: ['wss://relay.damus.io', 'wss://nos.lol'],
+  relays              : ['wss://relay.damus.io', 'wss://nos.lol'],
+  // Optional: pass SILENT_LOGGER to suppress transport diagnostics, or a
+  // custom Logger to route to pino/winston/etc. Defaults to CONSOLE_LOGGER.
+  logger              : SILENT_LOGGER,
+  // Optional: `since` filter window (ms) on the COHORT_ADVERT subscription.
+  // Some relays don't backfill historical events to late subscribers; this
+  // gives them a bounded window of recent events to replay. Default 5 min.
+  broadcastLookbackMs : 5 * 60 * 1000,
 });
 
 // 3. Register the actor (DID + keys) with the transport
@@ -115,9 +123,31 @@ transport.registerActor(did, keys);
 
 // 4. Open relay connections
 transport.start();
+
+// 5. When done, cleanly tear down (releases relay subscriptions + handlers)
+transport.unregisterActor(did);
 ```
 
 That's the entire transport setup. From here on, you only interact with the Runner — the transport is plumbing.
+
+### `NostrTransportConfig` options
+
+| Option | Default | Purpose |
+|---|---|---|
+| `relays` | `DEFAULT_NOSTR_RELAYS` (4 public relays) | Array of relay URLs to connect to |
+| `logger` | `CONSOLE_LOGGER` | Injectable `Logger` for transport diagnostics |
+| `broadcastLookbackMs` | 5 min | `since` filter on broadcast (COHORT_ADVERT) subscription. Set to `0` to disable. |
+
+### `Transport` lifecycle methods
+
+| Method | Purpose |
+|---|---|
+| `registerActor(did, keys)` | Register an actor identity |
+| `unregisterActor(did)` | Detach an actor: close its relay subscriptions, drop handlers + keys |
+| `registerMessageHandler(did, type, handler)` | Install a per-(actor, type) handler |
+| `unregisterMessageHandler(did, type)` | Remove a handler. Also called automatically by `runner.stop()` |
+| `sendMessage(msg, sender, recipient?)` | Publish once |
+| `publishRepeating(msg, sender, intervalMs, recipient?)` | Publish once immediately, then on an interval; returns an idempotent stop handle |
 
 ---
 
@@ -147,10 +177,25 @@ const runner = new AggregationServiceRunner({
     // that spends it with an OP_RETURN containing signalBytes.
     return await buildBeaconTransaction(beaconAddress, signalBytes, bitcoin);
   },
+
+  // Optional hardening (all have sensible defaults):
+  maxUpdateSizeBytes     : 256 * 1024,   // reject oversized updates (default 256 KiB)
+  cohortTtlMs            : 10 * 60_000,  // overall deadline, emits cohort-failed on expiry
+  phaseTimeoutMs         : 2 * 60_000,   // per-phase stall deadline
+  advertRepeatIntervalMs : 60_000,       // re-publish COHORT_ADVERT until keygen complete
 });
 ```
 
 The `config` object follows the spec's "Aggregation Cohort definition" — at minimum you need participant count, network, and beacon type. Optional fields (max participants, time windows, fees) can be added in your `onOptInReceived` and `onReadyToFinalize` callbacks.
+
+#### `AggregationServiceRunnerOptions` (optional hardening)
+
+| Option | Default | Purpose |
+|---|---|---|
+| `maxUpdateSizeBytes` | 256 KiB | Reject `SUBMIT_UPDATE` payloads whose canonicalized size exceeds this cap. Dropped submissions are surfaced via `message-rejected`. |
+| `cohortTtlMs` | unset (disabled) | Overall deadline for `run()`. On expiry: emit `cohort-failed`, reject `run()`, GC cohort state. |
+| `phaseTimeoutMs` | unset (disabled) | Per-phase stall deadline. Reset automatically on each observed phase transition. |
+| `advertRepeatIntervalMs` | 60 s | Re-publish `COHORT_ADVERT` on this cadence until keygen completes, fails, or the runner stops. `0` disables re-publish (single publish). |
 
 ### Step 2 — Subscribe to events (optional)
 
@@ -387,6 +432,8 @@ console.log(`Joined cohort ${result.cohortId}, beacon: ${result.beaconAddress}`)
 | `signing-started` | `{ sessionId }` | MuSig2 signing session begins (auth requests sent) |
 | `nonce-received` | `{ participantDid }` | A participant's MuSig2 nonce arrives |
 | `signing-complete` | `AggregationResult` | Final signature computed (also resolves `run()`) |
+| `cohort-failed` | `{ cohortId, reason }` | Cohort entered a terminal failure state (validation rejection, TTL/phase timeout). Also rejects `run()`. |
+| `message-rejected` | `Rejection & { cohortId }` | The state machine silently dropped an incoming message. `code` distinguishes `WRONG_VERSION`, `UPDATE_TOO_LARGE`, `UPDATE_MALFORMED`, `UPDATE_VERIFICATION_FAILED`. |
 | `error` | `Error` | Protocol or transport error (rejects `run()` for fatal errors) |
 
 ### `AggregationParticipantRunner` events
@@ -539,12 +586,13 @@ await runner.run();
 
 ## Running the E2E Demos
 
-Three runnable example scripts in `lib/operations/aggregation/` demonstrate the runner API in different deployment configurations:
+Four runnable scripts in `lib/operations/aggregation/` demonstrate the runner API in different deployment configurations:
 
 | Script | Description |
 |---|---|
 | `e2e-shared-transport.ts` | Single process, MockTransport bus, no relay required. Fastest validation. |
 | `e2e-per-actor-transport.ts` | Single process, each actor has its own NostrTransport pointing to the same relay. Tests real Nostr signing/encryption. |
+| `e2e-verify-signing.ts` | Like `e2e-per-actor-transport.ts` but additionally verifies the aggregated signature with `@noble/curves` BIP-340 `schnorr.verify`. Exits non-zero on any assertion failure. This is the canonical "does MuSig2 still work end-to-end" check. |
 | `aggregation-service.ts` + `aggregation-participant.ts` | Two truly separate processes connecting to a relay. Production-realistic. |
 
 ```bash
@@ -554,12 +602,19 @@ npx tsx lib/operations/aggregation/e2e-shared-transport.ts
 # Single process, real Nostr (requires a local relay)
 RELAY=ws://localhost:7777 npx tsx lib/operations/aggregation/e2e-per-actor-transport.ts
 
+# Same as above but with cryptographic signature verification (CI-droppable)
+RELAY=ws://localhost:7777 npx tsx lib/operations/aggregation/e2e-verify-signing.ts
+
 # Multi-process — run each in its own terminal
 RELAY=ws://localhost:7777 npx tsx lib/operations/aggregation/aggregation-service.ts
 RELAY=ws://localhost:7777 SERVICE_DID=<from above> npx tsx lib/operations/aggregation/aggregation-participant.ts
 ```
 
-All three scripts exercise the same protocol and produce a 64-byte Schnorr signature on the same dummy P2TR transaction. They differ only in deployment topology, not in protocol logic.
+All scripts exercise the same protocol and produce a 64-byte Schnorr signature on the same dummy P2TR transaction. They differ only in deployment topology, not in protocol logic.
+
+### Why verify the signature cryptographically?
+
+`e2e-verify-signing.ts` captures the Taproot-tweaked x-only pubkey and the BIP-341 witness-v1 sighash inside `onProvideTxData`, then calls `schnorr.verify(signature, sighash, tweakedPk)` after `run()` resolves. If that check passes, the aggregated signature would be accepted by any BIP-340 verifier — including a Bitcoin node — without needing a funded UTXO to actually broadcast. This is the cheapest way to catch a regression anywhere in the MuSig2 pipeline: key aggregation, TapTweak, nonce aggregation, partial-sig pre-verify, or partial-sig aggregation.
 
 ---
 
@@ -572,6 +627,44 @@ In production, each actor (service or participant) runs in its own process, with
 ### Relay selection
 
 Aggregation requires reliable delivery, especially for the encrypted directed messages (NIP-44 kind 1059). Use 2–3 relays for redundancy. Public relays may rate-limit or drop kind 1059 events under load — if you need guaranteed delivery, run your own relay.
+
+Observed behavior against common public relays (as of the e2e-verify-signing runs in the `refactor/aggregation` branch):
+
+| Relay | Status | Notes |
+|---|---|---|
+| `ws://localhost:7777` (nostr-rs-relay) | ✅ Works | Default for local demos |
+| `wss://nostr-pub.wellorder.net` | ✅ Works | Backfills historical events; serves kind 1059 |
+| `wss://relay.damus.io` | ⚠️ Rate-limited | Aggressive anti-spam for anonymous writes — fine for small cohorts, fails under repeat publish |
+| `wss://nos.lol` | ❌ Hangs after advert | Service publishes advert successfully; participants never receive it. Not fixed by `broadcastLookbackMs` or advert re-publish. |
+| `wss://relay.snort.social` | ❌ Hangs after advert | Same failure mode as nos.lol. |
+
+**The reliable production paths are (a) your own relay, or (b) a relay you've verified end-to-end with `e2e-verify-signing.ts` against your expected message volume.** The `broadcastLookbackMs` filter and `advertRepeatIntervalMs` re-publish are hedges that help on some flaky relays but can't overcome a relay that simply doesn't route kind 1 events between subscribers the way the protocol expects.
+
+### Reliability hedges
+
+The transport and runner expose two mechanisms to improve delivery on imperfect relays:
+
+- `NostrTransportConfig.broadcastLookbackMs` (default 5 min) — applies a `since` filter to the `COHORT_ADVERT` subscription so relays that don't auto-backfill still return recent adverts to late subscribers.
+- `AggregationServiceRunnerOptions.advertRepeatIntervalMs` (default 60 s) — re-publishes the advert on a fixed cadence until keygen completes. Gives participants whose subscription was still settling when the initial advert went out a chance to catch a later copy.
+
+Set either to `0` to opt out.
+
+### Cohort TTL and phase timeouts
+
+Unchecked, a stalled cohort (e.g. a participant goes offline mid-signing) keeps state machine entries alive forever. Two knobs on the runner bound that:
+
+- `cohortTtlMs` — overall wall-clock budget from `run()` to `signing-complete`. On expiry: emit `cohort-failed`, reject `run()` with a timeout error, call `session.removeCohort(cohortId)`.
+- `phaseTimeoutMs` — maximum time allowed without a phase transition. Reset automatically on every observed phase change.
+
+Both are unset by default — enable them in any production deployment.
+
+### Message size limits
+
+`AggregationService` enforces `maxUpdateSizeBytes` (default 256 KiB) on the canonicalized size of each `SUBMIT_UPDATE` body, before the expensive BIP-340 proof verification. Oversized payloads are dropped silently at the state-machine level and surfaced as `message-rejected` events with code `UPDATE_TOO_LARGE`. This protects against cheap bandwidth/CPU exhaustion from a hostile participant. Tune downward if your DID documents are typically smaller.
+
+### Injectable logger
+
+`NostrTransport` takes an optional `logger: Logger` in its config. `CONSOLE_LOGGER` is the default; `SILENT_LOGGER` is provided for tests and environments that want to suppress transport diagnostics. Implement the `Logger` interface (`debug`/`info`/`warn`/`error`) to route to pino, winston, Sentry, or a structured-logging pipeline.
 
 ### Beacon address funding
 
@@ -608,11 +701,89 @@ This is exactly the pattern an interactive client app should follow.
 
 ### Error recovery
 
-There is no built-in retry mechanism. If a participant drops out mid-signing, the cohort fails. Your application should:
+There is no automatic retry for participant dropout. If a participant goes offline mid-protocol the cohort will either stall out until `phaseTimeoutMs`/`cohortTtlMs` fires, or deadlock indefinitely if neither is set. Your application should:
 
+- Set `cohortTtlMs` and/or `phaseTimeoutMs` so stalls terminate in bounded time
+- Listen for `cohort-failed` to drive operator UI / retry logic
+- Listen for `message-rejected` to surface individual submission failures back to the offending participant
 - Use a generous `minParticipants` floor so a single dropout isn't fatal
-- Track which cohorts have completed via the `signing-complete` / `cohort-complete` events
 - For long-running participant runners, restart on the `error` event if necessary
+- Track which cohorts have completed via `signing-complete` / `cohort-complete`
+
+### Wire-format version
+
+Every `BaseMessage` carries a `version: number` field. The current version is exposed as `AGGREGATION_WIRE_VERSION`. Receive handlers reject any message whose version doesn't match — there is no implicit backward compatibility. Bumping the constant is a breaking protocol change; coordinate across all participants and any relay / transport middleware before changing it.
+
+---
+
+## Extension Points
+
+### Beacon strategy registry
+
+New beacon types can be added without touching the service or participant state machines. Implement `AggregateBeaconStrategy` and call `registerBeaconStrategy(strategy)`.
+
+```typescript
+import type { AggregateBeaconStrategy } from '@did-btcr2/method';
+import { registerBeaconStrategy } from '@did-btcr2/method';
+
+const MyBeaconStrategy: AggregateBeaconStrategy = {
+  type : 'MyBeacon',
+
+  // Service-side: build the aggregated data on the cohort.
+  buildAggregatedData(cohort) {
+    // Populate cohort.signalBytes and any strategy-specific state.
+  },
+
+  // Service-side: per-participant payload for DISTRIBUTE_AGGREGATED_DATA.
+  getDistributePayload(cohort, participantDid) {
+    return { /* custom body fields */ };
+  },
+
+  // Participant-side: verify the aggregated view reflects the local update.
+  validateParticipantView({ participantDid, submittedUpdate, expectedHash, body }) {
+    return { matches: /* boolean */ };
+  },
+};
+
+registerBeaconStrategy(MyBeaconStrategy);
+```
+
+Once registered, passing `beaconType: 'MyBeacon'` in `CohortConfig` routes through the new strategy on both the service and participant sides.
+
+### Discriminated message types
+
+For consumers writing custom transports or middleware, every message type has a narrow body interface and a type guard exported from `@did-btcr2/method`:
+
+```typescript
+import type { AggregationMessage, CohortOptInBody } from '@did-btcr2/method';
+import {
+  isCohortOptInMessage,
+  isSubmitUpdateMessage,
+  isAuthorizationRequestMessage,
+} from '@did-btcr2/method';
+
+function route(msg: BaseMessage) {
+  if(isCohortOptInMessage(msg)) {
+    // msg.body is narrowed to CohortOptInBody here
+    const { cohortId, participantPk } = msg.body;
+    // ...
+  } else if(isSubmitUpdateMessage(msg)) {
+    // msg.body is narrowed to SubmitUpdateBody
+    // ...
+  }
+}
+```
+
+`AggregationMessage` is the full discriminated union of every well-formed message variant.
+
+### Sans-I/O introspection helpers
+
+Some state-machine methods added for runner plumbing are also useful from custom transports:
+
+| Method | Purpose |
+|---|---|
+| `session.drainRejections(cohortId)` | Pop the list of silent drops recorded since the last drain. The runner forwards these as `message-rejected` events. |
+| `session.removeCohort(cohortId)` | Remove a cohort from `#cohortStates` once it's finished. Used by the runner on successful completion and on fail. |
 
 ---
 
@@ -628,3 +799,7 @@ There is no built-in retry mechanism. If a participant drops out mid-signing, th
 | Work with the raw state machine | [Power-User: State Machine Layer](#power-user-state-machine-layer) |
 | Run example scripts | [Running the E2E Demos](#running-the-e2e-demos) |
 | Deploy to production | [Production Deployment Notes](#production-deployment-notes) |
+| Add a new beacon type | [Beacon strategy registry](#beacon-strategy-registry) |
+| Narrow an incoming message | [Discriminated message types](#discriminated-message-types) |
+| Pick a public Nostr relay | [Relay selection](#relay-selection) |
+| Bound a stalled cohort | [Cohort TTL and phase timeouts](#cohort-ttl-and-phase-timeouts) |

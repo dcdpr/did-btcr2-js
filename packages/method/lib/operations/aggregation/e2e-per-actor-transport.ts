@@ -12,8 +12,8 @@
  */
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';
+import { p2tr, Transaction } from '@scure/btc-signer';
 import * as musig2 from '@scure/btc-signer/musig2';
-import { payments, Transaction } from 'bitcoinjs-lib';
 import type {
   Transport} from '../../../src/index.js';
 import {
@@ -82,13 +82,16 @@ const service = new AggregationServiceRunner({
   onProvideTxData : async () => {
     const cohort = service.session.getCohort(service.session.cohorts[0].id)!;
     const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-    const payment = payments.p2tr({ internalPubkey: aggPk });
+    const payment = p2tr(aggPk);
     const prevOutValue = 100000n;
-    const tx = new Transaction();
-    tx.version = 2;
-    tx.addInput(new Uint8Array(32), 0);
-    tx.addOutput(payment.output!, prevOutValue - 500n);
-    return { tx, prevOutScripts: [payment.output!], prevOutValues: [prevOutValue] };
+    const tx = new Transaction({ version: 2 });
+    tx.addInput({
+      txid        : '00'.repeat(32),
+      index       : 0,
+      witnessUtxo : { amount: prevOutValue, script: payment.script },
+    });
+    tx.addOutput({ script: payment.script, amount: prevOutValue - 500n });
+    return { tx, prevOutScripts: [payment.script], prevOutValues: [prevOutValue] };
   },
 });
 

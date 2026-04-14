@@ -95,12 +95,44 @@ export class MockTransport implements Transport {
     if(actor) actor.handlers.set(messageType, handler);
   }
 
+  unregisterMessageHandler(actorDid: string, messageType: string): void {
+    const actor = this.#actors.get(actorDid);
+    if(actor) actor.handlers.delete(messageType);
+  }
+
+  unregisterActor(did: string): void {
+    const actor = this.#actors.get(did);
+    if(!actor) return;
+    actor.handlers.clear();
+    this.#actors.delete(did);
+    this.#peers.delete(did);
+  }
+
   start(): void {
     // No-op for mock
   }
 
   async sendMessage(message: BaseMessage, sender: string, recipient?: string): Promise<void> {
     await this.bus.deliver(message, sender, recipient);
+  }
+
+  publishRepeating(
+    message: BaseMessage,
+    sender: string,
+    intervalMs: number,
+    recipient?: string,
+  ): () => void {
+    let stopped = false;
+    void this.sendMessage(message, sender, recipient).catch(() => {});
+    const timer = setInterval(() => {
+      if(stopped) return;
+      void this.sendMessage(message, sender, recipient).catch(() => {});
+    }, intervalMs);
+    return () => {
+      if(stopped) return;
+      stopped = true;
+      clearInterval(timer);
+    };
   }
 
   async dispatchBroadcast(type: string, message: unknown): Promise<void> {

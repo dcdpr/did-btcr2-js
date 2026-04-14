@@ -1,7 +1,4 @@
-import { Bitcoin } from '../../src/bitcoin/index.js';
-import type { BlockV3 } from '../../method/src/index.js';
+import { BitcoinConnection } from '../src/connection.js';
 
-const bitcoin = new Bitcoin();
-const height = await bitcoin.active.rest.getBlockCount();
-const block = await bitcoin.active.rest.getBlock({ height }) as BlockV3;
-console.log(`block #${height}`, block);
+const bitcoin = BitcoinConnection.forNetwork('bitcoin', { rest: { host: 'https://mempool.space/api'} });
+console.log('Bitcoin REST connection:', bitcoin);

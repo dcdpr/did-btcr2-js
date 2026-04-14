@@ -17,8 +17,6 @@ import {
   DidError,
   DidErrorCode
 } from '@web5/dids';
-import * as ecc from '@bitcoinerlab/secp256k1';
-import { initEccLib } from 'bitcoinjs-lib';
 import type { BeaconService } from './core/beacon/interfaces.js';
 import { Identifier } from './core/identifier.js';
 import type { ResolutionOptions } from './core/interfaces.js';
@@ -35,9 +33,6 @@ export interface DidCreateOptions {
   /** Bitcoin Network */
   network?: string;
 }
-
-/** Initialize secp256k1 ECC library */
-initEccLib(ecc);
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2 | did:btcr2 DID Method Specification}.

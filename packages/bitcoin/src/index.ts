@@ -25,6 +25,7 @@ export type { RpcErrorType } from './errors.js';
 
 // Helpers
 export { getNetwork } from './network.js';
+export type { BTCNetwork } from './network.js';
 export { toBase64, safeText } from './client/utils.js';
 
 // Constants

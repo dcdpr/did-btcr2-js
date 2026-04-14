@@ -1,8 +1,9 @@
-import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { p2tr, Transaction } from '@scure/btc-signer';
 import * as musig2 from '@scure/btc-signer/musig2';
 import { expect } from 'chai';
-import { payments, Transaction } from 'bitcoinjs-lib';
 import {
   AggregationCohort,
   AggregationParticipant,
@@ -21,35 +22,50 @@ import {
 } from '../src/index.js';
 import { MessageBus, MockTransport } from './helpers/mock-transport.js';
 
-/** Creates a fake SignedBTCR2Update for tests that don't need cryptographic validity. */
-function createFakeSignedUpdate(did: string, version = 2): SignedBTCR2Update {
-  return {
-    '@context' : [
-      'https://www.w3.org/ns/credentials/v2',
-      'https://w3id.org/security/data-integrity/v2',
-    ],
-    patch : [
+/**
+ * Creates a cryptographically valid SignedBTCR2Update for the given participant.
+ * The proof is a real BIP-340 Schnorr Data Integrity proof that will pass
+ * verification via SchnorrMultikey + BIP340Cryptosuite. Required by the service's
+ * #verifySubmittedUpdate guard in #handleSubmitUpdate.
+ */
+function createSignedUpdate(did: string, keys: SchnorrKeyPair, version = 2): SignedBTCR2Update {
+  const context = [
+    'https://w3id.org/security/v2',
+    'https://w3id.org/zcap/v1',
+    'https://w3id.org/json-ld-patch/v1',
+    'https://btcr2.dev/context/v1',
+  ];
+  const verificationMethodId = `${did}#initialKey`;
+  const unsigned: UnsignedBTCR2Update = {
+    '@context'      : context,
+    patch           : [
       { op: 'add', path: '/service/-', value: { id: `${did}#svc`, type: 'Test', serviceEndpoint: 'https://example.com' } },
     ],
     sourceHash      : `zQmSourceHash${did.slice(-6)}`,
     targetHash      : `zQmTargetHash${did.slice(-6)}`,
     targetVersionId : version,
-    proof           : {
-      '@context'         : ['https://w3id.org/security/data-integrity/v2'],
-      type               : 'DataIntegrityProof' as const,
-      proofPurpose       : 'capabilityInvocation',
-      verificationMethod : `${did}#key-0`,
-      cryptosuite        : 'bip-340-jcs-2025',
-      proofValue         : `zFakeProof${did.slice(-6)}`,
-    },
   };
+  const config: DataIntegrityConfig = {
+    '@context'         : context,
+    cryptosuite        : 'bip340-jcs-2025',
+    type               : 'DataIntegrityProof',
+    verificationMethod : verificationMethodId,
+    proofPurpose       : 'capabilityInvocation',
+    capability         : `urn:zcap:root:${encodeURIComponent(did)}`,
+    capabilityAction   : 'Write',
+  };
+  const multikey = SchnorrMultikey.fromSecretKey(verificationMethodId, did, keys.secretKey.bytes);
+  return multikey.toCryptosuite().toDataIntegrityProof().addProof(unsigned, config);
 }
 
 function buildDummyTx(outputScript: Uint8Array, prevOutValue: bigint): Transaction {
-  const tx = new Transaction();
-  tx.version = 2;
-  tx.addInput(new Uint8Array(32), 0);
-  tx.addOutput(outputScript, prevOutValue - 500n);
+  const tx = new Transaction({ version: 2 });
+  tx.addInput({
+    txid        : '00'.repeat(32),
+    index       : 0,
+    witnessUtxo : { amount: prevOutValue, script: outputScript },
+  });
+  tx.addOutput({ script: outputScript, amount: prevOutValue - 500n });
   return tx;
 }
 
@@ -87,7 +103,7 @@ describe('Aggregation', () => {
       const addr = cohort.computeBeaconAddress();
       expect(addr).to.be.a('string');
       expect(addr.startsWith('bc1p')).to.be.true;
-      expect(cohort.trMerkleRoot.length).to.equal(32);
+      expect(cohort.tapTweak.length).to.equal(32);
     });
   });
 
@@ -104,14 +120,16 @@ describe('Aggregation', () => {
       kp2 = SchnorrKeyPair.generate();
       cohort = new AggregationCohort({ minParticipants: 2, network: 'mainnet' });
       cohort.participants.push('did:btcr2:alice', 'did:btcr2:bob');
+      cohort.participantKeys.set('did:btcr2:alice', kp1.publicKey.compressed);
+      cohort.participantKeys.set('did:btcr2:bob', kp2.publicKey.compressed);
       cohort.cohortKeys = [kp1.publicKey.compressed, kp2.publicKey.compressed];
       cohort.computeBeaconAddress();
 
       const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-      const payment = payments.p2tr({ internalPubkey: aggPk });
-      prevOutScripts = [payment.output!];
+      const payment = p2tr(aggPk);
+      prevOutScripts = [payment.script];
       prevOutValues = [100000n];
-      tx = buildDummyTx(payment.output!, 100000n);
+      tx = buildDummyTx(payment.script, 100000n);
     });
 
     it('full MuSig2 round trip produces 64-byte Schnorr signature', () => {
@@ -265,14 +283,16 @@ describe('Aggregation', () => {
     let serviceDid: string;
     let aliceDid: string;
     let bobDid: string;
+    let aliceKeys: SchnorrKeyPair;
+    let bobKeys: SchnorrKeyPair;
 
     beforeEach(() => {
       // Create identities
       const serviceKeys = SchnorrKeyPair.generate();
       serviceDid = DidBtcr2.create(serviceKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
-      const aliceKeys = SchnorrKeyPair.generate();
+      aliceKeys = SchnorrKeyPair.generate();
       aliceDid = DidBtcr2.create(aliceKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
-      const bobKeys = SchnorrKeyPair.generate();
+      bobKeys = SchnorrKeyPair.generate();
       bobDid = DidBtcr2.create(bobKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
 
       // Create state machines
@@ -370,8 +390,8 @@ describe('Aggregation', () => {
       await send(serviceTransport, serviceDid, service.finalizeKeygen(cohortId));
 
       // ── Step 2: Submit updates ──
-      const aliceUpdate = createFakeSignedUpdate(aliceDid);
-      const bobUpdate = createFakeSignedUpdate(bobDid);
+      const aliceUpdate = createSignedUpdate(aliceDid, aliceKeys);
+      const bobUpdate = createSignedUpdate(bobDid, bobKeys);
       await send(aliceTransport, aliceDid, alice.submitUpdate(cohortId, aliceUpdate));
       expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.CollectingUpdates);
       await send(bobTransport, bobDid, bob.submitUpdate(cohortId, bobUpdate));
@@ -390,13 +410,13 @@ describe('Aggregation', () => {
       // ── Step 4: Sign ──
       const cohort = service.getCohort(cohortId)!;
       const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-      const payment = payments.p2tr({ internalPubkey: aggPk });
+      const payment = p2tr(aggPk);
       const prevOutValue = 100000n;
-      const tx = buildDummyTx(payment.output!, prevOutValue);
+      const tx = buildDummyTx(payment.script, prevOutValue);
 
       await send(serviceTransport, serviceDid, service.startSigning(cohortId, {
         tx,
-        prevOutScripts : [payment.output!],
+        prevOutScripts : [payment.script],
         prevOutValues  : [prevOutValue],
       }));
       expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.SigningStarted);
@@ -433,8 +453,8 @@ describe('Aggregation', () => {
       await send(serviceTransport, serviceDid, service.finalizeKeygen(cohortId));
 
       // ── Step 2: Submit updates ──
-      const aliceUpdate = createFakeSignedUpdate(aliceDid);
-      const bobUpdate = createFakeSignedUpdate(bobDid);
+      const aliceUpdate = createSignedUpdate(aliceDid, aliceKeys);
+      const bobUpdate = createSignedUpdate(bobDid, bobKeys);
       await send(aliceTransport, aliceDid, alice.submitUpdate(cohortId, aliceUpdate));
       await send(bobTransport, bobDid, bob.submitUpdate(cohortId, bobUpdate));
       expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.UpdatesCollected);
@@ -463,13 +483,13 @@ describe('Aggregation', () => {
 
       // ── Step 4: Sign ──
       const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-      const payment = payments.p2tr({ internalPubkey: aggPk });
+      const payment = p2tr(aggPk);
       const prevOutValue = 100000n;
-      const tx = buildDummyTx(payment.output!, prevOutValue);
+      const tx = buildDummyTx(payment.script, prevOutValue);
 
       await send(serviceTransport, serviceDid, service.startSigning(cohortId, {
         tx,
-        prevOutScripts : [payment.output!],
+        prevOutScripts : [payment.script],
         prevOutValues  : [prevOutValue],
       }));
 
@@ -495,8 +515,8 @@ describe('Aggregation', () => {
       await send(serviceTransport, serviceDid, service.acceptParticipant(cohortId, bobDid));
       await send(serviceTransport, serviceDid, service.finalizeKeygen(cohortId));
 
-      await send(aliceTransport, aliceDid, alice.submitUpdate(cohortId, createFakeSignedUpdate(aliceDid)));
-      await send(bobTransport, bobDid, bob.submitUpdate(cohortId, createFakeSignedUpdate(bobDid)));
+      await send(aliceTransport, aliceDid, alice.submitUpdate(cohortId, createSignedUpdate(aliceDid, aliceKeys)));
+      await send(bobTransport, bobDid, bob.submitUpdate(cohortId, createSignedUpdate(bobDid, bobKeys)));
       await send(serviceTransport, serviceDid, service.buildAndDistribute(cohortId));
 
       // ── Alice approves, Bob rejects ──
@@ -538,9 +558,7 @@ describe('Aggregation', () => {
       const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
       service.advertise(cohortId);
       // Build tx data that startSigning would need (won't get used — it throws first)
-      const tx = new Transaction();
-      tx.version = 2;
-      tx.addInput(new Uint8Array(32), 0);
+      const tx = new Transaction({ version: 2 });
       expect(() => service.startSigning(cohortId, {
         tx,
         prevOutScripts : [new Uint8Array()],
@@ -572,7 +590,7 @@ describe('Aggregation', () => {
 
     it('participant.submitUpdate() throws when cohort is not ready', () => {
       const cohortId = 'unknown-cohort';
-      expect(() => alice.submitUpdate(cohortId, createFakeSignedUpdate(aliceDid))).to.throw();
+      expect(() => alice.submitUpdate(cohortId, createSignedUpdate(aliceDid, aliceKeys))).to.throw();
     });
 
     it('participant.approveValidation() throws when not in AwaitingValidation phase', async () => {
@@ -610,10 +628,10 @@ describe('Aggregation', () => {
         onProvideTxData : async () => {
           const cohort = service.session.cohorts[0];
           const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-          const payment = payments.p2tr({ internalPubkey: aggPk });
+          const payment = p2tr(aggPk);
           const prevOutValue = 100000n;
-          const tx = buildDummyTx(payment.output!, prevOutValue);
-          return { tx, prevOutScripts: [payment.output!], prevOutValues: [prevOutValue] };
+          const tx = buildDummyTx(payment.script, prevOutValue);
+          return { tx, prevOutScripts: [payment.script], prevOutValues: [prevOutValue] };
         },
       });
 
@@ -622,7 +640,7 @@ describe('Aggregation', () => {
         did             : aliceDid,
         keys            : aliceKeys,
         shouldJoin      : async () => true,
-        onProvideUpdate : async () => createFakeSignedUpdate(aliceDid),
+        onProvideUpdate : async () => createSignedUpdate(aliceDid, aliceKeys),
       });
 
       const bobRunner = new AggregationParticipantRunner({
@@ -630,7 +648,7 @@ describe('Aggregation', () => {
         did             : bobDid,
         keys            : bobKeys,
         shouldJoin      : async () => true,
-        onProvideUpdate : async () => createFakeSignedUpdate(bobDid),
+        onProvideUpdate : async () => createSignedUpdate(bobDid, bobKeys),
       });
 
       const serviceEvents: string[] = [];
@@ -685,7 +703,7 @@ describe('Aggregation', () => {
         did             : aliceDid,
         keys            : aliceKeys,
         // shouldJoin omitted — default rejects all
-        onProvideUpdate : async () => createFakeSignedUpdate(aliceDid),
+        onProvideUpdate : async () => createSignedUpdate(aliceDid, aliceKeys),
       });
 
       let discovered = false;
@@ -726,7 +744,7 @@ describe('Aggregation', () => {
         did             : bobDid,
         keys            : bobKeys,
         shouldJoin      : async () => true,
-        onProvideUpdate : async () => createFakeSignedUpdate(bobDid),
+        onProvideUpdate : async () => createSignedUpdate(bobDid, bobKeys),
       });
       await bobRunner.start();
 
@@ -735,7 +753,7 @@ describe('Aggregation', () => {
         did             : aliceDid,
         keys            : aliceKeys,
         shouldJoin      : async () => true,
-        onProvideUpdate : async () => createFakeSignedUpdate(aliceDid),
+        onProvideUpdate : async () => createSignedUpdate(aliceDid, aliceKeys),
       });
 
       const service = new AggregationServiceRunner({
@@ -746,10 +764,10 @@ describe('Aggregation', () => {
         onProvideTxData : async () => {
           const cohort = service.session.cohorts[0];
           const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-          const payment = payments.p2tr({ internalPubkey: aggPk });
+          const payment = p2tr(aggPk);
           const prevOutValue = 100000n;
-          const tx = buildDummyTx(payment.output!, prevOutValue);
-          return { tx, prevOutScripts: [payment.output!], prevOutValues: [prevOutValue] };
+          const tx = buildDummyTx(payment.script, prevOutValue);
+          return { tx, prevOutScripts: [payment.script], prevOutValues: [prevOutValue] };
         },
       });
 
