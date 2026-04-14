@@ -1,8 +1,8 @@
+import type { BTCNetwork } from '@did-btcr2/bitcoin';
 import { getNetwork } from '@did-btcr2/bitcoin';
 import type { KeyBytes, Maybe} from '@did-btcr2/common';
 import { DidMethodError, MethodError } from '@did-btcr2/common';
-import type { networks} from 'bitcoinjs-lib';
-import { payments } from 'bitcoinjs-lib';
+import { p2pkh, p2tr, p2wpkh } from '@scure/btc-signer';
 import { Appendix } from '../../utils/appendix.js';
 import type { DidDocument } from '../../utils/did-document.js';
 import { Identifier } from '../identifier.js';
@@ -100,7 +100,12 @@ export class BeaconUtils {
       // Build the id
       const id = `${did}#initial${addressType.toUpperCase()}`;
       // Generate the bitcoin address
-      const serviceEndpoint = `bitcoin:${payments[addressType]({ pubkey, network }).address}`;
+      const address = addressType === 'p2tr'
+        ? p2tr(pubkey.slice(1, 33), undefined, network).address
+        : addressType === 'p2wpkh'
+          ? p2wpkh(pubkey, network).address
+          : p2pkh(pubkey, network).address;
+      const serviceEndpoint = `bitcoin:${address}`;
       // Return the beacon serviceD
       return { id, type: beaconType, serviceEndpoint, };
     } catch (error: any) {
@@ -120,16 +125,16 @@ export class BeaconUtils {
   static generateBeaconServices({ id, publicKey, network, beaconType }: {
     id: string;
     publicKey: KeyBytes;
-    network: networks.Network;
+    network: BTCNetwork;
     beaconType: string;
   }): Array<BeaconService> {
     try {
       // Generate the bitcoin addresses for the given public key and network
-      const p2pkh = payments.p2pkh({ pubkey: publicKey, network }).address;
-      const p2wpkh = payments.p2wpkh({ pubkey: publicKey, network }).address;
-      const p2tr = payments.p2tr({ network, internalPubkey: publicKey.slice(1, 33) }).address;
+      const p2pkhAddr = p2pkh(publicKey, network).address;
+      const p2wpkhAddr = p2wpkh(publicKey, network).address;
+      const p2trAddr = p2tr(publicKey.slice(1, 33), undefined, network).address;
       // Check that all addresses were generated successfully
-      if (!p2pkh || !p2wpkh || !p2tr) {
+      if (!p2pkhAddr || !p2wpkhAddr || !p2trAddr) {
         throw new DidMethodError('Failed to generate bitcoin addresses');
       }
       // Return the beacon services with the generated addresses as service endpoints
@@ -137,17 +142,17 @@ export class BeaconUtils {
         {
           id              : `${id}#initialP2PKH`,
           type            : beaconType,
-          serviceEndpoint : `bitcoin:${p2pkh}`
+          serviceEndpoint : `bitcoin:${p2pkhAddr}`
         },
         {
           id              : `${id}#initialP2WPKH`,
           type            : beaconType,
-          serviceEndpoint : `bitcoin:${p2wpkh}`
+          serviceEndpoint : `bitcoin:${p2wpkhAddr}`
         },
         {
           id              : `${id}#initialP2TR`,
           type            : beaconType,
-          serviceEndpoint : `bitcoin:${p2tr}`
+          serviceEndpoint : `bitcoin:${p2trAddr}`
         },
       ];
     } catch (error: any) {

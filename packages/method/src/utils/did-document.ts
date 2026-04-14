@@ -15,7 +15,7 @@ import {
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import type { DidDocument as W3CDidDocument, DidVerificationMethod as W3CDidVerificationMethod } from '@web5/dids';
 import { isDidService } from '@web5/dids/utils';
-import { payments } from 'bitcoinjs-lib';
+import { p2pkh } from '@scure/btc-signer';
 import type { BeaconService } from '../core/beacon/interfaces.js';
 import { Identifier } from '../core/identifier.js';
 import { Appendix } from './appendix.js';
@@ -491,7 +491,7 @@ export class GenesisDocument extends DidDocument {
   public static fromPublicKey(publicKey: KeyBytes, network: string): GenesisDocument {
     const pk = new CompressedSecp256k1PublicKey(publicKey);
     const id = ID_PLACEHOLDER_VALUE;
-    const address = payments.p2pkh({ pubkey: pk.compressed, network: getNetwork(network) })?.address;
+    const address = p2pkh(pk.compressed, getNetwork(network)).address;
     const services = [{
       id              : `${id}#service-0`,
       serviceEndpoint : `bitcoin:${address}`,
