@@ -1,8 +1,8 @@
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { p2tr, Transaction } from '@scure/btc-signer';
 import * as musig2 from '@scure/btc-signer/musig2';
 import { expect } from 'chai';
-import { payments, Transaction } from 'bitcoinjs-lib';
 import {
   AggregationCohort,
   AggregationParticipant,
@@ -46,10 +46,13 @@ function createFakeSignedUpdate(did: string, version = 2): SignedBTCR2Update {
 }
 
 function buildDummyTx(outputScript: Uint8Array, prevOutValue: bigint): Transaction {
-  const tx = new Transaction();
-  tx.version = 2;
-  tx.addInput(new Uint8Array(32), 0);
-  tx.addOutput(outputScript, prevOutValue - 500n);
+  const tx = new Transaction({ version: 2 });
+  tx.addInput({
+    txid        : '00'.repeat(32),
+    index       : 0,
+    witnessUtxo : { amount: prevOutValue, script: outputScript },
+  });
+  tx.addOutput({ script: outputScript, amount: prevOutValue - 500n });
   return tx;
 }
 
@@ -108,10 +111,10 @@ describe('Aggregation', () => {
       cohort.computeBeaconAddress();
 
       const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-      const payment = payments.p2tr({ internalPubkey: aggPk });
-      prevOutScripts = [payment.output!];
+      const payment = p2tr(aggPk);
+      prevOutScripts = [payment.script];
       prevOutValues = [100000n];
-      tx = buildDummyTx(payment.output!, 100000n);
+      tx = buildDummyTx(payment.script, 100000n);
     });
 
     it('full MuSig2 round trip produces 64-byte Schnorr signature', () => {
@@ -390,13 +393,13 @@ describe('Aggregation', () => {
       // ── Step 4: Sign ──
       const cohort = service.getCohort(cohortId)!;
       const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-      const payment = payments.p2tr({ internalPubkey: aggPk });
+      const payment = p2tr(aggPk);
       const prevOutValue = 100000n;
-      const tx = buildDummyTx(payment.output!, prevOutValue);
+      const tx = buildDummyTx(payment.script, prevOutValue);
 
       await send(serviceTransport, serviceDid, service.startSigning(cohortId, {
         tx,
-        prevOutScripts : [payment.output!],
+        prevOutScripts : [payment.script],
         prevOutValues  : [prevOutValue],
       }));
       expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.SigningStarted);
@@ -463,13 +466,13 @@ describe('Aggregation', () => {
 
       // ── Step 4: Sign ──
       const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-      const payment = payments.p2tr({ internalPubkey: aggPk });
+      const payment = p2tr(aggPk);
       const prevOutValue = 100000n;
-      const tx = buildDummyTx(payment.output!, prevOutValue);
+      const tx = buildDummyTx(payment.script, prevOutValue);
 
       await send(serviceTransport, serviceDid, service.startSigning(cohortId, {
         tx,
-        prevOutScripts : [payment.output!],
+        prevOutScripts : [payment.script],
         prevOutValues  : [prevOutValue],
       }));
 
@@ -538,9 +541,7 @@ describe('Aggregation', () => {
       const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
       service.advertise(cohortId);
       // Build tx data that startSigning would need (won't get used — it throws first)
-      const tx = new Transaction();
-      tx.version = 2;
-      tx.addInput(new Uint8Array(32), 0);
+      const tx = new Transaction({ version: 2 });
       expect(() => service.startSigning(cohortId, {
         tx,
         prevOutScripts : [new Uint8Array()],
@@ -610,10 +611,10 @@ describe('Aggregation', () => {
         onProvideTxData : async () => {
           const cohort = service.session.cohorts[0];
           const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-          const payment = payments.p2tr({ internalPubkey: aggPk });
+          const payment = p2tr(aggPk);
           const prevOutValue = 100000n;
-          const tx = buildDummyTx(payment.output!, prevOutValue);
-          return { tx, prevOutScripts: [payment.output!], prevOutValues: [prevOutValue] };
+          const tx = buildDummyTx(payment.script, prevOutValue);
+          return { tx, prevOutScripts: [payment.script], prevOutValues: [prevOutValue] };
         },
       });
 
@@ -746,10 +747,10 @@ describe('Aggregation', () => {
         onProvideTxData : async () => {
           const cohort = service.session.cohorts[0];
           const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-          const payment = payments.p2tr({ internalPubkey: aggPk });
+          const payment = p2tr(aggPk);
           const prevOutValue = 100000n;
-          const tx = buildDummyTx(payment.output!, prevOutValue);
-          return { tx, prevOutScripts: [payment.output!], prevOutValues: [prevOutValue] };
+          const tx = buildDummyTx(payment.script, prevOutValue);
+          return { tx, prevOutScripts: [payment.script], prevOutValues: [prevOutValue] };
         },
       });
 

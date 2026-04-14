@@ -9,7 +9,7 @@ import { canonicalize } from '@did-btcr2/common';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { sha256 } from '@noble/hashes/sha2';
 import { hex } from '@scure/base';
-import { payments } from 'bitcoinjs-lib';
+import { p2pkh, p2tr, p2wpkh } from '@scure/btc-signer';
 
 import { BeaconSignalDiscovery } from '../src/core/beacon/signal-discovery.js';
 import { Identifier } from '../src/core/identifier.js';
@@ -293,14 +293,14 @@ function deriveAddress(publicKey: Uint8Array, net: string, addrType: AddressType
 
   switch (addrType) {
     case 'p2pkh':
-      address = payments.p2pkh({ pubkey: Buffer.from(publicKey), network: btcNetwork }).address;
+      address = p2pkh(publicKey, btcNetwork).address;
       break;
     case 'p2wpkh':
-      address = payments.p2wpkh({ pubkey: Buffer.from(publicKey), network: btcNetwork }).address;
+      address = p2wpkh(publicKey, btcNetwork).address;
       break;
     case 'p2tr':
       // Taproot requires the 32-byte x-only internal pubkey (strip the 0x02/0x03 prefix byte)
-      address = payments.p2tr({ network: btcNetwork, internalPubkey: Buffer.from(publicKey).slice(1, 33) }).address;
+      address = p2tr(publicKey.slice(1, 33), undefined, btcNetwork).address;
       break;
   }
 
