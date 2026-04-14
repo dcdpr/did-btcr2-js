@@ -86,10 +86,9 @@
         "@noble/curves": "^1.9.7",
         "@noble/hashes": "^2.0.1",
         "@noble/secp256k1": "^2.3.0",
-        "bitcoinjs-lib": "7.0.0-rc.0"
+        "@scure/btc-signer": "^1.8.1"
     },
     "devDependencies": {
-        "tiny-secp256k1": "^2.2.3",
         "@eslint/js": "^9.22.0",
         "@types/chai": "^5.0.1",
         "@types/chai-as-promised": "^8.0.1",

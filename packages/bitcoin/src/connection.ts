@@ -1,8 +1,8 @@
 import { MethodError } from '@did-btcr2/common';
-import type { networks } from 'bitcoinjs-lib';
 import type { HttpExecutor } from './client/http.js';
 import { BitcoinRestClient } from './client/rest/index.js';
 import { BitcoinCoreRpcClient } from './client/rpc/index.js';
+import type { BTCNetwork } from './network.js';
 import { getNetwork } from './network.js';
 import type { NetworkName, RestConfig, RpcConfig } from './types.js';
 import { DEFAULT_BITCOIN_NETWORK_CONFIG } from './constants.js';
@@ -57,8 +57,8 @@ export class BitcoinConnection {
   /** RPC client (Bitcoin Core). May be undefined if not configured. */
   readonly rpc?: BitcoinCoreRpcClient;
 
-  /** bitcoinjs-lib network data (for address derivation, PSBT signing, etc.). */
-  readonly data: networks.Network;
+  /** Bitcoin network params (for address derivation, PSBT signing, etc.). */
+  readonly data: BTCNetwork;
 
   constructor(options: BitcoinConnectionOptions) {
     this.name = options.network;
