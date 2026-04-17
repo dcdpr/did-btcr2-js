@@ -103,7 +103,7 @@ describe('Aggregation', () => {
       const addr = cohort.computeBeaconAddress();
       expect(addr).to.be.a('string');
       expect(addr.startsWith('bc1p')).to.be.true;
-      expect(cohort.trMerkleRoot.length).to.equal(32);
+      expect(cohort.tapTweak.length).to.equal(32);
     });
   });
 
@@ -120,6 +120,8 @@ describe('Aggregation', () => {
       kp2 = SchnorrKeyPair.generate();
       cohort = new AggregationCohort({ minParticipants: 2, network: 'mainnet' });
       cohort.participants.push('did:btcr2:alice', 'did:btcr2:bob');
+      cohort.participantKeys.set('did:btcr2:alice', kp1.publicKey.compressed);
+      cohort.participantKeys.set('did:btcr2:bob', kp2.publicKey.compressed);
       cohort.cohortKeys = [kp1.publicKey.compressed, kp2.publicKey.compressed];
       cohort.computeBeaconAddress();
 

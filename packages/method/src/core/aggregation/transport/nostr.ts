@@ -2,9 +2,12 @@ import type { Did } from '@did-btcr2/common';
 import type { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
+import type { SubCloser } from 'nostr-tools/abstract-pool';
 import type { Event, EventTemplate} from 'nostr-tools';
 import { finalizeEvent, nip44 } from 'nostr-tools';
 import { SimplePool } from 'nostr-tools/pool';
+import type { Logger } from '../logger.js';
+import { CONSOLE_LOGGER } from '../logger.js';
 import type { BaseMessage } from '../messages/base.js';
 import { COHORT_ADVERT } from '../messages/constants.js';
 import { isAggregationMessageType, isKeygenMessageType, isSignMessageType, isUpdateMessageType } from '../messages/guards.js';
@@ -24,12 +27,19 @@ export const DEFAULT_NOSTR_RELAYS = [
 
 export interface NostrTransportConfig {
   relays?: string[];
+  /**
+   * Optional logger for transport-level diagnostics (publish/subscribe events,
+   * relay rejections, parse failures). Defaults to {@link CONSOLE_LOGGER}.
+   */
+  logger?: Logger;
 }
 
 /** Internal registration for a single actor sharing this transport. */
 interface ActorEntry {
   keys: SchnorrKeyPair;
   handlers: Map<string, MessageHandler>;
+  /** Relay-pool subscriptions opened for this actor. Closed on unregisterActor(). */
+  subscriptions: SubCloser[];
 }
 
 /**
@@ -56,9 +66,11 @@ export class NostrTransport implements Transport {
   #actors: Map<string, ActorEntry> = new Map();
   #peerRegistry: Map<string, Uint8Array> = new Map();
   #started = false;
+  #logger: Logger;
 
   constructor(config?: NostrTransportConfig) {
     this.#relays = config?.relays ?? DEFAULT_NOSTR_RELAYS;
+    this.#logger = config?.logger ?? CONSOLE_LOGGER;
   }
 
   /**
@@ -75,13 +87,36 @@ export class NostrTransport implements Transport {
    * transport.start();
    */
   registerActor(did: string, keys: SchnorrKeyPair): void {
-    const entry: ActorEntry = { keys, handlers: new Map() };
+    const entry: ActorEntry = { keys, handlers: new Map(), subscriptions: [] };
     this.#actors.set(did, entry);
 
     // If already started, create a directed subscription for this actor
     if(this.#started && this.pool) {
       this.#subscribeDirected(did, entry);
     }
+  }
+
+  /**
+   * Detach an actor: drop its handlers, close its relay subscriptions, and
+   * remove its keys + peer mapping. Idempotent.
+   */
+  unregisterActor(did: string): void {
+    const entry = this.#actors.get(did);
+    if(!entry) return;
+    for(const sub of entry.subscriptions) {
+      try { sub.close(); } catch(err) { this.#logger.debug(`Error closing subscription for ${did}:`, err); }
+    }
+    entry.subscriptions.length = 0;
+    entry.handlers.clear();
+    this.#actors.delete(did);
+    this.#peerRegistry.delete(did);
+  }
+
+  /** Remove a single (actor, messageType) handler. Idempotent. */
+  unregisterMessageHandler(actorDid: string, messageType: string): void {
+    const actor = this.#actors.get(actorDid);
+    if(!actor) return;
+    actor.handlers.delete(messageType);
   }
 
   /**
@@ -163,7 +198,7 @@ export class NostrTransport implements Transport {
     // service. Duplicate adverts are idempotent: AggregationParticipant stores
     // discovered cohorts in a Map keyed by cohortId.
     this.pool.subscribeMany(this.#relays, { kinds: [1], '#t': [COHORT_ADVERT] }, {
-      onclose : (reasons: string[]) => console.debug('Nostr broadcast subscription closed', reasons),
+      onclose : (reasons: string[]) => this.#logger.debug('Nostr broadcast subscription closed', reasons),
       onevent : this.#handleBroadcastEvent.bind(this),
     });
 
@@ -172,7 +207,7 @@ export class NostrTransport implements Transport {
       this.#subscribeDirected(did, entry);
     }
 
-    console.info(`NostrTransport started, listening on ${this.#relays.length} relay(s)`);
+    this.#logger.info(`NostrTransport started, listening on ${this.#relays.length} relay(s)`);
     return this;
   }
 
@@ -230,7 +265,7 @@ export class NostrTransport implements Transport {
         tags,
         content    : JSON.stringify(message, NostrTransport.#jsonReplacer),
       } as EventTemplate, senderKeys.secretKey.bytes);
-      console.debug(`Publishing kind 1 [${type}]`);
+      this.#logger.debug(`Publishing kind 1 [${type}]`);
       await this.#publishToRelays(event);
       return;
     }
@@ -263,12 +298,12 @@ export class NostrTransport implements Transport {
         tags,
         content,
       } as EventTemplate, senderKeys.secretKey.bytes);
-      console.debug(`Publishing kind 1059 [${type}]`);
+      this.#logger.debug(`Publishing kind 1059 [${type}]`);
       await this.#publishToRelays(event);
       return;
     }
 
-    console.warn(`Unsupported message type: ${type}`);
+    this.#logger.warn(`Unsupported message type: ${type}`);
   }
 
   /**
@@ -289,10 +324,11 @@ export class NostrTransport implements Transport {
     // crash-recovery. Out-of-phase messages are silently dropped by the state
     // machines (AggregationService, AggregationParticipant), so replayed stale
     // messages are harmless.
-    this.pool.subscribeMany(this.#relays, { kinds: [1, 1059], '#p': [pkHex] }, {
-      onclose : (reasons: string[]) => console.debug(`Nostr directed subscription closed for ${did}`, reasons),
+    const sub = this.pool.subscribeMany(this.#relays, { kinds: [1, 1059], '#p': [pkHex] }, {
+      onclose : (reasons: string[]) => this.#logger.debug(`Nostr directed subscription closed for ${did}`, reasons),
       onevent : this.#makeActorEventHandler(did),
     });
+    entry.subscriptions.push(sub);
   }
 
   /**
@@ -331,7 +367,7 @@ export class NostrTransport implements Transport {
           return;
         }
       } catch(err) {
-        console.debug(`Failed to parse event ${event.id} for ${actorDid}:`, err);
+        this.#logger.debug(`Failed to parse event ${event.id} for ${actorDid}:`, err);
         return;
       }
 
@@ -356,7 +392,7 @@ export class NostrTransport implements Transport {
     try {
       message = JSON.parse(event.content, NostrTransport.#jsonReviver);
     } catch(err) {
-      console.debug(`Failed to parse broadcast event ${event.id}:`, err);
+      this.#logger.debug(`Failed to parse broadcast event ${event.id}:`, err);
       return;
     }
 
@@ -417,7 +453,7 @@ export class NostrTransport implements Transport {
     const rejected = results.filter(r => r.status === 'rejected');
 
     for(const r of rejected) {
-      console.debug(`Relay rejected event ${event.id}: ${(r as PromiseRejectedResult).reason}`);
+      this.#logger.debug(`Relay rejected event ${event.id}: ${(r as PromiseRejectedResult).reason}`);
     }
 
     if(accepted === 0) {

@@ -1,6 +1,6 @@
 import type { SerializedSMTProof } from '@did-btcr2/smt';
 import type { CohortAdvert, PendingSigningRequest, PendingValidation } from '../participant.js';
-import type { AggregationResult, PendingOptIn } from '../service.js';
+import type { AggregationResult, PendingOptIn, Rejection } from '../service.js';
 
 /**
  * AggregationServiceRunner events are emitted by the AggregationServiceRunner to signal important
@@ -23,6 +23,13 @@ export type AggregationServiceEvents = {
   /** A participant has submitted a signed update. */
   'update-received': [{ participantDid: string }];
 
+  /**
+   * An inbound message was silently dropped by the state machine (bad proof,
+   * oversized payload, wrong wire version, etc.). Fires for *any* rejection,
+   * not just SUBMIT_UPDATE.
+   */
+  'message-rejected': [Rejection & { cohortId: string }];
+
   /** Aggregated data has been distributed to all participants for validation. */
   'data-distributed': [{ cohortId: string }];
 
@@ -37,6 +44,9 @@ export type AggregationServiceEvents = {
 
   /** Signing complete — final aggregated signature is ready to broadcast. */
   'signing-complete': [AggregationResult];
+
+  /** Cohort transitioned to Failed phase (e.g. a participant rejected validation). */
+  'cohort-failed': [{ cohortId: string; reason: string }];
 
   /** A non-fatal error occurred. Fatal errors reject the run() promise. */
   'error': [Error];

@@ -49,11 +49,23 @@ export class AggregationCohort {
   /** List of participant DIDs that have been accepted into the cohort. */
   participants: Array<string> = [];
 
+  /**
+   * Mapping from participant DID → their compressed secp256k1 public key.
+   * Distinct from {@link cohortKeys} (which is sorted per BIP-327) — this lets
+   * callers look up a participant's key without knowing their position in the
+   * sorted array. Populated by the service at `acceptParticipant` time.
+   */
+  participantKeys: Map<string, Uint8Array> = new Map();
+
   /** Sorted list of cohort participants' compressed public keys. */
   #cohortKeys: Array<Uint8Array> = [];
 
-  /** Taproot tweak (BIP-341 key-path-only). */
-  trMerkleRoot: Uint8Array = new Uint8Array();
+  /**
+   * BIP-341 TapTweak — `taggedHash("TapTweak", internalPubkey)` for a key-path-only
+   * Taproot output. Despite prior naming, this is NOT a Merkle root: key-path-only
+   * spends have no script tree.
+   */
+  tapTweak: Uint8Array = new Uint8Array();
 
   /** The n-of-n MuSig2 Taproot beacon address. */
   beaconAddress: string = '';
@@ -95,7 +107,7 @@ export class AggregationCohort {
 
   /**
    * Computes the n-of-n MuSig2 Taproot beacon address from cohort keys.
-   * Sets `trMerkleRoot` to the BIP-341 key-path-only tweak.
+   * Sets `tapTweak` to the BIP-341 key-path-only tweak.
    */
   public computeBeaconAddress(): string {
     if(this.#cohortKeys.length === 0) {
@@ -110,7 +122,7 @@ export class AggregationCohort {
 
     // BIP-341: key-path-only P2TR has no script tree. Compute the tweak:
     // taggedHash("TapTweak", internalPubkey).
-    this.trMerkleRoot = schnorr.utils.taggedHash('TapTweak', aggPubkey);
+    this.tapTweak = schnorr.utils.taggedHash('TapTweak', aggPubkey);
 
     if(!payment.address) {
       throw new AggregationCohortError(
@@ -146,6 +158,19 @@ export class AggregationCohort {
         'BEACON_ADDRESS_MISMATCH', { cohortId: this.id, computed, expected: expectedBeaconAddress }
       );
     }
+  }
+
+  /**
+   * Returns the position of a participant's public key in the sorted
+   * {@link cohortKeys} array, or -1 if the participant is not in the cohort.
+   * Required by MuSig2 partial-sig verification which indexes by signer position.
+   */
+  public indexOfParticipant(did: string): number {
+    const pk = this.participantKeys.get(did);
+    if(!pk) return -1;
+    return this.#cohortKeys.findIndex(k =>
+      k.length === pk.length && k.every((b, i) => b === pk[i])
+    );
   }
 
   public addUpdate(participantDid: string, signedUpdate: SignedBTCR2Update): void {

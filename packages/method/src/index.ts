@@ -5,6 +5,8 @@ export * from './core/aggregation/cohort.js';
 export * from './core/aggregation/signing-session.js';
 export * from './core/aggregation/phases.js';
 export * from './core/aggregation/errors.js';
+export * from './core/aggregation/beacon-strategy.js';
+export * from './core/aggregation/logger.js';
 export * from './core/aggregation/messages/index.js';
 export * from './core/aggregation/transport/index.js';
 export * from './core/aggregation/runner/index.js';

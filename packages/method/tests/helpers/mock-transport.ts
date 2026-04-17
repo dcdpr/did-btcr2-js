@@ -95,6 +95,19 @@ export class MockTransport implements Transport {
     if(actor) actor.handlers.set(messageType, handler);
   }
 
+  unregisterMessageHandler(actorDid: string, messageType: string): void {
+    const actor = this.#actors.get(actorDid);
+    if(actor) actor.handlers.delete(messageType);
+  }
+
+  unregisterActor(did: string): void {
+    const actor = this.#actors.get(did);
+    if(!actor) return;
+    actor.handlers.clear();
+    this.#actors.delete(did);
+    this.#peers.delete(did);
+  }
+
   start(): void {
     // No-op for mock
   }

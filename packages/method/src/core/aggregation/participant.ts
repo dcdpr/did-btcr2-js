@@ -1,13 +1,14 @@
-import { canonicalHash, canonicalize } from '@did-btcr2/common';
+import { canonicalHash } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import type { SchnorrKeyPair } from '@did-btcr2/keypair';
 import type { SerializedSMTProof} from '@did-btcr2/smt';
-import { blockHash, didToIndex, hashToHex, hexToHash, verifySerializedProof } from '@did-btcr2/smt';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import { Transaction } from '@scure/btc-signer';
+import { getBeaconStrategy } from './beacon-strategy.js';
 import { AggregationCohort } from './cohort.js';
 import { AggregationParticipantError } from './errors.js';
 import type { BaseMessage } from './messages/base.js';
+import { AGGREGATION_WIRE_VERSION } from './messages/base.js';
 import {
   AGGREGATED_NONCE,
   AUTHORIZATION_REQUEST,
@@ -61,6 +62,8 @@ export interface PendingSigningRequest {
   cohortId: string;
   sessionId: string;
   pendingTxHex: string;
+  /** Hex-encoded scriptPubKey of the UTXO being spent. Required for BIP-341 sighash. */
+  prevOutScriptHex: string;
   prevOutValue: string;
 }
 
@@ -110,6 +113,10 @@ export class AggregationParticipant {
    * outgoing messages — those come exclusively from action methods.
    */
   public receive(message: BaseMessage): void {
+    // Reject messages whose wire version doesn't match what this build speaks.
+    if(message.version === undefined || message.version !== AGGREGATION_WIRE_VERSION) {
+      return;
+    }
     const type = message.type;
     switch(type) {
       case COHORT_ADVERT:
@@ -291,46 +298,28 @@ export class AggregationParticipant {
     if(!state.submittedUpdate) return;
 
     const beaconType = message.body?.beaconType;
+    if(!beaconType) return;
+    const strategy = getBeaconStrategy(beaconType);
+    if(!strategy) return;
+
     const signalBytesHex = message.body?.signalBytesHex ?? '';
     const expectedHash = canonicalHash(state.submittedUpdate);
-    let matches = false;
+    const result = strategy.validateParticipantView({
+      participantDid  : this.did,
+      submittedUpdate : state.submittedUpdate,
+      expectedHash,
+      body            : message.body!,
+    });
 
-    if(beaconType === 'CASBeacon') {
-      const casAnnouncement = message.body?.casAnnouncement;
-      if(casAnnouncement) {
-        matches = casAnnouncement[this.did] === expectedHash;
-        state.validation = {
-          cohortId,
-          beaconType,
-          signalBytesHex,
-          casAnnouncement,
-          expectedHash,
-          matches,
-        };
-      }
-    } else if(beaconType === 'SMTBeacon') {
-      const smtProof = message.body?.smtProof as unknown as SerializedSMTProof | undefined;
-      if(smtProof?.updateId && smtProof?.nonce) {
-        // Verify updateId matches the canonicalized update hash
-        const canonicalBytes = new TextEncoder().encode(canonicalize(state.submittedUpdate));
-        const expectedUpdateId = hashToHex(blockHash(canonicalBytes));
-        if(smtProof.updateId === expectedUpdateId) {
-          // Verify Merkle inclusion
-          const index = didToIndex(this.did);
-          const candidateHash = blockHash(blockHash(hexToHash(smtProof.nonce)), hexToHash(smtProof.updateId));
-          matches = verifySerializedProof(smtProof, index, candidateHash);
-        }
-        state.validation = {
-          cohortId,
-          beaconType,
-          signalBytesHex,
-          smtProof,
-          expectedHash,
-          matches,
-        };
-      }
-    }
-
+    state.validation = {
+      cohortId,
+      beaconType,
+      signalBytesHex,
+      expectedHash,
+      matches         : result.matches,
+      casAnnouncement : result.casAnnouncement,
+      smtProof        : result.smtProof,
+    };
     state.phase = ParticipantCohortPhase.AwaitingValidation;
   }
 
@@ -395,13 +384,15 @@ export class AggregationParticipant {
 
     const sessionId = message.body?.sessionId;
     const pendingTxHex = message.body?.pendingTx;
+    const prevOutScriptHex = message.body?.prevOutScriptHex;
     const prevOutValue = message.body?.prevOutValue;
-    if(!sessionId || !pendingTxHex || !prevOutValue) return;
+    if(!sessionId || !pendingTxHex || !prevOutScriptHex || !prevOutValue) return;
 
     state.signingRequest = {
       cohortId,
       sessionId,
       pendingTxHex,
+      prevOutScriptHex,
       prevOutValue,
     };
     state.phase = ParticipantCohortPhase.AwaitingSigning;
@@ -427,9 +418,12 @@ export class AggregationParticipant {
 
     const tx = Transaction.fromRaw(hexToBytes(state.signingRequest.pendingTxHex));
 
-    // Derive UTXO metadata for Taproot sighash (BIP-341).
-    // The beacon TX's change output (index 0) uses the same Taproot address as the input.
-    const prevOutScripts = tx.outputsLength > 0 ? [tx.getOutput(0).script!] : [];
+    // Derive UTXO metadata for Taproot sighash (BIP-341). Use the script
+    // supplied by the service in AUTHORIZATION_REQUEST rather than reading
+    // the change output: input and change may use different scripts in future
+    // beacon designs, and the prevOutScript must be the UTXO script, not the
+    // change script.
+    const prevOutScripts = [hexToBytes(state.signingRequest.prevOutScriptHex)];
     const prevOutValues = [BigInt(state.signingRequest.prevOutValue)];
 
     const session = new BeaconSigningSession({

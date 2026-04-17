@@ -164,6 +164,7 @@ type AuthorizationRequestMessage = {
   cohortId: string;
   sessionId: string;
   pendingTx: string;
+  prevOutScriptHex: string;
   prevOutValue: string;
 };
 type NonceContributionMessage = {

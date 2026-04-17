@@ -65,6 +65,27 @@ export interface AggregationServiceRunnerOptions {
    * REQUIRED — no sensible default.
    */
   onProvideTxData: OnProvideTxData;
+
+  /**
+   * Maximum canonicalized byte-length of a signed update body. Submissions
+   * above this cap are rejected and surfaced via the `message-rejected` event.
+   * Defaults to {@link DEFAULT_MAX_UPDATE_SIZE_BYTES} (256 KiB).
+   */
+  maxUpdateSizeBytes?: number;
+
+  /**
+   * Overall wall-clock budget for the cohort, from run() to signing-complete.
+   * On expiry the cohort is dropped, `cohort-failed` is emitted, and run()
+   * rejects with a timeout error. Leave undefined to disable.
+   */
+  cohortTtlMs?: number;
+
+  /**
+   * Maximum time allowed between phase transitions. Protects against stalled
+   * cohorts (e.g. a participant vanishing mid-protocol). Reset automatically
+   * on every observed phase change. Leave undefined to disable.
+   */
+  phaseTimeoutMs?: number;
 }
 
 /**
@@ -111,6 +132,8 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
   readonly #onOptInReceived: OnOptInReceived;
   readonly #onReadyToFinalize: OnReadyToFinalize;
   readonly #onProvideTxData: OnProvideTxData;
+  readonly #cohortTtlMs?: number;
+  readonly #phaseTimeoutMs?: number;
 
   #cohortId?: string;
   #handlersRegistered = false;
@@ -124,6 +147,9 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
   #finalizing = false;
   #resolveRun?: (result: AggregationResult) => void;
   #rejectRun?: (err: Error) => void;
+  #cohortTtlTimer?: ReturnType<typeof setTimeout>;
+  #phaseTimer?: ReturnType<typeof setTimeout>;
+  #lastObservedPhase?: string;
 
   constructor(options: AggregationServiceRunnerOptions) {
     super();
@@ -135,8 +161,26 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
       finalize : acceptedCount >= minRequired,
     }));
     this.#onProvideTxData = options.onProvideTxData;
+    this.#cohortTtlMs = options.cohortTtlMs;
+    this.#phaseTimeoutMs = options.phaseTimeoutMs;
 
-    this.session = new AggregationService({ did: options.did, keys: options.keys });
+    this.session = new AggregationService({
+      did                : options.did,
+      keys               : options.keys,
+      maxUpdateSizeBytes : options.maxUpdateSizeBytes,
+    });
+  }
+
+  /**
+   * Drain any silent rejections the state machine recorded during the most
+   * recent receive() and surface them as `message-rejected` events. Safe to
+   * call even before a cohortId is assigned.
+   */
+  #drainRejections(): void {
+    if(!this.#cohortId) return;
+    for(const r of this.session.drainRejections(this.#cohortId)) {
+      this.emit('message-rejected', { cohortId: this.#cohortId, ...r });
+    }
   }
 
   /**
@@ -153,8 +197,10 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
       try {
         this.#registerHandlers();
         this.#cohortId = this.session.createCohort(this.#config);
+        this.#startTimers();
         // Emit cohort-advertised BEFORE the send so the event fires before any downstream cascade
         const advertMsgs = this.session.advertise(this.#cohortId);
+        this.#onPhaseMaybeChanged();
         this.emit('cohort-advertised', { cohortId: this.#cohortId });
         this.#sendAll(advertMsgs).catch(err => this.#fail(err));
       } catch(err) {
@@ -163,14 +209,67 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
     });
   }
 
+  /** Schedule cohort TTL + phase timeout at the start of a run. */
+  #startTimers(): void {
+    if(this.#cohortTtlMs !== undefined) {
+      this.#cohortTtlTimer = setTimeout(() => {
+        const reason = `Cohort ${this.#cohortId ?? ''} exceeded TTL of ${this.#cohortTtlMs}ms`;
+        this.emit('cohort-failed', { cohortId: this.#cohortId ?? '', reason });
+        this.#fail(new Error(reason));
+      }, this.#cohortTtlMs);
+    }
+    this.#resetPhaseTimer();
+  }
+
+  /** Reset the per-phase stall timer. Called when a phase transition is observed. */
+  #resetPhaseTimer(): void {
+    if(this.#phaseTimer) clearTimeout(this.#phaseTimer);
+    this.#phaseTimer = undefined;
+    if(this.#phaseTimeoutMs === undefined) return;
+    this.#phaseTimer = setTimeout(() => {
+      const reason = `Cohort ${this.#cohortId ?? ''} stalled in phase ${this.#lastObservedPhase ?? '?'} for ${this.#phaseTimeoutMs}ms`;
+      this.emit('cohort-failed', { cohortId: this.#cohortId ?? '', reason });
+      this.#fail(new Error(reason));
+    }, this.#phaseTimeoutMs);
+  }
+
+  /** Detect a phase change since the last observation and reset the phase timer. */
+  #onPhaseMaybeChanged(): void {
+    if(!this.#cohortId) return;
+    const phase = this.session.getCohortPhase(this.#cohortId);
+    if(phase !== this.#lastObservedPhase) {
+      this.#lastObservedPhase = phase;
+      this.#resetPhaseTimer();
+    }
+  }
+
+  /** Clear both timers. Called on successful completion, stop(), and #fail. */
+  #clearTimers(): void {
+    if(this.#cohortTtlTimer) clearTimeout(this.#cohortTtlTimer);
+    if(this.#phaseTimer) clearTimeout(this.#phaseTimer);
+    this.#cohortTtlTimer = undefined;
+    this.#phaseTimer = undefined;
+  }
+
   /**
-   * Stop the runner early. Cleans up internal state.
-   * Note: does not unregister transport handlers (the transport interface
-   * does not currently expose unregister).
+   * Stop the runner early. Marks the runner stopped and detaches transport
+   * handlers so a restart or a new runner doesn't inherit stale dispatch.
    */
   stop(): void {
     this.#stopped = true;
+    this.#clearTimers();
+    this.#unregisterHandlers();
+    if(this.#cohortId) this.session.removeCohort(this.#cohortId);
   }
+
+  /** Message types this runner listens for on the transport. */
+  static readonly #HANDLED_MESSAGE_TYPES: readonly string[] = [
+    COHORT_OPT_IN,
+    SUBMIT_UPDATE,
+    VALIDATION_ACK,
+    NONCE_CONTRIBUTION,
+    SIGNATURE_AUTHORIZATION,
+  ];
 
   /**
    * Internal: handler registration with the transport. Idempotent.
@@ -184,6 +283,15 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
     this.#transport.registerMessageHandler(this.#did, VALIDATION_ACK, this.#handleValidationAck.bind(this));
     this.#transport.registerMessageHandler(this.#did, NONCE_CONTRIBUTION, this.#handleNonceContribution.bind(this));
     this.#transport.registerMessageHandler(this.#did, SIGNATURE_AUTHORIZATION, this.#handleSignatureAuthorization.bind(this));
+  }
+
+  /** Internal: detach from the transport. Safe to call repeatedly. */
+  #unregisterHandlers(): void {
+    if(!this.#handlersRegistered) return;
+    this.#handlersRegistered = false;
+    for(const type of AggregationServiceRunner.#HANDLED_MESSAGE_TYPES) {
+      this.#transport.unregisterMessageHandler(this.#did, type);
+    }
   }
 
   /**
@@ -202,6 +310,8 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
     if(this.#stopped) return;
     try {
       this.session.receive(msg);
+      this.#drainRejections();
+      this.#onPhaseMaybeChanged();
 
       const optIn = this.session.pendingOptIns(this.#cohortId!).get(msg.from);
       if(!optIn) return;
@@ -262,6 +372,8 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
     if(this.#stopped) return;
     try {
       this.session.receive(msg);
+      this.#drainRejections();
+      this.#onPhaseMaybeChanged();
       this.emit('update-received', { participantDid: msg.from });
 
       // When all updates collected, build and distribute
@@ -287,11 +399,25 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
     if(this.#stopped) return;
     try {
       this.session.receive(msg);
+      this.#drainRejections();
+      this.#onPhaseMaybeChanged();
       const approved = !!msg.body?.approved;
       this.emit('validation-received', { participantDid: msg.from, approved });
 
+      const phase = this.session.getCohortPhase(this.#cohortId!);
+
+      // A participant rejection flips the cohort to Failed. Emit a structured
+      // event so the runner/caller sees the failure instead of the cohort
+      // silently stalling.
+      if(phase === ServiceCohortPhase.Failed) {
+        const reason = `Validation rejected by participant ${msg.from}`;
+        this.emit('cohort-failed', { cohortId: this.#cohortId!, reason });
+        this.#fail(new Error(reason));
+        return;
+      }
+
       // When all validations received, request tx data and start signing
-      if(this.session.getCohortPhase(this.#cohortId!) === ServiceCohortPhase.Validated) {
+      if(phase === ServiceCohortPhase.Validated) {
         const cohort = this.session.getCohort(this.#cohortId!)!;
         const txData = await this.#onProvideTxData({
           cohortId      : this.#cohortId!,
@@ -320,6 +446,8 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
     if(this.#stopped) return;
     try {
       this.session.receive(msg);
+      this.#drainRejections();
+      this.#onPhaseMaybeChanged();
       this.emit('nonce-received', { participantDid: msg.from });
 
       // When all nonces collected, send aggregated nonce
@@ -343,10 +471,14 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
     if(this.#stopped) return;
     try {
       this.session.receive(msg);
+      this.#drainRejections();
+      this.#onPhaseMaybeChanged();
 
       // The state machine auto-completes when all partial sigs received
       const result = this.session.getResult(this.#cohortId!);
       if(result) {
+        this.#clearTimers();
+        this.#unregisterHandlers();
         this.emit('signing-complete', result);
         this.#resolveRun?.(result);
       }
@@ -373,6 +505,9 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
    * @param {Error} err - The error to handle.
    */
   #fail(err: Error): void {
+    this.#clearTimers();
+    this.#unregisterHandlers();
+    if(this.#cohortId) this.session.removeCohort(this.#cohortId);
     this.emit('error', err);
     this.#rejectRun?.(err);
   }

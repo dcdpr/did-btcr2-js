@@ -41,6 +41,16 @@ export interface Transport {
   /** Register a message handler scoped to a specific actor. */
   registerMessageHandler(actorDid: string, messageType: string, handler: MessageHandler): void;
 
+  /** Remove a previously-registered handler. No-op if not registered. */
+  unregisterMessageHandler(actorDid: string, messageType: string): void;
+
+  /**
+   * Detach an actor: unregister all its handlers, drop its keys, and close any
+   * transport-level subscriptions created for it. No-op if the actor is not
+   * registered.
+   */
+  unregisterActor(did: string): void;
+
   /** Send a message. The transport looks up sender to resolve signing keys. */
   sendMessage(message: BaseMessage, sender: string, recipient?: string): Promise<void>;
 }

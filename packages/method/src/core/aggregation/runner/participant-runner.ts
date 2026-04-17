@@ -140,9 +140,29 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
     this.#registerHandlers();
   }
 
-  /** Stop the runner. Does not unregister transport handlers. */
+  /** Stop the runner and detach transport handlers. Safe to call repeatedly. */
   stop(): void {
     this.#stopped = true;
+    this.#unregisterHandlers();
+  }
+
+  /** Message types this runner listens for on the transport. */
+  static readonly #HANDLED_MESSAGE_TYPES: readonly string[] = [
+    COHORT_ADVERT,
+    COHORT_OPT_IN_ACCEPT,
+    COHORT_READY,
+    DISTRIBUTE_AGGREGATED_DATA,
+    AUTHORIZATION_REQUEST,
+    AGGREGATED_NONCE,
+  ];
+
+  /** Internal: detach from the transport. Safe to call repeatedly. */
+  #unregisterHandlers(): void {
+    if(!this.#handlersRegistered) return;
+    this.#handlersRegistered = false;
+    for(const type of AggregationParticipantRunner.#HANDLED_MESSAGE_TYPES) {
+      this.#transport.unregisterMessageHandler(this.#did, type);
+    }
   }
 
   /**

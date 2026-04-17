@@ -1,11 +1,14 @@
+import { canonicalize } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { BIP340Cryptosuite, SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import type { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';
 import type { Transaction } from '@scure/btc-signer';
+import { getBeaconStrategy } from './beacon-strategy.js';
 import { AggregationCohort } from './cohort.js';
 import { AggregationServiceError } from './errors.js';
 import type { BaseMessage } from './messages/base.js';
+import { AGGREGATION_WIRE_VERSION } from './messages/base.js';
 import {
   COHORT_OPT_IN,
   NONCE_CONTRIBUTION,
@@ -62,6 +65,23 @@ export interface SigningTxData {
   prevOutValues: bigint[];
 }
 
+/** Reason an incoming message was silently dropped by the state machine. */
+export type RejectionReason =
+  | 'WRONG_VERSION'
+  | 'UPDATE_TOO_LARGE'
+  | 'UPDATE_VERIFICATION_FAILED'
+  | 'UPDATE_MALFORMED';
+
+/** Record of a silently-dropped inbound message. Drained by the runner to emit events. */
+export interface Rejection {
+  /** DID of the sender whose message was rejected. */
+  from: string;
+  /** Machine-readable code. */
+  code: RejectionReason;
+  /** Human-readable reason. */
+  reason: string;
+}
+
 /** Per-cohort service state — internal. */
 interface ServiceCohortState {
   phase: ServiceCohortPhaseType;
@@ -71,11 +91,22 @@ interface ServiceCohortState {
   acceptedParticipants: Set<string>;
   signingSession?: BeaconSigningSession;
   result?: AggregationResult;
+  /** Rejections accumulated since last drain. Runner polls via drainRejections(). */
+  rejections: Array<Rejection>;
 }
+
+/** Default maximum canonicalized byte-length of a submitted BTCR2 update. */
+export const DEFAULT_MAX_UPDATE_SIZE_BYTES = 256 * 1024;
 
 export interface AggregationServiceParams {
   did: string;
   keys: SchnorrKeyPair;
+  /**
+   * Maximum canonicalized byte-length of a signed update body accepted by the
+   * service. Submissions above this cap are silently dropped and surfaced as
+   * `UPDATE_TOO_LARGE` rejections. Defaults to {@link DEFAULT_MAX_UPDATE_SIZE_BYTES}.
+   */
+  maxUpdateSizeBytes?: number;
 }
 
 /**
@@ -92,17 +123,36 @@ export interface AggregationServiceParams {
 export class AggregationService {
   readonly did: string;
   readonly keys: SchnorrKeyPair;
+  readonly maxUpdateSizeBytes: number;
 
   /** Per-cohort state, keyed by cohortId. */
   #cohortStates: Map<string, ServiceCohortState> = new Map();
 
-  constructor({ did, keys }: AggregationServiceParams) {
+  constructor({ did, keys, maxUpdateSizeBytes }: AggregationServiceParams) {
     this.did = did;
     this.keys = keys;
+    this.maxUpdateSizeBytes = maxUpdateSizeBytes ?? DEFAULT_MAX_UPDATE_SIZE_BYTES;
   }
 
 
   receive(message: BaseMessage): void {
+    // Reject messages whose wire version doesn't match what this build speaks.
+    // Missing version → treat as legacy and drop: bumping the protocol must be
+    // coordinated across all participants.
+    const version = message.version;
+    if(version === undefined || version !== AGGREGATION_WIRE_VERSION) {
+      const cohortId = message.body?.cohortId;
+      const state = cohortId ? this.#cohortStates.get(cohortId) : undefined;
+      if(state) {
+        state.rejections.push({
+          from   : message.from,
+          code   : 'WRONG_VERSION',
+          reason : `Expected wire version ${AGGREGATION_WIRE_VERSION}, got ${String(version)}`,
+        });
+      }
+      return;
+    }
+
     const type = message.type;
     switch(type) {
       case COHORT_OPT_IN:
@@ -126,6 +176,19 @@ export class AggregationService {
     }
   }
 
+  /**
+   * Drain the rejection log for a cohort. Used by runners to surface silent
+   * drops (bad proof, oversized update, wrong version, etc.) as structured
+   * events without breaking the sans-I/O state machine contract.
+   */
+  drainRejections(cohortId: string): Array<Rejection> {
+    const state = this.#cohortStates.get(cohortId);
+    if(!state) return [];
+    const out = state.rejections;
+    state.rejections = [];
+    return out;
+  }
+
 
   /**
    * Create a new cohort with the given config. Returns the cohort ID.
@@ -144,6 +207,7 @@ export class AggregationService {
       config,
       pendingOptIns        : new Map(),
       acceptedParticipants : new Set(),
+      rejections           : [],
     });
     return cohort.id;
   }
@@ -203,6 +267,13 @@ export class AggregationService {
     const communicationPk = message.body?.communicationPk;
     if(!participantPk || !communicationPk) return;
 
+    // Reject re-opt-in from already-accepted participants. Without this guard a
+    // participant could send a second opt-in with a different key, overwriting
+    // pendingOptIns[did] while cohortKeys still holds the original key — opening
+    // a desync window where #verifySubmittedUpdate accepts updates signed with
+    // a key that is NOT in the MuSig2 cohort.
+    if(state.acceptedParticipants.has(participantDid)) return;
+
     state.pendingOptIns.set(participantDid, {
       cohortId,
       participantDid,
@@ -236,6 +307,7 @@ export class AggregationService {
 
     state.acceptedParticipants.add(participantDid);
     state.cohort.participants.push(participantDid);
+    state.cohort.participantKeys.set(participantDid, optIn.participantPk);
     state.cohort.cohortKeys = [...state.cohort.cohortKeys, optIn.participantPk];
 
     return [createCohortOptInAcceptMessage({
@@ -251,7 +323,6 @@ export class AggregationService {
    */
   finalizeKeygen(cohortId: string): BaseMessage[] {
     const state = this.#cohortStates.get(cohortId);
-    console.log('finalizeKeygen state:', state);
     if(!state) {
       throw new AggregationServiceError(`Cohort ${cohortId} not found.`, 'COHORT_NOT_FOUND', { cohortId });
     }
@@ -307,13 +378,40 @@ export class AggregationService {
     if(state.phase !== ServiceCohortPhase.CohortSet && state.phase !== ServiceCohortPhase.CollectingUpdates) return;
 
     const signedUpdate = message.body?.signedUpdate as SignedBTCR2Update | undefined;
-    if(!signedUpdate) return;
+    if(!signedUpdate) {
+      state.rejections.push({
+        from   : message.from,
+        code   : 'UPDATE_MALFORMED',
+        reason : 'SUBMIT_UPDATE missing signedUpdate body',
+      });
+      return;
+    }
+
+    // Cap the canonicalized update size before doing any heavier verification
+    // work. Without this guard, a participant could submit multi-MB payloads
+    // that the service would canonicalize, hash, and aggregate — cheap DoS.
+    const canonicalSize = canonicalize(signedUpdate as unknown as Record<string, unknown>).length;
+    if(canonicalSize > this.maxUpdateSizeBytes) {
+      state.rejections.push({
+        from   : message.from,
+        code   : 'UPDATE_TOO_LARGE',
+        reason : `Canonicalized update is ${canonicalSize} bytes; max allowed is ${this.maxUpdateSizeBytes}`,
+      });
+      return;
+    }
 
     // Verify the BIP-340 Data Integrity proof before aggregating. Without this check,
     // a malicious cohort member could submit updates with garbage proofs, which the
     // service would aggregate into the CAS announcement / SMT root and ultimately
     // anchor on-chain with the cohort's MuSig2 signature.
-    if(!this.#verifySubmittedUpdate(state, message.from, signedUpdate)) return;
+    if(!this.#verifySubmittedUpdate(state, message.from, signedUpdate)) {
+      state.rejections.push({
+        from   : message.from,
+        code   : 'UPDATE_VERIFICATION_FAILED',
+        reason : 'BIP-340 Data Integrity proof verification failed',
+      });
+      return;
+    }
 
     state.cohort.addUpdate(message.from, signedUpdate);
 
@@ -382,30 +480,29 @@ export class AggregationService {
       );
     }
 
-    if(state.config.beaconType === 'CASBeacon') {
-      state.cohort.buildCASAnnouncement();
-    } else if(state.config.beaconType === 'SMTBeacon') {
-      state.cohort.buildSMTTree();
-    } else {
+    const strategy = getBeaconStrategy(state.config.beaconType);
+    if(!strategy) {
       throw new AggregationServiceError(
         `Unsupported beacon type: ${state.config.beaconType}`,
         'UNSUPPORTED_BEACON_TYPE', { cohortId, beaconType: state.config.beaconType }
       );
     }
+    strategy.buildAggregatedData(state.cohort);
 
     const signalBytesHex = bytesToHex(state.cohort.signalBytes!);
     state.phase = ServiceCohortPhase.DataDistributed;
 
     const messages: BaseMessage[] = [];
     for(const participantDid of state.cohort.participants) {
+      const payload = strategy.getDistributePayload(state.cohort, participantDid);
       messages.push(createDistributeAggregatedDataMessage({
         from            : this.did,
         to              : participantDid,
         cohortId,
         beaconType      : state.config.beaconType,
         signalBytesHex,
-        casAnnouncement : state.config.beaconType === 'CASBeacon' ? state.cohort.casAnnouncement : undefined,
-        smtProof        : state.config.beaconType === 'SMTBeacon' ? state.cohort.smtProofs?.get(participantDid) as unknown as Record<string, unknown> : undefined,
+        casAnnouncement : payload.casAnnouncement,
+        smtProof        : payload.smtProof,
       }));
     }
     return messages;
@@ -477,15 +574,24 @@ export class AggregationService {
     state.signingSession = session;
     state.phase = ServiceCohortPhase.SigningStarted;
 
+    const prevOutScript = txData.prevOutScripts[0];
+    if(!prevOutScript) {
+      throw new AggregationServiceError(
+        `Cannot start signing for cohort ${cohortId}: txData.prevOutScripts[0] is missing.`,
+        'MISSING_PREV_OUT_SCRIPT', { cohortId }
+      );
+    }
+
     const messages: BaseMessage[] = [];
     for(const participantDid of state.cohort.participants) {
       messages.push(createAuthorizationRequestMessage({
-        from         : this.did,
-        to           : participantDid,
+        from             : this.did,
+        to               : participantDid,
         cohortId,
-        sessionId    : session.id,
-        pendingTx    : txData.tx.hex,
-        prevOutValue : txData.prevOutValues[0]?.toString() ?? '0',
+        sessionId        : session.id,
+        pendingTx        : txData.tx.hex,
+        prevOutScriptHex : bytesToHex(prevOutScript),
+        prevOutValue     : txData.prevOutValues[0]?.toString() ?? '0',
       }));
     }
     return messages;
@@ -598,5 +704,13 @@ export class AggregationService {
 
   get cohorts(): ReadonlyArray<AggregationCohort> {
     return [...this.#cohortStates.values()].map(s => s.cohort);
+  }
+
+  /**
+   * Remove a cohort from the state map. Used by runners to GC state on cohort
+   * completion, failure, or expiry. No-op if the cohort doesn't exist.
+   */
+  removeCohort(cohortId: string): void {
+    this.#cohortStates.delete(cohortId);
   }
 }

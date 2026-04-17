@@ -36,6 +36,14 @@ export class DidCommTransport implements Transport {
     throw new NotImplementedError('DidCommTransport not implemented.');
   }
 
+  public unregisterMessageHandler(_actorDid: string, _messageType: string): void {
+    throw new NotImplementedError('DidCommTransport not implemented.');
+  }
+
+  public unregisterActor(_did: string): void {
+    throw new NotImplementedError('DidCommTransport not implemented.');
+  }
+
   public async sendMessage(_message: BaseMessage, _sender: string, _recipient?: string): Promise<void> {
     throw new NotImplementedError('DidCommTransport not implemented.');
   }
