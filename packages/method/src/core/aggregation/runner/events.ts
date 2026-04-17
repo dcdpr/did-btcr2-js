@@ -1,3 +1,4 @@
+import type { SerializedSMTProof } from '@did-btcr2/smt';
 import type { CohortAdvert, PendingSigningRequest, PendingValidation } from '../participant.js';
 import type { AggregationResult, PendingOptIn } from '../service.js';
 
@@ -66,8 +67,21 @@ export type AggregationParticipantEvents = {
   /** Signing request has arrived. Fires before the sign approval callback. */
   'signing-requested': [PendingSigningRequest];
 
-  /** Cohort signing is complete from this participant's perspective. */
-  'cohort-complete': [{ cohortId: string; beaconAddress: string }];
+  /**
+   * Cohort signing is complete from this participant's perspective.
+   * Includes the aggregated sidecar data the participant needs to keep for
+   * future DID resolution: the CAS Announcement map (for CAS beacons) or the
+   * SMT inclusion proof (for SMT beacons).
+   */
+  'cohort-complete': [{
+    cohortId: string;
+    beaconAddress: string;
+    beaconType: string;
+    /** DID → base64url update hash. Populated only for CAS beacons. */
+    casAnnouncement?: Record<string, string>;
+    /** Merkle inclusion proof for this participant's slot. Populated only for SMT beacons. */
+    smtProof?: SerializedSMTProof;
+  }];
 
   /** Cohort failed (rejected validation, signing error, etc.). */
   'cohort-failed': [{ cohortId: string; reason: string }];

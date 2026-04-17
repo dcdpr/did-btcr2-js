@@ -115,6 +115,13 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
   #cohortId?: string;
   #handlersRegistered = false;
   #stopped = false;
+  /**
+   * Guard against the async race where two concurrent #handleOptIn invocations
+   * both pass the `participants.length >= minParticipants` check before either
+   * mutates the cohort phase. Set synchronously before any `await` so subsequent
+   * handlers observe it on their next resumption.
+   */
+  #finalizing = false;
   #resolveRun?: (result: AggregationResult) => void;
   #rejectRun?: (err: Error) => void;
 
@@ -211,25 +218,32 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
       await this.#sendAll(this.session.acceptParticipant(this.#cohortId!, msg.from));
       this.emit('participant-accepted', { participantDid: msg.from });
 
-      // Check if it's time to finalize
+      // Check if it's time to finalize. The `#finalizing` flag is set synchronously
+      // before the first await so concurrent opt-in handlers observe it and skip —
+      // otherwise two handlers could both pass the minParticipants check and both
+      // call finalizeKeygen, the second of which would throw (phase mismatch).
       const cohort = this.session.getCohort(this.#cohortId!)!;
-      if(cohort.participants.length >= this.#config.minParticipants) {
+      if(cohort.participants.length >= this.#config.minParticipants && !this.#finalizing) {
+        this.#finalizing = true;
         const finalizeDecision = await this.#onReadyToFinalize({
           acceptedCount : cohort.participants.length,
           minRequired   : this.#config.minParticipants,
         });
-        if(finalizeDecision.finalize) {
-          // finalizeKeygen() computes the beacon address synchronously
-          // emit BEFORE awaiting sendAll. Otherwise the downstream cascade
-          // (which can run all the way to signing-complete) would resolve the
-          // run() promise before this event fires.
-          const readyMsgs = this.session.finalizeKeygen(this.#cohortId!);
-          this.emit('keygen-complete', {
-            cohortId      : this.#cohortId!,
-            beaconAddress : cohort.beaconAddress,
-          });
-          await this.#sendAll(readyMsgs);
+        if(!finalizeDecision.finalize) {
+          // Operator declined — reset the flag so a later opt-in can retry.
+          this.#finalizing = false;
+          return;
         }
+        // finalizeKeygen() computes the beacon address synchronously
+        // emit BEFORE awaiting sendAll. Otherwise the downstream cascade
+        // (which can run all the way to signing-complete) would resolve the
+        // run() promise before this event fires.
+        const readyMsgs = this.session.finalizeKeygen(this.#cohortId!);
+        this.emit('keygen-complete', {
+          cohortId      : this.#cohortId!,
+          beaconAddress : cohort.beaconAddress,
+        });
+        await this.#sendAll(readyMsgs);
       }
     } catch(err) {
       this.#fail(err as Error);

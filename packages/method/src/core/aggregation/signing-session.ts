@@ -95,6 +95,12 @@ export class BeaconSigningSession {
         'INVALID_PHASE', { phase: this.phase }
       );
     }
+    if(!this.cohort.participants.includes(participantDid)) {
+      throw new SigningSessionError(
+        `Participant ${participantDid} is not a member of cohort ${this.cohort.id}.`,
+        'UNKNOWN_PARTICIPANT', { cohortId: this.cohort.id, participantDid }
+      );
+    }
     if(nonceContribution.length !== 66) {
       throw new SigningSessionError(
         `Invalid nonce contribution: expected 66 bytes, got ${nonceContribution.length}.`,
@@ -131,6 +137,12 @@ export class BeaconSigningSession {
       throw new SigningSessionError(
         `Partial signatures not expected. Current phase: ${this.phase}`,
         'INVALID_PHASE'
+      );
+    }
+    if(!this.cohort.participants.includes(participantDid)) {
+      throw new SigningSessionError(
+        `Participant ${participantDid} is not a member of cohort ${this.cohort.id}.`,
+        'UNKNOWN_PARTICIPANT', { cohortId: this.cohort.id, participantDid }
       );
     }
     if(this.partialSignatures.has(participantDid)) {

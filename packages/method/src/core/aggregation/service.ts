@@ -1,4 +1,5 @@
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import { BIP340Cryptosuite, SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import type { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';
 import type { Transaction } from '@scure/btc-signer';
@@ -13,12 +14,12 @@ import {
   VALIDATION_ACK,
 } from './messages/constants.js';
 import {
+  createAggregatedNonceMessage,
   createAuthorizationRequestMessage,
   createCohortAdvertMessage,
   createCohortOptInAcceptMessage,
   createCohortReadyMessage,
   createDistributeAggregatedDataMessage,
-  createAggregatedNonceMessage,
 } from './messages/factories.js';
 import type { ServiceCohortPhaseType } from './phases.js';
 import { ServiceCohortPhase } from './phases.js';
@@ -250,6 +251,7 @@ export class AggregationService {
    */
   finalizeKeygen(cohortId: string): BaseMessage[] {
     const state = this.#cohortStates.get(cohortId);
+    console.log('finalizeKeygen state:', state);
     if(!state) {
       throw new AggregationServiceError(`Cohort ${cohortId} not found.`, 'COHORT_NOT_FOUND', { cohortId });
     }
@@ -290,6 +292,13 @@ export class AggregationService {
     return state.cohort.pendingUpdates;
   }
 
+  /**
+   * Handle an incoming SUBMIT_UPDATE message from a participant containing their signed update to
+   * submit for aggregation.
+   * @param {BaseMessage} message - incoming SUBMIT_UPDATE message containing a participant's signed
+   * update to submit for aggregation
+   * @returns {void} - no return value; updates the service state with the submitted update if valid
+   */
   #handleSubmitUpdate(message: BaseMessage): void {
     const cohortId = message.body?.cohortId;
     if(!cohortId) return;
@@ -297,16 +306,62 @@ export class AggregationService {
     if(!state) return;
     if(state.phase !== ServiceCohortPhase.CohortSet && state.phase !== ServiceCohortPhase.CollectingUpdates) return;
 
-    const signedUpdate = message.body?.signedUpdate;
+    const signedUpdate = message.body?.signedUpdate as SignedBTCR2Update | undefined;
     if(!signedUpdate) return;
 
-    state.cohort.addUpdate(message.from, signedUpdate as unknown as SignedBTCR2Update);
+    // Verify the BIP-340 Data Integrity proof before aggregating. Without this check,
+    // a malicious cohort member could submit updates with garbage proofs, which the
+    // service would aggregate into the CAS announcement / SMT root and ultimately
+    // anchor on-chain with the cohort's MuSig2 signature.
+    if(!this.#verifySubmittedUpdate(state, message.from, signedUpdate)) return;
+
+    state.cohort.addUpdate(message.from, signedUpdate);
 
     if(state.phase === ServiceCohortPhase.CohortSet) {
       state.phase = ServiceCohortPhase.CollectingUpdates;
     }
     if(state.cohort.hasAllUpdates()) {
       state.phase = ServiceCohortPhase.UpdatesCollected;
+    }
+  }
+
+  /**
+   * Verify the BIP-340 Schnorr Data Integrity proof on a submitted update using the
+   * participant's public key from their cohort opt-in. Returns `false` (and the
+   * update is silently dropped) if the proof is missing, the verificationMethod does
+   * not name the sender's DID, the participant has no opt-in on record, or the
+   * signature fails verification.
+   * @param {ServiceCohortState} state - the current state of the cohort to which the update was submitted
+   * @param {string} sender - the DID of the participant who submitted the update
+   * @param {SignedBTCR2Update} signedUpdate - the signed update containing the proof to verify
+   * @returns {boolean} - `true` if the proof is valid and the update can be accepted; `false` otherwise
+   */
+  #verifySubmittedUpdate(
+    state: ServiceCohortState,
+    sender: string,
+    signedUpdate: SignedBTCR2Update,
+  ): boolean {
+    const proof = signedUpdate.proof;
+    if(!proof?.verificationMethod || !proof.proofValue) return false;
+
+    // The proof must be signed by the sender's own key. Reject if the
+    // verificationMethod references a different DID.
+    const vmDid = proof.verificationMethod.split('#')[0];
+    if(vmDid !== sender) return false;
+
+    const optIn = state.pendingOptIns.get(sender);
+    if(!optIn) return false;
+
+    try {
+      const multikey = SchnorrMultikey.fromPublicKey({
+        id             : proof.verificationMethod,
+        controller     : sender,
+        publicKeyBytes : optIn.participantPk,
+      }) as SchnorrMultikey;
+      const suite = new BIP340Cryptosuite(multikey);
+      return suite.verifyProof(signedUpdate).verified === true;
+    } catch {
+      return false;
     }
   }
 

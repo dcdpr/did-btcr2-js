@@ -1,5 +1,6 @@
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import type { SchnorrKeyPair } from '@did-btcr2/keypair';
+import type { SerializedSMTProof } from '@did-btcr2/smt';
 import type { BaseMessage } from '../messages/base.js';
 import {
   AGGREGATED_NONCE,
@@ -87,11 +88,7 @@ export interface AggregationParticipantRunnerOptions {
  *   keys: myKeys,
  *   shouldJoin: async (advert) => advert.beaconType === 'CASBeacon',
  *   onProvideUpdate: async ({ beaconAddress }) => {
-<<<<<<< Updated upstream
- *     return Update.sign(myDid, unsigned, vm, secretKey);
-=======
  *     return Updater.sign(myDid, unsigned, vm, secretKey);
->>>>>>> Stashed changes
  *   },
  * });
  *
@@ -154,7 +151,15 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
    */
   static async joinFirst(
     options: AggregationParticipantRunnerOptions
-  ): Promise<{ cohortId: string; beaconAddress: string }> {
+  ): Promise<{
+    cohortId: string;
+    beaconAddress: string;
+    beaconType: string;
+    /** DID → base64url update hash. Populated only for CAS beacons. */
+    casAnnouncement?: Record<string, string>;
+    /** Merkle inclusion proof for this participant's slot. Populated only for SMT beacons. */
+    smtProof?: SerializedSMTProof;
+  }> {
     return new Promise((resolve, reject) => {
       const runner = new AggregationParticipantRunner(options);
       runner.once('cohort-complete', (info) => {
@@ -341,7 +346,16 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
       if (this.session.getCohortPhase(cohortId) === ParticipantCohortPhase.Complete) {
         const info = this.session.joinedCohorts.get(cohortId);
         if (info) {
-          this.emit('cohort-complete', { cohortId, beaconAddress: info.beaconAddress });
+          // Surface the sidecar data the participant will need for future resolutions:
+          // the CAS Announcement map (CAS beacons) or their SMT inclusion proof.
+          const validation = this.session.pendingValidations.get(cohortId);
+          this.emit('cohort-complete', {
+            cohortId,
+            beaconAddress   : info.beaconAddress,
+            beaconType      : validation?.beaconType ?? '',
+            casAnnouncement : validation?.casAnnouncement,
+            smtProof        : validation?.smtProof,
+          });
         }
       }
     } catch (err) {

@@ -85,5 +85,5 @@ const result = await service.run();
 console.log('\n══ COMPLETE ══');
 console.log('Final signature:', bytesToHex(result.signature));
 console.log('Beacon address:', service.session.getCohort(result.cohortId)!.beaconAddress);
-
+console.log('Signed transaction:', bytesToHex(result.signedTx.toBytes()));
 process.exit(0);
