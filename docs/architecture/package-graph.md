@@ -24,18 +24,18 @@ common
         └── cli <─common,api,cryptosuite,method
 ```
 
-The `<─` arrows show "depends on" — `method` depends on `common`, `keypair`, `cryptosuite`, and `bitcoin`. The leftmost packages have no upstream workspace dependencies; the rightmost (`cli`) has the most.
+The `<─` arrows show "depends on": `method` depends on `common`, `keypair`, `cryptosuite`, and `bitcoin`. The leftmost packages have no upstream workspace dependencies; the rightmost (`cli`) has the most.
 
 ## Per-package dependencies
 
 | Package | Workspace dependencies | Direction |
 |---|---|---|
-| `common` | _(none)_ | Foundation — depends on nothing |
+| `common` | _(none)_ | Foundation: depends on nothing |
 | `keypair` | `common` | Used by all crypto-touching packages |
 | `cryptosuite` | `common`, `keypair` | Data Integrity proofs |
 | `bitcoin` | `common`, `keypair` | Bitcoin RPC/REST clients |
 | `kms` | `common`, `keypair` | Key management |
-| `smt` | _(none — no workspace deps)_ | Self-contained; uses `@noble/*` directly |
+| `smt` | _(none: no workspace deps)_ | Self-contained; uses `@noble/*` directly |
 | `method` | `common`, `keypair`, `cryptosuite`, `bitcoin` | Core implementation |
 | `api` | `common`, `keypair`, `cryptosuite`, `bitcoin`, `kms`, `method`, `smt` | High-level SDK facade |
 | `cli` | `common`, `cryptosuite`, `method`, `api` | Binary entry point |
@@ -48,26 +48,26 @@ The build proceeds in topological order. Three "waves" can run in parallel withi
 
 ```
 Wave 1: common
-Wave 2: keypair, smt              (parallel — both only depend on common or nothing)
-Wave 3: cryptosuite, bitcoin, kms (parallel — all depend on common + keypair)
+Wave 2: keypair, smt              (parallel: both only depend on common or nothing)
+Wave 3: cryptosuite, bitcoin, kms (parallel: all depend on common + keypair)
 Wave 4: method                    (depends on cryptosuite + bitcoin from wave 3)
 Wave 5: api                       (depends on method + kms + smt)
 Wave 6: cli                       (depends on api)
 ```
 
-When you run `pnpm build` from the repo root, pnpm walks this graph automatically. When you run `pnpm build:ts`, TypeScript's project references mechanism walks the same graph (declared in each `tsconfig.json`'s `references` field) and uses incremental caches via `dist/.tsbuildinfo` to skip unchanged packages.
+When you run `pnpm build` from the repo root, pnpm walks this graph automatically. When you run `pnpm build:ts`, TypeScript's project references mechanism walks the same graph (declared in the `references` field of each `tsconfig.json`) and uses incremental caches via `dist/.tsbuildinfo` to skip unchanged packages.
 
 ## Publish order
 
 Same as build order, but with the additional constraint that you cannot publish a package whose updated dependency is not yet on npm. The recommended manual sequence:
 
 ```
-common → keypair → smt → cryptosuite → bitcoin → kms → method → api → cli
+common to keypair to smt to cryptosuite to bitcoin to kms to method to api to cli
 ```
 
-`pnpm -r publish` does this automatically — workspace deps are resolved in topological order.
+`pnpm -r publish` does this automatically: workspace deps are resolved in topological order.
 
-## Cross-package imports — rules
+## Cross-package imports: rules
 
 When you add a new import from package A to package B (e.g., `import { Foo } from '@did-btcr2/bar'` in `packages/foo/src/index.ts`), you must:
 
@@ -91,6 +91,6 @@ If you skip step 2, the build will fail at runtime (because B's `dist/` doesn't 
 The dependency graph is intentionally acyclic. **Don't introduce cycles.** If you find yourself wanting to import from a downstream package back into an upstream one, the right answer is almost always:
 
 - Move the shared type/utility into a more upstream package (often `common`)
-- Or restructure the abstraction so the dependency arrow points the correct way (often via dependency injection — pass the downstream concern in as a parameter rather than importing it)
+- Or restructure the abstraction so the dependency arrow points the correct way (often via dependency injection: pass the downstream concern in as a parameter rather than importing it)
 
 TypeScript project references would catch a cycle attempt at build time, but it's better to think about the design before the type checker has to enforce it.

@@ -8,7 +8,7 @@ How to cut and publish a release of one or more `@did-btcr2/*` packages.
 
 ## When to release
 
-Releases happen on demand. There's no automated cadence — a release is cut whenever:
+Releases happen on demand. There's no automated cadence: a release is cut whenever:
 
 - A bug fix needs to ship to consumers
 - A new feature is ready to publish
@@ -50,11 +50,11 @@ pnpm build:tests && pnpm test
 pnpm lint
 ```
 
-All five must pass. If any step fails, do not release — fix `main` first, get the fix merged, then return to step 1.
+All five must pass. If any step fails, do not release: fix `main` first, get the fix merged, then return to step 1.
 
 ### 3. Bump versions
 
-Bump every package that has changed since its last published version. Edit each package's `package.json` directly — there's no automated bump tool currently in use.
+Bump every package that has changed since its last published version. Edit each package's `package.json` directly: there's no automated bump tool currently in use.
 
 For a small release, the relevant section of each `package.json`:
 
@@ -80,8 +80,8 @@ For batched releases, list each package + version in the commit body:
 ```
 chore: bump patch versions across all packages
 
-- common       8.0.1  → 8.0.2
-- keypair      0.11.3 → 0.11.4
+- common       8.0.1  to 8.0.2
+- keypair      0.11.3 to 0.11.4
 - ...
 ```
 
@@ -115,7 +115,7 @@ Have your 2FA token ready if your npm account requires it.
 **Recommended: workspace publish (publishes all bumped packages in topological order automatically):**
 
 ```bash
-# Dry run first — shows what would be published without actually doing it
+# Dry run first: shows what would be published without actually doing it
 pnpm -r publish --access public --dry-run
 
 # If the dry run looks correct:
@@ -124,7 +124,7 @@ pnpm -r publish --access public
 
 `pnpm -r publish` only publishes packages whose `version` field is newer than what's on the registry. It also rewrites `workspace:^` references to concrete semver in the published tarballs.
 
-**Alternative: manual publish in dependency order** — useful when you want to verify each landing on npm before proceeding to the next:
+**Alternative: manual publish in dependency order**: useful when you want to verify each landing on npm before proceeding to the next:
 
 ```bash
 cd packages/common      && pnpm publish --access public && cd -
@@ -138,7 +138,7 @@ cd packages/api         && pnpm publish --access public && cd -
 cd packages/cli         && pnpm publish --access public && cd -
 ```
 
-The dependency order matters — a package can't be installed by its dependents until it's on the registry.
+The dependency order matters: a package can't be installed by its dependents until it's on the registry.
 
 ### 8. Post-publish smoke test
 
@@ -162,7 +162,7 @@ node -e "
 "
 ```
 
-Both should print `function`. If either fails, the published tarball is broken — yank it (`npm unpublish @did-btcr2/method@X.Y.Z`) within the 72-hour window and investigate.
+Both should print `function`. If either fails, the published tarball is broken: yank it (`npm unpublish @did-btcr2/method@X.Y.Z`) within the 72-hour window and investigate.
 
 ### 9. Tag the release (optional)
 
@@ -193,7 +193,7 @@ Run `npm login` and re-authenticate. If you have 2FA, you'll need to provide a t
 
 ### A package fails publish midway through a batched release
 
-Don't panic. The packages that already published are fine. Investigate the failure (often a permissions issue, a stale 2FA token, or a transient registry error). Re-run `pnpm -r publish --access public` — pnpm will skip packages whose published version already matches the local version, and only retry the ones that didn't make it.
+Don't panic. The packages that already published are fine. Investigate the failure (often a permissions issue, a stale 2FA token, or a transient registry error). Re-run `pnpm -r publish --access public`: pnpm will skip packages whose published version already matches the local version, and only retry the ones that didn't make it.
 
 ### A consumer reports the published package is broken
 
@@ -209,4 +209,4 @@ There is currently no automated CHANGELOG generation. Significant releases shoul
 - Any breaking changes consumers need to know about
 - Migration guidance for breaking changes
 
-For small PATCH releases, the GitHub release entry is optional — the commit history is sufficient.
+For small PATCH releases, the GitHub release entry is optional: the commit history is sufficient.

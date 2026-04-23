@@ -43,13 +43,13 @@ Examples: `feat/cas-beacon-publish`, `fix/resolver-discovery-loop`, `chore/lib-t
    pnpm lint
    ```
 
-   If any of these fail on a fresh `main` checkout, that's a `main`-level bug — open an issue rather than starting feature work on top of broken state.
+   If any of these fail on a fresh `main` checkout, that's a `main`-level bug: open an issue rather than starting feature work on top of broken state.
 
 ## While you work
 
 ### Commit conventions
 
-Commit messages use the imperative mood ("Add", "Fix", "Refactor" — not "Added", "Fixed", "Refactoring"). Subject lines are short (<= 72 chars). Body explains *why*, not *what* — the diff already shows what.
+Commit messages use the imperative mood ("Add", "Fix", "Refactor": not "Added", "Fixed", "Refactoring"). Subject lines are short (<= 72 chars). Body explains *why*, not *what*: the diff already shows what.
 
 Example:
 
@@ -74,7 +74,7 @@ pnpm build:tests && pnpm test       # full test suite
 pnpm lint                           # zero-warning lint
 ```
 
-The `lint` step is enforced as `--max-warnings 0`. CI will fail if any warning slips through. Fix as you go — `pnpm lint:fix` handles most autofixable issues.
+The `lint` step is enforced as `--max-warnings 0`. CI will fail if any warning slips through. Fix as you go: `pnpm lint:fix` handles most autofixable issues.
 
 ### Touching the public API of a published package
 
@@ -86,13 +86,13 @@ If your change modifies anything exported from a package's `src/index.ts`, you'r
 
 Pre-1.0 packages (currently `keypair`, `cryptosuite`, `bitcoin`, `kms`, `smt`, `method`, `api`, `cli`) treat MINOR as breaking under strict semver. The `common` package is post-1.0 and follows full semver.
 
-You don't bump versions yourself in your PR — that happens at release time. But your PR description should call out the bump category so the reviewer can sanity-check.
+You don't bump versions yourself in your PR: that happens at release time. But your PR description should call out the bump category so the reviewer can sanity-check.
 
 ## When you're ready to push
 
 1. **Squash WIP commits** if your branch has noisy intermediate commits. The history that lands on `main` should be reviewable.
 
-2. **Rebase on the latest `main`** (don't merge `main` into your branch — that creates a merge commit that pollutes the history):
+2. **Rebase on the latest `main`** (don't merge `main` into your branch: that creates a merge commit that pollutes the history):
    ```bash
    git fetch origin
    git rebase origin/main
@@ -117,7 +117,7 @@ You don't bump versions yourself in your PR — that happens at release time. Bu
    - [ ] Anything you didn't test and why
 
    ## Version impact
-   - <package>: PATCH | MINOR | MAJOR — <reason>
+   - <package>: PATCH | MINOR | MAJOR: <reason>
    EOF
    )"
    ```
@@ -126,14 +126,14 @@ You don't bump versions yourself in your PR — that happens at release time. Bu
 
 A reviewer will look for:
 
-- **Correctness** — does the change do what its description says? Are there edge cases that aren't handled?
-- **Test coverage** — is the change tested? If it's a bug fix, is there a regression test?
-- **Architectural fit** — does the change respect the patterns described in [Architecture Overview](../architecture/overview.md)?
-- **Public API impact** — are versioning consequences correct?
-- **Code style** — is the code readable, well-named, well-commented where non-obvious?
-- **Breaking changes** — are they justified, documented, and noted in the version impact section?
+- **Correctness**: does the change do what its description says? Are there edge cases that aren't handled?
+- **Test coverage**: is the change tested? If it's a bug fix, is there a regression test?
+- **Architectural fit**: does the change respect the patterns described in [Architecture Overview](../architecture/overview.md)?
+- **Public API impact**: are versioning consequences correct?
+- **Code style**: is the code readable, well-named, well-commented where non-obvious?
+- **Breaking changes**: are they justified, documented, and noted in the version impact section?
 
-Address review comments with new commits on your branch (don't force-push during review unless asked — it makes incremental review harder). After approval, the merge commit will preserve the commit history if you want it preserved, or squash if you prefer a single commit on `main`.
+Address review comments with new commits on your branch (don't force-push during review unless asked: it makes incremental review harder). After approval, the merge commit will preserve the commit history if you want it preserved, or squash if you prefer a single commit on `main`.
 
 ## Squashing for landing
 
@@ -143,9 +143,9 @@ For small PRs (1-2 commits), preserve the individual commits with a merge commit
 
 ## Merging
 
-- **`gh pr merge --merge`** — preserves all commits, adds a merge commit. Use for multi-commit PRs where each commit is meaningful.
-- **`gh pr merge --squash`** — collapses to a single commit. Use for trivial fixes or when commits are noisy.
-- **`gh pr merge --rebase`** — rebases each commit individually onto main (no merge commit). Use sparingly — it rewrites your branch's commit hashes.
+- **`gh pr merge --merge`**: preserves all commits, adds a merge commit. Use for multi-commit PRs where each commit is meaningful.
+- **`gh pr merge --squash`**: collapses to a single commit. Use for trivial fixes or when commits are noisy.
+- **`gh pr merge --rebase`**: rebases each commit individually onto main (no merge commit). Use sparingly: it rewrites your branch's commit hashes.
 
 ## After merge
 

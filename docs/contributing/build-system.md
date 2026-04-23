@@ -1,6 +1,10 @@
+---
+title: Build System
+---
+
 # Build System
 
-A detailed reference for how the `did-btcr2-js` monorepo is built, packaged, tested, and published. This document is intended for contributors, maintainers, and release engineers — anyone who needs to understand or modify the pipeline.
+A detailed reference for how the `did-btcr2-js` monorepo is built, packaged, tested, and published. This document is intended for contributors, maintainers, and release engineers: anyone who needs to understand or modify the pipeline.
 
 ## Overview
 
@@ -8,13 +12,13 @@ A detailed reference for how the `did-btcr2-js` monorepo is built, packaged, tes
 
 The build system uses:
 
-- **[pnpm](https://pnpm.io/)** — package manager + workspace orchestration
-- **[TypeScript](https://www.typescriptlang.org/) 5.7+** — type checker and ESM compiler via `tsc --build` (project references)
-- **[tsup](https://tsup.egoist.dev/)** — CJS bundler for packages with ESM-only transitive dependencies
-- **[esbuild](https://esbuild.github.io/)** — direct invocation for browser bundles (via `build/bundles.js`)
-- **[ESLint](https://eslint.org/)** — flat-config linter with `@typescript-eslint` + `eslint-plugin-mocha`
-- **[mocha](https://mochajs.org/) + [chai](https://www.chaijs.com/) + [c8](https://github.com/bcoe/c8)** — test runner, assertion library, and V8 coverage
-- **Node.js ≥ 22** — minimum runtime for development and for installed consumers
+- **[pnpm](https://pnpm.io/)**: package manager + workspace orchestration
+- **[TypeScript](https://www.typescriptlang.org/) 5.7+**: type checker and ESM compiler via `tsc --build` (project references)
+- **[tsup](https://tsup.egoist.dev/)**: CJS bundler for packages with ESM-only transitive dependencies
+- **[esbuild](https://esbuild.github.io/)**: direct invocation for browser bundles (via `build/bundles.js`)
+- **[ESLint](https://eslint.org/)**: flat-config linter with `@typescript-eslint` + `eslint-plugin-mocha`
+- **[mocha](https://mochajs.org/) + [chai](https://www.chaijs.com/) + [c8](https://github.com/bcoe/c8)**: test runner, assertion library, and V8 coverage
+- **Node.js ≥ 22**: minimum runtime for development and for installed consumers
 
 ## Package dependency graph
 
@@ -39,19 +43,19 @@ When you run `pnpm build` from the repo root, pnpm walks this graph in topologic
 There are **four shared base configs** at the repo root and four per-package configs in each package (`tsconfig.json`, `tsconfig.cjs.json`, `tests/tsconfig.json`, `lib/tsconfig.json`). Every per-package config extends one of the base configs; no per-package config copies compiler options.
 
 ```
-tsconfig.base.json           — shared defaults (strict, ES2022, verbatim imports, project references)
-tsconfig.base.cjs.json       — CJS overrides (module: CommonJS, Node10 resolution)
-tsconfig.base.tests.json     — test overrides (types: node/mocha/chai, verbatim relaxed)
-tsconfig.base.lib.json       — lib-script editor-only typecheck (noEmit, types: node)
-tsconfig.json                — root solution file (`files: []` + `references: [ ... 9 packages ]`)
+tsconfig.base.json          : shared defaults (strict, ES2022, verbatim imports, project references)
+tsconfig.base.cjs.json      : CJS overrides (module: CommonJS, Node10 resolution)
+tsconfig.base.tests.json    : test overrides (types: node/mocha/chai, verbatim relaxed)
+tsconfig.base.lib.json      : lib-script editor-only typecheck (noEmit, types: node)
+tsconfig.json               : root solution file (`files: []` + `references: [ ... 9 packages ]`)
 
-packages/<pkg>/tsconfig.json             — ESM build with `composite: true` + `references` to workspace deps
-packages/<pkg>/tsconfig.cjs.json         — CJS build (5 packages only, see below)
-packages/<pkg>/tests/tsconfig.json       — test build (emits to `tests/compiled/`)
-packages/<pkg>/lib/tsconfig.json         — editor typecheck for lib scripts (no emit)
+packages/<pkg>/tsconfig.json            : ESM build with `composite: true` + `references` to workspace deps
+packages/<pkg>/tsconfig.cjs.json        : CJS build (5 packages only, see below)
+packages/<pkg>/tests/tsconfig.json      : test build (emits to `tests/compiled/`)
+packages/<pkg>/lib/tsconfig.json        : editor typecheck for lib scripts (no emit)
 ```
 
-### `tsconfig.base.json` — shared compiler defaults
+### `tsconfig.base.json`: shared compiler defaults
 
 ```jsonc
 {
@@ -79,12 +83,12 @@ packages/<pkg>/lib/tsconfig.json         — editor typecheck for lib scripts (n
 ```
 
 **Key decisions:**
-- `lib: ["ES2022", "DOM", "DOM.Iterable"]` — DOM types are available by default so browser-capable packages can use `fetch`, `URL`, `TextEncoder`, `structuredClone`, etc. Node-only packages override this to just `["ES2022"]`.
-- `types: []` — no `@types/*` is automatically included. Each package explicitly opts in to `node`, `mocha`, `chai`, etc. This prevents test-only types from leaking into published `.d.ts` files.
-- `verbatimModuleSyntax: true` — every type-only import must use `import type`. Enforced at build time by `tsc` and at lint time by `@typescript-eslint/consistent-type-imports`.
-- `isolatedModules: true` — required for reliable tsup/esbuild transpilation (both are used for CJS and browser bundles).
+- `lib: ["ES2022", "DOM", "DOM.Iterable"]`: DOM types are available by default so browser-capable packages can use `fetch`, `URL`, `TextEncoder`, `structuredClone`, etc. Node-only packages override this to just `["ES2022"]`.
+- `types: []`: no `@types/*` is automatically included. Each package explicitly opts in to `node`, `mocha`, `chai`, etc. This prevents test-only types from leaking into published `.d.ts` files.
+- `verbatimModuleSyntax: true`: every type-only import must use `import type`. Enforced at build time by `tsc` and at lint time by `@typescript-eslint/consistent-type-imports`.
+- `isolatedModules: true`: required for reliable tsup/esbuild transpilation (both are used for CJS and browser bundles).
 
-### Per-package src `tsconfig.json` — project references
+### Per-package src `tsconfig.json`: project references
 
 ```jsonc
 {
@@ -148,18 +152,18 @@ Each package produces up to four output directories, depending on type:
 
 ```
 packages/<pkg>/dist/
-├── esm/            # ES Modules (always produced — primary format)
-├── cjs/            # CommonJS (only for packages where it's feasible — see below)
+├── esm/            # ES Modules (always produced: primary format)
+├── cjs/            # CommonJS (only for packages where it's feasible: see below)
 │   └── package.json  # { "type": "commonjs" } override so Node treats this subtree as CJS
 ├── types/          # .d.ts files with source maps (.d.ts.map)
-├── browser.mjs     # method + api only — esbuild browser bundle
-├── browser.js      # method + api only — legacy browser bundle
+├── browser.mjs     # method + api only: esbuild browser bundle
+├── browser.js      # method + api only: legacy browser bundle
 └── .tsbuildinfo    # tsc --build incremental cache (do not commit)
 ```
 
 ### ESM build
 
-Every package produces its ESM output via `tsc -p tsconfig.json`. For the ESM path this is the only compiler — tsup is not used. Output lives under `dist/esm/` as `.js` files with `.js.map` source maps and declarations next to them in `dist/types/`.
+Every package produces its ESM output via `tsc -p tsconfig.json`. For the ESM path this is the only compiler: tsup is not used. Output lives under `dist/esm/` as `.js` files with `.js.map` source maps and declarations next to them in `dist/types/`.
 
 ### CJS build
 
@@ -207,7 +211,7 @@ export default defineConfig({
 
 #### The helia lazy-load pattern
 
-`method` depends on `helia` and `@helia/strings`, which transitively pull in `@libp2p/*` packages, which in turn load native `.node` binaries (`node-datachannel`). These native modules can't be statically bundled into a single CJS file — their `require('./build/Release/node_datachannel.node')` paths would break.
+`method` depends on `helia` and `@helia/strings`, which transitively pull in `@libp2p/*` packages, which in turn load native `.node` binaries (`node-datachannel`). These native modules can't be statically bundled into a single CJS file: their `require('./build/Release/node_datachannel.node')` paths would break.
 
 The solution is in `packages/method/src/utils/appendix.ts`:
 
@@ -229,7 +233,7 @@ static async fetchFromCas(hashBytes: HashBytes): Promise<string | undefined> {
 
 ### Browser bundles
 
-The `method` and `api` packages ship `dist/browser.mjs` + `dist/browser.js` bundles for use in browser runtimes. These are produced by `build/bundles.js` — a Node script that invokes `esbuild` directly. The esbuild config uses `platform: 'browser'`, polyfills Node built-ins via `node-stdlib-browser`, and bundles everything into a single file.
+The `method` and `api` packages ship `dist/browser.mjs` + `dist/browser.js` bundles for use in browser runtimes. These are produced by `build/bundles.js`: a Node script that invokes `esbuild` directly. The esbuild config uses `platform: 'browser'`, polyfills Node built-ins via `node-stdlib-browser`, and bundles everything into a single file.
 
 Browser bundles are **not** used by `tsc`, `tsup`, or the regular ESM/CJS consumer paths. They are a separate, parallel build artifact, exposed via the `"browser"` condition in each package's `exports` field.
 
@@ -259,8 +263,8 @@ Node and bundlers use the `exports` field to pick the right entry based on the c
 
 Tests live in `packages/<pkg>/tests/` as `*.spec.ts` files. The pipeline is:
 
-1. **`pnpm build:tests`** — each package runs `tsc -p tests/tsconfig.json` which compiles both `src/**/*.ts` and `tests/**/*.ts` into `tests/compiled/`. This includes the src files (so the tests can import from `../src/index.js` at runtime).
-2. **`pnpm test`** — each package runs `pnpm c8 mocha`. Mocha reads `.mocharc.json` in the package root, which points at `tests/compiled/**/*.spec.js`. c8 collects V8 coverage on the compiled JS and prints a coverage table.
+1. **`pnpm build:tests`**: each package runs `tsc -p tests/tsconfig.json` which compiles both `src/**/*.ts` and `tests/**/*.ts` into `tests/compiled/`. This includes the src files (so the tests can import from `../src/index.js` at runtime).
+2. **`pnpm test`**: each package runs `pnpm c8 mocha`. Mocha reads `.mocharc.json` in the package root, which points at `tests/compiled/**/*.spec.js`. c8 collects V8 coverage on the compiled JS and prints a coverage table.
 
 **Critical workflow note:** the test runner executes compiled JavaScript, not TypeScript directly. If you change a source or test file and run `pnpm test` without `pnpm build:tests` first, you are running the stale compiled output. The single-package convenience script `pnpm build:test` (singular) chains both: `pnpm build && pnpm build:tests && pnpm c8 mocha`.
 
@@ -272,14 +276,14 @@ From inside a package directory:
 pnpm c8 mocha tests/compiled/tests/<spec-name>.spec.js
 ```
 
-Note the `tests/compiled/tests/<spec>` path — because the test tsconfig compiles both `../src` and `.` into `compiled/`, the spec files end up at `compiled/tests/`, not directly under `compiled/`.
+Note the `tests/compiled/tests/<spec>` path: because the test tsconfig compiles both `../src` and `.` into `compiled/`, the spec files end up at `compiled/tests/`, not directly under `compiled/`.
 
 ## Linting
 
 A single root-level `eslint.config.cjs` applies to all packages. Key rules:
 
 - **Code style:** 2-space indent, single quotes, semicolons, colon-aligned key spacing in multi-line objects
-- **Type discipline:** `@typescript-eslint/consistent-type-imports` with `separate-type-imports` autofix — enforces `import type` for type-only imports (paired with `verbatimModuleSyntax` in tsconfig)
+- **Type discipline:** `@typescript-eslint/consistent-type-imports` with `separate-type-imports` autofix: enforces `import type` for type-only imports (paired with `verbatimModuleSyntax` in tsconfig)
 - **Unused vars:** error, except when prefixed with `_`
 - **Mocha rules:** `mocha/no-exclusive-tests` as a warning (catches accidentally-committed `.only` calls)
 
@@ -291,12 +295,12 @@ Each package has a `pnpm lint` script that runs `eslint . --max-warnings 0` (zer
 
 | Command | What it does |
 |---|---|
-| `pnpm build` | Runs `pnpm --recursive --stream build` — per-package build via pnpm, topologically ordered |
-| `pnpm build:ts` | Runs `tsc -b` — incremental build via project references (faster for iterative work) |
+| `pnpm build` | Runs `pnpm --recursive --stream build`: per-package build via pnpm, topologically ordered |
+| `pnpm build:ts` | Runs `tsc -b`: incremental build via project references (faster for iterative work) |
 | `pnpm build:ts:watch` | Incremental build in watch mode |
 | `pnpm build:ts:clean` | Clean all `.tsbuildinfo` + `dist/` outputs |
 | `pnpm build:ts:force` | Force full rebuild, ignoring incremental caches |
-| `pnpm build:tests` | Per-package `pnpm build:tests` — compiles each package's tests |
+| `pnpm build:tests` | Per-package `pnpm build:tests`: compiles each package's tests |
 | `pnpm build:all` | `pnpm build && pnpm build:tests` combined |
 | `pnpm test` | Run all tests with coverage |
 | `pnpm lint` | Lint all packages with zero-warning tolerance |
@@ -307,7 +311,7 @@ Each package has a `pnpm lint` script that runs `eslint . --max-warnings 0` (zer
 
 | Command | What it does |
 |---|---|
-| `pnpm build` | Full build: clean → ESM → CJS → (browser if applicable) |
+| `pnpm build` | Full build: clean to ESM to CJS to (browser if applicable) |
 | `pnpm build:esm` | ESM only, via `tsc -p tsconfig.json` |
 | `pnpm build:cjs` | CJS only, via `tsc -p tsconfig.cjs.json` or `tsup` |
 | `pnpm build:browser` | (method + api only) esbuild browser bundle |
@@ -329,12 +333,12 @@ This produces a `.tgz` tarball under the monorepo's `release/` directory. Actual
 
 **Recommended publish order** (respecting the dependency graph):
 ```
-common → keypair → {cryptosuite, bitcoin, kms, smt} → method → api → cli
+common to keypair to {cryptosuite, bitcoin, kms, smt} to method to api to cli
 ```
 
 Workspace protocol versions (`workspace:^`) are rewritten to their concrete semver during `pnpm pack`, so published tarballs contain proper `^X.Y.Z` dep declarations.
 
-## Development workflow — putting it all together
+## Development workflow: putting it all together
 
 Typical iterative development loop:
 
@@ -386,7 +390,7 @@ Try `pnpm install --force` to rebuild the symlink tree. If the error mentions a 
 
 ### `require()` of a package fails with "Cannot find module X"
 
-You're probably trying to `require()` a package whose `dist/cjs/` was not built. Check that the package's `build:cjs` script ran successfully — for tsup-based packages, check for errors in the bundled output. If the package is `cryptosuite`, `method`, `api`, or `cli`, the bundler is tsup; everywhere else it's tsc.
+You're probably trying to `require()` a package whose `dist/cjs/` was not built. Check that the package's `build:cjs` script ran successfully: for tsup-based packages, check for errors in the bundled output. If the package is `cryptosuite`, `method`, `api`, or `cli`, the bundler is tsup; everywhere else it's tsc.
 
 ### `tsc -b` reports the same errors repeatedly
 
@@ -394,7 +398,7 @@ Try `pnpm build:ts:force` to bypass the incremental cache, or `pnpm build:ts:cle
 
 ### Test runner says "Cannot find module '../src/index.js'"
 
-You forgot to run `pnpm build:tests` before `pnpm test`. The test compiler includes both `../src` and `.` in its `include` and emits to `tests/compiled/{src,tests}/` — without that step, the runtime import paths don't exist.
+You forgot to run `pnpm build:tests` before `pnpm test`. The test compiler includes both `../src` and `.` in its `include` and emits to `tests/compiled/{src,tests}/`: without that step, the runtime import paths don't exist.
 
 ### ESLint reports a `consistent-type-imports` violation after a refactor
 
@@ -402,11 +406,11 @@ Run `pnpm lint:fix` to have ESLint rewrite mixed imports into separate `import t
 
 ## Further reading
 
-- [Architecture Overview](../architecture/overview.md) — high-level tour of the codebase
-- [Package Graph](../architecture/package-graph.md) — exact inter-package dependencies
-- [PR Workflow](pr-workflow.md) — how to land a change
-- [Release Process](release-process.md) — how to publish a release
-- [pnpm workspaces](https://pnpm.io/workspaces) — the underlying workspace mechanism
-- [TypeScript project references](https://www.typescriptlang.org/docs/handbook/project-references.html) — the basis for `tsc -b`
-- [tsup documentation](https://tsup.egoist.dev/) — configuration reference for the CJS bundler
-- [Node.js module resolution](https://nodejs.org/api/packages.html#packages_package_entry_points) — how `exports` conditions work at runtime
+- [Architecture Overview](../architecture/overview.md): high-level tour of the codebase
+- [Package Graph](../architecture/package-graph.md): exact inter-package dependencies
+- [PR Workflow](pr-workflow.md): how to land a change
+- [Release Process](release-process.md): how to publish a release
+- [pnpm workspaces](https://pnpm.io/workspaces): the underlying workspace mechanism
+- [TypeScript project references](https://www.typescriptlang.org/docs/handbook/project-references.html): the basis for `tsc -b`
+- [tsup documentation](https://tsup.egoist.dev/): configuration reference for the CJS bundler
+- [Node.js module resolution](https://nodejs.org/api/packages.html#packages_package_entry_points): how `exports` conditions work at runtime
