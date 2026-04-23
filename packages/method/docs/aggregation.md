@@ -78,9 +78,11 @@ The aggregation subsystem is built in two layers, both public:
 ┌────────────────────────────────────────────────────┐
 │  Transport layer (pluggable)                       │
 │  - Transport interface                             │
-│  - NostrTransport (production)                     │
-│  - DidCommTransport (stub)                         │
-│  - MockTransport (in tests)                        │
+│  - NostrTransport              (production)        │
+│  - HttpClientTransport + HttpServerTransport       │
+│                                (production)        │
+│  - DidCommTransport            (stub)              │
+│  - MockTransport               (in tests)          │
 └────────────────────────────────────────────────────┘
 ```
 
@@ -90,7 +92,14 @@ The aggregation subsystem is built in two layers, both public:
 
 ## Setting Up the Transport
 
-Every actor (service or participant) needs a `Transport` to send and receive messages. The shipped `NostrTransport` uses Nostr relays as the wire protocol.
+Every actor (service or participant) needs a `Transport` to send and receive messages. Two production transports ship, both implementing the same `Transport` interface:
+
+- **`NostrTransport`** — relay-based. Censorship-resistant via multi-relay redundancy. NIP-44 envelope encryption for directed messages. Requires at least one running relay.
+- **`HttpClientTransport` + `HttpServerTransport`** — HTTP/REST. Operator-hosted. Browser-compatible clients via `fetch` + fetch-based SSE. Framework-agnostic server (caller mounts `handleRequest` / `handleSse` in Hono / Express / Fastify / Workers / Bun). TLS-only confidentiality; signed-envelope authenticity per request.
+
+Runners and state machines are transport-agnostic — you pick a transport at construction time and the rest of the system doesn't care. Pick `NostrTransport` when you want censorship resistance and multi-relay redundancy; pick the HTTP pair when you want operational familiarity, browser-native clients, or REST-tooling interop.
+
+This section walks through the Nostr setup. For the HTTP walkthrough (wire protocol, Hono snippet, CORS and rate-limit configuration), see [http-transport.md](./http-transport.md).
 
 A single `Transport` instance can serve multiple registered actors. In production each process typically registers exactly one actor (its own identity); in tests one transport often serves several actors at once for easy in-process round-trips.
 
@@ -137,6 +146,42 @@ That's the entire transport setup. From here on, you only interact with the Runn
 | `relays` | `DEFAULT_NOSTR_RELAYS` (4 public relays) | Array of relay URLs to connect to |
 | `logger` | `CONSOLE_LOGGER` | Injectable `Logger` for transport diagnostics |
 | `broadcastLookbackMs` | 5 min | `since` filter on broadcast (COHORT_ADVERT) subscription. Set to `0` to disable. |
+
+### Choosing between Nostr and HTTP
+
+Both transports carry identical protocol semantics. Differences that matter at deployment time:
+
+| Dimension | Nostr | HTTP |
+|---|:---:|:---:|
+| Wire infrastructure | One or more Nostr relays | One HTTP server (operator-hosted) |
+| Censorship resistance | High (multi-relay redundancy) | Low-to-medium (single operator) |
+| Confidentiality against the wire | Strong (NIP-44) | TLS only (operator sees plaintext) |
+| Browser participants | Requires a Nostr library | Native (`fetch` + streaming) |
+| Ops / debugging surface | Relay internals | curl, access logs, OpenAPI |
+| Test harness | Needs a relay | Plain HTTP mock or in-process parity test |
+
+Factory invocation for each:
+
+```typescript
+// Nostr
+const transport = TransportFactory.establish({
+  type   : 'nostr',
+  relays : ['wss://relay.damus.io', 'wss://nos.lol'],
+});
+
+// HTTP client (participant side)
+const transport = TransportFactory.establish({
+  type    : 'http',
+  role    : 'client',
+  baseUrl : 'https://aggregator.example.com/',
+});
+
+// HTTP server (operator side) — mount handleRequest + handleSse in a web framework
+const transport = TransportFactory.establish({
+  type : 'http',
+  role : 'server',
+});
+```
 
 ### `Transport` lifecycle methods
 
@@ -590,19 +635,19 @@ Four runnable scripts in `lib/operations/aggregation/` demonstrate the runner AP
 
 | Script | Description |
 |---|---|
-| `e2e-shared-transport.ts` | Single process, MockTransport bus, no relay required. Fastest validation. |
-| `e2e-per-actor-transport.ts` | Single process, each actor has its own NostrTransport pointing to the same relay. Tests real Nostr signing/encryption. |
-| `e2e-verify-signing.ts` | Like `e2e-per-actor-transport.ts` but additionally verifies the aggregated signature with `@noble/curves` BIP-340 `schnorr.verify`. Exits non-zero on any assertion failure. This is the canonical "does MuSig2 still work end-to-end" check. |
+| `e2e-nostr-transport.ts` | Single process, each actor has its own `NostrTransport` pointing to the same relay. Tests real Nostr signing/encryption. |
+| `e2e-http-transport.ts` | Single process, local `node:http` server hosting `HttpServerTransport`, participants connect as `HttpClientTransport` via real `fetch`. Full MuSig2 round over loopback HTTP. No relay, no external service. |
+| `e2e-verify-signing.ts` | Like `e2e-nostr-transport.ts` but additionally verifies the aggregated signature with `@noble/curves` BIP-340 `schnorr.verify`. Exits non-zero on any assertion failure. The canonical "does MuSig2 still work end-to-end" check. |
 | `aggregation-service.ts` + `aggregation-participant.ts` | Two truly separate processes connecting to a relay. Production-realistic. |
 
 ```bash
-# Fastest — no relay required
-npx tsx lib/operations/aggregation/e2e-shared-transport.ts
+# HTTP transport — zero external dependencies, runs in ~1 second
+PORT=8080 npx tsx lib/operations/aggregation/e2e-http-transport.ts
 
-# Single process, real Nostr (requires a local relay)
-RELAY=ws://localhost:7777 npx tsx lib/operations/aggregation/e2e-per-actor-transport.ts
+# Nostr — single process, real relay (requires a local relay)
+RELAY=ws://localhost:7777 npx tsx lib/operations/aggregation/e2e-nostr-transport.ts
 
-# Same as above but with cryptographic signature verification (CI-droppable)
+# Nostr with cryptographic signature verification (CI-droppable)
 RELAY=ws://localhost:7777 npx tsx lib/operations/aggregation/e2e-verify-signing.ts
 
 # Multi-process — run each in its own terminal
@@ -610,7 +655,7 @@ RELAY=ws://localhost:7777 npx tsx lib/operations/aggregation/aggregation-service
 RELAY=ws://localhost:7777 SERVICE_DID=<from above> npx tsx lib/operations/aggregation/aggregation-participant.ts
 ```
 
-All scripts exercise the same protocol and produce a 64-byte Schnorr signature on the same dummy P2TR transaction. They differ only in deployment topology, not in protocol logic.
+All scripts exercise the same protocol and produce a 64-byte Schnorr signature on the same dummy P2TR transaction. They differ only in deployment topology and transport, not in protocol logic.
 
 ### Why verify the signature cryptographically?
 
@@ -622,9 +667,9 @@ All scripts exercise the same protocol and produce a 64-byte Schnorr signature o
 
 ### One transport per process
 
-In production, each actor (service or participant) runs in its own process, with its own `NostrTransport` registering exactly one actor. Sharing one transport across actors is a testing convenience — don't do it in production unless you have a specific reason.
+In production, each actor (service or participant) runs in its own process, with its own transport instance (Nostr or HTTP) registering exactly one actor. Sharing one transport across actors is a testing convenience — don't do it in production unless you have a specific reason.
 
-### Relay selection
+### Relay selection (Nostr transport only)
 
 Aggregation requires reliable delivery, especially for the encrypted directed messages (NIP-44 kind 1059). Use 2–3 relays for redundancy. Public relays may rate-limit or drop kind 1059 events under load — if you need guaranteed delivery, run your own relay.
 
@@ -640,14 +685,16 @@ Observed behavior against common public relays (as of the e2e-verify-signing run
 
 **The reliable production paths are (a) your own relay, or (b) a relay you've verified end-to-end with `e2e-verify-signing.ts` against your expected message volume.** The `broadcastLookbackMs` filter and `advertRepeatIntervalMs` re-publish are hedges that help on some flaky relays but can't overcome a relay that simply doesn't route kind 1 events between subscribers the way the protocol expects.
 
-### Reliability hedges
+### Reliability hedges (Nostr transport)
 
-The transport and runner expose two mechanisms to improve delivery on imperfect relays:
+The Nostr transport and runner expose two mechanisms to improve delivery on imperfect relays:
 
 - `NostrTransportConfig.broadcastLookbackMs` (default 5 min) — applies a `since` filter to the `COHORT_ADVERT` subscription so relays that don't auto-backfill still return recent adverts to late subscribers.
 - `AggregationServiceRunnerOptions.advertRepeatIntervalMs` (default 60 s) — re-publishes the advert on a fixed cadence until keygen completes. Gives participants whose subscription was still settling when the initial advert went out a chance to catch a later copy.
 
 Set either to `0` to opt out.
+
+The HTTP transport doesn't need either hedge: the server retains the current advert and emits it to every new broadcast-SSE subscriber on connect; the inbox SSE stream replays buffered messages via `Last-Event-ID` on reconnect. See [http-transport.md](./http-transport.md) for the HTTP transport's own deployment knobs (CORS, rate limiting, inbox buffer size, advert TTL).
 
 ### Cohort TTL and phase timeouts
 
@@ -801,5 +848,6 @@ Some state-machine methods added for runner plumbing are also useful from custom
 | Deploy to production | [Production Deployment Notes](#production-deployment-notes) |
 | Add a new beacon type | [Beacon strategy registry](#beacon-strategy-registry) |
 | Narrow an incoming message | [Discriminated message types](#discriminated-message-types) |
-| Pick a public Nostr relay | [Relay selection](#relay-selection) |
+| Pick a public Nostr relay | [Relay selection](#relay-selection-nostr-transport-only) |
+| Configure the HTTP transport | [http-transport.md](./http-transport.md) |
 | Bound a stalled cohort | [Cohort TTL and phase timeouts](#cohort-ttl-and-phase-timeouts) |

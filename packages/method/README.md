@@ -21,7 +21,7 @@ pnpm add @did-btcr2/method
 | Beacon types (Singleton, CAS, SMT) | `SingletonBeacon`, `CASBeacon`, `SMTBeacon` |
 | Fee estimation (pluggable) | `FeeEstimator`, `StaticFeeEstimator` |
 | Multi-party aggregation (MuSig2) | `AggregationServiceRunner`, `AggregationParticipantRunner` |
-| Transport abstraction (Nostr, DIDComm stub) | `Transport`, `NostrTransport` |
+| Transport abstraction (Nostr, HTTP/REST, DIDComm stub) | `Transport`, `NostrTransport`, `HttpClientTransport`, `HttpServerTransport` |
 | DID document types and builders | `Btcr2DidDocument`, `DidDocumentBuilder` |
 
 ## Quick Start
@@ -109,9 +109,16 @@ See [`src/core/updater.ts`](./src/core/updater.ts) for the full `UpdaterDataNeed
 Aggregation lets multiple DID controllers coordinate a single Bitcoin transaction that announces all of their updates at once, signed n-of-n with MuSig2. The high-level `Runner` API hides the message routing and decision plumbing:
 
 ```typescript
-import { AggregationServiceRunner, NostrTransport } from '@did-btcr2/method';
+import { AggregationServiceRunner, TransportFactory } from '@did-btcr2/method';
 
-const transport = new NostrTransport({ relays: ['wss://relay.damus.io'] });
+// Pick a transport. Nostr (relay-based) or HTTP/REST (operator-hosted).
+const transport = TransportFactory.establish({
+  type   : 'nostr',
+  relays : ['wss://relay.damus.io'],
+});
+// Or for HTTP: { type: 'http', role: 'server' } on the operator side,
+//              { type: 'http', role: 'client', baseUrl: '...' } on the participant side.
+
 transport.registerActor(serviceDid, serviceKeys);
 transport.start();
 
@@ -127,13 +134,13 @@ runner.on('signing-complete', (result) => console.log('done'));
 const result = await runner.run();
 ```
 
-The full step-by-step protocol walkthrough — service flow, participant flow, decision callbacks, events, the low-level state machine API, and production deployment notes — is in [`docs/aggregation.md`](./docs/aggregation.md).
+The full step-by-step protocol walkthrough — service flow, participant flow, decision callbacks, events, the low-level state machine API, and production deployment notes — is in [`docs/aggregation.md`](./docs/aggregation.md). The HTTP/REST transport has its own walkthrough in [`docs/http-transport.md`](./docs/http-transport.md).
 
 ## Architecture Principles
 
 - **Sans-I/O core.** Resolver, Updater, and aggregation state machines perform zero I/O. They compute state transitions and emit typed needs or messages. Callers handle all network operations.
 - **Layered APIs.** High-level facades (like `AggregationServiceRunner`) encapsulate boilerplate; low-level state machines stay available for tests, custom transports, and fine-grained control.
-- **Pluggable transport.** The `Transport` interface decouples protocol logic from the wire format. Ships with `NostrTransport`; add your own for DIDComm, libp2p, or anything else.
+- **Pluggable transport.** The `Transport` interface decouples protocol logic from the wire format. Ships with `NostrTransport` (relay-based) and `HttpClientTransport` + `HttpServerTransport` (HTTP/REST, framework-agnostic, browser-compatible). Add your own for DIDComm, libp2p, or anything else.
 - **Browser-compatible.** All code targets both Node.js (>= 22) and modern browsers. No Node-only APIs in the core.
 
 ## Build & Test
@@ -153,5 +160,6 @@ Tests run from compiled JS, so run `pnpm build:tests` before `pnpm test` after a
 - **Package docs on btcr2.dev** — [btcr2.dev/impls/ts](https://btcr2.dev/impls/ts)
 - **[`docs/beacon-system-overview.md`](./docs/beacon-system-overview.md)** — Beacon architecture, Singleton / CAS / SMT behavior, signal discovery
 - **[`docs/aggregation.md`](./docs/aggregation.md)** — Multi-party aggregation protocol, Runner and state machine APIs, e2e examples
+- **[`docs/http-transport.md`](./docs/http-transport.md)** — HTTP/REST transport: wire protocol, signed envelopes, SSE subscriptions, Hono/Node framework mount example, permissive CORS
 - **[`docs/test-vectors.md`](./docs/test-vectors.md)** — CLI tool for generating did:btcr2 test vectors via a stepped workflow
 - **Source reference** — See JSDoc comments on public classes; the most important entry points are `DidBtcr2` (facade), `Resolver` (read path), `Updater` (write path), and the aggregation runners.
