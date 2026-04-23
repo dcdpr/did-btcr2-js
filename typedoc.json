@@ -62,10 +62,9 @@
     }
   },
   "projectDocuments": [
-    "docs/index.md",
-    "docs/architecture/*.md",
-    "docs/contributing/*.md",
-    "docs/adr/*.md"
+    "docs/architecture/index.md",
+    "docs/contributing/index.md",
+    "docs/adr/index.md"
   ],
   "includeVersion": false,
   "githubPages": false,

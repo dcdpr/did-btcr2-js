@@ -1,11 +1,13 @@
 ---
-title: "ADR 004: Split User Docs from Contributor Docs"
+title: "ADR 022: Split User Docs from Contributor Docs"
 ---
 
-# ADR 004 — Split User Docs (btcr2.dev) from Contributor Docs (this repo)
+# ADR 022: Split User Docs (btcr2.dev) from Contributor Docs (this repo)
 
 **Status:** Accepted
+
 **Date:** 2026-04-08
+
 **Branch / PR:** `docs/typedoc-unified-site`
 
 ## Context
@@ -14,15 +16,15 @@ Prior to this decision, `did-btcr2-js` had a single VitePress site under `docs/`
 
 - **For users**, it was incomplete. Pages like `installation.md`, `configuration.md`, `usage.md`, and `change-log.md` were empty stubs. The home page had a nice hero layout, but every link led to a title with no content.
 - **For contributors**, it was shallow. The architecture, build system, PR workflow, and release process were not documented at all. The auto-generated API reference was stale (committed to git, last regenerated before multiple major refactors; it still contained classes like `Btc1Deactivate` and `CIDAggregateBeacon` that had been renamed long ago).
-- The VitePress setup itself was a moderate dependency weight: `vitepress`, `vitepress-plugin-mermaid`, `typedoc-plugin-markdown`, `typedoc-vitepress-theme`, `gh-pages`, plus a pile of transitive deps (`@braintree/sanitize-url`, `cytoscape`, `cytoscape-cose-bilkent`, `dayjs`). The two-step build (`typedoc → vitepress`) meant slow regeneration, and `docs/packages/` (the auto-generated part) was committed to git, polluting PR diffs whenever anyone touched source comments.
+- The VitePress setup itself was a moderate dependency weight: `vitepress`, `vitepress-plugin-mermaid`, `typedoc-plugin-markdown`, `typedoc-vitepress-theme`, `gh-pages`, plus a pile of transitive deps (`@braintree/sanitize-url`, `cytoscape`, `cytoscape-cose-bilkent`, `dayjs`). The two-step build (`typedoc to vitepress`) meant slow regeneration, and `docs/packages/` (the auto-generated part) was committed to git, polluting PR diffs whenever anyone touched source comments.
 
 The question was: rebuild the existing site with fresh content and keep VitePress, or change direction entirely?
 
 The client decision was to **split** the documentation surface:
 
-- **`btcr2.dev`** — user-facing evangelism and demo site. Covers all four implementation languages (TypeScript, Java, Python, Rust) with per-implementation install, configure, and usage guides, an interactive CRUD demo using the did-btcr2-js implementation, and a user-level API reference. Hosted separately, out of scope for this repo.
+- **`btcr2.dev`**: user-facing evangelism and demo site. Covers all four implementation languages (TypeScript, Java, Python, Rust) with per-implementation install, configure, and usage guides, an interactive CRUD demo using the did-btcr2-js implementation, and a user-level API reference. Hosted separately, out of scope for this repo.
 
-- **`did-btcr2-js`** — contributor-facing reference only. Architecture, build system, PR workflow, release process, ADRs, and an auto-generated API reference for contributors who need to look up type signatures. No user content. The documentation tooling is chosen for this audience and not optimized for public evangelism.
+- **`did-btcr2-js`**: contributor-facing reference only. Architecture, build system, PR workflow, release process, ADRs, and an auto-generated API reference for contributors who need to look up type signatures. No user content. The documentation tooling is chosen for this audience and not optimized for public evangelism.
 
 ## Decision
 
@@ -36,13 +38,13 @@ This replaces the VitePress + `typedoc-plugin-markdown` + `typedoc-vitepress-the
 
 ### 2. Docs output is not committed
 
-The built site lives in `.docs-site/` at the repo root and is gitignored. Contributors run `pnpm docs:build` locally to generate it, or `pnpm docs:serve` to preview at `http://localhost:3000`. The hand-written markdown sources are the only committed artifact — they are the single source of truth, fully readable in any editor or on GitHub.
+The built site lives in `.docs-site/` at the repo root and is gitignored. Contributors run `pnpm docs:build` locally to generate it, or `pnpm docs:serve` to preview at `http://localhost:3000`. The hand-written markdown sources are the only committed artifact: they are the single source of truth, fully readable in any editor or on GitHub.
 
 This reverses the prior convention where `docs/packages/` was committed. The prior convention created noise in PRs and caused stale content to drift into git history. The new convention treats docs the same as any other build artifact.
 
 ### 3. User docs surface lives at btcr2.dev, not here
 
-All user-facing content — installation instructions, usage tutorials, API examples aimed at consumers, demos, versioning and release notes for end users — goes to btcr2.dev, not `docs/`. The README's "Documentation" section explicitly directs users to btcr2.dev and contributors to `docs/`.
+All user-facing content: installation instructions, usage tutorials, API examples aimed at consumers, demos, versioning and release notes for end users: goes to btcr2.dev, not `docs/`. The README's "Documentation" section explicitly directs users to btcr2.dev and contributors to `docs/`.
 
 This lets us stop trying to serve two audiences with one set of files, stop leaving empty stub pages around, and stop conflating user tutorials with architecture docs.
 
@@ -50,7 +52,7 @@ This lets us stop trying to serve two audiences with one set of files, stop leav
 
 **Positive:**
 
-- **9 devDependencies removed**: `vitepress`, `vitepress-plugin-mermaid`, `typedoc-plugin-markdown`, `typedoc-vitepress-theme`, `gh-pages`, `@braintree/sanitize-url`, `cytoscape`, `cytoscape-cose-bilkent`, `dayjs`. `rimraf` was added for the `docs:clean` script — net 8 fewer deps.
+- **9 devDependencies removed**: `vitepress`, `vitepress-plugin-mermaid`, `typedoc-plugin-markdown`, `typedoc-vitepress-theme`, `gh-pages`, `@braintree/sanitize-url`, `cytoscape`, `cytoscape-cose-bilkent`, `dayjs`. `rimraf` was added for the `docs:clean` script: net 8 fewer deps.
 
 - **~440 auto-generated markdown files deleted from git**: `docs/packages/` was scrubbed, along with the assorted stub pages (`docs/change-log.md`, `docs/configuration.md`, `docs/getting-started.md`, `docs/index.md`, `docs/installation.md`, `docs/packages.md`, `docs/usage.md`, `docs/diagrams.md`) and the VitePress config dir (`docs/.vitepress/`).
 
@@ -70,19 +72,19 @@ This lets us stop trying to serve two audiences with one set of files, stop leav
 
 - **Mermaid support temporarily gone**: the VitePress mermaid plugin is removed. If a narrative page needs a diagram, we'll add `typedoc-plugin-mermaid` or embed static images. Acceptable because the prior sequence diagrams in `docs/sequence/` were rarely updated and mostly redundant with spec-level documentation.
 
-- **TypeDoc theme is utilitarian**: TypeDoc's default HTML is functional but less polished than VitePress or Starlight. Dark mode works; the typography is fine; navigation is standard. It's not a showcase site — and it doesn't need to be, because users go to btcr2.dev.
+- **TypeDoc theme is utilitarian**: TypeDoc's default HTML is functional but less polished than VitePress or Starlight. Dark mode works; the typography is fine; navigation is standard. It's not a showcase site: and it doesn't need to be, because users go to btcr2.dev.
 
 ## Alternatives considered
 
-- **Astro Starlight + starlight-typedoc** — modern 2025-2026 trendy static site generator. Rejected for this project because it adds 6+ new dependencies for a contributor-only audience, and because Starlight's default theme polish is irrelevant when the primary consumers are devs with the repo checked out locally. Kept on the roadmap as a possible future upgrade if the docs audience grows.
+- **Astro Starlight + starlight-typedoc**: modern 2025-2026 trendy static site generator. Rejected for this project because it adds 6+ new dependencies for a contributor-only audience, and because Starlight's default theme polish is irrelevant when the primary consumers are devs with the repo checked out locally. Kept on the roadmap as a possible future upgrade if the docs audience grows.
 
-- **No site generator at all (markdown + TypeDoc HTML separately)** — serve narrative docs as plain markdown read on GitHub, and generate TypeDoc HTML separately. Rejected because the split would lose cross-referenced navigation and unified search. The `projectDocuments` option gives us the unified experience for nearly zero additional cost.
+- **No site generator at all (markdown + TypeDoc HTML separately)**: serve narrative docs as plain markdown read on GitHub, and generate TypeDoc HTML separately. Rejected because the split would lose cross-referenced navigation and unified search. The `projectDocuments` option gives us the unified experience for nearly zero additional cost.
 
-- **Keep VitePress, just clean it up** — rebuild content in place. Rejected because the client explicitly asked for a clean rebuild, and VitePress brings more weight than needed for a contributor-only site.
+- **Keep VitePress, just clean it up**: rebuild content in place. Rejected because the client explicitly asked for a clean rebuild, and VitePress brings more weight than needed for a contributor-only site.
 
-- **Docusaurus 3** — Meta's React-based docs framework. Rejected because it's even heavier than VitePress and its killer features (versioning, i18n, blog, plugin ecosystem) are irrelevant for contributor docs.
+- **Docusaurus 3**: Meta's React-based docs framework. Rejected because it's even heavier than VitePress and its killer features (versioning, i18n, blog, plugin ecosystem) are irrelevant for contributor docs.
 
-- **Fumadocs** — the 2025 trendy Next.js-based docs framework. Rejected for the same reason as Starlight — over-engineered for a contributor-only audience.
+- **Fumadocs**: the 2025 trendy Next.js-based docs framework. Rejected for the same reason as Starlight: over-engineered for a contributor-only audience.
 
 ## Verification
 
@@ -103,8 +105,8 @@ Tracked in repo `TODO.md`:
 
 ## References
 
-- [ADR 001](001-tsconfig-normalization.md) — prior foundation work (tsconfig normalization + CJS via tsup)
+- [ADR 021](021-tsconfig-normalization.md): prior foundation work (tsconfig normalization + CJS via tsup)
 - [TypeDoc `projectDocuments` documentation](https://typedoc.org/options/input/#projectdocuments)
-- [VitePress documentation](https://vitepress.dev/) — the tool we're replacing
-- `docs/index.md` — the new landing page with the same audience split explained for contributors
-- `typedoc.json` — the new minimal TypeDoc config
+- [VitePress documentation](https://vitepress.dev/): the tool we're replacing
+- `docs/index.md`: the new landing page with the same audience split explained for contributors
+- `typedoc.json`: the new minimal TypeDoc config

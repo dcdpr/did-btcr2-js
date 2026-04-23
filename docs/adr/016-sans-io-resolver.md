@@ -1,11 +1,13 @@
 ---
-title: "ADR 002: Sans-I/O Resolver State Machine"
+title: "ADR 016: Sans-I/O Resolver State Machine"
 ---
 
-# ADR 002 — Sans-I/O Resolver State Machine
+# ADR 016: Sans-I/O Resolver State Machine
 
 **Status:** Accepted
+
 **Date:** 2026-03-25
+
 **Branch / PR:** `refactor/resolve-session`
 
 ## Context
@@ -27,24 +29,24 @@ This shape had several concrete problems:
 
 4. **Violated the sans-I/O spec model.** The `did:btcr2` spec itself is written as a deterministic algorithm that takes a DID and a bundle of already-fetched data (genesis doc, beacon signals, CAS announcements, updates) and produces a resolution result. The implementation was conflating "fetching data" with "applying the algorithm."
 
-The refactor goal was to make `DidBtcr2.resolve()` return a **state machine** that the caller drives — one that embodies exactly the spec algorithm, with zero I/O.
+The refactor goal was to make `DidBtcr2.resolve()` return a **state machine** that the caller drives: one that embodies exactly the spec algorithm, with zero I/O.
 
 ## Decision
 
 We rewrote `DidBtcr2.resolve()` to return a `Resolver` instance that contains a pure state machine. The state machine is a synchronous, iterative function that progresses through five phases:
 
 ```
-GenesisDocument → BeaconDiscovery → BeaconProcess → ApplyUpdates → Complete
+GenesisDocument to BeaconDiscovery to BeaconProcess to ApplyUpdates to Complete
 ```
 
 At each step, if the state machine needs data it doesn't have, it emits a typed `DataNeed` request and suspends. The caller reads the requests, fetches the data via whatever I/O mechanism they choose, and passes the results back via `resolver.provide(need, data)`. Then the caller calls `resolver.resolve()` again, which picks up where it left off.
 
 The `DataNeed` discriminated union is:
 
-- `NeedGenesisDocument` — for EXTERNAL identifiers, the state machine needs the genesis DID document that hashes to the identifier's 32-byte signature
-- `NeedBeaconSignals` — the state machine needs all Bitcoin transactions at a specific set of beacon addresses
-- `NeedCASAnnouncement` — the state machine needs the JSON CAS announcement identified by a canonical hash
-- `NeedSignedUpdate` — the state machine needs a signed update identified by its canonical hash
+- `NeedGenesisDocument`: for EXTERNAL identifiers, the state machine needs the genesis DID document that hashes to the identifier's 32-byte signature
+- `NeedBeaconSignals`: the state machine needs all Bitcoin transactions at a specific set of beacon addresses
+- `NeedCASAnnouncement`: the state machine needs the JSON CAS announcement identified by a canonical hash
+- `NeedSignedUpdate`: the state machine needs a signed update identified by its canonical hash
 
 The caller's loop looks like:
 
@@ -54,7 +56,7 @@ let state = resolver.resolve();
 
 while (state.status === 'action-required') {
   for (const need of state.needs) {
-    const data = await fetchData(need);   // caller's I/O — could be HTTP, worker message, test fixture, anything
+    const data = await fetchData(need);   // caller's I/O: could be HTTP, worker message, test fixture, anything
     resolver.provide(need, data);
   }
   state = resolver.resolve();
@@ -69,7 +71,7 @@ Three significant design choices inside the state machine:
 
 2. **Sidecar data bundle.** The `ResolutionOptions.sidecar` field lets the caller pre-populate the state machine with data it already has (e.g., a signed update fetched out-of-band). The state machine checks the sidecar first before emitting a `DataNeed`, which means callers that already have the full data bundle never see any `DataNeed` requests at all.
 
-3. **Structural equality for `provide()`.** The `provide()` method accepts a `DataNeed` and its corresponding data. To match needs across reads, the caller doesn't need to keep the exact `DataNeed` object reference — they just need to supply the same discriminant + identifier (e.g., the same `updateHash`). The state machine looks up pending needs by hash.
+3. **Structural equality for `provide()`.** The `provide()` method accepts a `DataNeed` and its corresponding data. To match needs across reads, the caller doesn't need to keep the exact `DataNeed` object reference: they just need to supply the same discriminant + identifier (e.g., the same `updateHash`). The state machine looks up pending needs by hash.
 
 ## Consequences
 
@@ -103,22 +105,22 @@ Three significant design choices inside the state machine:
 
 ## Verification
 
-- `packages/method/tests/resolver.spec.ts` exercises the state machine directly with canned fixtures — 27 test cases covering deterministic and external identifier resolution, sidecar population, multi-round beacon discovery, and error paths.
+- `packages/method/tests/resolver.spec.ts` exercises the state machine directly with canned fixtures: 27 test cases covering deterministic and external identifier resolution, sidecar population, multi-round beacon discovery, and error paths.
 - `DidBtcr2Api.resolve()` in the `api` package wraps the state machine with a default HTTP-based loop and is tested against real Bitcoin testnet data in `packages/api/tests/`.
-- Browser bundle produced by esbuild for `@did-btcr2/method` is confirmed to be functional — no native module imports.
+- Browser bundle produced by esbuild for `@did-btcr2/method` is confirmed to be functional: no native module imports.
 
 ## Follow-ups
 
-Tracked in the monorepo roadmap (Track 5 5A — Resolver Robustness):
+Tracked in the monorepo roadmap (Track 5 5A: Resolver Robustness):
 
 - Cap resolver discovery rounds at 10 (`maxDiscoveryRounds` option) to prevent unbounded beacon discovery loops.
 - Validate provided data matches the need's expected hash at `provide()` time.
-- Add runtime type guards to `provide()` — validate data shape, not just TypeScript overloads.
-- Mirror the same pattern for `Updater` (Track 3 — Sans-I/O Update Path).
+- Add runtime type guards to `provide()`: validate data shape, not just TypeScript overloads.
+- Mirror the same pattern for `Updater` (Track 3: Sans-I/O Update Path).
 
 ## References
 
-- [`docs/architecture/overview.md`](../architecture/overview.md) — broader architectural context
-- [Sans-I/O design pattern (Hynek Schlawack)](https://sans-io.readthedocs.io/) — the general pattern this follows
-- `packages/method/src/core/resolver.ts` — the state machine implementation
-- `packages/method/src/did-btcr2.ts` — the `DidBtcr2.resolve()` factory
+- [`docs/architecture/overview.md`](../architecture/overview.md): broader architectural context
+- [Sans-I/O design pattern (Hynek Schlawack)](https://sans-io.readthedocs.io/): the general pattern this follows
+- `packages/method/src/core/resolver.ts`: the state machine implementation
+- `packages/method/src/did-btcr2.ts`: the `DidBtcr2.resolve()` factory
