@@ -5,7 +5,7 @@ export type SyncMessageHandler = (msg: any) => void;
 export type AsyncMessageHandler = (msg: any) => Promise<void>;
 export type MessageHandler = SyncMessageHandler | AsyncMessageHandler;
 
-export type TransportType = 'nostr' | 'didcomm';
+export type TransportType = 'nostr' | 'didcomm' | 'http';
 
 /**
  * Multi-actor message transport.

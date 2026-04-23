@@ -48,6 +48,7 @@ serviceTransport.start();
 aliceTransport.start();
 bobTransport.start();
 
+
 // Pre-register peer keys (in production, exchanged via the protocol's COHORT_ADVERT/OPT_IN handshake)
 serviceTransport.registerPeer(aliceDid, aliceKeys.publicKey.compressed);
 serviceTransport.registerPeer(bobDid, bobKeys.publicKey.compressed);
