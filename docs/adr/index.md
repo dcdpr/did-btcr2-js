@@ -33,6 +33,8 @@ children:
   - ./030-fetch-based-sse.md
   - ./031-permissive-cors-default.md
   - ./032-sans-io-server-primitives.md
+  - ./033-key-manager-package-rename.md
+  - ./034-key-manager-capability-pattern.md
 ---
 
 # Architecture Decision Records
@@ -73,3 +75,5 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 030 | 2026-04-22 | [Fetch-Based SSE over Native EventSource](030-fetch-based-sse.md) |
 | 031 | 2026-04-22 | [Permissive CORS Default for HTTP Transport](031-permissive-cors-default.md) |
 | 032 | 2026-04-22 | [Sans-I/O handleRequest / handleSse Primitives](032-sans-io-server-primitives.md) |
+| 033 | 2026-05-18 | [Rename @did-btcr2/kms to @did-btcr2/key-manager](033-key-manager-package-rename.md) |
+| 034 | 2026-05-21 | [KeyManager.canExport Capability Pattern](034-key-manager-capability-pattern.md) |

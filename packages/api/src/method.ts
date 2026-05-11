@@ -1,10 +1,10 @@
 import type { BitcoinConnection } from '@did-btcr2/bitcoin';
-import type { DocumentBytes, HexString, KeyBytes, PatchOperation } from '@did-btcr2/common';
+import type { DocumentBytes, KeyBytes, PatchOperation } from '@did-btcr2/common';
 import { decode as decodeHash, IdentifierTypes, INVALID_DID_UPDATE, NotImplementedError, UpdateError } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { Signer } from '@did-btcr2/keypair';
 import type { Btcr2DidDocument, CASAnnouncement, DidCreateOptions, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, ResolutionOptions } from '@did-btcr2/method';
 import { BeaconFactory, BeaconSignalDiscovery, DidBtcr2 } from '@did-btcr2/method';
-import { hexToBytes } from '@noble/hashes/utils';
 import type { DidResolutionResult, DidVerificationMethod } from '@web5/dids';
 import type { BitcoinApi } from './bitcoin.js';
 import type { CasApi } from './cas.js';
@@ -165,7 +165,7 @@ export class DidMethodApi {
   /**
    * Update an existing DID document by driving the sans-I/O {@link Updater} state
    * machine (from @did-btcr2/method). This method handles the I/O side:
-   * - Signing: supplies the secret key to `NeedSigningKey`.
+   * - Signing: supplies the {@link Signer} to `NeedSigningKey`.
    * - Broadcast: establishes a beacon via {@link BeaconFactory} and calls
    *   `broadcastSignal()` with the bitcoin connection configured on the API.
    *
@@ -182,7 +182,7 @@ export class DidMethodApi {
     sourceVersionId,
     verificationMethodId,
     beaconId,
-    signingMaterial,
+    signer,
     bitcoin,
   }: {
     sourceDocument: Btcr2DidDocument;
@@ -190,16 +190,12 @@ export class DidMethodApi {
     sourceVersionId: number;
     verificationMethodId: string;
     beaconId: string;
-    signingMaterial?: KeyBytes | HexString;
+    signer: Signer;
     bitcoin?: BitcoinConnection;
   }): Promise<SignedBTCR2Update> {
-    if(!signingMaterial) {
-      throw new UpdateError(
-        'Missing signing material for update',
-        INVALID_DID_UPDATE, { signingMaterial }
-      );
-    }
-
+    // Bitcoin connection resolution order: per-call `bitcoin` param wins over the
+    // BitcoinApi injected at DidBtcr2Api construction time. One of the two must
+    // be present; this can't be encoded in the type system, so it's a runtime check.
     const btcConnection = bitcoin ?? this.#btc?.connection;
     if(!btcConnection) {
       throw new UpdateError(
@@ -208,11 +204,6 @@ export class DidMethodApi {
         INVALID_DID_UPDATE, { beaconId }
       );
     }
-
-    // Normalize signing material to raw bytes
-    const secretKey: KeyBytes = typeof signingMaterial === 'string'
-      ? hexToBytes(signingMaterial)
-      : signingMaterial;
 
     this.#log.debug('Updating DID', sourceDocument.id, { beaconId, verificationMethodId });
 
@@ -232,8 +223,8 @@ export class DidMethodApi {
       for(const need of state.needs) {
         switch(need.kind) {
           case 'NeedSigningKey': {
-            this.#log.debug('Providing signing key for', need.verificationMethodId);
-            updater.provide(need, secretKey);
+            this.#log.debug('Providing signer for', need.verificationMethodId);
+            updater.provide(need, signer);
             break;
           }
           case 'NeedFunding': {
@@ -255,7 +246,7 @@ export class DidMethodApi {
               'Broadcasting signed update via %s beacon', need.beaconService.type
             );
             const beacon = BeaconFactory.establish(need.beaconService);
-            await beacon.broadcastSignal(need.signedUpdate, secretKey, btcConnection);
+            await beacon.broadcastSignal(need.signedUpdate, signer, btcConnection);
             updater.provide(need);
             break;
           }
@@ -289,8 +280,9 @@ export class DidMethodApi {
    *   .buildUpdate(currentDoc)
    *   .patch({ op: 'add', path: '/service/1', value: newService })
    *   .version(2)
-   *   .signer('#initialKey')
+   *   .verificationMethodId('#initialKey')
    *   .beacon('#beacon-0')
+   *   .signer(new LocalSigner(secretKey))
    *   .execute();
    * ```
    */
@@ -324,7 +316,7 @@ export class UpdateBuilder {
   #sourceVersionId?: number;
   #verificationMethodId?: string;
   #beaconId?: string;
-  #signingMaterial?: KeyBytes | HexString;
+  #signer?: Signer;
   #bitcoin?: BitcoinConnection;
 
   /** @internal */
@@ -351,8 +343,8 @@ export class UpdateBuilder {
     return this;
   }
 
-  /** Set the verification method ID used for signing. */
-  signer(methodId: string): this {
+  /** Set the verification method ID used for signing the update. */
+  verificationMethodId(methodId: string): this {
     this.#verificationMethodId = methodId;
     return this;
   }
@@ -363,31 +355,43 @@ export class UpdateBuilder {
     return this;
   }
 
-  /** Set the signing material (secret key bytes or hex). */
-  signingMaterial(material: KeyBytes | HexString): this {
-    this.#signingMaterial = material;
+  /**
+   * Set the {@link Signer} that produces the update's BIP-340 Schnorr proof
+   * and the beacon transaction's ECDSA input signature. Use `LocalSigner`
+   * for in-process secret keys, `KeyManagerSigner` for KMS-managed keys
+   * (AWS, Vault, HSM, etc.), or any custom adapter implementing the `Signer`
+   * interface.
+   */
+  signer(s: Signer): this {
+    this.#signer = s;
     return this;
   }
 
   /** Override the Bitcoin connection for this update. */
-  withBitcoin(connection: BitcoinConnection): this {
+  bitcoin(connection: BitcoinConnection): this {
     this.#bitcoin = connection;
     return this;
   }
 
   /**
    * Execute the update.
-   * @throws {Error} If required fields (version, signer, beacon) are missing.
+   * @throws {Error} If required fields (version, verificationMethodId, beacon, signer) are missing.
    */
   async execute(): Promise<SignedBTCR2Update> {
     if (this.#sourceVersionId === undefined) {
       throw new Error('UpdateBuilder: sourceVersionId is required. Call .version(id) before .execute().');
     }
     if (!this.#verificationMethodId) {
-      throw new Error('UpdateBuilder: verificationMethodId is required. Call .signer(id) before .execute().');
+      throw new Error(
+        'UpdateBuilder: verificationMethodId is required. '
+        + 'Call .verificationMethodId(id) before .execute().'
+      );
     }
     if (!this.#beaconId) {
       throw new Error('UpdateBuilder: beaconId is required. Call .beacon(id) before .execute().');
+    }
+    if (!this.#signer) {
+      throw new Error('UpdateBuilder: signer is required. Call .signer(s) before .execute().');
     }
 
     return this.#methodApi.update({
@@ -396,7 +400,7 @@ export class UpdateBuilder {
       sourceVersionId      : this.#sourceVersionId,
       verificationMethodId : this.#verificationMethodId,
       beaconId             : this.#beaconId,
-      signingMaterial      : this.#signingMaterial,
+      signer               : this.#signer,
       bitcoin              : this.#bitcoin,
     });
   }

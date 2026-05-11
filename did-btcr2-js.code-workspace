@@ -29,8 +29,8 @@
       "path": "packages/keypair"
     },
     {
-      "name": "kms",
-      "path": "packages/kms"
+      "name": "key-manager",
+      "path": "packages/key-manager"
     },
     {
       "name": "method",

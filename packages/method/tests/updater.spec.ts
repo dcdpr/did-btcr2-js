@@ -1,3 +1,6 @@
+import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
+import type { Signer } from '@did-btcr2/keypair';
+import { LocalSigner } from '@did-btcr2/keypair';
 import { hexToBytes } from '@noble/hashes/utils';
 import { expect } from 'chai';
 import { DidBtcr2 } from '../src/did-btcr2.js';
@@ -33,6 +36,7 @@ describe('Updater', () => {
   const fixture = data[0]!;
   const did = fixture.did;
   const secretKey = hexToBytes(fixture.secretKey);
+  const signer = new LocalSigner(secretKey);
 
   let sourceDocument: Btcr2DidDocument;
   let verificationMethodId: string;
@@ -108,7 +112,7 @@ describe('Updater', () => {
     it('after signing, advance() emits NeedFunding with the beacon address', () => {
       let state = updater.advance();
       if(state.status !== 'action-required') throw new Error('expected action-required');
-      updater.provide(state.needs[0] as NeedSigningKey, secretKey);
+      updater.provide(state.needs[0] as NeedSigningKey, signer);
 
       state = updater.advance();
       expect(state.status).to.equal('action-required');
@@ -128,7 +132,7 @@ describe('Updater', () => {
       // Sign
       let state = updater.advance();
       if(state.status !== 'action-required') throw new Error('expected action-required');
-      updater.provide(state.needs[0] as NeedSigningKey, secretKey);
+      updater.provide(state.needs[0] as NeedSigningKey, signer);
 
       // Fund
       state = updater.advance();
@@ -148,11 +152,42 @@ describe('Updater', () => {
       expect(broadcastNeed.signedUpdate.proof).to.have.property('proofValue').that.is.a('string');
     });
 
+    it('NeedFunding accepts a FundingProof with utxoCount >= 1', () => {
+      // Sign
+      let state = updater.advance();
+      if(state.status !== 'action-required') throw new Error('expected action-required');
+      updater.provide(state.needs[0] as NeedSigningKey, signer);
+
+      // Fund with explicit proof — should transition to Broadcast cleanly.
+      state = updater.advance();
+      if(state.status !== 'action-required') throw new Error('expected action-required');
+      updater.provide(state.needs[0] as NeedFunding, { utxoCount: 1, txid: 'aa'.repeat(32) });
+
+      state = updater.advance();
+      expect(state.status).to.equal('action-required');
+      if(state.status !== 'action-required') return;
+      expect(state.needs[0]!.kind).to.equal('NeedBroadcast');
+    });
+
+    it('NeedFunding rejects a FundingProof with utxoCount < 1', () => {
+      // Sign
+      let state = updater.advance();
+      if(state.status !== 'action-required') throw new Error('expected action-required');
+      updater.provide(state.needs[0] as NeedSigningKey, signer);
+
+      // Fund with falsy proof — caller claims no UTXOs available; state machine rejects.
+      state = updater.advance();
+      if(state.status !== 'action-required') throw new Error('expected action-required');
+      expect(() =>
+        updater.provide(state.needs[0] as NeedFunding, { utxoCount: 0 })
+      ).to.throw(/utxoCount >= 1/);
+    });
+
     it('completes after full Construct → Sign → Fund → Broadcast cycle', () => {
       // Sign
       let state = updater.advance();
       if(state.status !== 'action-required') throw new Error('expected action-required');
-      updater.provide(state.needs[0] as NeedSigningKey, secretKey);
+      updater.provide(state.needs[0] as NeedSigningKey, signer);
 
       // Fund
       state = updater.advance();
@@ -181,7 +216,7 @@ describe('Updater', () => {
         verificationMethodId,
         unsignedUpdate       : {} as never,
       };
-      expect(() => updater.provide(bogusNeed, secretKey)).to.throw(/phase/i);
+      expect(() => updater.provide(bogusNeed, signer)).to.throw(/phase/i);
     });
 
     it('provide(NeedSigningKey) throws without data', () => {
@@ -189,7 +224,7 @@ describe('Updater', () => {
       if(state.status !== 'action-required') throw new Error('expected action-required');
       const signingNeed = state.needs[0] as NeedSigningKey;
       // @ts-expect-error — deliberately omitting data
-      expect(() => updater.provide(signingNeed)).to.throw(/secret key/i);
+      expect(() => updater.provide(signingNeed)).to.throw(/Signer/i);
     });
 
     it('provide(NeedFunding) throws if called before signing is done', () => {
@@ -205,7 +240,7 @@ describe('Updater', () => {
       // Advance through signing only
       let state = updater.advance();
       if(state.status !== 'action-required') throw new Error('expected action-required');
-      updater.provide(state.needs[0] as NeedSigningKey, secretKey);
+      updater.provide(state.needs[0] as NeedSigningKey, signer);
 
       // Skip funding — try to provide broadcast directly
       const bogusBroadcast: NeedBroadcast = {
@@ -229,10 +264,96 @@ describe('Updater', () => {
     it('Updater.sign() produces a signed update with a proof', () => {
       const unsigned = Updater.construct(sourceDocument, [], 1);
       const vm = sourceDocument.verificationMethod![0]!;
-      const signed = Updater.sign(sourceDocument.id, unsigned, vm, secretKey);
+      const signed = Updater.sign(sourceDocument.id, unsigned, vm, signer);
       expect(signed).to.have.property('proof');
       expect(signed.proof).to.have.property('proofValue').that.is.a('string');
       expect(signed.proof).to.have.property('cryptosuite', 'bip340-jcs-2025');
+    });
+  });
+
+  describe('signer round-trip (cryptographic verification)', () => {
+    it('Updater.sign produces a proof that the cryptosuite verifier accepts', () => {
+      const unsigned = Updater.construct(sourceDocument, [], 1);
+      const vm = sourceDocument.verificationMethod![0]!;
+      const signed = Updater.sign(sourceDocument.id, unsigned, vm, signer);
+
+      // Reconstruct the verifier from the verification method's publicKeyMultibase
+      // (the same path a remote resolver would take).
+      const verifierMultikey = SchnorrMultikey.fromVerificationMethod(vm);
+      const cryptosuite = verifierMultikey.toCryptosuite();
+      const result = cryptosuite.verifyProof(signed);
+
+      expect(result.verified).to.be.true;
+    });
+
+    it('verification fails when proof is signed by a different key', () => {
+      const unsigned = Updater.construct(sourceDocument, [], 1);
+      const vm = sourceDocument.verificationMethod![0]!;
+
+      // Sign with a key that does NOT match the verification method.
+      const wrongKey = new Uint8Array(32).fill(0x42);
+      const wrongSigner = new LocalSigner(wrongKey);
+      const signed = Updater.sign(sourceDocument.id, unsigned, vm, wrongSigner);
+
+      const verifierMultikey = SchnorrMultikey.fromVerificationMethod(vm);
+      const cryptosuite = verifierMultikey.toCryptosuite();
+      const result = cryptosuite.verifyProof(signed);
+
+      expect(result.verified).to.be.false;
+    });
+
+    it('cross-signer parity: LocalSigner and inline literal Signer both produce verifiable proofs', () => {
+      const vm = sourceDocument.verificationMethod![0]!;
+      const verifierMultikey = SchnorrMultikey.fromVerificationMethod(vm);
+      const cryptosuite = verifierMultikey.toCryptosuite();
+
+      // Path A: LocalSigner.
+      const unsigned1 = Updater.construct(sourceDocument, [], 1);
+      const signedA = Updater.sign(sourceDocument.id, unsigned1, vm, signer);
+
+      // Path B: inline literal Signer wrapping the same secret key.
+      // Proves the Updater chain doesn't have LocalSigner-specific logic.
+      const customSigner: Signer = {
+        publicKey : signer.publicKey,
+        sign      : (data, scheme, opts) => signer.sign(data, scheme, opts),
+      };
+      const unsigned2 = Updater.construct(sourceDocument, [], 1);
+      const signedB = Updater.sign(sourceDocument.id, unsigned2, vm, customSigner);
+
+      // Both proofs verify against the same verification method.
+      // (BIP-340 schnorr uses random aux_rand; signatures themselves differ.)
+      expect(cryptosuite.verifyProof(signedA).verified).to.be.true;
+      expect(cryptosuite.verifyProof(signedB).verified).to.be.true;
+    });
+
+    it('state machine end-to-end: provide(NeedSigningKey, signer) yields a verifiable signed update', () => {
+      const updater = DidBtcr2.update({
+        sourceDocument,
+        patches         : [],
+        sourceVersionId : 1,
+        verificationMethodId,
+        beaconId,
+      });
+
+      // Construct -> Sign
+      let state = updater.advance();
+      if(state.status !== 'action-required') throw new Error('expected action-required');
+      updater.provide(state.needs[0] as NeedSigningKey, signer);
+
+      // Fund -> Broadcast (skipped — no actual I/O in unit tests)
+      state = updater.advance();
+      if(state.status !== 'action-required') throw new Error('expected action-required');
+      updater.provide(state.needs[0] as NeedFunding);
+
+      state = updater.advance();
+      if(state.status !== 'action-required') throw new Error('expected action-required');
+      const broadcastNeed = state.needs[0] as NeedBroadcast;
+
+      // Verify the signed update produced by the state machine.
+      const vm = sourceDocument.verificationMethod![0]!;
+      const verifierMultikey = SchnorrMultikey.fromVerificationMethod(vm);
+      const cryptosuite = verifierMultikey.toCryptosuite();
+      expect(cryptosuite.verifyProof(broadcastNeed.signedUpdate).verified).to.be.true;
     });
   });
 

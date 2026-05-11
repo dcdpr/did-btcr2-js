@@ -36,7 +36,7 @@ console.log('publicKeyBytes', publicKeyBytes);
 const toVM = multikey.toVerificationMethod();
 console.log('toVM', toVM);
 
-const multikeyFromVm = multikey.fromVerificationMethod(verificationMethod[0]);
+const multikeyFromVm = SchnorrMultikey.fromVerificationMethod(verificationMethod[0]);
 console.log('multikeyFromVm', multikeyFromVm);
 
 const fullId = multikey.fullId();

@@ -24,7 +24,7 @@
  * Exit code: 0 on success, non-zero on any assertion failure.
  */
 import assert from 'node:assert/strict';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { bytesToHex } from '@noble/hashes/utils';
 import { p2tr, SigHash, Transaction } from '@scure/btc-signer';
@@ -88,7 +88,7 @@ function buildSignedUpdate(did: string, kp: SchnorrKeyPair, beaconAddress: strin
       serviceEndpoint : `bitcoin:${beaconAddress}`,
     },
   }], 1);
-  return Updater.sign(did, unsigned, vm, kp.raw.secret!);
+  return Updater.sign(did, unsigned, vm, new LocalSigner(kp.raw.secret!));
 }
 
 // ── Capture artefacts for post-run cryptographic verification ──

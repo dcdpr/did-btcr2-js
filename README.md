@@ -52,7 +52,7 @@ Visit [btcr2.dev](https://btcr2.dev/impls/ts) for install and usage instructions
 | [@did-btcr2/common](packages/common)             | [![NPM Package][common-npm-badge]][common-npm-link]            | [![Open Issues][common-issues-badge]][common-issues-link]            | [![Open PRs][common-pulls-badge]][common-pulls-link]                |
 | [@did-btcr2/cryptosuite](packages/cryptosuite)   | [![NPM Package][cryptosuite-npm-badge]][cryptosuite-npm-link]  | [![Open Issues][cryptosuite-issues-badge]][cryptosuite-issues-link]  | [![Open PRs][cryptosuite-pulls-badge]][cryptosuite-pulls-link]      |
 | [@did-btcr2/keypair](packages/keypair)           | [![NPM Package][keypair-npm-badge]][keypair-npm-link]          | [![Open Issues][keypair-issues-badge]][keypair-issues-link]          | [![Open PRs][keypair-pulls-badge]][keypair-pulls-link]              |
-| [@did-btcr2/kms](packages/kms)                   | [![NPM Package][kms-npm-badge]][kms-npm-link]                  | [![Open Issues][kms-issues-badge]][kms-issues-link]                  | [![Open PRs][kms-pulls-badge]][kms-pulls-link]                      |
+| [@did-btcr2/key-manager](packages/key-manager)   | [![NPM Package][key-manager-npm-badge]][key-manager-npm-link]  | [![Open Issues][key-manager-issues-badge]][key-manager-issues-link]  | [![Open PRs][key-manager-pulls-badge]][key-manager-pulls-link]      |
 | [@did-btcr2/method](packages/method)             | [![NPM Package][method-npm-badge]][method-npm-link]            | [![Open Issues][method-issues-badge]][method-issues-link]            | [![Open PRs][method-pulls-badge]][method-pulls-link]                |
 | [@did-btcr2/smt](packages/smt)                   | [![NPM Package][smt-npm-badge]][smt-npm-link]                  | [![Open Issues][smt-issues-badge]][smt-issues-link]                  | [![Open PRs][smt-pulls-badge]][smt-pulls-link]                      |
 
@@ -108,12 +108,12 @@ Visit [btcr2.dev](https://btcr2.dev/impls/ts) for install and usage instructions
 [keypair-pulls-badge]: https://img.shields.io/github/issues-pr/dcdpr/did-btcr2-js/package%3A%20keypair?label=PRs
 [keypair-pulls-link]: https://github.com/dcdpr/did-btcr2-js/pulls?q=is%3Aopen+is%3Apr+label%3A%22package%3A+keypair%22
 
-[kms-npm-badge]: https://img.shields.io/npm/v/@did-btcr2/kms.svg?&color=green&santize=true
-[kms-npm-link]: https://www.npmjs.com/package/@did-btcr2/kms
-[kms-issues-badge]: https://img.shields.io/github/issues/dcdpr/did-btcr2-js/package:%20kms?label=issues
-[kms-issues-link]: https://github.com/dcdpr/did-btcr2-js/issues?q=is%3Aopen+is%3Aissue+label%3A%22package%3A+kms%22
-[kms-pulls-badge]: https://img.shields.io/github/issues-pr/dcdpr/did-btcr2-js/package%3A%20kms?label=PRs
-[kms-pulls-link]: https://github.com/dcdpr/did-btcr2-js/pulls?q=is%3Aopen+is%3Apr+label%3A%22package%3A+kms%22
+[key-manager-npm-badge]: https://img.shields.io/npm/v/@did-btcr2/key-manager.svg?&color=green&santize=true
+[key-manager-npm-link]: https://www.npmjs.com/package/@did-btcr2/key-manager
+[key-manager-issues-badge]: https://img.shields.io/github/issues/dcdpr/did-btcr2-js/package:%20key-manager?label=issues
+[key-manager-issues-link]: https://github.com/dcdpr/did-btcr2-js/issues?q=is%3Aopen+is%3Aissue+label%3A%22package%3A+key-manager%22
+[key-manager-pulls-badge]: https://img.shields.io/github/issues-pr/dcdpr/did-btcr2-js/package%3A%20key-manager?label=PRs
+[key-manager-pulls-link]: https://github.com/dcdpr/did-btcr2-js/pulls?q=is%3Aopen+is%3Apr+label%3A%22package%3A+key-manager%22
 
 [method-npm-badge]: https://img.shields.io/npm/v/@did-btcr2/method.svg?&color=green&santize=true
 [method-npm-link]: https://www.npmjs.com/package/@did-btcr2/method

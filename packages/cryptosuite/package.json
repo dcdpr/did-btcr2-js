@@ -1,6 +1,6 @@
 {
   "name": "@did-btcr2/cryptosuite",
-  "version": "6.0.6",
+  "version": "8.0.0",
   "type": "module",
   "description": "W3C Data Integrity proof suite using BIP-340 Schnorr signatures over JCS-canonicalized documents. Creates and verifies bip340-jcs-2025 proofs for did:btcr2 DID updates.",
   "main": "./dist/cjs/index.js",

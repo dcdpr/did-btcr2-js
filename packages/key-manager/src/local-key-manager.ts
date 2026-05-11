@@ -7,7 +7,8 @@ import type {
 import {
   KeyManagerError
 } from '@did-btcr2/common';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair, signWithScheme } from '@did-btcr2/keypair';
+import { schnorr, secp256k1 } from '@noble/curves/secp256k1.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import type {
   GenerateKeyOptions,
@@ -16,30 +17,37 @@ import type {
   KeyIdentifier,
   KeyManager,
   SignOptions,
+  VerifyOptions,
 } from './interface.js';
 import type { KeyValueStore} from './store.js';
 import { MemoryStore } from './store.js';
 
 /**
- * Key Management System for the did:btcr2 DID method.
- *
- * Implements the {@link KeyManager} interface with a pluggable
+ * In-process reference implementation of the {@link KeyManager} interface for
+ * the did:btcr2 DID method. Holds key entries in a pluggable
  * {@link KeyValueStore} (defaults to {@link MemoryStore}).
  *
- * Supports both signing (secret key present) and watch-only
- * (public-key-only) key entries, and both Schnorr and ECDSA
- * signature schemes.
+ * "Local" means the secret bytes live in this JS process's heap, just like
+ * `LocalSigner` in `@did-btcr2/keypair`. For production deployments that need
+ * keys held outside the process (HSM, cloud KMS like AWS / GCP / Azure /
+ * HashiCorp Vault), supply your own implementation of {@link KeyManager} to
+ * the api package and use this class only for tests, scripts, and reference.
  *
+ * Supports both signing (secret key present) and watch-only (public-key-only)
+ * key entries, plus all three {@link SigningScheme}s.
  */
-export class Kms implements KeyManager {
+export class LocalKeyManager implements KeyManager {
+  /** Capability probe: this implementation supports exportKey(). */
+  readonly canExport = true;
+
   #store: KeyValueStore<KeyIdentifier, KeyEntry>;
   #activeKeyId?: KeyIdentifier;
 
   /**
-   * Create a new KMS instance.
+   * Create a new LocalKeyManager instance.
    *
-   * @param {KeyValueStore<KeyIdentifier, KeyEntry>} [store] Optional key-value store.
-   * Defaults to in-memory store if not provided.
+   * @param {KeyValueStore<KeyIdentifier, KeyEntry>} [store] Optional key-value
+   *   store. Defaults to an in-memory store if not provided.
    */
   constructor(store?: KeyValueStore<KeyIdentifier, KeyEntry>) {
     this.#store = store ?? new MemoryStore<KeyIdentifier, KeyEntry>();
@@ -57,14 +65,18 @@ export class Kms implements KeyManager {
   /**
    * Generate a URN-style key identifier from compressed public key bytes.
    * Format: `urn:kms:secp256k1:<fingerprint>` where fingerprint is the
-   * first 8 bytes of SHA-256(publicKey), hex-encoded.
+   * first 16 bytes of SHA-256(publicKey), hex-encoded (128 bits, 32 hex chars).
+   *
+   * 128 bits comfortably exceeds the birthday-paradox threshold for any
+   * realistic key inventory (collision probability ~ 2^-64 at 2^32 keys),
+   * while still being short enough to remain human-skimmable.
    *
    * @param {KeyBytes} publicKeyBytes Compressed secp256k1 public key bytes.
    * @returns {KeyIdentifier} The generated key identifier.
    */
   #generateUrn(publicKeyBytes: KeyBytes): KeyIdentifier {
     const hash = sha256(publicKeyBytes);
-    const fingerprint = Array.from(hash.slice(0, 8))
+    const fingerprint = Array.from(hash.slice(0, 16))
       .map(b => b.toString(16).padStart(2, '0'))
       .join('');
     return `urn:kms:secp256k1:${fingerprint}`;
@@ -112,11 +124,14 @@ export class Kms implements KeyManager {
   }
 
   /**
-   * Sign data using the specified key.
+   * Sign data using the specified key. See {@link SigningScheme} for the
+   * contract of each scheme. The KMS applies any key-derivation step
+   * (BIP-341 taproot tweak) internally; secret bytes never leave this object.
    *
    * @param {Bytes} data The data to sign.
    * @param {KeyIdentifier} [id] Key identifier. Uses active key if omitted.
-   * @param {SignOptions} [options] Signing options (scheme defaults to 'schnorr').
+   * @param {SignOptions} [options] Signing options. Defaults: `scheme: 'bip340'`.
+   *   Only `'bip341'` consumes `merkleRoot`.
    * @returns {SignatureBytes} The signature bytes.
    * @throws {KeyManagerError} If key not found, no active key, or key cannot sign.
    */
@@ -126,24 +141,50 @@ export class Kms implements KeyManager {
       const keyId = id ?? this.#activeKeyId;
       throw new KeyManagerError(`Key is not a signing key: ${keyId}`, 'KEY_NOT_SIGNER');
     }
-    const kp = new SchnorrKeyPair({ secretKey: entry.secretKey });
-    return kp.secretKey.sign(data, { scheme: options.scheme ?? 'schnorr' });
+    const scheme = options.scheme ?? 'bip340';
+    // Delegates to `signWithScheme` in `@did-btcr2/keypair`. Single source of
+    // truth for the prehash / lowS / taproot-tweak contract so this manager
+    // and `LocalSigner` cannot drift.
+    return signWithScheme(entry.secretKey, data, scheme, { merkleRoot: options.merkleRoot });
   }
 
   /**
-   * Verify a signature using the specified key.
+   * Verify a signature using the specified key. `'bip341'` is not supported
+   * here — taproot signatures verify against the tweaked output key, not the
+   * entry's untweaked pubkey.
    *
    * @param {SignatureBytes} signature The signature bytes to verify.
    * @param {Bytes} data The data that was signed.
    * @param {KeyIdentifier} [id] Key identifier. Uses active key if omitted.
-   * @param {SignOptions} [options] Verification options (scheme defaults to 'schnorr').
+   * @param {VerifyOptions} [options] Verification options. Defaults: `scheme: 'bip340'`.
    * @returns {boolean} True if the signature is valid, false otherwise.
    * @throws {KeyManagerError} If key not found or no active key set.
    */
-  verify(signature: SignatureBytes, data: Bytes, id?: KeyIdentifier, options: SignOptions = {}): boolean {
+  verify(
+    signature: SignatureBytes,
+    data: Bytes,
+    id?: KeyIdentifier,
+    options: VerifyOptions = {},
+  ): boolean {
     const entry = this.#getEntryOrThrow(id);
-    const kp = new SchnorrKeyPair({ publicKey: entry.publicKey });
-    return kp.publicKey.verify(signature, data, { scheme: options.scheme ?? 'schnorr' });
+    const scheme = options.scheme ?? 'bip340';
+    if (scheme === 'ecdsa') {
+      // The entry stores a 33-byte compressed key; noble v2 accepts that directly.
+      // prehash: false — matches the sign-path contract; `data` is the digest.
+      return secp256k1.verify(signature, data, entry.publicKey, {
+        format  : 'der',
+        prehash : false,
+      });
+    }
+    if (scheme === 'bip340') {
+      // BIP-340 uses the 32-byte x-only key. Strip the SEC prefix byte from the
+      // stored compressed key before verifying.
+      return schnorr.verify(signature, data, entry.publicKey.slice(1, 33));
+    }
+    throw new KeyManagerError(
+      `Unsupported verify scheme: ${scheme as string}`,
+      'VERIFY_ERROR'
+    );
   }
 
   /**
@@ -167,12 +208,8 @@ export class Kms implements KeyManager {
       ...(options.tags && { tags: options.tags }),
     };
 
-    try {
-      if (keyPair.secretKey) {
-        entry.secretKey = keyPair.secretKey.bytes;
-      }
-    } catch {
-      // Public-key-only key pair — secretKey getter throws
+    if (keyPair.hasSecretKey) {
+      entry.secretKey = keyPair.secretKey.bytes;
     }
 
     this.#store.set(id, entry);
@@ -258,9 +295,9 @@ export class Kms implements KeyManager {
   /**
    * Export the key pair for a stored key.
    *
-   * Only available on the concrete {@link Kms} class, not on the
-   * {@link KeyManager} interface. HSM or hardware-backed implementations
-   * may not support key export.
+   * Only available on the concrete {@link LocalKeyManager} class, not on the
+   * {@link KeyManager} interface. HSM, cloud KMS, or hardware-backed
+   * implementations typically do not support key export.
    *
    * @param {KeyIdentifier} id The key identifier to export.
    * @returns {SchnorrKeyPair} The reconstructed SchnorrKeyPair.

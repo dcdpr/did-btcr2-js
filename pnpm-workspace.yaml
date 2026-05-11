@@ -5,6 +5,6 @@ packages:
   - packages/common
   - packages/cryptosuite
   - packages/keypair
-  - packages/kms
+  - packages/key-manager
   - packages/method
   - packages/smt

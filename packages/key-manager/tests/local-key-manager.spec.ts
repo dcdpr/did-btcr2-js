@@ -1,11 +1,11 @@
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { expect } from 'chai';
 import { KeyManagerError } from '@did-btcr2/common';
-import { Kms } from '../src/index.js';
+import { LocalKeyManager } from '../src/index.js';
 
-describe('Kms', () => {
+describe('LocalKeyManager', () => {
   it('constructs with default MemoryStore', () => {
-    const kms = new Kms();
+    const kms = new LocalKeyManager();
     expect(kms).to.exist;
     expect(kms.activeKeyId).to.equal(undefined);
     expect(kms.listKeys()).to.deep.equal([]);
@@ -17,26 +17,26 @@ describe('Kms', () => {
 
   describe('importKey', () => {
     it('generates a URN-style key identifier by default', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const kp = SchnorrKeyPair.generate();
       const id = kms.importKey(kp);
-      expect(id).to.match(/^urn:kms:secp256k1:[0-9a-f]{16}$/);
+      expect(id).to.match(/^urn:kms:secp256k1:[0-9a-f]{32}$/);
     });
 
     it('does not set active by default', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       kms.importKey(SchnorrKeyPair.generate());
       expect(kms.activeKeyId).to.equal(undefined);
     });
 
     it('sets active when setActive: true', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const id = kms.importKey(SchnorrKeyPair.generate(), { setActive: true });
       expect(kms.activeKeyId).to.equal(id);
     });
 
     it('accepts a custom id', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const customId = 'urn:kms:secp256k1:custom-id';
       const id = kms.importKey(SchnorrKeyPair.generate(), { id: customId });
       expect(id).to.equal(customId);
@@ -44,14 +44,14 @@ describe('Kms', () => {
     });
 
     it('stores metadata tags', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const tags = { derivationPath: 'm/86\'/0\'/0\'/0/0', account: '0' };
       const id = kms.importKey(SchnorrKeyPair.generate(), { tags });
       expect(kms.listKeys()).to.deep.equal([id]);
     });
 
     it('computes publicKey when only secretKey provided', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const kp = SchnorrKeyPair.generate();
       const secOnly = new SchnorrKeyPair({ secretKey: kp.secretKey });
       const id = kms.importKey(secOnly);
@@ -60,7 +60,7 @@ describe('Kms', () => {
     });
 
     it('throws KEY_FOUND for duplicate key', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const kp = SchnorrKeyPair.generate();
       const id = kms.importKey(kp);
       expect(() => kms.importKey(kp, { id })).to.throw(
@@ -69,7 +69,7 @@ describe('Kms', () => {
     });
 
     it('imports public-key-only (watch-only) entries', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const kp = SchnorrKeyPair.generate();
       const pubOnly = new SchnorrKeyPair({ publicKey: kp.publicKey });
       const id = kms.importKey(pubOnly);
@@ -83,21 +83,21 @@ describe('Kms', () => {
 
   describe('getPublicKey', () => {
     it('returns public key by explicit id', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const kp = SchnorrKeyPair.generate();
       const id = kms.importKey(kp, { setActive: true });
       expect(kms.getPublicKey(id)).to.deep.equal(kp.publicKey.compressed);
     });
 
     it('returns public key for active key when no id provided', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const kp = SchnorrKeyPair.generate();
       kms.importKey(kp, { setActive: true });
       expect(kms.getPublicKey()).to.deep.equal(kp.publicKey.compressed);
     });
 
     it('throws when no active key set and no id provided', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       expect(() => kms.getPublicKey()).to.throw(KeyManagerError, 'No active key set');
     });
   });
@@ -108,7 +108,7 @@ describe('Kms', () => {
 
   describe('setActiveKey', () => {
     it('sets the active key', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const id = kms.importKey(SchnorrKeyPair.generate());
       expect(kms.activeKeyId).to.equal(undefined);
       kms.setActiveKey(id);
@@ -116,7 +116,7 @@ describe('Kms', () => {
     });
 
     it('throws for non-existent key', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       expect(() => kms.setActiveKey('missing-id')).to.throw(
         KeyManagerError, 'Key not found: missing-id'
       );
@@ -128,8 +128,8 @@ describe('Kms', () => {
   // -------------------------------------------------------------------------
 
   describe('sign / verify', () => {
-    it('signs and verifies with Schnorr (default)', () => {
-      const kms = new Kms();
+    it('signs and verifies with BIP-340 Schnorr (default)', () => {
+      const kms = new LocalKeyManager();
       const id = kms.importKey(SchnorrKeyPair.generate(), { setActive: true });
       const digest = kms.digest(new Uint8Array([1, 2, 3]));
       const sig = kms.sign(digest, id);
@@ -138,7 +138,7 @@ describe('Kms', () => {
     });
 
     it('signs and verifies with ECDSA', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const id = kms.importKey(SchnorrKeyPair.generate(), { setActive: true });
       const digest = kms.digest(new Uint8Array([4, 5, 6]));
       const sig = kms.sign(digest, id, { scheme: 'ecdsa' });
@@ -147,7 +147,7 @@ describe('Kms', () => {
     });
 
     it('signs and verifies using active key when no id provided', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       kms.importKey(SchnorrKeyPair.generate(), { setActive: true });
       const digest = kms.digest(new Uint8Array([7, 8, 9]));
       const sig = kms.sign(digest);
@@ -155,7 +155,7 @@ describe('Kms', () => {
     });
 
     it('throws KEY_NOT_SIGNER for public-key-only entries', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const kp = SchnorrKeyPair.generate();
       const pubOnly = new SchnorrKeyPair({ publicKey: kp.publicKey });
       const id = kms.importKey(pubOnly, { setActive: true });
@@ -166,7 +166,7 @@ describe('Kms', () => {
     });
 
     it('verify works for public-key-only entries', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const kp = SchnorrKeyPair.generate();
 
       // Sign externally with the secret key
@@ -186,7 +186,7 @@ describe('Kms', () => {
 
   describe('removeKey', () => {
     it('throws when removing active key without force', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const id = kms.importKey(SchnorrKeyPair.generate(), { setActive: true });
       expect(() => kms.removeKey(id)).to.throw(
         KeyManagerError,
@@ -195,14 +195,14 @@ describe('Kms', () => {
     });
 
     it('throws for non-existent key', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       expect(() => kms.removeKey('no-such-id', { force: true })).to.throw(
         KeyManagerError, 'Key not found: no-such-id'
       );
     });
 
     it('removes with force and clears active', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const id = kms.importKey(SchnorrKeyPair.generate(), { setActive: true });
       kms.removeKey(id, { force: true });
       expect(kms.activeKeyId).to.equal(undefined);
@@ -210,7 +210,7 @@ describe('Kms', () => {
     });
 
     it('removes non-active key without force', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const id = kms.importKey(SchnorrKeyPair.generate());
       kms.removeKey(id);
       expect(kms.listKeys()).to.deep.equal([]);
@@ -223,7 +223,7 @@ describe('Kms', () => {
 
   describe('digest', () => {
     it('computes deterministic SHA-256', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const data = new Uint8Array([9, 9, 9]);
       const a = kms.digest(data);
       const b = kms.digest(data);
@@ -238,32 +238,32 @@ describe('Kms', () => {
 
   describe('generateKey', () => {
     it('generates a key with URN identifier', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const id = kms.generateKey();
-      expect(id).to.match(/^urn:kms:secp256k1:[0-9a-f]{16}$/);
+      expect(id).to.match(/^urn:kms:secp256k1:[0-9a-f]{32}$/);
       expect(kms.listKeys()).to.deep.equal([id]);
     });
 
     it('does not set active by default', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       kms.generateKey();
       expect(kms.activeKeyId).to.equal(undefined);
     });
 
     it('sets active when setActive: true', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const id = kms.generateKey({ setActive: true });
       expect(kms.activeKeyId).to.equal(id);
     });
 
     it('stores metadata tags', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const id = kms.generateKey({ tags: { purpose: 'test' } });
       expect(kms.listKeys()).to.deep.equal([id]);
     });
 
     it('generated key can sign and verify', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const id = kms.generateKey({ setActive: true });
       const digest = kms.digest(new Uint8Array([4, 5, 6]));
       const sig = kms.sign(digest, id);
@@ -277,7 +277,7 @@ describe('Kms', () => {
 
   describe('exportKey', () => {
     it('exports a full key pair for signing keys', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const id = kms.generateKey({ setActive: true });
       const exported = kms.exportKey(id);
       expect(exported).to.be.instanceOf(SchnorrKeyPair);
@@ -285,7 +285,7 @@ describe('Kms', () => {
     });
 
     it('exports a public-key-only pair for watch-only keys', () => {
-      const kms = new Kms();
+      const kms = new LocalKeyManager();
       const kp = SchnorrKeyPair.generate();
       const pubOnly = new SchnorrKeyPair({ publicKey: kp.publicKey });
       const id = kms.importKey(pubOnly);

@@ -1,7 +1,6 @@
 import type { Command } from 'commander';
 import { deriveNetwork, type ApiFactory } from '../config.js';
 import { CLIError } from '../error.js';
-import { formatResult } from '../output.js';
 import type { GlobalOptions, UpdateCommandOptions } from '../types.js';
 
 /** The JSON Patch that marks a DID document as permanently deactivated. */
@@ -55,11 +54,18 @@ export function registerDeactivateCommand(
           options
         );
       }
-      const network = deriveNetwork(did);
-      const api = factory(network, globals());
-      const data = await api.btcr2.update(parsed);
-      const result = { action: 'deactivate' as const, data };
-      console.log(formatResult(result, globals()));
+      // CLI signing is not yet wired up; deactivate uses the same update path
+      // and inherits the same gap. Drive the SDK directly with a `Signer` for now.
+      // Variables above are kept so command parsing + validation still works.
+      void deriveNetwork(did);
+      void factory;
+      void globals;
+      void parsed;
+      throw new CLIError(
+        'CLI signing is not yet implemented. Use @did-btcr2/api with a Signer directly.',
+        'NOT_IMPLEMENTED_ERROR',
+        { command: 'deactivate' }
+      );
     });
 }
 

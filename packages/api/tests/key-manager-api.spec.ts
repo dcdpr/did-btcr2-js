@@ -2,7 +2,7 @@ import { expect } from 'chai';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import type { HashBytes, KeyBytes, SignatureBytes } from '@did-btcr2/common';
 import { KeyManagerApi } from '../src/index.js';
-import type { KeyManager } from '@did-btcr2/kms';
+import type { KeyManager } from '@did-btcr2/key-manager';
 
 /**
  * KeyManagerApi Test
@@ -27,6 +27,27 @@ describe('KeyManagerApi', () => {
     expect(id).to.be.a('string');
     const exported = kmsApi.export(id);
     expect(exported).to.be.instanceOf(SchnorrKeyPair);
+  });
+
+  it('export() throws when backing KeyManager advertises canExport=false', () => {
+    // Adapter that opts out of export. KeyManagerApi must route through the
+    // capability probe, not an instanceof check against LocalKeyManager.
+    const watchOnlyKm: KeyManager = {
+      canExport    : false,
+      activeKeyId  : undefined,
+      setActiveKey : () => {},
+      importKey    : () => 'urn:kms:secp256k1:fake',
+      removeKey    : () => {},
+      listKeys     : () => [],
+      getPublicKey : () => new Uint8Array(33),
+      sign         : () => new Uint8Array(0) as SignatureBytes,
+      verify       : () => false,
+      digest       : (data: Uint8Array) => data as HashBytes,
+      generateKey  : () => 'urn:kms:secp256k1:fake',
+    };
+    const kmsApi = new KeyManagerApi(watchOnlyKm);
+    expect(() => kmsApi.export('urn:kms:secp256k1:fake'))
+      .to.throw(/export is not supported/i);
   });
 
   it('setActive() changes the active key', () => {
@@ -85,9 +106,9 @@ describe('KeyManagerApi', () => {
     expect(Buffer.from(a).toString('hex')).to.equal(Buffer.from(b).toString('hex'));
   });
 
-  // --- export() with non-Kms KeyManager ---
+  // --- export() with non-LocalKeyManager KeyManager ---
 
-  it('export() throws when backing KMS does not support export', () => {
+  it('export() throws when backing KeyManager does not support export', () => {
     const fakeKms: KeyManager = {
       generateKey  : () => 'key-1',
       setActiveKey : () => {},

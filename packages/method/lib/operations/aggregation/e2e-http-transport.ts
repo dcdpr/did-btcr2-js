@@ -18,7 +18,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createServer } from 'node:http';
 
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';
 import { p2tr, Transaction } from '@scure/btc-signer';
 import * as musig2 from '@scure/btc-signer/musig2';
@@ -168,7 +168,7 @@ function buildSignedUpdate(did: string, kp: SchnorrKeyPair, beaconAddress: strin
       serviceEndpoint : `bitcoin:${beaconAddress}`,
     },
   }], 1);
-  return Updater.sign(did, unsigned, vm, kp.raw.secret!);
+  return Updater.sign(did, unsigned, vm, new LocalSigner(kp.raw.secret!));
 }
 
 // ────────────────────────────────────────────────

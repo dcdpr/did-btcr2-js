@@ -1,7 +1,6 @@
 import type { Command } from 'commander';
 import { deriveNetwork, type ApiFactory } from '../config.js';
 import { CLIError } from '../error.js';
-import { formatResult } from '../output.js';
 import type { GlobalOptions, UpdateCommandOptions } from '../types.js';
 
 export function registerUpdateCommand(
@@ -57,11 +56,19 @@ export function registerUpdateCommand(
           options
         );
       }
-      const network = deriveNetwork(did);
-      const api = factory(network, globals());
-      const data = await api.btcr2.update(parsed);
-      const result = { action: 'update' as const, data };
-      console.log(formatResult(result, globals()));
+      // The CLI does not yet have a way to load signing material (keystore,
+      // KMS config, hardware wallet, etc.), so signed updates from the CLI are
+      // not yet wired up. Drive the SDK directly with a `Signer` for now.
+      // Variables above are kept so command parsing + validation still works.
+      void deriveNetwork(did);
+      void factory;
+      void globals;
+      void parsed;
+      throw new CLIError(
+        'CLI signing is not yet implemented. Use @did-btcr2/api with a Signer directly.',
+        'NOT_IMPLEMENTED_ERROR',
+        { command: 'update' }
+      );
     });
 }
 

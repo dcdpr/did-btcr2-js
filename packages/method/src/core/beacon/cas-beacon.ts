@@ -1,7 +1,7 @@
 import type { BitcoinConnection } from '@did-btcr2/bitcoin';
-import type { KeyBytes } from '@did-btcr2/common';
 import { canonicalHash, canonicalize, decode, encode, hash } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { Signer } from '@did-btcr2/keypair';
 import type { BeaconProcessResult, DataNeed } from '../resolver.js';
 import type { SidecarData } from '../types.js';
 import type { BroadcastOptions } from './beacon.js';
@@ -118,7 +118,7 @@ export class CASBeacon extends Beacon {
    * and broadcast are delegated to {@link Beacon.buildSignAndBroadcast}.
    *
    * @param {SignedBTCR2Update} signedUpdate The signed BTCR2 update to broadcast.
-   * @param {KeyBytes} secretKey The secret key for signing the Bitcoin transaction.
+   * @param {Signer} signer Signer that produces the ECDSA signature for the Bitcoin transaction.
    * @param {BitcoinConnection} bitcoin The Bitcoin network connection.
    * @param {CASBroadcastOptions} [options] Optional broadcast configuration, including a
    *   `casPublish` callback to publish the announcement off-chain and a `feeEstimator`.
@@ -127,7 +127,7 @@ export class CASBeacon extends Beacon {
    */
   async broadcastSignal(
     signedUpdate: SignedBTCR2Update,
-    secretKey: KeyBytes,
+    signer: Signer,
     bitcoin: BitcoinConnection,
     options?: CASBroadcastOptions
   ): Promise<SignedBTCR2Update> {
@@ -144,7 +144,7 @@ export class CASBeacon extends Beacon {
     const announcementHash = hash(canonicalize(casAnnouncement));
 
     // Delegate UTXO selection, PSBT construction, fee estimation, signing, and broadcast
-    await this.buildSignAndBroadcast(announcementHash, secretKey, bitcoin, options);
+    await this.buildSignAndBroadcast(announcementHash, signer, bitcoin, options);
 
     // Publish CAS Announcement to content-addressed store if callback provided
     if(options?.casPublish) {

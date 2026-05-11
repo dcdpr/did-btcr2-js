@@ -10,7 +10,7 @@
  * Usage:
  *   RELAY=ws://localhost:7777 npx tsx lib/operations/aggregation/e2e-per-actor-transport.ts
  */
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';
 import { p2tr, Transaction } from '@scure/btc-signer';
 import * as musig2 from '@scure/btc-signer/musig2';
@@ -71,7 +71,7 @@ function buildSignedUpdate(did: string, kp: SchnorrKeyPair, beaconAddress: strin
       serviceEndpoint : `bitcoin:${beaconAddress}`,
     }
   }], 1);
-  return Updater.sign(did, unsigned, vm, kp.raw.secret!);
+  return Updater.sign(did, unsigned, vm, new LocalSigner(kp.raw.secret!));
 }
 
 const service = new AggregationServiceRunner({

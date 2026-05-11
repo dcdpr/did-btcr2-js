@@ -49,20 +49,20 @@ export interface Multikey {
   readonly signer: boolean;
 
   /**
-   * Produce signed data with a secret key.
+   * Produce a BIP-340 Schnorr signature over the given data.
    * @param {MessageBytes} data Data to be signed.
-   * @returns {SignatureBytes} Signature byte array.
-   * @throws {MultikeyError} if no secret key is provided.
+   * @returns {SignatureBytes} 64-byte BIP-340 Schnorr signature.
+   * @throws {MultikeyError} if no signing material is available.
    */
-  sign(data: MessageBytes, opts: { scheme: 'ecdsa' | 'schnorr' }): SignatureBytes;
+  sign(data: MessageBytes): SignatureBytes;
 
   /**
-   * Verify a schnorr signature.
-   * @param {SignatureBytes} signature Signature for verification.
-   * @param {string} message Data for verification.
+   * Verify a BIP-340 Schnorr signature.
+   * @param {SignatureBytes} signature 64-byte BIP-340 Schnorr signature.
+   * @param {MessageBytes} data Data the signature was produced over.
    * @returns {boolean} If the signature is valid against the public key.
    */
-  verify(signature: SignatureBytes, message: string, opts: { scheme: 'ecdsa' | 'schnorr' }): boolean;
+  verify(signature: SignatureBytes, data: MessageBytes): boolean;
 
   /**
    * Get the full id of the multikey
@@ -75,15 +75,4 @@ export interface Multikey {
    * @returns {DidVerificationMethod} The verification method.
    */
   toVerificationMethod(): DidVerificationMethod;
-
-  /**
-   * Convert a verification method to a multikey.
-   * @param {DidVerificationMethod} verificationMethod The verification method to convert.
-   * @returns {Multikey} Multikey instance.
-   * @throws {MultikeyError}
-   * if the verification method is missing required fields.
-   * if the verification method has an invalid type.
-   * if the publicKeyMultibase has an invalid prefix.
-   */
-  fromVerificationMethod(verificationMethod: DidVerificationMethod): Multikey;
 }

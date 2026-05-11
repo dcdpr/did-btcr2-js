@@ -6,7 +6,7 @@ import * as readline from 'node:readline/promises';
 import { BitcoinConnection, getNetwork } from '@did-btcr2/bitcoin';
 import type { PatchOperation } from '@did-btcr2/common';
 import { canonicalize } from '@did-btcr2/common';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { sha256 } from '@noble/hashes/sha2';
 import { hex } from '@scure/base';
 import { p2pkh, p2tr, p2wpkh } from '@scure/btc-signer';
@@ -778,7 +778,7 @@ async function stepUpdate(hash: string = hashArg) {
     did,
     unsignedUpdate,
     verificationMethod,
-    hex.decode(genesisSecretHex)
+    new LocalSigner(hex.decode(genesisSecretHex))
   );
 
   console.log(`Update signed (targetVersionId: ${signedUpdate.targetVersionId})`);
@@ -923,7 +923,7 @@ async function announceUpdate(
     if (!other.genesisDocument) {
       throw new Error('other.json is missing genesisDocument (required for x1)');
     }
-    sourceDocument = await Resolver.external(didComponents, other.genesisDocument);
+    sourceDocument = Resolver.external(didComponents, other.genesisDocument);
   }
 
   const beaconService = sourceDocument.service
@@ -940,8 +940,8 @@ async function announceUpdate(
   console.log(`  type:     ${beaconService.type}`);
   console.log(`  endpoint: ${beaconService.serviceEndpoint}`);
 
-  const secretKey = hex.decode(signingMaterial);
-  await Updater.announce(beaconService, signedUpdate, secretKey, bitcoin);
+  const signer = new LocalSigner(hex.decode(signingMaterial));
+  await Updater.announce(beaconService, signedUpdate, signer, bitcoin);
 
   console.log(`Update announced to Bitcoin (${network})`);
 }

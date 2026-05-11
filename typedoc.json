@@ -8,7 +8,7 @@
     "packages/keypair",
     "packages/cryptosuite",
     "packages/bitcoin",
-    "packages/kms",
+    "packages/key-manager",
     "packages/smt",
     "packages/method",
     "packages/api",
