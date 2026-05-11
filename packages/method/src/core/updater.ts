@@ -1,7 +1,8 @@
 import type { BitcoinConnection } from '@did-btcr2/bitcoin';
-import type { KeyBytes, PatchOperation } from '@did-btcr2/common';
+import type { PatchOperation } from '@did-btcr2/common';
 import { canonicalHash, INVALID_DID_UPDATE, JSONPatch, UpdateError } from '@did-btcr2/common';
 import { SchnorrMultikey, type DataIntegrityConfig, type SignedBTCR2Update, type UnsignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { Signer } from '@did-btcr2/keypair';
 import { DidDocument, type Btcr2DidDocument, type DidVerificationMethod } from '../utils/did-document.js';
 import { BeaconFactory } from './beacon/factory.js';
 import type { BeaconService } from './beacon/interfaces.js';
@@ -9,9 +10,10 @@ import type { BeaconService } from './beacon/interfaces.js';
 // ─── DataNeed types ──────────────────────────────────────────────────────────
 
 /**
- * The updater needs the caller to supply a signing key (or a KMS-backed signature)
- * for the given verification method. The unsigned update is attached so the caller
- * can inspect it before producing a signature.
+ * The updater needs the caller to supply a {@link Signer} for the given
+ * verification method. The unsigned update is attached so the caller can
+ * inspect it before producing a signature. The signer can wrap a local secret
+ * key (`LocalSigner`), a KMS-managed key (`KeyManagerSigner`), or any custom backend.
  */
 export interface NeedSigningKey {
   readonly kind: 'NeedSigningKey';
@@ -34,6 +36,19 @@ export interface NeedFunding {
   readonly beaconAddress: string;
   /** The beacon service this address belongs to. */
   readonly beaconService: BeaconService;
+}
+
+/**
+ * Optional proof the caller passes when fulfilling {@link NeedFunding}. The
+ * state machine asserts the proof before transitioning to Broadcast. Sans-I/O
+ * is preserved: the caller still performs the UTXO lookup; this is just a
+ * contract-level handshake.
+ */
+export interface FundingProof {
+  /** Number of spendable UTXOs the caller observed at the beacon address. Must be >= 1. */
+  utxoCount: number;
+  /** Optional txid the caller funded with, for diagnostics. */
+  txid?: string;
 }
 
 /**
@@ -75,16 +90,18 @@ export type UpdaterState =
   | { status: 'complete'; result: UpdaterResult };
 
 /**
- * Internal phases of the Updater state machine.
+ * Discriminated union of the updater's internal state. Each phase tag pins the
+ * exact set of values the state machine has computed so far, so consumers of
+ * `#state` narrow correctly under `switch (this.#state.phase)`. No nullable
+ * scratch slots, no `!`-asserts.
  * @internal
  */
-enum UpdaterPhase {
-  Construct = 'Construct',
-  Sign      = 'Sign',
-  Fund      = 'Fund',
-  Broadcast = 'Broadcast',
-  Complete  = 'Complete',
-}
+type InternalState =
+  | { phase: 'Construct' }
+  | { phase: 'Sign'; unsignedUpdate: UnsignedBTCR2Update }
+  | { phase: 'Fund'; unsignedUpdate: UnsignedBTCR2Update; signedUpdate: SignedBTCR2Update }
+  | { phase: 'Broadcast'; unsignedUpdate: UnsignedBTCR2Update; signedUpdate: SignedBTCR2Update }
+  | { phase: 'Complete'; signedUpdate: SignedBTCR2Update };
 
 /**
  * Parameters for constructing an {@link Updater}. Built by
@@ -106,20 +123,21 @@ export interface UpdaterParams {
  *
  * ```typescript
  * const updater = DidBtcr2.update({ sourceDocument, patches, ... });
+ * const signer = new LocalSigner(secretKeyBytes); // or KeyManagerSigner / custom
  * let state = updater.advance();
  *
  * while(state.status === 'action-required') {
  *   for(const need of state.needs) {
  *     switch(need.kind) {
  *       case 'NeedSigningKey':
- *         updater.provide(need, secretKeyBytes);
+ *         updater.provide(need, signer);
  *         break;
  *       case 'NeedFunding':
  *         // Check UTXOs at need.beaconAddress, fund if needed
  *         updater.provide(need);
  *         break;
  *       case 'NeedBroadcast':
- *         await Updater.announce(need.beaconService, need.signedUpdate, secretKey, bitcoin);
+ *         await Updater.announce(need.beaconService, need.signedUpdate, signer, bitcoin);
  *         updater.provide(need);
  *         break;
  *     }
@@ -142,15 +160,12 @@ export interface UpdaterParams {
  * @class Updater
  */
 export class Updater {
-  #phase: UpdaterPhase = UpdaterPhase.Construct;
+  #state: InternalState = { phase: 'Construct' };
   readonly #sourceDocument: Btcr2DidDocument;
   readonly #patches: PatchOperation[];
   readonly #sourceVersionId: number;
   readonly #verificationMethod: DidVerificationMethod;
   readonly #beaconService: BeaconService;
-
-  #unsignedUpdate: UnsignedBTCR2Update | null = null;
-  #signedUpdate: SignedBTCR2Update | null = null;
 
   /**
    * @internal — Use {@link DidBtcr2.update} to create instances.
@@ -196,6 +211,16 @@ export class Updater {
 
     const targetDocument = JSONPatch.apply(sourceDocument, patches);
 
+    // Spec (operations/update.md): "An INVALID_DID_UPDATE error MUST be raised if
+    // didTargetDocument.id is not equal to didSourceDocument.id." `DidDocument.isValid`
+    // checks W3C conformance but not this equality, so it's enforced explicitly here.
+    if(targetDocument.id !== sourceDocument.id) {
+      throw new UpdateError(
+        `Patches must not change the DID document id (source "${sourceDocument.id}" → target "${targetDocument.id}").`,
+        INVALID_DID_UPDATE, { sourceId: sourceDocument.id, targetId: targetDocument.id }
+      );
+    }
+
     try {
       DidDocument.isValid(targetDocument);
     } catch (error) {
@@ -215,18 +240,31 @@ export class Updater {
    * @param {string} did The did-btcr2 identifier to derive the root capability from.
    * @param {UnsignedBTCR2Update} unsignedUpdate The unsigned update to sign.
    * @param {DidVerificationMethod} verificationMethod The verification method for signing.
-   * @param {KeyBytes} secretKey The secret key bytes.
+   * @param {Signer} signer Signer that produces the BIP-340 Schnorr signature.
    * @returns {SignedBTCR2Update} The signed update with a Data Integrity proof.
    */
   static sign(
     did: string,
     unsignedUpdate: UnsignedBTCR2Update,
     verificationMethod: DidVerificationMethod,
-    secretKey: KeyBytes,
+    signer: Signer,
   ): SignedBTCR2Update {
+    if(!did.startsWith('did:btcr2:')) {
+      throw new UpdateError(
+        `Expected a did:btcr2 identifier for the root capability; got "${did}".`,
+        INVALID_DID_UPDATE, { did }
+      );
+    }
     const controller = verificationMethod.controller;
-    const id = verificationMethod.id.slice(verificationMethod.id.indexOf('#'));
-    const multikey = SchnorrMultikey.fromSecretKey(id, controller, secretKey);
+    const hashIdx = verificationMethod.id.indexOf('#');
+    if(hashIdx < 0) {
+      throw new UpdateError(
+        `Verification method id must contain a fragment (e.g. "${verificationMethod.id}#initialKey"); got "${verificationMethod.id}".`,
+        INVALID_DID_UPDATE, { verificationMethodId: verificationMethod.id }
+      );
+    }
+    const id = verificationMethod.id.slice(hashIdx);
+    const multikey = SchnorrMultikey.fromSigner(id, controller, signer);
 
     const config: DataIntegrityConfig = {
       '@context' : [
@@ -253,33 +291,27 @@ export class Updater {
    *
    * @param {BeaconService} beaconService The beacon service to broadcast through.
    * @param {SignedBTCR2Update} update The signed update to announce.
-   * @param {KeyBytes} secretKey The secret key for signing the Bitcoin transaction.
+   * @param {Signer} signer Signer that produces the ECDSA signature for the Bitcoin transaction.
    * @param {BitcoinConnection} bitcoin The Bitcoin network connection.
    * @returns {Promise<SignedBTCR2Update>} The signed update that was broadcast.
    */
   static async announce(
     beaconService: BeaconService,
     update: SignedBTCR2Update,
-    secretKey: KeyBytes,
+    signer: Signer,
     bitcoin: BitcoinConnection
   ): Promise<SignedBTCR2Update> {
     const beacon = BeaconFactory.establish(beaconService);
-    return beacon.broadcastSignal(update, secretKey, bitcoin);
+    return beacon.broadcastSignal(update, signer, bitcoin);
   }
 
-  // ─── Private instance wrappers ─────────────────────────────────────────────
+  // Private instance wrappers
   // Delegate to the public statics with bound instance fields for cleaner
   // advance/provide code.
 
   #construct(): UnsignedBTCR2Update {
     return Updater.construct(this.#sourceDocument, this.#patches, this.#sourceVersionId);
   }
-
-  #sign(secretKey: KeyBytes): SignedBTCR2Update {
-    return Updater.sign(this.#sourceDocument.id, this.#unsignedUpdate!, this.#verificationMethod, secretKey);
-  }
-
-  // ─── State machine ─────────────────────────────────────────────────────────
 
   /**
    * Advance the state machine. Returns either:
@@ -288,25 +320,25 @@ export class Updater {
    */
   advance(): UpdaterState {
     while(true) {
-      switch(this.#phase) {
+      switch(this.#state.phase) {
 
         // Phase: Construct
         // Build the unsigned update from source doc + patches. Pure, synchronous.
-        case UpdaterPhase.Construct: {
-          this.#unsignedUpdate = this.#construct();
-          this.#phase = UpdaterPhase.Sign;
+        case 'Construct': {
+          const unsignedUpdate = this.#construct();
+          this.#state = { phase: 'Sign', unsignedUpdate };
           continue;
         }
 
         // Phase: Sign
         // Emit NeedSigningKey — the caller supplies the secret key (or a KMS signature).
-        case UpdaterPhase.Sign: {
+        case 'Sign': {
           return {
             status : 'action-required',
             needs  : [{
               kind                 : 'NeedSigningKey',
               verificationMethodId : this.#verificationMethod.id,
-              unsignedUpdate       : this.#unsignedUpdate!,
+              unsignedUpdate       : this.#state.unsignedUpdate,
             }],
           };
         }
@@ -314,7 +346,7 @@ export class Updater {
         // Phase: Fund
         // Emit NeedFunding with the beacon address. The caller checks UTXOs,
         // funds the address if needed, and provides to continue.
-        case UpdaterPhase.Fund: {
+        case 'Fund': {
           const beaconAddress = this.#beaconService.serviceEndpoint.replace('bitcoin:', '');
           return {
             status : 'action-required',
@@ -329,22 +361,22 @@ export class Updater {
         // Phase: Broadcast
         // Emit NeedBroadcast with the signed update + beacon service. The caller performs
         // the actual on-chain announcement (or hands off to the aggregation protocol).
-        case UpdaterPhase.Broadcast: {
+        case 'Broadcast': {
           return {
             status : 'action-required',
             needs  : [{
               kind          : 'NeedBroadcast',
               beaconService : this.#beaconService,
-              signedUpdate  : this.#signedUpdate!,
+              signedUpdate  : this.#state.signedUpdate,
             }],
           };
         }
 
         // Phase: Complete
-        case UpdaterPhase.Complete: {
+        case 'Complete': {
           return {
             status : 'complete',
-            result : { signedUpdate: this.#signedUpdate! },
+            result : { signedUpdate: this.#state.signedUpdate },
           };
         }
       }
@@ -358,56 +390,70 @@ export class Updater {
    * @param need The DataNeed being fulfilled (from the `needs` array).
    * @param data The data payload corresponding to the need kind (omit for NeedFunding/NeedBroadcast).
    */
-  provide(need: NeedSigningKey, data: KeyBytes): void;
-  provide(need: NeedFunding): void;
+  provide(need: NeedSigningKey, data: Signer): void;
+  provide(need: NeedFunding, proof?: FundingProof): void;
   provide(need: NeedBroadcast): void;
-  provide(need: UpdaterDataNeed, data?: KeyBytes): void {
+  provide(need: UpdaterDataNeed, data?: Signer | FundingProof): void {
     switch(need.kind) {
       case 'NeedSigningKey': {
-        if(this.#phase !== UpdaterPhase.Sign) {
+        if(this.#state.phase !== 'Sign') {
           throw new UpdateError(
-            `Cannot provide NeedSigningKey: updater phase is ${this.#phase}, expected Sign.`,
-            INVALID_DID_UPDATE, { phase: this.#phase }
+            `Cannot provide NeedSigningKey: updater phase is ${this.#state.phase}, expected Sign.`,
+            INVALID_DID_UPDATE, { phase: this.#state.phase }
           );
         }
         if(!data) {
           throw new UpdateError(
-            'NeedSigningKey requires secret key bytes.',
+            'NeedSigningKey requires a Signer.',
             INVALID_DID_UPDATE
           );
         }
-        if(!this.#unsignedUpdate) {
-          throw new UpdateError(
-            'Internal error: unsigned update missing in Sign phase.',
-            INVALID_DID_UPDATE
-          );
-        }
-        this.#signedUpdate = this.#sign(data);
-        this.#phase = UpdaterPhase.Fund;
+        const unsignedUpdate = this.#state.unsignedUpdate;
+        const signedUpdate = Updater.sign(
+          this.#sourceDocument.id, unsignedUpdate, this.#verificationMethod, data as Signer,
+        );
+        this.#state = { phase: 'Fund', unsignedUpdate, signedUpdate };
         break;
       }
 
       case 'NeedFunding': {
-        if(this.#phase !== UpdaterPhase.Fund) {
+        if(this.#state.phase !== 'Fund') {
           throw new UpdateError(
-            `Cannot provide NeedFunding: updater phase is ${this.#phase}, expected Fund.`,
-            INVALID_DID_UPDATE, { phase: this.#phase }
+            `Cannot provide NeedFunding: updater phase is ${this.#state.phase}, expected Fund.`,
+            INVALID_DID_UPDATE, { phase: this.#state.phase }
           );
         }
-        // Caller has confirmed funding (or it was already funded). Continue.
-        this.#phase = UpdaterPhase.Broadcast;
+        // If the caller supplies a FundingProof, assert it before transitioning.
+        // Optional payload preserves the sans-I/O contract: the caller still does
+        // the actual UTXO lookup; this is a contract-level handshake that catches
+        // a class of caller bugs (forgot to fund, race with mempool, etc.) at the
+        // state-machine boundary rather than at broadcast time.
+        if(data !== undefined) {
+          const proof = data as FundingProof;
+          if(typeof proof.utxoCount !== 'number' || !Number.isFinite(proof.utxoCount) || proof.utxoCount < 1) {
+            throw new UpdateError(
+              `NeedFunding proof must have utxoCount >= 1; got ${String(proof.utxoCount)}.`,
+              INVALID_DID_UPDATE, { utxoCount: proof.utxoCount }
+            );
+          }
+        }
+        this.#state = {
+          phase          : 'Broadcast',
+          unsignedUpdate : this.#state.unsignedUpdate,
+          signedUpdate   : this.#state.signedUpdate,
+        };
         break;
       }
 
       case 'NeedBroadcast': {
-        if(this.#phase !== UpdaterPhase.Broadcast) {
+        if(this.#state.phase !== 'Broadcast') {
           throw new UpdateError(
-            `Cannot provide NeedBroadcast: updater phase is ${this.#phase}, expected Broadcast.`,
-            INVALID_DID_UPDATE, { phase: this.#phase }
+            `Cannot provide NeedBroadcast: updater phase is ${this.#state.phase}, expected Broadcast.`,
+            INVALID_DID_UPDATE, { phase: this.#state.phase }
           );
         }
         // Caller has broadcast externally. Transition to Complete.
-        this.#phase = UpdaterPhase.Complete;
+        this.#state = { phase: 'Complete', signedUpdate: this.#state.signedUpdate };
         break;
       }
     }

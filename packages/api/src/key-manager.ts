@@ -1,22 +1,27 @@
 import type { Bytes, HashBytes, SignatureBytes } from '@did-btcr2/common';
 import type { SchnorrKeyPair } from '@did-btcr2/keypair';
-import type {
-  KeyIdentifier,
-  KeyManager} from '@did-btcr2/kms';
 import {
+  type KeyIdentifier,
+  type KeyManager,
   type GenerateKeyOptions,
   type ImportKeyOptions,
-  Kms,
+  LocalKeyManager,
   type SignOptions,
-} from '@did-btcr2/kms';
+  type VerifyOptions,
+} from '@did-btcr2/key-manager';
 import { assertBytes } from './helpers.js';
 
 /**
  * Key management operations sub-facade.
  *
- * Wraps a {@link KeyManager} interface. By default uses the built-in
- * {@link Kms} implementation; a custom implementation can be injected
- * via {@link ApiConfig}.
+ * Wraps any {@link KeyManager} interface implementation. By default uses the
+ * bundled {@link LocalKeyManager} (in-process reference implementation); a
+ * custom implementation (AWS KMS, GCP KMS, HashiCorp Vault, HSM, etc.) can
+ * be injected via {@link ApiConfig}.
+ *
+ * The field is named `kms` because that's the category label callers use
+ * conversationally ("plug in your KMS"); the actual contract is the
+ * {@link KeyManager} interface.
  * @public
  */
 export class KeyManagerApi {
@@ -25,7 +30,7 @@ export class KeyManagerApi {
 
   /** Create a new KeyManagerApi, optionally backed by a custom KeyManager. */
   constructor(kms?: KeyManager) {
-    this.kms = kms ?? new Kms();
+    this.kms = kms ?? new LocalKeyManager();
   }
 
   /** Generate a new key directly in the KMS. */
@@ -50,14 +55,18 @@ export class KeyManagerApi {
 
   /**
    * Export a Schnorr keypair from the KMS.
-   * Only supported when the backing KMS is the built-in {@link Kms} class.
-   * @throws {Error} If the backing KMS does not support key export.
+   * Routes through the KeyManager's declared capability (`canExport`) rather
+   * than an `instanceof LocalKeyManager` check, so third-party adapters can
+   * opt in to export support without coupling to a specific implementation.
+   * External adapters (AWS, Vault, HSM) typically advertise `canExport: false`.
+   * @throws {Error} If the backing KeyManager does not advertise canExport=true,
+   *   or omits the optional `exportKey` method.
    */
   export(id: KeyIdentifier): SchnorrKeyPair {
-    if (!(this.kms instanceof Kms)) {
+    if (!this.kms.canExport || !this.kms.exportKey) {
       throw new Error(
         'Key export is not supported by the current KeyManager implementation. '
-        + 'Export is only available with the built-in Kms class.'
+        + 'The adapter must advertise `canExport: true` and provide an `exportKey` method.'
       );
     }
     return this.kms.exportKey(id);
@@ -77,15 +86,15 @@ export class KeyManagerApi {
    * Sign data via the KMS.
    * @param data The data to sign (must be non-empty).
    * @param id Optional key identifier; uses the active key if omitted.
-   * @param options Signing options (scheme defaults to 'schnorr').
+   * @param options Signing options. Defaults: `scheme: 'bip340'`.
    */
   sign(data: Bytes, id?: KeyIdentifier, options?: SignOptions): SignatureBytes {
     assertBytes(data, 'data');
     return this.kms.sign(data, id, options);
   }
 
-  /** Verify a signature via the KMS. */
-  verify(signature: SignatureBytes, data: Bytes, id?: KeyIdentifier, options?: SignOptions): boolean {
+  /** Verify a signature via the KMS. Defaults: `scheme: 'bip340'`. */
+  verify(signature: SignatureBytes, data: Bytes, id?: KeyIdentifier, options?: VerifyOptions): boolean {
     return this.kms.verify(signature, data, id, options);
   }
 

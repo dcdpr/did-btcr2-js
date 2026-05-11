@@ -29,7 +29,7 @@ common          (no workspace deps)
 ├── keypair
 │   ├── cryptosuite
 │   ├── bitcoin
-│   └── kms
+│   └── key-manager
 ├── smt
 └── method
     └── api
@@ -113,7 +113,7 @@ Every package has `composite: true`, so `tsc --build` can:
 - Refuse to rebuild packages whose sources haven't changed
 - Enforce that you can't import from a package you haven't declared as a reference
 
-**Node-only package overrides** (`bitcoin`, `kms`, `cli`) add:
+**Node-only package overrides** (`bitcoin`, `key-manager`, `cli`) add:
 ```jsonc
 {
   "compilerOptions": {
@@ -135,7 +135,7 @@ This excludes DOM globals and opts in to `@types/node`.
     { "path": "packages/keypair" },
     { "path": "packages/cryptosuite" },
     { "path": "packages/bitcoin" },
-    { "path": "packages/kms" },
+    { "path": "packages/key-manager" },
     { "path": "packages/smt" },
     { "path": "packages/method" },
     { "path": "packages/api" },
@@ -168,7 +168,7 @@ Every package produces its ESM output via `tsc -p tsconfig.json`. For the ESM pa
 ### CJS build
 
 **5 packages** build CJS via `tsc -p tsconfig.cjs.json`:
-`common`, `keypair`, `bitcoin`, `kms`, `smt`
+`common`, `keypair`, `bitcoin`, `key-manager`, `smt`
 
 These packages have dependency graphs that are fully CJS-compatible, so a plain `tsc` invocation produces working CommonJS output. The post-build step `echo '{"type": "commonjs"}' > ./dist/cjs/package.json` writes a small `package.json` override so Node's module loader treats the `dist/cjs/` subtree as CommonJS regardless of the parent package's `"type": "module"` declaration.
 
@@ -333,7 +333,7 @@ This produces a `.tgz` tarball under the monorepo's `release/` directory. Actual
 
 **Recommended publish order** (respecting the dependency graph):
 ```
-common to keypair to {cryptosuite, bitcoin, kms, smt} to method to api to cli
+common to keypair to {cryptosuite, bitcoin, key-manager, smt} to method to api to cli
 ```
 
 Workspace protocol versions (`workspace:^`) are rewritten to their concrete semver during `pnpm pack`, so published tarballs contain proper `^X.Y.Z` dep declarations.

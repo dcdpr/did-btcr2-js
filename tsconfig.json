@@ -6,7 +6,7 @@
     { "path": "packages/keypair" },
     { "path": "packages/cryptosuite" },
     { "path": "packages/bitcoin" },
-    { "path": "packages/kms" },
+    { "path": "packages/key-manager" },
     { "path": "packages/smt" },
     { "path": "packages/method" },
     { "path": "packages/api" },

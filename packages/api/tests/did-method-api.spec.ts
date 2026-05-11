@@ -1,6 +1,6 @@
 import { expect, use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { NotImplementedError } from '@did-btcr2/common';
 import {
   BitcoinApi,
@@ -118,6 +118,8 @@ describe('DidMethodApi', () => {
   });
 
   describe('update()', () => {
+    const stubSigner = new LocalSigner(SchnorrKeyPair.generate().secretKey.bytes);
+
     it('injects bitcoin connection from constructor', async () => {
       const btc = new BitcoinApi({ network: 'regtest' });
       const methodApi = new DidMethodApi(btc);
@@ -128,6 +130,7 @@ describe('DidMethodApi', () => {
           sourceVersionId      : 1,
           verificationMethodId : '#initialKey',
           beaconId             : '#beacon-0',
+          signer               : stubSigner,
         })
       ).to.be.rejected;
     });
@@ -142,6 +145,7 @@ describe('DidMethodApi', () => {
           sourceVersionId      : 1,
           verificationMethodId : '#initialKey',
           beaconId             : '#beacon-0',
+          signer               : stubSigner,
           bitcoin              : btc.connection,
         })
       ).to.be.rejected;
@@ -183,12 +187,12 @@ describe('DidMethodApi', () => {
       // Missing version
       await expect(
         methodApi.buildUpdate(doc)
-          .signer('#key')
+          .verificationMethodId('#key')
           .beacon('#beacon')
           .execute()
       ).to.be.rejectedWith('sourceVersionId is required');
 
-      // Missing signer
+      // Missing verificationMethodId
       await expect(
         methodApi.buildUpdate(doc)
           .version(1)
@@ -200,9 +204,18 @@ describe('DidMethodApi', () => {
       await expect(
         methodApi.buildUpdate(doc)
           .version(1)
-          .signer('#key')
+          .verificationMethodId('#key')
           .execute()
       ).to.be.rejectedWith('beaconId is required');
+
+      // Missing signer
+      await expect(
+        methodApi.buildUpdate(doc)
+          .version(1)
+          .verificationMethodId('#key')
+          .beacon('#beacon')
+          .execute()
+      ).to.be.rejectedWith('signer is required');
     });
 
     it('builder chains fluently and calls update', async () => {
@@ -210,13 +223,14 @@ describe('DidMethodApi', () => {
       const methodApi = new DidMethodApi(btc);
       const doc = { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any;
 
-      // Will fail at the method layer (missing signingMaterial) but proves wiring works
+      // Will fail at the method layer (no real keys) but proves wiring works
       await expect(
         methodApi.buildUpdate(doc)
           .patch({ op: 'add', path: '/test', value: 'x' })
           .version(1)
-          .signer('#initialKey')
+          .verificationMethodId('#initialKey')
           .beacon('#beacon-0')
+          .signer(new LocalSigner(new Uint8Array(32).fill(0x01)))
           .execute()
       ).to.be.rejected;
     });
@@ -231,13 +245,14 @@ describe('DidMethodApi', () => {
           .patch({ op: 'add', path: '/a', value: 1 })
           .patches([{ op: 'add', path: '/b', value: 2 }])
           .version(1)
-          .signer('#key')
+          .verificationMethodId('#key')
           .beacon('#beacon')
+          .signer(new LocalSigner(new Uint8Array(32).fill(0x01)))
           .execute()
       ).to.be.rejected;
     });
 
-    it('builder supports signingMaterial and withBitcoin', async () => {
+    it('builder supports signer and bitcoin', async () => {
       const btc = new BitcoinApi({ network: 'regtest' });
       const methodApi = new DidMethodApi();
       const doc = { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any;
@@ -246,10 +261,10 @@ describe('DidMethodApi', () => {
         methodApi.buildUpdate(doc)
           .patch({ op: 'add', path: '/a', value: 1 })
           .version(1)
-          .signer('#key')
+          .verificationMethodId('#key')
           .beacon('#beacon')
-          .signingMaterial(new Uint8Array(32).fill(0x01))
-          .withBitcoin(btc.connection)
+          .signer(new LocalSigner(new Uint8Array(32).fill(0x01)))
+          .bitcoin(btc.connection)
           .execute()
       ).to.be.rejected;
     });

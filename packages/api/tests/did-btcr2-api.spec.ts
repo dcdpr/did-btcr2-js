@@ -1,5 +1,6 @@
 import { expect, use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import {
   BitcoinApi,
   CryptoApi,
@@ -9,6 +10,8 @@ import {
   DidMethodApi,
   KeyManagerApi,
 } from '../src/index.js';
+
+const stubSigner = new LocalSigner(SchnorrKeyPair.generate().secretKey.bytes);
 
 use(chaiAsPromised);
 
@@ -136,6 +139,7 @@ describe('DidBtcr2Api', () => {
           patches              : [{ op: 'add', path: '/test', value: 'x' }],
           verificationMethodId : '#initialKey',
           beaconId             : '#beacon-0',
+          signer               : stubSigner,
         })
       ).to.be.rejected;
     });
@@ -148,6 +152,7 @@ describe('DidBtcr2Api', () => {
           patches              : [{ op: 'add', path: '/test', value: 'x' }],
           verificationMethodId : '#initialKey',
           beaconId             : '#beacon-0',
+          signer               : stubSigner,
         })
       ).to.be.rejectedWith('did must be a non-empty string');
     });
@@ -160,6 +165,7 @@ describe('DidBtcr2Api', () => {
           patches                : [{ op: 'add', path: '/test', value: 'x' }],
           verificationMethodId   : '#initialKey',
           beaconId               : '#beacon-0',
+          signer                 : stubSigner,
           sourceDocument         : { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any,
           sourceVersionId        : 1,
         })
@@ -177,6 +183,7 @@ describe('DidBtcr2Api', () => {
           patches              : [{ op: 'add', path: '/test', value: 'x' }],
           verificationMethodId : '#initialKey',
           beaconId             : '#beacon-0',
+          signer               : stubSigner,
         })
       ).to.be.rejected;
     });
@@ -254,6 +261,7 @@ describe('DidBtcr2Api', () => {
           patches              : [],
           verificationMethodId : '#key',
           beaconId             : '#beacon',
+          signer               : stubSigner,
         })
       ).to.be.rejectedWith('disposed');
     });

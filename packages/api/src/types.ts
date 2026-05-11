@@ -1,5 +1,5 @@
 import type { HttpExecutor, NetworkName, RestConfig, RpcConfig } from '@did-btcr2/bitcoin';
-import type { KeyManager } from '@did-btcr2/kms';
+import type { KeyManager } from '@did-btcr2/key-manager';
 import type { Btcr2DidDocument } from '@did-btcr2/method';
 import type { DidResolutionResult } from '@web5/dids';
 import type { CasConfig } from './cas.js';

@@ -132,7 +132,7 @@ cd packages/keypair     && pnpm publish --access public && cd -
 cd packages/smt         && pnpm publish --access public && cd -
 cd packages/cryptosuite && pnpm publish --access public && cd -
 cd packages/bitcoin     && pnpm publish --access public && cd -
-cd packages/kms         && pnpm publish --access public && cd -
+cd packages/key-manager && pnpm publish --access public && cd -
 cd packages/method      && pnpm publish --access public && cd -
 cd packages/api         && pnpm publish --access public && cd -
 cd packages/cli         && pnpm publish --access public && cd -

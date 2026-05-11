@@ -15,9 +15,9 @@ import {
   SchnorrMultikey
 } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
-import type { KeyIdentifier } from '@did-btcr2/kms';
+import type { KeyIdentifier } from '@did-btcr2/key-manager';
 import type { DidVerificationMethod } from '@web5/dids';
-import type { KeyManagerApi } from './kms.js';
+import type { KeyManagerApi } from './key-manager.js';
 
 /**
  * Schnorr keypair operations.

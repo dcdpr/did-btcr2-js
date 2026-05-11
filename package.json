@@ -11,7 +11,7 @@
     "packages/common",
     "packages/cryptosuite",
     "packages/keypair",
-    "packages/kms",
+    "packages/key-manager",
     "packages/method",
     "packages/smt"
   ],
@@ -52,7 +52,7 @@
     "common": "pnpm --filter common",
     "cryptosuite": "pnpm --filter cryptosuite",
     "keypair": "pnpm --filter keypair",
-    "kms": "pnpm --filter kms",
+    "key-manager": "pnpm --filter key-manager",
     "method": "pnpm --filter method",
     "smt": "pnpm --filter smt"
   },

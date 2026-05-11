@@ -1,7 +1,8 @@
-import type { Bytes, Hex, SignatureBytes} from '@did-btcr2/common';
+import type { Bytes, SignatureBytes } from '@did-btcr2/common';
 import { MultikeyError, VERIFICATION_METHOD_ERROR } from '@did-btcr2/common';
+import type { Signer } from '@did-btcr2/keypair';
 import { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
-import { schnorr, secp256k1 } from '@noble/curves/secp256k1';
+import { schnorr } from '@noble/curves/secp256k1';
 import type { DidVerificationMethod } from '@web5/dids';
 import { randomBytes } from '@noble/hashes/utils';
 import { base58btc } from 'multiformats/bases/base58';
@@ -13,12 +14,16 @@ import type {
   MultikeyObject
 } from './interface.js';
 
-type CryptoOptions = {
-  scheme: 'ecdsa' | 'schnorr';
-}
-
 interface MultikeyParams extends DidParams {
   keyPair?: SchnorrKeyPair;
+  /**
+   * External {@link Signer} used to produce signatures. When set, the multikey
+   * delegates {@link SchnorrMultikey.sign} to this signer instead of using the
+   * keyPair's secret key. This lets a multikey carry a public-key-only keyPair
+   * while still being able to sign — the secret material lives outside the
+   * multikey, in a KMS / HSM / hardware wallet.
+   */
+  externalSigner?: Signer;
 }
 
 /**
@@ -51,14 +56,22 @@ export class SchnorrMultikey implements Multikey {
   readonly #keyPair: SchnorrKeyPair;
 
   /**
+   * Optional external signer. When set, {@link SchnorrMultikey.sign} delegates
+   * here instead of using {@link #keyPair}'s secret key. Lets the multikey
+   * carry only a public key while signing through a KMS / HSM / wallet.
+   */
+  readonly #externalSigner?: Signer;
+
+  /**
    * Creates an instance of SchnorrMultikey.
    * @param {MultikeyParams} params The parameters to create the multikey
    * @param {string} params.id The id of the multikey (required)
    * @param {string} params.controller The controller of the multikey (required)
    * @param {SchnorrKeyPair} params.keyPair The key pair of the multikey (optional, required if no publicKey)
+   * @param {Signer} params.externalSigner Optional external signer (KMS / HSM / wallet)
    * @throws {MultikeyError} if neither a publicKey nor a privateKey is provided
    */
-  constructor({ id, controller, keyPair }: MultikeyParams) {
+  constructor({ id, controller, keyPair, externalSigner }: MultikeyParams) {
     // If no Keys passed, throw an error
     if (!keyPair) {
       throw new MultikeyError('Argument missing: "keyPair" required', 'CONSTRUCTOR_ERROR');
@@ -69,10 +82,28 @@ export class SchnorrMultikey implements Multikey {
       throw new MultikeyError('Argument missing: "keyPair" must contain a "publicKey"', 'CONSTRUCTOR_ERROR');
     }
 
+    // When both a keyPair and an externalSigner are provided, their compressed
+    // public keys must match. Without this check, `sign()` would delegate to
+    // the externalSigner while `verify()` reads from `#keyPair.publicKey`,
+    // producing signatures that fail verification against the multikey's own
+    // declared pubkey. Fail-fast at construction is cheaper than debugging an
+    // invalid proof later.
+    if(externalSigner) {
+      const signerPk = externalSigner.publicKey;
+      const keyPairPk = keyPair.publicKey.compressed;
+      if(signerPk.length !== keyPairPk.length || !signerPk.every((b, i) => b === keyPairPk[i])) {
+        throw new MultikeyError(
+          'externalSigner.publicKey does not match keyPair.publicKey.compressed',
+          'CONSTRUCTOR_ERROR'
+        );
+      }
+    }
+
     // Set the class variables
     this.id = id;
     this.controller = controller;
     this.#keyPair = keyPair;
+    this.#externalSigner = externalSigner;
   }
 
   /**
@@ -97,13 +128,14 @@ export class SchnorrMultikey implements Multikey {
 
   /** @type {PrivateKey} @readonly Get the Multikey PrivateKey. */
   get secretKey(): Secp256k1SecretKey {
-    // Create and return a copy of the Keys.secretKey
-    const secretKey = this.#keyPair.secretKey;
-    // If there is no private key, throw an error
-    if(!this.signer) {
+    // The `signer` boolean is also true when an external signer is set, which
+    // does not imply a local secret key is available. Dispatch on the keyPair's
+    // own getter instead and wrap its throw as a MultikeyError.
+    try {
+      return this.#keyPair.secretKey;
+    } catch {
       throw new MultikeyError('Cannot get: no secretKey', 'PRIVATE_KEY_ERROR');
     }
-    return secretKey;
   }
 
   /**
@@ -115,58 +147,34 @@ export class SchnorrMultikey implements Multikey {
   }
 
   /**
-   * Produce a signature over arbitrary data using schnorr or ecdsa.
-   * @param {MessageBytes} data Data to be signed.
-   * @param {CryptoOptions} opts Options for signing.
-   * @param {('ecdsa' | 'schnorr')} opts.scheme The signature scheme to use. Default is 'schnorr'.
-   * @returns {SignatureBytes} Signature byte array.
-   * @throws {MultikeyError} if no private key is provided.
+   * Produce a BIP-340 Schnorr signature over the given data. Per the
+   * {@link https://dcdpr.github.io/data-integrity-schnorr-secp256k1/#multikey | BIP340 Multikey spec},
+   * a SchnorrMultikey produces Schnorr signatures only.
+   * @param {Bytes} data Data to be signed.
+   * @returns {SignatureBytes} 64-byte BIP-340 Schnorr signature.
+   * @throws {MultikeyError} if no signing material is available.
    */
-  public sign(data: Hex, opts?: CryptoOptions): SignatureBytes {
-    // Set default options if not provided
-    opts ??= { scheme: 'schnorr' };
-
-    // If there is no private key, throw an error
-    if (!this.signer) {
-      throw new MultikeyError(`Cannot sign ${opts.scheme}: no secretKey`, 'SIGN_ERROR');
+  public sign(data: Bytes): SignatureBytes {
+    // External signer (KMS, HSM, wallet) takes precedence over the local keyPair
+    if(this.#externalSigner) {
+      return this.#externalSigner.sign(data, 'bip340');
     }
 
-    // Sign schnorr and return
-    if(opts.scheme === 'schnorr') {
-      return schnorr.sign(data, this.secretKey.bytes, randomBytes(32));
+    if(!this.signer) {
+      throw new MultikeyError('Cannot sign: no secretKey', 'SIGN_ERROR');
     }
 
-    // Sign ecdsa and return
-    if(opts.scheme === 'ecdsa') {
-      return secp256k1.sign(data, this.secretKey.bytes, { lowS: true }).toBytes('compact');
-    }
-
-    throw new MultikeyError('Invalid signing scheme', 'SIGN_ERROR', opts);
+    return schnorr.sign(data, this.secretKey.bytes, randomBytes(32));
   }
 
   /**
-   * Verify a signature using schnorr or ecdsa.
-   * @param {SignatureBytes} signature Signature for verification.
-   * @param {string} data Data for verification.
-   * @param {CryptoOptions} opts Options for signing.
-   * @param {('ecdsa' | 'schnorr')} opts.scheme The signature scheme to use. Default is 'schnorr'.
-   * @returns {boolean} If the signature is valid against the public key.
+   * Verify a BIP-340 Schnorr signature.
+   * @param {Bytes} signature 64-byte BIP-340 Schnorr signature.
+   * @param {Bytes} data Data the signature was produced over.
+   * @returns {boolean} True if the signature is valid for this multikey's public key.
    */
-  public verify(signature: Hex, data: Hex, opts?: CryptoOptions): boolean {
-    // Set default options if not provided
-    opts ??= { scheme: 'schnorr' };
-
-    // Verify the signature using schnorr and return
-    if(opts.scheme === 'schnorr') {
-      return schnorr.verify(signature, data, this.publicKey.x);
-    }
-
-    // Verify the signature depending on the scheme and return the result
-    if(opts.scheme === 'ecdsa') {
-      return secp256k1.verify(signature as Bytes, data as Bytes, this.publicKey.compressed);
-    }
-
-    throw new MultikeyError(`Invalid scheme: ${opts.scheme}.`, 'VERIFY_SIGNATURE_ERROR', opts);
+  public verify(signature: Bytes, data: Bytes): boolean {
+    return schnorr.verify(signature, data, this.publicKey.x);
   }
 
   /**
@@ -193,72 +201,14 @@ export class SchnorrMultikey implements Multikey {
   }
 
   /**
-   * Convert a verification method to a multikey.
-   * @param {DidVerificationMethod} verificationMethod The verification method to convert.
-   * @returns {Multikey} Multikey instance.
-   * @throws {MultikeyError}
-   * if the verification method is missing required fields.
-   * if the verification method has an invalid type.
-   * if the publicKeyMultibase has an invalid prefix.
-   */
-  public fromVerificationMethod(verificationMethod: DidVerificationMethod): Multikey {
-    // Destructure the verification method
-    const { id, controller, publicKeyMultibase, type } = verificationMethod;
-
-    // Check if the required field id is missing
-    if (!id) {
-      throw new MultikeyError(
-        'Missing "id" in verificationMethod',
-        VERIFICATION_METHOD_ERROR, { verificationMethod }
-      );
-    }
-
-    // Check if the required field controller is missing
-    if (!controller) {
-      throw new MultikeyError(
-        'Missing "controller" in verificationMethod',
-        VERIFICATION_METHOD_ERROR, { verificationMethod }
-      );
-    }
-
-    // Check if the required field publicKeyMultibase is missing
-    if (!publicKeyMultibase) {
-      throw new MultikeyError(
-        'Missing "publicKeyMultibase" in verificationMethod',
-        VERIFICATION_METHOD_ERROR, { verificationMethod }
-      );
-    }
-
-    // Check if the type is not Multikey
-    if (type !== 'Multikey') {
-      throw new MultikeyError(
-        'Invalid "type" in verificationMethod',
-        VERIFICATION_METHOD_ERROR, { verificationMethod }
-      );
-    }
-
-    // Decode the public key multibase
-    const decoded = this.publicKey.decode();
-
-    // Get the 32 byte public key from the multibase
-    const pk = decoded.slice(2, decoded.length);
-
-    // Construct a new CompressedSecp256k1PublicKey from the public key bytes
-    const publicKey = new CompressedSecp256k1PublicKey(pk);
-
-    // Construct a new CompressedSecp256k1PublicKey from the publicKey and
-    const keyPair = new SchnorrKeyPair({ publicKey });
-
-    // Return a new Multikey instance
-    return new SchnorrMultikey({ id, controller, keyPair });
-  }
-
-  /**
    * @readonly
-   * Get signing ability of the Multikey (i.e. is there a valid Secp256k1SecretKey).
+   * Get signing ability of the Multikey: true if a local Secp256k1SecretKey
+   * is present (note: the SchnorrKeyPair.secretKey getter throws when absent;
+   * that throw is the historical error contract — see multikey tests) or if
+   * an external signer is available.
    */
   get signer(): boolean {
-    return !!this.#keyPair.secretKey;
+    return !!this.#externalSigner || !!this.#keyPair.secretKey;
   }
 
   /**
@@ -317,6 +267,27 @@ export class SchnorrMultikey implements Multikey {
   }
 
   /**
+   * Creates a `Multikey` instance backed by an external {@link Signer}. The
+   * signer's public key seeds the multikey's keyPair; signing delegates to the
+   * signer rather than to local key material. Use this when secret keys are
+   * managed outside the JS process (KMS, HSM, hardware wallet).
+   *
+   * @param id The id of the multikey.
+   * @param controller The controller of the multikey.
+   * @param externalSigner The signer that will produce signatures.
+   * @returns A new multikey instance.
+   */
+  public static fromSigner(
+    id: string,
+    controller: string,
+    externalSigner: Signer,
+  ): SchnorrMultikey {
+    const publicKey = new CompressedSecp256k1PublicKey(externalSigner.publicKey);
+    const keyPair = new SchnorrKeyPair({ publicKey });
+    return new SchnorrMultikey({ id, controller, keyPair, externalSigner });
+  }
+
+  /**
    * Creates a `Multikey` instance from a public key
    * @param {FromPublicKey} params The parameters to create the multikey
    * @param {string} params.id The id of the multikey
@@ -362,6 +333,20 @@ export class SchnorrMultikey implements Multikey {
     if(publicKeyMultibaseBytes.length !== 35) {
       throw new MultikeyError(
         `Invalid publicKeyMultibase length: ${publicKeyMultibaseBytes.length}`,
+        VERIFICATION_METHOD_ERROR, { publicKeyMultibase }
+      );
+    }
+
+    // The first two bytes are the multicodec prefix for secp256k1 compressed
+    // public key (0xe7 varint-encoded as [0xe7, 0x01]). Without this check, a
+    // 35-byte multibase carrying a different codec (e.g. ed25519, P-256) would
+    // be silently sliced and used as a secp256k1 key, producing nonsense
+    // verification results rather than a clear failure.
+    if(publicKeyMultibaseBytes[0] !== 0xe7 || publicKeyMultibaseBytes[1] !== 0x01) {
+      throw new MultikeyError(
+        `Invalid publicKeyMultibase prefix: expected secp256k1 multicodec [0xe7, 0x01], got [0x${
+          publicKeyMultibaseBytes[0]?.toString(16) ?? '??'
+        }, 0x${publicKeyMultibaseBytes[1]?.toString(16) ?? '??'}]`,
         VERIFICATION_METHOD_ERROR, { publicKeyMultibase }
       );
     }

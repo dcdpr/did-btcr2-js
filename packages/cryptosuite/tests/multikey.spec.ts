@@ -1,6 +1,8 @@
 import { JSONUtils, KeyPairError, MultikeyError } from '@did-btcr2/common';
-import { SchnorrKeyPair, Secp256k1SecretKey, CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
+import type { Signer } from '@did-btcr2/keypair';
+import { LocalSigner, SchnorrKeyPair, Secp256k1SecretKey, CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { expect } from 'chai';
+import { base58btc } from 'multiformats/bases/base58';
 import { SchnorrMultikey } from '../src/index.js';
 
 /**
@@ -105,7 +107,7 @@ describe('SchnorrMultikey', () => {
     });
 
     it('should construct a valid Multikey with matching data given a valid verification method', () => {
-      const multikeyFromVm = multikey.fromVerificationMethod(verificationMethod);
+      const multikeyFromVm = SchnorrMultikey.fromVerificationMethod(verificationMethod);
       expect(multikeyFromVm).to.exist.and.to.be.instanceOf(SchnorrMultikey);
       expect(multikeyFromVm.id).to.equal(id);
       expect(multikeyFromVm.controller).to.equal(controller);
@@ -129,7 +131,7 @@ describe('SchnorrMultikey', () => {
     it('should have proper variables: id, controller, publicKey', () => {
       expect(multikey.id).to.equal(id);
       expect(multikey.controller).to.equal(controller);
-      expect(() => multikey.secretKey).to.throw(KeyPairError, 'Secret key not available');
+      expect(() => multikey.secretKey).to.throw(MultikeyError, 'Cannot get: no secretKey');
       expect(multikey.publicKey).to.exist.and.to.be.instanceOf(CompressedSecp256k1PublicKey);
       expect(multikey.publicKey.equals(publicKey)).to.be.true;
     });
@@ -164,7 +166,7 @@ describe('SchnorrMultikey', () => {
     });
 
     it('should construct a valid Multikey with matching data given a valid verification method', () => {
-      const multikeyFromVm = multikey.fromVerificationMethod(verificationMethod);
+      const multikeyFromVm = SchnorrMultikey.fromVerificationMethod(verificationMethod);
       expect(multikeyFromVm).to.exist.and.to.be.instanceOf(SchnorrMultikey);
       expect(multikeyFromVm.id).to.equal(id);
       expect(multikeyFromVm.controller).to.equal(controller);
@@ -224,7 +226,7 @@ describe('SchnorrMultikey', () => {
     });
 
     it('should construct a valid Multikey with matching data given a valid verification method', () => {
-      const multikeyFromVm = multikey.fromVerificationMethod(verificationMethod);
+      const multikeyFromVm = SchnorrMultikey.fromVerificationMethod(verificationMethod);
       expect(multikeyFromVm).to.exist.and.to.be.instanceOf(SchnorrMultikey);
       expect(multikeyFromVm.id).to.equal(id);
       expect(multikeyFromVm.controller).to.equal(controller);
@@ -287,13 +289,128 @@ describe('SchnorrMultikey', () => {
     });
 
     it('should construct a valid Multikey with matching data given a valid verification method', () => {
-      const multikeyFromVm = multikey.fromVerificationMethod(verificationMethod);
+      const multikeyFromVm = SchnorrMultikey.fromVerificationMethod(verificationMethod);
       expect(multikeyFromVm).to.exist.and.to.be.instanceOf(SchnorrMultikey);
       expect(multikeyFromVm.id).to.equal(id);
       expect(multikeyFromVm.controller).to.equal(controller);
       expect(multikeyFromVm.publicKey).to.exist.and.to.be.instanceOf(CompressedSecp256k1PublicKey);
       expect(multikeyFromVm.publicKey.equals(publicKey)).to.be.true;
-      expect(() => multikeyFromVm.secretKey?.seed).to.throw(KeyPairError, 'Secret key not available');
+      expect(() => multikeyFromVm.secretKey?.seed).to.throw(MultikeyError, 'Cannot get: no secretKey');
+    });
+  });
+
+  /**
+   * Static fromVerificationMethod hardening: the multibase must carry the
+   * secp256k1 multicodec prefix [0xe7, 0x01], not just be the right length.
+   */
+  describe('SchnorrMultikey.fromVerificationMethod (multicodec prefix)', () => {
+    it('rejects a 35-byte multibase whose first two bytes are not [0xe7, 0x01]', () => {
+      // Build a 35-byte payload with a wrong multicodec prefix (e.g. ed25519's
+      // [0xed, 0x01]). base58btc-encode it the same way the real flow does.
+      const wrongPrefixBytes = new Uint8Array(35);
+      wrongPrefixBytes[0] = 0xed;
+      wrongPrefixBytes[1] = 0x01;
+      // Fill the remaining 33 bytes with arbitrary data — the prefix check
+      // fires before any curve-point validation.
+      for(let i = 2; i < 35; i++) wrongPrefixBytes[i] = i;
+      const badMultibase = base58btc.encode(wrongPrefixBytes);
+
+      expect(() => SchnorrMultikey.fromVerificationMethod({
+        id, type : 'Multikey', controller, publicKeyMultibase : badMultibase,
+      })).to.throw(MultikeyError, 'Invalid publicKeyMultibase prefix');
+    });
+
+    it('accepts a multibase with the correct secp256k1 multicodec prefix', () => {
+      // The existing `publicKeyMultibase` const at the top of this file is a
+      // real secp256k1 multikey. The static factory should accept it cleanly.
+      const multikey = SchnorrMultikey.fromVerificationMethod(verificationMethod);
+      expect(multikey).to.be.instanceOf(SchnorrMultikey);
+      expect(multikey.publicKey.equals(publicKey)).to.be.true;
+    });
+  });
+
+  /**
+   * External Signer (KMS / HSM / wallet) backing the multikey.
+   */
+  describe('SchnorrMultikey.fromSigner (external signer)', () => {
+    const localSigner = new LocalSigner(skBytes);
+
+    it('constructs a multikey via fromSigner with the signer\'s public key', () => {
+      const multikey = SchnorrMultikey.fromSigner(id, controller, localSigner);
+      expect(multikey).to.be.instanceOf(SchnorrMultikey);
+      expect(multikey.id).to.equal(id);
+      expect(multikey.controller).to.equal(controller);
+      expect(multikey.publicKey.equals(publicKey)).to.be.true;
+    });
+
+    it('signer getter returns true even with a public-key-only keyPair', () => {
+      const multikey = SchnorrMultikey.fromSigner(id, controller, localSigner);
+      expect(multikey.signer).to.be.true;
+    });
+
+    it('produces a verifiable schnorr signature delegating through the signer', () => {
+      const multikey = SchnorrMultikey.fromSigner(id, controller, localSigner);
+      const sig = multikey.sign(message);
+      expect(sig).to.be.instanceOf(Uint8Array);
+      expect(sig.length).to.equal(64);
+      expect(multikey.verify(sig, message)).to.be.true;
+    });
+
+    it('constructor rejects a keyPair / externalSigner pubkey mismatch', () => {
+      // The constructor must fail-fast when both signing inputs disagree about
+      // which public key the multikey is for. Without this check, sign() would
+      // delegate to the externalSigner while verify() reads keyPair.publicKey,
+      // producing signatures that fail verification against the multikey's
+      // declared pubkey.
+      const otherKp = SchnorrKeyPair.generate();
+      const otherSigner = new LocalSigner(otherKp.secretKey.bytes);
+
+      expect(() => new SchnorrMultikey({
+        id,
+        controller,
+        keyPair        : new SchnorrKeyPair({ secretKey: skBytes }), // local key A
+        externalSigner : otherSigner,                                  // signs with key B
+      })).to.throw(MultikeyError, 'does not match');
+    });
+
+    it('constructor accepts a keyPair / externalSigner pair when pubkeys match', () => {
+      // The matching case still works: same secret bytes on both sides yields
+      // identical pubkeys, so the equality check passes.
+      const sameSigner = new LocalSigner(skBytes);
+      const multikey = new SchnorrMultikey({
+        id,
+        controller,
+        keyPair        : new SchnorrKeyPair({ publicKey }),
+        externalSigner : sameSigner,
+      });
+      const sig = multikey.sign(message);
+      expect(multikey.verify(sig, message)).to.be.true;
+    });
+
+    it('parity: fromSigner and fromSecretKey produce signatures verifiable with the same key', () => {
+      const fromSecret = SchnorrMultikey.fromSecretKey(id, controller, skBytes);
+      const fromSigner = SchnorrMultikey.fromSigner(id, controller, localSigner);
+
+      const sigA = fromSecret.sign(message);
+      const sigB = fromSigner.sign(message);
+
+      // Both signatures must verify against the shared public key.
+      // (Schnorr uses random aux_rand by default, so the sig bytes themselves differ.)
+      expect(publicKey.verify(sigA, message, { scheme: 'schnorr' })).to.be.true;
+      expect(publicKey.verify(sigB, message, { scheme: 'schnorr' })).to.be.true;
+    });
+
+    it('accepts any object satisfying the Signer interface (not just LocalSigner)', () => {
+      // Inline literal signer — proves the cryptosuite chain doesn't have a
+      // LocalSigner-specific path.
+      const customSigner: Signer = {
+        publicKey : localSigner.publicKey,
+        sign      : (data, scheme, opts) => localSigner.sign(data, scheme, opts),
+      };
+
+      const multikey = SchnorrMultikey.fromSigner(id, controller, customSigner);
+      const sig = multikey.sign(message);
+      expect(multikey.verify(sig, message)).to.be.true;
     });
   });
 });

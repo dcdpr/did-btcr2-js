@@ -9,7 +9,7 @@ export interface KeyValueStore<K, V> {
   close(): void;
 
   /** Delete an entry by key. Returns true if the entry existed. */
-  delete(key: K): boolean | void;
+  delete(key: K): boolean;
 
   /** Get an entry by key. Returns undefined if not found. */
   get(key: K): V | undefined;
@@ -22,6 +22,9 @@ export interface KeyValueStore<K, V> {
 
   /** Get all entries as key-value tuples. */
   entries(): Array<[K, V]>;
+
+  /** Get all stored values. */
+  list(): Array<V>;
 }
 
 /**

@@ -177,3 +177,10 @@ release/
 CLAUDE.md
 .claude/
 TODO.md
+audit/
+
+# Ad-hoc recovery / sweep tooling (never committed)
+**/recovery/
+
+# E2E script-generated secret keys (never committed)
+**/.e2e-keys/

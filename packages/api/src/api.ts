@@ -1,8 +1,9 @@
 import type { NetworkName } from '@did-btcr2/bitcoin';
 import type { DocumentBytes, KeyBytes, PatchOperation } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { Signer } from '@did-btcr2/keypair';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
-import type { KeyIdentifier } from '@did-btcr2/kms';
+import type { KeyIdentifier } from '@did-btcr2/key-manager';
 import type { Btcr2DidDocument, DidCreateOptions, ResolutionOptions } from '@did-btcr2/method';
 import type { DidResolutionResult } from '@web5/dids';
 import { BitcoinApi } from './bitcoin.js';
@@ -10,7 +11,7 @@ import { CasApi, DEFAULT_CAS_GATEWAY, type CasConfig } from './cas.js';
 import { CryptoApi } from './crypto.js';
 import { DidApi } from './did.js';
 import { assertString, NOOP_LOGGER } from './helpers.js';
-import { KeyManagerApi } from './kms.js';
+import { KeyManagerApi } from './key-manager.js';
 import { DidMethodApi } from './method.js';
 import type { ApiConfig, BitcoinApiConfig, Logger, ResolutionResult } from './types.js';
 
@@ -204,6 +205,7 @@ export class DidBtcr2Api {
     patches,
     verificationMethodId,
     beaconId,
+    signer,
     sourceDocument,
     sourceVersionId,
   }: {
@@ -211,6 +213,7 @@ export class DidBtcr2Api {
     patches: PatchOperation[];
     verificationMethodId: string;
     beaconId: string;
+    signer: Signer;
     sourceDocument?: Btcr2DidDocument;
     sourceVersionId?: number;
   }): Promise<SignedBTCR2Update> {
@@ -257,6 +260,7 @@ export class DidBtcr2Api {
       sourceVersionId   : versionId,
       verificationMethodId,
       beaconId,
+      signer,
     });
   }
 

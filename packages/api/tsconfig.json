@@ -13,7 +13,7 @@
     { "path": "../keypair" },
     { "path": "../cryptosuite" },
     { "path": "../bitcoin" },
-    { "path": "../kms" },
+    { "path": "../key-manager" },
     { "path": "../method" },
     { "path": "../smt" }
   ]

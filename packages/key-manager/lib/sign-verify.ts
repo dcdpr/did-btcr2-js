@@ -1,7 +1,7 @@
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
-import { Kms } from '../src/kms.js';
+import { LocalKeyManager } from '../src/local-key-manager.js';
 
-const kms = new Kms();
+const kms = new LocalKeyManager();
 const id = kms.importKey(SchnorrKeyPair.generate());
 const msg = new Uint8Array([1, 2, 3]);
 const hash = kms.digest(msg);

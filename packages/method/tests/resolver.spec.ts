@@ -1,6 +1,7 @@
 import { expect } from 'chai';
 import { randomBytes } from 'crypto';
 import { canonicalHash, encode, hash, canonicalize } from '@did-btcr2/common';
+import { LocalSigner } from '@did-btcr2/keypair';
 import { BTCR2MerkleTree, hashToHex } from '@did-btcr2/smt';
 import { hexToBytes } from '@noble/hashes/utils';
 import { DidBtcr2 } from '../src/did-btcr2.js';
@@ -513,7 +514,7 @@ describe('Resolver', () => {
 
       const vm = sourceDocument.verificationMethod![0]!;
       const unsigned = Updater.construct(sourceDocument, patches, 1);
-      const signed = Updater.sign(did, unsigned, vm, secretKey);
+      const signed = Updater.sign(did, unsigned, vm, new LocalSigner(secretKey));
       const updateHashHex = canonicalHash(signed, { encoding: 'hex' });
 
       // Build the sidecar with the update pre-loaded

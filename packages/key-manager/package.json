@@ -1,6 +1,6 @@
 {
-  "name": "@did-btcr2/kms",
-  "version": "0.4.2",
+  "name": "@did-btcr2/key-manager",
+  "version": "0.6.0",
   "type": "module",
   "description": "Key manager that can be used with the did:btcr2 DID method",
   "main": "./dist/cjs/index.js",
@@ -29,11 +29,11 @@
       "email": "github@jintek.consulting"
     }
   ],
-  "homepage": "https://github.com/dcdpr/did-btcr2-js/tree/main/packages/kms",
+  "homepage": "https://github.com/dcdpr/did-btcr2-js/tree/main/packages/key-manager",
   "repository": {
     "type": "git",
     "url": "git+ssh://git@github.com:dcdpr/did-btcr2-js.git",
-    "directory": "packages/kms"
+    "directory": "packages/key-manager"
   },
   "bugs": "https://github.com/dcdpr/did-btcr2-js/issues",
   "publishConfig": {
@@ -76,7 +76,9 @@
   "dependencies": {
     "@did-btcr2/common": "workspace:^",
     "@did-btcr2/keypair": "workspace:^",
-    "@noble/hashes": "^2.0.1"
+    "@noble/curves": "^2.0.1",
+    "@noble/hashes": "^2.0.1",
+    "@scure/btc-signer": "^1.8.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.22.0",

@@ -1,7 +1,7 @@
 import type { BitcoinConnection } from '@did-btcr2/bitcoin';
 import { canonicalize } from '@did-btcr2/common';
-import type { KeyBytes } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { Signer } from '@did-btcr2/keypair';
 import { blockHash, BTCR2MerkleTree, didToIndex, hexToHash, verifySerializedProof } from '@did-btcr2/smt';
 import { randomBytes } from '@noble/hashes/utils';
 import type { BeaconProcessResult, DataNeed } from '../resolver.js';
@@ -122,7 +122,7 @@ export class SMTBeacon extends Beacon {
    * signing, and broadcast are delegated to {@link Beacon.buildSignAndBroadcast}.
    *
    * @param {SignedBTCR2Update} signedUpdate The signed BTCR2 update to broadcast.
-   * @param {KeyBytes} secretKey The secret key for signing the Bitcoin transaction.
+   * @param {Signer} signer Signer that produces the ECDSA signature for the Bitcoin transaction.
    * @param {BitcoinConnection} bitcoin The Bitcoin network connection.
    * @param {BroadcastOptions} [options] Optional broadcast configuration (e.g. fee estimator).
    * @return {Promise<SignedBTCR2Update>} The signed update that was broadcast.
@@ -130,7 +130,7 @@ export class SMTBeacon extends Beacon {
    */
   async broadcastSignal(
     signedUpdate: SignedBTCR2Update,
-    secretKey: KeyBytes,
+    signer: Signer,
     bitcoin: BitcoinConnection,
     options?: BroadcastOptions
   ): Promise<SignedBTCR2Update> {
@@ -145,7 +145,7 @@ export class SMTBeacon extends Beacon {
     tree.finalize();
 
     // Root hash is the signal bytes for the OP_RETURN output
-    await this.buildSignAndBroadcast(tree.rootHash, secretKey, bitcoin, options);
+    await this.buildSignAndBroadcast(tree.rootHash, signer, bitcoin, options);
 
     return signedUpdate;
   }
