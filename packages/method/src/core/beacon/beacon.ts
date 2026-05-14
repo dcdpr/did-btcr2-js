@@ -65,23 +65,41 @@ export function opReturnScript(signalBytes: Uint8Array): Uint8Array {
 async function fetchSpendableUtxo(
   bitcoinAddress: string,
   bitcoin: BitcoinConnection,
-): Promise<{ utxo: AddressUtxo; prevTxBytes: Uint8Array }> {
+): Promise<{ utxo: AddressUtxo; prevTx: Uint8Array }> {
+  // Fetch UTXOs at the beacon address
   const utxos = await bitcoin.rest.address.getUtxos(bitcoinAddress);
+
+  // If there are no UTXOs, throw an error to prompt funding.
   if(!utxos.length) {
     throw new BeaconError(
       'No UTXOs found, please fund address!',
       'UNFUNDED_BEACON_ADDRESS', { bitcoinAddress }
     );
   }
-  const utxo = utxos.sort((a, b) => b.status.block_height - a.status.block_height).shift();
-  if(!utxo) {
+
+  // Filter for confirmed UTXOs.
+  const confirmed = utxos.filter((u) => u.status.confirmed);
+
+  // If there are no confirmed UTXOs, throw an error to prompt confirmation.
+  if(!confirmed.length) {
     throw new BeaconError(
-      'Beacon bitcoin address unfunded or utxos unconfirmed.',
-      'UNFUNDED_BEACON_ADDRESS', { bitcoinAddress }
+      'No confirmed UTXOs found, please wait for confirmation!',
+      'UNCONFIRMED_UTXOS', { bitcoinAddress }
     );
   }
+
+  // Sort UTXOs by confirmation height asc, tie break on txid (lexicographically) or vout (asc)
+  // to ensure deterministic selection of the same UTXO, taking the oldest with most confs.
+  const utxo = confirmed.sort(
+    (a, b) => a.status.block_height - b.status.block_height
+    || a.txid.localeCompare(b.txid)
+    || a.vout - b.vout
+  )[0];
+
+  // Fetch the raw transaction bytes of the UTXO's parent transaction for PSBT input construction.
   const prevTxHex = await bitcoin.rest.transaction.getHex(utxo.txid);
-  return { utxo, prevTxBytes: hexToBytes(prevTxHex) };
+
+  return { utxo, prevTx: hexToBytes(prevTxHex) };
 }
 
 /**
@@ -111,7 +129,7 @@ export async function buildAggregationBeaconTx(opts: {
   feeEstimator?: FeeEstimator;
 }): Promise<BeaconTxPlan> {
   const feeEstimator = opts.feeEstimator ?? DEFAULT_FEE_ESTIMATOR;
-  const { utxo, prevTxBytes } = await fetchSpendableUtxo(opts.beaconAddress, opts.bitcoin);
+  const { utxo, prevTx } = await fetchSpendableUtxo(opts.beaconAddress, opts.bitcoin);
 
   const tapOut = p2tr(opts.internalPubkey, undefined, opts.network);
   const witnessScript = tapOut.script;
@@ -130,7 +148,7 @@ export async function buildAggregationBeaconTx(opts: {
   tx.addInput({
     txid           : utxo.txid,
     index          : utxo.vout,
-    nonWitnessUtxo : prevTxBytes,
+    nonWitnessUtxo : prevTx,
     witnessUtxo    : { amount: BigInt(utxo.value), script: witnessScript },
     tapInternalKey : opts.internalPubkey,
   });
@@ -213,11 +231,11 @@ export abstract class Beacon {
    * the multi-party path can't share the signing phase, but the tx-construction
    * plumbing (UTXO fetch + OP_RETURN output + change output) is shared.
    *
-   * @param signalBytes 32-byte payload to embed in OP_RETURN.
-   * @param secretKey Secret key used to sign the spending input.
-   * @param bitcoin Bitcoin network connection.
-   * @param options Broadcast options (fee estimator, etc.).
-   * @returns The txid of the broadcast transaction.
+   * @param {Uint8Array} signalBytes 32-byte payload to embed in OP_RETURN.
+   * @param {KeyBytes} secretKey Secret key used to sign the spending input.
+   * @param {BitcoinConnection} bitcoin Bitcoin network connection.
+   * @param {BroadcastOptions} [options] Broadcast options (fee estimator, etc.).
+   * @returns {Promise<string>} The txid of the broadcast transaction.
    * @throws {BeaconError} if the address is unfunded, no UTXO is available, or fee exceeds value.
    */
   protected async buildSignAndBroadcast(
@@ -228,9 +246,23 @@ export abstract class Beacon {
   ): Promise<string> {
     const feeEstimator = options?.feeEstimator ?? DEFAULT_FEE_ESTIMATOR;
     const beaconAddress = this.service.serviceEndpoint.replace('bitcoin:', '');
-    const { utxo, prevTxBytes } = await fetchSpendableUtxo(beaconAddress, bitcoin);
+
+    // Fail fast if the secret key does not derive the beacon address. scure PSBT
+    // construction will eventually catch a mismatch via the nonWitnessUtxo cross-check,
+    // but the error is opaque and surfaces only after the network round-trip below.
+    // TODO: when multi-kind singleton dispatch lands, parameterize this
+    // check on the detected script kind via `deriveSingletonAddress(kind, pubkey, network)`.
+    const derivedAddress = p2wpkh(this.#derivePubkey(secretKey), bitcoin.data).address;
+    if(derivedAddress !== beaconAddress) {
+      throw new BeaconError(
+        'Secret key does not derive the beacon address',
+        'KEY_ADDRESS_MISMATCH', { beaconAddress, derivedAddress }
+      );
+    }
+
+    const { utxo, prevTx } = await fetchSpendableUtxo(beaconAddress, bitcoin);
     const plan = await this.buildSinglePartyTx({
-      signalBytes, beaconAddress, utxo, prevTxBytes, secretKey, bitcoin, feeEstimator,
+      signalBytes, beaconAddress, utxo, prevTx, secretKey, bitcoin, feeEstimator,
     });
     const signedHex = this.signSinglePartyTx(plan.tx, secretKey);
     return this.broadcastRawTx(bitcoin, signedHex);
@@ -242,12 +274,23 @@ export abstract class Beacon {
    *
    * The secret key is required here (not just in `signSinglePartyTx`) because the
    * two-pass fee estimation requires an actual signature to measure vsize accurately.
+   *
+   * @param opts Parameters for building the tx.
+   * @param {Uint8Array} opts.signalBytes 32-byte payload to embed in OP_RETURN.
+   * @param {string} opts.beaconAddress The beacon's Bitcoin address (change returns here).
+   * @param {AddressUtxo} opts.utxo The UTXO to spend as the beacon signal input.
+   * @param {Uint8Array} opts.prevTx The raw bytes of the UTXO's parent transaction (for PSBT input construction).
+   * @param {KeyBytes} opts.secretKey The secret key for signing the tx (needed for accurate fee estimation).
+   * @param {BitcoinConnection} opts.bitcoin Bitcoin network connection for any additional data fetching.
+   * @param {FeeEstimator} opts.feeEstimator Fee estimator for computing the transaction fee.
+   * @returns {Promise<BeaconTxPlan>} A {@link BeaconTxPlan} containing the unsigned transaction and prev-output metadata.
+   * @throws {BeaconError} if the UTXO value is insufficient to cover the fee.
    */
   protected async buildSinglePartyTx(opts: {
     signalBytes: Uint8Array;
     beaconAddress: string;
     utxo: AddressUtxo;
-    prevTxBytes: Uint8Array;
+    prevTx: Uint8Array;
     secretKey: KeyBytes;
     bitcoin: BitcoinConnection;
     feeEstimator: FeeEstimator;
@@ -261,7 +304,7 @@ export abstract class Beacon {
       tx.addInput({
         txid           : opts.utxo.txid,
         index          : opts.utxo.vout,
-        nonWitnessUtxo : opts.prevTxBytes,
+        nonWitnessUtxo : opts.prevTx,
         witnessUtxo    : { amount: BigInt(opts.utxo.value), script: witnessScript },
       });
       tx.addOutputAddress(

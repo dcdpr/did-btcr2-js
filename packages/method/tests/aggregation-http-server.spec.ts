@@ -397,20 +397,38 @@ describe('HttpServerTransport', () => {
       expect(res.headers['access-control-allow-origin']).to.equal('*');
     });
 
-    it('allowlist mode echoes only allowed origins', async () => {
+    it('allowlist mode echoes allowed origins and rejects others with 403', async () => {
       server = makeServer({ cors: { mode: 'allowlist', origins: ['https://ok.example.com'] } });
 
       const allowed = await server.handleRequest(req('OPTIONS', '/v1/messages', { origin: 'https://ok.example.com' }));
       expect(allowed.headers['access-control-allow-origin']).to.equal('https://ok.example.com');
+      expect(allowed.status).to.equal(204);
 
       const blocked = await server.handleRequest(req('OPTIONS', '/v1/messages', { origin: 'https://evil.example.com' }));
-      expect(blocked.headers['access-control-allow-origin']).to.be.undefined;
+      expect(blocked.status).to.equal(403);
     });
 
-    it('same-origin mode emits no CORS headers', async () => {
+    it('same-origin mode allows matching origin and rejects mismatches with 403', async () => {
       server = makeServer({ cors: { mode: 'same-origin' } });
-      const res = await server.handleRequest(req('OPTIONS', '/v1/messages', { origin: 'https://x.example.com' }));
-      expect(res.headers['access-control-allow-origin']).to.be.undefined;
+
+      const matching = await server.handleRequest(req('OPTIONS', '/v1/messages', {
+        origin : 'https://x.example.com',
+        host   : 'x.example.com',
+      }));
+      expect(matching.headers['access-control-allow-origin']).to.equal('https://x.example.com');
+      expect(matching.status).to.equal(204);
+
+      const mismatched = await server.handleRequest(req('OPTIONS', '/v1/messages', {
+        origin : 'https://attacker.example.com',
+        host   : 'x.example.com',
+      }));
+      expect(mismatched.status).to.equal(403);
+    });
+
+    it('allows non-browser requests (no origin header) regardless of mode', async () => {
+      server = makeServer({ cors: { mode: 'same-origin' } });
+      const res = await server.handleRequest(req('OPTIONS', '/v1/messages', {}));
+      expect(res.status).to.equal(204);
     });
   });
 

@@ -62,7 +62,18 @@ export class BeaconSignalDiscovery {
          *  value: 0
          * }
          */
-        if(!signalVout || !signalVout.scriptpubkey_asm.includes('OP_RETURN')) {
+        // If the signal vout is undefined, continue to next signal
+        if(!signalVout) {
+          continue;
+        }
+
+        // If the signal vout scriptpubkey type is not op_return, continue to next signal
+        if(signalVout.scriptpubkey_type !== 'op_return') {
+          continue;
+        }
+
+        // If the signal vout scriptpubkey_asm does not include 'OP_RETURN OP_PUSHBYTES_32', continue to next signal
+        if(!signalVout.scriptpubkey_asm.includes('OP_RETURN OP_PUSHBYTES_32')) {
           continue;
         }
 
@@ -194,7 +205,7 @@ export class BeaconSignalDiscovery {
 
           // Look for 'OP_RETURN' in the scriptPubKey asm
           const txVoutScriptPubkeyAsm = prevout.vout[vin.vout].scriptPubKey.asm;
-          if(!txVoutScriptPubkeyAsm.includes('OP_RETURN')) {
+          if(!txVoutScriptPubkeyAsm.includes('OP_RETURN OP_PUSHBYTES_32')) {
             continue;
           }
 

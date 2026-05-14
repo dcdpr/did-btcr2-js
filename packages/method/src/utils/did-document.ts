@@ -144,7 +144,7 @@ export class DidDocument implements Btcr2DidDocument {
     }
 
     // Set the ID and ID type
-    const idType = document.id.includes('k1')
+    const idType = Identifier.decode(document.id).hrp
       ? IdentifierTypes.KEY
       : IdentifierTypes.EXTERNAL;
 
@@ -420,7 +420,7 @@ export class DidDocument implements Btcr2DidDocument {
    * @returns {GenesisDocument} The GenesisDocument representation of the DidDocument.
    */
   public toIntermediate(): GenesisDocument {
-    if(this.id.includes('k1')) {
+    if(Identifier.decode(this.id).hrp !== IdentifierTypes.EXTERNAL) {
       throw new DidDocumentError('Cannot convert a key identifier to an intermediate document', INVALID_DID_DOCUMENT, this);
     }
     return new GenesisDocument(this);

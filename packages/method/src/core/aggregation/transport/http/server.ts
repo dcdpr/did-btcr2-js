@@ -56,6 +56,14 @@ export interface SseStream {
   onClose(cb: () => void): void;
 }
 
+/**
+ * CORS policy enforced server-side.
+ *
+ * Limitation: CORS is a browser mechanism. Requests without an `origin` header
+ * (curl, server-to-server, native mobile clients) are always allowed past the
+ * CORS gate. Envelope signature verification on `POST /v1/messages` is the
+ * server-side access control that gates all clients regardless of origin.
+ */
 export type CorsPolicy =
   | { mode: 'permissive' }
   | { mode: 'allowlist'; origins: string[] }
@@ -289,6 +297,9 @@ export class HttpServerTransport implements Transport {
    * adapter turns it into an HTTP write.
    */
   async handleRequest(req: HttpRequestLike): Promise<HttpResponseLike> {
+    const corsCheck = this.#enforceCors(req);
+    if(corsCheck) return corsCheck;
+
     const method = req.method.toUpperCase();
     if(method === 'OPTIONS') return this.#respond(204, '', req);
 
@@ -312,6 +323,10 @@ export class HttpServerTransport implements Transport {
    * connection ends.
    */
   handleSse(req: HttpRequestLike, stream: SseStream): void {
+    if(this.#enforceCors(req)) {
+      stream.close();
+      return;
+    }
     if(req.method.toUpperCase() !== 'GET') {
       stream.close();
       return;
@@ -550,6 +565,34 @@ export class HttpServerTransport implements Transport {
     return { status, headers: this.#corsHeaders(req), body };
   }
 
+  /**
+   * Evaluate the CORS policy against the request. Returns a 403 response if the
+   * origin is disallowed; returns `undefined` to proceed. Requests with no
+   * `origin` header (non-browser clients) are always allowed past this gate —
+   * envelope signature verification on `POST /v1/messages` is the real
+   * access control for those.
+   */
+  #enforceCors(req: HttpRequestLike): HttpResponseLike | undefined {
+    const origin = req.headers.origin;
+    if(!origin) return undefined;
+
+    switch(this.#cors.mode) {
+      case 'permissive':
+        return undefined;
+      case 'allowlist':
+        return this.#cors.origins.includes(origin)
+          ? undefined
+          : this.#respondJson(403, { error: 'forbidden_origin' }, req);
+      case 'same-origin': {
+        const host = req.headers.host;
+        try {
+          if(host && new URL(origin).host === host) return undefined;
+        } catch { /* malformed origin URL falls through to reject */ }
+        return this.#respondJson(403, { error: 'forbidden_origin' }, req);
+      }
+    }
+  }
+
   #corsHeaders(req: HttpRequestLike): Record<string, string> {
     const origin = req.headers.origin;
     if(!origin) return {};
@@ -561,13 +604,11 @@ export class HttpServerTransport implements Transport {
     switch(this.#cors.mode) {
       case 'permissive':
         return { 'access-control-allow-origin': '*', ...common };
+      // For allowlist and same-origin, #enforceCors has already verified the
+      // origin is permitted; reflect it back so the browser accepts the response.
       case 'allowlist':
-        if(this.#cors.origins.includes(origin)) {
-          return { 'access-control-allow-origin': origin, vary: 'origin', ...common };
-        }
-        return {};
       case 'same-origin':
-        return {};
+        return { 'access-control-allow-origin': origin, vary: 'origin', ...common };
     }
   }
 

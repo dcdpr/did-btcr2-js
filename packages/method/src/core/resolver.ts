@@ -1,22 +1,20 @@
 import { getNetwork } from '@did-btcr2/bitcoin';
+import type { HashBytes } from '@did-btcr2/common';
 import {
   canonicalHash,
   canonicalHashBytes,
   canonicalize,
   DateUtils,
-  encode as encodeHash,
   decode as decodeHash,
+  encode as encodeHash,
   INVALID_DID_DOCUMENT,
   INVALID_DID_UPDATE,
   JSONPatch,
-  JSONUtils,
   LATE_PUBLISHING_ERROR,
   ResolveError
 } from '@did-btcr2/common';
-import type { HashBytes } from '@did-btcr2/common';
 import type {
-  SignedBTCR2Update,
-  UnsignedBTCR2Update
+  SignedBTCR2Update
 } from '@did-btcr2/cryptosuite';
 import {
   BIP340Cryptosuite,
@@ -24,17 +22,17 @@ import {
   SchnorrMultikey
 } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
+import { equalBytes } from '@noble/curves/utils.js';
 import { DidBtcr2 } from '../did-btcr2.js';
 import { Appendix } from '../utils/appendix.js';
 import { DidDocument, ID_PLACEHOLDER_VALUE } from '../utils/did-document.js';
 import { BeaconFactory } from './beacon/factory.js';
 import type { BeaconService, BeaconSignal, BlockMetadata } from './beacon/interfaces.js';
 import { BeaconUtils } from './beacon/utils.js';
-import type { DidComponents} from './identifier.js';
+import type { DidComponents } from './identifier.js';
 import { Identifier } from './identifier.js';
 import type { SMTProof } from './interfaces.js';
 import type { CASAnnouncement, Sidecar, SidecarData } from './types.js';
-import { equalBytes } from '@noble/curves/utils.js';
 
 /**
  * The response object for DID Resolution.
@@ -308,7 +306,7 @@ export class Resolver {
     // Start the version number being processed at 1
     let currentVersionId = 1;
 
-    // Initialize an empty array to hold the update hashes (raw bytes)
+    // Initialize an empty array to hold the unsigned update hashes (raw bytes)
     const updateHashHistory: HashBytes[] = [];
 
     // 1. Sort updates by targetVersionId (ascending), using blockheight as tie-breaker
@@ -354,7 +352,6 @@ export class Resolver {
       // Check update.targetVersionId against currentVersionId
       // If update.targetVersionId <= currentVersionId, confirm duplicate update
       if(update.targetVersionId <= currentVersionId) {
-        updateHashHistory.push(currentDocumentHash);
         this.confirmDuplicate(update, updateHashHistory);
       }
 
@@ -375,7 +372,8 @@ export class Resolver {
         response.didDocument = this.applyUpdate(response.didDocument, update);
 
         // Create unsigned_update by removing the proof property from update.
-        const unsignedUpdate = JSONUtils.deleteKeys(update, ['proof']) as UnsignedBTCR2Update;
+        const { proof: _, ...unsignedUpdate } = update;
+
         // Push the canonicalized unsigned update hash bytes to the updateHashHistory
         updateHashHistory.push(canonicalHashBytes(unsignedUpdate));
       }
