@@ -1,6 +1,6 @@
 # @did-btcr2/method
 
-TypeScript reference implementation of the [did:btcr2 DID Method](https://dcdpr.github.io/did-btcr2/) — a censorship-resistant Decentralized Identifier method using Bitcoin as a verifiable data registry.
+TypeScript reference implementation of the [did:btcr2 DID Method](https://dcdpr.github.io/did-btcr2/): a censorship-resistant Decentralized Identifier method using Bitcoin as a verifiable data registry.
 
 This package is the core of the `did-btcr2-js` monorepo. It implements DID create/resolve/update operations, the three beacon types (Singleton, CAS, SMT), multi-party aggregation over MuSig2, and a pluggable transport layer for peer-to-peer coordination.
 
@@ -16,7 +16,7 @@ pnpm add @did-btcr2/method
 |---|---|
 | Create a DID (offline, deterministic or external) | `DidBtcr2.create()` |
 | Resolve a DID (sans-I/O state machine) | `DidBtcr2.resolve()` |
-| Update a DID (sans-I/O state machine) | `DidBtcr2.update()` → `Updater` |
+| Update a DID (sans-I/O state machine) | `DidBtcr2.update()` returns an `Updater` |
 | Update utilities (construct, sign, announce) | `Updater.construct()`, `Updater.sign()`, `Updater.announce()` |
 | Beacon types (Singleton, CAS, SMT) | `SingletonBeacon`, `CASBeacon`, `SMTBeacon` |
 | Fee estimation (pluggable) | `FeeEstimator`, `StaticFeeEstimator` |
@@ -32,7 +32,7 @@ pnpm add @did-btcr2/method
 import { DidBtcr2 } from '@did-btcr2/method';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 
-// Deterministic (k-type) — the identifier IS the public key
+// Deterministic (k-type): the identifier IS the public key
 const keys = SchnorrKeyPair.generate();
 const did = DidBtcr2.create(keys.publicKey.compressed, {
   idType  : 'KEY',
@@ -66,7 +66,7 @@ See [`src/core/resolver.ts`](./src/core/resolver.ts) for the full `DataNeed` uni
 
 ### Update a DID
 
-`DidBtcr2.update()` returns a sans-I/O state machine — the counterpart to the Resolver. The caller drives the update by fulfilling typed data needs (signing key, funding confirmation, broadcast).
+`DidBtcr2.update()` returns a sans-I/O state machine: the counterpart to the Resolver. The caller drives the update by fulfilling typed data needs (signing key, funding confirmation, broadcast).
 
 ```typescript
 import { DidBtcr2, Updater } from '@did-btcr2/method';
@@ -134,7 +134,7 @@ runner.on('signing-complete', (result) => console.log('done'));
 const result = await runner.run();
 ```
 
-The full step-by-step protocol walkthrough — service flow, participant flow, decision callbacks, events, the low-level state machine API, and production deployment notes — is in [`docs/aggregation.md`](./docs/aggregation.md). The HTTP/REST transport has its own walkthrough in [`docs/http-transport.md`](./docs/http-transport.md).
+The full step-by-step protocol walkthrough (service flow, participant flow, decision callbacks, events, the low-level state machine API, and production deployment notes) is in [`docs/aggregation.md`](./docs/aggregation.md). The HTTP/REST transport has its own walkthrough in [`docs/http-transport.md`](./docs/http-transport.md).
 
 ## Architecture Principles
 
@@ -157,9 +157,9 @@ Tests run from compiled JS, so run `pnpm build:tests` before `pnpm test` after a
 
 ## Documentation
 
-- **Package docs on btcr2.dev** — [btcr2.dev/impls/ts](https://btcr2.dev/impls/ts)
-- **[`docs/beacon-system-overview.md`](./docs/beacon-system-overview.md)** — Beacon architecture, Singleton / CAS / SMT behavior, signal discovery
-- **[`docs/aggregation.md`](./docs/aggregation.md)** — Multi-party aggregation protocol, Runner and state machine APIs, e2e examples
-- **[`docs/http-transport.md`](./docs/http-transport.md)** — HTTP/REST transport: wire protocol, signed envelopes, SSE subscriptions, Hono/Node framework mount example, permissive CORS
-- **[`docs/test-vectors.md`](./docs/test-vectors.md)** — CLI tool for generating did:btcr2 test vectors via a stepped workflow
-- **Source reference** — See JSDoc comments on public classes; the most important entry points are `DidBtcr2` (facade), `Resolver` (read path), `Updater` (write path), and the aggregation runners.
+- **Package docs on btcr2.dev** [btcr2.dev/impls/ts](https://btcr2.dev/impls/ts)
+- **[`docs/beacon-system-overview.md`](./docs/beacon-system-overview.md)** Beacon architecture, Singleton / CAS / SMT behavior, signal discovery
+- **[`docs/aggregation.md`](./docs/aggregation.md)** Multi-party aggregation protocol, Runner and state machine APIs, e2e examples
+- **[`docs/http-transport.md`](./docs/http-transport.md)** HTTP/REST transport: wire protocol, signed envelopes, SSE subscriptions, Hono/Node framework mount example, permissive CORS
+- **[`docs/test-vectors.md`](./docs/test-vectors.md)** CLI tool for generating did:btcr2 test vectors via a stepped workflow
+- **Source reference** See JSDoc comments on public classes; the most important entry points are `DidBtcr2` (facade), `Resolver` (read path), `Updater` (write path), and the aggregation runners.

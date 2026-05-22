@@ -6,7 +6,7 @@ Part of the [`did-btcr2-js`](https://github.com/dcdpr/did-btcr2-js) monorepo.
 
 ## Summary
 
-This package implements the [Optimized Sparse Merkle Tree (SMT)](https://dcdpr.github.io/did-btcr2/appendix/optimized-smt.html) described in the did:btcr2 specification. It's used by the `@did-btcr2/method` package for the aggregate SMT beacon — the mechanism that lets many DID updates share a single on-chain transaction.
+This package implements the [Optimized Sparse Merkle Tree (SMT)](https://dcdpr.github.io/did-btcr2/appendix/optimized-smt.html) described in the did:btcr2 specification. It's used by the `@did-btcr2/method` package for the aggregate SMT beacon: the mechanism that lets many DID updates share a single on-chain transaction.
 
 The tree operates over a 256-bit key space (SHA-256 hashes as indexes). Rather than materializing all 2^256 nodes, it only stores the leaves you actually insert and collapses empty subtrees. Proofs use a converge bitmap to indicate which tree levels have real siblings, keeping proof size proportional to the number of leaves rather than the depth of the tree. Depth-byte padding prevents index substitution attacks on collapsed branches.
 
@@ -47,7 +47,7 @@ smt.add([index1, index2]);
 smt.setHash(index1, blockHash(new Uint8Array([1, 2, 3])));
 smt.setHash(index2, blockHash(new Uint8Array([4, 5, 6])));
 
-// Finalize — computes the root hash and generates all proofs in one pass
+// Finalize: computes the root hash and generates all proofs in one pass
 smt.finalize();
 
 console.log(smt.rootHash); // Uint8Array(32)
@@ -77,7 +77,7 @@ tree.addEntries([
   {
     did: 'did:btcr2:k1qexample2',
     nonce: randomBytes(32),
-    // no signedUpdate — this is a non-inclusion entry
+    // no signedUpdate: this is a non-inclusion entry
   },
 ]);
 
@@ -161,13 +161,13 @@ const restoredBin = await SMTProof.fromBinary(binary);
 
 ## How it works
 
-A standard Merkle tree over 256-bit keys would have 2^256 leaves — obviously impractical. A Sparse Merkle Tree avoids this by only materializing the paths to leaves that actually exist. Empty subtrees are represented implicitly with a null hash.
+A standard Merkle tree over 256-bit keys would have 2^256 leaves, which is obviously impractical. A Sparse Merkle Tree avoids this by only materializing the paths to leaves that actually exist. Empty subtrees are represented implicitly with a null hash.
 
 This implementation goes further with two optimizations:
 
 **Converge bitmap.** Instead of storing 256 sibling hashes per proof (one per tree level), a proof carries a bigint bitmap indicating which levels have a real sibling. A set bit at position `d` means "there's a non-empty subtree on the other side at depth `d`, and the next hash in the proof array belongs to that level." Unset bits are levels where the sibling is empty, so no hash is needed. For a tree with a handful of leaves, this cuts proof size dramatically.
 
-**Depth-byte padding.** When a subtree is collapsed (a leaf sits higher in the tree than its full 256-bit path would place it), the hash is padded with the depth values of the skipped levels. This prevents an attacker from reusing a proof for one index at a different index position — the depth bytes are baked into the hash chain, so any index swap produces a different root.
+**Depth-byte padding.** When a subtree is collapsed (a leaf sits higher in the tree than its full 256-bit path would place it), the hash is padded with the depth values of the skipped levels. This prevents an attacker from reusing a proof for one index at a different index position: the depth bytes are baked into the hash chain, so any index swap produces a different root.
 
 ## Links
 
