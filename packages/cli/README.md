@@ -29,17 +29,17 @@ Requires Node.js >= 22.
 ### Create a DID
 
 ```bash
-# Deterministic (type=k) — from a compressed secp256k1 public key (33 bytes hex)
+# Deterministic (type=k): from a compressed secp256k1 public key (33 bytes hex)
 btcr2 create -t k -n regtest -b 02aa...
 
-# External (type=x) — from a SHA-256 hash of a genesis document (32 bytes hex)
+# External (type=x): from a SHA-256 hash of a genesis document (32 bytes hex)
 btcr2 create -t x -n bitcoin -b bb...
 ```
 
 ### Resolve a DID
 
 ```bash
-# Zero-config — network and endpoints are derived from the DID
+# Zero-config: network and endpoints are derived from the DID
 btcr2 resolve -i did:btcr2:k1qq...
 
 # With resolution options from a JSON file
@@ -72,7 +72,7 @@ btcr2 deactivate \
 
 ## Configuration
 
-Override precedence (highest wins): CLI flags > environment variables > config file > network defaults.
+Override precedence, highest wins: CLI flags, then environment variables, then config file, then network defaults.
 
 ### CLI flags
 
