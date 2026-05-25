@@ -1,0 +1,30 @@
+{
+  "id": "10b-x1-sidecar-update-cas-announcement-paired",
+  "description": "x1 DID with default 3 singleton beacons + dedicated CASBeacon, 1 sidecar update adding DIDCommMessaging. CAS Announcement delivered via sidecar. Mirrors danubetech example 10b (paired with 10a in danubetech's tree).",
+  "network": "mutinynet",
+  "idType": "EXTERNAL",
+  "keys": { "source": "fixed", "secretHex": "cae04d58489b6046c30a8a48f3e84ba6c3823cc307be0b0dbb125e0f3aa85bff" },
+  "beacons": [
+    { "kind": "P2PKH", "id": "#initialP2PKH" },
+    { "kind": "P2WPKH", "id": "#initialP2WPKH" },
+    { "kind": "P2TR", "id": "#initialP2TR" }
+  ],
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/4",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#cohortBeacon",
+      "delivery": "sidecar"
+    }
+  ]
+}

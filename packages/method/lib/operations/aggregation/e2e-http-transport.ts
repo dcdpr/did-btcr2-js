@@ -13,7 +13,7 @@
  * in without touching the transport.
  *
  * Usage:
- *   PORT=8080 npx tsx lib/operations/aggregation/e2e-http-transport.ts
+ *   PORT=8080 bun lib/operations/aggregation/e2e-http-transport.ts
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createServer } from 'node:http';

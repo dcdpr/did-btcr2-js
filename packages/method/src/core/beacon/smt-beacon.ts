@@ -2,7 +2,7 @@ import type { BitcoinConnection } from '@did-btcr2/bitcoin';
 import { canonicalize } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import type { Signer } from '@did-btcr2/keypair';
-import { blockHash, BTCR2MerkleTree, didToIndex, hexToHash, verifySerializedProof } from '@did-btcr2/smt';
+import { base64UrlToHash, blockHash, BTCR2MerkleTree, didToIndex, hashToHex, verifySerializedProof } from '@did-btcr2/smt';
 import { randomBytes } from '@noble/hashes/utils';
 import type { BeaconProcessResult, DataNeed } from '../resolver.js';
 import type { SidecarData } from '../types.js';
@@ -69,12 +69,7 @@ export class SMTBeacon extends Beacon {
         continue;
       }
 
-      // Non-inclusion proof — no update for this DID in this epoch, skip
-      if(!smtProof.updateId) {
-        continue;
-      }
-
-      // Nonce is required for proof verification
+      // Nonce is required for proof verification (inclusion and non-inclusion).
       if(!smtProof.nonce) {
         throw new SMTBeaconError(
           'SMT proof missing required nonce field.',
@@ -82,9 +77,15 @@ export class SMTBeacon extends Beacon {
         );
       }
 
-      // Verify Merkle inclusion: leaf = hash(hash(nonce) || updateId)
+      // Verify the SMT proof against the on-chain root. Leaf value per spec:
+      // inclusion = hash(hash(nonce) || updateId); non-inclusion = hash(hash(nonce)).
+      // Hash fields are base64url (no padding) per the SMT Proof spec. A
+      // non-inclusion proof (absent updateId) is verified too, not trusted.
       const index = didToIndex(did);
-      const candidateHash = blockHash(blockHash(hexToHash(smtProof.nonce)), hexToHash(smtProof.updateId));
+      const nonceHash = base64UrlToHash(smtProof.nonce);
+      const candidateHash = smtProof.updateId
+        ? blockHash(blockHash(nonceHash), base64UrlToHash(smtProof.updateId))
+        : blockHash(blockHash(nonceHash));
       const valid = verifySerializedProof(smtProof, index, candidateHash);
 
       if(!valid) {
@@ -94,14 +95,21 @@ export class SMTBeacon extends Beacon {
         );
       }
 
-      // Look up the signed update in sidecar updateMap (keyed by hex canonical hash)
-      const signedUpdate = sidecar.updateMap.get(smtProof.updateId);
+      // Non-inclusion proof verified — no update for this DID this epoch, skip.
+      if(!smtProof.updateId) {
+        continue;
+      }
+
+      // Look up the signed update in sidecar updateMap (keyed by hex canonical
+      // hash). The proof's updateId is base64url, so convert to hex to match.
+      const updateHashHex = hashToHex(base64UrlToHash(smtProof.updateId));
+      const signedUpdate = sidecar.updateMap.get(updateHashHex);
 
       if(!signedUpdate) {
         // Signed update not available — emit a need
         needs.push({
           kind             : 'NeedSignedUpdate',
-          updateHash       : smtProof.updateId,
+          updateHash       : updateHashHex,
           beaconServiceId  : this.service.id
         });
         continue;

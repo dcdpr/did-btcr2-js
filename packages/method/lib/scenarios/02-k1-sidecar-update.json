@@ -1,0 +1,30 @@
+{
+  "id": "02-k1-sidecar-update",
+  "description": "k1 (key-type) DID with default 3 singleton beacons, 1 sidecar update adding a DIDCommMessaging service. Mirrors danubetech example 2.",
+  "network": "mutinynet",
+  "idType": "KEY",
+  "keys": { "source": "fixed", "secretHex": "dd184a9befa5d7443760c46a7356009960b691a38f44801c4c6049799221f7d0" },
+  "beacons": [
+    { "kind": "P2PKH", "id": "#initialP2PKH" },
+    { "kind": "P2WPKH", "id": "#initialP2WPKH" },
+    { "kind": "P2TR", "id": "#initialP2TR" }
+  ],
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm/"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2PKH",
+      "delivery": "sidecar"
+    }
+  ]
+}

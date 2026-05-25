@@ -150,6 +150,6 @@ describe('BTCR2MerkleTree', () => {
   it('throws on rootHash before finalize', () => {
     const tree = new BTCR2MerkleTree();
     tree.addEntries([makeEntry('did:btcr2:k1qearly')]);
-    expect(() => tree.rootHash).to.throw(RangeError);
+    expect(() => tree.rootHash).to.throw(Error, /not finalized/i);
   });
 });

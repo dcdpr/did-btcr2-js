@@ -1,0 +1,30 @@
+{
+  "id": "12a-x1-sidecar-update-smt-proof",
+  "description": "x1 DID with default 3 singleton beacons + dedicated SMTBeacon, 1 sidecar update. SMT Proof delivered via sidecar. Mirrors danubetech example 12a (paired with 12b in danubetech's tree). Independent (not aggregated) SMT proof generation pending.",
+  "network": "mutinynet",
+  "idType": "EXTERNAL",
+  "keys": { "source": "fixed", "secretHex": "4b29b424c4ffd3a6c3cea0f2770f8c532ef9d537784228bd4793f6d3f9fb3c8b" },
+  "beacons": [
+    { "kind": "P2PKH", "id": "#initialP2PKH" },
+    { "kind": "P2WPKH", "id": "#initialP2WPKH" },
+    { "kind": "P2TR", "id": "#initialP2TR" }
+  ],
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/4",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#cohortBeacon",
+      "delivery": "sidecar"
+    }
+  ]
+}

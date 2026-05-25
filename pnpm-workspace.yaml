@@ -8,3 +8,15 @@ packages:
   - packages/key-manager
   - packages/method
   - packages/smt
+
+allowBuilds:
+  '@ipshipyard/node-datachannel': true
+  classic-level: true
+  esbuild: true
+
+onlyBuiltDependencies:
+  - "@ipshipyard/node-datachannel"
+  - classic-level
+  - dtrace-provider
+  - esbuild
+  - node-datachannel

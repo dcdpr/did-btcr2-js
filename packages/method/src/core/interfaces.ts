@@ -43,36 +43,39 @@ export interface ResolutionOptions extends DidResolutionOptions {
  * a path from a leaf in the tree to the Merkle root, proving that the leaf is in the tree.
  * See {@link https://dcdpr.github.io/did-btcr2/data-structures.html#smt-proof | SMT Proof (data structure)}.
  *
+ * All SHA-256 hash fields (`id`, `nonce`, `updateId`, `hashes`) are "base64url"
+ * [RFC4648] encoded without padding (43 chars each). `collapsed` is the 256-bit
+ * zero-node bitmap, also base64url no-pad (43 chars).
+ *
  * @example
  * ```json
  * {
- *   "id": "<< Hexadecimal of Root Hash >>",
- *   "nonce": "<< Hexadecimal of Nonce 1101 >>",
- *   "updateId": "<< Hexadecimal of hash(Data Block 1101) >>",
- *   "collapsed": "<< Hexadecimal of 0001 >>",
+ *   "id": "q1H_iaYG0Oq6gbrycYL-r7FjUsJLnIpHDn49TLeONNA",
+ *   "nonce": "99jndCBWHpZfmObXlIvRGHaPMgoQKXIETdD4H-XqryE",
+ *   "updateId": "njYNViJq2OmhSw1fLfARPCj12RY3VXKGWdS3-7OQ2BE",
+ *   "collapsed": "v_________________________________________8",
  *   "hashes": [
- *     "<< Hexadecimal of Hash 1110 >>",
- *     "<< Hexadecimal of Hash 1001 >>",
- *     "<< Hexadecimal of Hash 0 >>"
+ *     "8JWXL7chPKJXwg-i9O1EFTHan_oOO_RmglDpu_ugax0"
  *   ]
  * }
  * ```
  */
 export interface SMTProof {
   /**
-   * The SHA-256 hash of the root node of the Sparse Merkle Tree.
+   * base64url (no padding) SHA-256 hash of the root node of the Sparse Merkle Tree.
    */
   id: string;
   /**
-   * Optional 256-bit nonce generated for each update. Hex-encoded (64 chars).
+   * Optional 256-bit nonce generated for each update. base64url, no padding (43 chars).
    */
   nonce?: string;
   /**
-   * Optional hex-encoded canonical hash of the BTCR2 Signed Update.
+   * Optional base64url (no padding) canonical hash of the BTCR2 Signed Update.
    */
   updateId?: string;
   /**
-   * Bitmap of zero nodes within the path (see: collapsed leaves).
+   * base64url (no padding) bitmap of zero nodes within the path (see: collapsed
+   * leaves). Bit set = empty/zero sibling; bit clear = a sibling hash is present.
    */
   collapsed: string;
   /**

@@ -1,7 +1,7 @@
 import { equalBytes } from '@noble/curves/utils.js';
 import { sha256 } from '@noble/hashes/sha2';
 import { concatBytes } from '@noble/hashes/utils';
-import { base64 } from '@scure/base';
+import { base64, base64urlnopad } from '@scure/base';
 import { HASH_BYTE_LENGTH, HASH_HEX_LENGTH } from './constants.js';
 
 /**
@@ -127,6 +127,27 @@ export function base64ToHash(b64: string): Uint8Array {
   const hash = base64.decode(b64);
   if (hash.length !== HASH_BYTE_LENGTH) {
     throw new RangeError(`Invalid base64 hash: expected ${HASH_BYTE_LENGTH} decoded bytes, got ${hash.length}`);
+  }
+  return hash;
+}
+
+/**
+ * Convert a 32-byte hash to a "base64url" [RFC4648] string without padding.
+ * This is the did:btcr2 SMT Proof wire encoding for SHA-256 hash fields.
+ */
+export function hashToBase64Url(hash: Uint8Array): string {
+  validateHash(hash);
+  return base64urlnopad.encode(hash);
+}
+
+/**
+ * Parse an unpadded base64url string into a 32-byte hash.
+ * Throws `RangeError` if the decoded result is not 32 bytes.
+ */
+export function base64UrlToHash(b64u: string): Uint8Array {
+  const hash = base64urlnopad.decode(b64u);
+  if (hash.length !== HASH_BYTE_LENGTH) {
+    throw new RangeError(`Invalid base64url hash: expected ${HASH_BYTE_LENGTH} decoded bytes, got ${hash.length}`);
   }
   return hash;
 }

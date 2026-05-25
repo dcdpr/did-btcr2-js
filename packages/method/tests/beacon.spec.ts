@@ -243,10 +243,11 @@ describe('Beacon.processSignals', () => {
       tree.finalize();
       const proof = tree.proof(DID);
 
-      // Tamper: replace the nonce with all zeros, which won't satisfy the proof
+      // Tamper: replace the nonce with a valid-but-wrong (all-zero) base64url
+      // value, so decoding succeeds but the Merkle proof no longer verifies.
       const tampered: SMTProof = {
         ...proof,
-        nonce : '0000000000000000000000000000000000000000000000000000000000000000',
+        nonce : 'A'.repeat(43), // base64url no-pad of 32 zero bytes
       };
 
       const sidecar = emptySidecar();
@@ -275,8 +276,9 @@ describe('Beacon.processSignals', () => {
       expect(result.updates).to.be.empty;
       expect(result.needs).to.have.length(1);
       expect(result.needs[0]!.kind).to.equal('NeedSignedUpdate');
-      // updateHash emitted should be the hex canonical hash of the update (matches proof.updateId)
-      expect((result.needs[0] as { updateHash: string }).updateHash).to.equal(proof.updateId);
+      // updateHash emitted is the hex canonical hash of the update (updateMap is
+      // hex-keyed; proof.updateId is the same hash encoded as base64url).
+      expect((result.needs[0] as { updateHash: string }).updateHash).to.equal(bytesToHex(hash(canonicalize(update))));
     });
   });
 });

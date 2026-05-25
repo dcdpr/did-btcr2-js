@@ -642,17 +642,17 @@ Four runnable scripts in `lib/operations/aggregation/` demonstrate the runner AP
 
 ```bash
 # HTTP transport — zero external dependencies, runs in ~1 second
-PORT=8080 npx tsx lib/operations/aggregation/e2e-http-transport.ts
+PORT=8080 bun lib/operations/aggregation/e2e-http-transport.ts
 
 # Nostr — single process, real relay (requires a local relay)
-RELAY=ws://localhost:7777 npx tsx lib/operations/aggregation/e2e-nostr-transport.ts
+RELAY=ws://localhost:7777 bun lib/operations/aggregation/e2e-nostr-transport.ts
 
 # Nostr with cryptographic signature verification (CI-droppable)
-RELAY=ws://localhost:7777 npx tsx lib/operations/aggregation/e2e-verify-signing.ts
+RELAY=ws://localhost:7777 bun lib/operations/aggregation/e2e-verify-signing.ts
 
 # Multi-process — run each in its own terminal
-RELAY=ws://localhost:7777 npx tsx lib/operations/aggregation/aggregation-service.ts
-RELAY=ws://localhost:7777 SERVICE_DID=<from above> npx tsx lib/operations/aggregation/aggregation-participant.ts
+RELAY=ws://localhost:7777 bun lib/operations/aggregation/aggregation-service.ts
+RELAY=ws://localhost:7777 SERVICE_DID=<from above> bun lib/operations/aggregation/aggregation-participant.ts
 ```
 
 All scripts exercise the same protocol and produce a 64-byte Schnorr signature on the same dummy P2TR transaction. They differ only in deployment topology and transport, not in protocol logic.
