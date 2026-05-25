@@ -814,6 +814,9 @@ importers:
       chai-as-promised:
         specifier: ^8.0.2
         version: 8.0.2(chai@5.3.3)
+      commander:
+        specifier: ^13.1.0
+        version: 13.1.0
       esbuild:
         specifier: ^0.24.2
         version: 0.24.2

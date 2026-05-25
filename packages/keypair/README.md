@@ -35,6 +35,8 @@ Or with pnpm:
 pnpm add @did-btcr2/keypair
 ```
 
+Requires Node >= 22. Ships both ESM (`dist/esm/`) and CJS (`dist/cjs/`) with TypeScript declarations.
+
 ## Key Exports
 
 | Concern | Entry point |
@@ -57,9 +59,9 @@ import { LocalSigner, SchnorrKeyPair, signWithScheme } from '@did-btcr2/keypair'
 const kp = SchnorrKeyPair.generate();
 
 // Compressed pubkey + x-only pubkey + multibase form.
-const compressed = kp.publicKey.compressed;   // 33 bytes
-const xOnly      = kp.publicKey.x;            // 32 bytes
-const multibase  = kp.publicKey.multibase;    // 'zQ3s...'
+const compressed = kp.publicKey.compressed;          // 33 bytes
+const xOnly      = kp.publicKey.xOnly;               // 32 bytes
+const multibase  = kp.publicKey.multibase.encoded;   // 'zQ3s...'
 
 // Build a Signer and sign with the appropriate scheme.
 const signer = new LocalSigner(kp.secretKey.bytes);
@@ -72,7 +74,7 @@ const sigBip341 = signer.sign(data, 'bip341', { merkleRoot: new Uint8Array(0) })
 
 ## Architecture Principles
 
-- **Noble-only crypto.** All curve and Schnorr operations come from `@noble/curves`. No `bitcoinjs-lib`, no `elliptic`, no `node:crypto`. Browser-compatible by construction.
+- **Noble + @scure, browser-compatible by construction.** Curve and Schnorr operations come from `@noble/curves`; the BIP-341 taproot tweak uses `@scure/btc-signer`. No `bitcoinjs-lib`, no `elliptic`, no `node:crypto`.
 - **No silent fallbacks.** A `LocalSigner` constructed without a secret throws on `sign()`; a watch-only key throws on `secretKey` access. Failures surface at the boundary they happen at.
 - **Single signing entry point.** `signWithScheme()` is the one function that knows how to produce each scheme; both `LocalSigner` and the key manager delegate to it.
 
@@ -91,5 +93,9 @@ pnpm lint               # ESLint (zero warnings tolerated)
 - **Package docs on btcr2.dev** [btcr2.dev/impls/ts](https://btcr2.dev/impls/ts)
 - **BIP-340 (Schnorr Signatures)** [bitcoin/bips/bip-0340](https://github.com/bitcoin/bips/blob/master/bip-0340.mediawiki)
 - **BIP-341 (Taproot)** [bitcoin/bips/bip-0341](https://github.com/bitcoin/bips/blob/master/bip-0341.mediawiki)
-- **ADR-015** Keypair security hardening + Noble migration
+- **ADR-015** [Keypair security hardening + Noble migration](../../docs/adr/015-keypair-security-hardening-noble-migration.md)
 - **Source reference** See JSDoc on `SchnorrKeyPair`, `LocalSigner`, and `signWithScheme`.
+
+## License
+
+[MPL-2.0](https://github.com/dcdpr/did-btcr2-js/blob/main/LICENSE)

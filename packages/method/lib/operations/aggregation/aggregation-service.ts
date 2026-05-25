@@ -8,10 +8,10 @@
  * unaware of other actors' processes, communicating only via the relay.
  *
  * Usage (in one terminal):
- *   RELAY=ws://localhost:7777 npx tsx lib/operations/aggregation/aggregation-service.ts
+ *   RELAY=ws://localhost:7777 bun lib/operations/aggregation/aggregation-service.ts
  *
  * Then in two more terminals (one per participant):
- *   RELAY=ws://localhost:7777 SERVICE_DID=<did from above> npx tsx lib/operations/aggregation/aggregation-participant.ts
+ *   RELAY=ws://localhost:7777 SERVICE_DID=<did from above> bun lib/operations/aggregation/aggregation-participant.ts
  */
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';
@@ -76,7 +76,7 @@ console.log('Relay:', RELAY);
 console.log('Min participants:', MIN_PARTICIPANTS);
 console.log('');
 console.log('Run participants in other terminals with:');
-console.log(`  RELAY=${RELAY} SERVICE_DID=${serviceDid} npx tsx lib/operations/aggregation/aggregation-participant.ts`);
+console.log(`  RELAY=${RELAY} SERVICE_DID=${serviceDid} bun lib/operations/aggregation/aggregation-participant.ts`);
 console.log('');
 console.log('Waiting for participants...\n');
 

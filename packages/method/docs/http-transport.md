@@ -191,7 +191,7 @@ The runner emits typed events (`cohort-advert`, `round-progress`, `cohort-comple
 `packages/method/lib/operations/aggregation/e2e-http-transport.ts` is a ~180-line standalone demo: it boots an in-process `node:http` server hosting `HttpServerTransport`, creates two real HTTP clients, and runs a full 3-party MuSig2 aggregation round over loopback HTTP. No external dependencies — the single file is a complete server-side framework adapter plus a full end-to-end exercise.
 
 ```bash
-PORT=8080 npx tsx packages/method/lib/operations/aggregation/e2e-http-transport.ts
+PORT=8080 bun packages/method/lib/operations/aggregation/e2e-http-transport.ts
 ```
 
 Emits one 64-byte aggregated Schnorr signature per run, then exits cleanly.

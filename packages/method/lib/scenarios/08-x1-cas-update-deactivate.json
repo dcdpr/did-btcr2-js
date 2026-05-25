@@ -1,0 +1,39 @@
+{
+  "id": "08-x1-cas-update-deactivate",
+  "description": "x1 DID with default 3 singleton beacons, 1 CAS update (add didcomm) + CAS deactivate. Mirrors danubetech example 8. CAS publishing + on-chain anchoring pending (Batch C).",
+  "network": "mutinynet",
+  "idType": "EXTERNAL",
+  "keys": { "source": "fixed", "secretHex": "9ed6ef5b8684c32ed4d6c235fdc6032347c21d1f890ce1bacf1265c80feee4fe" },
+  "delivery": { "genesis": "cas" },
+  "beacons": [
+    { "kind": "P2PKH", "id": "#initialP2PKH" },
+    { "kind": "P2WPKH", "id": "#initialP2WPKH" },
+    { "kind": "P2TR", "id": "#initialP2TR" }
+  ],
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "cas"
+    },
+    {
+      "patches": [
+        { "op": "add", "path": "/deactivated", "value": true }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "cas"
+    }
+  ]
+}

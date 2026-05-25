@@ -184,3 +184,6 @@ audit/
 
 # E2E script-generated secret keys (never committed)
 **/.e2e-keys/
+
+# Wallet (dev tool, holds testnet secrets)
+**/lib/wallet/.wallet/

@@ -8,7 +8,7 @@
  * Requires a running Nostr relay (default: ws://localhost:7777).
  *
  * Usage:
- *   RELAY=ws://localhost:7777 npx tsx lib/operations/aggregation/e2e-per-actor-transport.ts
+ *   RELAY=ws://localhost:7777 bun lib/operations/aggregation/e2e-per-actor-transport.ts
  */
 import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';

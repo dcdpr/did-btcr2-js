@@ -26,6 +26,8 @@ Or with pnpm:
 pnpm add @did-btcr2/cryptosuite
 ```
 
+The package ships both ESM (`dist/esm/`) and CJS (`dist/cjs/`) via conditional exports, so it works with `import` and `require` out of the box.
+
 ## Key Exports
 
 | Concern | Entry point |
@@ -34,7 +36,7 @@ pnpm add @did-btcr2/cryptosuite
 | Proof primitive | `BIP340DataIntegrityProof`, `DataIntegrityProof`, `DataIntegrityProofObject` |
 | Update payload types | `UnsignedBTCR2Update`, `SignedBTCR2Update`, `BTCR2Update` |
 | Verification method wrapper | `SchnorrMultikey`, `Multikey`, `MultikeyObject` |
-| Construction helpers | `FromSecretKey`, `FromPublicKey`, `FromPublicKeyMultibaseParams` |
+| Construction helpers | `FromSecretKey`, `FromPublicKey` |
 | Cryptosuite config | `DataIntegrityConfig` |
 
 ## Quick Start
@@ -43,18 +45,23 @@ pnpm add @did-btcr2/cryptosuite
 
 ```typescript
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { Secp256k1SecretKey } from '@did-btcr2/keypair';
 
-const kp        = SchnorrKeyPair.generate();
-const multikey  = SchnorrMultikey.fromSecretKey({
-  did : 'did:btcr2:k1q5p...',
-  id  : '#initialKey',
-  keyPair: kp,
-});
+const controller   = 'did:btcr2:k1q5p...';
+const id           = '#initialKey';
+const secretKeyBytes = new Secp256k1SecretKey(rawSecretBytes).bytes; // 32-byte Uint8Array
+const multikey     = SchnorrMultikey.fromSecretKey(id, controller, secretKeyBytes);
 
-const unsigned = { /* UnsignedBTCR2Update: patches + targetHash */ };
-const signed   = multikey.toCryptosuite().createProof(unsigned);
-// signed.proof.cryptosuite === 'bip340-jcs-2025'
+const unsigned = { /* UnsignedBTCR2Update: @context, patch, sourceHash, targetHash, targetVersionId */ };
+const config = {
+  '@context'         : ['https://w3id.org/security/v2', 'https://w3id.org/zcap/v1', 'https://w3id.org/json-ld-patch/v1', 'https://btcr2.dev/context/v1'],
+  type               : 'DataIntegrityProof' as const,
+  cryptosuite        : 'bip340-jcs-2025',
+  proofPurpose       : 'capabilityInvocation',
+  verificationMethod : `${controller}${id}`,
+};
+const proof = multikey.toCryptosuite().createProof(unsigned, config);
+// proof.cryptosuite === 'bip340-jcs-2025'
 ```
 
 ### Verify a signed update
@@ -63,11 +70,12 @@ const signed   = multikey.toCryptosuite().createProof(unsigned);
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 
 // Reconstruct the multikey from the DID verification method.
+// verificationMethod is a DidVerificationMethod with id, controller, publicKeyMultibase.
 const multikey = SchnorrMultikey.fromVerificationMethod(verificationMethod);
 const result   = multikey.toCryptosuite().verifyProof(signedUpdate);
 
 if (!result.verified) {
-  throw new Error(`DI proof failed: ${result.error?.message}`);
+  throw new Error('DI proof failed');
 }
 ```
 
@@ -76,24 +84,29 @@ if (!result.verified) {
 ```typescript
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 
-const multikey = SchnorrMultikey.fromPublicKey({
-  did     : 'did:btcr2:k1q5p...',
-  id      : '#initialKey',
-  keyPair : watchOnlyKeyPair,        // public key only
-  externalSigner: kmsSigner,         // any Signer implementation
-});
+// kmsSigner implements Signer: { publicKey: Uint8Array; sign(data, scheme): SignatureBytes }
+const controller = 'did:btcr2:k1q5p...';
+const id         = '#initialKey';
+const multikey   = SchnorrMultikey.fromSigner(id, controller, kmsSigner);
 
-const signed = multikey.toCryptosuite().createProof(unsigned);
+const config = {
+  '@context'         : ['https://w3id.org/security/v2', 'https://w3id.org/zcap/v1', 'https://w3id.org/json-ld-patch/v1', 'https://btcr2.dev/context/v1'],
+  type               : 'DataIntegrityProof' as const,
+  cryptosuite        : 'bip340-jcs-2025',
+  proofPurpose       : 'capabilityInvocation',
+  verificationMethod : `${controller}${id}`,
+};
+const proof = multikey.toCryptosuite().createProof(unsigned, config);
 ```
 
-The cryptosuite validates that `externalSigner.publicKey` matches the pair at construction time, so a mismatch throws immediately.
+`fromSigner` seeds the multikey's public key from `kmsSigner.publicKey` and delegates all signing to the signer, so no secret bytes ever enter the JS process. A public-key mismatch at construction time throws immediately.
 
 ## Architecture Principles
 
 - **Canonicalization is the contract.** All proofs hash the JCS-canonicalized payload. `@did-btcr2/common` owns the canonicalization function; the cryptosuite just calls it.
 - **Signer-agnostic.** Proof construction takes a `Signer`. `LocalSigner`, `KeyManagerSigner`, and arbitrary user-provided implementations all work without code changes in this package.
 - **Strict construction.** A `SchnorrMultikey` constructed with a mismatched `keyPair` and `externalSigner` rejects at construction. A multibase string with the wrong `[0xe7, 0x01]` prefix rejects in `fromVerificationMethod`.
-- **No `bitcoinjs-lib`.** Curve, Schnorr, and hash operations all delegate to `@noble/curves` and `@noble/hashes`.
+- **No `bitcoinjs-lib`.** Curve, Schnorr, and hash operations delegate to `@noble/curves` and `@noble/hashes`. Proof encoding uses `multiformats` (base58btc), and verification-method types come from `@web5/dids`.
 
 ## Build & Test
 
@@ -112,3 +125,7 @@ pnpm lint               # ESLint (zero warnings tolerated)
 - **W3C Data Integrity** [w3.org/TR/vc-data-integrity](https://www.w3.org/TR/vc-data-integrity/)
 - **ADR-002** JCS canonicalization and cryptosuite choice
 - **Source reference** See JSDoc on `BIP340Cryptosuite`, `BIP340DataIntegrityProof`, and `SchnorrMultikey`.
+
+## License
+
+[MPL-2.0](https://github.com/dcdpr/did-btcr2-js/blob/main/LICENSE)

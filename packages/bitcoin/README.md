@@ -25,6 +25,8 @@ Or with pnpm:
 pnpm add @did-btcr2/bitcoin
 ```
 
+Requires Node >= 22. Ships both ESM and CJS; pick whichever your bundler needs.
+
 ## Key Exports
 
 | Concern | Entry point |
@@ -43,14 +45,14 @@ pnpm add @did-btcr2/bitcoin
 ```typescript
 import { BitcoinConnection } from '@did-btcr2/bitcoin';
 
-// Public network: REST only, defaults to mempool.space.
+// Public network: REST only, defaults to mutinynet.com/api.
 const btc = BitcoinConnection.forNetwork('mutinynet');
 
 const height = await btc.rest.block.count();
 const utxos  = await btc.rest.address.getUtxos('tb1q...');
 const txHex  = await btc.rest.transaction.getHex('abc123...');
 
-// Regtest with explicit RPC credentials (no defaults; never hardcoded).
+// Regtest with explicit RPC credentials (host/port default; username/password do not).
 const regtest = BitcoinConnection.forNetwork('regtest', {
   rpc: { username: 'polaruser', password: 'polarpass' },
 });
@@ -91,7 +93,11 @@ pnpm lint               # ESLint (zero warnings tolerated)
 ## Documentation
 
 - **Package docs on btcr2.dev** [btcr2.dev/impls/ts](https://btcr2.dev/impls/ts)
-- **ADR-005** Bitcoin package extraction and browser decoupling
-- **ADR-009** Sans-I/O Bitcoin transport foundation
+- **[ADR-005](https://github.com/dcdpr/did-btcr2-js/blob/main/docs/adr/005-bitcoin-package-extraction-and-browser-decoupling.md)** Bitcoin package extraction and browser decoupling
+- **[ADR-009](https://github.com/dcdpr/did-btcr2-js/blob/main/docs/adr/009-sans-io-bitcoin-transport-foundation.md)** Sans-I/O Bitcoin transport foundation
 - **Esplora HTTP API reference** [github.com/Blockstream/esplora](https://github.com/Blockstream/esplora/blob/master/API.md)
 - **Source reference** See JSDoc on `BitcoinConnection`, `BitcoinRestClient`, `BitcoinCoreRpcClient`, and the protocol classes.
+
+## License
+
+[MPL-2.0](https://github.com/dcdpr/did-btcr2-js/blob/main/LICENSE)

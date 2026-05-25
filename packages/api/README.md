@@ -15,7 +15,7 @@ If you're integrating did:btcr2 into an app, start here. If you're customizing t
 - **`UpdateBuilder`** is a fluent chain over `DidMethodApi.update()` for callers who prefer named steps over a positional argument bag.
 - **`tryResolveDid(did)`** returns a discriminated `{ ok, document } | { ok, error, errorMessage }` instead of throwing, for cases where resolution failure is an expected outcome.
 
-The api wires the configured `BitcoinApi` into the sans-I/O Resolver and Updater state machines, fulfilling `NeedBeaconSignals`, `NeedFunding`, `NeedBroadcast`, and CAS-related needs automatically. Multi-party aggregation is out of scope here; drive the Updater directly and hand `NeedBroadcast` to the aggregation runner from `@did-btcr2/method`.
+The api wires the configured `BitcoinApi` into the sans-I/O Resolver and Updater state machines, fulfilling `NeedBeaconSignals`, `NeedFunding`, `NeedBroadcast`, and CAS-related needs (`NeedGenesisDocument`, `NeedCASAnnouncement`, `NeedSignedUpdate`) automatically. `NeedSMTProof` is not auto-fulfilled by the facade: SMT proofs must be provided upfront via `options.sidecar.smtProofs`. Multi-party aggregation is out of scope here; drive the Updater directly and hand `NeedBroadcast` to the aggregation runner from `@did-btcr2/method`.
 
 ## Install
 
@@ -28,6 +28,8 @@ Or with pnpm:
 ```bash
 pnpm add @did-btcr2/api
 ```
+
+**Runtime note:** ESM-only package (requires `import`, not `require`). Ships a browser bundle at `dist/browser.mjs` for bundler-based environments. Requires Node >= 22.
 
 ## Key Exports
 
@@ -88,7 +90,7 @@ if (result.ok) {
 ```typescript
 import { KeyManagerSigner } from '@did-btcr2/key-manager';
 
-const signer = new KeyManagerSigner(api.kms.backing, keyId);
+const signer = new KeyManagerSigner(api.kms.kms, keyId);
 
 await api.updateDid({
   did,
@@ -121,6 +123,10 @@ The `lib/` directory contains end-to-end scripts that exercise the full update p
 ## Documentation
 
 - **Package docs on btcr2.dev** [btcr2.dev/impls/ts](https://btcr2.dev/impls/ts)
-- **ADR-006** API package boundary
-- **ADR-024** API facade lazy initialization + layered config
+- **[ADR-006](../../docs/adr/006-api-package-boundary.md)** API package boundary
+- **[ADR-024](../../docs/adr/024-api-facade-lazy-and-layered-config.md)** API facade lazy initialization + layered config
 - **Source reference** See JSDoc on `DidBtcr2Api`, `DidMethodApi`, and the sub-facade classes.
+
+## License
+
+[MPL-2.0](https://github.com/dcdpr/did-btcr2-js/blob/main/LICENSE)

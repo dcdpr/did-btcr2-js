@@ -1,0 +1,31 @@
+{
+  "id": "09b-x1-cas-update-announcement-paired",
+  "description": "x1 DID with default 3 singleton beacons, 1 CAS update + CAS Announcement Map. Mirrors danubetech example 9b (paired with 09a in danubetech's tree). CAS publishing + on-chain anchoring pending (Batch C).",
+  "network": "mutinynet",
+  "idType": "EXTERNAL",
+  "keys": { "source": "fixed", "secretHex": "da657411c268cc55639ce40878bd6e01a1e13cd82a10eeb06639b37f9eb2c901" },
+  "delivery": { "genesis": "cas", "announcement": "cas" },
+  "beacons": [
+    { "kind": "P2PKH", "id": "#initialP2PKH" },
+    { "kind": "P2WPKH", "id": "#initialP2WPKH" },
+    { "kind": "P2TR", "id": "#initialP2TR" }
+  ],
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/4",
+          "value": {
+            "id": "#dwn",
+            "type": "DecentralizedWebNode",
+            "serviceEndpoint": "http://example.com/dwn"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#cohortBeacon",
+      "delivery": "cas"
+    }
+  ]
+}

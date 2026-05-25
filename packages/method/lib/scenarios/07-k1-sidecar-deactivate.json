@@ -1,0 +1,26 @@
+{
+  "id": "07-k1-sidecar-deactivate",
+  "description": "k1 (key-type) DID with default 3 singleton beacons, 1 sidecar update deactivating the DID. Mirrors danubetech example 7.",
+  "network": "mutinynet",
+  "idType": "KEY",
+  "keys": { "source": "fixed", "secretHex": "6da550fd750ad92f8a2933eae2b99a0aeeebfcbbda161918494167b82ecbbec7" },
+  "beacons": [
+    { "kind": "P2PKH", "id": "#initialP2PKH" },
+    { "kind": "P2WPKH", "id": "#initialP2WPKH" },
+    { "kind": "P2TR", "id": "#initialP2TR" }
+  ],
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/deactivated",
+          "value": true
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2PKH",
+      "delivery": "sidecar"
+    }
+  ]
+}

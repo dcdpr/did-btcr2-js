@@ -35,6 +35,8 @@ children:
   - ./032-sans-io-server-primitives.md
   - ./033-key-manager-package-rename.md
   - ./034-key-manager-capability-pattern.md
+  - ./035-smt-proof-base64url-wire-format.md
+  - ./036-zero-hash-smt-model.md
 ---
 
 # Architecture Decision Records
@@ -77,3 +79,5 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 032 | 2026-04-22 | [Sans-I/O handleRequest / handleSse Primitives](032-sans-io-server-primitives.md) |
 | 033 | 2026-05-18 | [Rename @did-btcr2/kms to @did-btcr2/key-manager](033-key-manager-package-rename.md) |
 | 034 | 2026-05-21 | [KeyManager.canExport Capability Pattern](034-key-manager-capability-pattern.md) |
+| 035 | 2026-06-15 | [SMT Proof Wire Format: base64url no-pad and the Zero-Node Collapsed Bitmap](035-smt-proof-base64url-wire-format.md) |
+| 036 | 2026-06-16 | [Adopt the Zero-Hash SMT Model per algorithms.html](036-zero-hash-smt-model.md) |

@@ -8,7 +8,7 @@
  * to wait for the first matching cohort, drive it to completion, and exit.
  *
  * Usage:
- *   RELAY=ws://localhost:7777 SERVICE_DID=<did> npx tsx lib/operations/aggregation/aggregation-participant.ts
+ *   RELAY=ws://localhost:7777 SERVICE_DID=<did> bun lib/operations/aggregation/aggregation-participant.ts
  * sk0: e2eff26f785dad3a906aa8f783c33cf7b100d57307d2d5a9ce68e21fb94ad4fd
  * sk1: b63f58809f3f3dba7e5718ea08495b9d40ea9fd5fc498f9e0702c83c4669a4f2
  */

@@ -10,7 +10,7 @@ Part of the [`did-btcr2-js`](https://github.com/dcdpr/did-btcr2-js) monorepo.
 
 The `KeyManager` interface defines how the rest of the SDK obtains signatures without ever seeing raw secret bytes. This package ships `LocalKeyManager` (an in-process reference implementation) plus the `KeyManagerSigner` adapter that wraps any `KeyManager` into a `Signer` compatible with `@did-btcr2/method`.
 
-- **`KeyManager`** is the interface every backend implements: `generateKey()`, `importKey()`, `sign()`, `verify()`, `digest()`, `getPublicKey()`, `removeKey()`, plus optional `exportKey()` and `setActiveKey()`. Implementations advertise capabilities (e.g. `canExport: false` for HSM-backed managers).
+- **`KeyManager`** is the interface every backend implements: `generateKey()`, `importKey()`, `sign()`, `verify()`, `digest()`, `getPublicKey()`, `removeKey()`, `listKeys()`, the `activeKeyId` accessor, plus optional `exportKey()` and `setActiveKey()`. Implementations advertise capabilities (e.g. `canExport: false` for HSM-backed managers).
 - **`LocalKeyManager`** holds `KeyEntry` records in memory: URN-style IDs, an active-key pointer, tag support for application metadata, and watch-only entries that store only the public key.
 - **`KeyManagerSigner`** is the bridge to the DID update path. It implements the `Signer` interface from `@did-btcr2/keypair`, so the Updater and Beacon code see only the abstract `Signer` and never touch secret bytes.
 - **Three signing schemes.** Same scheme matrix as `@did-btcr2/keypair`: `ecdsa` (DER, low-S) for Bitcoin inputs; `bip340` (raw Schnorr) for DI proofs; `bip341` (taproot-tweaked) for P2TR key-path signatures.
@@ -29,6 +29,8 @@ Or with pnpm:
 pnpm add @did-btcr2/key-manager
 ```
 
+Unlike `@did-btcr2/method` and `@did-btcr2/api` (ESM-only), this package ships both ESM and CJS builds. Requires Node >= 22.
+
 ## Key Exports
 
 | Concern | Entry point |
@@ -38,6 +40,7 @@ pnpm add @did-btcr2/key-manager
 | `Signer` adapter | `KeyManagerSigner` |
 | Storage abstraction | `KeyValueStore`, `MemoryStore` |
 | Lifecycle options | `GenerateKeyOptions`, `ImportKeyOptions`, `SignOptions`, `VerifyOptions` |
+| Key listing / active key | `listKeys()`, `activeKeyId` |
 
 ## Quick Start
 
@@ -65,15 +68,15 @@ const watchId   = km.importKey(watchOnly);
 Implement the `KeyManager` interface and advertise capabilities. The minimum surface:
 
 ```typescript
-import type { KeyManager, KeyEntry, SigningScheme } from '@did-btcr2/key-manager';
+import type { KeyManager, KeyEntry, SignOptions, VerifyOptions } from '@did-btcr2/key-manager';
 
 class RemoteKeyManager implements KeyManager {
   readonly canExport = false;
 
   async generateKey(opts) { /* call into HSM, return KeyEntry */ }
   async importKey(kp, opts) { /* store, return KeyIdentifier */ }
-  async sign(id, data, scheme: SigningScheme) { /* call HSM, return SignatureBytes */ }
-  async verify(id, data, sig, scheme) { /* ... */ }
+  async sign(data, id?, options?: SignOptions) { /* call HSM, return SignatureBytes */ }
+  async verify(signature, data, id?, options?: VerifyOptions) { /* ... */ }
   async digest(data) { /* ... */ }
   async getPublicKey(id) { /* ... */ }
   async removeKey(id, opts?) { /* ... */ }
@@ -87,7 +90,7 @@ class RemoteKeyManager implements KeyManager {
 
 - **Capability pattern.** Optional methods (`exportKey`, `setActiveKey`) are guarded by `readonly` boolean flags (`canExport`). Callers check the flag, not `instanceof`. Lets HSM/cloud-KMS backends advertise what they support without inheritance gymnastics.
 - **No singleton.** Every `LocalKeyManager` is an independent instance; tests cannot leak keys via a shared global.
-- **URN-style IDs.** Keys are addressed as `urn:didkey:<32-hex-bytes>`. The identifier is derived from the public key so callers can recompute it from a watch-only import.
+- **URN-style IDs.** Keys are addressed as `urn:kms:secp256k1:<fingerprint>` where the fingerprint is the first 16 bytes of SHA-256(pubkey), hex-encoded (32 hex chars). The identifier is derived from the public key so callers can recompute it from a watch-only import.
 - **Active-key resolution is opt-in.** `new KeyManagerSigner(km)` without an explicit `keyId` is permitted but documented as a sharp edge: a swap via `setActiveKey()` causes `signer.sign(...)` to silently target the new key while the cached `signer.publicKey` still reflects the old one.
 
 ## Build & Test
@@ -107,3 +110,7 @@ pnpm lint               # ESLint (zero warnings tolerated)
 - **ADR-033** Package rename to `@did-btcr2/key-manager`
 - **ADR-034** Capability pattern for optional `KeyManager` methods
 - **Source reference** See JSDoc on `KeyManager`, `LocalKeyManager`, `KeyManagerSigner`, and the `KeyEntry` type.
+
+## License
+
+[MPL-2.0](https://github.com/dcdpr/did-btcr2-js/blob/main/LICENSE)

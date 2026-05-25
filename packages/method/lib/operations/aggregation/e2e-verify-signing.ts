@@ -17,9 +17,9 @@
  * ws://localhost:7777 (matching the other demos in this folder).
  *
  * Usage:
- *   npx tsx lib/operations/aggregation/e2e-verify-signing.ts
+ *   bun lib/operations/aggregation/e2e-verify-signing.ts
  *   RELAY=wss://relay.damus.io \
- *     npx tsx lib/operations/aggregation/e2e-verify-signing.ts
+ *     bun lib/operations/aggregation/e2e-verify-signing.ts
  *
  * Exit code: 0 on success, non-zero on any assertion failure.
  */

@@ -22,6 +22,7 @@ pnpm add @did-btcr2/method
 | Fee estimation (pluggable) | `FeeEstimator`, `StaticFeeEstimator` |
 | Multi-party aggregation (MuSig2) | `AggregationServiceRunner`, `AggregationParticipantRunner` |
 | Transport abstraction (Nostr, HTTP/REST, DIDComm stub) | `Transport`, `NostrTransport`, `HttpClientTransport`, `HttpServerTransport` |
+| Signer abstraction (local key, KMS, custom) | `Signer` / `LocalSigner` from `@did-btcr2/keypair`; `KeyManagerSigner` from `@did-btcr2/key-manager` |
 | DID document types and builders | `Btcr2DidDocument`, `DidDocumentBuilder` |
 
 ## Quick Start
@@ -70,6 +71,13 @@ See [`src/core/resolver.ts`](./src/core/resolver.ts) for the full `DataNeed` uni
 
 ```typescript
 import { DidBtcr2, Updater } from '@did-btcr2/method';
+import { LocalSigner } from '@did-btcr2/keypair';
+import { BitcoinConnection } from '@did-btcr2/bitcoin';
+
+// Build a Signer from a raw secret key. For KMS-backed keys use KeyManagerSigner
+// from '@did-btcr2/key-manager' instead.
+const signer = new LocalSigner(secretKeyBytes);
+const bitcoin = BitcoinConnection.forNetwork('mutinynet');
 
 const updater = DidBtcr2.update({
   sourceDocument,
@@ -84,14 +92,14 @@ while (state.status === 'action-required') {
   for (const need of state.needs) {
     switch (need.kind) {
       case 'NeedSigningKey':
-        updater.provide(need, secretKeyBytes);
+        updater.provide(need, signer);
         break;
       case 'NeedFunding':
         // Check UTXOs at need.beaconAddress, fund if needed
         updater.provide(need);
         break;
       case 'NeedBroadcast':
-        await Updater.announce(need.beaconService, need.signedUpdate, secretKey, bitcoin);
+        await Updater.announce(need.beaconService, need.signedUpdate, signer, bitcoin);
         updater.provide(need);
         break;
     }
@@ -163,3 +171,7 @@ Tests run from compiled JS, so run `pnpm build:tests` before `pnpm test` after a
 - **[`docs/http-transport.md`](./docs/http-transport.md)** HTTP/REST transport: wire protocol, signed envelopes, SSE subscriptions, Hono/Node framework mount example, permissive CORS
 - **[`docs/test-vectors.md`](./docs/test-vectors.md)** CLI tool for generating did:btcr2 test vectors via a stepped workflow
 - **Source reference** See JSDoc comments on public classes; the most important entry points are `DidBtcr2` (facade), `Resolver` (read path), `Updater` (write path), and the aggregation runners.
+
+## License
+
+[MPL-2.0](https://github.com/dcdpr/did-btcr2-js/blob/main/LICENSE)

@@ -1,0 +1,43 @@
+{
+    "id": "smt-11",
+    "beaconType": "SMTBeacon",
+    "network": "mutinynet",
+    "serviceId": "#cohortBeacon",
+    "anchorAddress": "tb1q0h4akfmd873fkwgwp590c75qfgdfh856v4fye4",
+    "signalHex": "da1c26e20bba7f07f1845934934652842c0c7b0bd6e26e409d70fd8ff617dc4f",
+    "members": [
+        {
+            "scenarioId": "11a-x1-cas-update-smt-proof",
+            "did": "did:btcr2:x1q4lqu6grp3gez4gh0yfrv3x3p2cqdgmm24wgh9p6kq0hm0vltg0m6kxaqsq",
+            "updateId": "e5bfacdadd151f9ecbfb4839905a58a9cbbd0eb2370d6ee8427b06470090fdf0"
+        },
+        {
+            "scenarioId": "11b-x1-cas-update-smt-proof-paired",
+            "did": "did:btcr2:x1q4rnhfhvv076pd2wzftkrz7426wky2h3a95aatwne3ujsa30pcjhyzmlyn7",
+            "updateId": "446de77b9e5f49740306f69d6ed4d2f9cec19645da5a16916bd10dc41011de3e"
+        }
+    ],
+    "artifact": {
+        "rootHex": "da1c26e20bba7f07f1845934934652842c0c7b0bd6e26e409d70fd8ff617dc4f",
+        "proofs": {
+            "did:btcr2:x1q4lqu6grp3gez4gh0yfrv3x3p2cqdgmm24wgh9p6kq0hm0vltg0m6kxaqsq": {
+                "id": "2hwm4gu6fwfxhFk0k0ZShCwMewvW4m5AnXD9j_YX3E8",
+                "collapsed": "__________________________________________4",
+                "hashes": [
+                    "J-xkBSqUzm9SAiykxb8Zpb3FCcBkbF-FtIXbNc8C4Sw"
+                ],
+                "nonce": "1okomgrn_kLI7O2bdFpmycvDYJaQpoxfccOlNA4UHlI",
+                "updateId": "5b-s2t0VH57L-0g5kFpYqcu9DrI3DW7oQnsGRwCQ_fA"
+            },
+            "did:btcr2:x1q4rnhfhvv076pd2wzftkrz7426wky2h3a95aatwne3ujsa30pcjhyzmlyn7": {
+                "id": "2hwm4gu6fwfxhFk0k0ZShCwMewvW4m5AnXD9j_YX3E8",
+                "collapsed": "__________________________________________4",
+                "hashes": [
+                    "s1IuuLRjBGUHGFnbLMZGcROTWVc8nozeGAuuTdh_ZzY"
+                ],
+                "nonce": "jWKWDCA_c4Njcqob-Lmsab_FC2-p8sYoKCP5FLkiQ2U",
+                "updateId": "RG3ne55fSXQDBvadbtTS-c7BlkXaWhaRa9ENxBAR3j4"
+            }
+        }
+    }
+}

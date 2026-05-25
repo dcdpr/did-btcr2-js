@@ -1,0 +1,30 @@
+{
+  "id": "10a-x1-sidecar-update-cas-announcement",
+  "description": "x1 DID with default 3 singleton beacons + dedicated CASBeacon, 1 sidecar update. CAS Announcement delivered via sidecar. Mirrors danubetech example 10a.",
+  "network": "mutinynet",
+  "idType": "EXTERNAL",
+  "keys": { "source": "fixed", "secretHex": "096fa5a528cc98c617d7fae807b3c1b0563a42cf6151c6bb9b1c09e3a55fdfe7" },
+  "beacons": [
+    { "kind": "P2PKH", "id": "#initialP2PKH" },
+    { "kind": "P2WPKH", "id": "#initialP2WPKH" },
+    { "kind": "P2TR", "id": "#initialP2TR" }
+  ],
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/4",
+          "value": {
+            "id": "#dwn",
+            "type": "DecentralizedWebNode",
+            "serviceEndpoint": "http://example.com/dwn"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#cohortBeacon",
+      "delivery": "sidecar"
+    }
+  ]
+}

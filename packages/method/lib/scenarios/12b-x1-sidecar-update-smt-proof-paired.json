@@ -1,0 +1,30 @@
+{
+  "id": "12b-x1-sidecar-update-smt-proof-paired",
+  "description": "x1 DID with default 3 singleton beacons + dedicated SMTBeacon, 1 sidecar update adding DWN. SMT Proof delivered via sidecar. Mirrors danubetech example 12b (paired with 12a in danubetech's tree). Independent (not aggregated) SMT proof generation pending.",
+  "network": "mutinynet",
+  "idType": "EXTERNAL",
+  "keys": { "source": "fixed", "secretHex": "2383557d9e0984916d3487fbfa097b3c152e915934b432cb23a1dd70d6bf9a16" },
+  "beacons": [
+    { "kind": "P2PKH", "id": "#initialP2PKH" },
+    { "kind": "P2WPKH", "id": "#initialP2WPKH" },
+    { "kind": "P2TR", "id": "#initialP2TR" }
+  ],
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/4",
+          "value": {
+            "id": "#dwn",
+            "type": "DecentralizedWebNode",
+            "serviceEndpoint": "http://example.com/dwn"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#cohortBeacon",
+      "delivery": "sidecar"
+    }
+  ]
+}

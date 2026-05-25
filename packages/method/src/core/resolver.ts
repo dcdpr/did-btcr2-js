@@ -281,11 +281,12 @@ export class Resolver {
         casMap.set(canonicalHash(update, { encoding: 'hex' }), update);
       }
 
-    // SMT Proofs map
+    // SMT Proofs map. proof.id is base64url per the SMT Proof spec; key by the
+    // hex root hash so lookups match the hex signalBytes from the OP_RETURN.
     const smtMap = new Map<string, SMTProof>();
     if(sidecar.smtProofs?.length)
       for(const proof of sidecar.smtProofs) {
-        smtMap.set(proof.id, proof);
+        smtMap.set(encodeHash(decodeHash(proof.id, 'base64urlnopad'), 'hex'), proof);
       }
 
     return { updateMap, casMap, smtMap };
@@ -723,10 +724,12 @@ export class Resolver {
       case 'NeedSMTProof': {
         const smtNeed = need as NeedSMTProof;
         const proof = data as SMTProof;
-        if(proof.id !== smtNeed.smtRootHash) {
+        // proof.id is base64url per spec; smtRootHash is the hex on-chain signal.
+        const proofIdHex = encodeHash(decodeHash(proof.id, 'base64urlnopad'), 'hex');
+        if(proofIdHex !== smtNeed.smtRootHash) {
           throw new ResolveError(
-            `SMT proof root hash mismatch: expected ${smtNeed.smtRootHash}, got ${proof.id}`,
-            INVALID_DID_UPDATE, { expected: smtNeed.smtRootHash, actual: proof.id }
+            `SMT proof root hash mismatch: expected ${smtNeed.smtRootHash}, got ${proofIdHex}`,
+            INVALID_DID_UPDATE, { expected: smtNeed.smtRootHash, actual: proofIdHex }
           );
         }
         this.#sidecarData.smtMap.set(smtNeed.smtRootHash, proof);

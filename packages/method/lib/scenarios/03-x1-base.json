@@ -1,0 +1,13 @@
+{
+  "id": "03-x1-base",
+  "description": "Base resolution: x1 (external-type) DID with default 3 singleton beacons, no updates. Genesis document delivered via sidecar. Mirrors danubetech example 3.",
+  "network": "mutinynet",
+  "idType": "EXTERNAL",
+  "keys": { "source": "fixed", "secretHex": "534d3232ba604854ef04684784a4297e6a60b8b2a961eddf77c1cca447ce495a" },
+  "beacons": [
+    { "kind": "P2PKH", "id": "#initialP2PKH" },
+    { "kind": "P2WPKH", "id": "#initialP2WPKH" },
+    { "kind": "P2TR", "id": "#initialP2TR" }
+  ],
+  "updates": []
+}

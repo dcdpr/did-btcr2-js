@@ -68,16 +68,16 @@ Visit [btcr2.dev](https://btcr2.dev/impls/ts) for install and usage instructions
 
 [api-npm-badge]: https://img.shields.io/npm/v/@did-btcr2/api.svg?&color=green&santize=true
 [api-npm-link]: https://www.npmjs.com/package/@did-btcr2/api
-[api-issues-badge]: https://img.shields.io/github/issues/dcdpr/did-btcr2-js/package:%20common?label=issues
+[api-issues-badge]: https://img.shields.io/github/issues/dcdpr/did-btcr2-js/package:%20api?label=issues
 [api-issues-link]: https://github.com/dcdpr/did-btcr2-js/issues?q=is%3Aopen+is%3Aissue+label%3A%22package%3A+api%22
-[api-pulls-badge]: https://img.shields.io/github/issues-pr/dcdpr/did-btcr2-js/package%3A%20common?label=PRs
+[api-pulls-badge]: https://img.shields.io/github/issues-pr/dcdpr/did-btcr2-js/package%3A%20api?label=PRs
 [api-pulls-link]: https://github.com/dcdpr/did-btcr2-js/pulls?q=is%3Aopen+is%3Apr+label%3A%22package%3A+api%22
 
 [bitcoin-npm-badge]: https://img.shields.io/npm/v/@did-btcr2/bitcoin.svg?&color=green&santize=true
 [bitcoin-npm-link]: https://www.npmjs.com/package/@did-btcr2/bitcoin
-[bitcoin-issues-badge]: https://img.shields.io/github/issues/dcdpr/did-btcr2-js/package:%20common?label=issues
+[bitcoin-issues-badge]: https://img.shields.io/github/issues/dcdpr/did-btcr2-js/package:%20bitcoin?label=issues
 [bitcoin-issues-link]: https://github.com/dcdpr/did-btcr2-js/issues?q=is%3Aopen+is%3Aissue+label%3A%22package%3A+bitcoin%22
-[bitcoin-pulls-badge]: https://img.shields.io/github/issues-pr/dcdpr/did-btcr2-js/package%3A%20common?label=PRs
+[bitcoin-pulls-badge]: https://img.shields.io/github/issues-pr/dcdpr/did-btcr2-js/package%3A%20bitcoin?label=PRs
 [bitcoin-pulls-link]: https://github.com/dcdpr/did-btcr2-js/pulls?q=is%3Aopen+is%3Apr+label%3A%22package%3A+bitcoin%22
 
 [cli-npm-badge]: https://img.shields.io/npm/v/@did-btcr2/cli.svg?&color=green&santize=true
