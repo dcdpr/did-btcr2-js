@@ -1,7 +1,7 @@
 import { equalBytes } from '@noble/curves/utils.js';
 import { sha256 } from '@noble/hashes/sha2';
 import { concatBytes } from '@noble/hashes/utils';
-import { base64 } from '@scure/base';
+import { base64, base64urlnopad } from '@scure/base';
 import { HASH_BYTE_LENGTH, HASH_HEX_LENGTH } from './constants.js';
 
 /**
@@ -153,6 +153,64 @@ export function base64ToBigInt(b64: string, padded: boolean): bigint {
   const bytes = base64.decode(b64);
   if (padded && bytes.length !== HASH_BYTE_LENGTH) {
     throw new RangeError(`Invalid padded base64 bigint: expected ${HASH_BYTE_LENGTH} decoded bytes, got ${bytes.length}`);
+  }
+  if (bytes.length > HASH_BYTE_LENGTH) {
+    throw new RangeError(`Value exceeds ${HASH_BYTE_LENGTH} bytes`);
+  }
+  let value = 0n;
+  for (const byte of bytes) {
+    value = (value << 8n) | BigInt(byte);
+  }
+  return value;
+}
+
+/**
+ * Convert a 32-byte hash to a base64url string without padding.
+ *
+ * This is the encoding mandated by the did:btcr2 spec for SHA-256 hashes
+ * in concrete data structures (sidecar SMT proofs, CAS announcements, etc.).
+ * See https://dcdpr.github.io/did-btcr2/data-structures.html
+ */
+export function hashToBase64Url(hash: Uint8Array): string {
+  validateHash(hash);
+  return base64urlnopad.encode(hash);
+}
+
+/**
+ * Parse a base64url-without-padding string into a 32-byte hash.
+ * Throws `RangeError` if the decoded result is not 32 bytes.
+ */
+export function base64UrlToHash(b64u: string): Uint8Array {
+  const hash = base64urlnopad.decode(b64u);
+  if (hash.length !== HASH_BYTE_LENGTH) {
+    throw new RangeError(`Invalid base64url hash: expected ${HASH_BYTE_LENGTH} decoded bytes, got ${hash.length}`);
+  }
+  return hash;
+}
+
+/**
+ * Convert a bigint to a base64url-without-padding string.
+ * When `padded` is true, the value is zero-padded to 32 bytes before encoding.
+ * When false, leading zero bytes are stripped (matches the wire format for
+ * the SMT proof `collapsed` field per the did:btcr2 spec).
+ */
+export function bigIntToBase64Url(value: bigint, padded: boolean): string {
+  let bytes = bigIntToHash(value);
+  if (!padded) {
+    const firstNonZero = bytes.findIndex(b => b !== 0x00);
+    bytes = firstNonZero === -1 ? new Uint8Array(1) : bytes.slice(firstNonZero);
+  }
+  return base64urlnopad.encode(bytes);
+}
+
+/**
+ * Parse a base64url-without-padding string into a bigint.
+ * When `padded` is true, the decoded bytes must be exactly 32.
+ */
+export function base64UrlToBigInt(b64u: string, padded: boolean): bigint {
+  const bytes = base64urlnopad.decode(b64u);
+  if (padded && bytes.length !== HASH_BYTE_LENGTH) {
+    throw new RangeError(`Invalid padded base64url bigint: expected ${HASH_BYTE_LENGTH} decoded bytes, got ${bytes.length}`);
   }
   if (bytes.length > HASH_BYTE_LENGTH) {
     throw new RangeError(`Value exceeds ${HASH_BYTE_LENGTH} bytes`);

@@ -13,12 +13,11 @@ import {
   JSONUtils
 } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
-import type { DidDocument as W3CDidDocument, DidVerificationMethod as W3CDidVerificationMethod } from '@web5/dids';
-import { isDidService } from '@web5/dids/utils';
 import { p2pkh } from '@scure/btc-signer';
+import type { DidDocument as W3CDidDocument, DidVerificationMethod as W3CDidVerificationMethod } from '@web5/dids';
+import { isDidService, isDidVerificationMethod } from '@web5/dids/utils';
 import type { BeaconService } from '../core/beacon/interfaces.js';
 import { Identifier } from '../core/identifier.js';
-import { Appendix } from './appendix.js';
 
 export const BTCR2_DID_DOCUMENT_CONTEXT = [
   'https://www.w3.org/ns/did/v1.1',
@@ -334,7 +333,7 @@ export class DidDocument implements Btcr2DidDocument {
    * @returns {boolean} True if the verification methods are valid.
    */
   private static isValidVerificationMethods(verificationMethod: unknown): boolean {
-    return Array.isArray(verificationMethod) && verificationMethod.every(Appendix.isDidVerificationMethod);
+    return Array.isArray(verificationMethod) && verificationMethod.every(isDidVerificationMethod);
   }
 
   /**
@@ -369,7 +368,7 @@ export class DidDocument implements Btcr2DidDocument {
       return value &&
         Array.isArray(value) &&
         value.every(
-          (entry) => typeof entry === 'string' || Appendix.isDidVerificationMethod(entry)
+          (entry) => typeof entry === 'string' || isDidVerificationMethod(entry)
         );
     });
   }

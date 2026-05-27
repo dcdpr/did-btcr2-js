@@ -1,13 +1,13 @@
 import type { BTCNetwork } from '@did-btcr2/bitcoin';
 import { getNetwork } from '@did-btcr2/bitcoin';
-import type { KeyBytes, Maybe} from '@did-btcr2/common';
+import type { KeyBytes, Maybe } from '@did-btcr2/common';
 import { DidMethodError, MethodError } from '@did-btcr2/common';
 import { p2pkh, p2tr, p2wpkh } from '@scure/btc-signer';
-import { Appendix } from '../../utils/appendix.js';
+import { isDidService } from '@web5/dids/utils';
 import type { DidDocument } from '../../utils/did-document.js';
 import { Identifier } from '../identifier.js';
-import type { BeaconService } from './interfaces.js';
 import { BeaconError } from './error.js';
+import type { BeaconService } from './interfaces.js';
 
 /**
  * Static class of utility functions for the Beacon Service
@@ -35,7 +35,7 @@ export class BeaconUtils {
    */
   static isBeaconService(obj: Maybe<BeaconService>): boolean {
     // Return false if the given obj is not a valid DidService.
-    if(!Appendix.isDidService(obj)) return false;
+    if(!isDidService(obj)) return false;
 
     // Return false if the type is not a valid beacon service type.
     if(!['SingletonBeacon', 'CASBeacon', 'SMTBeacon'].includes(obj.type)) return false;

@@ -1,23 +1,27 @@
-import { bigIntToHex, hashToHex, hexToBigInt, hexToHash } from './hash.js';
+import { base64UrlToBigInt, base64UrlToHash, bigIntToBase64Url, hashToBase64Url } from './hash.js';
 import { SMTProof } from './smt-proof.js';
 
 /**
  * did:btcr2 serialized SMT proof format.
  * See {@link https://dcdpr.github.io/did-btcr2/data-structures.html#smt-proof | SMT Proof (data structure)}.
  *
+ * Per spec, all SHA-256 hashes in did:btcr2 data structures MUST be encoded
+ * using `base64url` (RFC 4648) without padding. The `collapsed` bitmap follows
+ * the same encoding.
+ *
  * Structurally identical to the `SMTProof` interface in
  * `@did-btcr2/method/src/core/interfaces.ts`.
  */
 export interface SerializedSMTProof {
-  /** Hex-encoded SHA-256 root hash (64 chars). */
+  /** SHA-256 root hash, base64urlnopad-encoded. */
   id: string;
-  /** Hex-encoded 256-bit nonce (64 chars). Optional. */
+  /** 256-bit nonce, base64urlnopad-encoded. Optional. */
   nonce?: string;
-  /** Hex-encoded hash of the signed BTCR2 update (64 chars). Optional. */
+  /** Hash of the signed BTCR2 update, base64urlnopad-encoded. Optional. */
   updateId?: string;
-  /** Hex-encoded converge bitmap (unpadded — minimal hex digits). */
+  /** Converge bitmap, base64urlnopad-encoded (leading zero bytes stripped). */
   collapsed: string;
-  /** Hex-encoded sibling hashes (64 chars each). */
+  /** Sibling hashes, each base64urlnopad-encoded. */
   hashes: string[];
 }
 
@@ -37,12 +41,12 @@ export function serializeProof(
   options?: SerializeProofOptions
 ): SerializedSMTProof {
   const result: SerializedSMTProof = {
-    id        : hashToHex(rootHash),
-    collapsed : bigIntToHex(proof.converge, false),
-    hashes    : proof.hashes.map(h => hashToHex(h)),
+    id        : hashToBase64Url(rootHash),
+    collapsed : bigIntToBase64Url(proof.converge, false),
+    hashes    : proof.hashes.map(h => hashToBase64Url(h)),
   };
-  if (options?.nonce)    result.nonce    = hashToHex(options.nonce);
-  if (options?.updateId) result.updateId = hashToHex(options.updateId);
+  if (options?.nonce)    result.nonce    = hashToBase64Url(options.nonce);
+  if (options?.updateId) result.updateId = hashToBase64Url(options.updateId);
   return result;
 }
 
@@ -59,14 +63,14 @@ export interface DeserializedProof {
  * plus metadata.
  */
 export function deserializeProof(serialized: SerializedSMTProof): DeserializedProof {
-  const converge = hexToBigInt(serialized.collapsed, false);
-  const hashes   = serialized.hashes.map(h => hexToHash(h));
+  const converge = base64UrlToBigInt(serialized.collapsed, false);
+  const hashes   = serialized.hashes.map(h => base64UrlToHash(h));
   const result: DeserializedProof = {
     proof    : new SMTProof(converge, hashes),
-    rootHash : hexToHash(serialized.id),
+    rootHash : base64UrlToHash(serialized.id),
   };
-  if (serialized.nonce)    result.nonce    = hexToHash(serialized.nonce);
-  if (serialized.updateId) result.updateId = hexToHash(serialized.updateId);
+  if (serialized.nonce)    result.nonce    = base64UrlToHash(serialized.nonce);
+  if (serialized.updateId) result.updateId = base64UrlToHash(serialized.updateId);
   return result;
 }
 

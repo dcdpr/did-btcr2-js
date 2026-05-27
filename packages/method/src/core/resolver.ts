@@ -25,7 +25,7 @@ import {
 } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { DidBtcr2 } from '../did-btcr2.js';
-import { Appendix } from '../utils/appendix.js';
+import { dereferenceZcapId } from '../utils/utils.js';
 import { DidDocument, ID_PLACEHOLDER_VALUE } from '../utils/did-document.js';
 import { BeaconFactory } from './beacon/factory.js';
 import type { BeaconService, BeaconSignal, BlockMetadata } from './beacon/interfaces.js';
@@ -281,11 +281,21 @@ export class Resolver {
         casMap.set(canonicalHash(update, { encoding: 'hex' }), update);
       }
 
-    // SMT Proofs map
+    // SMT Proofs map.
+    //
+    // Per the did:btcr2 spec (data-structures section), proof.id is a SHA-256
+    // hash encoded as base64urlnopad. The lookup key in this map must match
+    // signal.signalBytes, which is the hex-encoded OP_RETURN payload returned
+    // by Bitcoin REST. We normalize at ingest time: decode the spec-mandated
+    // base64urlnopad, then re-encode as hex so all internal key comparisons
+    // share a single canonical encoding.
+    //
+    // See: https://dcdpr.github.io/did-btcr2/data-structures.html
     const smtMap = new Map<string, SMTProof>();
     if(sidecar.smtProofs?.length)
       for(const proof of sidecar.smtProofs) {
-        smtMap.set(proof.id, proof);
+        const idHex = encodeHash(decodeHash(proof.id, 'base64urlnopad'), 'hex');
+        smtMap.set(idHex, proof);
       }
 
     return { updateMap, casMap, smtMap };
@@ -465,7 +475,7 @@ export class Resolver {
     }
 
     // Get the root capability object by dereferencing the capabilityId
-    const rootCapability = Appendix.dereferenceZcapId(capabilityId);
+    const rootCapability = dereferenceZcapId(capabilityId);
 
     // Deconstruct the invocationTarget and controller from the root capability
     const { invocationTarget, controller: rootController } = rootCapability;

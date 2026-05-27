@@ -99,7 +99,6 @@
         "@did-btcr2/cryptosuite": "workspace:^",
         "@did-btcr2/keypair": "workspace:^",
         "@did-btcr2/smt": "workspace:^",
-        "@helia/strings": "^4.1.0",
         "@noble/curves": "^1.9.7",
         "@noble/hashes": "^1.8.0",
         "@noble/secp256k1": "^2.3.0",
@@ -112,8 +111,6 @@
         "@web5/dids": "^1.2.0",
         "canonicalize": "^2.1.0",
         "dotenv": "^16.6.1",
-        "helia": "^5.5.1",
-        "multiformats": "^13.4.2",
         "nostr-tools": "^2.23.3"
     },
     "devDependencies": {

@@ -31,9 +31,9 @@ export * from './core/types.js';
 export * from './core/updater.js';
 
 // Utils
-export * from './utils/appendix.js';
 export * from './utils/did-document-builder.js';
 export * from './utils/did-document.js';
+export * from './utils/utils.js';
 
 // Facade
 export * from './did-btcr2.js';

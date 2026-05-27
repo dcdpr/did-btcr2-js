@@ -1,9 +1,9 @@
 import type { BitcoinConnection } from '@did-btcr2/bitcoin';
 import type { DocumentBytes, KeyBytes, PatchOperation } from '@did-btcr2/common';
-import { decode as decodeHash, IdentifierTypes, INVALID_DID_UPDATE, NotImplementedError, UpdateError } from '@did-btcr2/common';
+import { decode as decodeHash, encode as encodeHash, IdentifierTypes, INVALID_DID_UPDATE, NotImplementedError, UpdateError } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import type { Signer } from '@did-btcr2/keypair';
-import type { Btcr2DidDocument, CASAnnouncement, DidCreateOptions, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, ResolutionOptions } from '@did-btcr2/method';
+import type { Btcr2DidDocument, CASAnnouncement, DataNeed, DidCreateOptions, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, NeedSMTProof, ResolutionOptions, SMTProof, UpdaterDataNeed } from '@did-btcr2/method';
 import { BeaconFactory, BeaconSignalDiscovery, DidBtcr2 } from '@did-btcr2/method';
 import type { DidResolutionResult, DidVerificationMethod } from '@web5/dids';
 import type { BitcoinApi } from './bitcoin.js';
@@ -63,12 +63,31 @@ export class DidMethodApi {
    */
   async resolve(did: string, options?: ResolutionOptions): Promise<DidResolutionResult> {
     assertString(did, 'did');
-    this.#log.debug('Resolving DID', did);
+    this.#log.debug('Resolving DID: %s', did);
+    if(options?.sidecar) {
+      this.#log.debug(
+        'Sidecar provided: %s',
+        [
+          options.sidecar.genesisDocument && 'genesisDocument',
+          options.sidecar.updates?.length && `${options.sidecar.updates.length} updates`,
+          options.sidecar.casUpdates?.length && `${options.sidecar.casUpdates.length} casUpdates`,
+          options.sidecar.smtProofs?.length && `${options.sidecar.smtProofs.length} smtProofs`,
+        ].filter(Boolean).join(', ') || '(empty)',
+      );
+    }
     try {
       const resolver = DidBtcr2.resolve(did, options);
       let state = resolver.resolve();
+      let iteration = 0;
 
       while(state.status === 'action-required') {
+        iteration++;
+        this.#log.debug(
+          'Resolver iteration %d: %d need(s) [%s]',
+          iteration,
+          state.needs.length,
+          state.needs.map((n) => n.kind).join(', '),
+        );
         for(const need of state.needs) {
           switch(need.kind) {
             case 'NeedBeaconSignals': {
@@ -79,12 +98,23 @@ export class DidMethodApi {
                 );
               }
               this.#log.debug(
-                'Fetching beacon signals for %d service(s)',
-                need.beaconServices.length
+                'Fetching beacon signals for %d service(s):',
+                need.beaconServices.length,
               );
+              for(const svc of need.beaconServices) {
+                this.#log.debug('  - %s [%s] %s', svc.id, svc.type, svc.serviceEndpoint);
+              }
               const signals = await BeaconSignalDiscovery.indexer(
                 [...need.beaconServices], this.#btc.connection
               );
+              for(const [svc, sigList] of signals) {
+                this.#log.debug(
+                  '  signals at %s: %d found%s',
+                  svc.id,
+                  sigList.length,
+                  sigList.length > 0 ? ` (first signalBytes: ${sigList[0].signalBytes})` : '',
+                );
+              }
               resolver.provide(need, signals);
               break;
             }
@@ -103,6 +133,7 @@ export class DidMethodApi {
                   `Genesis document not found in CAS (hash: ${need.genesisHash}).`
                 );
               }
+              this.#log.debug('Genesis document retrieved (%d bytes)', JSON.stringify(doc).length);
               resolver.provide(need as NeedGenesisDocument, doc);
               break;
             }
@@ -121,6 +152,7 @@ export class DidMethodApi {
                   `CAS announcement not found in CAS (hash: ${need.announcementHash}).`
                 );
               }
+              this.#log.debug('CAS announcement retrieved');
               resolver.provide(need as NeedCASAnnouncement, announcement as CASAnnouncement);
               break;
             }
@@ -139,22 +171,67 @@ export class DidMethodApi {
                   `Signed update not found in CAS (hash: ${need.updateHash}).`
                 );
               }
+              this.#log.debug('Signed update retrieved');
               resolver.provide(need as NeedSignedUpdate, update as SignedBTCR2Update);
               break;
+            }
+            case 'NeedSMTProof': {
+              // SMT proofs cannot be retrieved from CAS by design. They MUST be
+              // supplied via options.sidecar.smtProofs. If the resolver asks for
+              // one that wasn't found in the initial sidecar, the sidecar either
+              // omitted the proof or used a different key encoding than the
+              // hex-encoded smtRootHash carried by the on-chain signal.
+              this.#log.debug(
+                'NeedSMTProof for root hash %s (beacon %s)',
+                need.smtRootHash, need.beaconServiceId,
+              );
+              // Per spec, proof.id is base64urlnopad; need.smtRootHash is hex
+              // (from the OP_RETURN payload). Match by decoding both to bytes.
+              const proof = options?.sidecar?.smtProofs?.find((p) => {
+                try {
+                  return encodeHash(decodeHash(p.id, 'base64urlnopad'), 'hex') === need.smtRootHash;
+                } catch {
+                  return false;
+                }
+              });
+              if(!proof) {
+                const available = options?.sidecar?.smtProofs?.map((p) => p.id).join(', ') ?? '(none)';
+                throw new Error(
+                  `SMT proof not in sidecar. Required root hash (hex): ${need.smtRootHash}. `
+                  + `Available proof ids (spec-encoded base64urlnopad): ${available}. `
+                  + 'SMT proofs cannot be fetched from CAS by design; supply via options.sidecar.smtProofs. '
+                  + 'Per the did:btcr2 spec, proof.id MUST be base64urlnopad-encoded.',
+                );
+              }
+              this.#log.debug('SMT proof matched in sidecar (id=%s)', proof.id);
+              resolver.provide(need as NeedSMTProof, proof as SMTProof);
+              break;
+            }
+            default: {
+              // Exhaustiveness check: if a new DataNeed variant is added without
+              // a case above, TS catches it at compile time, and the throw
+              // catches it at runtime if a non-TS caller hands us bad data.
+              const _exhaustive: never = need;
+              throw new Error(
+                `Unhandled DataNeed kind: ${(_exhaustive as DataNeed).kind}. `
+                + 'This is a resolver bug: please file an issue. Adding a new DataNeed '
+                + 'variant requires a corresponding case in DidMethodApi.resolve().',
+              );
             }
           }
         }
         state = resolver.resolve();
       }
 
-      this.#log.debug('DID resolved successfully', did, state.result.metadata);
+      this.#log.debug('DID resolved: versionId=%s, deactivated=%s',
+        state.result.metadata.versionId, state.result.metadata.deactivated ?? false);
       return {
         didResolutionMetadata : {},
         didDocument           : state.result.didDocument as unknown as DidResolutionResult['didDocument'],
         didDocumentMetadata   : state.result.metadata,
       };
     } catch (err) {
-      this.#log.error('DID resolution failed', did, err);
+      this.#log.error('DID resolution failed: %s', (err as Error).message);
       throw new Error(
         `Failed to resolve DID: ${did}`,
         { cause: err }
@@ -249,6 +326,14 @@ export class DidMethodApi {
             await beacon.broadcastSignal(need.signedUpdate, signer, btcConnection);
             updater.provide(need);
             break;
+          }
+          default: {
+            // Exhaustiveness check: same pattern as resolve() above.
+            const _exhaustive: never = need;
+            throw new Error(
+              `Unhandled UpdaterDataNeed kind: ${(_exhaustive as UpdaterDataNeed).kind}. `
+              + 'Adding a new UpdaterDataNeed variant requires a corresponding case in DidMethodApi.update().',
+            );
           }
         }
       }

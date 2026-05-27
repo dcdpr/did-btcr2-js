@@ -1,8 +1,8 @@
 import type { BitcoinConnection } from '@did-btcr2/bitcoin';
-import { canonicalize } from '@did-btcr2/common';
+import { canonicalize, decode as decodeHash, encode as encodeHash } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import type { Signer } from '@did-btcr2/keypair';
-import { blockHash, BTCR2MerkleTree, didToIndex, hexToHash, verifySerializedProof } from '@did-btcr2/smt';
+import { base64UrlToHash, blockHash, BTCR2MerkleTree, didToIndex, verifySerializedProof } from '@did-btcr2/smt';
 import { randomBytes } from '@noble/hashes/utils';
 import type { BeaconProcessResult, DataNeed } from '../resolver.js';
 import type { SidecarData } from '../types.js';
@@ -83,8 +83,9 @@ export class SMTBeacon extends Beacon {
       }
 
       // Verify Merkle inclusion: leaf = hash(hash(nonce) || updateId)
+      // Per spec, nonce/updateId in SMTProof are base64urlnopad-encoded.
       const index = didToIndex(did);
-      const candidateHash = blockHash(blockHash(hexToHash(smtProof.nonce)), hexToHash(smtProof.updateId));
+      const candidateHash = blockHash(blockHash(base64UrlToHash(smtProof.nonce)), base64UrlToHash(smtProof.updateId));
       const valid = verifySerializedProof(smtProof, index, candidateHash);
 
       if(!valid) {
@@ -94,14 +95,19 @@ export class SMTBeacon extends Beacon {
         );
       }
 
-      // Look up the signed update in sidecar updateMap (keyed by hex canonical hash)
-      const signedUpdate = sidecar.updateMap.get(smtProof.updateId);
+      // Look up the signed update in sidecar updateMap.
+      //
+      // smtProof.updateId is base64urlnopad per spec (data-structures: all
+      // SHA-256 hashes are base64urlnopad). updateMap is keyed by the hex
+      // canonical hash. Normalize the spec encoding to the internal one.
+      const updateIdHex = encodeHash(decodeHash(smtProof.updateId, 'base64urlnopad'), 'hex');
+      const signedUpdate = sidecar.updateMap.get(updateIdHex);
 
       if(!signedUpdate) {
         // Signed update not available — emit a need
         needs.push({
           kind             : 'NeedSignedUpdate',
-          updateHash       : smtProof.updateId,
+          updateHash       : updateIdHex,
           beaconServiceId  : this.service.id
         });
         continue;

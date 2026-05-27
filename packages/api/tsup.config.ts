@@ -10,8 +10,9 @@ import { defineConfig } from 'tsup';
  * Bundled-inline deps (no `require` export condition in their package.json):
  * - multiformats subpath exports
  *
- * `helia` and `@helia/strings` are not used directly by api — they are only
- * reached via `@did-btcr2/method`, which lazy-loads them from `appendix.ts`.
+ * `helia` and `@helia/strings` are used by `IpfsCasExecutor` in `src/cas.ts`
+ * for IPFS-backed CAS reads/writes; they ship as a peer-dep style runtime
+ * dependency and are kept external so the consumer's installed copy is used.
  *
  * `@did-btcr2/*` workspace packages are kept external and resolved from
  * `node_modules` at runtime (they each produce their own CJS bundle).

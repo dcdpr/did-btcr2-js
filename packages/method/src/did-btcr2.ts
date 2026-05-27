@@ -1,7 +1,8 @@
 import type {
   DocumentBytes,
   KeyBytes,
-  PatchOperation} from '@did-btcr2/common';
+  PatchOperation
+} from '@did-btcr2/common';
 import {
   IdentifierHrp,
   INVALID_DID_DOCUMENT,
@@ -10,8 +11,7 @@ import {
   MethodError,
   UpdateError
 } from '@did-btcr2/common';
-import type {
-  DidMethod} from '@web5/dids';
+import type { DidMethod } from '@web5/dids';
 import {
   Did,
   DidError,
@@ -22,8 +22,8 @@ import { Identifier } from './core/identifier.js';
 import type { ResolutionOptions } from './core/interfaces.js';
 import { Resolver } from './core/resolver.js';
 import { Updater } from './core/updater.js';
-import { Appendix } from './utils/appendix.js';
 import type { Btcr2DidDocument, DidVerificationMethod } from './utils/did-document.js';
+import { extractDidFragment } from '@web5/dids/utils';
 
 export interface DidCreateOptions {
   /** Type of identifier to create (key or external) */
@@ -247,8 +247,8 @@ export class DidBtcr2 implements DidMethod {
     // Attempt to find a verification method that matches the given method ID, or if not given,
     // find the first verification method intended for signing claims.
     const verificationMethod = didDocument.verificationMethod?.find(
-      (vm: DidVerificationMethod) => Appendix.extractDidFragment(vm.id) === (Appendix.extractDidFragment(methodId)
-        ?? Appendix.extractDidFragment(didDocument.assertionMethod?.[0]))
+      (vm: DidVerificationMethod) =>
+        extractDidFragment(vm.id) === ((extractDidFragment(methodId) ?? extractDidFragment(didDocument.assertionMethod?.[0])))
     );
 
     // If no verification method is found, throw an error

@@ -60,15 +60,18 @@ export interface ResolutionOptions extends DidResolutionOptions {
  */
 export interface SMTProof {
   /**
-   * The SHA-256 hash of the root node of the Sparse Merkle Tree.
+   * SHA-256 hash of the root node of the Sparse Merkle Tree.
+   * Per spec (data-structures): base64urlnopad-encoded.
    */
   id: string;
   /**
-   * Optional 256-bit nonce generated for each update. Hex-encoded (64 chars).
+   * Optional 256-bit nonce generated for each update.
+   * Per spec (data-structures): base64urlnopad-encoded.
    */
   nonce?: string;
   /**
-   * Optional hex-encoded canonical hash of the BTCR2 Signed Update.
+   * Optional canonical hash of the BTCR2 Signed Update.
+   * Per spec (data-structures): base64urlnopad-encoded.
    */
   updateId?: string;
   /**

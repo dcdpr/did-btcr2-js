@@ -1,7 +1,7 @@
 import { canonicalize } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import type { SerializedSMTProof } from '@did-btcr2/smt';
-import { blockHash, didToIndex, hashToHex, hexToHash, verifySerializedProof } from '@did-btcr2/smt';
+import { base64UrlToHash, blockHash, didToIndex, hashToBase64Url, verifySerializedProof } from '@did-btcr2/smt';
 import type { AggregationCohort } from './cohort.js';
 import type { BaseBody } from './messages/base.js';
 
@@ -92,13 +92,14 @@ const SMT_STRATEGY: AggregateBeaconStrategy = {
     if(!smtProof?.updateId || !smtProof?.nonce) return { matches: false };
     // Verify updateId matches the canonicalized update hash
     const canonicalBytes = new TextEncoder().encode(canonicalize(submittedUpdate as unknown as Record<string, unknown>));
-    const expectedUpdateId = hashToHex(blockHash(canonicalBytes));
+    const expectedUpdateId = hashToBase64Url(blockHash(canonicalBytes));
     if(smtProof.updateId !== expectedUpdateId) {
       return { matches: false, smtProof };
     }
     // Verify Merkle inclusion
+    // Per spec, nonce/updateId in SMTProof are base64urlnopad-encoded.
     const index = didToIndex(participantDid);
-    const candidateHash = blockHash(blockHash(hexToHash(smtProof.nonce)), hexToHash(smtProof.updateId));
+    const candidateHash = blockHash(blockHash(base64UrlToHash(smtProof.nonce)), base64UrlToHash(smtProof.updateId));
     return {
       matches : verifySerializedProof(smtProof, index, candidateHash),
       smtProof,

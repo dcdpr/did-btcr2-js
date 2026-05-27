@@ -1,4 +1,4 @@
-import { createApi, Identifier, type BitcoinApiConfig, type DidBtcr2Api } from '@did-btcr2/api';
+import { createApi, Identifier, type BitcoinApiConfig, type DidBtcr2Api, type Logger } from '@did-btcr2/api';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -21,6 +21,20 @@ export type ConnectionOverrides = {
   casGateway?: string;
   config?    : string;
   profile?   : string;
+  /** When true, the factory installs a stderr-printing Logger on the api. */
+  verbose?   : boolean;
+};
+
+/**
+ * Logger that writes every level to stderr with a level tag. Used when the
+ * caller passes `--verbose`. Goes to stderr (not stdout) so that piping the
+ * resolver's JSON output to other tools still works.
+ */
+const consoleLogger: Logger = {
+  debug: (msg, ...args) => console.error(`[debug] ${msg}`, ...args),
+  info:  (msg, ...args) => console.error(`[info]  ${msg}`, ...args),
+  warn:  (msg, ...args) => console.error(`[warn]  ${msg}`, ...args),
+  error: (msg, ...args) => console.error(`[error] ${msg}`, ...args),
 };
 
 /**
@@ -199,8 +213,9 @@ export function defaultApiFactory(network?: NetworkOption, overrides?: Connectio
   }
 
   const cas = merged.casGateway ? { gateway: merged.casGateway } : undefined;
+  const logger = overrides?.verbose ? consoleLogger : undefined;
 
-  return createApi({ btc, ...(cas && { cas }) });
+  return createApi({ btc, ...(cas && { cas }), ...(logger && { logger }) });
 }
 
 /**
