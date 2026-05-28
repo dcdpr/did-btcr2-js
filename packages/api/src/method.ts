@@ -322,7 +322,7 @@ export class DidMethodApi {
             this.#log.debug(
               'Broadcasting signed update via %s beacon', need.beaconService.type
             );
-            const beacon = BeaconFactory.establish(need.beaconService);
+            const beacon = BeaconFactory.establish(need.beaconService, need.did);
             await beacon.broadcastSignal(need.signedUpdate, signer, btcConnection);
             updater.provide(need);
             break;

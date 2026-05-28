@@ -469,9 +469,9 @@
         "smtProofs": [
           {
             "id": "q1H_iaYG0Oq6gbrycYL-r7FjUsJLnIpHDn49TLeONNA",
-            "nonce": "APfY53QgVh6WX5jm15SL0Rh2jzIKEClyBE3Q-B_l6q8h",
+            "nonce": "99jndCBWHpZfmObXlIvRGHaPMgoQKXIETdD4H-XqryE",
             "updateId": "njYNViJq2OmhSw1fLfARPCj12RY3VXKGWdS3-7OQ2BE",
-            "collapsed": "AL__________________________________________",
+            "collapsed": "v_________________________________________8",
             "hashes": [
               "8JWXL7chPKJXwg-i9O1EFTHan_oOO_RmglDpu_ugax0"
             ]
@@ -481,7 +481,7 @@
     },
     "notes": "Same block/tx/SMT as 11b",
     "knownFault": "their-impl",
-    "knownFailReason": "33-byte SMT nonce (leading 0x00); spec requires 256-bit = 32 bytes"
+    "knownFailReason": "leaf value omits the nonce; spec (appendix/optimized-smt.html) requires leaf = hash(hash(nonce) + hash(btcr2Update))"
   },
   {
     "example": "11b",
@@ -493,9 +493,9 @@
         "smtProofs": [
           {
             "id": "q1H_iaYG0Oq6gbrycYL-r7FjUsJLnIpHDn49TLeONNA",
-            "nonce": "AKiwPzZ5-HVp5MjJRABFqKGUmv2uvfIv3p4QVYxoCdU7",
+            "nonce": "qLA_Nnn4dWnkyMlEAEWooZSa_a698i_enhBVjGgJ1Ts",
             "updateId": "8JWXL7chPKJXwg-i9O1EFTHan_oOO_RmglDpu_ugax0",
-            "collapsed": "AL__________________________________________",
+            "collapsed": "v_________________________________________8",
             "hashes": [
               "njYNViJq2OmhSw1fLfARPCj12RY3VXKGWdS3-7OQ2BE"
             ]
@@ -505,7 +505,7 @@
     },
     "notes": "Same block/tx/SMT as 11a",
     "knownFault": "their-impl",
-    "knownFailReason": "33-byte SMT nonce (leading 0x00); spec requires 256-bit = 32 bytes"
+    "knownFailReason": "leaf value omits the nonce; spec (appendix/optimized-smt.html) requires leaf = hash(hash(nonce) + hash(btcr2Update))"
   },
   {
     "example": "12a",
@@ -599,7 +599,7 @@
         "smtProofs": [
           {
             "id": "Zeuswi8sMNygdfuKjh9YGaUQOK4zPcirIJRwzIA7ZGU",
-            "nonce": "AODC1L3cjDCo8zqlORdM8jDSG0ddu_XnblSLA7KHf00K",
+            "nonce": "4MLUvdyMMKjzOqU5F0zyMNIbR1279eduVIsDsod_TQo",
             "updateId": "QbPkfJIHH21IeMRyGiNg5NfKYt0TmCljg91evyo-MpU",
             "collapsed": "f_________________________________________8",
             "hashes": [
@@ -611,7 +611,7 @@
     },
     "notes": "Same block/tx/SMT as 12b",
     "knownFault": "their-impl",
-    "knownFailReason": "33-byte SMT nonce (leading 0x00); spec requires 256-bit = 32 bytes"
+    "knownFailReason": "leaf value omits the nonce; spec (appendix/optimized-smt.html) requires leaf = hash(hash(nonce) + hash(btcr2Update))"
   },
   {
     "example": "12b",
@@ -715,6 +715,8 @@
         ]
       }
     },
-    "notes": "Same block/tx/SMT as 12a"
+    "notes": "Same block/tx/SMT as 12a",
+    "knownFault": "their-impl",
+    "knownFailReason": "leaf value omits the nonce; spec (appendix/optimized-smt.html) requires leaf = hash(hash(nonce) + hash(btcr2Update))"
   }
 ]

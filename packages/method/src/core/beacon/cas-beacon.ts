@@ -34,9 +34,10 @@ export class CASBeacon extends Beacon {
   /**
    * Creates an instance of CASBeacon.
    * @param {BeaconService} service The service of the Beacon.
+   * @param {string} did The absolute did:btcr2 identifier this beacon serves.
    */
-  constructor(service: BeaconService) {
-    super({ ...service, type: 'CASBeacon' });
+  constructor(service: BeaconService, did: string) {
+    super({ ...service, type: 'CASBeacon' }, did);
   }
 
   /**
@@ -59,9 +60,6 @@ export class CASBeacon extends Beacon {
     const updates = new Array<[SignedBTCR2Update, BlockMetadata]>();
     const needs = new Array<DataNeed>();
 
-    // Extract the DID from the beacon service id (strip the #fragment)
-    const did = this.service.id.split('#')[0];
-
     for(const signal of signals) {
       // Signal bytes are hex — matches hex-keyed sidecar maps directly
       const announcementHash = signal.signalBytes;
@@ -81,7 +79,7 @@ export class CASBeacon extends Beacon {
 
       // Look up this DID's update hash in the CAS Announcement
       // Announcement values are base64urlnopad per spec — convert to hex for map lookup
-      const updateHashEncoded = casAnnouncement[did];
+      const updateHashEncoded = casAnnouncement[this.did];
 
       // If no entry for this DID, this announcement doesn't contain an update for us — skip
       if(!updateHashEncoded) {
@@ -131,14 +129,11 @@ export class CASBeacon extends Beacon {
     bitcoin: BitcoinConnection,
     options?: CASBroadcastOptions
   ): Promise<SignedBTCR2Update> {
-    // Extract the DID from the beacon service id (strip the #fragment)
-    const did = this.service.id.split('#')[0];
-
     // Hash the signed update (base64urlnopad for the CAS Announcement entry per spec)
     const updateHash = canonicalHash(signedUpdate);
 
     // Create the CAS Announcement mapping this DID to its update hash
-    const casAnnouncement = { [did]: updateHash };
+    const casAnnouncement = { [this.did]: updateHash };
 
     // Canonicalize and hash the CAS Announcement for the OP_RETURN output
     const announcementHash = hash(canonicalize(casAnnouncement));

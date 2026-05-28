@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import {
   HASH_BYTE_LENGTH,
   hashToBigInt, NULL_HASH,
-  OptimizedSMT, SMTProof,
+  OptimizedSMT,
 } from '../src/index.js';
 
 function randomHash(): Uint8Array {
@@ -76,28 +76,21 @@ for (const allowNonInclusion of [false, true]) {
           expect(proof.isValid(indexes[0], hashes[0], randomHash())).to.be.false;
         });
 
-        it('batch validation succeeds for all proofs', () => {
-          const candidates = indexes.map((idx, i) => ({
-            index : idx,
-            hash  : hashes[i],
-            proof : smt.proof(idx),
-          }));
-          const results = [...SMTProof.isValidBatch(candidates, smt.rootHash)];
-          expect(results).to.have.lengthOf(size);
-          for (const r of results) {
-            expect(r.valid).to.be.true;
+        it('every proof validates against the root individually', () => {
+          for (let i = 0; i < size; i++) {
+            const proof = smt.proof(indexes[i]);
+            expect(proof.isValid(indexes[i], hashes[i], smt.rootHash)).to.be.true;
           }
         });
 
-        it('batch validation detects corrupted proof', () => {
+        it('corrupting one leaf hash makes only that proof fail', () => {
           const corruptIdx = Math.floor(Math.random() * size);
-          const candidates = indexes.map((idx, i) => ({
-            index : idx,
-            hash  : i === corruptIdx ? randomHash() : hashes[i],
-            proof : smt.proof(idx),
-          }));
-          const results = [...SMTProof.isValidBatch(candidates, smt.rootHash)];
-          expect(results[corruptIdx].valid).to.be.false;
+          for (let i = 0; i < size; i++) {
+            const proof = smt.proof(indexes[i]);
+            const candidate = i === corruptIdx ? randomHash() : hashes[i];
+            const expected = i !== corruptIdx;
+            expect(proof.isValid(indexes[i], candidate, smt.rootHash)).to.equal(expected);
+          }
         });
 
         it('reset allows re-finalization with new hashes', () => {

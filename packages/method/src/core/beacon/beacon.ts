@@ -331,8 +331,22 @@ export abstract class Beacon {
    */
   readonly service: BeaconService;
 
-  constructor(service: BeaconService) {
+  /**
+   * The absolute `did:btcr2:` identifier this beacon serves. Set at construction
+   * so methods don't have to derive it from `service.id` (which may be a relative
+   * fragment-only reference like `#beacon1` in spec-conformant DID documents).
+   */
+  readonly did: string;
+
+  constructor(service: BeaconService, did: string) {
+    if (!did || !did.startsWith('did:btcr2:')) {
+      throw new BeaconError(
+        `Beacon requires an absolute did:btcr2 identifier; received: ${JSON.stringify(did)}`,
+        'INVALID_BEACON_DID', { did, service }
+      );
+    }
     this.service = service;
+    this.did = did;
   }
 
   /**

@@ -48,7 +48,7 @@ describe('Beacon.processSignals', () => {
       type            : 'SingletonBeacon',
       serviceEndpoint : 'bitcoin:bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
     };
-    const beacon = new SingletonBeacon(service);
+    const beacon = new SingletonBeacon(service, DID);
 
     it('returns update when signal bytes match a sidecar entry', () => {
       const update = fakeUpdate('singleton-happy');
@@ -85,7 +85,7 @@ describe('Beacon.processSignals', () => {
       type            : 'CASBeacon',
       serviceEndpoint : 'bitcoin:bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
     };
-    const beacon = new CASBeacon(service);
+    const beacon = new CASBeacon(service, DID);
 
     it('returns update when CAS announcement and signed update are in sidecar', () => {
       const update = fakeUpdate('cas-happy');
@@ -160,7 +160,7 @@ describe('Beacon.processSignals', () => {
       type            : 'SMTBeacon',
       serviceEndpoint : 'bitcoin:bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
     };
-    const beacon = new SMTBeacon(service);
+    const beacon = new SMTBeacon(service, DID);
 
     it('returns update when SMT proof and signed update are in sidecar', () => {
       const update = fakeUpdate('smt-happy');

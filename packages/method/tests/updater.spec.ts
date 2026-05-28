@@ -245,6 +245,7 @@ describe('Updater', () => {
       // Skip funding — try to provide broadcast directly
       const bogusBroadcast: NeedBroadcast = {
         kind          : 'NeedBroadcast',
+        did           : sourceDocument.id,
         beaconService : sourceDocument.service![0]! as BeaconService,
         signedUpdate  : {} as never,
       };

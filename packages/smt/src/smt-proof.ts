@@ -1,119 +1,83 @@
-import { BITS, HASH_BIT_LENGTH, HASH_BYTE_LENGTH, OUTER_BIT } from './constants.js';
+import { HASH_BIT_LENGTH, HASH_BYTE_LENGTH } from './constants.js';
 import {
-  bigIntToBase64, bigIntToHash, bigIntToHex,
   base64ToBigInt, base64ToHash,
-  blockHash, hashesEqual, hashToBigInt,
+  bigIntToBase64, bigIntToHash, bigIntToHex,
+  blockHash, hashesEqual,
   hashToBase64, hashToHex,
   hexToBigInt, hexToHash,
 } from './hash.js';
 
-/** A candidate for batch proof validation. */
-export interface SMTProofCandidate<TAdditional = unknown> {
-  readonly index : bigint;
-  readonly hash  : Uint8Array;
-  readonly proof : SMTProof;
-  readonly additional? : TAdditional;
-}
-
-/** Result emitted by {@link SMTProof.isValidBatch}. */
-export interface SMTProofResult<TAdditional = unknown> {
-  readonly index      : bigint;
-  readonly valid      : boolean;
-  readonly additional : TAdditional | undefined;
-}
-
-/** Internal validation state for early-exit in batch mode. */
-const enum ValidationState { Pending, Valid, Invalid }
-
-/** Cached partial proof used by batch validation. */
-interface PartialProof {
-  readonly hash     : Uint8Array;
-  readonly converge : bigint;
-  readonly hashes   : readonly Uint8Array[];
-}
-
 /**
- * An optimized Sparse Merkle Tree proof.
+ * An optimized Sparse Merkle Tree proof, per
+ * {@link https://dcdpr.github.io/did-btcr2/appendix/optimized-smt.html | did:btcr2 spec — Optimized SMT}.
  *
- * Contains a **converge bitmap** indicating which levels of the 256-bit path
- * have a non-empty sibling, and the **sibling hashes** at those levels.
- * Levels without a sibling use depth-byte padding instead.
+ * The proof contains:
+ * - a **collapsed bitmap** read LSB-first, where a `1` bit marks a level that
+ *   was collapsed away (no merge, candidate hash unchanged) and a `0` bit marks
+ *   a level where the candidate must be merged with the next sibling;
+ * - the **sibling hashes** at the un-collapsed levels, ordered leaf-to-root.
  */
 export class SMTProof {
-  readonly #converge: bigint;
+  readonly #collapsed: bigint;
   readonly #hashes: readonly Uint8Array[];
 
-  constructor(converge: bigint, hashes: readonly Uint8Array[]) {
-    this.#converge = converge;
-    this.#hashes   = hashes;
+  constructor(collapsed: bigint, hashes: readonly Uint8Array[]) {
+    this.#collapsed = collapsed;
+    this.#hashes    = hashes;
   }
 
-  /** Converge bitmap: bit `i` set means a sibling hash exists at depth `256 - i - 1`. */
-  get converge(): bigint { return this.#converge; }
+  /** Collapsed bitmap (read LSB-first): bit `i` set means level `i` from the leaf is collapsed. */
+  get collapsed(): bigint { return this.#collapsed; }
 
-  /** Sibling hashes at converge points, ordered leaf-to-root. */
+  /** Sibling hashes at the un-collapsed levels, ordered leaf-to-root. */
   get hashes(): readonly Uint8Array[] { return this.#hashes; }
 
   /**
    * Verify this proof for a single leaf.
    *
-   * @param index         - Leaf index in the 256-bit key space.
-   * @param candidateHash - Expected leaf hash.
+   * Implements the spec verification walk verbatim:
+   *
+   *   for each collapsed bit from the right:
+   *     if bit == 1: skip this index bit; candidate unchanged
+   *     if bit == 0: consume next sibling
+   *       index bit == 0: candidate = hash(candidate || sibling)
+   *       index bit == 1: candidate = hash(sibling || candidate)
+   *   assert candidate == rootHash
+   *
+   * @param index         - Leaf index in the 256-bit key space (`int(hash(did))`).
+   * @param candidateHash - Initial leaf hash (`hash(hash(nonce) + updateId)`).
    * @param rootHash      - Expected root hash.
    * @returns `true` if the proof is valid.
    */
   isValid(index: bigint, candidateHash: Uint8Array, rootHash: Uint8Array): boolean {
-    return this.#validate(index, candidateHash, rootHash);
-  }
+    let candidate = candidateHash;
+    let indexBits = index;
+    let bitmap    = this.#collapsed;
+    let hi        = 0;
+    let step      = 0;
 
-  /**
-   * Batch-validate multiple proofs against the same root hash.
-   *
-   * Caches intermediate (partial) proofs so that subsequent candidates
-   * sharing an ancestor path can short-circuit once a cached match is found.
-   *
-   * @yields One {@link SMTProofResult} per candidate.
-   */
-  static* isValidBatch<TAdditional = unknown>(
-    candidates: Iterable<SMTProofCandidate<TAdditional>>,
-    rootHash: Uint8Array
-  ): Generator<SMTProofResult<TAdditional>> {
-    const cache = new Map<bigint, PartialProof>();
+    while (bitmap !== 0n || hi < this.#hashes.length) {
+      if (step >= HASH_BIT_LENGTH) return false; // overflowed the key space
 
-    for (const candidate of candidates) {
-      const added: bigint[] = [];
-      const { index } = candidate;
+      const collapsedBit = bitmap & 1n;
+      bitmap >>= 1n;
 
-      const valid = candidate.proof.#validate(
-        index | OUTER_BIT,
-        candidate.hash,
-        rootHash,
-        (nodeIndex, partial) => {
-          const cached = cache.get(nodeIndex);
-          if (cached === undefined) {
-            cache.set(nodeIndex, partial);
-            added.push(nodeIndex);
-            return ValidationState.Pending;
-          }
-          // Compare with known-valid partial proof for early exit.
-          if (
-            hashesEqual(partial.hash, cached.hash) &&
-            partial.converge === cached.converge &&
-            partial.hashes.length === cached.hashes.length &&
-            partial.hashes.every((h, i) => hashesEqual(h, cached.hashes[i]))
-          ) {
-            return ValidationState.Valid;
-          }
-          return ValidationState.Invalid;
-        }
-      );
-
-      if (!valid) {
-        for (const key of added) cache.delete(key);
+      if (collapsedBit === 1n) {
+        // Skip: this index bit doesn't apply; candidate unchanged.
+        indexBits >>= 1n;
+      } else {
+        if (hi >= this.#hashes.length) return false;
+        const sibling  = this.#hashes[hi++]!;
+        const indexBit = indexBits & 1n;
+        indexBits >>= 1n;
+        candidate = indexBit === 0n
+          ? blockHash(candidate, sibling)
+          : blockHash(sibling, candidate);
       }
-
-      yield { index, valid, additional: candidate.additional };
+      step++;
     }
+
+    return hashesEqual(candidate, rootHash);
   }
 
   /**
@@ -122,11 +86,11 @@ export class SMTProof {
    * @param compact - Omit whitespace (default: `true`).
    */
   toJSON(base64 = false, compact = true): string {
-    const convergeStr = base64
-      ? bigIntToBase64(this.#converge, false)
-      : bigIntToHex(this.#converge, false);
+    const collapsedStr = base64
+      ? bigIntToBase64(this.#collapsed, false)
+      : bigIntToHex(this.#collapsed, false);
     const hashStrs = this.#hashes.map(h => base64 ? hashToBase64(h) : hashToHex(h));
-    const obj = { converge: convergeStr, hashes: hashStrs };
+    const obj = { collapsed: collapsedStr, hashes: hashStrs };
     return JSON.stringify(obj, null, compact ? 0 : 2);
   }
 
@@ -136,28 +100,28 @@ export class SMTProof {
    * @param base64 - Parse base64 instead of hex (default: `false`).
    */
   static fromJSON(json: string, base64 = false): SMTProof {
-    const raw = JSON.parse(json) as { converge?: string; hashes?: string[] };
-    if (typeof raw?.converge !== 'string' || !Array.isArray(raw.hashes)) {
-      throw new RangeError('Invalid SMTProof JSON: expected { converge, hashes }');
+    const raw = JSON.parse(json) as { collapsed?: string; hashes?: string[] };
+    if (typeof raw?.collapsed !== 'string' || !Array.isArray(raw.hashes)) {
+      throw new RangeError('Invalid SMTProof JSON: expected { collapsed, hashes }');
     }
-    const converge = base64
-      ? base64ToBigInt(raw.converge, false)
-      : hexToBigInt(raw.converge, false);
+    const collapsed = base64
+      ? base64ToBigInt(raw.collapsed, false)
+      : hexToBigInt(raw.collapsed, false);
     const hashes = raw.hashes.map(h => base64 ? base64ToHash(h) : hexToHash(h));
-    return new SMTProof(converge, hashes);
+    return new SMTProof(collapsed, hashes);
   }
 
   /**
    * Export to compact binary format.
    *
-   * Layout: `[convergeZeroCount : 1] [truncatedConverge : 32-zc] [hashCount : 1] [hashes : N*32]`
+   * Layout: `[collapsedZeroCount : 1] [truncatedCollapsed : 32-zc] [hashCount : 1] [hashes : N*32]`
    */
   toBinary(): Uint8Array {
-    const convergeBin = bigIntToHash(this.#converge);
+    const collapsedBin = bigIntToHash(this.#collapsed);
     let zc = 0;
-    while (zc < HASH_BYTE_LENGTH && convergeBin[zc] === 0x00) zc++;
+    while (zc < HASH_BYTE_LENGTH && collapsedBin[zc] === 0x00) zc++;
 
-    const truncated  = convergeBin.slice(zc);
+    const truncated  = collapsedBin.slice(zc);
     const hashCount  = this.#hashes.length;
     const totalBytes = 1 + truncated.length + 1 + hashCount * HASH_BYTE_LENGTH;
     const out = new Uint8Array(totalBytes);
@@ -193,86 +157,19 @@ export class SMTProof {
       return buf;
     }
 
-    const zc = (await readBytes(1))[0];
-    const convergeBin = new Uint8Array(HASH_BYTE_LENGTH);
-    convergeBin.set(await readBytes(HASH_BYTE_LENGTH - zc), zc);
+    const zc = (await readBytes(1))[0]!;
+    const collapsedBin = new Uint8Array(HASH_BYTE_LENGTH);
+    collapsedBin.set(await readBytes(HASH_BYTE_LENGTH - zc), zc);
 
-    const hashCount = (await readBytes(1))[0];
+    let collapsed = 0n;
+    for (const b of collapsedBin) collapsed = (collapsed << 8n) | BigInt(b);
+
+    const hashCount = (await readBytes(1))[0]!;
     const hashes: Uint8Array[] = new Array(hashCount);
     for (let i = 0; i < hashCount; i++) {
       hashes[i] = await readBytes(HASH_BYTE_LENGTH);
     }
 
-    return new SMTProof(hashToBigInt(convergeBin), hashes);
-  }
-
-  #validate(
-    index: bigint,
-    candidateHash: Uint8Array,
-    rootHash: Uint8Array,
-    onMerge?: (nodeIndex: bigint, partial: PartialProof) => ValidationState
-  ): boolean {
-    let nodeIndex = index;
-    let nodeHash  = candidateHash;
-    let remaining = this.#converge;
-    const hashes  = this.#hashes;
-    let hi = 0;
-
-    const leftPad: number[]  = [];
-    const rightPad: number[] = [];
-
-    const finalizePadding = (): void => {
-      if (leftPad.length > 0 || rightPad.length > 0) {
-        nodeHash = blockHash(new Uint8Array(leftPad), nodeHash, new Uint8Array(rightPad));
-        leftPad.length  = 0;
-        rightPad.length = 0;
-      }
-    };
-
-    let state = ValidationState.Pending;
-
-    for (let i = 0; state === ValidationState.Pending && i < HASH_BIT_LENGTH; i++) {
-      const isLeft = (nodeIndex & 1n) === 0n;
-      nodeIndex >>= 1n;
-
-      const bit = BITS[i];
-
-      if ((remaining & bit) !== 0n) {
-        remaining ^= bit;
-        finalizePadding();
-
-        if (hi >= hashes.length) {
-          state = ValidationState.Invalid;
-        } else {
-          const peer = hashes[hi++];
-          nodeHash = isLeft ? blockHash(nodeHash, peer) : blockHash(peer, nodeHash);
-
-          if (onMerge !== undefined) {
-            state = onMerge(nodeIndex, {
-              hash     : nodeHash,
-              converge : remaining,
-              hashes   : hashes.slice(hi),
-            });
-          }
-        }
-      } else {
-        const depth = HASH_BIT_LENGTH - i - 1;
-        if (isLeft) {
-          rightPad.push(depth);
-        } else {
-          leftPad.unshift(depth);
-        }
-      }
-    }
-
-    finalizePadding();
-
-    if (state === ValidationState.Pending) {
-      state = hi === hashes.length && hashesEqual(nodeHash, rootHash)
-        ? ValidationState.Valid
-        : ValidationState.Invalid;
-    }
-
-    return state === ValidationState.Valid;
+    return new SMTProof(collapsed, hashes);
   }
 }

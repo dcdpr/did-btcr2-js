@@ -42,7 +42,7 @@ export function serializeProof(
 ): SerializedSMTProof {
   const result: SerializedSMTProof = {
     id        : hashToBase64Url(rootHash),
-    collapsed : bigIntToBase64Url(proof.converge, false),
+    collapsed : bigIntToBase64Url(proof.collapsed, false),
     hashes    : proof.hashes.map(h => hashToBase64Url(h)),
   };
   if (options?.nonce)    result.nonce    = hashToBase64Url(options.nonce);
@@ -63,10 +63,10 @@ export interface DeserializedProof {
  * plus metadata.
  */
 export function deserializeProof(serialized: SerializedSMTProof): DeserializedProof {
-  const converge = base64UrlToBigInt(serialized.collapsed, false);
-  const hashes   = serialized.hashes.map(h => base64UrlToHash(h));
+  const collapsed = base64UrlToBigInt(serialized.collapsed, false);
+  const hashes    = serialized.hashes.map(h => base64UrlToHash(h));
   const result: DeserializedProof = {
-    proof    : new SMTProof(converge, hashes),
+    proof    : new SMTProof(collapsed, hashes),
     rootHash : base64UrlToHash(serialized.id),
   };
   if (serialized.nonce)    result.nonce    = base64UrlToHash(serialized.nonce);

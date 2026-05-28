@@ -19,9 +19,10 @@ export class SingletonBeacon extends Beacon {
   /**
    * Creates an instance of SingletonBeacon.
    * @param {BeaconService} service The BeaconService object representing the funded beacon to announce the update to.
+   * @param {string} did The absolute did:btcr2 identifier this beacon serves.
    */
-  constructor(service: BeaconService) {
-    super({ ...service, type: 'SingletonBeacon' });
+  constructor(service: BeaconService, did: string) {
+    super({ ...service, type: 'SingletonBeacon' }, did);
   }
 
   /**

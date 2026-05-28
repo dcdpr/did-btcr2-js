@@ -27,9 +27,10 @@ export class SMTBeacon extends Beacon {
   /**
    * Creates an instance of SMTBeacon.
    * @param {BeaconService} service The Beacon service.
+   * @param {string} did The absolute did:btcr2 identifier this beacon serves.
    */
-  constructor(service: BeaconService) {
-    super({ ...service, type: 'SMTBeacon' });
+  constructor(service: BeaconService, did: string) {
+    super({ ...service, type: 'SMTBeacon' }, did);
   }
 
   /**
@@ -51,9 +52,6 @@ export class SMTBeacon extends Beacon {
   ): BeaconProcessResult {
     const updates = new Array<[SignedBTCR2Update, BlockMetadata]>();
     const needs = new Array<DataNeed>();
-
-    // Extract the DID from the beacon service id (strip the #fragment)
-    const did = this.service.id.split('#')[0];
 
     for(const signal of signals) {
       // Signal bytes are the hex-encoded SMT root hash; smtMap is keyed by proof.id (also hex)
@@ -78,20 +76,20 @@ export class SMTBeacon extends Beacon {
       if(!smtProof.nonce) {
         throw new SMTBeaconError(
           'SMT proof missing required nonce field.',
-          'INVALID_SMT_PROOF', { smtProof, did }
+          'INVALID_SMT_PROOF', { smtProof, did: this.did }
         );
       }
 
       // Verify Merkle inclusion: leaf = hash(hash(nonce) || updateId)
       // Per spec, nonce/updateId in SMTProof are base64urlnopad-encoded.
-      const index = didToIndex(did);
+      const index = didToIndex(this.did);
       const candidateHash = blockHash(blockHash(base64UrlToHash(smtProof.nonce)), base64UrlToHash(smtProof.updateId));
       const valid = verifySerializedProof(smtProof, index, candidateHash);
 
       if(!valid) {
         throw new SMTBeaconError(
           'SMT proof verification failed.',
-          'INVALID_SMT_PROOF', { smtProof, did }
+          'INVALID_SMT_PROOF', { smtProof, did: this.did }
         );
       }
 
@@ -140,14 +138,11 @@ export class SMTBeacon extends Beacon {
     bitcoin: BitcoinConnection,
     options?: BroadcastOptions
   ): Promise<SignedBTCR2Update> {
-    // Extract the DID from the beacon service id (strip the #fragment)
-    const did = this.service.id.split('#')[0];
-
     // Build a single-entry SMT from the signed update
     const canonicalBytes = new TextEncoder().encode(canonicalize(signedUpdate));
     const nonce = randomBytes(32);
     const tree = new BTCR2MerkleTree();
-    tree.addEntries([{ did, nonce, signedUpdate: canonicalBytes }]);
+    tree.addEntries([{ did: this.did, nonce, signedUpdate: canonicalBytes }]);
     tree.finalize();
 
     // Root hash is the signal bytes for the OP_RETURN output

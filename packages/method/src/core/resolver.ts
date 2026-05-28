@@ -147,6 +147,7 @@ enum ResolverPhase {
 export class Resolver {
   // --- Immutable inputs ---
   readonly #didComponents: DidComponents;
+  readonly #did: string;
   readonly #versionId?: string;
   readonly #versionTime?: string;
 
@@ -173,6 +174,7 @@ export class Resolver {
     options?: { versionId?: string; versionTime?: string; genesisDocument?: object }
   ) {
     this.#didComponents = didComponents;
+    this.#did = Identifier.encode(didComponents.genesisBytes, didComponents);
     this.#sidecarData = sidecarData;
     this.#currentDocument = currentDocument;
     this.#versionId = options?.versionId;
@@ -619,7 +621,7 @@ export class Resolver {
             if(this.#processedServices.has(service.id) || !signals.length) continue;
 
             // Establish a typed beacon and process its signals
-            const beacon = BeaconFactory.establish(service);
+            const beacon = BeaconFactory.establish(service, this.#did);
             const result = beacon.processSignals(signals, this.#sidecarData);
 
             if(result.needs.length > 0) {

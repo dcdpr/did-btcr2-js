@@ -12,18 +12,19 @@ import { SMTBeacon } from './smt-beacon.js';
  */
 export class BeaconFactory {
   /**
-   * Establish a Beacon instance based on the provided service and optional sidecar data.
+   * Establish a Beacon instance based on the provided service and DID context.
    * @param {BeaconService} service The beacon service configuration.
+   * @param {string} did The absolute did:btcr2 identifier this beacon serves.
    * @returns {Beacon} The established Beacon instance.
    */
-  static establish(service: BeaconService): Beacon {
+  static establish(service: BeaconService, did: string): Beacon {
     switch (service.type) {
       case 'SingletonBeacon':
-        return new SingletonBeacon(service);
+        return new SingletonBeacon(service, did);
       case 'CASBeacon':
-        return new CASBeacon(service);
+        return new CASBeacon(service, did);
       case 'SMTBeacon':
-        return new SMTBeacon(service);
+        return new SMTBeacon(service, did);
       default:
         throw new MethodError('Invalid Beacon Type', 'INVALID_BEACON_ERROR', service);
     }

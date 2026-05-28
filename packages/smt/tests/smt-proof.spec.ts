@@ -13,6 +13,17 @@ function randomBigInt(): bigint {
   return hashToBigInt(randomHash());
 }
 
+/** Flip the index bit at the lowest collapsed=0 (consume) position. */
+function flipLowestConsumeBit(index: bigint, collapsed: bigint): bigint {
+  let pos = 0n;
+  let bitmap = collapsed;
+  while ((bitmap & 1n) === 1n) {
+    bitmap >>= 1n;
+    pos++;
+  }
+  return index ^ (1n << pos);
+}
+
 /** Build a small tree and return an index, its hash, root hash, and proof. */
 function buildSmallTree(size = 5) {
   const smt = new OptimizedSMT(false);
@@ -46,10 +57,14 @@ describe('SMTProof', () => {
       expect(proof.isValid(indexes[0], randomHash(), smt.rootHash)).to.be.false;
     });
 
-    it('returns false for wrong index', () => {
+    it('returns false for index that differs at a consume position', () => {
+      // Per spec, the verifier only consults index bits at collapsed-bit-0
+      // positions; bits at skip positions are ignored. So we flip a known
+      // consume bit to construct a guaranteed-wrong index.
       const { smt, indexes, hashes } = buildSmallTree();
       const proof = smt.proof(indexes[0]);
-      expect(proof.isValid(randomBigInt(), hashes[0], smt.rootHash)).to.be.false;
+      const wrong = flipLowestConsumeBit(indexes[0], proof.collapsed);
+      expect(proof.isValid(wrong, hashes[0], smt.rootHash)).to.be.false;
     });
 
     it('returns false for wrong root hash', () => {
@@ -66,7 +81,7 @@ describe('SMTProof', () => {
       const json = proof.toJSON(false);
       const restored = SMTProof.fromJSON(json, false);
       expect(restored.isValid(indexes[0], hashes[0], smt.rootHash)).to.be.true;
-      expect(restored.converge).to.equal(proof.converge);
+      expect(restored.collapsed).to.equal(proof.collapsed);
       expect(restored.hashes).to.have.lengthOf(proof.hashes.length);
     });
 
@@ -80,7 +95,7 @@ describe('SMTProof', () => {
 
     it('fromJSON throws on invalid input', () => {
       expect(() => SMTProof.fromJSON('{}')).to.throw(RangeError);
-      expect(() => SMTProof.fromJSON('{"converge":"ff"}')).to.throw(RangeError);
+      expect(() => SMTProof.fromJSON('{"collapsed":"ff"}')).to.throw(RangeError);
     });
   });
 
@@ -91,65 +106,23 @@ describe('SMTProof', () => {
       const binary = proof.toBinary();
       const restored = await SMTProof.fromBinary(binary);
       expect(restored.isValid(indexes[0], hashes[0], smt.rootHash)).to.be.true;
-      expect(restored.converge).to.equal(proof.converge);
+      expect(restored.collapsed).to.equal(proof.collapsed);
       expect(restored.hashes).to.have.lengthOf(proof.hashes.length);
     });
 
     it('binary is compact (leading zero compression)', () => {
-      const { smt, indexes } = buildSmallTree(2);
-      const proof = smt.proof(indexes[0]);
+      // 2-leaf tree where the indices diverge well below the MSB so the
+      // collapsed bitmap has many leading zero bytes that get compressed out.
+      const smt = new OptimizedSMT(false);
+      const idxA = 1n;
+      const idxB = 3n;
+      smt.add([idxA, idxB]);
+      smt.setHash(idxA, randomHash());
+      smt.setHash(idxB, randomHash());
+      smt.finalize();
+      const proof = smt.proof(idxA);
       const binary = proof.toBinary();
-      // For a 2-leaf tree, converge bitmap has very few bits set,
-      // so most of the 32 bytes are zero and get compressed.
       expect(binary.length).to.be.lessThan(2 + HASH_BYTE_LENGTH + 1 + proof.hashes.length * HASH_BYTE_LENGTH);
-    });
-  });
-
-  describe('isValidBatch', () => {
-    it('validates all proofs correctly', () => {
-      const { smt, indexes, hashes } = buildSmallTree(10);
-      const candidates = indexes.map((idx, i) => ({
-        index : idx,
-        hash  : hashes[i],
-        proof : smt.proof(idx),
-      }));
-      const results = [...SMTProof.isValidBatch(candidates, smt.rootHash)];
-      expect(results).to.have.lengthOf(10);
-      for (const r of results) {
-        expect(r.valid).to.be.true;
-      }
-    });
-
-    it('detects a single corrupted candidate', () => {
-      const { smt, indexes, hashes } = buildSmallTree(10);
-      const candidates = indexes.map((idx, i) => ({
-        index      : idx,
-        hash       : i === 5 ? randomHash() : hashes[i],
-        proof      : smt.proof(idx),
-        additional : i,
-      }));
-      const results = [...SMTProof.isValidBatch(candidates, smt.rootHash)];
-      for (const r of results) {
-        if (r.additional === 5) {
-          expect(r.valid).to.be.false;
-        } else {
-          expect(r.valid).to.be.true;
-        }
-      }
-    });
-
-    it('passes through additional data', () => {
-      const { smt, indexes, hashes } = buildSmallTree(3);
-      const candidates = indexes.map((idx, i) => ({
-        index      : idx,
-        hash       : hashes[i],
-        proof      : smt.proof(idx),
-        additional : `entry-${i}`,
-      }));
-      const results = [...SMTProof.isValidBatch(candidates, smt.rootHash)];
-      expect(results[0].additional).to.equal('entry-0');
-      expect(results[1].additional).to.equal('entry-1');
-      expect(results[2].additional).to.equal('entry-2');
     });
   });
 });

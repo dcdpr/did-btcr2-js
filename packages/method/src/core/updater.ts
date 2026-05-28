@@ -64,6 +64,8 @@ export interface FundingProof {
  */
 export interface NeedBroadcast {
   readonly kind: 'NeedBroadcast';
+  /** The absolute did:btcr2 identifier the update is for. Pass to {@link BeaconFactory.establish}. */
+  readonly did: string;
   /** The beacon service to broadcast through. Inspect `beaconService.type` to decide the path. */
   readonly beaconService: BeaconService;
   /** The signed update ready for broadcast. */
@@ -137,7 +139,7 @@ export interface UpdaterParams {
  *         updater.provide(need);
  *         break;
  *       case 'NeedBroadcast':
- *         await Updater.announce(need.beaconService, need.signedUpdate, signer, bitcoin);
+ *         await Updater.announce(need.did, need.beaconService, need.signedUpdate, signer, bitcoin);
  *         updater.provide(need);
  *         break;
  *     }
@@ -289,6 +291,7 @@ export class Updater {
    * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/update.html#announce-did-update | 7.3.d Announce DID Update}.
    * Announces a signed update to the Bitcoin blockchain via the specified beacon.
    *
+   * @param {string} did The absolute did:btcr2 identifier the update is for.
    * @param {BeaconService} beaconService The beacon service to broadcast through.
    * @param {SignedBTCR2Update} update The signed update to announce.
    * @param {Signer} signer Signer that produces the ECDSA signature for the Bitcoin transaction.
@@ -296,12 +299,13 @@ export class Updater {
    * @returns {Promise<SignedBTCR2Update>} The signed update that was broadcast.
    */
   static async announce(
+    did: string,
     beaconService: BeaconService,
     update: SignedBTCR2Update,
     signer: Signer,
     bitcoin: BitcoinConnection
   ): Promise<SignedBTCR2Update> {
-    const beacon = BeaconFactory.establish(beaconService);
+    const beacon = BeaconFactory.establish(beaconService, did);
     return beacon.broadcastSignal(update, signer, bitcoin);
   }
 
@@ -366,6 +370,7 @@ export class Updater {
             status : 'action-required',
             needs  : [{
               kind          : 'NeedBroadcast',
+              did           : this.#sourceDocument.id,
               beaconService : this.#beaconService,
               signedUpdate  : this.#state.signedUpdate,
             }],
