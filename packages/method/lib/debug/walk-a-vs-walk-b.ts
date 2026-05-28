@@ -1,10 +1,18 @@
 // Walk A vs Walk B — verify danubetech SMT vectors against BOTH spec algorithms.
 //
-// Walk A: per appendix/optimized-smt.md (LSB-first, bit=1 skip).
-// Walk B: per algorithms.md "SMT Proof Verification" (cachedZero, MSB-first as written).
-// Walk B*: a "charitable" variant of Walk B with iteration reversed to LSB-first,
-//          which aligns the cachedZero indexing with leaf-to-root walking. This is
-//          what algorithms.md likely MEANT, given that cachedZero[0] is leaf-level.
+// Walk A: per appendix/optimized-smt.md.
+//   LSB-first walk. bit=1 SKIPS the level entirely (no sibling, no hash,
+//   candidate unchanged). bit=0 consumes the next sibling and merges per index bit.
+//
+// Walk B: per algorithms.md "SMT Proof Verification".
+//   ALSO LSB-first (the spec's `let i = 255 - n` uses string-position indexing
+//   where collapsed[255] is the rightmost = LSB, so i=255-n at n=0 reads LSB).
+//   bit=1 uses cachedZero[n] as the sibling and STILL hashes.
+//   bit=0 consumes proof.hashes.pop_front() and hashes.
+//   Always performs 256 hash operations.
+//
+// The only behavioral difference is what happens at collapsed[i] == 1:
+// Walk A skips; Walk B hashes with the zero-pyramid sibling.
 //
 // We test every (vector, leaf-formula, walk) combination and report a matrix.
 //
@@ -99,7 +107,7 @@ function walkA(
 }
 
 // ---------------------------------------------------------------------------
-// Walk B — algorithms.md SMT Proof Verification (literal, as written)
+// Walk B — algorithms.md SMT Proof Verification
 // ---------------------------------------------------------------------------
 //
 //   let cachedZero = [];
@@ -107,7 +115,7 @@ function walkA(
 //   for i in 0..=255 { z = hash(concat(z, z)); cachedZero[i] = z; }
 //
 //   for n in 0..=255 {
-//     let i = 255 - n;                            // <-- MSB-first
+//     let i = 255 - n;                            // string-position indexing
 //     let siblingHash = if proof.collapsed[i] == 1 {
 //       cachedZero[n]
 //     } else {
@@ -117,7 +125,12 @@ function walkA(
 //     else             { c = hash(c || siblingHash); }
 //   }
 //
-// Note: this ALWAYS hashes 256 times. proof.hashes must be drained exactly.
+// The spec's `let i = 255 - n` reads bits LSB-first when `collapsed[i]` is
+// interpreted as string-position indexing (where collapsed[255] is the
+// rightmost / LSB bit). Below we use bit n of the integer representation,
+// which is equivalent to the spec's collapsed[255 - n] under that convention.
+//
+// Walk B always performs 256 hash operations; proof.hashes must be drained exactly.
 function buildCachedZero(): Uint8Array[] {
   const out: Uint8Array[] = [];
   let z = new Uint8Array(32); // zero leaf
@@ -128,7 +141,7 @@ function buildCachedZero(): Uint8Array[] {
   return out;
 }
 
-function walkBLiteral(
+function walkB(
   index: bigint,
   collapsed: bigint,
   hashes: Uint8Array[],
@@ -139,8 +152,7 @@ function walkBLiteral(
   const queue = [...hashes];
 
   for (let n = 0; n < 256; n++) {
-    const i = 255 - n;
-    const cBit = (collapsed >> BigInt(i)) & 1n;
+    const cBit = (collapsed >> BigInt(n)) & 1n;
 
     let sib: Uint8Array;
     if (cBit === 1n) {
@@ -150,53 +162,13 @@ function walkBLiteral(
       sib = queue.shift()!;
     }
 
-    const idxBit = (index >> BigInt(i)) & 1n;
+    const idxBit = (index >> BigInt(n)) & 1n;
     candidate = idxBit === 1n
       ? sha256(sib, candidate)
       : sha256(candidate, sib);
   }
 
   if (queue.length > 0) return null; // unused hashes
-  return candidate;
-}
-
-// ---------------------------------------------------------------------------
-// Walk B* — charitable variant of Walk B
-// ---------------------------------------------------------------------------
-//
-// If we read `let i = 255 - n` as a bug and iterate LSB-first (`let i = n`),
-// cachedZero[n] aligns with the actual tree level: cachedZero[0] = leaf-level
-// empty subtree, cachedZero[255] = root-level empty. This is the "fix" that
-// makes Walk B a sensible non-collapsed Merkle walk.
-function walkBCharitable(
-  index: bigint,
-  collapsed: bigint,
-  hashes: Uint8Array[],
-  leaf: Uint8Array,
-): Uint8Array | null {
-  const cachedZero = buildCachedZero();
-  let candidate = leaf;
-  const queue = [...hashes];
-
-  for (let n = 0; n < 256; n++) {
-    const i = n; // <-- LSB-first
-    const cBit = (collapsed >> BigInt(i)) & 1n;
-
-    let sib: Uint8Array;
-    if (cBit === 1n) {
-      sib = cachedZero[n]!;
-    } else {
-      if (queue.length === 0) return null;
-      sib = queue.shift()!;
-    }
-
-    const idxBit = (index >> BigInt(i)) & 1n;
-    candidate = idxBit === 1n
-      ? sha256(sib, candidate)
-      : sha256(candidate, sib);
-  }
-
-  if (queue.length > 0) return null;
   return candidate;
 }
 
@@ -233,7 +205,7 @@ const encoder = new TextEncoder();
 interface Result {
   vector  : string;
   leaf    : 'spec' | 'dt';
-  walk    : 'A' | 'B-literal' | 'B-charitable';
+  walk    : 'A' | 'B';
   matched : boolean;
   output  : string | null;
 }
@@ -259,9 +231,8 @@ for (const id of ids) {
 
   for (const [leafLabel, leaf] of [['spec', specLeaf], ['dt', dtLeaf]] as const) {
     for (const [walkLabel, walkFn] of [
-      ['A',            walkA],
-      ['B-literal',    walkBLiteral],
-      ['B-charitable', walkBCharitable],
+      ['A', walkA],
+      ['B', walkB],
     ] as const) {
       const out = walkFn(index, collapsed, hashes, leaf);
       results.push({
@@ -279,27 +250,29 @@ for (const id of ids) {
 // Report
 // ---------------------------------------------------------------------------
 
-console.log('SMT Proof Verification: Walk A vs Walk B (literal + charitable)');
-console.log('Against danubetech vectors 11a, 11b, 12a, 12b\n');
+console.log('SMT Proof Verification: Walk A (appendix) vs Walk B (algorithms.md)');
+console.log('Against danubetech vectors 11a, 11b, 12a, 12b');
+console.log('Both walks iterate LSB-first; they differ only at collapsed bit == 1');
+console.log('(Walk A skips the level; Walk B hashes with cachedZero[n]).\n');
 
 console.log(
-  '| Vector | Leaf | Walk          | Match | Computed root (first 16 hex) |'
+  '| Vector | Leaf | Walk | Match | Computed root (first 16 hex) |'
 );
 console.log(
-  '|--------|------|---------------|-------|------------------------------|'
+  '|--------|------|------|-------|------------------------------|'
 );
 for (const r of results) {
   const root = r.output ? r.output.slice(0, 16) : '(null)';
   const m    = r.matched ? '✓ YES' : '  no ';
   console.log(
-    `| ${r.vector.padEnd(6)} | ${r.leaf.padEnd(4)} | ${r.walk.padEnd(13)} | ${m} | ${root}             |`
+    `| ${r.vector.padEnd(6)} | ${r.leaf.padEnd(4)} | ${r.walk.padEnd(4)} | ${m} | ${root}             |`
   );
 }
 
 console.log('\nSummary by (leaf, walk):');
-const combos = ['spec+A', 'dt+A', 'spec+B-literal', 'dt+B-literal', 'spec+B-charitable', 'dt+B-charitable'];
+const combos = ['spec+A', 'dt+A', 'spec+B', 'dt+B'];
 for (const c of combos) {
-  const [leaf, walk] = c.split('+') as ['spec'|'dt', 'A'|'B-literal'|'B-charitable'];
+  const [leaf, walk] = c.split('+') as ['spec'|'dt', 'A'|'B'];
   const passes = results.filter((r) => r.leaf === leaf && r.walk === walk && r.matched).length;
-  console.log(`  ${c.padEnd(20)} -> ${passes}/4 vectors verify`);
+  console.log(`  ${c.padEnd(10)} -> ${passes}/4 vectors verify`);
 }
