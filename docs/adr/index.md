@@ -38,6 +38,7 @@ children:
   - ./035-smt-proof-base64url-wire-format.md
   - ./036-zero-hash-smt-model.md
   - ./037-single-party-beacon-and-two-axis-model.md
+  - ./038-musig2-key-custody.md
 ---
 
 # Architecture Decision Records
@@ -83,3 +84,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 035 | 2026-06-15 | [SMT Proof Wire Format: base64url no-pad and the Zero-Node Collapsed Bitmap](035-smt-proof-base64url-wire-format.md) |
 | 036 | 2026-06-16 | [Adopt the Zero-Hash SMT Model per algorithms.html](036-zero-hash-smt-model.md) |
 | 037 | 2026-06-19 | [Rename Beacon to SinglePartyBeacon and the Two-Axis Beacon Model](037-single-party-beacon-and-two-axis-model.md) |
+| 038 | 2026-06-20 | [MuSig2 Key Custody: Bounded, Zeroized Secrets at the Participant Boundary](038-musig2-key-custody.md) |

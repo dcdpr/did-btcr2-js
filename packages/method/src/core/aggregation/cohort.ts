@@ -1,3 +1,4 @@
+import { getNetwork } from '@did-btcr2/bitcoin';
 import { canonicalHash, canonicalize, hash } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import type { SerializedSMTProof, TreeEntry } from '@did-btcr2/smt';
@@ -118,7 +119,10 @@ export class AggregationCohort {
     }
     const keyAggContext = keyAggregate(this.#cohortKeys);
     const aggPubkey = keyAggExport(keyAggContext);
-    const payment = p2tr(aggPubkey);
+    // Derive the address for the cohort's network. Without the network arg
+    // p2tr defaults to mainnet, so a mutinynet/signet/regtest cohort would
+    // otherwise advertise a `bc1p...` address that no participant can fund.
+    const payment = p2tr(aggPubkey, undefined, getNetwork(this.network));
 
     // BIP-341: key-path-only P2TR has no script tree. Compute the tweak:
     // taggedHash("TapTweak", internalPubkey).

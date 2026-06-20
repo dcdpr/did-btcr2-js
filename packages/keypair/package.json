@@ -1,6 +1,6 @@
 {
   "name": "@did-btcr2/keypair",
-  "version": "0.13.0",
+  "version": "0.13.1",
   "type": "module",
   "description": "Secp256k1 key pairs with ECDSA, BIP-340 Schnorr, and BIP-341 taproot signing, multibase encoding, and constant-time operations.",
   "main": "./dist/cjs/index.js",

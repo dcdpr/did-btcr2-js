@@ -1,3 +1,4 @@
+import { getNetwork } from '@did-btcr2/bitcoin';
 import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { Address, OutScript, SigHash, Transaction } from '@scure/btc-signer';
@@ -51,10 +52,10 @@ describe('AggregationRunner.solo (cohort of one)', () => {
 
       onProvideTxData : async ({ beaconAddress }) => {
         // The cohort beacon address is a P2TR key-path output of the aggregated
-        // cohort key. AggregationCohort.computeBeaconAddress() derives it with
-        // scure's default (mainnet) network, so decode it the same way. From the
-        // scriptPubKey we get the tweaked output key to verify against.
-        const script = OutScript.encode(Address().decode(beaconAddress));
+        // cohort key. AggregationCohort.computeBeaconAddress() derives it for the
+        // cohort's network (here mutinynet → tb1p), so decode it with the same
+        // network. From the scriptPubKey we get the tweaked output key to verify.
+        const script = OutScript.encode(Address(getNetwork('mutinynet')).decode(beaconAddress));
         const tweakedPk = script.slice(2); // P2TR: OP_1 (0x51) OP_PUSHBYTES_32 (0x20) <32-byte x-only key>
         const prevOutValue = 100_000n;
 
@@ -64,7 +65,7 @@ describe('AggregationRunner.solo (cohort of one)', () => {
           index       : 0,
           witnessUtxo : { amount: prevOutValue, script },
         });
-        tx.addOutputAddress(beaconAddress, prevOutValue - 500n);
+        tx.addOutputAddress(beaconAddress, prevOutValue - 500n, getNetwork('mutinynet'));
 
         capturedSighash = tx.preimageWitnessV1(0, [script], SigHash.DEFAULT, [prevOutValue]);
         capturedTweakedPk = tweakedPk;

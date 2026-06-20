@@ -5,7 +5,8 @@ import type { MessageHandler, Transport } from './transport.js';
 
 /** Internal registration for a single actor sharing an {@link InMemoryTransport}. */
 interface ActorEntry {
-  keys: SchnorrKeyPair;
+  /** Compressed communication public key. The in-process bus does no encryption, so no secret is retained. */
+  publicKey: Uint8Array;
   handlers: Map<string, MessageHandler>;
 }
 
@@ -97,11 +98,14 @@ export class InMemoryTransport implements Transport {
   }
 
   registerActor(did: string, keys: SchnorrKeyPair): void {
-    this.#actors.set(did, { keys, handlers: new Map() });
+    // In-process delivery does no signing or encryption (same trust domain), so
+    // retain only the public key - the secret-bearing keypair is never stored in
+    // the transport registry (see ADR 038).
+    this.#actors.set(did, { publicKey: keys.publicKey.compressed, handlers: new Map() });
   }
 
   getActorPk(did: string): Uint8Array | undefined {
-    return this.#actors.get(did)?.keys.publicKey.compressed;
+    return this.#actors.get(did)?.publicKey;
   }
 
   /** True if `did` is registered on this transport. Used by the bus for routing. */

@@ -1,6 +1,5 @@
 import { canonicalHash } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
-import type { SchnorrKeyPair } from '@did-btcr2/keypair';
 import type { SerializedSMTProof} from '@did-btcr2/smt';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import { Transaction } from '@scure/btc-signer';
@@ -26,6 +25,7 @@ import {
 } from './messages/factories.js';
 import type { ParticipantCohortPhaseType } from './phases.js';
 import { ParticipantCohortPhase } from './phases.js';
+import type { AggregationSigner } from './signer.js';
 import { BeaconSigningSession } from './signing-session.js';
 
 /** Cohort advert as discovered by the participant (UI: list of joinable cohorts). */
@@ -82,7 +82,12 @@ interface ParticipantCohortState {
 
 export interface AggregationParticipantParams {
   did: string;
-  keys: SchnorrKeyPair;
+  /**
+   * The participant's MuSig2 signing capability. The raw secret is materialized
+   * only for the duration of a single nonce/partial-sign operation (see ADR 038);
+   * pass a {@link KeyPairAggregationSigner} to back it with an in-memory keypair.
+   */
+  signer: AggregationSigner;
 }
 
 /**
@@ -97,14 +102,21 @@ export interface AggregationParticipantParams {
  */
 export class AggregationParticipant {
   public readonly did: string;
-  public readonly keys: SchnorrKeyPair;
+
+  /** MuSig2 signing capability. The raw secret never lives as a field here. */
+  readonly #signer: AggregationSigner;
 
   /** Per-cohort state, keyed by cohortId. */
   #cohortStates: Map<string, ParticipantCohortState> = new Map();
 
-  constructor({ did, keys }: AggregationParticipantParams) {
+  constructor({ did, signer }: AggregationParticipantParams) {
     this.did = did;
-    this.keys = keys;
+    this.#signer = signer;
+  }
+
+  /** The participant's compressed (33-byte) MuSig2 public key. Not secret. */
+  public get publicKey(): Uint8Array {
+    return this.#signer.publicKey;
   }
 
 
@@ -205,8 +217,8 @@ export class AggregationParticipant {
       from            : this.did,
       to              : state.serviceDid,
       cohortId,
-      participantPk   : this.keys.publicKey.compressed,
-      communicationPk : this.keys.publicKey.compressed,
+      participantPk   : this.publicKey,
+      communicationPk : this.publicKey,
     });
 
     return [optInMessage];
@@ -245,7 +257,7 @@ export class AggregationParticipant {
     const cohortKeys = message.body?.cohortKeys;
     if(!beaconAddress || !cohortKeys) return;
 
-    const participantPkHex = bytesToHex(this.keys.publicKey.compressed);
+    const participantPkHex = bytesToHex(this.publicKey);
     const cohortKeysHex = cohortKeys.map(k => bytesToHex(new Uint8Array(k)));
 
     state.cohort.validateMembership(participantPkHex, cohortKeysHex, beaconAddress);
@@ -435,9 +447,8 @@ export class AggregationParticipant {
     });
     state.signingSession = session;
 
-    const nonceContribution = session.generateNonceContribution(
-      this.keys.publicKey.compressed,
-      this.keys.secretKey.bytes
+    const nonceContribution = this.#signer.withSecret(
+      secretKey => session.generateNonceContribution(this.publicKey, secretKey)
     );
 
     state.phase = ParticipantCohortPhase.NonceSent;
@@ -485,7 +496,10 @@ export class AggregationParticipant {
       );
     }
 
-    const partialSig = state.signingSession.generatePartialSignature(this.keys.secretKey.bytes);
+    const signingSession = state.signingSession;
+    const partialSig = this.#signer.withSecret(
+      secretKey => signingSession.generatePartialSignature(secretKey)
+    );
     state.phase = ParticipantCohortPhase.Complete;
 
     return [createSignatureAuthorizationMessage({
@@ -500,5 +514,17 @@ export class AggregationParticipant {
 
   public getCohortPhase(cohortId: string): ParticipantCohortPhaseType | undefined {
     return this.#cohortStates.get(cohortId)?.phase;
+  }
+
+  /**
+   * Zeroize any retained MuSig2 secret nonces across all cohorts. The raw
+   * signing key is never held here (it lives behind the {@link AggregationSigner}
+   * and is wiped per-operation), but an abandoned signing session can still hold
+   * a secret nonce; call this on teardown to clear it deterministically.
+   */
+  public clearSecrets(): void {
+    for(const state of this.#cohortStates.values()) {
+      state.signingSession?.clearSecrets();
+    }
   }
 }

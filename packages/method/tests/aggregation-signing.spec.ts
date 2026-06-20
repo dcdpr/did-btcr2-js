@@ -20,11 +20,11 @@ function buildDummyTx(outputScript: Uint8Array, prevOutValue: bigint): Transacti
 
 describe('Aggregation signing regressions', () => {
 
-  describe('T1.4: secretNonce zeroization', () => {
-    it('clears secretNonce after generatePartialSignature', () => {
+  describe('T1.4: secret nonce cleared after signing', () => {
+    it('clears the secret nonce so a second generatePartialSignature throws', () => {
       const kp1 = SchnorrKeyPair.generate();
       const kp2 = SchnorrKeyPair.generate();
-      const cohort = new AggregationCohort({ minParticipants: 2, network: 'mainnet' });
+      const cohort = new AggregationCohort({ minParticipants: 2, network: 'bitcoin' });
       cohort.participants.push('did:btcr2:alice', 'did:btcr2:bob');
       cohort.participantKeys.set('did:btcr2:alice', kp1.publicKey.compressed);
       cohort.participantKeys.set('did:btcr2:bob', kp2.publicKey.compressed);
@@ -48,17 +48,18 @@ describe('Aggregation signing regressions', () => {
         prevOutScripts : [payment.script],
         prevOutValues  : [100000n],
       });
-      p1.generateNonceContribution(kp1.publicKey.compressed, kp1.secretKey.bytes);
-      expect(p1.secretNonce).to.be.instanceOf(Uint8Array);
-
-      // Fake an aggregated nonce so generatePartialSignature can run
       const nonce1 = p1.generateNonceContribution(kp1.publicKey.compressed, kp1.secretKey.bytes);
       const nonce2 = p2.generateNonceContribution(kp2.publicKey.compressed, kp2.secretKey.bytes);
       const agg = musig2.nonceAggregate([nonce1, nonce2]);
       p1.aggregatedNonce = agg;
 
+      // First partial sign succeeds and wipes the secret nonce.
       p1.generatePartialSignature(kp1.secretKey.bytes);
-      expect(p1.secretNonce).to.be.undefined;
+
+      // The secret nonce is private and cleared on every path; a second attempt
+      // must throw rather than reuse it (MuSig2 nonce reuse leaks the secret key).
+      expect(() => p1.generatePartialSignature(kp1.secretKey.bytes))
+        .to.throw(/MISSING_SECRET_NONCE|Secret nonce not available/);
     });
   });
 
@@ -66,7 +67,7 @@ describe('Aggregation signing regressions', () => {
     it('generateFinalSignature throws BAD_PARTIAL_SIG on a corrupted contribution', () => {
       const kp1 = SchnorrKeyPair.generate();
       const kp2 = SchnorrKeyPair.generate();
-      const cohort = new AggregationCohort({ minParticipants: 2, network: 'mainnet' });
+      const cohort = new AggregationCohort({ minParticipants: 2, network: 'bitcoin' });
       cohort.participants.push('did:btcr2:alice', 'did:btcr2:bob');
       cohort.participantKeys.set('did:btcr2:alice', kp1.publicKey.compressed);
       cohort.participantKeys.set('did:btcr2:bob', kp2.publicKey.compressed);

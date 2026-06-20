@@ -184,8 +184,11 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
     this.#advertRepeatIntervalMs = options.advertRepeatIntervalMs ?? DEFAULT_ADVERT_REPEAT_INTERVAL_MS;
 
     this.session = new AggregationService({
+      // The coordinator never signs, so the state machine receives only the
+      // public half of the operator's keypair (see ADR 038). The full keypair
+      // remains the operator's transport/communication identity.
       did                : options.did,
-      keys               : options.keys,
+      publicKey          : options.keys.publicKey,
       maxUpdateSizeBytes : options.maxUpdateSizeBytes,
     });
   }

@@ -1,3 +1,4 @@
+import { wipe } from '@did-btcr2/keypair';
 import type { Transaction } from '@scure/btc-signer';
 import { SigHash } from '@scure/btc-signer';
 import * as musig2 from '@scure/btc-signer/musig2';
@@ -58,8 +59,14 @@ export class BeaconSigningSession {
   /** Current signing session phase. */
   public phase: SigningSessionPhaseType;
 
-  /** Participant's secret nonce (held only by the participant during signing). */
-  public secretNonce?: Uint8Array;
+  /**
+   * Participant's MuSig2 secret nonce, held only on the participant side
+   * between {@link generateNonceContribution} and {@link generatePartialSignature}.
+   * Private and cleared on every terminal path (success, failure, or teardown
+   * via {@link clearSecrets}) so a spent or abandoned nonce cannot be reused or
+   * serialized.
+   */
+  #secretNonce?: Uint8Array;
 
   constructor({ id, cohort, pendingTx, prevOutScripts, prevOutValues }: SigningSessionParams) {
     this.id = id || crypto.randomUUID();
@@ -225,7 +232,7 @@ export class BeaconSigningSession {
   public generateNonceContribution(participantPublicKey: Uint8Array, participantSecretKey: Uint8Array): Uint8Array {
     const aggPublicKey = musig2.keyAggExport(musig2.keyAggregate(this.cohort.cohortKeys));
     const nonces = musig2.nonceGen(participantPublicKey, participantSecretKey, aggPublicKey);
-    this.secretNonce = nonces.secret;
+    this.#secretNonce = nonces.secret;
     return nonces.public;
   }
 
@@ -233,15 +240,17 @@ export class BeaconSigningSession {
    * Generates a partial signature using the participant's secret key + secret nonce.
    * Requires the aggregated nonce to have been set first (via the service).
    *
-   * Zeros the stored `secretNonce` after use. JS cannot truly erase memory (GC
-   * and immutable strings), but overwriting the bytes shortens the exposure
-   * window and prevents accidental reuse or serialization of a spent nonce.
+   * Clears the stored secret nonce after use on every path (success or throw)
+   * via {@link clearSecrets}. JS cannot truly erase memory (GC may relocate
+   * buffers), but overwriting the bytes shortens the exposure window and
+   * prevents accidental reuse or serialization of a spent nonce - reuse of a
+   * MuSig2 nonce leaks the secret key.
    */
   public generatePartialSignature(participantSecretKey: Uint8Array): Uint8Array {
     if(!this.aggregatedNonce) {
       throw new SigningSessionError('Aggregated nonce not available.', 'MISSING_AGGREGATED_NONCE');
     }
-    if(!this.secretNonce) {
+    if(!this.#secretNonce) {
       throw new SigningSessionError('Secret nonce not available — generateNonceContribution() must be called first.', 'MISSING_SECRET_NONCE');
     }
     const session = new musig2.Session(
@@ -251,10 +260,24 @@ export class BeaconSigningSession {
       [this.cohort.tapTweak],
       [true]
     );
-    const partialSig = session.sign(this.secretNonce, participantSecretKey);
-    this.secretNonce.fill(0);
-    this.secretNonce = undefined;
-    return partialSig;
+    try {
+      return session.sign(this.#secretNonce, participantSecretKey);
+    } finally {
+      this.clearSecrets();
+    }
+  }
+
+  /**
+   * Zeroize any retained secret nonce. Safe to call repeatedly and on any path
+   * (completion, failure, or teardown of an abandoned session). Callers that
+   * drop a session before it reaches a partial signature should invoke this so
+   * the secret nonce does not linger on the live object.
+   */
+  public clearSecrets(): void {
+    if(this.#secretNonce) {
+      wipe(this.#secretNonce);
+      this.#secretNonce = undefined;
+    }
   }
 
   public isComplete(): boolean {

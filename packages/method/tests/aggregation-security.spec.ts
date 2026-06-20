@@ -8,6 +8,7 @@ import {
   BaseMessage,
   COHORT_ADVERT,
   DidBtcr2,
+  KeyPairAggregationSigner,
   ServiceCohortPhase,
   createCohortOptInMessage,
   createSubmitUpdateMessage,
@@ -48,7 +49,7 @@ describe('Aggregation security regressions', () => {
       const aliceDid = DidBtcr2.create(aliceKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
       const aliceKeys2 = SchnorrKeyPair.generate();
 
-      const service = new AggregationService({ did: serviceDid, keys: serviceKeys });
+      const service = new AggregationService({ did: serviceDid, publicKey: serviceKeys.publicKey });
       const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
       service.advertise(cohortId);
 
@@ -89,7 +90,7 @@ describe('Aggregation security regressions', () => {
 
       const service = new AggregationService({
         did                : serviceDid,
-        keys               : serviceKeys,
+        publicKey          : serviceKeys.publicKey,
         maxUpdateSizeBytes : 1024,
       });
       const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
@@ -132,7 +133,7 @@ describe('Aggregation security regressions', () => {
       const aliceKeys = SchnorrKeyPair.generate();
       const aliceDid = DidBtcr2.create(aliceKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
 
-      const service = new AggregationService({ did: serviceDid, keys: serviceKeys });
+      const service = new AggregationService({ did: serviceDid, publicKey: serviceKeys.publicKey });
       const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
       service.advertise(cohortId);
 
@@ -157,7 +158,7 @@ describe('Aggregation security regressions', () => {
     it('participant rejects messages with a mismatched version', () => {
       const keys = SchnorrKeyPair.generate();
       const did = DidBtcr2.create(keys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
-      const participant = new AggregationParticipant({ did, keys });
+      const participant = new AggregationParticipant({ did, signer: new KeyPairAggregationSigner(keys) });
 
       const badAdvert = new BaseMessage({
         type    : COHORT_ADVERT,
@@ -180,7 +181,7 @@ describe('Aggregation security regressions', () => {
     it('phase transitions to Failed when a participant rejects', () => {
       const serviceKeys = SchnorrKeyPair.generate();
       const serviceDid = DidBtcr2.create(serviceKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
-      const service = new AggregationService({ did: serviceDid, keys: serviceKeys });
+      const service = new AggregationService({ did: serviceDid, publicKey: serviceKeys.publicKey });
       const cohortId = service.createCohort({ minParticipants: 1, network: 'mutinynet', beaconType: 'CASBeacon' });
       service.advertise(cohortId);
 
