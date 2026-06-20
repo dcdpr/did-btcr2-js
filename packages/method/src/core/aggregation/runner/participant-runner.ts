@@ -18,6 +18,7 @@ import {
   AggregationParticipant
 } from '../participant.js';
 import { ParticipantCohortPhase } from '../phases.js';
+import { KeyPairAggregationSigner } from '../signer.js';
 import type { Transport } from '../transport/transport.js';
 import type { AggregationParticipantEvents } from './events.js';
 import { TypedEventEmitter } from './typed-emitter.js';
@@ -129,7 +130,10 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
     this.#onValidateData = options.onValidateData ?? (async (info) => ({ approved: info.matches }));
     this.#onApproveSigning = options.onApproveSigning ?? (async () => ({ approved: true }));
 
-    this.session = new AggregationParticipant({ did: options.did, keys: options.keys });
+    this.session = new AggregationParticipant({
+      did    : options.did,
+      signer : new KeyPairAggregationSigner(options.keys),
+    });
   }
 
   /**
@@ -144,6 +148,10 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
   stop(): void {
     this.#stopped = true;
     this.#unregisterHandlers();
+    // Deterministically wipe any secret nonce left on an abandoned signing
+    // session. The signing key itself lives behind the AggregationSigner and is
+    // never retained here.
+    this.session.clearSecrets();
   }
 
   /** Message types this runner listens for on the transport. */

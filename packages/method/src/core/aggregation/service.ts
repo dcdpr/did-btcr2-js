@@ -1,7 +1,7 @@
 import { canonicalize } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { BIP340Cryptosuite, SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import type { SchnorrKeyPair } from '@did-btcr2/keypair';
+import type { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';
 import type { Transaction } from '@scure/btc-signer';
 import { getBeaconStrategy } from './beacon-strategy.js';
@@ -100,7 +100,13 @@ export const DEFAULT_MAX_UPDATE_SIZE_BYTES = 256 * 1024;
 
 export interface AggregationServiceParams {
   did: string;
-  keys: SchnorrKeyPair;
+  /**
+   * The service's compressed communication public key (placed in cohort adverts).
+   * The coordinator never signs - it aggregates public nonces and partial
+   * signatures - so it is given a public key only, never a secret-bearing
+   * keypair (see ADR 038).
+   */
+  publicKey: CompressedSecp256k1PublicKey;
   /**
    * Maximum canonicalized byte-length of a signed update body accepted by the
    * service. Submissions above this cap are silently dropped and surfaced as
@@ -122,15 +128,15 @@ export interface AggregationServiceParams {
  */
 export class AggregationService {
   readonly did: string;
-  readonly keys: SchnorrKeyPair;
+  readonly publicKey: CompressedSecp256k1PublicKey;
   readonly maxUpdateSizeBytes: number;
 
   /** Per-cohort state, keyed by cohortId. */
   #cohortStates: Map<string, ServiceCohortState> = new Map();
 
-  constructor({ did, keys, maxUpdateSizeBytes }: AggregationServiceParams) {
+  constructor({ did, publicKey, maxUpdateSizeBytes }: AggregationServiceParams) {
     this.did = did;
-    this.keys = keys;
+    this.publicKey = publicKey;
     this.maxUpdateSizeBytes = maxUpdateSizeBytes ?? DEFAULT_MAX_UPDATE_SIZE_BYTES;
   }
 
@@ -234,7 +240,7 @@ export class AggregationService {
       cohortSize      : state.config.minParticipants,
       beaconType      : state.config.beaconType,
       network         : state.config.network,
-      communicationPk : this.keys.publicKey.compressed,
+      communicationPk : this.publicKey.compressed,
     });
 
     state.phase = ServiceCohortPhase.Advertised;

@@ -14,6 +14,7 @@ import {
   COHORT_ADVERT,
   COHORT_OPT_IN,
   DidBtcr2,
+  KeyPairAggregationSigner,
   NostrTransport,
   ParticipantCohortPhase,
   ServiceCohortPhase,
@@ -84,7 +85,7 @@ describe('Aggregation', () => {
     it('cohortKeys are sorted on assignment', () => {
       const kp1 = SchnorrKeyPair.generate();
       const kp2 = SchnorrKeyPair.generate();
-      const cohort = new AggregationCohort({ minParticipants: 2, network: 'mainnet' });
+      const cohort = new AggregationCohort({ minParticipants: 2, network: 'bitcoin' });
       cohort.cohortKeys = [kp1.publicKey.compressed, kp2.publicKey.compressed];
       const keys = cohort.cohortKeys;
       for(let i = 1; i < keys.length; i++) {
@@ -97,13 +98,32 @@ describe('Aggregation', () => {
     it('computeBeaconAddress returns a Taproot address', () => {
       const kp1 = SchnorrKeyPair.generate();
       const kp2 = SchnorrKeyPair.generate();
-      const cohort = new AggregationCohort({ minParticipants: 2, network: 'mainnet' });
+      const cohort = new AggregationCohort({ minParticipants: 2, network: 'bitcoin' });
       cohort.participants.push('did:btcr2:alice', 'did:btcr2:bob');
       cohort.cohortKeys = [kp1.publicKey.compressed, kp2.publicKey.compressed];
       const addr = cohort.computeBeaconAddress();
       expect(addr).to.be.a('string');
       expect(addr.startsWith('bc1p')).to.be.true;
       expect(cohort.tapTweak.length).to.equal(32);
+    });
+
+    it('derives the beacon address for the cohort network (not always mainnet)', () => {
+      const kp1 = SchnorrKeyPair.generate();
+      const kp2 = SchnorrKeyPair.generate();
+      const keys = [kp1.publicKey.compressed, kp2.publicKey.compressed];
+
+      const mutiny = new AggregationCohort({ minParticipants: 2, network: 'mutinynet' });
+      mutiny.cohortKeys = keys;
+      expect(mutiny.computeBeaconAddress().startsWith('tb1p')).to.be.true;
+
+      const regtest = new AggregationCohort({ minParticipants: 2, network: 'regtest' });
+      regtest.cohortKeys = keys;
+      expect(regtest.computeBeaconAddress().startsWith('bcrt1p')).to.be.true;
+
+      // Same keys, different network → different address (only the HRP differs).
+      const mainnet = new AggregationCohort({ minParticipants: 2, network: 'bitcoin' });
+      mainnet.cohortKeys = keys;
+      expect(mainnet.computeBeaconAddress().startsWith('bc1p')).to.be.true;
     });
   });
 
@@ -118,7 +138,7 @@ describe('Aggregation', () => {
     beforeEach(() => {
       kp1 = SchnorrKeyPair.generate();
       kp2 = SchnorrKeyPair.generate();
-      cohort = new AggregationCohort({ minParticipants: 2, network: 'mainnet' });
+      cohort = new AggregationCohort({ minParticipants: 2, network: 'bitcoin' });
       cohort.participants.push('did:btcr2:alice', 'did:btcr2:bob');
       cohort.participantKeys.set('did:btcr2:alice', kp1.publicKey.compressed);
       cohort.participantKeys.set('did:btcr2:bob', kp2.publicKey.compressed);
@@ -296,9 +316,9 @@ describe('Aggregation', () => {
       bobDid = DidBtcr2.create(bobKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
 
       // Create state machines
-      service = new AggregationService({ did: serviceDid, keys: serviceKeys });
-      alice = new AggregationParticipant({ did: aliceDid, keys: aliceKeys });
-      bob = new AggregationParticipant({ did: bobDid, keys: bobKeys });
+      service = new AggregationService({ did: serviceDid, publicKey: serviceKeys.publicKey });
+      alice = new AggregationParticipant({ did: aliceDid, signer: new KeyPairAggregationSigner(aliceKeys) });
+      bob = new AggregationParticipant({ did: bobDid, signer: new KeyPairAggregationSigner(bobKeys) });
 
       // Each actor gets its own transport (multi-process simulation)
       bus = new MessageBus();
@@ -370,7 +390,8 @@ describe('Aggregation', () => {
       const readyMsgs = service.finalizeKeygen(cohortId);
       expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.CohortSet);
       const beaconAddress = service.getCohort(cohortId)!.beaconAddress;
-      expect(beaconAddress).to.match(/^bc1p/);
+      // Cohort network is mutinynet (signet address format) → tb1p, not bc1p.
+      expect(beaconAddress).to.match(/^tb1p/);
       await send(serviceTransport, serviceDid, readyMsgs);
 
       // Both participants reached CohortReady with the same beacon address
@@ -714,7 +735,7 @@ describe('Aggregation', () => {
       await aliceRunner.start();
 
       // Use raw state machine to advertise without running the full service runner
-      const service = new AggregationService({ did: serviceDid, keys: serviceKeys });
+      const service = new AggregationService({ did: serviceDid, publicKey: serviceKeys.publicKey });
       const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
       const advertMsgs = service.advertise(cohortId);
       for(const m of advertMsgs) await serviceTransport.sendMessage(m, serviceDid, m.to);
