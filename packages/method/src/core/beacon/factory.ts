@@ -1,5 +1,5 @@
 import { MethodError } from '@did-btcr2/common';
-import type { Beacon } from './beacon.js';
+import type { SinglePartyBeacon } from './beacon.js';
 import { CASBeacon } from './cas-beacon.js';
 import type { BeaconService } from './interfaces.js';
 import { SingletonBeacon } from './singleton-beacon.js';
@@ -14,9 +14,9 @@ export class BeaconFactory {
   /**
    * Establish a Beacon instance based on the provided service and optional sidecar data.
    * @param {BeaconService} service The beacon service configuration.
-   * @returns {Beacon} The established Beacon instance.
+   * @returns {SinglePartyBeacon} The established Beacon instance.
    */
-  static establish(service: BeaconService): Beacon {
+  static establish(service: BeaconService): SinglePartyBeacon {
     switch (service.type) {
       case 'SingletonBeacon':
         return new SingletonBeacon(service);

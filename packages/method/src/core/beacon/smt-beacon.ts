@@ -7,7 +7,7 @@ import { randomBytes } from '@noble/hashes/utils';
 import type { BeaconProcessResult, DataNeed } from '../resolver.js';
 import type { SidecarData } from '../types.js';
 import type { BroadcastOptions } from './beacon.js';
-import { Beacon } from './beacon.js';
+import { SinglePartyBeacon } from './beacon.js';
 import { SMTBeaconError } from './error.js';
 import type { BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js';
 
@@ -21,9 +21,9 @@ import type { BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js
  *
  * @class SMTBeacon
  * @type {SMTBeacon}
- * @extends {Beacon}
+ * @extends {SinglePartyBeacon}
  */
-export class SMTBeacon extends Beacon {
+export class SMTBeacon extends SinglePartyBeacon {
   /**
    * Creates an instance of SMTBeacon.
    * @param {BeaconService} service The Beacon service.
@@ -127,7 +127,7 @@ export class SMTBeacon extends Beacon {
    * Builds a single-entry Sparse Merkle Tree from the signed update, then broadcasts the tree's
    * root hash via OP_RETURN. For multi-party aggregation, use the {@link AggregationService}
    * subsystem directly instead of this method. UTXO selection, PSBT construction, fee estimation,
-   * signing, and broadcast are delegated to {@link Beacon.buildSignAndBroadcast}.
+   * signing, and broadcast are delegated to {@link SinglePartyBeacon.buildSignAndBroadcast}.
    *
    * @param {SignedBTCR2Update} signedUpdate The signed BTCR2 update to broadcast.
    * @param {Signer} signer Signer that produces the ECDSA signature for the Bitcoin transaction.

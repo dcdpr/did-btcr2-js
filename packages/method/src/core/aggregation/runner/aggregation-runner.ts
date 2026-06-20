@@ -1,0 +1,96 @@
+import type { SchnorrKeyPair } from '@did-btcr2/keypair';
+import type { AggregationResult } from '../service.js';
+import { InMemoryBus, InMemoryTransport } from '../transport/in-memory.js';
+import { AggregationParticipantRunner } from './participant-runner.js';
+import type { OnProvideUpdate } from './participant-runner.js';
+import { AggregationServiceRunner } from './service-runner.js';
+import type { OnProvideTxData } from './service-runner.js';
+
+/** Identity (DID + keys) for one actor in an {@link AggregationRunner.solo} run. */
+export interface SoloActor {
+  did: string;
+  keys: SchnorrKeyPair;
+}
+
+/** Options for {@link AggregationRunner.solo}. */
+export interface SoloCohortOptions {
+  /** The coordinating service identity. */
+  service: SoloActor;
+  /** The single participant identity (the lone signer of the cohort). */
+  participant: SoloActor;
+  /** Bitcoin network and beacon type (`'CASBeacon'` | `'SMTBeacon'`) for the cohort. */
+  config: { network: string; beaconType: string };
+  /** Provide the participant's signed BTCR2 update for the cohort. */
+  onProvideUpdate: OnProvideUpdate;
+  /** Provide the Bitcoin transaction data the cohort signs. */
+  onProvideTxData: OnProvideTxData;
+  /** Optional overall wall-clock budget for the run (ms). */
+  cohortTtlMs?: number;
+  /** Optional per-phase stall timeout (ms). */
+  phaseTimeoutMs?: number;
+}
+
+/**
+ * High-level facades for driving an aggregation cohort to completion.
+ *
+ * @class AggregationRunner
+ */
+export class AggregationRunner {
+  /**
+   * Run a cohort of ONE participant entirely in-process and return the
+   * aggregated MuSig2 result.
+   *
+   * One party plays both the coordinating service and the lone participant,
+   * connected over an {@link InMemoryTransport} (no relay or HTTP server). This
+   * makes the single-participant aggregate-beacon path — the N=1 corner of the
+   * two-axis beacon matrix (see ADR 037) — first-class, useful for generating
+   * and reproducing single-participant aggregate test vectors.
+   *
+   * The service advertises a cohort with `minParticipants: 1`; the participant
+   * joins, submits its update, and the two complete keygen, data distribution,
+   * validation, and a one-signer MuSig2 P2TR key-path signing round.
+   *
+   * @param options Service + participant identities, cohort config, and the
+   *   update / tx-data callbacks.
+   * @returns The {@link AggregationResult} (cohort id, aggregated signature, signed tx).
+   */
+  static async solo(options: SoloCohortOptions): Promise<AggregationResult> {
+    const transport = new InMemoryTransport(new InMemoryBus());
+    transport.registerActor(options.service.did, options.service.keys);
+    transport.registerActor(options.participant.did, options.participant.keys);
+    // Pre-register communication keys both ways. Production exchanges these via
+    // the protocol handshake; in-process we wire them directly.
+    transport.registerPeer(options.participant.did, options.participant.keys.publicKey.compressed);
+    transport.registerPeer(options.service.did, options.service.keys.publicKey.compressed);
+    transport.start();
+
+    const service = new AggregationServiceRunner({
+      transport,
+      did                    : options.service.did,
+      keys                   : options.service.keys,
+      config                 : { minParticipants: 1, network: options.config.network, beaconType: options.config.beaconType },
+      onProvideTxData        : options.onProvideTxData,
+      cohortTtlMs            : options.cohortTtlMs,
+      phaseTimeoutMs         : options.phaseTimeoutMs,
+      // In-process bus with the participant already listening: a single advert
+      // suffices, so disable the republish loop (no dangling interval).
+      advertRepeatIntervalMs : 0,
+    });
+
+    const participant = new AggregationParticipantRunner({
+      transport,
+      did             : options.participant.did,
+      keys            : options.participant.keys,
+      shouldJoin      : async () => true,
+      onProvideUpdate : options.onProvideUpdate,
+    });
+
+    await participant.start();
+    try {
+      return await service.run();
+    } finally {
+      participant.stop();
+      service.stop();
+    }
+  }
+}

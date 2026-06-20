@@ -102,7 +102,7 @@ export type ResolverState =
   | { status: 'resolved'; result: DidResolutionResponse };
 
 /**
- * Return type from {@link Beacon.processSignals}.
+ * Return type from {@link SinglePartyBeacon.processSignals}.
  * Contains successfully resolved updates and any data needs that must be
  * satisfied before the remaining signals can be processed.
  */

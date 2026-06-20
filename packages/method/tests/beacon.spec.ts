@@ -3,7 +3,9 @@ import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { BTCR2MerkleTree } from '@did-btcr2/smt';
 import { bytesToHex, randomBytes } from '@noble/hashes/utils';
 import { expect } from 'chai';
+import { SinglePartyBeacon } from '../src/core/beacon/beacon.js';
 import { CASBeacon } from '../src/core/beacon/cas-beacon.js';
+import { BeaconFactory } from '../src/core/beacon/factory.js';
 import type { BeaconService, BeaconSignal, BlockMetadata } from '../src/core/beacon/interfaces.js';
 import { SingletonBeacon } from '../src/core/beacon/singleton-beacon.js';
 import { SMTBeacon } from '../src/core/beacon/smt-beacon.js';
@@ -40,7 +42,7 @@ function fakeSignal(signalBytes: string): BeaconSignal {
 
 const DID = 'did:btcr2:k1q5ptvjpcgt0jfgvddau2fllfcpxwa5qtw2umkafp5xqwqr72a7xanvcjf324y';
 
-describe('Beacon.processSignals', () => {
+describe('SinglePartyBeacon.processSignals', () => {
 
   describe('SingletonBeacon', () => {
     const service: BeaconService = {
@@ -280,5 +282,29 @@ describe('Beacon.processSignals', () => {
       // hex-keyed; proof.updateId is the same hash encoded as base64url).
       expect((result.needs[0] as { updateHash: string }).updateHash).to.equal(bytesToHex(hash(canonicalize(update))));
     });
+  });
+});
+
+describe('BeaconFactory.establish', () => {
+  const base = `${DID}#beacon-1`;
+  const endpoint = 'bitcoin:bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4';
+
+  it('returns the typed subclass for each beacon type, all extending SinglePartyBeacon', () => {
+    const cases: Array<[BeaconService['type'], new (s: BeaconService) => SinglePartyBeacon]> = [
+      ['SingletonBeacon', SingletonBeacon],
+      ['CASBeacon', CASBeacon],
+      ['SMTBeacon', SMTBeacon],
+    ];
+    for(const [type, ctor] of cases) {
+      const beacon = BeaconFactory.establish({ id: base, type, serviceEndpoint: endpoint });
+      expect(beacon instanceof ctor, `${type} instance`).to.equal(true);
+      expect(beacon instanceof SinglePartyBeacon, `${type} extends SinglePartyBeacon`).to.equal(true);
+      expect(beacon.service.type).to.equal(type);
+    }
+  });
+
+  it('throws on an unknown beacon type', () => {
+    const service = { id: base, type: 'BogusBeacon', serviceEndpoint: endpoint } as unknown as BeaconService;
+    expect(() => BeaconFactory.establish(service)).to.throw('Invalid Beacon Type');
   });
 });

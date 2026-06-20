@@ -5,7 +5,7 @@ import type { Signer } from '@did-btcr2/keypair';
 import type { BeaconProcessResult, DataNeed } from '../resolver.js';
 import type { SidecarData } from '../types.js';
 import type { BroadcastOptions } from './beacon.js';
-import { Beacon } from './beacon.js';
+import { SinglePartyBeacon } from './beacon.js';
 import type { BeaconService, BeaconSignal, BlockMetadata, CasPublishFn } from './interfaces.js';
 
 /**
@@ -28,9 +28,9 @@ export interface CASBroadcastOptions extends BroadcastOptions {
  *
  * @class CASBeacon
  * @type {CASBeacon}
- * @extends {Beacon}
+ * @extends {SinglePartyBeacon}
  */
-export class CASBeacon extends Beacon {
+export class CASBeacon extends SinglePartyBeacon {
   /**
    * Creates an instance of CASBeacon.
    * @param {BeaconService} service The service of the Beacon.
@@ -115,7 +115,7 @@ export class CASBeacon extends Beacon {
    * Creates a CAS Announcement mapping the DID to the update hash, broadcasts the hash of the
    * announcement via OP_RETURN, and optionally publishes the announcement off-chain via the
    * supplied `casPublish` callback. UTXO selection, PSBT construction, fee estimation, signing,
-   * and broadcast are delegated to {@link Beacon.buildSignAndBroadcast}.
+   * and broadcast are delegated to {@link SinglePartyBeacon.buildSignAndBroadcast}.
    *
    * @param {SignedBTCR2Update} signedUpdate The signed BTCR2 update to broadcast.
    * @param {Signer} signer Signer that produces the ECDSA signature for the Bitcoin transaction.

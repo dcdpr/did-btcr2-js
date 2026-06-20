@@ -89,7 +89,7 @@ export function deriveSingletonAddress(
 }
 
 /**
- * Options accepted by {@link Beacon.buildSignAndBroadcast} and related helpers.
+ * Options accepted by {@link SinglePartyBeacon.buildSignAndBroadcast} and related helpers.
  */
 export interface BroadcastOptions {
   /** Fee estimator for computing the transaction fee. Defaults to {@link DEFAULT_FEE_ESTIMATOR}. */
@@ -115,14 +115,14 @@ export interface BeaconTxPlan {
   feeSats: bigint;
   /**
    * Singleton beacon script kind, when applicable. Drives the signing dispatch
-   * in {@link Beacon.signSinglePartyTx}. Aggregation plans set this to `'p2tr'`.
+   * in {@link SinglePartyBeacon.signSinglePartyTx}. Aggregation plans set this to `'p2tr'`.
    */
   scriptKind: SingletonScriptKind;
 }
 
 /**
  * Build an OP_RETURN script carrying a 32-byte beacon signal.
- * Exported as a utility so callers building txs outside Beacon (e.g., the aggregation
+ * Exported as a utility so callers building txs outside SinglePartyBeacon (e.g., the aggregation
  * `onProvideTxData` callback) can produce identical output.
  *
  * Uses the opcode *string* `'RETURN'` rather than the numeric `OP.RETURN`
@@ -168,7 +168,7 @@ async function fetchSpendableUtxo(
  * Returns the unsigned Transaction + prev-output metadata that an aggregation service's
  * signing session consumes (via {@link SigningTxData}).
  *
- * This is the reusable counterpart to {@link Beacon.buildSignAndBroadcast}'s internal
+ * This is the reusable counterpart to {@link SinglePartyBeacon.buildSignAndBroadcast}'s internal
  * construction step — the aggregation path must produce an unsigned tx because the
  * signature comes from a MuSig2 round, not a local secret key.
  *
@@ -311,9 +311,11 @@ async function signSingletonInput(
 }
 
 /**
- * Abstract base class for all BTCR2 Beacon types.
- * A Beacon is a service listed in a BTCR2 DID document that informs resolvers
- * how to find authentic updates to the DID.
+ * Abstract base class providing the single-party broadcast machinery shared by
+ * all BTCR2 beacon types: one party holds one key and broadcasts one 32-byte
+ * signal (P2PKH / P2WPKH / P2TR key-path). The aggregation (cohort of N >= 1)
+ * broadcast mode is the orthogonal axis, handled by the AggregationService and
+ * {@link buildAggregationBeaconTx}, not by this class hierarchy. See ADR 037.
  *
  * Beacons are lightweight typed wrappers around a {@link BeaconService} configuration.
  * Dependencies (signals, sidecar data, bitcoin connection) are passed as method
@@ -322,10 +324,10 @@ async function signSingletonInput(
  * Use {@link BeaconFactory.establish} to create typed instances from service config.
  *
  * @abstract
- * @class Beacon
- * @type {Beacon}
+ * @class SinglePartyBeacon
+ * @type {SinglePartyBeacon}
  */
-export abstract class Beacon {
+export abstract class SinglePartyBeacon {
   /**
    * The Beacon service configuration parsed from the DID Document.
    */
