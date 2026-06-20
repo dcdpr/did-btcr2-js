@@ -5,16 +5,16 @@ import type { Signer } from '@did-btcr2/keypair';
 import type { BeaconProcessResult, DataNeed } from '../resolver.js';
 import type { SidecarData } from '../types.js';
 import type { BroadcastOptions } from './beacon.js';
-import { Beacon } from './beacon.js';
+import { SinglePartyBeacon } from './beacon.js';
 import type { BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js';
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/terminology.html#singleton-beacon | Singleton Beacon}.
  * @class SingletonBeacon
  * @type {SingletonBeacon}
- * @extends {Beacon}
+ * @extends {SinglePartyBeacon}
  */
-export class SingletonBeacon extends Beacon {
+export class SingletonBeacon extends SinglePartyBeacon {
 
   /**
    * Creates an instance of SingletonBeacon.
@@ -64,7 +64,7 @@ export class SingletonBeacon extends Beacon {
    *
    * The signal bytes embedded in OP_RETURN are the SHA-256 canonical hash of the signed update.
    * UTXO selection, PSBT construction, fee estimation, signing, and broadcast are delegated to
-   * {@link Beacon.buildSignAndBroadcast}.
+   * {@link SinglePartyBeacon.buildSignAndBroadcast}.
    *
    * @param {SignedBTCR2Update} signedUpdate The signed BTCR2 update to broadcast.
    * @param {Signer} signer Signer that produces the ECDSA signature for the Bitcoin transaction.

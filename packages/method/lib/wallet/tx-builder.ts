@@ -5,7 +5,7 @@
  *
  * Fee strategy: two-pass. Probe-sign at a minimum fee, measure vsize, recompute
  * at the target sat/vB, rebuild with the corrected change amount. Same pattern
- * used by the Beacon base class and the sweep-mutinynet recovery script.
+ * used by the SinglePartyBeacon base class and the sweep-mutinynet recovery script.
  */
 import { BitcoinConnection, getNetwork } from '@did-btcr2/bitcoin';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';

@@ -37,6 +37,7 @@ children:
   - ./034-key-manager-capability-pattern.md
   - ./035-smt-proof-base64url-wire-format.md
   - ./036-zero-hash-smt-model.md
+  - ./037-single-party-beacon-and-two-axis-model.md
 ---
 
 # Architecture Decision Records
@@ -81,3 +82,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 034 | 2026-05-21 | [KeyManager.canExport Capability Pattern](034-key-manager-capability-pattern.md) |
 | 035 | 2026-06-15 | [SMT Proof Wire Format: base64url no-pad and the Zero-Node Collapsed Bitmap](035-smt-proof-base64url-wire-format.md) |
 | 036 | 2026-06-16 | [Adopt the Zero-Hash SMT Model per algorithms.html](036-zero-hash-smt-model.md) |
+| 037 | 2026-06-19 | [Rename Beacon to SinglePartyBeacon and the Two-Axis Beacon Model](037-single-party-beacon-and-two-axis-model.md) |
