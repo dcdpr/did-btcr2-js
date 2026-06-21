@@ -5,8 +5,10 @@ import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import { Transaction } from '@scure/btc-signer';
 import { getBeaconStrategy } from './beacon-strategy.js';
 import { AggregationCohort } from './cohort.js';
+import type { CohortConditions } from './conditions.js';
 import { AggregationParticipantError } from './errors.js';
 import type { BaseMessage } from './messages/base.js';
+import { isCohortAdvertMessage } from './messages/bodies.js';
 import { AGGREGATION_WIRE_VERSION } from './messages/base.js';
 import {
   AGGREGATED_NONCE,
@@ -28,13 +30,15 @@ import { ParticipantCohortPhase } from './phases.js';
 import type { AggregationSigner } from './signer.js';
 import { BeaconSigningSession } from './signing-session.js';
 
-/** Cohort advert as discovered by the participant (UI: list of joinable cohorts). */
-export interface CohortAdvert {
+/**
+ * Cohort advert as discovered by the participant (UI: list of joinable cohorts).
+ * Carries the advertised {@link CohortConditions} (beaconType, minParticipants,
+ * maxParticipants, costs, ...) so a `shouldJoin` decision can inspect them.
+ */
+export interface CohortAdvert extends CohortConditions {
   cohortId: string;
   serviceDid: string;
-  cohortSize: number;
   network: string;
-  beaconType: string;
   serviceCommunicationPk: Uint8Array;
 }
 
@@ -168,17 +172,18 @@ export class AggregationParticipant {
   }
 
   #handleCohortAdvert(message: BaseMessage): void {
-    const cohortId = message.body?.cohortId;
-    if(!cohortId) return;
+    // Validate the wire shape (incl. minParticipants range) before trusting it,
+    // rather than reading fields with `?? 0` fallbacks (see ADR 039).
+    if(!isCohortAdvertMessage(message)) return;
+    const { cohortId, network, communicationPk, ...conditions } = message.body;
     if(this.#cohortStates.has(cohortId)) return;  // Already known
 
     const advert: CohortAdvert = {
       cohortId,
       serviceDid             : message.from,
-      cohortSize             : message.body?.cohortSize ?? 0,
-      network                : message.body?.network ?? '',
-      beaconType             : message.body?.beaconType ?? 'CASBeacon',
-      serviceCommunicationPk : message.body?.communicationPk ?? new Uint8Array(),
+      network,
+      serviceCommunicationPk : communicationPk,
+      ...conditions,
     };
 
     this.#cohortStates.set(cohortId, {
@@ -206,7 +211,7 @@ export class AggregationParticipant {
     const cohort = new AggregationCohort({
       id              : cohortId,
       serviceDid      : state.serviceDid,
-      minParticipants : state.advert!.cohortSize,
+      minParticipants : state.advert!.minParticipants,
       network         : state.advert!.network,
       beaconType      : state.advert!.beaconType,
     });
