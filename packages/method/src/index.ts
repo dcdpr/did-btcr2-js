@@ -2,6 +2,7 @@
 export * from './core/aggregation/service.js';
 export * from './core/aggregation/participant.js';
 export * from './core/aggregation/signer.js';
+export * from './core/aggregation/conditions.js';
 export * from './core/aggregation/cohort.js';
 export * from './core/aggregation/signing-session.js';
 export * from './core/aggregation/phases.js';

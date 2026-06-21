@@ -6,6 +6,7 @@ import { bytesToHex } from '@noble/hashes/utils';
 import type { Transaction } from '@scure/btc-signer';
 import { getBeaconStrategy } from './beacon-strategy.js';
 import { AggregationCohort } from './cohort.js';
+import { validateCohortConditions, type CohortConditions } from './conditions.js';
 import { AggregationServiceError } from './errors.js';
 import type { BaseMessage } from './messages/base.js';
 import { AGGREGATION_WIRE_VERSION } from './messages/base.js';
@@ -28,11 +29,14 @@ import type { ServiceCohortPhaseType } from './phases.js';
 import { ServiceCohortPhase } from './phases.js';
 import { BeaconSigningSession } from './signing-session.js';
 
-/** Cohort configuration set by the service operator. */
-export interface CohortConfig {
-  minParticipants: number;
+/**
+ * Cohort configuration set by the service operator: the advertised cohort
+ * {@link CohortConditions} plus the Bitcoin network. `beaconType` and
+ * `minParticipants` are required; the other conditions are optional (absent =
+ * unconstrained). See ADR 039.
+ */
+export interface CohortConfig extends CohortConditions {
   network: string;
-  beaconType: string;
 }
 
 /** Pending opt-in awaiting service operator approval. */
@@ -201,6 +205,14 @@ export class AggregationService {
    * Cohort starts in `Created` phase — call `advertise()` to broadcast.
    */
   createCohort(config: CohortConfig): string {
+    // Fail fast on invalid conditions rather than discovering them at finalize.
+    const problems = validateCohortConditions(config);
+    if(problems.length > 0) {
+      throw new AggregationServiceError(
+        `Invalid cohort conditions: ${problems.join('; ')}`,
+        'INVALID_COHORT_CONDITIONS', { problems }
+      );
+    }
     const cohort = new AggregationCohort({
       serviceDid      : this.did,
       minParticipants : config.minParticipants,
@@ -234,13 +246,15 @@ export class AggregationService {
       );
     }
 
+    // Advertise the full condition set (flat fields, per ADR 039). network is
+    // a separate cohort parameter; everything else in config is a condition.
+    const { network, ...conditions } = state.config;
     const message = createCohortAdvertMessage({
       from            : this.did,
       cohortId,
-      cohortSize      : state.config.minParticipants,
-      beaconType      : state.config.beaconType,
-      network         : state.config.network,
+      network,
       communicationPk : this.publicKey.compressed,
+      ...conditions,
     });
 
     state.phase = ServiceCohortPhase.Advertised;
@@ -310,6 +324,15 @@ export class AggregationService {
         'ALREADY_ACCEPTED', { cohortId, participantDid }
       );
     }
+    // Enforce the maxParticipants condition: a cohort cannot grow past its
+    // advertised ceiling (closes the unbounded-growth path; see ADR 039).
+    const maxParticipants = state.config.maxParticipants;
+    if(maxParticipants !== undefined && state.acceptedParticipants.size >= maxParticipants) {
+      throw new AggregationServiceError(
+        `Cohort ${cohortId} is full: ${maxParticipants} participants already accepted.`,
+        'COHORT_FULL', { cohortId, maxParticipants }
+      );
+    }
 
     state.acceptedParticipants.add(participantDid);
     state.cohort.participants.push(participantDid);
@@ -342,6 +365,15 @@ export class AggregationService {
       throw new AggregationServiceError(
         `Cohort ${cohortId} has only ${state.acceptedParticipants.size} accepted participants, need ${state.config.minParticipants}.`,
         'NOT_ENOUGH_PARTICIPANTS', { cohortId }
+      );
+    }
+    // Ceiling defense: acceptParticipant already rejects past max, so reaching
+    // here over max means state was mutated out-of-band.
+    const maxParticipants = state.config.maxParticipants;
+    if(maxParticipants !== undefined && state.acceptedParticipants.size > maxParticipants) {
+      throw new AggregationServiceError(
+        `Cohort ${cohortId} has ${state.acceptedParticipants.size} accepted participants, exceeds max ${maxParticipants}.`,
+        'TOO_MANY_PARTICIPANTS', { cohortId, maxParticipants }
       );
     }
 

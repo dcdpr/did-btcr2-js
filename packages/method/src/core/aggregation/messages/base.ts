@@ -1,3 +1,5 @@
+import type { CohortConditions } from '../conditions.js';
+
 /**
  * Current on-the-wire protocol version.
  *
@@ -7,9 +9,11 @@
  */
 export const AGGREGATION_WIRE_VERSION = 1;
 
-export type BaseBody = {
+// Cohort conditions (beaconType, minParticipants, maxParticipants, ...) ride on
+// the wire as flat optional body fields, supplied via `Partial<CohortConditions>`
+// below so the bag stays a single source of truth for the advertised conditions.
+export type BaseBody = Partial<CohortConditions> & {
   cohortId: string;
-  cohortSize?: number;
   network?: string;
   participantPk?: Uint8Array;
   beaconAddress?: string;
@@ -23,7 +27,6 @@ export type BaseBody = {
   prevOutScriptHex?: string;
   prevOutValue?: string;
   communicationPk?: Uint8Array;
-  beaconType?: string;
   data?: string;
   signedUpdate?: Record<string, unknown>;
   casAnnouncement?: Record<string, string>;

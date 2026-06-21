@@ -1,3 +1,4 @@
+import type { CohortConditions } from '../conditions.js';
 import { BaseMessage } from './base.js';
 import {
   AGGREGATED_NONCE,
@@ -18,11 +19,9 @@ import {
  * Factory functions for creating messages related to the cohort formation step, where cohorts are
  * formed and participants opt in to join the cohort.
  */
-type CohortAdvertMessage = {
+type CohortAdvertMessage = CohortConditions & {
   from: string;
   cohortId: string;
-  cohortSize: number;
-  beaconType: string;
   network: string;
   communicationPk: Uint8Array;
 };

@@ -383,6 +383,15 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
       const decision = await this.#onOptInReceived(optIn);
       if(!decision.accepted) return;
 
+      // Don't accept past the advertised maxParticipants: acceptParticipant
+      // would throw COHORT_FULL and fail the run. Silently ignore the surplus
+      // opt-in (the cohort is full).
+      const maxParticipants = this.#config.maxParticipants;
+      const cohortNow = this.session.getCohort(this.#cohortId!);
+      if(maxParticipants !== undefined && cohortNow && cohortNow.participants.length >= maxParticipants) {
+        return;
+      }
+
       await this.#sendAll(this.session.acceptParticipant(this.#cohortId!, msg.from));
       this.emit('participant-accepted', { participantDid: msg.from });
 

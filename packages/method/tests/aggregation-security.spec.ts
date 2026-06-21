@@ -166,7 +166,7 @@ describe('Aggregation security regressions', () => {
         from    : 'did:btcr2:service',
         body    : {
           cohortId        : 'cohort-x',
-          cohortSize      : 2,
+          minParticipants : 2,
           network         : 'mutinynet',
           beaconType      : 'CASBeacon',
           communicationPk : new Uint8Array(33),

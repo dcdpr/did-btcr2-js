@@ -12,6 +12,7 @@
  */
 
 import type { SerializedSMTProof } from '@did-btcr2/smt';
+import type { CohortConditions } from '../conditions.js';
 import type { BaseMessage } from './base.js';
 import {
   AGGREGATED_NONCE,
@@ -29,10 +30,8 @@ import {
 
 // ── Cohort formation (Step 1) ─────────────────────────────────────────────
 
-export interface CohortAdvertBody {
+export interface CohortAdvertBody extends CohortConditions {
   cohortId: string;
-  cohortSize: number;
-  beaconType: string;
   network: string;
   communicationPk: Uint8Array;
 }
@@ -135,8 +134,16 @@ export type AggregationMessage =
 
 const hasStr = (b: unknown, k: string): boolean =>
   !!b && typeof (b as Record<string, unknown>)[k] === 'string';
-const hasNum = (b: unknown, k: string): boolean =>
-  !!b && typeof (b as Record<string, unknown>)[k] === 'number';
+/** Present, an integer, and >= min. */
+const hasIntMin = (b: unknown, k: string, min: number): boolean => {
+  const v = b ? (b as Record<string, unknown>)[k] : undefined;
+  return typeof v === 'number' && Number.isInteger(v) && v >= min;
+};
+/** Absent, or present as an integer >= min. */
+const optIntMin = (b: unknown, k: string, min: number): boolean => {
+  const v = b ? (b as Record<string, unknown>)[k] : undefined;
+  return v === undefined || (typeof v === 'number' && Number.isInteger(v) && v >= min);
+};
 const hasBool = (b: unknown, k: string): boolean =>
   !!b && typeof (b as Record<string, unknown>)[k] === 'boolean';
 const hasBytes = (b: unknown, k: string): boolean =>
@@ -147,9 +154,14 @@ const hasBytesArray = (b: unknown, k: string): boolean => {
 };
 
 export function isCohortAdvertMessage(m: BaseMessage): m is CohortAdvertMessage {
+  // Range-check the participant bounds so a malformed advert (missing or
+  // zero/negative minParticipants) is rejected rather than silently accepted as
+  // a zero-floor cohort. The service does the full cross-field validation at
+  // createCohort (see validateCohortConditions); here we guard the wire shape.
   return m.type === COHORT_ADVERT
     && hasStr(m.body, 'cohortId')
-    && hasNum(m.body, 'cohortSize')
+    && hasIntMin(m.body, 'minParticipants', 1)
+    && optIntMin(m.body, 'maxParticipants', 1)
     && hasStr(m.body, 'beaconType')
     && hasStr(m.body, 'network')
     && hasBytes(m.body, 'communicationPk');

@@ -91,7 +91,9 @@ export class AggregationCohort {
 
   constructor({ id, minParticipants, serviceDid, network, beaconType }: AggregationCohortParams) {
     this.id = id || crypto.randomUUID();
-    this.minParticipants = minParticipants || 2;
+    // `?? 2` (not `|| 2`) so a deliberately-passed 0 is preserved rather than
+    // silently coerced; the service rejects an invalid count at createCohort.
+    this.minParticipants = minParticipants ?? 2;
     this.serviceDid = serviceDid || '';
     this.network = network;
     this.beaconType = beaconType || 'CASBeacon';
