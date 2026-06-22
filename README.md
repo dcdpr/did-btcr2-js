@@ -18,9 +18,9 @@ Visit [dcdpr.github.io/did-btcr2](https://dcdpr.github.io/did-btcr2/) to read th
 
 ## Documentation
 
-**For users** — install, configure, usage, demos, and the language-implementation comparison: [btcr2.dev](https://btcr2.dev/).
+**For users** - install, configure, usage, demos, and the language-implementation comparison: [btcr2.dev](https://btcr2.dev/).
 
-**For contributors** — architecture, build system, PR workflow, release process, and per-package API reference: checkout [docs/](docs/) via GitHub / your editor or build the unified local site:
+**For contributors** - architecture, build system, PR workflow, release process, and per-package API reference: checkout [docs/](docs/) via GitHub / your editor or build the unified local site:
 
 ```bash
 pnpm install

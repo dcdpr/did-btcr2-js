@@ -252,7 +252,7 @@ const alice = new AggregationParticipantRunner({
 alice.on('cohort-ready', ({ beaconAddress }) => console.log('Beacon:', beaconAddress));
 alice.on('cohort-complete', () => console.log('Done'));
 
-await alice.start(); // Long-running — listens for cohort adverts
+await alice.start(); // Long-running - listens for cohort adverts
 ```
 
 The runners drive the full 4-step protocol automatically. The caller only needs to supply callbacks for decisions (should I join this cohort? what update should I submit? what transaction data should the signing session use?).

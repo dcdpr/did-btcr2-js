@@ -40,6 +40,7 @@ children:
   - ./037-single-party-beacon-and-two-axis-model.md
   - ./038-musig2-key-custody.md
   - ./039-cohort-condition-model.md
+  - ./040-multi-cohort-service-runner.md
 ---
 
 # Architecture Decision Records
@@ -87,3 +88,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 037 | 2026-06-19 | [Rename Beacon to SinglePartyBeacon and the Two-Axis Beacon Model](037-single-party-beacon-and-two-axis-model.md) |
 | 038 | 2026-06-20 | [MuSig2 Key Custody: Bounded, Zeroized Secrets at the Participant Boundary](038-musig2-key-custody.md) |
 | 039 | 2026-06-21 | [Cohort Condition Model](039-cohort-condition-model.md) |
+| 040 | 2026-06-22 | [Multi-Cohort Aggregation Service Runner](040-multi-cohort-service-runner.md) |

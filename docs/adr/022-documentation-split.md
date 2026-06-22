@@ -76,7 +76,7 @@ This lets us stop trying to serve two audiences with one set of files, stop leav
 
 ## Alternatives considered
 
-- **Astro Starlight + starlight-typedoc**: modern 2025-2026 trendy static site generator. Rejected for this project because it adds 6+ new dependencies for a contributor-only audience, and because Starlight's default theme polish is irrelevant when the primary consumers are devs with the repo checked out locally. Kept on the roadmap as a possible future upgrade if the docs audience grows.
+- **Astro Starlight + starlight-typedoc**: modern 2025-2026 trendy static site generator. Rejected for this project because it adds 6+ new dependencies for a contributor-only audience, and because Starlight's default theme polish is irrelevant when the primary consumers are devs with the repo checked out locally. Kept in mind as a possible future upgrade if the docs audience grows.
 
 - **No site generator at all (markdown + TypeDoc HTML separately)**: serve narrative docs as plain markdown read on GitHub, and generate TypeDoc HTML separately. Rejected because the split would lose cross-referenced navigation and unified search. The `projectDocuments` option gives us the unified experience for nearly zero additional cost.
 
@@ -96,7 +96,7 @@ This lets us stop trying to serve two audiences with one set of files, stop leav
 
 ## Follow-ups
 
-Tracked in repo `TODO.md`:
+Planned future work:
 
 - Write btcr2.dev user-facing content (out of scope for this repo).
 - Consider adding `typedoc-plugin-mermaid` when narrative pages need diagrams.

@@ -51,9 +51,9 @@ tree.addEntries([
 
 tree.finalize();
 
-tree.rootHash;                            // Uint8Array(32) — anchor this in the beacon OP_RETURN
+tree.rootHash;                            // Uint8Array(32): anchor this in the beacon OP_RETURN
 const proof = tree.proof('did:btcr2:k1qexample1');
-// SerializedSMTProof: { id, collapsed, hashes, nonce?, updateId? } — all base64url, no padding
+// SerializedSMTProof: { id, collapsed, hashes, nonce?, updateId? }: all base64url, no padding
 ```
 
 `addEntries()` may be called multiple times before `finalize()`. Adding two DIDs that collide on the same index throws. Call `reset()` to drop the computed root/proofs while keeping the entries.

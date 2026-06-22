@@ -3,6 +3,23 @@ import type { CohortAdvert, PendingSigningRequest, PendingValidation } from '../
 import type { AggregationResult, PendingOptIn, Rejection } from '../service.js';
 
 /**
+ * Sidecar data a participant keeps when a cohort completes from its
+ * perspective: the cohort's beacon coordinates plus the off-chain artifact it
+ * needs for future DID resolution (the CAS Announcement map for CAS beacons, or
+ * the SMT inclusion proof for SMT beacons). Emitted via `cohort-complete` and
+ * returned by the participant runner's join helpers.
+ */
+export interface CohortCompleteInfo {
+  cohortId: string;
+  beaconAddress: string;
+  beaconType: string;
+  /** DID → base64url update hash. Populated only for CAS beacons. */
+  casAnnouncement?: Record<string, string>;
+  /** Merkle inclusion proof for this participant's slot. Populated only for SMT beacons. */
+  smtProof?: SerializedSMTProof;
+}
+
+/**
  * AggregationServiceRunner events are emitted by the AggregationServiceRunner to signal important
  * milestones and actions during the aggregation process. They can be listened to by external code
  * to react to these events, such as logging, updating a UI, or triggering additional actions.
@@ -15,13 +32,13 @@ export type AggregationServiceEvents = {
   'opt-in-received': [PendingOptIn];
 
   /** A participant has been accepted into the cohort. */
-  'participant-accepted': [{ participantDid: string }];
+  'participant-accepted': [{ cohortId: string; participantDid: string }];
 
   /** Keygen has been finalized — beacon address is now available. */
   'keygen-complete': [{ cohortId: string; beaconAddress: string }];
 
   /** A participant has submitted a signed update. */
-  'update-received': [{ participantDid: string }];
+  'update-received': [{ cohortId: string; participantDid: string }];
 
   /**
    * An inbound message was silently dropped by the state machine (bad proof,
@@ -34,13 +51,13 @@ export type AggregationServiceEvents = {
   'data-distributed': [{ cohortId: string }];
 
   /** A participant has acknowledged validation (approved or rejected). */
-  'validation-received': [{ participantDid: string; approved: boolean }];
+  'validation-received': [{ cohortId: string; participantDid: string; approved: boolean }];
 
   /** Signing has started — auth requests sent to participants. */
-  'signing-started': [{ sessionId: string }];
+  'signing-started': [{ cohortId: string; sessionId: string }];
 
   /** A participant has contributed their MuSig2 nonce. */
-  'nonce-received': [{ participantDid: string }];
+  'nonce-received': [{ cohortId: string; participantDid: string }];
 
   /** Signing complete — final aggregated signature is ready to broadcast. */
   'signing-complete': [AggregationResult];
@@ -83,15 +100,7 @@ export type AggregationParticipantEvents = {
    * future DID resolution: the CAS Announcement map (for CAS beacons) or the
    * SMT inclusion proof (for SMT beacons).
    */
-  'cohort-complete': [{
-    cohortId: string;
-    beaconAddress: string;
-    beaconType: string;
-    /** DID → base64url update hash. Populated only for CAS beacons. */
-    casAnnouncement?: Record<string, string>;
-    /** Merkle inclusion proof for this participant's slot. Populated only for SMT beacons. */
-    smtProof?: SerializedSMTProof;
-  }];
+  'cohort-complete': [CohortCompleteInfo];
 
   /** Cohort failed (rejected validation, signing error, etc.). */
   'cohort-failed': [{ cohortId: string; reason: string }];

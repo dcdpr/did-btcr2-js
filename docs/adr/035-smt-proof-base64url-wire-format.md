@@ -9,6 +9,7 @@ title: "ADR 035: SMT Proof Wire Format: base64url no-pad and the Zero-Node Colla
 **Date:** 2026-06-15
 
 **Branch / PR:** `feat/scenario-orchestrator`
+
 **References:** [ADR 017](017-optimized-smt-core-primitive.md), [ADR 014](014-canonicalization-functions-and-toJSON-convention.md), [ADR 016](016-sans-io-resolver.md)
 
 ## Context

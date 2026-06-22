@@ -23,7 +23,7 @@ All endpoints live under `/v1/`. Bodies are JSON; SSE streams use standard `text
 | Route | Method | Purpose | Auth |
 |---|---|---|---|
 | `/v1/adverts` | GET (SSE) | Broadcast cohort adverts | None (public) |
-| `/v1/adverts` | POST | Publish advert (service → world) | Signed envelope in body |
+| `/v1/adverts` | POST | Publish advert (service to world) | Signed envelope in body |
 | `/v1/messages` | POST | Directed protocol messages | Signed envelope in body |
 | `/v1/actors/{did}/inbox` | GET (SSE) | Per-DID inbox stream | `Authorization: BTCR2-Sig …` |
 | `/v1/.well-known/aggregation` | GET | Service metadata | None |
@@ -58,7 +58,7 @@ The signature is BIP340 over `sha256(canonicalize({v, from, to, timestamp, nonce
 
 ### Binary fields on the wire (`__bytes` convention)
 
-Aggregation messages carry `Uint8Array` fields (public keys, MuSig2 nonces, partial signatures). `JSON.stringify(Uint8Array)` produces `{"0":1,"1":2,...}` — an object with numeric string keys — which does not round-trip back to a `Uint8Array` on the receiving side. Both the signature would still verify (both sides mangle identically) *and* the handler would receive a broken object.
+Aggregation messages carry `Uint8Array` fields (public keys, MuSig2 nonces, partial signatures). `JSON.stringify(Uint8Array)` produces `{"0":1,"1":2,...}` (an object with numeric string keys) which does not round-trip back to a `Uint8Array` on the receiving side. Both the signature would still verify (both sides mangle identically) *and* the handler would receive a broken object.
 
 To avoid that, the HTTP transport pre-processes every outbound message via `normalizeForWire`, replacing each `Uint8Array` with a `{ "__bytes": "<hex>" }` sentinel object, before signing and serialization. On the receive side, after signature verification, `reviveFromWire` walks the parsed JSON and restores each sentinel to a real `Uint8Array`. The sentinel is visible on the wire and must be implemented identically by any non-TypeScript client.
 
@@ -169,7 +169,7 @@ The runner emits typed events (`cohort-advert`, `round-progress`, `cohort-comple
 |---|---|---|
 | `cors` | `{ mode: 'permissive' }` | `permissive` emits `Access-Control-Allow-Origin: *`. Also `{ mode: 'allowlist', origins: [...] }` or `{ mode: 'same-origin' }`. |
 | `clockSkewSec` | 60 | Envelope + auth-header timestamp tolerance. |
-| `inboxBufferSize` | 100 | Per-recipient inbox ring buffer — replay window for SSE reconnects via `Last-Event-ID`. |
+| `inboxBufferSize` | 100 | Per-recipient inbox ring buffer: replay window for SSE reconnects via `Last-Event-ID`. |
 | `advertTtlMs` | 5 min | How long a cached advert is replayed to new broadcast-SSE subscribers. |
 | `rateLimiter` | `new RateLimiter()` | Pluggable. Default: per-DID token bucket, 10 rps, burst 30. Swap in a Redis-backed store for multi-instance deployments. |
 | `nonceCache` | `new NonceCache()` | Pluggable anti-replay. Default: FIFO 10k entries per process. |
@@ -183,12 +183,12 @@ The runner emits typed events (`cohort-advert`, `round-progress`, `cohort-comple
 | `baseUrl` | (required) | Full URL including scheme and optional path prefix. Must end in `/`; added automatically if missing. |
 | `fetchImpl` | `globalThis.fetch` | Custom fetch for tests, Workers, React Native. |
 | `clockSkewSec` | 60 | Envelope clock-skew tolerance. |
-| `reconnectBackoff` | `1s → 30s` expo + 20% jitter | SSE reconnect policy. |
+| `reconnectBackoff` | `1s to 30s` expo + 20% jitter | SSE reconnect policy. |
 | `logger` | `CONSOLE_LOGGER` | Same as server side. |
 
 ## Runnable reference implementation
 
-`packages/method/lib/operations/aggregation/e2e-http-transport.ts` is a ~180-line standalone demo: it boots an in-process `node:http` server hosting `HttpServerTransport`, creates two real HTTP clients, and runs a full 3-party MuSig2 aggregation round over loopback HTTP. No external dependencies — the single file is a complete server-side framework adapter plus a full end-to-end exercise.
+`packages/method/lib/operations/aggregation/e2e-http-transport.ts` is a ~180-line standalone demo: it boots an in-process `node:http` server hosting `HttpServerTransport`, creates two real HTTP clients, and runs a full 3-party MuSig2 aggregation round over loopback HTTP. No external dependencies: the single file is a complete server-side framework adapter plus a full end-to-end exercise.
 
 ```bash
 PORT=8080 bun packages/method/lib/operations/aggregation/e2e-http-transport.ts
