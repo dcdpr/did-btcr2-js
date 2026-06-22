@@ -9,6 +9,7 @@ title: "ADR 038: MuSig2 Key Custody - Bounded, Zeroized Secrets at the Participa
 **Date:** 2026-06-20
 
 **Branch / PR:** `feat/aggregation-kms`
+
 **References:** [ADR 008](008-aggregation-subsystem-inception.md), [ADR 020](020-aggregation-layered-architecture.md), [ADR 034](034-key-manager-capability-pattern.md), [ADR 037](037-single-party-beacon-and-two-axis-model.md)
 
 ## Context
@@ -35,10 +36,10 @@ The design question this ADR answers: **how does a participant supply its raw se
 
 |  | Secret lifetime | Zeroization | Coordinator holds secret? | MuSig2 works? |
 | --- | --- | --- | --- | --- |
-| **A** — route through `KeyManager.sign()` (KMS-opaque) | n/a | n/a | no | **no** (partial sig not expressible; only `exportKey()` yields the secret) |
-| **B** — bound + zeroized at the participant boundary *(chosen)* | one signing session | all transient copies + nonce, all paths | no (type-enforced) | yes |
-| **B2** — KMS-native MuSig2 capability (secret never copied out) | inside the keypair/KMS | inherent (no copy-out) | no | yes |
-| **C** — status quo | participant lifetime | nonce only, success path only | no | yes |
+| **A**: route through `KeyManager.sign()` (KMS-opaque) | n/a | n/a | no | **no** (partial sig not expressible; only `exportKey()` yields the secret) |
+| **B**: bound + zeroized at the participant boundary *(chosen)* | one signing session | all transient copies + nonce, all paths | no (type-enforced) | yes |
+| **B2**: KMS-native MuSig2 capability (secret never copied out) | inside the keypair/KMS | inherent (no copy-out) | no | yes |
+| **C**: status quo | participant lifetime | nonce only, success path only | no | yes |
 
 ## Decision
 
@@ -46,7 +47,7 @@ Adopt **Option B: confine the raw secret to a per-signing-session boundary that 
 
 1. **Bound the secret's lifetime to a signing session, not the participant.** Replace the long-lived `keys: SchnorrKeyPair` on `AggregationParticipant` with a narrower secret-provider boundary: the raw secret is yielded to the two MuSig2 calls only for the duration of nonce-generation and partial-signing (a scoped `withSecret(fn)` / per-session signer), after which the transient copy is wiped. The participant no longer retains a secret-bearing keypair across cohorts.
 2. **Add a reusable zeroization utility** (`wipe(bytes: Uint8Array)`), shared from the keypair/common layer, and apply it to **every transient raw-secret copy** at the `nonceGen` and `Session.sign` call sites. This complements the existing `Secp256k1SecretKey.destroy()` rather than re-inventing it.
-3. **Give `BeaconSigningSession` deterministic secret-nonce teardown on all paths.** Make `secretNonce` private, add an explicit `clear()` / `dispose()` that zeroizes it, and invoke it on **abort, failure, and completion** - not only on the success path of `generatePartialSignature`. A second partial-sign attempt continues to throw rather than reuse a nonce (MuSig2 nonce reuse is catastrophic key leakage).
+3. **Give `BeaconSigningSession` deterministic secret-nonce teardown on all paths.** Make `secretNonce` private, add an explicit `clear()` / `dispose()` that zeroizes it, and invoke it on **abort, failure, and completion**, not only on the success path of `generatePartialSignature`. A second partial-sign attempt continues to throw rather than reuse a nonce (MuSig2 nonce reuse is catastrophic key leakage).
 4. **Narrow the coordinator to a public-key type.** Type `AggregationService` (and `AggregationServiceRunner`) key material as public-key-only, since the service never signs. This turns "the coordinator never holds signing authority" ([ADR 008](008-aggregation-subsystem-inception.md)) from a runtime fact into a **compile-time invariant**.
 5. **Keep secrets out of the transport registry.** `AggregationRunner.solo()` registers only public keys with the transport actor registry; the secret stays at the participant boundary and is not aliased across the runner/transport/session.
 

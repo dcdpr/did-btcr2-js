@@ -12,9 +12,9 @@ title: "ADR 027: Aggregation Protocol Security Hardening and Threat Model"
 
 ## Context
 
-The initial aggregation subsystem ([ADR 020](020-aggregation-layered-architecture.md)) landed as a working multi-party protocol: cohort formation, update collection, aggregation, validation, MuSig2 signing. Getting it to pass happy-path scenarios was the first milestone.
+The initial aggregation subsystem ([ADR 020](020-aggregation-layered-architecture.md)) landed as a working multi-party protocol: cohort formation, update collection, aggregation, validation, MuSig2 signing. Getting it to pass happy-path scenarios came first.
 
-The second milestone was identifying and mitigating the adversarial-scenario classes a real deployment would face: malicious participants, confused service operators, replay attacks, resource-exhaustion by unbounded message sizes, stale cohorts hanging open forever, etc. This ADR captures the named threat classes the hardening commit addressed and the mitigations chosen.
+The next step was identifying and mitigating the adversarial-scenario classes a real deployment would face: malicious participants, confused service operators, replay attacks, resource-exhaustion by unbounded message sizes, stale cohorts hanging open forever, etc. This ADR captures the named threat classes the hardening commit addressed and the mitigations chosen.
 
 ## Threat classes addressed
 

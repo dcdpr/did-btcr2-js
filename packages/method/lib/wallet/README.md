@@ -100,4 +100,4 @@ rebuild with correct change. Same algorithm the Beacon base class uses.
 
 - No concurrent-write protection on `wallet.json`. Don't run two `add` commands at once.
 - All addresses are derived from a single key per entry; rotation requires a new `add`.
-- Mutinynet/signet/testnet4 share the `tb` HRP — addresses look identical structurally but operate on different chains. Pass `--network` to keep them straight.
+- Mutinynet/signet/testnet4 share the `tb` HRP: addresses look identical structurally but operate on different chains. Pass `--network` to keep them straight.

@@ -28,7 +28,7 @@ This guide is a step-by-step walkthrough. If you've never used the aggregation s
 
 Without aggregation, every BTCR2 DID update has to be broadcast individually as its own Bitcoin transaction via a Singleton Beacon. That doesn't scale: every DID controller pays Bitcoin fees for every update, and the chain fills up with one-shot transactions.
 
-Aggregation lets a coordinator (the **Aggregation Service**) batch updates from many DID controllers (the **Aggregation Participants**) into a single Bitcoin transaction. All participants jointly sign that transaction using **MuSig2** — an n-of-n Schnorr aggregation scheme — so the on-chain footprint is just one signature regardless of how many participants joined.
+Aggregation lets a coordinator (the **Aggregation Service**) batch updates from many DID controllers (the **Aggregation Participants**) into a single Bitcoin transaction. All participants jointly sign that transaction using **MuSig2** (an n-of-n Schnorr aggregation scheme) so the on-chain footprint is just one signature regardless of how many participants joined.
 
 The result: every participant's DID update is committed on-chain, but the cost and bandwidth are amortized across the cohort.
 
@@ -46,8 +46,8 @@ The [spec](https://dcdpr.github.io/did-btcr2/beacons/aggregate-beacons.html) def
 
 Two beacon types are supported:
 
-- **`CASBeacon`** — Aggregated updates form a CAS Announcement Map (DID → updateHash). The service publishes the map to a Content-Addressed Store (e.g., IPFS) and commits its hash on-chain.
-- **`SMTBeacon`** — Aggregated updates form a Sparse Merkle Tree. The SMT root is committed on-chain; participants get individual Merkle proofs.
+- **`CASBeacon`**: Aggregated updates form a CAS Announcement Map (DID to updateHash). The service publishes the map to a Content-Addressed Store (e.g., IPFS) and commits its hash on-chain.
+- **`SMTBeacon`**: Aggregated updates form a Sparse Merkle Tree. The SMT root is committed on-chain; participants get individual Merkle proofs.
 
 ---
 
@@ -94,10 +94,10 @@ The aggregation subsystem is built in two layers, both public:
 
 Every actor (service or participant) needs a `Transport` to send and receive messages. Two production transports ship, both implementing the same `Transport` interface:
 
-- **`NostrTransport`** — relay-based. Censorship-resistant via multi-relay redundancy. NIP-44 envelope encryption for directed messages. Requires at least one running relay.
-- **`HttpClientTransport` + `HttpServerTransport`** — HTTP/REST. Operator-hosted. Browser-compatible clients via `fetch` + fetch-based SSE. Framework-agnostic server (caller mounts `handleRequest` / `handleSse` in Hono / Express / Fastify / Workers / Bun). TLS-only confidentiality; signed-envelope authenticity per request.
+- **`NostrTransport`**: relay-based. Censorship-resistant via multi-relay redundancy. NIP-44 envelope encryption for directed messages. Requires at least one running relay.
+- **`HttpClientTransport` + `HttpServerTransport`**: HTTP/REST. Operator-hosted. Browser-compatible clients via `fetch` + fetch-based SSE. Framework-agnostic server (caller mounts `handleRequest` / `handleSse` in Hono / Express / Fastify / Workers / Bun). TLS-only confidentiality; signed-envelope authenticity per request.
 
-Runners and state machines are transport-agnostic — you pick a transport at construction time and the rest of the system doesn't care. Pick `NostrTransport` when you want censorship resistance and multi-relay redundancy; pick the HTTP pair when you want operational familiarity, browser-native clients, or REST-tooling interop.
+Runners and state machines are transport-agnostic: you pick a transport at construction time and the rest of the system doesn't care. Pick `NostrTransport` when you want censorship resistance and multi-relay redundancy; pick the HTTP pair when you want operational familiarity, browser-native clients, or REST-tooling interop.
 
 This section walks through the Nostr setup. For the HTTP walkthrough (wire protocol, Hono snippet, CORS and rate-limit configuration), see [http-transport.md](./http-transport.md).
 
@@ -137,7 +137,7 @@ transport.start();
 transport.unregisterActor(did);
 ```
 
-That's the entire transport setup. From here on, you only interact with the Runner — the transport is plumbing.
+That's the entire transport setup. From here on, you only interact with the Runner: the transport is plumbing.
 
 ### `NostrTransportConfig` options
 
@@ -176,7 +176,7 @@ const transport = TransportFactory.establish({
   baseUrl : 'https://aggregator.example.com/',
 });
 
-// HTTP server (operator side) — mount handleRequest + handleSse in a web framework
+// HTTP server (operator side): mount handleRequest + handleSse in a web framework
 const transport = TransportFactory.establish({
   type : 'http',
   role : 'server',
@@ -200,7 +200,7 @@ const transport = TransportFactory.establish({
 
 The service is the coordinator. It creates a cohort, advertises it, accepts participants, finalizes keygen, distributes aggregated data, and drives MuSig2 signing.
 
-### Step 1 — Construct the runner
+### Step 1: Construct the runner
 
 ```typescript
 import { AggregationServiceRunner } from '@did-btcr2/method';
@@ -231,7 +231,7 @@ const runner = new AggregationServiceRunner({
 });
 ```
 
-The `config` object follows the spec's "Aggregation Cohort definition" — at minimum you need participant count, network, and beacon type. Optional fields (max participants, time windows, fees) can be added in your `onOptInReceived` and `onReadyToFinalize` callbacks.
+The `config` object follows the spec's "Aggregation Cohort definition": at minimum you need participant count, network, and beacon type. Optional fields (max participants, time windows, fees) can be added in your `onOptInReceived` and `onReadyToFinalize` callbacks.
 
 #### `AggregationServiceRunnerOptions` (optional hardening)
 
@@ -242,7 +242,7 @@ The `config` object follows the spec's "Aggregation Cohort definition" — at mi
 | `phaseTimeoutMs` | unset (disabled) | Per-phase stall deadline. Reset automatically on each observed phase transition. |
 | `advertRepeatIntervalMs` | 60 s | Re-publish `COHORT_ADVERT` on this cadence until keygen completes, fails, or the runner stops. `0` disables re-publish (single publish). |
 
-### Step 2 — Subscribe to events (optional)
+### Step 2: Subscribe to events (optional)
 
 Events are useful for logging, UI updates, or driving side-effects:
 
@@ -260,9 +260,9 @@ runner.on('signing-complete',  (result) => console.log('signature:', result.sign
 runner.on('error',             (err)    => console.error(err));
 ```
 
-Subscribing is purely optional. Skipping events doesn't change the protocol — they're a side channel for observability.
+Subscribing is purely optional. Skipping events doesn't change the protocol: they're a side channel for observability.
 
-### Step 3 — Run the protocol to completion
+### Step 3: Run the protocol to completion
 
 ```typescript
 const result = await runner.run();
@@ -271,7 +271,7 @@ console.log('Signed tx hex:',   result.signedTx.toHex());
 console.log('Cohort id:',       result.cohortId);
 ```
 
-`runner.run()` returns a Promise that resolves with the final aggregation result once the MuSig2 signing session completes. That's it — internally it has just driven the cohort through all four spec steps.
+`runner.run()` returns a Promise that resolves with the final aggregation result once the MuSig2 signing session completes. That's it: internally it has just driven the cohort through all four spec steps.
 
 ### What `run()` actually does internally
 
@@ -281,9 +281,9 @@ So you understand what's happening behind the scenes:
    - Creates an `AggregationCohort` and emits `cohort-advertised`
    - Sends a `COHORT_ADVERT` broadcast over the transport
    - For each incoming `COHORT_OPT_IN` message:
-     - Calls `onOptInReceived(optIn)` — your decision callback
+     - Calls `onOptInReceived(optIn)`: your decision callback
      - If accepted, registers the peer's communication key, sends `COHORT_OPT_IN_ACCEPT`, emits `participant-accepted`
-   - Once `minParticipants` is reached, calls `onReadyToFinalize` — your decision callback
+   - Once `minParticipants` is reached, calls `onReadyToFinalize`: your decision callback
    - If `finalize: true`, computes the n-of-n MuSig2 Taproot beacon address, sends `COHORT_READY` to all participants, emits `keygen-complete`
 
 2. **Update Submission (spec Step 2)**
@@ -294,7 +294,7 @@ So you understand what's happening behind the scenes:
    - Builds the CAS Announcement Map (or SMT tree, depending on `beaconType`)
    - Sends `DISTRIBUTE_AGGREGATED_DATA` to all participants, emits `data-distributed`
    - For each incoming `VALIDATION_ACK`: tracks approval, emits `validation-received`
-   - Once all participants approve, calls `onProvideTxData` — your data callback
+   - Once all participants approve, calls `onProvideTxData`: your data callback
    - Sends `AUTHORIZATION_REQUEST` to all participants with the unsigned tx, emits `signing-started`
 
 4. **Signing & Broadcast (spec Step 4)**
@@ -303,7 +303,7 @@ So you understand what's happening behind the scenes:
    - For each incoming `SIGNATURE_AUTHORIZATION` (a partial signature): adds it to the session
    - Once all partial signatures are in, generates the final 64-byte Schnorr signature, attaches it to the tx, emits `signing-complete`, and resolves `run()`
 
-You can broadcast the resulting signed transaction yourself using `result.signedTx.toHex()` — the runner doesn't broadcast for you (that's a transport-layer concern outside its scope).
+You can broadcast the resulting signed transaction yourself using `result.signedTx.toHex()`: the runner doesn't broadcast for you (that's a transport-layer concern outside its scope).
 
 ---
 
@@ -311,7 +311,7 @@ You can broadcast the resulting signed transaction yourself using `result.signed
 
 The participant joins cohorts advertised by services, submits its own DID update, validates the aggregated data, and contributes its share of the MuSig2 signature.
 
-### Step 1 — Construct the runner
+### Step 1: Construct the runner
 
 ```typescript
 import { AggregationParticipantRunner, Resolver, Update } from '@did-btcr2/method';
@@ -321,7 +321,7 @@ const runner = new AggregationParticipantRunner({
   did  : myDid,
   keys : myKeys,
 
-  // Filter discovered cohorts. Default rejects all — you MUST override this.
+  // Filter discovered cohorts. Default rejects all - you MUST override this.
   shouldJoin: async (advert) => advert.beaconType === 'CASBeacon' && advert.network === 'mutinynet',
 
   // REQUIRED: build and sign an update for the cohort's beacon
@@ -352,14 +352,14 @@ const runner = new AggregationParticipantRunner({
 ```
 
 Two callbacks are required for the participant:
-- **`shouldJoin`** — filter which cohorts to join. Default is "reject everything"; you MUST override it.
-- **`onProvideUpdate`** — build the BTCR2 update you want included in the aggregated batch.
+- **`shouldJoin`**: filter which cohorts to join. Default is "reject everything"; you MUST override it.
+- **`onProvideUpdate`**: build the BTCR2 update you want included in the aggregated batch.
 
 Two more callbacks are optional:
-- **`onValidateData`** — approve/reject aggregated data. Default approves if the data correctly includes your update.
-- **`onApproveSigning`** — approve/reject the actual signing. Default approves.
+- **`onValidateData`**: approve/reject aggregated data. Default approves if the data correctly includes your update.
+- **`onApproveSigning`**: approve/reject the actual signing. Default approves.
 
-### Step 2 — Subscribe to events (optional)
+### Step 2: Subscribe to events (optional)
 
 ```typescript
 runner.on('cohort-discovered',  (advert)             => console.log('found:', advert.cohortId));
@@ -373,13 +373,13 @@ runner.on('cohort-failed',      ({ reason })         => console.error('failed:',
 runner.on('error',              (err)                => console.error(err));
 ```
 
-### Step 3 — Start the runner
+### Step 3: Start the runner
 
 Unlike the service, the participant runner is **long-running**. It listens indefinitely for new cohort adverts and processes each accepted cohort in parallel.
 
 ```typescript
 await runner.start();
-// runner is now listening — control returns immediately
+// runner is now listening - control returns immediately
 // Cohort processing happens via callbacks and events as messages arrive
 ```
 
@@ -389,7 +389,7 @@ To stop the runner cleanly:
 runner.stop();
 ```
 
-### Step 3b — One-shot mode
+### Step 3b: One-shot mode
 
 For tests, demos, or scripts that should exit after joining a single cohort, use the `joinFirst` static helper:
 
@@ -417,19 +417,19 @@ console.log(`Joined cohort ${result.cohortId}, beacon: ${result.beaconAddress}`)
    - Waits for `COHORT_READY` containing the cohort's MuSig2 beacon address; validates the address against locally-computed value, emits `cohort-ready`
 
 2. **Update Submission (spec Step 2)**
-   - Calls `onProvideUpdate({ cohortId, beaconAddress })` — your data callback
+   - Calls `onProvideUpdate({ cohortId, beaconAddress })`: your data callback
    - Sends the resulting `SignedBTCR2Update` via `SUBMIT_UPDATE`, emits `update-submitted`
 
 3. **Validation (spec Step 3)**
    - Waits for `DISTRIBUTE_AGGREGATED_DATA` containing the CAS announcement (or SMT proof)
    - Verifies that the aggregated data correctly includes the participant's submitted update
-   - Calls `onValidateData(info)` — your decision callback (default: approve if hash matches)
+   - Calls `onValidateData(info)`: your decision callback (default: approve if hash matches)
    - Sends `VALIDATION_ACK` (approved or rejected)
    - On rejection, emits `cohort-failed` and stops processing this cohort
 
 4. **Signing (spec Step 4)**
    - Waits for `AUTHORIZATION_REQUEST` containing the unsigned tx
-   - Calls `onApproveSigning(req)` — your decision callback (default: approve)
+   - Calls `onApproveSigning(req)`: your decision callback (default: approve)
    - On rejection, emits `cohort-failed` and stops
    - On approval: generates a MuSig2 nonce, sends `NONCE_CONTRIBUTION`
    - Waits for `AGGREGATED_NONCE` from the service
@@ -444,7 +444,7 @@ console.log(`Joined cohort ${result.cohortId}, beacon: ${result.beaconAddress}`)
 
 | Callback | Required? | Default | Purpose |
 |---|---|---|---|
-| `onProvideTxData` | ✅ yes | — | Build the Bitcoin tx to MuSig2-sign once validation completes |
+| `onProvideTxData` | ✅ yes | n/a | Build the Bitcoin tx to MuSig2-sign once validation completes |
 | `onOptInReceived` | optional | auto-accept | Decide whether to admit each participant who opts in |
 | `onReadyToFinalize` | optional | finalize at minParticipants | Decide whether to finalize keygen now or wait for more |
 
@@ -452,12 +452,12 @@ console.log(`Joined cohort ${result.cohortId}, beacon: ${result.beaconAddress}`)
 
 | Callback | Required? | Default | Purpose |
 |---|---|---|---|
-| `onProvideUpdate` | ✅ yes | — | Build and sign the update to include in this cohort |
+| `onProvideUpdate` | ✅ yes | n/a | Build and sign the update to include in this cohort |
 | `shouldJoin` | optional | reject all | Filter which advertised cohorts to join |
 | `onValidateData` | optional | approve if hash matches | Approve/reject the aggregated data |
 | `onApproveSigning` | optional | approve | Approve/reject signing the Bitcoin tx |
 
-> The defaults are designed so the simplest possible runner — provide only the required callbacks — works correctly for the happy path. Override the optional callbacks when you need user prompts, custom filters, fee policies, or audit logs.
+> The defaults are designed so the simplest possible runner (provide only the required callbacks) works correctly for the happy path. Override the optional callbacks when you need user prompts, custom filters, fee policies, or audit logs.
 
 ---
 
@@ -470,7 +470,7 @@ console.log(`Joined cohort ${result.cohortId}, beacon: ${result.beaconAddress}`)
 | `cohort-advertised` | `{ cohortId }` | After the cohort is created and advert is queued for broadcast |
 | `opt-in-received` | `PendingOptIn` | A participant opts in (before `onOptInReceived` is called) |
 | `participant-accepted` | `{ participantDid }` | After the operator accepts an opt-in |
-| `keygen-complete` | `{ cohortId, beaconAddress }` | MuSig2 keygen finalizes — beacon address is now known |
+| `keygen-complete` | `{ cohortId, beaconAddress }` | MuSig2 keygen finalizes: beacon address is now known |
 | `update-received` | `{ participantDid }` | A participant submits a signed update |
 | `data-distributed` | `{ cohortId }` | CAS announcement / SMT tree built and sent for validation |
 | `validation-received` | `{ participantDid, approved }` | A participant's validation ack arrives |
@@ -491,7 +491,7 @@ console.log(`Joined cohort ${result.cohortId}, beacon: ${result.beaconAddress}`)
 | `update-submitted` | `{ cohortId }` | After the signed update is sent |
 | `validation-requested` | `PendingValidation` | Aggregated data arrives (before `onValidateData`) |
 | `signing-requested` | `PendingSigningRequest` | Auth request arrives (before `onApproveSigning`) |
-| `cohort-complete` | `{ cohortId, beaconAddress }` | Partial signature sent — this participant is done |
+| `cohort-complete` | `{ cohortId, beaconAddress }` | Partial signature sent: this participant is done |
 | `cohort-failed` | `{ cohortId, reason }` | Validation rejected, signing rejected, or protocol error |
 | `error` | `Error` | Non-fatal error |
 
@@ -535,7 +535,7 @@ Common fatal errors:
 
 ## Power-User: State Machine Layer
 
-For tests, custom transports, or fine-grained control, drop down to the sans-I/O state machines directly. They have no transport coupling — every action method returns `BaseMessage[]` for you to send via whatever mechanism you choose.
+For tests, custom transports, or fine-grained control, drop down to the sans-I/O state machines directly. They have no transport coupling: every action method returns `BaseMessage[]` for you to send via whatever mechanism you choose.
 
 ### Service state machine
 
@@ -641,16 +641,16 @@ Four runnable scripts in `lib/operations/aggregation/` demonstrate the runner AP
 | `aggregation-service.ts` + `aggregation-participant.ts` | Two truly separate processes connecting to a relay. Production-realistic. |
 
 ```bash
-# HTTP transport — zero external dependencies, runs in ~1 second
+# HTTP transport: zero external dependencies, runs in ~1 second
 PORT=8080 bun lib/operations/aggregation/e2e-http-transport.ts
 
-# Nostr — single process, real relay (requires a local relay)
+# Nostr: single process, real relay (requires a local relay)
 RELAY=ws://localhost:7777 bun lib/operations/aggregation/e2e-nostr-transport.ts
 
 # Nostr with cryptographic signature verification (CI-droppable)
 RELAY=ws://localhost:7777 bun lib/operations/aggregation/e2e-verify-signing.ts
 
-# Multi-process — run each in its own terminal
+# Multi-process: run each in its own terminal
 RELAY=ws://localhost:7777 bun lib/operations/aggregation/aggregation-service.ts
 RELAY=ws://localhost:7777 SERVICE_DID=<from above> bun lib/operations/aggregation/aggregation-participant.ts
 ```
@@ -659,7 +659,7 @@ All scripts exercise the same protocol and produce a 64-byte Schnorr signature o
 
 ### Why verify the signature cryptographically?
 
-`e2e-verify-signing.ts` captures the Taproot-tweaked x-only pubkey and the BIP-341 witness-v1 sighash inside `onProvideTxData`, then calls `schnorr.verify(signature, sighash, tweakedPk)` after `run()` resolves. If that check passes, the aggregated signature would be accepted by any BIP-340 verifier — including a Bitcoin node — without needing a funded UTXO to actually broadcast. This is the cheapest way to catch a regression anywhere in the MuSig2 pipeline: key aggregation, TapTweak, nonce aggregation, partial-sig pre-verify, or partial-sig aggregation.
+`e2e-verify-signing.ts` captures the Taproot-tweaked x-only pubkey and the BIP-341 witness-v1 sighash inside `onProvideTxData`, then calls `schnorr.verify(signature, sighash, tweakedPk)` after `run()` resolves. If that check passes, the aggregated signature would be accepted by any BIP-340 verifier (including a Bitcoin node) without needing a funded UTXO to actually broadcast. This is the cheapest way to catch a regression anywhere in the MuSig2 pipeline: key aggregation, TapTweak, nonce aggregation, partial-sig pre-verify, or partial-sig aggregation.
 
 ---
 
@@ -667,11 +667,11 @@ All scripts exercise the same protocol and produce a 64-byte Schnorr signature o
 
 ### One transport per process
 
-In production, each actor (service or participant) runs in its own process, with its own transport instance (Nostr or HTTP) registering exactly one actor. Sharing one transport across actors is a testing convenience — don't do it in production unless you have a specific reason.
+In production, each actor (service or participant) runs in its own process, with its own transport instance (Nostr or HTTP) registering exactly one actor. Sharing one transport across actors is a testing convenience: don't do it in production unless you have a specific reason.
 
 ### Relay selection (Nostr transport only)
 
-Aggregation requires reliable delivery, especially for the encrypted directed messages (NIP-44 kind 1059). Use 2–3 relays for redundancy. Public relays may rate-limit or drop kind 1059 events under load — if you need guaranteed delivery, run your own relay.
+Aggregation requires reliable delivery, especially for the encrypted directed messages (NIP-44 kind 1059). Use 2–3 relays for redundancy. Public relays may rate-limit or drop kind 1059 events under load. If you need guaranteed delivery, run your own relay.
 
 Observed behavior against common public relays (as of the e2e-verify-signing runs in the `refactor/aggregation` branch):
 
@@ -679,7 +679,7 @@ Observed behavior against common public relays (as of the e2e-verify-signing run
 |---|---|---|
 | `ws://localhost:7777` (nostr-rs-relay) | ✅ Works | Default for local demos |
 | `wss://nostr-pub.wellorder.net` | ✅ Works | Backfills historical events; serves kind 1059 |
-| `wss://relay.damus.io` | ⚠️ Rate-limited | Aggressive anti-spam for anonymous writes — fine for small cohorts, fails under repeat publish |
+| `wss://relay.damus.io` | ⚠️ Rate-limited | Aggressive anti-spam for anonymous writes: fine for small cohorts, fails under repeat publish |
 | `wss://nos.lol` | ❌ Hangs after advert | Service publishes advert successfully; participants never receive it. Not fixed by `broadcastLookbackMs` or advert re-publish. |
 | `wss://relay.snort.social` | ❌ Hangs after advert | Same failure mode as nos.lol. |
 
@@ -689,8 +689,8 @@ Observed behavior against common public relays (as of the e2e-verify-signing run
 
 The Nostr transport and runner expose two mechanisms to improve delivery on imperfect relays:
 
-- `NostrTransportConfig.broadcastLookbackMs` (default 5 min) — applies a `since` filter to the `COHORT_ADVERT` subscription so relays that don't auto-backfill still return recent adverts to late subscribers.
-- `AggregationServiceRunnerOptions.advertRepeatIntervalMs` (default 60 s) — re-publishes the advert on a fixed cadence until keygen completes. Gives participants whose subscription was still settling when the initial advert went out a chance to catch a later copy.
+- `NostrTransportConfig.broadcastLookbackMs` (default 5 min): applies a `since` filter to the `COHORT_ADVERT` subscription so relays that don't auto-backfill still return recent adverts to late subscribers.
+- `AggregationServiceRunnerOptions.advertRepeatIntervalMs` (default 60 s): re-publishes the advert on a fixed cadence until keygen completes. Gives participants whose subscription was still settling when the initial advert went out a chance to catch a later copy.
 
 Set either to `0` to opt out.
 
@@ -700,10 +700,10 @@ The HTTP transport doesn't need either hedge: the server retains the current adv
 
 Unchecked, a stalled cohort (e.g. a participant goes offline mid-signing) keeps state machine entries alive forever. Two knobs on the runner bound that:
 
-- `cohortTtlMs` — overall wall-clock budget from `run()` to `signing-complete`. On expiry: emit `cohort-failed`, reject `run()` with a timeout error, call `session.removeCohort(cohortId)`.
-- `phaseTimeoutMs` — maximum time allowed without a phase transition. Reset automatically on every observed phase change.
+- `cohortTtlMs`: overall wall-clock budget from `run()` to `signing-complete`. On expiry: emit `cohort-failed`, reject `run()` with a timeout error, call `session.removeCohort(cohortId)`.
+- `phaseTimeoutMs`: maximum time allowed without a phase transition. Reset automatically on every observed phase change.
 
-Both are unset by default — enable them in any production deployment.
+Both are unset by default: enable them in any production deployment.
 
 ### Message size limits
 
@@ -720,7 +720,7 @@ The `onProvideTxData` callback receives the cohort's `beaconAddress` and `signal
 - **Pre-funded address**: the service operator funds the address out-of-band (e.g., via a watcher process) before the cohort starts signing. Simpler operationally.
 - **First-update funding**: a participant's first update funds the beacon address itself by sending a small change output to it. Requires a more complex `onProvideTxData` that builds a tx with both the funding input and the beacon's spending input.
 
-Either way, the runner doesn't manage funding — it only signs the tx you provide.
+Either way, the runner doesn't manage funding: it only signs the tx you provide.
 
 ### Transaction broadcasting
 
@@ -734,7 +734,7 @@ console.log('Broadcast:', txid);
 
 ### CAS publishing
 
-For `CASBeacon` cohorts, the CAS Announcement Map needs to be published to a content-addressed store (typically IPFS) so that resolvers can fetch it via the on-chain hash. This is also the operator's responsibility — read it from `runner.session.getCohort(cohortId).casAnnouncement` after `signing-complete` and publish via your CAS client.
+For `CASBeacon` cohorts, the CAS Announcement Map needs to be published to a content-addressed store (typically IPFS) so that resolvers can fetch it via the on-chain hash. This is also the operator's responsibility: read it from `runner.session.getCohort(cohortId).casAnnouncement` after `signing-complete` and publish via your CAS client.
 
 ### Decision callback latency
 
@@ -759,7 +759,7 @@ There is no automatic retry for participant dropout. If a participant goes offli
 
 ### Wire-format version
 
-Every `BaseMessage` carries a `version: number` field. The current version is exposed as `AGGREGATION_WIRE_VERSION`. Receive handlers reject any message whose version doesn't match — there is no implicit backward compatibility. Bumping the constant is a breaking protocol change; coordinate across all participants and any relay / transport middleware before changing it.
+Every `BaseMessage` carries a `version: number` field. The current version is exposed as `AGGREGATION_WIRE_VERSION`. Receive handlers reject any message whose version doesn't match: there is no implicit backward compatibility. Bumping the constant is a breaking protocol change; coordinate across all participants and any relay / transport middleware before changing it.
 
 ---
 

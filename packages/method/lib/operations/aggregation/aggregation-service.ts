@@ -43,9 +43,8 @@ const service = new AggregationServiceRunner({
   onOptInReceived : async () => ({ accepted: true }),
 
   // Build a dummy P2TR transaction (in production: query Bitcoin for UTXO + build tx)
-  onProvideTxData : async ({ beaconAddress }) => {
-    void beaconAddress;
-    const cohort = service.session.cohorts[0];
+  onProvideTxData : async ({ cohortId }) => {
+    const cohort = service.session.getCohort(cohortId)!;
     const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
     const payment = p2tr(aggPk);
     const prevOutValue = 100000n;

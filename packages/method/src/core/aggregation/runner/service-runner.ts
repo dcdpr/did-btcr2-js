@@ -1,4 +1,5 @@
 import type { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { AggregationServiceError } from '../errors.js';
 import type { BaseMessage } from '../messages/base.js';
 import {
   COHORT_OPT_IN,
@@ -44,8 +45,13 @@ export interface AggregationServiceRunnerOptions {
   did: string;
   keys: SchnorrKeyPair;
 
-  /** Cohort configuration. */
-  config: CohortConfig;
+  /**
+   * Default cohort configuration for the {@link AggregationServiceRunner.run}
+   * convenience path. Optional: omit it when driving the runner with
+   * {@link AggregationServiceRunner.advertiseCohort}, which takes a per-cohort
+   * config and can be called many times on one runner.
+   */
+  config?: CohortConfig;
 
   /**
    * Decide whether to accept a participant's opt-in.
@@ -74,26 +80,28 @@ export interface AggregationServiceRunnerOptions {
   maxUpdateSizeBytes?: number;
 
   /**
-   * Overall wall-clock budget for the cohort, from run() to signing-complete.
-   * On expiry the cohort is dropped, `cohort-failed` is emitted, and run()
-   * rejects with a timeout error. Leave undefined to disable.
+   * Overall wall-clock budget for each cohort, from advertise to
+   * signing-complete. On expiry the cohort is dropped, `cohort-failed` is
+   * emitted, and that cohort's completion rejects with a timeout error. Other
+   * cohorts on the same runner are unaffected. Leave undefined to disable.
    */
   cohortTtlMs?: number;
 
   /**
-   * Maximum time allowed between phase transitions. Protects against stalled
-   * cohorts (e.g. a participant vanishing mid-protocol). Reset automatically
-   * on every observed phase change. Leave undefined to disable.
+   * Maximum time allowed between phase transitions for a cohort. Protects
+   * against stalled cohorts (e.g. a participant vanishing mid-protocol). Reset
+   * automatically on every observed phase change. Applied per cohort. Leave
+   * undefined to disable.
    */
   phaseTimeoutMs?: number;
 
   /**
-   * Re-publish COHORT_ADVERT on this interval until keygen is finalized.
-   * Works around relays that don't backfill historical events to late
-   * subscribers — a republish gives late joiners a window to discover the
+   * Re-publish COHORT_ADVERT on this interval until a cohort's keygen is
+   * finalized. Works around relays that don't backfill historical events to
+   * late subscribers — a republish gives late joiners a window to discover the
    * advert without protocol changes. The first publish is immediate;
-   * subsequent publishes fire every `advertRepeatIntervalMs` until
-   * keygen-complete, fail, or stop(). Defaults to
+   * subsequent publishes fire every `advertRepeatIntervalMs` until that
+   * cohort's keygen completes, fails, or is stopped. Defaults to
    * {@link DEFAULT_ADVERT_REPEAT_INTERVAL_MS} (60 s). Set to 0 to publish
    * once and never retry.
    */
@@ -104,11 +112,54 @@ export interface AggregationServiceRunnerOptions {
 export const DEFAULT_ADVERT_REPEAT_INTERVAL_MS = 60_000;
 
 /**
+ * Per-cohort runtime bookkeeping the runner keeps for each advertised cohort.
+ * One {@link RunContext} per cohortId lives in the runner's `#contexts` map so
+ * many cohorts run concurrently on a single runner, each with its own
+ * completion promise, finalize guard, timers, and advert-republish loop. The
+ * underlying {@link AggregationService} state machine is already keyed by
+ * cohortId; this struct is the runner-layer counterpart (see ADR 040).
+ */
+interface RunContext {
+  /** The cohort this context drives. */
+  cohortId: string;
+  /** The conditions this cohort was advertised with. */
+  config: CohortConfig;
+  /** Resolve this cohort's completion with its aggregation result. */
+  resolve: (result: AggregationResult) => void;
+  /** Reject this cohort's completion. */
+  reject: (err: Error) => void;
+  /** The promise handed back from {@link AggregationServiceRunner.advertiseCohort}. */
+  completion: Promise<AggregationResult>;
+  /**
+   * Guard against the async race where two concurrent #handleOptIn invocations
+   * for THIS cohort both pass the `participants.length >= minParticipants`
+   * check before either mutates the cohort phase. Set synchronously before any
+   * `await` so subsequent handlers observe it on their next resumption.
+   */
+  finalizing: boolean;
+  /** Once settled (resolved or rejected), late timers/messages must not re-settle. */
+  settled: boolean;
+  cohortTtlTimer?: ReturnType<typeof setTimeout>;
+  phaseTimer?: ReturnType<typeof setTimeout>;
+  lastObservedPhase?: string;
+  /** Stop handle for THIS cohort's repeating COHORT_ADVERT publish loop. */
+  stopAdvertRepeat?: () => void;
+}
+
+/**
  * High-level facade for running an Aggregation Service over a Transport.
  *
  * Wires the {@link AggregationService} state machine to a {@link Transport},
  * encapsulating message handler registration, outgoing message dispatch,
  * and decision callback orchestration.
+ *
+ * A single runner is a long-lived multiplexer: it advertises and drives many
+ * cohorts concurrently over one transport. Each advertised cohort owns an
+ * independent completion promise and fails in isolation — a stalled or failed
+ * cohort never settles its siblings (see ADR 040). Use
+ * {@link AggregationServiceRunner.advertiseCohort} for the multi-cohort path;
+ * {@link AggregationServiceRunner.run} is a thin single-cohort convenience over
+ * it.
  *
  * @example
  * ```typescript
@@ -119,16 +170,21 @@ export const DEFAULT_ADVERT_REPEAT_INTERVAL_MS = 60_000;
  *   transport,
  *   did: serviceDid,
  *   keys: serviceKeys,
- *   config: { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' },
- *   onProvideTxData: async ({ beaconAddress, signalBytes }) => {
+ *   onProvideTxData: async ({ cohortId, beaconAddress, signalBytes }) => {
  *     return await buildBeaconTransaction(beaconAddress, signalBytes, bitcoin);
  *   },
  * });
  *
- * runner.on('keygen-complete', ({ beaconAddress }) => console.log(beaconAddress));
- * runner.on('signing-complete', ({ signature }) => console.log('done'));
+ * runner.on('keygen-complete', ({ cohortId, beaconAddress }) => console.log(beaconAddress));
+ * runner.on('signing-complete', ({ cohortId, signature }) => console.log('done', cohortId));
  *
- * const result = await runner.run();
+ * // Multi-cohort: advertise several cohorts; each completion resolves independently.
+ * const a = runner.advertiseCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
+ * const b = runner.advertiseCohort({ minParticipants: 3, network: 'mutinynet', beaconType: 'SMTBeacon' });
+ * const [ra, rb] = await Promise.all([a.completion, b.completion]);
+ *
+ * // Single-cohort convenience (requires `config` in the options):
+ * // const result = await runner.run();
  * ```
  *
  * For full manual control, drop down to the underlying state machine via
@@ -143,7 +199,7 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
 
   readonly #transport: Transport;
   readonly #did: string;
-  readonly #config: CohortConfig;
+  readonly #defaultConfig?: CohortConfig;
   readonly #onOptInReceived: OnOptInReceived;
   readonly #onReadyToFinalize: OnReadyToFinalize;
   readonly #onProvideTxData: OnProvideTxData;
@@ -151,29 +207,16 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
   readonly #phaseTimeoutMs?: number;
   readonly #advertRepeatIntervalMs: number;
 
-  #cohortId?: string;
+  /** Per-cohort run state, keyed by cohortId. */
+  readonly #contexts: Map<string, RunContext> = new Map();
   #handlersRegistered = false;
   #stopped = false;
-  /**
-   * Guard against the async race where two concurrent #handleOptIn invocations
-   * both pass the `participants.length >= minParticipants` check before either
-   * mutates the cohort phase. Set synchronously before any `await` so subsequent
-   * handlers observe it on their next resumption.
-   */
-  #finalizing = false;
-  #resolveRun?: (result: AggregationResult) => void;
-  #rejectRun?: (err: Error) => void;
-  #cohortTtlTimer?: ReturnType<typeof setTimeout>;
-  #phaseTimer?: ReturnType<typeof setTimeout>;
-  #lastObservedPhase?: string;
-  /** Stop handle for the repeating COHORT_ADVERT publish loop. */
-  #stopAdvertRepeat?: () => void;
 
   constructor(options: AggregationServiceRunnerOptions) {
     super();
     this.#transport = options.transport;
     this.#did = options.did;
-    this.#config = options.config;
+    this.#defaultConfig = options.config;
     this.#onOptInReceived = options.onOptInReceived ?? (async () => ({ accepted: true }));
     this.#onReadyToFinalize = options.onReadyToFinalize ?? (async ({ acceptedCount, minRequired }) => ({
       finalize : acceptedCount >= minRequired,
@@ -193,131 +236,269 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
     });
   }
 
+  /** Resolve the {@link RunContext} an inbound message belongs to, by cohortId. */
+  #contextFor(msg: BaseMessage): RunContext | undefined {
+    const cohortId = msg.body?.cohortId;
+    if(!cohortId) return undefined;
+    return this.#contexts.get(cohortId);
+  }
+
   /**
-   * Drain any silent rejections the state machine recorded during the most
-   * recent receive() and surface them as `message-rejected` events. Safe to
-   * call even before a cohortId is assigned.
+   * Drain any silent rejections the state machine recorded for a cohort during
+   * the most recent receive() and surface them as `message-rejected` events.
    */
-  #drainRejections(): void {
-    if(!this.#cohortId) return;
-    for(const r of this.session.drainRejections(this.#cohortId)) {
-      this.emit('message-rejected', { cohortId: this.#cohortId, ...r });
+  #drainRejections(ctx: RunContext): void {
+    for(const r of this.session.drainRejections(ctx.cohortId)) {
+      this.emit('message-rejected', { cohortId: ctx.cohortId, ...r });
     }
   }
 
   /**
-   * Run the protocol to completion. Resolves with the final aggregation result
-   * (signature + signed transaction) once signing is complete.
+   * Advertise a new cohort and begin driving it to completion. Callable many
+   * times on one runner; each cohort runs concurrently and independently.
+   *
+   * @param config Per-cohort conditions + network (see {@link CohortConfig}).
+   * @returns The new cohort's id and a `completion` promise that resolves with
+   *   that cohort's {@link AggregationResult} (or rejects if it fails/stalls).
+   * @throws If the runner has been stopped, or the config is invalid
+   *   (fail-fast via `createCohort`).
+   */
+  advertiseCohort(config: CohortConfig): { cohortId: string; completion: Promise<AggregationResult> } {
+    if(this.#stopped) {
+      throw new AggregationServiceError('Cannot advertise on a stopped runner.', 'RUNNER_STOPPED', {});
+    }
+    this.#registerHandlers();
+    // createCohort validates the conditions and throws on a bad config before
+    // any context exists — fail-fast, nothing to clean up.
+    const cohortId = this.session.createCohort(config);
+
+    let resolve!: (result: AggregationResult) => void;
+    let reject!: (err: Error) => void;
+    const completion = new Promise<AggregationResult>((res, rej) => { resolve = res; reject = rej; });
+    const ctx: RunContext = {
+      cohortId,
+      config,
+      resolve,
+      reject,
+      completion,
+      finalizing : false,
+      settled    : false,
+    };
+    this.#contexts.set(cohortId, ctx);
+
+    try {
+      this.#startTimers(ctx);
+      // Emit cohort-advertised BEFORE the send so the event fires before any downstream cascade.
+      const advertMsgs = this.session.advertise(cohortId);
+      this.#onPhaseMaybeChanged(ctx);
+      this.emit('cohort-advertised', { cohortId });
+      // Publish the advert. If advertRepeatIntervalMs > 0 we republish on that
+      // cadence until this cohort's keygen-complete / fail / stop — works around
+      // relays that don't backfill historical events to late subscribers.
+      // Otherwise fall back to a single send.
+      if(this.#advertRepeatIntervalMs > 0) {
+        this.#startAdvertRepeat(ctx, advertMsgs);
+      } else {
+        this.#sendAll(advertMsgs).catch(err => this.#failCohort(ctx, err as Error));
+      }
+    } catch(err) {
+      this.#failCohort(ctx, err as Error);
+    }
+
+    return { cohortId, completion };
+  }
+
+  /**
+   * Run a single cohort to completion using the `config` supplied in the
+   * runner options. Thin convenience over {@link advertiseCohort} for the
+   * single-cohort case (and the path {@link AggregationRunner.solo} rides).
    *
    * @returns {Promise<AggregationResult>} The final result with signature and signed tx.
    */
   run(): Promise<AggregationResult> {
-    return new Promise((resolve, reject) => {
-      this.#resolveRun = resolve;
-      this.#rejectRun = reject;
-
-      try {
-        this.#registerHandlers();
-        this.#cohortId = this.session.createCohort(this.#config);
-        this.#startTimers();
-        // Emit cohort-advertised BEFORE the send so the event fires before any downstream cascade
-        const advertMsgs = this.session.advertise(this.#cohortId);
-        this.#onPhaseMaybeChanged();
-        this.emit('cohort-advertised', { cohortId: this.#cohortId });
-        // Publish the advert. If advertRepeatIntervalMs > 0 we republish on
-        // that cadence until keygen-complete / fail / stop — works around
-        // relays that don't backfill historical events to late subscribers.
-        // Otherwise fall back to a single send.
-        if(this.#advertRepeatIntervalMs > 0) {
-          this.#startAdvertRepeat(advertMsgs);
-        } else {
-          this.#sendAll(advertMsgs).catch(err => this.#fail(err));
-        }
-      } catch(err) {
-        this.#fail(err as Error);
-      }
-    });
+    if(!this.#defaultConfig) {
+      return Promise.reject(new AggregationServiceError(
+        'run() requires `config` in the runner options; use advertiseCohort(config) to drive cohorts explicitly.',
+        'MISSING_COHORT_CONFIG', {}
+      ));
+    }
+    try {
+      return this.advertiseCohort(this.#defaultConfig).completion;
+    } catch(err) {
+      return Promise.reject(err as Error);
+    }
   }
 
   /**
-   * Begin publishing the cohort advert immediately and on a repeating interval
-   * until {@link #stopAdvertRepeating} is called. Each advert is broadcast
-   * (no recipient) via the transport's `publishRepeating` primitive.
+   * Wait for every currently-outstanding cohort to settle and return the
+   * successful results. Dynamic drain: cohorts advertised while this is pending
+   * are included, and it resolves only once no cohorts remain. Failed cohorts
+   * are surfaced via `error` / `cohort-failed` events and their rejected
+   * `completion` promises; they are omitted from the returned array (this
+   * method does not throw). Bound long-running cohorts with `cohortTtlMs` /
+   * `phaseTimeoutMs` or this may never resolve.
+   *
+   * @returns {Promise<AggregationResult[]>} Results of the cohorts that completed.
    */
-  #startAdvertRepeat(advertMsgs: BaseMessage[]): void {
+  async runAll(): Promise<AggregationResult[]> {
+    const collected = new Map<string, AggregationResult>();
+    // Capture every completion, including a cohort that is advertised and
+    // finishes entirely within one drain round (so it never appears in a
+    // snapshot below).
+    const onComplete = (result: AggregationResult): void => { collected.set(result.cohortId, result); };
+    this.on('signing-complete', onComplete);
+    try {
+      // Block until the live set empties; re-snapshot each round to pick up
+      // cohorts advertised mid-drain.
+      while(this.#contexts.size > 0) {
+        await Promise.allSettled([ ...this.#contexts.values() ].map(c => c.completion));
+      }
+    } finally {
+      this.off('signing-complete', onComplete);
+    }
+    return [ ...collected.values() ];
+  }
+
+  /**
+   * Begin publishing a cohort's advert immediately and on a repeating interval
+   * until the cohort's advert loop is stopped. Each advert is broadcast (no
+   * recipient) via the transport's `publishRepeating` primitive.
+   */
+  #startAdvertRepeat(ctx: RunContext, advertMsgs: BaseMessage[]): void {
     // COHORT_ADVERT is always a single broadcast message in the current
     // protocol, but iterate for generality.
     const stops: Array<() => void> = [];
     for(const msg of advertMsgs) {
       stops.push(this.#transport.publishRepeating(msg, this.#did, this.#advertRepeatIntervalMs));
     }
-    this.#stopAdvertRepeat = () => {
+    ctx.stopAdvertRepeat = () => {
       for(const stop of stops) {
         try { stop(); } catch { /* ignore */ }
       }
     };
   }
 
-  /** Stop the advert republish loop. Idempotent. */
-  #stopAdvertRepeating(): void {
-    if(!this.#stopAdvertRepeat) return;
-    const stop = this.#stopAdvertRepeat;
-    this.#stopAdvertRepeat = undefined;
+  /** Stop a cohort's advert republish loop. Idempotent. */
+  #stopAdvertRepeating(ctx: RunContext): void {
+    if(!ctx.stopAdvertRepeat) return;
+    const stop = ctx.stopAdvertRepeat;
+    ctx.stopAdvertRepeat = undefined;
     stop();
   }
 
-  /** Schedule cohort TTL + phase timeout at the start of a run. */
-  #startTimers(): void {
+  /** Schedule a cohort's TTL + phase timeout when it is advertised. */
+  #startTimers(ctx: RunContext): void {
     if(this.#cohortTtlMs !== undefined) {
-      this.#cohortTtlTimer = setTimeout(() => {
-        const reason = `Cohort ${this.#cohortId ?? ''} exceeded TTL of ${this.#cohortTtlMs}ms`;
-        this.emit('cohort-failed', { cohortId: this.#cohortId ?? '', reason });
-        this.#fail(new Error(reason));
+      ctx.cohortTtlTimer = setTimeout(() => {
+        const reason = `Cohort ${ctx.cohortId} exceeded TTL of ${this.#cohortTtlMs}ms`;
+        this.emit('cohort-failed', { cohortId: ctx.cohortId, reason });
+        this.#failCohort(ctx, new Error(reason));
       }, this.#cohortTtlMs);
     }
-    this.#resetPhaseTimer();
+    this.#resetPhaseTimer(ctx);
   }
 
-  /** Reset the per-phase stall timer. Called when a phase transition is observed. */
-  #resetPhaseTimer(): void {
-    if(this.#phaseTimer) clearTimeout(this.#phaseTimer);
-    this.#phaseTimer = undefined;
+  /** Reset a cohort's per-phase stall timer. Called when a phase transition is observed. */
+  #resetPhaseTimer(ctx: RunContext): void {
+    if(ctx.phaseTimer) clearTimeout(ctx.phaseTimer);
+    ctx.phaseTimer = undefined;
     if(this.#phaseTimeoutMs === undefined) return;
-    this.#phaseTimer = setTimeout(() => {
-      const reason = `Cohort ${this.#cohortId ?? ''} stalled in phase ${this.#lastObservedPhase ?? '?'} for ${this.#phaseTimeoutMs}ms`;
-      this.emit('cohort-failed', { cohortId: this.#cohortId ?? '', reason });
-      this.#fail(new Error(reason));
+    ctx.phaseTimer = setTimeout(() => {
+      const reason = `Cohort ${ctx.cohortId} stalled in phase ${ctx.lastObservedPhase ?? '?'} for ${this.#phaseTimeoutMs}ms`;
+      this.emit('cohort-failed', { cohortId: ctx.cohortId, reason });
+      this.#failCohort(ctx, new Error(reason));
     }, this.#phaseTimeoutMs);
   }
 
-  /** Detect a phase change since the last observation and reset the phase timer. */
-  #onPhaseMaybeChanged(): void {
-    if(!this.#cohortId) return;
-    const phase = this.session.getCohortPhase(this.#cohortId);
-    if(phase !== this.#lastObservedPhase) {
-      this.#lastObservedPhase = phase;
-      this.#resetPhaseTimer();
+  /** Detect a phase change for a cohort since the last observation and reset its phase timer. */
+  #onPhaseMaybeChanged(ctx: RunContext): void {
+    const phase = this.session.getCohortPhase(ctx.cohortId);
+    if(phase !== ctx.lastObservedPhase) {
+      ctx.lastObservedPhase = phase;
+      this.#resetPhaseTimer(ctx);
     }
   }
 
-  /** Clear both timers. Called on successful completion, stop(), and #fail. */
-  #clearTimers(): void {
-    if(this.#cohortTtlTimer) clearTimeout(this.#cohortTtlTimer);
-    if(this.#phaseTimer) clearTimeout(this.#phaseTimer);
-    this.#cohortTtlTimer = undefined;
-    this.#phaseTimer = undefined;
+  /** Clear a cohort's timers. Called on completion, stop, and failure. */
+  #clearTimers(ctx: RunContext): void {
+    if(ctx.cohortTtlTimer) clearTimeout(ctx.cohortTtlTimer);
+    if(ctx.phaseTimer) clearTimeout(ctx.phaseTimer);
+    ctx.cohortTtlTimer = undefined;
+    ctx.phaseTimer = undefined;
   }
 
   /**
-   * Stop the runner early. Marks the runner stopped and detaches transport
-   * handlers so a restart or a new runner doesn't inherit stale dispatch.
+   * Reclaim one cohort's runner-layer bookkeeping: stop its advert loop, clear
+   * its timers, and drop its {@link RunContext}. Does NOT touch sibling cohorts
+   * and does NOT detach the shared transport handlers. Leaves the cohort in the
+   * state machine; whether that cohort's `session` state is also removed is the
+   * caller's choice (see {@link #completeCohort} vs {@link #failCohort}).
+   */
+  #disposeCohort(ctx: RunContext): void {
+    this.#stopAdvertRepeating(ctx);
+    this.#clearTimers(ctx);
+    this.#contexts.delete(ctx.cohortId);
+  }
+
+  /**
+   * Settle one cohort successfully. Reclaims the runner context but leaves the
+   * completed cohort in `session` so callers can read its beaconAddress / cohort
+   * via `session.getCohort(result.cohortId)`; reclaim it with
+   * `session.removeCohort(cohortId)` when done. Idempotent via `ctx.settled`.
+   */
+  #completeCohort(ctx: RunContext, result: AggregationResult): void {
+    if(ctx.settled) return;
+    ctx.settled = true;
+    this.#disposeCohort(ctx);
+    this.emit('signing-complete', result);
+    ctx.resolve(result);
+  }
+
+  /**
+   * Fail one cohort. Reclaims its runner context, drops its now-dead state from
+   * the state machine, and rejects only its completion; siblings keep running
+   * and the shared transport handlers stay registered. Idempotent via
+   * `ctx.settled`.
+   */
+  #failCohort(ctx: RunContext, err: Error): void {
+    if(ctx.settled) return;
+    ctx.settled = true;
+    this.#disposeCohort(ctx);
+    this.session.removeCohort(ctx.cohortId);
+    this.emit('error', err);
+    ctx.reject(err);
+  }
+
+  /**
+   * Stop a single cohort early without affecting the rest of the runner. Drops
+   * the cohort's state machine state; its `completion` promise rejects with a
+   * stopped error.
+   */
+  stopCohort(cohortId: string): void {
+    const ctx = this.#contexts.get(cohortId);
+    if(!ctx || ctx.settled) return;
+    ctx.settled = true;
+    this.#disposeCohort(ctx);
+    this.session.removeCohort(cohortId);
+    ctx.reject(new AggregationServiceError(`Cohort ${cohortId} stopped.`, 'COHORT_STOPPED', { cohortId }));
+  }
+
+  /**
+   * Stop the whole runner. Fails every outstanding cohort, then detaches the
+   * shared transport handlers so a restart or a new runner doesn't inherit
+   * stale dispatch. Safe to call repeatedly.
    */
   stop(): void {
     this.#stopped = true;
-    this.#stopAdvertRepeating();
-    this.#clearTimers();
+    for(const ctx of [ ...this.#contexts.values() ]) {
+      if(ctx.settled) continue;
+      ctx.settled = true;
+      this.#disposeCohort(ctx);
+      this.session.removeCohort(ctx.cohortId);
+      ctx.reject(new AggregationServiceError('Service runner stopped.', 'RUNNER_STOPPED', { cohortId: ctx.cohortId }));
+    }
+    this.#contexts.clear();
     this.#unregisterHandlers();
-    if(this.#cohortId) this.session.removeCohort(this.#cohortId);
   }
 
   /** Message types this runner listens for on the transport. */
@@ -330,7 +511,10 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
   ];
 
   /**
-   * Internal: handler registration with the transport. Idempotent.
+   * Internal: handler registration with the transport. Idempotent. Handlers
+   * are DID-scoped and cohort-agnostic — one registration serves every cohort
+   * this runner drives; demux to the right {@link RunContext} happens in each
+   * handler via the inbound message's cohortId.
    */
   #registerHandlers(): void {
     if(this.#handlersRegistered) return;
@@ -354,25 +538,28 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
 
   /**
    * Internal: message handlers for each protocol step. Each handler:
-   * 1) feeds the message into the state machine via session.receive()
-   * 2) emits a high-level event for external observers
-   * 3) checks if the new state triggers any automatic next steps, and if so:
+   * 1) resolves the cohort the message belongs to (by cohortId); ignores it if unknown
+   * 2) feeds the message into the state machine via session.receive()
+   * 3) emits a high-level event (carrying cohortId) for external observers
+   * 4) checks if the new state triggers any automatic next steps, and if so:
    *    a) calls the appropriate decision callback(s)
    *    b) sends any resulting messages from the state machine
+   * Errors fail only the owning cohort. A stopped runner ignores messages.
    * @param {BaseMessage} msg - The incoming message to handle.
    * @returns {Promise<void>} Resolves when handling is complete.
-    * @throws {Error} If any step of handling fails, the error is emitted and the run promise is rejected.
-    * Note: if the runner has been stopped, handlers will ignore incoming messages.
    */
   async #handleOptIn(msg: BaseMessage): Promise<void> {
     if(this.#stopped) return;
+    const ctx = this.#contextFor(msg);
+    if(!ctx) return;
     try {
       this.session.receive(msg);
-      this.#drainRejections();
-      this.#onPhaseMaybeChanged();
+      this.#drainRejections(ctx);
+      this.#onPhaseMaybeChanged(ctx);
 
-      const optIn = this.session.pendingOptIns(this.#cohortId!).get(msg.from);
+      const optIn = this.session.pendingOptIns(ctx.cohortId).get(msg.from);
       if(!optIn) return;
+      // PendingOptIn already carries cohortId, so this event is cohort-identified.
       this.emit('opt-in-received', optIn);
 
       // Register peer key for encrypted messaging
@@ -384,49 +571,50 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
       if(!decision.accepted) return;
 
       // Don't accept past the advertised maxParticipants: acceptParticipant
-      // would throw COHORT_FULL and fail the run. Silently ignore the surplus
+      // would throw COHORT_FULL and fail the cohort. Silently ignore the surplus
       // opt-in (the cohort is full).
-      const maxParticipants = this.#config.maxParticipants;
-      const cohortNow = this.session.getCohort(this.#cohortId!);
+      const maxParticipants = ctx.config.maxParticipants;
+      const cohortNow = this.session.getCohort(ctx.cohortId);
       if(maxParticipants !== undefined && cohortNow && cohortNow.participants.length >= maxParticipants) {
         return;
       }
 
-      await this.#sendAll(this.session.acceptParticipant(this.#cohortId!, msg.from));
-      this.emit('participant-accepted', { participantDid: msg.from });
+      await this.#sendAll(this.session.acceptParticipant(ctx.cohortId, msg.from));
+      this.emit('participant-accepted', { cohortId: ctx.cohortId, participantDid: msg.from });
 
-      // Check if it's time to finalize. The `#finalizing` flag is set synchronously
-      // before the first await so concurrent opt-in handlers observe it and skip —
-      // otherwise two handlers could both pass the minParticipants check and both
-      // call finalizeKeygen, the second of which would throw (phase mismatch).
-      const cohort = this.session.getCohort(this.#cohortId!)!;
-      if(cohort.participants.length >= this.#config.minParticipants && !this.#finalizing) {
-        this.#finalizing = true;
+      // Check if it's time to finalize. The per-cohort `finalizing` flag is set
+      // synchronously before the first await so concurrent opt-in handlers for
+      // the same cohort observe it and skip — otherwise two handlers could both
+      // pass the minParticipants check and both call finalizeKeygen, the second
+      // of which would throw (phase mismatch).
+      const cohort = this.session.getCohort(ctx.cohortId)!;
+      if(cohort.participants.length >= ctx.config.minParticipants && !ctx.finalizing) {
+        ctx.finalizing = true;
         const finalizeDecision = await this.#onReadyToFinalize({
           acceptedCount : cohort.participants.length,
-          minRequired   : this.#config.minParticipants,
+          minRequired   : ctx.config.minParticipants,
         });
         if(!finalizeDecision.finalize) {
           // Operator declined — reset the flag so a later opt-in can retry.
-          this.#finalizing = false;
+          ctx.finalizing = false;
           return;
         }
         // finalizeKeygen() computes the beacon address synchronously
         // emit BEFORE awaiting sendAll. Otherwise the downstream cascade
         // (which can run all the way to signing-complete) would resolve the
-        // run() promise before this event fires.
-        const readyMsgs = this.session.finalizeKeygen(this.#cohortId!);
+        // cohort's completion promise before this event fires.
+        const readyMsgs = this.session.finalizeKeygen(ctx.cohortId);
         // Keygen done — stop re-advertising the cohort. New participants
         // arriving after this point would be rejected anyway.
-        this.#stopAdvertRepeating();
+        this.#stopAdvertRepeating(ctx);
         this.emit('keygen-complete', {
-          cohortId      : this.#cohortId!,
+          cohortId      : ctx.cohortId,
           beaconAddress : cohort.beaconAddress,
         });
         await this.#sendAll(readyMsgs);
       }
     } catch(err) {
-      this.#fail(err as Error);
+      this.#failCohort(ctx, err as Error);
     }
   }
 
@@ -435,25 +623,25 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
    * and distributes the data for validation.
    * @param {BaseMessage} msg - The incoming message to handle.
    * @returns {Promise<void>} Resolves when handling is complete.
-   * @throws {Error} If any step of handling fails, the error is emitted and the run promise is rejected.
-   * Note: if the runner has been stopped, handlers will ignore incoming messages.
    */
   async #handleSubmitUpdate(msg: BaseMessage): Promise<void> {
     if(this.#stopped) return;
+    const ctx = this.#contextFor(msg);
+    if(!ctx) return;
     try {
       this.session.receive(msg);
-      this.#drainRejections();
-      this.#onPhaseMaybeChanged();
-      this.emit('update-received', { participantDid: msg.from });
+      this.#drainRejections(ctx);
+      this.#onPhaseMaybeChanged(ctx);
+      this.emit('update-received', { cohortId: ctx.cohortId, participantDid: msg.from });
 
       // When all updates collected, build and distribute
-      if(this.session.getCohortPhase(this.#cohortId!) === ServiceCohortPhase.UpdatesCollected) {
-        const distributeMsgs = this.session.buildAndDistribute(this.#cohortId!);
-        this.emit('data-distributed', { cohortId: this.#cohortId! });
+      if(this.session.getCohortPhase(ctx.cohortId) === ServiceCohortPhase.UpdatesCollected) {
+        const distributeMsgs = this.session.buildAndDistribute(ctx.cohortId);
+        this.emit('data-distributed', { cohortId: ctx.cohortId });
         await this.#sendAll(distributeMsgs);
       }
     } catch(err) {
-      this.#fail(err as Error);
+      this.#failCohort(ctx, err as Error);
     }
   }
 
@@ -462,98 +650,96 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
    * automatically requests tx data and starts signing.
    * @param {BaseMessage} msg - The incoming message to handle.
    * @returns {Promise<void>} Resolves when handling is complete.
-   * @throws {Error} If any step of handling fails, the error is emitted and the run promise is rejected.
-   * Note: if the runner has been stopped, handlers will ignore incoming messages.
    */
   async #handleValidationAck(msg: BaseMessage): Promise<void> {
     if(this.#stopped) return;
+    const ctx = this.#contextFor(msg);
+    if(!ctx) return;
     try {
       this.session.receive(msg);
-      this.#drainRejections();
-      this.#onPhaseMaybeChanged();
+      this.#drainRejections(ctx);
+      this.#onPhaseMaybeChanged(ctx);
       const approved = !!msg.body?.approved;
-      this.emit('validation-received', { participantDid: msg.from, approved });
+      this.emit('validation-received', { cohortId: ctx.cohortId, participantDid: msg.from, approved });
 
-      const phase = this.session.getCohortPhase(this.#cohortId!);
+      const phase = this.session.getCohortPhase(ctx.cohortId);
 
       // A participant rejection flips the cohort to Failed. Emit a structured
       // event so the runner/caller sees the failure instead of the cohort
       // silently stalling.
       if(phase === ServiceCohortPhase.Failed) {
         const reason = `Validation rejected by participant ${msg.from}`;
-        this.emit('cohort-failed', { cohortId: this.#cohortId!, reason });
-        this.#fail(new Error(reason));
+        this.emit('cohort-failed', { cohortId: ctx.cohortId, reason });
+        this.#failCohort(ctx, new Error(reason));
         return;
       }
 
       // When all validations received, request tx data and start signing
       if(phase === ServiceCohortPhase.Validated) {
-        const cohort = this.session.getCohort(this.#cohortId!)!;
+        const cohort = this.session.getCohort(ctx.cohortId)!;
         const txData = await this.#onProvideTxData({
-          cohortId      : this.#cohortId!,
+          cohortId      : ctx.cohortId,
           beaconAddress : cohort.beaconAddress,
           signalBytes   : cohort.signalBytes!,
         });
-        const authMsgs = this.session.startSigning(this.#cohortId!, txData);
-        const sessionId = this.session.getSigningSessionId(this.#cohortId!) ?? '';
-        this.emit('signing-started', { sessionId });
+        const authMsgs = this.session.startSigning(ctx.cohortId, txData);
+        const sessionId = this.session.getSigningSessionId(ctx.cohortId) ?? '';
+        this.emit('signing-started', { cohortId: ctx.cohortId, sessionId });
         await this.#sendAll(authMsgs);
       }
     } catch(err) {
-      this.#fail(err as Error);
+      this.#failCohort(ctx, err as Error);
     }
   }
 
   /**
-   * Handler for receiving nonce contributions and signature authorizations. When all nonces or
-   * signatures are received,
+   * Handler for receiving nonce contributions. When all nonces are received, sends the aggregated
+   * nonce back to the cohort.
    * @param {BaseMessage} msg - The incoming message to handle.
    * @returns {Promise<void>} Resolves when handling is complete.
-   * @throws {Error} If any step of handling fails, the error is emitted and the run promise is rejected.
-   * Note: if the runner has been stopped, handlers will ignore incoming messages.
    */
   async #handleNonceContribution(msg: BaseMessage): Promise<void> {
     if(this.#stopped) return;
+    const ctx = this.#contextFor(msg);
+    if(!ctx) return;
     try {
       this.session.receive(msg);
-      this.#drainRejections();
-      this.#onPhaseMaybeChanged();
-      this.emit('nonce-received', { participantDid: msg.from });
+      this.#drainRejections(ctx);
+      this.#onPhaseMaybeChanged(ctx);
+      this.emit('nonce-received', { cohortId: ctx.cohortId, participantDid: msg.from });
 
       // When all nonces collected, send aggregated nonce
-      if(this.session.getCohortPhase(this.#cohortId!) === ServiceCohortPhase.NoncesCollected) {
-        await this.#sendAll(this.session.sendAggregatedNonce(this.#cohortId!));
+      if(this.session.getCohortPhase(ctx.cohortId) === ServiceCohortPhase.NoncesCollected) {
+        await this.#sendAll(this.session.sendAggregatedNonce(ctx.cohortId));
       }
     } catch(err) {
-      this.#fail(err as Error);
+      this.#failCohort(ctx, err as Error);
     }
   }
 
   /**
    * Handler for receiving signature authorizations. When all partial signatures are received, the
-   * session automatically completes and the final result is emitted and the run() promise is resolved.
+   * session automatically completes; the final result is emitted and the cohort's completion
+   * promise resolves.
    * @param {BaseMessage} msg - The incoming message to handle.
    * @returns {Promise<void>} Resolves when handling is complete.
-   * @throws {Error} If any step of handling fails, the error is emitted and the run promise is rejected.
-   * Note: if the runner has been stopped, handlers will ignore incoming messages.
    */
   async #handleSignatureAuthorization(msg: BaseMessage): Promise<void> {
     if(this.#stopped) return;
+    const ctx = this.#contextFor(msg);
+    if(!ctx) return;
     try {
       this.session.receive(msg);
-      this.#drainRejections();
-      this.#onPhaseMaybeChanged();
+      this.#drainRejections(ctx);
+      this.#onPhaseMaybeChanged(ctx);
 
       // The state machine auto-completes when all partial sigs received
-      const result = this.session.getResult(this.#cohortId!);
+      const result = this.session.getResult(ctx.cohortId);
       if(result) {
-        this.#clearTimers();
-        this.#unregisterHandlers();
-        this.emit('signing-complete', result);
-        this.#resolveRun?.(result);
+        this.#completeCohort(ctx, result);
       }
     } catch(err) {
-      this.#fail(err as Error);
+      this.#failCohort(ctx, err as Error);
     }
   }
 
@@ -561,25 +747,10 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
    * Internal: helper to send all messages sequentially. Catches and propagates errors.
    * @param {BaseMessage[]} msgs - The messages to send.
    * @returns {Promise<void>} Resolves when all messages have been sent.
-   * @throws {Error} If sending any message fails, the error is emitted and the run promise is
-   * rejected.
    */
   async #sendAll(msgs: BaseMessage[]): Promise<void> {
     for(const m of msgs) {
       await this.#transport.sendMessage(m, this.#did, m.to);
     }
-  }
-
-  /**
-   * Internal: helper to handle errors. Emits an 'error' event and rejects the run promise.
-   * @param {Error} err - The error to handle.
-   */
-  #fail(err: Error): void {
-    this.#stopAdvertRepeating();
-    this.#clearTimers();
-    this.#unregisterHandlers();
-    if(this.#cohortId) this.session.removeCohort(this.#cohortId);
-    this.emit('error', err);
-    this.#rejectRun?.(err);
   }
 }

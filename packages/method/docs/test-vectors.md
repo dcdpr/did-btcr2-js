@@ -1,8 +1,8 @@
 # Test Vector Generator
 
-An incremental CLI tool for generating did:btcr2 test vectors through a stepped workflow: `create` → `update` (offline) → `fund` → `announce` → `resolve`. It produces JSON files under `lib/data/`.
+An incremental CLI tool for generating did:btcr2 test vectors through a stepped workflow: `create` -> `update` (offline) -> `fund` -> `announce` -> `resolve`. It produces JSON files under `lib/data/`.
 
-The first positional argument is the action. `create` runs offline. All subsequent actions only need `--hash` — the type and network are derived from the DID itself.
+The first positional argument is the action. `create` runs offline. All subsequent actions only need `--hash`: the type and network are derived from the DID itself.
 
 ## Quick Start
 
@@ -55,7 +55,7 @@ pnpm generate:vector <action> [options]
 | `--type` | `key`, `external` | `key` | `create`, `list` | DID identifier type |
 | `--network` | `regtest`, `bitcoin`, `mutinynet`, etc. | `regtest` | `create`, `list` | Bitcoin network |
 | `--genesis` | hex string | prompt / auto-generate | `create` | Genesis bytes hex (see below) |
-| `--hash` | 8-char short hash | — | `update`, `fund`, `announce`, `resolve` | Vector identifier (required) |
+| `--hash` | 8-char short hash | n/a | `update`, `fund`, `announce`, `resolve` | Vector identifier (required) |
 | `--interactive` | flag (no value) | off | `update` | Enable interactive patch builder |
 | `--amount` | BTC amount | `0.001` | `fund` | BTC amount to send to each beacon address |
 | `--offline` | flag (no value) | off | `update`, `resolve` | Skip on-chain announcement or live resolution |
@@ -99,7 +99,7 @@ Reads back the create output, rebuilds the source document, constructs and signs
 
 **With `--interactive`:** prompts for JSON Patch operations with smart auto-generation (see below).
 
-**With `--offline`:** builds and signs the update but skips the on-chain announcement. This is the typical workflow — use `fund` and `announce` as separate steps afterward.
+**With `--offline`:** builds and signs the update but skips the on-chain announcement. This is the typical workflow: use `fund` and `announce` as separate steps afterward.
 
 **Without `--offline`:** also announces the update on-chain immediately (requires a funded beacon address and `BITCOIN_NETWORK_CONFIG`).
 
@@ -155,7 +155,7 @@ Resolves a DID against a live Bitcoin node. Assembles a sidecar from the signed 
 source .env
 pnpm generate:vector resolve --hash <hash>
 
-# Offline — build sidecar input only
+# Offline: build sidecar input only
 pnpm generate:vector resolve --hash <hash> --offline
 ```
 
@@ -189,15 +189,15 @@ pnpm generate:vector update --hash <hash> --interactive
 
 When `add` or `replace` targets a path like `/service/0`, the tool:
 
-1. Prompts for **address type** (`p2pkh`, `p2wpkh`, `p2tr`) — defaults to `p2pkh`
-2. Prompts for **pubkey hex** — leave empty to auto-generate a new keypair
+1. Prompts for **address type** (`p2pkh`, `p2wpkh`, `p2tr`): defaults to `p2pkh`
+2. Prompts for **pubkey hex**: leave empty to auto-generate a new keypair
 3. Derives the Bitcoin address and builds the complete service object
 
 ```
 --- Add a JSON Patch operation ---
   op: add
   path: /service/1
-  Detected service patch — auto-generating value.
+  Detected service patch, auto-generating value.
   address type (p2pkh | p2wpkh | p2tr) [p2pkh]: p2wpkh
   pubkey hex (leave empty to auto-generate):
   Auto-generated keypair (stored as "service-service-1")
@@ -208,16 +208,16 @@ When `add` or `replace` targets a path like `/service/0`, the tool:
 
 When `add` or `replace` targets a path like `/verificationMethod/1`, the tool:
 
-1. Prompts for an **id fragment** (e.g. `someNewId` or `#someNewId`) — defaults to `key-1`, `key-2`, etc.
+1. Prompts for an **id fragment** (e.g. `someNewId` or `#someNewId`): defaults to `key-1`, `key-2`, etc.
 2. Validates the id is unique against existing verification methods
-3. Prompts for **pubkey hex** — leave empty to auto-generate
+3. Prompts for **pubkey hex**: leave empty to auto-generate
 4. Builds the complete verification method object with `publicKeyMultibase`
 
 ```
 --- Add a JSON Patch operation ---
   op: add
   path: /verificationMethod/1
-  Detected verificationMethod patch — auto-generating value.
+  Detected verificationMethod patch, auto-generating value.
   id fragment (e.g. "someNewId" or "#someNewId") [key-1]: recoveryKey
   pubkey hex (leave empty to auto-generate):
   Auto-generated keypair (stored as "verificationMethod-verificationMethod-1")

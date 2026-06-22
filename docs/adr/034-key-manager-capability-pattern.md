@@ -9,6 +9,7 @@ title: "ADR 034: `KeyManager.canExport` capability and optional `exportKey`"
 **Date:** 2026-05-21
 
 **Branch / PR:** `refactor/kms-signing-flow`
+
 **References:** [ADR 007](007-kms-package-boundary.md), [ADR 012](012-kms-dual-signing-urn-identifiers.md), [ADR 033](033-key-manager-package-rename.md)
 
 ## Context

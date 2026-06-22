@@ -307,6 +307,18 @@ export class AggregationParticipant {
     return map;
   }
 
+  /**
+   * The validated aggregated data retained for a cohort, regardless of phase.
+   * Unlike {@link pendingValidations} (which lists only cohorts still awaiting
+   * the validate decision), this returns the stored validation — including the
+   * participant's sidecar (the CAS Announcement map or its SMT inclusion proof)
+   * — so it is still readable once the cohort reaches Complete. Returns
+   * undefined before aggregated data has been received.
+   */
+  public getValidation(cohortId: string): PendingValidation | undefined {
+    return this.#cohortStates.get(cohortId)?.validation;
+  }
+
   #handleDistributeAggregatedData(message: BaseMessage): void {
     const cohortId = message.body?.cohortId;
     if(!cohortId) return;

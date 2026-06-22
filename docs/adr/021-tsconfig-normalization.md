@@ -90,7 +90,7 @@ A subtlety: `helia` and `@helia/strings` use native modules (`libp2p` to `node-d
 
 - One-time migration cost: ~380 file changes for the `import type` cascade.
 - `tsup` is now a build-time dependency in 4 packages (small impact: tsup itself has few transitive deps).
-- The CJS extension is `.js` (not `.cjs`), which still requires the `dist/cjs/package.json` `{"type": "commonjs"}` override hack to tell Node how to interpret the files. A future cleanup could migrate all 9 packages to tsup, switch the extension to `.cjs`, and drop the override entirely. Tracked in `TODO.md`.
+- The CJS extension is `.js` (not `.cjs`), which still requires the `dist/cjs/package.json` `{"type": "commonjs"}` override hack to tell Node how to interpret the files. A future cleanup could migrate all 9 packages to tsup, switch the extension to `.cjs`, and drop the override entirely.
 - `appendix.ts` `fetchFromCas()` now does dynamic `import()` instead of static: slightly more cognitive overhead at the call site, but it's the only place this pattern is needed and the comment block explains why.
 
 ## Alternatives considered

@@ -67,7 +67,7 @@ return state.result;  // state.status === 'resolved'
 
 Three significant design choices inside the state machine:
 
-1. **Multi-round beacon discovery.** After applying updates, the state machine loops back to `BeaconDiscovery` to find any new beacon services added by those updates. This is bounded by a future `maxDiscoveryRounds` safety cap (Track 5 5A in the roadmap).
+1. **Multi-round beacon discovery.** After applying updates, the state machine loops back to `BeaconDiscovery` to find any new beacon services added by those updates. This is bounded by a planned `maxDiscoveryRounds` safety cap (see the follow-ups below).
 
 2. **Sidecar data bundle.** The `ResolutionOptions.sidecar` field lets the caller pre-populate the state machine with data it already has (e.g., a signed update fetched out-of-band). The state machine checks the sidecar first before emitting a `DataNeed`, which means callers that already have the full data bundle never see any `DataNeed` requests at all.
 
@@ -111,12 +111,12 @@ Three significant design choices inside the state machine:
 
 ## Follow-ups
 
-Tracked in the monorepo roadmap (Track 5 5A: Resolver Robustness):
+Planned future work to harden the resolver:
 
 - Cap resolver discovery rounds at 10 (`maxDiscoveryRounds` option) to prevent unbounded beacon discovery loops.
 - Validate provided data matches the need's expected hash at `provide()` time.
 - Add runtime type guards to `provide()`: validate data shape, not just TypeScript overloads.
-- Mirror the same pattern for `Updater` (Track 3: Sans-I/O Update Path).
+- Mirror the same sans-I/O pattern for the `Updater` write path.
 
 ## References
 

@@ -103,8 +103,8 @@ const service = new AggregationServiceRunner({
   config      : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' },
   cohortTtlMs : TIMEOUT_MS,
 
-  onProvideTxData : async () => {
-    const cohort = service.session.getCohort(service.session.cohorts[0].id)!;
+  onProvideTxData : async ({ cohortId }) => {
+    const cohort = service.session.getCohort(cohortId)!;
     const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
     const payment = p2tr(aggPk);
     const prevOutValue = 100_000n;

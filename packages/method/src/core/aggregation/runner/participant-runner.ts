@@ -1,6 +1,5 @@
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import type { SchnorrKeyPair } from '@did-btcr2/keypair';
-import type { SerializedSMTProof } from '@did-btcr2/smt';
 import type { BaseMessage } from '../messages/base.js';
 import {
   AGGREGATED_NONCE,
@@ -20,7 +19,7 @@ import {
 import { ParticipantCohortPhase } from '../phases.js';
 import { KeyPairAggregationSigner } from '../signer.js';
 import type { Transport } from '../transport/transport.js';
-import type { AggregationParticipantEvents } from './events.js';
+import type { AggregationParticipantEvents, CohortCompleteInfo } from './events.js';
 import { TypedEventEmitter } from './typed-emitter.js';
 
 /** Decision callback: filter discovered cohorts. Default rejects all. */
@@ -175,24 +174,52 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
 
   /**
    * Single-shot helper: start, join the first cohort that passes `shouldJoin`,
-   * drive it to completion, and resolve. Convenient for tests and demos.
+   * drive it to completion, and resolve. Convenient for tests and demos. The
+   * single-cohort special case of {@link joinMatching} (count = 1).
    */
   static async joinFirst(
     options: AggregationParticipantRunnerOptions
-  ): Promise<{
-    cohortId: string;
-    beaconAddress: string;
-    beaconType: string;
-    /** DID → base64url update hash. Populated only for CAS beacons. */
-    casAnnouncement?: Record<string, string>;
-    /** Merkle inclusion proof for this participant's slot. Populated only for SMT beacons. */
-    smtProof?: SerializedSMTProof;
-  }> {
+  ): Promise<CohortCompleteInfo> {
     return new Promise((resolve, reject) => {
       const runner = new AggregationParticipantRunner(options);
       runner.once('cohort-complete', (info) => {
         runner.stop();
         resolve(info);
+      });
+      runner.on('error', reject);
+      runner.start().catch(reject);
+    });
+  }
+
+  /**
+   * Multi-cohort helper: start, join EVERY cohort whose advert passes
+   * `shouldJoin`, drive each to completion in parallel, and resolve once
+   * `count` cohorts have completed (the runner stops at that point). The
+   * N-cohort generalization of {@link joinFirst}, for a participant that joins
+   * several cohorts advertised by one service.
+   *
+   * For an open-ended, long-lived subscriber (no fixed count), construct an
+   * {@link AggregationParticipantRunner} directly, set `shouldJoin`, call
+   * `start()`, and listen for `cohort-complete` — the runner already drives
+   * any number of cohorts concurrently.
+   *
+   * @param options Participant runner options (set `shouldJoin` to select cohorts).
+   * @param count Number of completed cohorts to collect before resolving.
+   * @returns The {@link CohortCompleteInfo} for each completed cohort, in completion order.
+   */
+  static async joinMatching(
+    options: AggregationParticipantRunnerOptions,
+    count: number,
+  ): Promise<CohortCompleteInfo[]> {
+    return new Promise((resolve, reject) => {
+      const runner = new AggregationParticipantRunner(options);
+      const completed: CohortCompleteInfo[] = [];
+      runner.on('cohort-complete', (info) => {
+        completed.push(info);
+        if(completed.length >= count) {
+          runner.stop();
+          resolve(completed);
+        }
       });
       runner.on('error', reject);
       runner.start().catch(reject);
@@ -376,7 +403,10 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
         if (info) {
           // Surface the sidecar data the participant will need for future resolutions:
           // the CAS Announcement map (CAS beacons) or their SMT inclusion proof.
-          const validation = this.session.pendingValidations.get(cohortId);
+          // Read via getValidation (not pendingValidations, which lists only the
+          // AwaitingValidation phase) so the sidecar is still available now that
+          // the cohort has reached Complete.
+          const validation = this.session.getValidation(cohortId);
           this.emit('cohort-complete', {
             cohortId,
             beaconAddress   : info.beaconAddress,
