@@ -1,7 +1,7 @@
 /**
  * Parsed Server-Sent Events record.
  *
- * Events without a `data` field are never yielded (per the SSE spec — only a
+ * Events without a `data` field are never yielded (per the SSE spec - only a
  * blank line that follows at least one `data:` line dispatches an event).
  */
 export interface SseEvent {
@@ -24,7 +24,7 @@ export interface SseEvent {
  * CR-only line terminators are not supported (every mainstream SSE
  * implementation emits LF or CRLF).
  *
- * Pure, runtime-agnostic — works anywhere `ReadableStream<Uint8Array>` and
+ * Pure, runtime-agnostic - works anywhere `ReadableStream<Uint8Array>` and
  * `TextDecoder` exist (browsers and Node 22+).
  *
  * The caller owns stream lifecycle: cancellation should be effected via an

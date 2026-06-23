@@ -61,7 +61,7 @@ export function buildRequestAuth(
 
 /**
  * Parse a `BTCR2-Sig` auth header value into its structured fields. Does NOT
- * verify the signature — call {@link verifyRequestAuth} for that.
+ * verify the signature: call {@link verifyRequestAuth} for that.
  */
 export function parseRequestAuth(headerValue: string): ParsedRequestAuth {
   const prefix = `${REQUEST_AUTH_SCHEME} `;

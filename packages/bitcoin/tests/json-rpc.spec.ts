@@ -273,7 +273,7 @@ describe('JsonRpcTransport', () => {
     });
   });
 
-  describe('call() — single call', () => {
+  describe('call() - single call', () => {
     it('returns result from successful RPC call', async () => {
       const { transport } = createTransport({ result: 'blockdata' });
       const result = await transport.call('getblock', ['hash']);
@@ -299,7 +299,7 @@ describe('JsonRpcTransport', () => {
     });
   });
 
-  describe('batch() — real JSON-RPC batching', () => {
+  describe('batch() - real JSON-RPC batching', () => {
     it('sends all calls in a single HTTP request', async () => {
       const { transport, seen } = createBatchTransport();
       const results = await transport.batch([
@@ -377,7 +377,7 @@ describe('JsonRpcTransport', () => {
     });
   });
 
-  describe('call() — auth forwarding', () => {
+  describe('call() - auth forwarding', () => {
     it('includes auth header from URL credentials', async () => {
       const { transport, seen } = createTransport({}, { host: 'http://user:pass@node:8332' });
       await transport.call('test');

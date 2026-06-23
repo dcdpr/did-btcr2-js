@@ -374,7 +374,7 @@ export async function anchorSignal(args: {
   const script = p2wpkh(pubkey, net).script;
 
   const utxos = await fetchUtxos(address, btc);
-  if (utxos.length === 0) throw new Error(`Beacon ${address} has no UTXO on ${args.network} — fund it first`);
+  if (utxos.length === 0) throw new Error(`Beacon ${address} has no UTXO on ${args.network} - fund it first`);
   const utxo = [...utxos].sort((a, b) => b.value - a.value)[0]!;
 
   const build = (feeSats: bigint): Transaction => {

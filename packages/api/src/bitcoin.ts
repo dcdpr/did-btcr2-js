@@ -56,7 +56,7 @@ export class BitcoinApi {
 
   /**
    * Create a BitcoinApi for a specific network with optional endpoint overrides.
-   * Uses BitcoinConnection.forNetwork() — no env vars consulted.
+   * Uses BitcoinConnection.forNetwork(): no env vars consulted.
    * @param cfg The network and optional REST/RPC overrides.
    */
   constructor(cfg: BitcoinApiConfig) {
@@ -109,7 +109,7 @@ export class BitcoinApi {
 
   /**
    * Get a block by hash or height via REST.
-   * @param params Block identifier — at least one of `hash` or `height` is required.
+   * @param params Block identifier: at least one of `hash` or `height` is required.
    */
   async getBlock(params: { hash?: string; height?: number }) {
     if (!params.hash && params.height === undefined) {

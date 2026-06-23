@@ -5,7 +5,7 @@
  * BIP-340 Schnorr) instead of `'bip341'` (taproot-tweaked). The signature is
  * structurally a valid 64-byte BIP-340 signature over the BIP-341 sighash,
  * scure-btc-signer happily accepts it for `tapKeySig` and finalizes the tx,
- * and the resulting hex broadcasts cleanly to the local mempool — but
+ * and the resulting hex broadcasts cleanly to the local mempool, but
  * consensus rejects it because BIP-341 §3 mandates that `tapKeySig` verify
  * against the tweaked output internal key `Q = P + tG`, not against the
  * untweaked Schnorr pubkey `P`. The reject reason is
@@ -75,7 +75,7 @@ const internalKey = signer.publicKey.slice(1, 33); // x-only
 const tapOut = p2tr(internalKey, undefined, bitcoin.data);
 const prevOutScript = tapOut.script;
 const amount = BigInt(utxo.value);
-const feeSats = 800n; // conservative — vsize ~160 at 5 sat/vB
+const feeSats = 800n; // conservative - vsize ~160 at 5 sat/vB
 
 const tx = new Transaction({ allowUnknownOutputs: true });
 tx.addInput({
@@ -92,7 +92,7 @@ tx.addOutput({ script: opReturnScript(new Uint8Array(32).fill(0x42)), amount: 0n
 // The correct call for a P2TR-spending input is `signer.sign(sighash, 'bip341')`;
 // using 'bip340' produces a 64-byte signature over the BIP-341 sighash with
 // the untweaked secret. scure accepts this for `tapKeySig`, finalizes the
-// tx, and the resulting hex broadcasts cleanly to the local pool — but
+// tx, and the resulting hex broadcasts cleanly to the local pool, but
 // consensus rejects it because the verifier checks against Q = P + tG.
 const sighash = tx.preimageWitnessV1(0, [prevOutScript], SigHash.DEFAULT, [amount]);
 const wrongSig = signer.sign(sighash, 'bip340');
@@ -103,7 +103,7 @@ const rawHex = tx.hex;
 console.log(`[4] Built P2TR-spending tx signed with WRONG scheme 'bip340'`);
 console.log(`    raw tx hex (first 64 chars): ${rawHex.slice(0, 64)}...`);
 
-// ─── Step 5: Broadcast — MUST be rejected ───────────────────────────────────
+// ─── Step 5: Broadcast - MUST be rejected ───────────────────────────────────
 
 let broadcastError: unknown;
 try {

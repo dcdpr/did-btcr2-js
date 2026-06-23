@@ -10,7 +10,7 @@ import { defineConfig } from 'tsup';
  * Bundled-inline deps (no `require` export condition in their package.json):
  * - multiformats subpath exports
  *
- * `helia` and `@helia/strings` are intentionally NOT bundled — they are
+ * `helia` and `@helia/strings` are intentionally NOT bundled, they are
  * lazy-loaded via `await import(...)` in `src/utils/appendix.ts` so Node's
  * runtime can resolve them as ESM without tsup trying to pull their native
  * (libp2p / node-datachannel) modules into the bundle.

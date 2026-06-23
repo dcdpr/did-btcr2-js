@@ -13,7 +13,7 @@ import { opReturnScript } from '../src/core/beacon/beacon.js';
  * and emitted as the bare opcode byte; numbers outside `[0, 16]` are encoded
  * as ScriptNum data pushes. Passing the numeric `OP.RETURN` constant routes
  * through the ScriptNum path and emits `OP_PUSHBYTES_1 0x6a OP_PUSHBYTES_32
- * <32 bytes>` = 35 bytes — a non-standard script that Bitcoin Core rejects at
+ * <32 bytes>` = 35 bytes - a non-standard script that Bitcoin Core rejects at
  * broadcast time with `sendrawtransaction RPC error -26: scriptpubkey`.
  *
  * These assertions pin the exact byte shape so the encoding contract is
@@ -43,7 +43,7 @@ describe('opReturnScript encodes the standard NULL_DATA shape', () => {
   });
 
   it('round-trips through a known fixture', () => {
-    // Empty (zeroed) 32-byte signal — predictable bytes for inspection.
+    // Empty (zeroed) 32-byte signal - predictable bytes for inspection.
     const signal = new Uint8Array(32);
     const script = opReturnScript(signal);
     const hex = Array.from(script).map(b => b.toString(16).padStart(2, '0')).join('');

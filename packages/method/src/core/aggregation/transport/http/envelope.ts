@@ -39,7 +39,7 @@ export interface VerifyEnvelopeOptions {
 /**
  * Build a {@link SignedEnvelope} around `message`.
  *
- * Pure function — no I/O beyond `randomBytes` for nonce generation (which
+ * Pure function - no I/O beyond `randomBytes` for nonce generation (which
  * uses the platform's cryptographic RNG: `crypto.getRandomValues` in browsers,
  * `node:crypto` in Node). Deterministic when both `nonce` and `timestamp` are
  * supplied via {@link SignEnvelopeOptions}.
@@ -73,7 +73,7 @@ export function signEnvelope(
  * communication public key. Throws {@link HttpTransportError} on any failure;
  * returns normally on success.
  *
- * Does NOT check nonce uniqueness — replay protection is the caller's
+ * Does NOT check nonce uniqueness - replay protection is the caller's
  * responsibility (the server-side transport maintains an LRU cache).
  */
 export function verifyEnvelope(
@@ -161,7 +161,7 @@ function normalizeMessage(message: EnvelopeMessage): Record<string, unknown> {
  *
  * Without this, `JSON.stringify` serializes a `Uint8Array` as an index-keyed
  * object (`{"0":1,"1":2,...}`), which `canonicalize` then re-parses into a
- * plain object — the receiver cannot reconstruct the original bytes even
+ * plain object - the receiver cannot reconstruct the original bytes even
  * though the signature still verifies.
  */
 export function normalizeForWire(value: unknown): unknown {

@@ -3,13 +3,13 @@
  *
  * The end-to-end counterpart of `verify-scenarios.ts`: drives the real
  * {@link Resolver} but fulfils its needs from LIVE services instead of synthetic
- * data —
+ * data:
  *   - NeedBeaconSignals    : BeaconSignalDiscovery.indexer() reads the actual
  *                            OP_RETURN signals anchored at each beacon address
  *                            (mutinynet, via Esplora).
  *   - NeedGenesisDocument  } fetched from the CAS (IPFS) by deriving the CIDv1
  *   - NeedCASAnnouncement   } (raw, sha2-256) from the content hash the resolver
- *   - NeedSignedUpdate      } asks for — the same CIDs `scenario:publish` pinned.
+ *   - NeedSignedUpdate      } asks for - the same CIDs `scenario:publish` pinned.
  * Sidecar-delivered data (SMT proofs, and 10/12 genesis/update) rides in the
  * vector's resolutionOptions, so those needs never fire.
  *
@@ -17,7 +17,7 @@
  * fund -> anchor, with anchors confirmed and CAS objects pinned + reachable.
  *
  * Env:
- *   CAS_GATEWAY   IPFS gateway base (default http://127.0.0.1:8080 — local Kubo)
+ *   CAS_GATEWAY   IPFS gateway base (default http://127.0.0.1:8080 - local Kubo)
  *
  * Usage: bun lib/verify-live.ts
  */

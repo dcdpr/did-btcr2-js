@@ -217,7 +217,7 @@ export class DidMethodApi {
     });
 
     // Drive the state machine. All I/O (signing delegation, Bitcoin broadcast)
-    // happens inside the need-handlers below — the Updater itself is pure.
+    // happens inside the need-handlers below - the Updater itself is pure.
     let state = updater.advance();
     while(state.status === 'action-required') {
       for(const need of state.needs) {

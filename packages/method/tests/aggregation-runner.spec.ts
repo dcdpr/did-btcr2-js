@@ -21,7 +21,7 @@ describe('Aggregation runner regressions', () => {
         transport,
         did,
         keys,
-        config          : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' },
+        config          : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: 'a'.repeat(64), recoverySequence: 144 },
         onProvideTxData : async () => { throw new Error('not used'); },
       });
 
@@ -75,7 +75,7 @@ describe('Aggregation runner regressions', () => {
         transport       : serviceTransport,
         did             : serviceDid,
         keys            : serviceKeys,
-        config          : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' },
+        config          : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: 'a'.repeat(64), recoverySequence: 144 },
         onProvideTxData : async () => { throw new Error('no participants in this test'); },
         cohortTtlMs     : 50,
       });

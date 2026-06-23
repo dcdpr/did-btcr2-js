@@ -371,7 +371,7 @@ describe('BitcoinCoreRpcClient', () => {
         });
       };
       const client = new BitcoinCoreRpcClient({}, executor);
-      // No verbosity param — should default to 2
+      // No verbosity param - should default to 2
       const results = await client.getRawTransactions(['aaa', 'bbb']);
       expect(results).to.have.length(2);
     });

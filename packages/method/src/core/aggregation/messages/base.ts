@@ -22,6 +22,12 @@ export type BaseBody = Partial<CohortConditions> & {
   aggregatedNonce?: Uint8Array;
   nonceContribution?: Uint8Array;
   partialSignature?: Uint8Array;
+  /** Fallback (k-of-n script-path) leaf script, hex. Carried on FALLBACK_AUTHORIZATION_REQUEST. */
+  fallbackLeafScriptHex?: string;
+  /** Signer's x-only key for a fallback signature (which CHECKSIGADD slot it satisfies). */
+  signerPk?: Uint8Array;
+  /** A member's standalone BIP-340 fallback script-path signature (64 bytes). */
+  fallbackSignature?: Uint8Array;
   pendingTx?: string;
   /** Hex-encoded scriptPubKey of the UTXO being spent. Required for BIP-341 sighash. */
   prevOutScriptHex?: string;

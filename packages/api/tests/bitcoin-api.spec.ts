@@ -98,7 +98,7 @@ describe('BitcoinApi', () => {
     // Create with only REST (no rpc config) to guarantee rpc is undefined
     const btc = new BitcoinApi({ network: 'regtest', executor });
     if (btc.rpc) {
-      // regtest defaults include RPC — skip this test variant
+      // regtest defaults include RPC - skip this test variant
       return;
     }
     expect(() => btc.requireRpc()).to.throw('RPC client not configured');

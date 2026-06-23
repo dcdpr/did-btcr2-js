@@ -1,5 +1,5 @@
 /**
- * Aggregation Participant — Standalone Process (Runner API)
+ * Aggregation Participant - Standalone Process (Runner API)
  *
  * Runs an AggregationParticipantRunner in its own process. Pairs with
  * `aggregation-service.ts` running in another terminal.
@@ -89,8 +89,8 @@ participant.once('cohort-complete', (result) => {
   console.log('My DID:', myDid);
   console.log('My pubkey:', bytesToHex(myKeys.publicKey.compressed));
 
-  // Persist the cohort's sidecar data — required for future DID resolution.
-  // For CAS beacons this is the DID → update-hash map that anchors the aggregated
+  // Persist the cohort's sidecar data, required for future DID resolution.
+  // For CAS beacons this is the DID to update-hash map that anchors the aggregated
   // announcement; for SMT beacons it is this participant's Merkle inclusion proof.
   if(result.casAnnouncement) {
     console.log('\nCAS Announcement (keep as sidecar data):');

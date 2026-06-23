@@ -44,13 +44,13 @@ export class BeaconSigningSession {
   /** Previous output values for Taproot sighash computation. */
   public prevOutValues: bigint[];
 
-  /** Map of participant publicKey-hex → public nonce contribution. */
+  /** Map of participant publicKey-hex to public nonce contribution. */
   public nonceContributions: Map<PublicKeyHex, Nonce> = new Map();
 
   /** Aggregated MuSig2 nonce (66 bytes). */
   public aggregatedNonce?: Uint8Array;
 
-  /** Map of participant DID → partial signature. */
+  /** Map of participant DID to partial signature. */
   public partialSignatures: Map<string, Uint8Array> = new Map();
 
   /** Final 64-byte Schnorr signature. */
@@ -251,7 +251,7 @@ export class BeaconSigningSession {
       throw new SigningSessionError('Aggregated nonce not available.', 'MISSING_AGGREGATED_NONCE');
     }
     if(!this.#secretNonce) {
-      throw new SigningSessionError('Secret nonce not available — generateNonceContribution() must be called first.', 'MISSING_SECRET_NONCE');
+      throw new SigningSessionError('Secret nonce not available - generateNonceContribution() must be called first.', 'MISSING_SECRET_NONCE');
     }
     const session = new musig2.Session(
       this.aggregatedNonce,

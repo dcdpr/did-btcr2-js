@@ -8,7 +8,7 @@
  *   - Windows:     %APPDATA%/did-btcr2-js/wallet/wallet.json
  *
  * No encryption: testnet-only dev tool. Backing up the wallet directory is
- * the operator's responsibility — losing it loses every tracked key.
+ * the operator's responsibility - losing it loses every tracked key.
  *
  * Legacy location: `packages/method/lib/wallet/.wallet/wallet.json`. On first
  * load this file is auto-migrated to the new location if it exists.

@@ -31,7 +31,7 @@ echo "  Repo root: $ROOT"
 echo "  Workspace: $TMP"
 echo ""
 
-# Build everything fresh — never trust stale dist artifacts.
+# Build everything fresh, never trust stale dist artifacts.
 echo "[1] Building all workspace packages ..."
 ( cd "$ROOT" && pnpm build:ts ) > /dev/null
 ( cd "$ROOT" && pnpm -r --filter=@did-btcr2/common --filter=@did-btcr2/keypair --filter=@did-btcr2/key-manager build ) > /dev/null
@@ -69,7 +69,7 @@ KM_TGZ=$(ls "$PACK_DIR"/did-btcr2-key-manager-*.tgz)
     "file:$COMMON_TGZ" "file:$KEYPAIR_TGZ" "file:$KM_TGZ" ) > /dev/null
 echo "    OK (installed from tarballs only, no registry)"
 
-# Tiny consumer module — exercises the public API surface that a downstream
+# Tiny consumer module, exercises the public API surface that a downstream
 # user would touch first: package name (renamed), class exports (renamed),
 # unified Signer.sign interface (new scheme names), and a sign->verify
 # round-trip that crosses the package boundary.

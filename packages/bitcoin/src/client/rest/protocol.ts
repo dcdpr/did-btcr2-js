@@ -7,8 +7,8 @@ const HEX64_RE = /^[0-9a-f]{64}$/i;
 /**
  * Sans-I/O Esplora REST API protocol.
  *
- * Every method returns an {@link HttpRequest} descriptor — a plain object
- * describing *what* to request — without performing any I/O.  The caller
+ * Every method returns an {@link HttpRequest} descriptor (a plain object
+ * describing *what* to request) without performing any I/O.  The caller
  * is responsible for executing the request with an HTTP client of their
  * choice and deserializing the response.
  *

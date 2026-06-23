@@ -1,4 +1,6 @@
 import type { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { bytesToHex } from '@noble/hashes/utils';
+import { DEFAULT_FUNDING_MODEL, DEFAULT_RECOVERY_SEQUENCE } from '../recovery-policy.js';
 import type { AggregationResult } from '../service.js';
 import { InMemoryBus, InMemoryTransport } from '../transport/in-memory.js';
 import { AggregationParticipantRunner } from './participant-runner.js';
@@ -18,8 +20,21 @@ export interface SoloCohortOptions {
   service: SoloActor;
   /** The single participant identity (the lone signer of the cohort). */
   participant: SoloActor;
-  /** Bitcoin network and beacon type (`'CASBeacon'` | `'SMTBeacon'`) for the cohort. */
-  config: { network: string; beaconType: string };
+  /**
+   * Bitcoin network and beacon type (`'CASBeacon'` | `'SMTBeacon'`) for the
+   * cohort. Recovery params are optional here: in a solo run the service actor
+   * is the operator and holds full keys, so when `recoveryKey` is omitted the
+   * service's own x-only key is used as the CSV recovery key (it can actually
+   * perform the recovery), with {@link DEFAULT_RECOVERY_SEQUENCE} as the delay.
+   */
+  config: {
+    network: string;
+    beaconType: string;
+    /** Operator recovery key, x-only (64-hex). Defaults to the service actor's x-only key. */
+    recoveryKey?: string;
+    /** Relative-timelock (BIP-68) before recovery is spendable. Defaults to {@link DEFAULT_RECOVERY_SEQUENCE}. */
+    recoverySequence?: number;
+  };
   /** Provide the participant's signed BTCR2 update for the cohort. */
   onProvideUpdate: OnProvideUpdate;
   /** Provide the Bitcoin transaction data the cohort signs. */
@@ -42,8 +57,8 @@ export class AggregationRunner {
    *
    * One party plays both the coordinating service and the lone participant,
    * connected over an {@link InMemoryTransport} (no relay or HTTP server). This
-   * makes the single-participant aggregate-beacon path — the N=1 corner of the
-   * two-axis beacon matrix (see ADR 037) — first-class, useful for generating
+   * makes the single-participant aggregate-beacon path (the N=1 corner of the
+   * two-axis beacon matrix, see ADR 037) first-class, useful for generating
    * and reproducing single-participant aggregate test vectors.
    *
    * The service advertises a cohort with `minParticipants: 1`; the participant
@@ -64,11 +79,18 @@ export class AggregationRunner {
     transport.registerPeer(options.service.did, options.service.keys.publicKey.compressed);
     transport.start();
 
+    // In a solo run the service actor is the operator and holds full keys, so it
+    // can both advertise the recovery terms and, if ever needed, perform the
+    // recovery. Default the recovery key to the service's own x-only key.
+    const recoveryKey = options.config.recoveryKey
+      ?? bytesToHex(options.service.keys.publicKey.compressed.slice(1));
+    const recoverySequence = options.config.recoverySequence ?? DEFAULT_RECOVERY_SEQUENCE;
+
     const service = new AggregationServiceRunner({
       transport,
       did                    : options.service.did,
       keys                   : options.service.keys,
-      config                 : { minParticipants: 1, network: options.config.network, beaconType: options.config.beaconType },
+      config                 : { minParticipants: 1, network: options.config.network, beaconType: options.config.beaconType, recoveryKey, recoverySequence, fundingModel: DEFAULT_FUNDING_MODEL },
       onProvideTxData        : options.onProvideTxData,
       cohortTtlMs            : options.cohortTtlMs,
       phaseTimeoutMs         : options.phaseTimeoutMs,

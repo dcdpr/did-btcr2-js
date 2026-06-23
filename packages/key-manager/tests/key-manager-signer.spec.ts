@@ -42,7 +42,7 @@ describe('KeyManagerSigner', () => {
 
     it('constructor without keyId defers active-key resolution to first access', () => {
       // No keyId means "use whatever is active at sign-time". Constructor must
-      // not eagerly probe — there might be no active key yet.
+      // not eagerly probe - there might be no active key yet.
       const kms = new LocalKeyManager();
       expect(() => new KeyManagerSigner(kms)).to.not.throw();
     });

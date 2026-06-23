@@ -41,6 +41,9 @@ children:
   - ./038-musig2-key-custody.md
   - ./039-cohort-condition-model.md
   - ./040-multi-cohort-service-runner.md
+  - ./041-cooperative-non-inclusion-signaling.md
+  - ./042-fault-tolerant-beacon-output.md
+  - ./043-k-of-n-fallback-protocol.md
 ---
 
 # Architecture Decision Records
@@ -89,3 +92,6 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 038 | 2026-06-20 | [MuSig2 Key Custody: Bounded, Zeroized Secrets at the Participant Boundary](038-musig2-key-custody.md) |
 | 039 | 2026-06-21 | [Cohort Condition Model](039-cohort-condition-model.md) |
 | 040 | 2026-06-22 | [Multi-Cohort Aggregation Service Runner](040-multi-cohort-service-runner.md) |
+| 041 | 2026-06-23 | [Cooperative Non-Inclusion Signaling for Aggregate Beacons](041-cooperative-non-inclusion-signaling.md) (superseded by 042) |
+| 042 | 2026-06-23 | [Fault-Tolerant Aggregate Beacon Output (Hybrid Taproot)](042-fault-tolerant-beacon-output.md) |
+| 043 | 2026-06-24 | [k-of-n Fallback Signing Protocol for Aggregate Beacons](043-k-of-n-fallback-protocol.md) |

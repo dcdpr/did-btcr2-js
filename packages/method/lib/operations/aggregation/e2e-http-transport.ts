@@ -41,7 +41,7 @@ const BASE_URL = `http://localhost:${PORT}/`;
 
 // ────────────────────────────────────────────────
 // Keys + DIDs (all KEY DIDs; pubkeys derive from the DID string so no
-// pre-registerPeer dance is needed — see ADR-002)
+// pre-registerPeer dance is needed - see ADR-002)
 // ────────────────────────────────────────────────
 
 const serviceKeys = SchnorrKeyPair.generate();
@@ -137,7 +137,7 @@ const httpServer = createServer(async (req, res) => {
 });
 
 // ────────────────────────────────────────────────
-// Participant transports — real fetch against the real server
+// Participant transports - real fetch against the real server
 // ────────────────────────────────────────────────
 
 const aliceTransport = new HttpClientTransport({ baseUrl: BASE_URL });
@@ -172,7 +172,7 @@ function buildSignedUpdate(did: string, kp: SchnorrKeyPair, beaconAddress: strin
 }
 
 // ────────────────────────────────────────────────
-// Service + participant runners (identical to the Nostr demos —
+// Service + participant runners (identical to the Nostr demos -
 // the transport swap is the ONLY difference)
 // ────────────────────────────────────────────────
 
@@ -180,7 +180,7 @@ const service = new AggregationServiceRunner({
   transport : serviceTransport,
   did       : serviceDid,
   keys      : serviceKeys,
-  config    : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' },
+  config    : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: bytesToHex(serviceKeys.publicKey.compressed.slice(1)), recoverySequence: 144 },
 
   onProvideTxData : async ({ cohortId }) => {
     const cohort = service.session.getCohort(cohortId)!;

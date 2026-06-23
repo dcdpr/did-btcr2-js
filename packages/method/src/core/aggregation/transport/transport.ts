@@ -14,7 +14,7 @@ export type TransportType = 'nostr' | 'didcomm' | 'http';
  * shared by all registered actors. Each actor registers its own DID and keys;
  * the transport resolves the correct identity when sending or receiving messages.
  *
- * The transport is a pure passthrough — it knows nothing about the aggregation
+ * The transport is a pure passthrough: it knows nothing about the aggregation
  * protocol. It only signs/encrypts outgoing messages with the sender's keys and
  * dispatches incoming messages to the correct actor's registered handler.
  *
@@ -23,7 +23,7 @@ export type TransportType = 'nostr' | 'didcomm' | 'http';
 export interface Transport {
   name: string;
 
-  /** Start the underlying transport (idempotent — only starts once). */
+  /** Start the underlying transport (idempotent, only starts once). */
   start(): void;
 
   /** Register an actor (service or participant) with this transport. */
@@ -61,14 +61,14 @@ export interface Transport {
    * message is satisfied).
    *
    * Useful for broadcasts on transports that don't reliably backfill
-   * historical events to late subscribers (many Nostr relays) — republishing
+   * historical events to late subscribers (many Nostr relays): republishing
    * gives late joiners a window in which to discover the message. The first
    * publish is synchronous-ish (fired before the method returns).
    *
    * Callers specify `recipient` only for directed messages; for broadcasts
    * it is omitted.
    *
-   * @returns A stop function. Idempotent — safe to call more than once.
+   * @returns A stop function. Idempotent, safe to call more than once.
    */
   publishRepeating(
     message: BaseMessage,

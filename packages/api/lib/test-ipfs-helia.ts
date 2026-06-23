@@ -10,7 +10,7 @@ import { CID } from 'multiformats/cid';
 import * as raw from 'multiformats/codecs/raw';
 import { create as createDigest } from 'multiformats/hashes/digest';
 import { sha256 } from 'multiformats/hashes/sha2';
-// Hash from a real did:btcr2 resolution failure — the signed update the
+// Hash from a real did:btcr2 resolution failure: the signed update the
 // resolver needed but couldn't fetch without CAS.
 const hexHash = 'be822c3da87dfa89ccac1dd552c6f93281e74f3cda257734393b5041d0c0388a';
 
@@ -34,7 +34,7 @@ const heliaElapsed = performance.now() - start;
 console.log(`Helia ready in ${heliaElapsed.toFixed(0)}ms`);
 
 console.log(`Fetching (${TIMEOUT_MS / 1000}s timeout)...`);
-// blockstore.get() has no built-in timeout — it walks the DHT indefinitely.
+// blockstore.get() has no built-in timeout: it walks the DHT indefinitely.
 // Wrap with AbortSignal so it doesn't hang forever.
 let result: Uint8Array | null;
 try {
@@ -44,7 +44,7 @@ try {
   console.log(`Fetch completed in ${(performance.now() - fetchStart).toFixed(0)}ms`);
 } catch (err: any) {
   if (err.name === 'AbortError' || err.name === 'TimeoutError') {
-    console.log(`Timed out after ${TIMEOUT_MS}ms — block not found on DHT`);
+    console.log(`Timed out after ${TIMEOUT_MS}ms - block not found on DHT`);
   } else {
     console.log(`Error: ${err.message}`);
   }

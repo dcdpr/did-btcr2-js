@@ -2,7 +2,7 @@
  * E2E: Custom Signer adapter across networks.
  *
  * Identical end-to-end flow to `e2e-local-signer-update.ts`, but the signer is
- * an inline literal object satisfying the {@link Signer} interface — no class,
+ * an inline literal object satisfying the {@link Signer} interface: no class,
  * no LocalSigner, no KeyManagerSigner. This proves the cryptosuite chain and the
  * beacon broadcast pipeline are interface-only: any third party can plug in a
  * custom `Signer` (HSM, hardware wallet, browser extension, remote signer)
@@ -45,7 +45,7 @@ const secretKey = kp.raw.secret!;
 
 // The Signer satisfies the interface structurally; it is a plain literal
 // object, not an instance of `LocalSigner`. The Updater + Beacon chain has
-// no `instanceof` checks anywhere — any object that conforms to
+// no `instanceof` checks anywhere, any object that conforms to
 // `{ publicKey: KeyBytes, sign(data, scheme, opts?): SignatureBytes }` works.
 // A real caller might back this with fetch() to a remote signer, a hardware
 // wallet, a WebAuthn API, or a browser extension.

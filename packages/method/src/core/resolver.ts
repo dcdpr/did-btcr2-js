@@ -164,7 +164,7 @@ export class Resolver {
   #resolvedResponse: DidResolutionResponse | null = null;
 
   /**
-   * @internal — Use {@link DidBtcr2.resolve} to create instances.
+   * @internal Use {@link DidBtcr2.resolve} to create instances.
    */
   constructor(
     didComponents: DidComponents,
@@ -540,13 +540,13 @@ export class Resolver {
 
   /**
    * Advance the state machine. Returns either:
-   * - `{ status: 'action-required', needs }` — caller must provide data via {@link provide}
-   * - `{ status: 'resolved', result }` — resolution complete
+   * - `{ status: 'action-required', needs }` - caller must provide data via {@link provide}
+   * - `{ status: 'resolved', result }` - resolution complete
    *
    * Analogous to Rust's `Resolver::resolve()`.
    */
   resolve(): ResolverState {
-    // Internal loop — keeps advancing through phases until data is needed or done
+    // Internal loop: keeps advancing through phases until data is needed or done
     while(true) {
       switch(this.#phase) {
 
@@ -554,7 +554,7 @@ export class Resolver {
         // Only entered for EXTERNAL (x HRP) identifiers when genesis doc was not in sidecar.
         case ResolverPhase.GenesisDocument: {
           if(this.#providedGenesisDocument) {
-            // Genesis doc was provided — establish the current document
+            // Genesis doc was provided, establish the current document
             this.#currentDocument = Resolver.external(
               this.#didComponents, this.#providedGenesisDocument
             );
@@ -595,7 +595,7 @@ export class Resolver {
             };
           }
 
-          // No new beacon services to query — move to processing
+          // No new beacon services to query, move to processing
           this.#phase = ResolverPhase.BeaconProcess;
           continue;
         }
@@ -614,10 +614,10 @@ export class Resolver {
             const result = beacon.processSignals(signals, this.#sidecarData);
 
             if(result.needs.length > 0) {
-              // This service has unmet data needs — collect them
+              // This service has unmet data needs, collect them
               allNeeds.push(...result.needs);
             } else {
-              // All signals for this service resolved — collect updates, mark processed
+              // All signals for this service resolved, collect updates, mark processed
               this.#unsortedUpdates.push(...result.updates);
               this.#processedServices.add(service.id);
             }

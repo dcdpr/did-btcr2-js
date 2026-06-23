@@ -38,11 +38,11 @@ describe('LocalSigner', () => {
     });
 
     it('rejects an invalid scalar (all-zero)', () => {
-      // 32-byte length, but invalid as a secp256k1 scalar — Secp256k1SecretKey throws.
+      // 32-byte length, but invalid as a secp256k1 scalar - Secp256k1SecretKey throws.
       expect(() => new LocalSigner(new Uint8Array(32))).to.throw();
     });
 
-    it('defensive-copies the input — mutating caller buffer does not affect signer', () => {
+    it('defensive-copies the input - mutating caller buffer does not affect signer', () => {
       const input = new Uint8Array(secretKeyBytes);
       const signer = new LocalSigner(input);
       const pubkeyBefore = Array.from(signer.publicKey);
@@ -121,7 +121,7 @@ describe('LocalSigner', () => {
 
     it('produces a signature that verifies via secp256k1.verify (DER) with prehash:false', () => {
       // LocalSigner signs the digest directly (`prehash: false`); the verifier
-      // contract must match — Bitcoin's CHECKSIG verifies signatures against
+      // contract must match - Bitcoin's CHECKSIG verifies signatures against
       // the legacy/BIP-143 sighash directly, never re-hashing it.
       const sig = signer.sign(digest, 'ecdsa');
       expect(secp256k1.verify(sig, digest, expectedPublicKey, { format: 'der', prehash: false })).to.be.true;
@@ -202,7 +202,7 @@ describe('LocalSigner', () => {
       // Different tweak inputs derive different secrets, so the signatures
       // differ. Aux_rand randomness also makes them differ on its own, so
       // this is a weak sanity check rather than a definitive proof of the
-      // tweak path — the verify-against-tweakedPubkey assertion above is.
+      // tweak path - the verify-against-tweakedPubkey assertion above is.
       expect(sigKeyPath).to.not.deep.equal(sigScriptPath);
     });
 

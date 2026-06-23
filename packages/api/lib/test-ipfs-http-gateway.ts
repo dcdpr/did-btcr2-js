@@ -13,7 +13,7 @@ import { HttpGatewayCasExecutor } from '../src/cas.js';
 
 const gateway = process.argv[2] ?? 'https://ipfs.io';
 
-// Hash from a real did:btcr2 resolution failure — the signed update the
+// Hash from a real did:btcr2 resolution failure: the signed update the
 // resolver needed but couldn't fetch without CAS.
 const hexHash = 'be822c3da87dfa89ccac1dd552c6f93281e74f3cda257734393b5041d0c0388a';
 

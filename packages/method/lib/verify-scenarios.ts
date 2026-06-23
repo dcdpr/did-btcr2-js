@@ -16,8 +16,8 @@
  *   - NeedSignedUpdate      } content hash the resolver asks for. This is exactly
  *                            what a real resolver does after fetching from IPFS.
  *
- * Proving the routed (CAS-delivered) vectors resolve here — before spending sats
- * to anchor or bytes to publish — is the offline core of the later
+ * Proving the routed (CAS-delivered) vectors resolve here - before spending sats
+ * to anchor or bytes to publish - is the offline core of the later
  * `scenario:verify` (which will additionally confirm against the live chain + the
  * real CAS). SMT proofs always ride in the sidecar, so NeedSMTProof never fires.
  *
@@ -178,7 +178,7 @@ function verifyScenario(
           break;
         }
         case 'NeedSMTProof':
-          return { ok: false, detail: `unexpected NeedSMTProof — proofs must ride in the sidecar` };
+          return { ok: false, detail: `unexpected NeedSMTProof - proofs must ride in the sidecar` };
       }
     }
     state = resolver.resolve();

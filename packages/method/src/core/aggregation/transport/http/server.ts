@@ -114,7 +114,7 @@ const DEFAULT_ADVERT_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_HEARTBEAT_MS  = 20_000;
 
 /**
- * Server-side HTTP transport. Sans-I/O — the caller mounts
+ * Server-side HTTP transport. Sans-I/O - the caller mounts
  * {@link handleRequest} and {@link handleSse} under their HTTP framework of
  * choice; the transport owns only in-memory state (actors, inboxes, advert
  * cache, replay / rate-limit policies).

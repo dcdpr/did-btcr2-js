@@ -12,7 +12,7 @@ export const originalConsoleWarn = console.warn;
 
 /**
  * Creates an {@link ApiFactory} for testing.
- * No Bitcoin or CAS configured — suitable for create-only tests and
+ * No Bitcoin or CAS configured - suitable for create-only tests and
  * argument-validation tests (which throw before reaching the API).
  */
 export function createTestApiFactory(): ApiFactory {

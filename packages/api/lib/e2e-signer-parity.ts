@@ -14,12 +14,12 @@
  *   - Be discoverable on chain as beacon signals
  *
  * Signature bytes themselves WILL differ because BIP-340 Schnorr uses random
- * aux_rand by default — parity is at the *contract* level (verifiability,
+ * aux_rand by default: parity is at the *contract* level (verifiability,
  * broadcast acceptance, discovery), not at the byte level.
  *
  * Env:
  *   BITCOIN_NETWORK   default: regtest
- *   BEACON_KIND       default: p2pkh — one of p2pkh|p2wpkh|p2tr
+ *   BEACON_KIND       default: p2pkh - one of p2pkh|p2wpkh|p2tr
  */
 import assert from 'node:assert/strict';
 import { canonicalHash } from '@did-btcr2/common';
@@ -54,7 +54,7 @@ const km = new LocalKeyManager();
 const keyId = km.importKey(kp, { setActive: true });
 const kmsSigner = new KeyManagerSigner(km, keyId);
 
-// Same pubkey from both signers — sanity check before broadcasting.
+// Same pubkey from both signers, sanity check before broadcasting.
 assert.deepEqual(
   Array.from(localSigner.publicKey),
   Array.from(kmsSigner.publicKey),
@@ -62,7 +62,7 @@ assert.deepEqual(
 );
 console.log(`[2] Same key wired into LocalSigner + KeyManagerSigner`);
 
-// Single DID — both signers must produce updates the resolver accepts as
+// Single DID: both signers must produce updates the resolver accepts as
 // distinct on-chain signals tied to this identifier.
 const did = DidBtcr2.create(localSigner.publicKey, { idType: 'KEY', network: NETWORK });
 console.log(`    DID: ${did}`);
@@ -84,7 +84,7 @@ persistKey({
   label          : `signer-parity-${KIND}`,
 });
 
-console.log(`\n[4] Funding (twice — one UTXO per broadcast) ...`);
+console.log(`\n[4] Funding (twice - one UTXO per broadcast) ...`);
 const { minerAddr } = await fundBeacon({ beaconAddress, bitcoin, network: NETWORK, count: 2 });
 console.log(`    2 UTXOs funded + confirmed + indexed`);
 

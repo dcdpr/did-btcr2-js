@@ -91,7 +91,7 @@ async function run(): Promise<void> {
   }));
 
   const total = targets.reduce((s, t) => s + t.amountSats, 0n);
-  console.log(`=== scenario:fund (${NETWORK}) — ${targets.length} addresses, ${total} sats total ===`);
+  console.log(`=== scenario:fund (${NETWORK}) - ${targets.length} addresses, ${total} sats total ===`);
   for (const t of targets) {
     console.log(`  ${t.amountSats.toString().padStart(5)} sats  ${t.address}  [${t.label}, ${t.anchors} anchor(s)]`);
   }

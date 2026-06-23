@@ -13,7 +13,7 @@ interface ActorEntry {
 /**
  * In-process message bus connecting one or more {@link InMemoryTransport}
  * instances. Routes broadcasts to every registered actor and directed messages
- * to the actor that owns the recipient DID — with no relay, server, or network.
+ * to the actor that owns the recipient DID, with no relay, server, or network.
  *
  * Each delivery does a JSON round-trip (Uint8Array preserved as `__bytes` hex)
  * so handlers receive an isolated, serialization-faithful copy, exactly as a

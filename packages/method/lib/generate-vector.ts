@@ -22,7 +22,7 @@ import { GenesisDocument } from '../src/utils/did-document.js';
  * Test Vector Generator CLI
  *
  * Incrementally generates did:btcr2 test vectors through a stepped workflow:
- *   create → update (--offline) → fund → announce → resolve
+ *   create -> update (--offline) -> fund -> announce -> resolve
  *
  * Each step reads output from the previous step and produces its own
  * input/output JSON files under lib/data/{network}/{type}/{hash}/.
@@ -165,7 +165,7 @@ function keypairHex(kp: SchnorrKeyPair): { secretHex: string; publicHex: string 
 
 /**
  * Reads and parses a JSON file, throwing if the file does not exist.
- * Used to enforce step ordering — a missing file means the previous step
+ * Used to enforce step ordering: a missing file means the previous step
  * has not been run yet.
  *
  * @param {string} filepath Absolute path to the required JSON file.
@@ -357,7 +357,7 @@ async function promptForKeypair(
     const pubkeyBytes = hex.decode(pubkeyInput.trim());
     const kp = new SchnorrKeyPair({ publicKey: pubkeyBytes });
     ctx.generatedKeys.push({ label, secretHex: '', publicHex: pubkeyInput.trim() });
-    console.log(`  User-provided pubkey (stored as "${label}" — fill in secretKey if needed)`);
+    console.log(`  User-provided pubkey (stored as "${label}" - fill in secretKey if needed)`);
     return kp;
   }
 
@@ -515,12 +515,12 @@ async function buildPatchesInteractively(
       patch = { op, path, from } as PatchOperation;
     } else if ((op === 'add' || op === 'replace') && isServicePath(path)) {
       // Auto-generate beacon service value when targeting a service path
-      console.log('  Detected service patch — auto-generating value.');
+      console.log('  Detected service patch - auto-generating value.');
       const value = await buildServiceValue(rl, ctx, path);
       patch = { op, path, value } as PatchOperation;
     } else if ((op === 'add' || op === 'replace') && isVmPath(path)) {
       // Auto-generate verification method value when targeting a VM path
-      console.log('  Detected verificationMethod patch — auto-generating value.');
+      console.log('  Detected verificationMethod patch - auto-generating value.');
       const value = await buildVmValue(rl, ctx, path);
       patch = { op, path, value } as PatchOperation;
     } else {
@@ -530,7 +530,7 @@ async function buildPatchesInteractively(
       try {
         value = JSON.parse(raw);
       } catch {
-        console.log('  Invalid JSON — using raw string as value.');
+        console.log('  Invalid JSON - using raw string as value.');
         value = raw;
       }
       patch = { op, path, value } as PatchOperation;
@@ -617,7 +617,7 @@ async function stepCreate() {
     }
 
     if (genesisHexInput.trim()) {
-      // User provided a public key hex — validate it as a secp256k1 key
+      // User provided a public key hex: validate it as a secp256k1 key
       const pubkeyBytes = hex.decode(genesisHexInput.trim());
       const kp = new SchnorrKeyPair({ publicKey: pubkeyBytes });
       genesisBytes = kp.publicKey.compressed;
@@ -702,7 +702,7 @@ async function stepCreate() {
   // other.json stores key material and genesis documents for reuse in later steps
   writeJSON(dir, 'other.json', other);
 
-  console.log(`\n[create] done — hash: ${hash}`);
+  console.log(`\n[create] done - hash: ${hash}`);
   console.log(`  Next: pnpm generate:vector update --hash ${hash} --offline`);
 }
 
@@ -819,7 +819,7 @@ async function stepUpdate(hash: string = hashArg) {
   // 6. Announce the signed update on-chain via the beacon service.
   //    Skipped with --offline.
   if (offline) {
-    console.log(`\n[update] done (offline — announcement skipped)`);
+    console.log(`\n[update] done (offline - announcement skipped)`);
     console.log(`  Next: pnpm generate:vector fund --hash ${hash}`);
     return;
   }
@@ -977,7 +977,7 @@ async function stepAnnounce(hash: string = hashArg) {
  *
  * If an update has been performed (update/output.json exists), the signed
  * update is included in the sidecar. Otherwise, resolution runs without
- * sidecar updates — resolving the DID in its initial state.
+ * sidecar updates, resolving the DID in its initial state.
  *
  * For x1 (EXTERNAL) DIDs, the genesis document is always included in
  * the sidecar since it cannot be derived deterministically from the identifier.
@@ -1003,7 +1003,7 @@ async function stepResolve(hash: string = hashArg) {
     sidecar.updates = [updateOutput.signedUpdate];
     console.log(`Including signed update from update/output.json`);
   } else {
-    console.log(`No update found — resolving initial DID state`);
+    console.log(`No update found - resolving initial DID state`);
   }
 
   // For x1 (EXTERNAL) DIDs, the genesis document must be included
@@ -1023,7 +1023,7 @@ async function stepResolve(hash: string = hashArg) {
 
   if (offline) {
     // Offline mode: only build the sidecar data, no live resolution
-    console.log(`\n[resolve] done (offline — sidecar written)`);
+    console.log(`\n[resolve] done (offline - sidecar written)`);
     return;
   }
 
@@ -1177,7 +1177,7 @@ async function stepList() {
     return;
   }
 
-  // Resolve network — use --network flag if provided, otherwise prompt
+  // Resolve network: use --network flag if provided, otherwise prompt
   const networkFlag = flag('network', '');
   const typeFlag = flag('type', '');
   const typePrefixFlag = typeFlag === 'external' ? 'x1' : typeFlag === 'key' ? 'k1' : '';

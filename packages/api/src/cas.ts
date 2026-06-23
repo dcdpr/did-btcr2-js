@@ -66,7 +66,7 @@ export class IpfsCasExecutor implements CasExecutor {
  * {@link https://specs.ipfs.tech/http-gateways/trustless-gateway/ | Trustless Gateway}
  * protocol.
  *
- * Publishing is not supported — use {@link IpfsCasExecutor} with a Helia
+ * Publishing is not supported: use {@link IpfsCasExecutor} with a Helia
  * instance for writes.
  * @public
  */

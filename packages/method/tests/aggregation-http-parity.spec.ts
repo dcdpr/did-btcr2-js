@@ -15,7 +15,7 @@ import {
 
 import { bridgeClientToServer } from './helpers/http-bridge.js';
 
-describe('HTTP transport parity (client ↔ server in-process)', () => {
+describe('HTTP transport parity (client <-> server in-process)', () => {
   let serverKeys:      SchnorrKeyPair;
   let serverDid:       string;
   let participantKeys: SchnorrKeyPair;
@@ -101,7 +101,7 @@ describe('HTTP transport parity (client ↔ server in-process)', () => {
   });
 
   it('client receives messages buffered before it subscribed (Last-Event-ID replay)', async () => {
-    // Server sends while the client is NOT yet subscribed — message lands in the buffer.
+    // Server sends while the client is NOT yet subscribed - message lands in the buffer.
     const pending = new BaseMessage({
       type : COHORT_READY,
       from : serverDid,
@@ -119,7 +119,7 @@ describe('HTTP transport parity (client ↔ server in-process)', () => {
     expect(delivered.type).to.equal(COHORT_READY);
   });
 
-  it('round-trips advert → opt-in → opt-in-accept across both transports', async () => {
+  it('round-trips advert -> opt-in -> opt-in-accept across both transports', async () => {
     const advertReceived  = new Promise<Record<string, unknown>>((resolve) => {
       client.registerMessageHandler(participantDid, COHORT_ADVERT, (m) => resolve(m));
     });

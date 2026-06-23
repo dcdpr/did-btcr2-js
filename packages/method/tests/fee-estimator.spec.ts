@@ -20,9 +20,9 @@ describe('StaticFeeEstimator', () => {
 
   it('rounds up fractional fees with Math.ceil', async () => {
     const estimator = new StaticFeeEstimator(1.5);
-    // 100 * 1.5 = 150 — exact
+    // 100 * 1.5 = 150 - exact
     expect(await estimator.estimateFee(100)).to.equal(150n);
-    // 101 * 1.5 = 151.5 — rounds up to 152
+    // 101 * 1.5 = 151.5 - rounds up to 152
     expect(await estimator.estimateFee(101)).to.equal(152n);
   });
 

@@ -11,7 +11,7 @@
  * Output vectors are reproducible by re-running with the same scenario plus
  * the `other.json` (which records the generated keys).
  *
- * Batch A (this file): no-broadcast scenarios — k1/x1 base resolution with
+ * Batch A (this file): no-broadcast scenarios - k1/x1 base resolution with
  * default beacons and no updates. Batches B + C add update + aggregation
  * support; this orchestrator is the shared driver they extend.
  *
@@ -246,8 +246,8 @@ async function runScenario(scenarioPath: string): Promise<void> {
   // Batch B (sidecar) is fully implemented. Batch C (cas/smt) is partially:
   // the signed update is identical regardless of delivery, but the off-chain
   // publishing (CAS) and aggregation (SMT) plus the on-chain anchoring are
-  // not yet wired. For cas/smt we still construct and sign the update — the
-  // sidecar still holds it — so vector consumers can verify the proof. The
+  // not yet wired. For cas/smt we still construct and sign the update (the
+  // sidecar still holds it) so vector consumers can verify the proof. The
   // broadcast/publish gap is tracked in `pending.json` for later Batch C work.
   const pendingActions: Array<{ stepNum: number; delivery: 'cas' | 'smt'; beaconId: string }> = [];
 
@@ -384,7 +384,7 @@ async function runScenario(scenarioPath: string): Promise<void> {
     },
   });
 
-  // ─── Funding summary ──────────────────────────────────────────────────────
+  // Funding summary
   // Every scenario with updates needs at least one beacon address funded so the
   // commitment can be broadcast on-chain. Cohort members anchor at the SHARED
   // cohort beacon (one OP_RETURN covers the whole cohort, funded once); solo

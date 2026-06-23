@@ -71,6 +71,6 @@ export interface BeaconSignal {
  * The method package defines this type; the api layer provides the implementation
  * (e.g., via CasApi.publish backed by IPFS/Helia).
  *
- * @param announcement The CAS Announcement object (DID → update hash mapping).
+ * @param announcement The CAS Announcement object (DID to update hash mapping).
  */
 export type CasPublishFn = (announcement: Record<string, string>) => Promise<void>;

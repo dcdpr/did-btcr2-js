@@ -7,10 +7,10 @@ import { SchnorrMultikey } from '../src/index.js';
 
 /**
  * SchnorrMultikey Test Cases
- * 1. id, controller only → should throw
- * 2. id, controller, privateKey → should succeed
- * 3. id, controller, publicKey → should succeed
- * 4. id, controller, privateKey, publicKey → should succeed
+ * 1. id, controller only -> should throw
+ * 2. id, controller, privateKey -> should succeed
+ * 3. id, controller, publicKey -> should succeed
+ * 4. id, controller, privateKey, publicKey -> should succeed
  */
 describe('SchnorrMultikey', () => {
   const skBytes = new Uint8Array([
@@ -310,7 +310,7 @@ describe('SchnorrMultikey', () => {
       const wrongPrefixBytes = new Uint8Array(35);
       wrongPrefixBytes[0] = 0xed;
       wrongPrefixBytes[1] = 0x01;
-      // Fill the remaining 33 bytes with arbitrary data — the prefix check
+      // Fill the remaining 33 bytes with arbitrary data: the prefix check
       // fires before any curve-point validation.
       for(let i = 2; i < 35; i++) wrongPrefixBytes[i] = i;
       const badMultibase = base58btc.encode(wrongPrefixBytes);
@@ -401,7 +401,7 @@ describe('SchnorrMultikey', () => {
     });
 
     it('accepts any object satisfying the Signer interface (not just LocalSigner)', () => {
-      // Inline literal signer — proves the cryptosuite chain doesn't have a
+      // Inline literal signer, proves the cryptosuite chain doesn't have a
       // LocalSigner-specific path.
       const customSigner: Signer = {
         publicKey : localSigner.publicKey,

@@ -123,12 +123,12 @@ type ErrorOptions = {
  *
  * Existing throws may still pass any `Record<string, any>` shape, but new and
  * refactored throws should converge on these keys so downstream callers can
- * inspect errors without guessing at the schema. Fields are all optional —
+ * inspect errors without guessing at the schema. Fields are all optional:
  * each throw site populates only what is relevant.
  *
  * Reserved keys (use these names rather than synonyms):
  * - `address`        : Bitcoin address being operated on (avoid `bitcoinAddress`,
- *                       `beaconAddress`, `signerAddress` distinctions in the payload —
+ *                       `beaconAddress`, `signerAddress` distinctions in the payload,
  *                       prefer one `address` plus `kind` if disambiguation is needed)
  * - `kind`            : Script kind (e.g. `'p2pkh' | 'p2wpkh' | 'p2tr'`) or other
  *                       enumeration label
@@ -153,7 +153,7 @@ export type ErrorContext = {
   [extra: string]: unknown;
 };
 
-// V8-specific Error.captureStackTrace — not in standard JS, declared here as an
+// V8-specific Error.captureStackTrace, not in standard JS, declared here as an
 // optional type augmentation so browser-compat packages don't need @types/node.
 type V8ErrorConstructor = ErrorConstructor & {
   captureStackTrace?: (target: object, ctor: Function) => void;

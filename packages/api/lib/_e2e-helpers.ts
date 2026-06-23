@@ -198,7 +198,7 @@ export async function fundBeacon(args: {
 export async function confirmBroadcast(args: {
   bitcoin: BitcoinConnection;
   network: E2ENetwork;
-  /** regtest only — the wallet address to mine to. */
+  /** regtest only - the wallet address to mine to. */
   minerAddr?: string;
   /** Optional: address whose UTXOs should reflect the broadcast (for operator URL hints). */
   watchAddress?: string;

@@ -15,8 +15,14 @@
  * settlement (consistent with ADR 008).
  */
 
+import type { FundingModel } from './recovery-policy.js';
+import { MAX_RECOVERY_SEQUENCE } from './recovery-policy.js';
+
 /** Beacon types that support aggregation (singleton is single-party only, per ADR 037). */
 export const KNOWN_BEACON_TYPES = ['CASBeacon', 'SMTBeacon'] as const;
+
+/** Funding models an operator may advertise. Only 'operator-funded' is implemented (ADR 042). */
+export const KNOWN_FUNDING_MODELS = ['operator-funded', 'participant-funded'] as const;
 
 /**
  * An advertised price. `unit` is operator-defined (the spec does not specify a
@@ -51,6 +57,31 @@ export interface CohortConditions {
   maxSecondsBetweenAnnouncements?: number;
   /** 7. Pending-update count that triggers an announcement. Advertised; enforcement staged (AGG-5) - generalizes hasAllUpdates(). */
   pendingUpdateTrigger?: number;
+  /**
+   * Who funds the beacon UTXO and holds the recovery path. Defaults to
+   * 'operator-funded' when absent. See ADR 042.
+   */
+  fundingModel?: FundingModel;
+  /**
+   * Operator recovery key, x-only (64-character hex / 32 bytes). The beacon
+   * output commits to a CSV recovery leaf keyed to this key, so a missing signer
+   * can never permanently lock the funded UTXO. Required (ADR 042).
+   */
+  recoveryKey: string;
+  /**
+   * Relative-timelock (BIP-68 nSequence, in blocks) before the recovery leaf is
+   * spendable. Required, >= 1 (ADR 042).
+   */
+  recoverySequence: number;
+  /**
+   * Number of signers (k) the k-of-n fallback leaf requires, so any k cohort
+   * members can still announce when the optimistic n-of-n key path stalls
+   * (graceful liveness, ADR 042). Optional: when absent it defaults to n-1 at
+   * keygen, where n is the finalized participant count. When advertised it must
+   * be an integer >= 1 (and <= maxParticipants when that is set); the upper bound
+   * against the actual cohort size n is enforced at keygen.
+   */
+  fallbackThreshold?: number;
 }
 
 /** Validate an optional [min, max] integer pair. */
@@ -109,8 +140,33 @@ export function validateCohortConditions(c: CohortConditions): string[] {
     problems.push('pendingUpdateTrigger must be an integer >= 1');
   }
 
+  // Fallback threshold (k of the k-of-n fallback leaf). Optional; when advertised
+  // it must be a positive integer and cannot exceed maxParticipants (the binding
+  // upper bound against the actual cohort size n is checked at keygen, where n is
+  // known). See ADR 042.
+  if(c.fallbackThreshold !== undefined) {
+    if(!Number.isInteger(c.fallbackThreshold) || c.fallbackThreshold < 1) {
+      problems.push('fallbackThreshold must be an integer >= 1');
+    } else if(c.maxParticipants !== undefined && Number.isInteger(c.maxParticipants) && c.fallbackThreshold > c.maxParticipants) {
+      problems.push('fallbackThreshold must be <= maxParticipants');
+    }
+  }
+
   checkCost(problems, 'costOfEnrollment', c.costOfEnrollment);
   checkCost(problems, 'costPerAnnouncement', c.costPerAnnouncement);
+
+  // Recovery params: the beacon output's CSV recovery leaf. Required so a
+  // missing signer can never permanently lock the funded UTXO (ADR 042). The
+  // key is an x-only (32-byte) Schnorr public key, carried as 64 hex chars.
+  if(typeof c.recoveryKey !== 'string' || !/^[0-9a-fA-F]{64}$/.test(c.recoveryKey)) {
+    problems.push('recoveryKey must be a 64-character hex string (x-only public key)');
+  }
+  if(!Number.isInteger(c.recoverySequence) || c.recoverySequence < 1 || c.recoverySequence > MAX_RECOVERY_SEQUENCE) {
+    problems.push(`recoverySequence must be a block-based BIP-68 relative timelock in [1, ${MAX_RECOVERY_SEQUENCE}]`);
+  }
+  if(c.fundingModel !== undefined && !(KNOWN_FUNDING_MODELS as readonly string[]).includes(c.fundingModel)) {
+    problems.push(`fundingModel must be one of ${KNOWN_FUNDING_MODELS.join(', ')}`);
+  }
 
   return problems;
 }

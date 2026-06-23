@@ -3,7 +3,7 @@
  *
  * `new KeyManagerSigner(keyManager)` constructed without an explicit `keyId`
  * resolves to the KeyManager's *active key at sign-time*. This is a subtle
- * contract — earlier audit work flagged it as a sharp edge:
+ * contract: earlier audit work flagged it as a sharp edge:
  *
  *   - Two `KeyManagerSigner(km)` instances constructed before `setActiveKey()`
  *     and after it sign with different keys despite identical construction.
@@ -19,11 +19,11 @@
  *   3. A signer constructed BEFORE the swap (and which has cached the old pubkey
  *      via `.publicKey` access) is expected to surface the stale-cache hazard:
  *      `signer.sign(...)` will sign with the NEW active key, mismatching the
- *      cached `.publicKey` — proving the documented behavior matches reality.
+ *      cached `.publicKey`, proving the documented behavior matches reality.
  *
  * Env:
  *   BITCOIN_NETWORK   default: regtest
- *   BEACON_KIND       default: p2pkh — one of p2pkh|p2wpkh|p2tr
+ *   BEACON_KIND       default: p2pkh - one of p2pkh|p2wpkh|p2tr
  */
 import assert from 'node:assert/strict';
 import { canonicalHash } from '@did-btcr2/common';
@@ -130,7 +130,7 @@ assert.deepEqual(stillCachedPubkey, Array.from(kpA.publicKey.compressed),
 const probe = new Uint8Array(32).fill(0xab);
 const sigUnderNewActive = signer.sign(probe, 'bip340');
 
-// Verify against the OLD cached pubkey — should FAIL (proves sign() resolved
+// Verify against the OLD cached pubkey, should FAIL (proves sign() resolved
 // to the new active key, not the cached one).
 const { schnorr } = await import('@noble/curves/secp256k1.js');
 const verifiesAgainstOldCached = schnorr.verify(

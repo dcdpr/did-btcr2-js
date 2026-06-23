@@ -20,7 +20,7 @@ interface MultikeyParams extends DidParams {
    * External {@link Signer} used to produce signatures. When set, the multikey
    * delegates {@link SchnorrMultikey.sign} to this signer instead of using the
    * keyPair's secret key. This lets a multikey carry a public-key-only keyPair
-   * while still being able to sign — the secret material lives outside the
+   * while still being able to sign: the secret material lives outside the
    * multikey, in a KMS / HSM / hardware wallet.
    */
   externalSigner?: Signer;
@@ -204,7 +204,7 @@ export class SchnorrMultikey implements Multikey {
    * @readonly
    * Get signing ability of the Multikey: true if a local Secp256k1SecretKey
    * is present (note: the SchnorrKeyPair.secretKey getter throws when absent;
-   * that throw is the historical error contract — see multikey tests) or if
+   * that throw is the historical error contract - see multikey tests) or if
    * an external signer is available.
    */
   get signer(): boolean {

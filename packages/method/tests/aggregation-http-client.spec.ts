@@ -70,7 +70,7 @@ function makeMockFetch(): MockFetchHelper {
       return new Response(postBody, { status: postStatus });
     }
 
-    // GET → open an SSE stream the test controls.
+    // GET -> open an SSE stream the test controls.
     let ctrl!: ReadableStreamDefaultController<Uint8Array>;
     const stream = new ReadableStream<Uint8Array>({
       start(c) { ctrl = c; },
@@ -162,7 +162,7 @@ describe('HttpClientTransport', () => {
         logger    : SILENT_LOGGER,
       })).to.not.throw;
       // The constructor only throws when the fallback globalThis.fetch is also
-      // missing — impossible to assert without mutating the global. Covered by
+      // missing - impossible to assert without mutating the global. Covered by
       // explicit-injection tests below.
     });
   });

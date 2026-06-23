@@ -3,13 +3,13 @@
  * cryptographic verification of the aggregated signature against the
  * Taproot-tweaked aggregated pubkey and the BIP-341 witness-v1 sighash.
  *
- * This is the one test that proves the full MuSig2 pipeline — keyAgg, TapTweak,
- * nonceAgg, partial-sig pre-verify, and partialSigAgg — produces a Bitcoin-valid
+ * This is the one test that proves the full MuSig2 pipeline (keyAgg, TapTweak,
+ * nonceAgg, partial-sig pre-verify, and partialSigAgg) produces a Bitcoin-valid
  * witness signature. In-process unit tests can't catch a transport regression
  * that only shows up with real relay serialization.
  *
  * Uses mutinynet-labeled DIDs / addresses so the Taproot output format matches
- * what a real mutinynet node would validate. Does NOT broadcast — the BIP-340
+ * what a real mutinynet node would validate. Does NOT broadcast - the BIP-340
  * signature check against the tweaked pubkey is the cryptographic ground truth
  * a broadcast would rely on.
  *
@@ -100,7 +100,7 @@ const service = new AggregationServiceRunner({
   transport   : serviceTransport,
   did         : serviceDid,
   keys        : serviceKeys,
-  config      : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' },
+  config      : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: bytesToHex(serviceKeys.publicKey.compressed.slice(1)), recoverySequence: 144 },
   cohortTtlMs : TIMEOUT_MS,
 
   onProvideTxData : async ({ cohortId }) => {
@@ -161,7 +161,7 @@ const result = await service.run();
 // ── Assertions ──
 assert.ok(result.signature instanceof Uint8Array, 'result.signature is not a Uint8Array');
 assert.equal(result.signature.length, 64, `expected 64-byte Schnorr signature, got ${result.signature.length}`);
-assert.ok(capturedSighash, 'onProvideTxData never ran — sighash not captured');
+assert.ok(capturedSighash, 'onProvideTxData never ran - sighash not captured');
 assert.ok(capturedTweakedPk, 'tweaked pubkey not captured');
 
 // Definitive check: the aggregated MuSig2 signature must verify against the

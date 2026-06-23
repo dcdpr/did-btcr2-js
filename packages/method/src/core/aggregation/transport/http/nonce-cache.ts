@@ -6,7 +6,7 @@ export interface NonceCacheConfig {
 /**
  * Bounded anti-replay cache for `(did, nonce)` pairs.
  *
- * Replay windowing is the caller's responsibility — this cache only detects
+ * Replay windowing is the caller's responsibility - this cache only detects
  * duplicates. Callers are expected to reject envelopes/headers whose timestamp
  * is outside the clock-skew window *before* consulting the cache, so entries
  * here are always within the protocol's acceptable window.

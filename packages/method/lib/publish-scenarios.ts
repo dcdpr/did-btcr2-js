@@ -4,7 +4,7 @@
  * Reads the publish manifest produced by `route-delivery` and pushes each unique
  * object to a Content-Addressed Store (IPFS). Every object is stored as a raw
  * block (codec 0x55) under a CIDv1 derived from the SHA-256 of its JCS-canonical
- * bytes — the same derivation the resolver's CAS executor uses (see
+ * bytes, the same derivation the resolver's CAS executor uses (see
  * `@did-btcr2/api`'s IpfsCasExecutor and ADR 023). So the CID a resolver computes
  * from a `Need*` hash is exactly the CID we pin here.
  *
@@ -12,11 +12,11 @@
  *   - dry-run (default): canonicalize each object, derive its CID, and assert the
  *     SHA-256 matches the manifest's content hash. No network. Writes a CID
  *     manifest (`lib/scenarios/cid-manifest.json`) listing the CID for every
- *     object — the exact set a resolver will fetch. Proves publish-readiness.
+ *     object, the exact set a resolver will fetch. Proves publish-readiness.
  *   - live (`--publish`): additionally `block/put` + `pin/add` each block to a
  *     Kubo-compatible IPFS RPC endpoint (env `IPFS_RPC_URL`, e.g.
  *     `http://127.0.0.1:5001`). Other pinning backends (Pinata, web3.storage)
- *     are not wired — point IPFS_RPC_URL at a Kubo-compatible API, or extend the
+ *     are not wired: point IPFS_RPC_URL at a Kubo-compatible API, or extend the
  *     `publishBlock` adapter.
  *
  * The content bytes are the canonical JSON of the object, byte-identical to what
@@ -135,7 +135,7 @@ async function run(): Promise<void> {
 
   console.log(`\n=== ${live ? 'published' : 'verified'} ${ok}/${items.length} (${bad} failed) ===`);
   console.log(`  wrote ${CID_MANIFEST_FILE}`);
-  if (!live) console.log('  dry-run only — re-run with --publish and IPFS_RPC_URL set to pin to IPFS.');
+  if (!live) console.log('  dry-run only - re-run with --publish and IPFS_RPC_URL set to pin to IPFS.');
   process.exit(bad ? 1 : 0);
 }
 

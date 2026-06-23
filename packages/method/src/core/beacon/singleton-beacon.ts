@@ -38,14 +38,14 @@ export class SingletonBeacon extends SinglePartyBeacon {
     const needs = new Array<DataNeed>();
 
     for(const signal of signals) {
-      // Signal bytes are hex — matches hex-keyed sidecar maps directly
+      // Signal bytes are hex, matches hex-keyed sidecar maps directly
       const updateHash = signal.signalBytes;
 
       // Look up the signed update in sidecar updateMap
       const signedUpdate = sidecar.updateMap.get(updateHash);
 
       if(!signedUpdate) {
-        // Data not available — emit a need instead of throwing
+        // Data not available, emit a need instead of throwing
         needs.push({
           kind             : 'NeedSignedUpdate',
           updateHash,

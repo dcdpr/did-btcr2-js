@@ -51,7 +51,7 @@ export class KeyManagerSigner implements Signer {
    * Compressed secp256k1 public key bytes (33 bytes). Cached on first access so
    * downstream callers (beacon construction, multikey verification) can read it
    * repeatedly without re-hitting the KeyManager. If the underlying key is
-   * deleted or rotated, the cached pubkey becomes stale — same trade-off
+   * deleted or rotated, the cached pubkey becomes stale - same trade-off
    * `LocalSigner` makes by holding the secret in heap. Returns a defensive copy
    * to prevent callers from mutating the cached buffer.
    */
