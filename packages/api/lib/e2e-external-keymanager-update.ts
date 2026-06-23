@@ -17,7 +17,7 @@
  *
  * Env:
  *   BITCOIN_NETWORK   default: regtest
- *   BEACON_KIND       default: p2pkh — one of p2pkh|p2wpkh|p2tr
+ *   BEACON_KIND       default: p2pkh - one of p2pkh|p2wpkh|p2tr
  */
 import assert from 'node:assert/strict';
 import type { Bytes, HashBytes, KeyBytes, SignatureBytes } from '@did-btcr2/common';
@@ -50,7 +50,7 @@ if(!(KIND in KIND_INDEX)) {
 }
 
 /**
- * StubKeyManager — minimal `KeyManager` implementation that does NOT delegate
+ * StubKeyManager: minimal `KeyManager` implementation that does NOT delegate
  * to `LocalKeyManager`. Mimics the shape an external KMS adapter (AWS, Vault,
  * HSM) would have: a private store and direct crypto calls. Identified by a
  * distinct URN namespace (`urn:external-kms:...`) to make stub-vs-bundled

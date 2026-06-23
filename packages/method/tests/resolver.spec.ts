@@ -28,7 +28,7 @@ describe('Resolver', () => {
     it('resolve() is synchronous (returns ResolverState, not Promise)', () => {
       const resolver = DidBtcr2.resolve(deterministicData[0].did);
       const state = resolver.resolve();
-      // Not a promise — has status directly
+      // Not a promise - has status directly
       expect(state).to.have.property('status');
       expect(state.status).to.be.a('string');
     });
@@ -116,7 +116,7 @@ describe('Resolver', () => {
       const { did, genesisDocument } = externalData[0];
       const resolver = DidBtcr2.resolve(did);
 
-      // First resolve — needs genesis doc
+      // First resolve - needs genesis doc
       let state = resolver.resolve();
       if(state.status !== 'action-required') return;
       expect(state.needs[0].kind).to.equal('NeedGenesisDocument');
@@ -124,7 +124,7 @@ describe('Resolver', () => {
       // Provide genesis document
       resolver.provide(state.needs[0] as NeedGenesisDocument, genesisDocument);
 
-      // Second resolve — should now need beacon signals
+      // Second resolve - should now need beacon signals
       state = resolver.resolve();
       expect(state.status).to.equal('action-required');
       if(state.status !== 'action-required') return;
@@ -166,7 +166,7 @@ describe('Resolver', () => {
 
   describe('beacon signal needs', () => {
     it('NeedBeaconSignals contains all beacon services from the document', () => {
-      const resolver = DidBtcr2.resolve(deterministicData[2].did); // regtest — 3 beacon services
+      const resolver = DidBtcr2.resolve(deterministicData[2].did); // regtest - 3 beacon services
       const state = resolver.resolve();
 
       if(state.status !== 'action-required') return;
@@ -178,7 +178,7 @@ describe('Resolver', () => {
     it('request cache prevents re-requesting same addresses', () => {
       const resolver = DidBtcr2.resolve(deterministicData[0].did);
 
-      // First resolve — requests signals
+      // First resolve - requests signals
       let state = resolver.resolve();
       if(state.status !== 'action-required') return;
       const need = state.needs[0] as NeedBeaconSignals;
@@ -235,7 +235,7 @@ describe('Resolver', () => {
 
       const resolver = DidBtcr2.resolve(casDid, { sidecar: { genesisDocument: casGenesisDoc } });
 
-      // First resolve — needs beacon signals
+      // First resolve - needs beacon signals
       let state = resolver.resolve();
       if(state.status !== 'action-required') return;
       expect(state.needs[0].kind).to.equal('NeedBeaconSignals');
@@ -265,7 +265,7 @@ describe('Resolver', () => {
   });
 
   describe('multi-round CAS resolution', () => {
-    it('progresses through NeedCASAnnouncement → NeedSignedUpdate → resolved', () => {
+    it('progresses through NeedCASAnnouncement -> NeedSignedUpdate -> resolved', () => {
       const { genesisDocument } = externalData[2]; // regtest
 
       // Build a genesis document with a CAS beacon service
@@ -288,7 +288,7 @@ describe('Resolver', () => {
       const updateHash = canonicalHash(fakeUpdate);        // base64urlnopad (stored in announcement per spec)
       const updateHashHex = canonicalHash(fakeUpdate, { encoding: 'hex' }); // hex (for assertion, matches beacon output)
 
-      // CAS announcement maps DID → update hash (base64urlnopad per spec)
+      // CAS announcement maps DID to update hash (base64urlnopad per spec)
       const announcement = { [casDid]: updateHash };
       const announcementHashHex = canonicalHash(announcement, { encoding: 'hex' });
 
@@ -317,11 +317,11 @@ describe('Resolver', () => {
       expect(state.needs[0].kind).to.equal('NeedSignedUpdate');
       expect((state.needs[0] as NeedSignedUpdate).updateHash).to.equal(updateHashHex);
 
-      // Provide the signed update — but since it's fake with wrong hashes,
+      // Provide the signed update - but since it's fake with wrong hashes,
       // we expect it to resolve to complete (update will be collected but
       // Resolve.updates will fail on hash mismatch). The point is testing
       // the multi-round data-need protocol, not update application.
-      // So we just verify we got through the NeedCASAnnouncement → NeedSignedUpdate flow.
+      // So we just verify we got through the NeedCASAnnouncement to NeedSignedUpdate flow.
     });
   });
 
@@ -339,7 +339,7 @@ describe('Resolver', () => {
 
       const resolver = DidBtcr2.resolve(smtDid, { sidecar: { genesisDocument: smtGenesisDoc } });
 
-      // First resolve — needs beacon signals
+      // First resolve - needs beacon signals
       let state = resolver.resolve();
       if(state.status !== 'action-required') return;
       expect(state.needs[0].kind).to.equal('NeedBeaconSignals');
@@ -369,7 +369,7 @@ describe('Resolver', () => {
   });
 
   describe('multi-round SMT resolution', () => {
-    it('progresses through NeedSMTProof → NeedSignedUpdate', () => {
+    it('progresses through NeedSMTProof -> NeedSignedUpdate', () => {
       const { genesisDocument } = externalData[2]; // regtest
 
       // Build a genesis document with an SMT beacon service
@@ -482,7 +482,7 @@ describe('Resolver', () => {
 
   describe('multi-round beacon discovery', () => {
     it('loops back to BeaconDiscovery when an applied update adds a new beacon service', () => {
-      const fixture = deterministicData[2]; // regtest — has a known secretKey
+      const fixture = deterministicData[2]; // regtest - has a known secretKey
       const did = fixture.did;
       const secretKey = hexToBytes(fixture.secretKey);
 

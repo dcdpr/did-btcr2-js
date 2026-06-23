@@ -39,7 +39,7 @@ export interface RateLimiterConfig {
  * sender DID). Tokens refill linearly at `rps` up to `burst`. Each `consume`
  * call atomically debits one token or returns `false` to reject.
  *
- * The limiter is synchronous and deterministic given `nowMs` — tests can
+ * The limiter is synchronous and deterministic given `nowMs` - tests can
  * drive it with a fixed clock to exercise exact boundaries.
  */
 export class RateLimiter {

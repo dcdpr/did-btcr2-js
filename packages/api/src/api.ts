@@ -16,7 +16,7 @@ import { DidMethodApi } from './method.js';
 import type { ApiConfig, BitcoinApiConfig, Logger, ResolutionResult } from './types.js';
 
 /**
- * Main DidBtcr2Api facade — the primary entry point for the SDK.
+ * Main DidBtcr2Api facade: the primary entry point for the SDK.
  *
  * Exposes sub-facades for Bitcoin, DID Method, KeyPair, Crypto, and
  * KeyManager operations. Created via the {@link createApi} factory.

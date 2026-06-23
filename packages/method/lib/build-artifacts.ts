@@ -22,7 +22,7 @@
  * delivery matrix) is layered on top in a subsequent step.
  *
  * Determinism note: BIP340 signing is non-deterministic (random aux), so signed
- * updates — and therefore the CAS-map hash / SMT root anchored here — are fixed
+ * updates (and therefore the CAS-map hash / SMT root anchored here) are fixed
  * only for THIS build. Do not re-run generate-scenario between this step and the
  * on-chain anchor, or the signal recorded in cohort.json will be stale. The SMT
  * nonce IS derived deterministically (from the cohort key + DID) so this step is
@@ -111,7 +111,7 @@ function smtNonce(cohortSecretHex: string, did: string): Uint8Array {
 /**
  * Set a member's cohort sidecar entry in resolve/input.json. Each member belongs
  * to exactly one cohort, so the CAS announcement / SMT proof array holds exactly
- * one element — we replace (not append) so re-running this step is idempotent and
+ * one element: we replace (not append) so re-running this step is idempotent and
  * never leaves a stale artifact behind.
  */
 function setSidecar(dir: string, key: 'casUpdates' | 'smtProofs', value: unknown): void {

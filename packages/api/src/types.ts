@@ -34,7 +34,7 @@ export type IdType = 'KEY' | 'EXTERNAL';
  * ```ts
  * const did = api.generateDid().did as DidString;
  * api.resolveDid(did); // OK
- * api.btc.getTransaction(did); // Type error — DidString is not TxId
+ * api.btc.getTransaction(did); // Type error - DidString is not TxId
  * ```
  */
 export type DidString = string & { readonly __brand: 'DidString' };

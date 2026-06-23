@@ -240,7 +240,7 @@ describe('HTTP transport envelope', () => {
       expect(Array.from(revived.array[1])).to.deep.equal([7, 8]);
     });
 
-    it('preserves a Uint8Array field through sign → JSON → verify → revive', () => {
+    it('preserves a Uint8Array field through sign -> JSON -> verify -> revive', () => {
       const pk = senderKeys.publicKey.compressed;
       const msg = new BaseMessage({
         type : COHORT_OPT_IN,

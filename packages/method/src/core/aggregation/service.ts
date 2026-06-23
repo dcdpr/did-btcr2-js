@@ -2,18 +2,24 @@ import { canonicalize } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { BIP340Cryptosuite, SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import type { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
-import { bytesToHex } from '@noble/hashes/utils';
+import { schnorr } from '@noble/curves/secp256k1.js';
+import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import type { Transaction } from '@scure/btc-signer';
 import { getBeaconStrategy } from './beacon-strategy.js';
 import { AggregationCohort } from './cohort.js';
 import { validateCohortConditions, type CohortConditions } from './conditions.js';
 import { AggregationServiceError } from './errors.js';
+import { buildFallbackSpend, fallbackSighash } from './fallback-spend.js';
+import type { FallbackSignature } from './fallback-spend.js';
+import { buildFallbackLeaf } from './recovery-policy.js';
 import type { BaseMessage } from './messages/base.js';
 import { AGGREGATION_WIRE_VERSION } from './messages/base.js';
 import {
   COHORT_OPT_IN,
+  FALLBACK_SIGNATURE,
   NONCE_CONTRIBUTION,
   SIGNATURE_AUTHORIZATION,
+  SUBMIT_NONINCLUDED,
   SUBMIT_UPDATE,
   VALIDATION_ACK,
 } from './messages/constants.js';
@@ -24,6 +30,7 @@ import {
   createCohortOptInAcceptMessage,
   createCohortReadyMessage,
   createDistributeAggregatedDataMessage,
+  createFallbackAuthorizationRequestMessage,
 } from './messages/factories.js';
 import type { ServiceCohortPhaseType } from './phases.js';
 import { ServiceCohortPhase } from './phases.js';
@@ -58,8 +65,19 @@ export interface ValidationProgress {
 /** Final aggregation result for a cohort. */
 export interface AggregationResult {
   cohortId: string;
+  /**
+   * The 64-byte aggregated MuSig2 signature for the optimistic key path. Empty
+   * for a `script-path` result: the k-of-n fallback embeds k separate signatures
+   * directly in the witness of {@link signedTx}, with no single aggregate sig.
+   */
   signature: Uint8Array;
   signedTx: Transaction;
+  /**
+   * Which Taproot spend path produced {@link signedTx}: `key-path` is the
+   * optimistic n-of-n MuSig2 spend, `script-path` is the k-of-n fallback (ADR
+   * 042). Absent is treated as `key-path` for backward compatibility.
+   */
+  path?: 'key-path' | 'script-path';
 }
 
 /** Transaction data needed to start a signing session. */
@@ -86,7 +104,7 @@ export interface Rejection {
   reason: string;
 }
 
-/** Per-cohort service state — internal. */
+/** Per-cohort service state - internal. */
 interface ServiceCohortState {
   phase: ServiceCohortPhaseType;
   cohort: AggregationCohort;
@@ -95,6 +113,12 @@ interface ServiceCohortState {
   acceptedParticipants: Set<string>;
   signingSession?: BeaconSigningSession;
   result?: AggregationResult;
+  /**
+   * Collected fallback (k-of-n script-path) signatures, keyed by signer DID.
+   * Populated only after {@link AggregationService.startFallbackSigning}. Each is
+   * a verified standalone BIP-340 signature over the fallback script-path sighash.
+   */
+  fallbackSignatures?: Map<string, FallbackSignature>;
   /** Rejections accumulated since last drain. Runner polls via drainRejections(). */
   rejections: Array<Rejection>;
 }
@@ -147,7 +171,7 @@ export class AggregationService {
 
   receive(message: BaseMessage): void {
     // Reject messages whose wire version doesn't match what this build speaks.
-    // Missing version → treat as legacy and drop: bumping the protocol must be
+    // Missing version, treat as legacy and drop: bumping the protocol must be
     // coordinated across all participants.
     const version = message.version;
     if(version === undefined || version !== AGGREGATION_WIRE_VERSION) {
@@ -171,6 +195,9 @@ export class AggregationService {
       case SUBMIT_UPDATE:
         this.#handleSubmitUpdate(message);
         break;
+      case SUBMIT_NONINCLUDED:
+        this.#handleSubmitNonInclusion(message);
+        break;
       case VALIDATION_ACK:
         this.#handleValidationAck(message);
         break;
@@ -180,8 +207,11 @@ export class AggregationService {
       case SIGNATURE_AUTHORIZATION:
         this.#handleSignatureAuthorization(message);
         break;
+      case FALLBACK_SIGNATURE:
+        this.#handleFallbackSignature(message);
+        break;
       default:
-        // Unknown message type — silently ignore
+        // Unknown message type - silently ignore
         break;
     }
   }
@@ -202,7 +232,7 @@ export class AggregationService {
 
   /**
    * Create a new cohort with the given config. Returns the cohort ID.
-   * Cohort starts in `Created` phase — call `advertise()` to broadcast.
+   * Cohort starts in `Created` phase - call `advertise()` to broadcast.
    */
   createCohort(config: CohortConfig): string {
     // Fail fast on invalid conditions rather than discovering them at finalize.
@@ -214,10 +244,14 @@ export class AggregationService {
       );
     }
     const cohort = new AggregationCohort({
-      serviceDid      : this.did,
-      minParticipants : config.minParticipants,
-      network         : config.network,
-      beaconType      : config.beaconType,
+      serviceDid        : this.did,
+      minParticipants   : config.minParticipants,
+      network           : config.network,
+      beaconType        : config.beaconType,
+      recoveryKey       : hexToBytes(config.recoveryKey),
+      recoverySequence  : config.recoverySequence,
+      fundingModel      : config.fundingModel,
+      fallbackThreshold : config.fallbackThreshold,
     });
     this.#cohortStates.set(cohort.id, {
       phase                : ServiceCohortPhase.Created,
@@ -289,7 +323,7 @@ export class AggregationService {
 
     // Reject re-opt-in from already-accepted participants. Without this guard a
     // participant could send a second opt-in with a different key, overwriting
-    // pendingOptIns[did] while cohortKeys still holds the original key — opening
+    // pendingOptIns[did] while cohortKeys still holds the original key - opening
     // a desync window where #verifySubmittedUpdate accepts updates signed with
     // a key that is NOT in the MuSig2 cohort.
     if(state.acceptedParticipants.has(participantDid)) return;
@@ -427,7 +461,7 @@ export class AggregationService {
 
     // Cap the canonicalized update size before doing any heavier verification
     // work. Without this guard, a participant could submit multi-MB payloads
-    // that the service would canonicalize, hash, and aggregate — cheap DoS.
+    // that the service would canonicalize, hash, and aggregate - cheap DoS.
     const canonicalSize = canonicalize(signedUpdate as unknown as Record<string, unknown>).length;
     if(canonicalSize > this.maxUpdateSizeBytes) {
       state.rejections.push({
@@ -451,12 +485,81 @@ export class AggregationService {
       return;
     }
 
+    // One response per round. A member that already declined cannot also submit,
+    // and a member that already submitted cannot resubmit (a silent overwrite
+    // would corrupt the aggregated data the member already validated against).
+    // Both are dropped as rejections, symmetric with #handleSubmitNonInclusion.
+    if(state.cohort.nonIncluded.has(message.from)) {
+      state.rejections.push({
+        from   : message.from,
+        code   : 'UPDATE_MALFORMED',
+        reason : 'Participant already declined this round; cannot also submit an update',
+      });
+      return;
+    }
+    if(state.cohort.pendingUpdates.has(message.from)) {
+      state.rejections.push({
+        from   : message.from,
+        code   : 'UPDATE_MALFORMED',
+        reason : 'Participant already submitted an update this round; cannot resubmit',
+      });
+      return;
+    }
+
     state.cohort.addUpdate(message.from, signedUpdate);
 
     if(state.phase === ServiceCohortPhase.CohortSet) {
       state.phase = ServiceCohortPhase.CollectingUpdates;
     }
-    if(state.cohort.hasAllUpdates()) {
+    if(state.cohort.hasAllResponses()) {
+      state.phase = ServiceCohortPhase.UpdatesCollected;
+    }
+  }
+
+  /**
+   * Handle an incoming SUBMIT_NONINCLUDED message: a member declares it has no
+   * update this round (cooperative non-inclusion). Membership is proven by the
+   * signed transport envelope, so the body carries only the cohortId. The member
+   * stays in the cohort and still signs; it is absent from the CAS map and
+   * carries a non-inclusion leaf in the SMT.
+   */
+  #handleSubmitNonInclusion(message: BaseMessage): void {
+    const cohortId = message.body?.cohortId;
+    if(!cohortId) return;
+    const state = this.#cohortStates.get(cohortId);
+    if(!state) return;
+    if(state.phase !== ServiceCohortPhase.CohortSet && state.phase !== ServiceCohortPhase.CollectingUpdates) return;
+
+    // Membership is proven by the signed envelope sender. A non-member decline is
+    // dropped as a rejection, never thrown: addNonInclusion would otherwise throw
+    // UNKNOWN_PARTICIPANT out of receive() and fail the whole cohort, a DoS any
+    // non-member could trigger. Mirrors the SUBMIT_UPDATE verification path.
+    if(!state.cohort.participants.includes(message.from)) {
+      state.rejections.push({
+        from   : message.from,
+        code   : 'UPDATE_MALFORMED',
+        reason : 'Sender is not a member of this cohort',
+      });
+      return;
+    }
+
+    // One response per round: already submitted or already declined. Surface the
+    // conflict as a rejection, symmetric with the double-submit guard above.
+    if(state.cohort.pendingUpdates.has(message.from) || state.cohort.nonIncluded.has(message.from)) {
+      state.rejections.push({
+        from   : message.from,
+        code   : 'UPDATE_MALFORMED',
+        reason : 'Participant already responded this round',
+      });
+      return;
+    }
+
+    state.cohort.addNonInclusion(message.from);
+
+    if(state.phase === ServiceCohortPhase.CohortSet) {
+      state.phase = ServiceCohortPhase.CollectingUpdates;
+    }
+    if(state.cohort.hasAllResponses()) {
       state.phase = ServiceCohortPhase.UpdatesCollected;
     }
   }
@@ -588,7 +691,7 @@ export class AggregationService {
 
   /**
    * Start a signing session by creating auth requests for all participants.
-   * The caller provides the transaction data — typically built via
+   * The caller provides the transaction data - typically built via
    * `buildBeaconTransaction()` against a Bitcoin connection.
    */
   startSigning(cohortId: string, txData: SigningTxData): BaseMessage[] {
@@ -703,7 +806,7 @@ export class AggregationService {
     state.signingSession.addPartialSignature(message.from, partialSignature);
 
     if(state.signingSession.partialSignatures.size === state.cohort.participants.length) {
-      // All partial sigs received — generate final signature
+      // All partial sigs received - generate final signature
       const signature = state.signingSession.generateFinalSignature();
 
       // Set Taproot key-path witness (finalScriptWitness injects the aggregated MuSig2 sig)
@@ -713,7 +816,150 @@ export class AggregationService {
         cohortId,
         signature,
         signedTx : state.signingSession.pendingTx,
+        path     : 'key-path',
       };
+      state.phase = ServiceCohortPhase.Complete;
+    }
+  }
+
+
+  /**
+   * Abandon the optimistic n-of-n key path and ask members to authorize the
+   * k-of-n fallback (script-path) spend of the SAME beacon transaction (graceful
+   * liveness, ADR 042). Reuses the in-flight signing session's transaction and
+   * spent output, so the announcement and its outputs are unchanged: only the
+   * witness path differs. Returns one FALLBACK_AUTHORIZATION_REQUEST per
+   * participant.
+   *
+   * Callable once optimistic signing has started (the session and its tx exist)
+   * and before it completes. A cohort can take exactly one of the two paths: the
+   * caller (runner) must commit to fallback and stop driving the optimistic path.
+   */
+  startFallbackSigning(cohortId: string): BaseMessage[] {
+    const state = this.#cohortStates.get(cohortId);
+    if(!state) {
+      throw new AggregationServiceError(`Cohort ${cohortId} not found.`, 'COHORT_NOT_FOUND', { cohortId });
+    }
+    if(!state.signingSession) {
+      throw new AggregationServiceError(
+        `Cannot start fallback for cohort ${cohortId}: no signing session.`,
+        'NO_SIGNING_SESSION', { cohortId }
+      );
+    }
+    const signingPhases: ServiceCohortPhaseType[] = [
+      ServiceCohortPhase.SigningStarted,
+      ServiceCohortPhase.NoncesCollected,
+      ServiceCohortPhase.AwaitingPartialSigs,
+    ];
+    if(!signingPhases.includes(state.phase)) {
+      throw new AggregationServiceError(
+        `Cannot start fallback for cohort ${cohortId}: phase is ${state.phase}.`,
+        'INVALID_PHASE', { cohortId, phase: state.phase }
+      );
+    }
+
+    const session = state.signingSession;
+    const prevOutScript = session.prevOutScripts[0];
+    const prevOutValue = session.prevOutValues[0];
+    if(!prevOutScript || prevOutValue === undefined) {
+      throw new AggregationServiceError(
+        `Cannot start fallback for cohort ${cohortId}: signing session missing prevout data.`,
+        'MISSING_PREV_OUT', { cohortId }
+      );
+    }
+
+    const fallbackLeaf = buildFallbackLeaf({
+      cohortKeys        : state.cohort.cohortKeys,
+      fallbackThreshold : state.cohort.effectiveFallbackThreshold,
+    });
+
+    state.fallbackSignatures = new Map();
+    state.phase = ServiceCohortPhase.FallbackRequested;
+
+    const messages: BaseMessage[] = [];
+    for(const participantDid of state.cohort.participants) {
+      messages.push(createFallbackAuthorizationRequestMessage({
+        from                  : this.did,
+        to                    : participantDid,
+        cohortId,
+        sessionId             : session.id,
+        pendingTx             : session.pendingTx.hex,
+        prevOutScriptHex      : bytesToHex(prevOutScript),
+        prevOutValue          : prevOutValue.toString(),
+        fallbackLeafScriptHex : bytesToHex(fallbackLeaf),
+      }));
+    }
+    return messages;
+  }
+
+  /**
+   * Handle an incoming FALLBACK_SIGNATURE: a member's standalone BIP-340
+   * signature over the fallback script-path sighash. The signature is
+   * authenticated to the sender (its `signerPk` must be the sender's own cohort
+   * key and the signature must verify against the sighash) and collected. Once k
+   * valid signatures are in, the k-of-n fallback spend is assembled and the
+   * cohort completes via the script path.
+   */
+  #handleFallbackSignature(message: BaseMessage): void {
+    const cohortId = message.body?.cohortId;
+    if(!cohortId) return;
+    const state = this.#cohortStates.get(cohortId);
+    if(!state || !state.signingSession || !state.fallbackSignatures) return;
+    if(state.phase !== ServiceCohortPhase.FallbackRequested) return;
+
+    const sessionId = message.body?.sessionId;
+    if(sessionId !== state.signingSession.id) return;
+
+    const signerPk = message.body?.signerPk as Uint8Array | undefined;
+    const fallbackSignature = message.body?.fallbackSignature as Uint8Array | undefined;
+    if(!signerPk || !fallbackSignature) return;
+
+    const prevOutScript = state.signingSession.prevOutScripts[0];
+    const prevOutValue = state.signingSession.prevOutValues[0];
+    if(!prevOutScript || prevOutValue === undefined) return;
+
+    // Authenticate the signature to the sender: signerPk must be the sender's own
+    // cohort key (x-only). A non-member or a mismatched key is dropped as a
+    // rejection, never thrown, so one bad contribution cannot stall the fallback.
+    const memberKey = state.cohort.participantKeys.get(message.from);
+    if(!memberKey) {
+      state.rejections.push({ from: message.from, code: 'UPDATE_MALFORMED', reason: 'Fallback signature from a non-member' });
+      return;
+    }
+    const memberXOnly = memberKey.slice(1);
+    if(signerPk.length !== 32 || !memberXOnly.every((b, i) => b === signerPk[i])) {
+      state.rejections.push({ from: message.from, code: 'UPDATE_MALFORMED', reason: 'Fallback signerPk does not match the sender cohort key' });
+      return;
+    }
+
+    const fallbackLeaf = buildFallbackLeaf({
+      cohortKeys        : state.cohort.cohortKeys,
+      fallbackThreshold : state.cohort.effectiveFallbackThreshold,
+    });
+    const sighash = fallbackSighash(state.signingSession.pendingTx, 0, prevOutScript, prevOutValue, fallbackLeaf);
+    let valid = false;
+    try { valid = fallbackSignature.length === 64 && schnorr.verify(fallbackSignature, sighash, signerPk); } catch { valid = false; }
+    if(!valid) {
+      state.rejections.push({ from: message.from, code: 'UPDATE_VERIFICATION_FAILED', reason: 'Fallback signature failed verification' });
+      return;
+    }
+
+    state.fallbackSignatures.set(message.from, { pubKey: signerPk, signature: fallbackSignature });
+
+    if(state.fallbackSignatures.size >= state.cohort.effectiveFallbackThreshold) {
+      const signedTx = buildFallbackSpend({
+        pendingTx         : state.signingSession.pendingTx,
+        cohortKeys        : state.cohort.cohortKeys,
+        fallbackThreshold : state.cohort.effectiveFallbackThreshold,
+        recoveryKey       : state.cohort.recoveryKey!,
+        recoverySequence  : state.cohort.recoverySequence!,
+        fundingModel      : state.cohort.fundingModel,
+        network           : state.cohort.network,
+        prevOutScript,
+        prevOutValue,
+        signatures        : [ ...state.fallbackSignatures.values() ],
+      });
+      state.result = { cohortId, signature: new Uint8Array(), signedTx, path: 'script-path' };
       state.phase = ServiceCohortPhase.Complete;
     }
   }

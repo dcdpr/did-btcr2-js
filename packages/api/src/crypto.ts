@@ -433,7 +433,7 @@ export class MultikeyApi {
  * const kp  = api.crypto.keypair.generate();
  * const mk  = api.crypto.multikey.create('#key-1', 'did:btcr2:test', kp);
  *
- * // Set the active multikey — flows through to cryptosuite and proof
+ * // Set the active multikey - flows through to cryptosuite and proof
  * api.crypto.activate(mk);
  *
  * // Now sign without threading instances
@@ -457,7 +457,7 @@ export class CryptoApi {
   /**
    * Activate a multikey and propagate through the full pipeline.
    * Sets the current multikey, creates a cryptosuite from it, and creates
-   * a proof instance from the cryptosuite — all three sub-facades become
+   * a proof instance from the cryptosuite: all three sub-facades become
    * ready for stateful operations.
    * @param mk The multikey to activate (must include a secret key for signing).
    * @returns `this` for chaining.

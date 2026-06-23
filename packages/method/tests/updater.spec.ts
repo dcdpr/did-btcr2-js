@@ -158,7 +158,7 @@ describe('Updater', () => {
       if(state.status !== 'action-required') throw new Error('expected action-required');
       updater.provide(state.needs[0] as NeedSigningKey, signer);
 
-      // Fund with explicit proof — should transition to Broadcast cleanly.
+      // Fund with explicit proof - should transition to Broadcast cleanly.
       state = updater.advance();
       if(state.status !== 'action-required') throw new Error('expected action-required');
       updater.provide(state.needs[0] as NeedFunding, { utxoCount: 1, txid: 'aa'.repeat(32) });
@@ -175,7 +175,7 @@ describe('Updater', () => {
       if(state.status !== 'action-required') throw new Error('expected action-required');
       updater.provide(state.needs[0] as NeedSigningKey, signer);
 
-      // Fund with falsy proof — caller claims no UTXOs available; state machine rejects.
+      // Fund with falsy proof - caller claims no UTXOs available; state machine rejects.
       state = updater.advance();
       if(state.status !== 'action-required') throw new Error('expected action-required');
       expect(() =>
@@ -183,7 +183,7 @@ describe('Updater', () => {
       ).to.throw(/utxoCount >= 1/);
     });
 
-    it('completes after full Construct → Sign → Fund → Broadcast cycle', () => {
+    it('completes after full Construct -> Sign -> Fund -> Broadcast cycle', () => {
       // Sign
       let state = updater.advance();
       if(state.status !== 'action-required') throw new Error('expected action-required');
@@ -223,7 +223,7 @@ describe('Updater', () => {
       const state = updater.advance();
       if(state.status !== 'action-required') throw new Error('expected action-required');
       const signingNeed = state.needs[0] as NeedSigningKey;
-      // @ts-expect-error — deliberately omitting data
+      // @ts-expect-error - deliberately omitting data
       expect(() => updater.provide(signingNeed)).to.throw(/Signer/i);
     });
 
@@ -242,7 +242,7 @@ describe('Updater', () => {
       if(state.status !== 'action-required') throw new Error('expected action-required');
       updater.provide(state.needs[0] as NeedSigningKey, signer);
 
-      // Skip funding — try to provide broadcast directly
+      // Skip funding - try to provide broadcast directly
       const bogusBroadcast: NeedBroadcast = {
         kind          : 'NeedBroadcast',
         beaconService : sourceDocument.service![0]! as BeaconService,
@@ -340,7 +340,7 @@ describe('Updater', () => {
       if(state.status !== 'action-required') throw new Error('expected action-required');
       updater.provide(state.needs[0] as NeedSigningKey, signer);
 
-      // Fund -> Broadcast (skipped — no actual I/O in unit tests)
+      // Fund -> Broadcast (skipped - no actual I/O in unit tests)
       state = updater.advance();
       if(state.status !== 'action-required') throw new Error('expected action-required');
       updater.provide(state.needs[0] as NeedFunding);

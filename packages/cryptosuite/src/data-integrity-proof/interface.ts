@@ -94,7 +94,7 @@ export interface DataIntegrityConfig {
   capability?: string;
 
   /**
-   * The action performed under the capability—set to "Write" in the spec
+   * The action performed under the capability, set to "Write" in the spec
    * for DID document updates.
    */
   capabilityAction?: string;

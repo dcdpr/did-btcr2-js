@@ -21,7 +21,7 @@ export const OUTER_BIT = 1n << BigInt(HASH_BIT_LENGTH);
  * `BITS[i] = 2^(255 - i)` for `i` in `[0, 255]`, `BITS[256] = 0n` (sentinel).
  *
  * Used by both {@link OptimizedSMT} (tree building/finalization) and
- * {@link SMTProof} (proof validation) — MUST be the same array.
+ * {@link SMTProof} (proof validation): MUST be the same array.
  */
 export const BITS: readonly bigint[] = (() => {
   const arr: bigint[] = new Array(HASH_BIT_LENGTH + 1);

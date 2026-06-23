@@ -9,7 +9,7 @@ import { SinglePartyBeacon } from './beacon.js';
 import type { BeaconService, BeaconSignal, BlockMetadata, CasPublishFn } from './interfaces.js';
 
 /**
- * CAS-specific broadcast options — extends {@link BroadcastOptions} with an optional
+ * CAS-specific broadcast options: extends {@link BroadcastOptions} with an optional
  * `casPublish` callback used to publish the CAS Announcement off-chain after the
  * OP_RETURN signal is broadcast.
  */
@@ -21,7 +21,7 @@ export interface CASBroadcastOptions extends BroadcastOptions {
  * Implements {@link https://dcdpr.github.io/did-btcr2/terminology.html#cas-beacon | CAS Beacon}.
  *
  * A CAS (Content-Addressed Store) Beacon aggregates updates for multiple DIDs
- * into a single CAS Announcement — a mapping of DIDs to their update hashes.
+ * into a single CAS Announcement: a mapping of DIDs to their update hashes.
  * The hash of the CAS Announcement is broadcast on-chain via OP_RETURN.
  * During resolution, the CAS Announcement is retrieved from the sidecar (or CAS)
  * and used to look up the individual signed update for the DID being resolved.
@@ -63,14 +63,14 @@ export class CASBeacon extends SinglePartyBeacon {
     const did = this.service.id.split('#')[0];
 
     for(const signal of signals) {
-      // Signal bytes are hex — matches hex-keyed sidecar maps directly
+      // Signal bytes are hex, matches hex-keyed sidecar maps directly
       const announcementHash = signal.signalBytes;
 
       // Look up the CAS Announcement in sidecar casMap
       const casAnnouncement = sidecar.casMap.get(announcementHash);
 
       if(!casAnnouncement) {
-        // CAS Announcement not available — emit a need
+        // CAS Announcement not available, emit a need
         needs.push({
           kind              : 'NeedCASAnnouncement',
           announcementHash,
@@ -80,10 +80,10 @@ export class CASBeacon extends SinglePartyBeacon {
       }
 
       // Look up this DID's update hash in the CAS Announcement
-      // Announcement values are base64urlnopad per spec — convert to hex for map lookup
+      // Announcement values are base64urlnopad per spec, convert to hex for map lookup
       const updateHashEncoded = casAnnouncement[did];
 
-      // If no entry for this DID, this announcement doesn't contain an update for us — skip
+      // If no entry for this DID, this announcement doesn't contain an update for us, skip
       if(!updateHashEncoded) {
         continue;
       }
@@ -94,7 +94,7 @@ export class CASBeacon extends SinglePartyBeacon {
       const signedUpdate = sidecar.updateMap.get(updateHash);
 
       if(!signedUpdate) {
-        // Signed update not available — emit a need
+        // Signed update not available, emit a need
         needs.push({
           kind             : 'NeedSignedUpdate',
           updateHash,

@@ -1,4 +1,5 @@
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { hexToBytes } from '@noble/hashes/utils';
 import { p2tr, Transaction } from '@scure/btc-signer';
 import * as musig2 from '@scure/btc-signer/musig2';
 import { expect } from 'chai';
@@ -6,6 +7,9 @@ import {
   AggregationCohort,
   BeaconSigningSession,
 } from '../src/index.js';
+
+const TEST_RECOVERY_KEY = 'a'.repeat(64);
+const TEST_RECOVERY_SEQUENCE = 144;
 
 function buildDummyTx(outputScript: Uint8Array, prevOutValue: bigint): Transaction {
   const tx = new Transaction({ version: 2 });
@@ -24,7 +28,12 @@ describe('Aggregation signing regressions', () => {
     it('clears the secret nonce so a second generatePartialSignature throws', () => {
       const kp1 = SchnorrKeyPair.generate();
       const kp2 = SchnorrKeyPair.generate();
-      const cohort = new AggregationCohort({ minParticipants: 2, network: 'bitcoin' });
+      const cohort = new AggregationCohort({
+        minParticipants  : 2,
+        network          : 'bitcoin',
+        recoveryKey      : hexToBytes(TEST_RECOVERY_KEY),
+        recoverySequence : TEST_RECOVERY_SEQUENCE,
+      });
       cohort.participants.push('did:btcr2:alice', 'did:btcr2:bob');
       cohort.participantKeys.set('did:btcr2:alice', kp1.publicKey.compressed);
       cohort.participantKeys.set('did:btcr2:bob', kp2.publicKey.compressed);
@@ -67,7 +76,12 @@ describe('Aggregation signing regressions', () => {
     it('generateFinalSignature throws BAD_PARTIAL_SIG on a corrupted contribution', () => {
       const kp1 = SchnorrKeyPair.generate();
       const kp2 = SchnorrKeyPair.generate();
-      const cohort = new AggregationCohort({ minParticipants: 2, network: 'bitcoin' });
+      const cohort = new AggregationCohort({
+        minParticipants  : 2,
+        network          : 'bitcoin',
+        recoveryKey      : hexToBytes(TEST_RECOVERY_KEY),
+        recoverySequence : TEST_RECOVERY_SEQUENCE,
+      });
       cohort.participants.push('did:btcr2:alice', 'did:btcr2:bob');
       cohort.participantKeys.set('did:btcr2:alice', kp1.publicKey.compressed);
       cohort.participantKeys.set('did:btcr2:bob', kp2.publicKey.compressed);

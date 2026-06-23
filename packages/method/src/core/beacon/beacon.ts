@@ -16,28 +16,28 @@ const DEFAULT_FEE_ESTIMATOR: FeeEstimator = new StaticFeeEstimator(5);
 
 /**
  * Singleton beacon script kinds. Per the did:btcr2 spec, deterministic DID documents
- * include three beacon services: P2PKH, P2WPKH, and P2TR (taproot key-path) — all
+ * include three beacon services: P2PKH, P2WPKH, and P2TR (taproot key-path), all
  * derived from the genesis secp256k1 public key. The singleton broadcast path must
  * support signing for all three.
  */
 export type SingletonScriptKind = 'p2pkh' | 'p2wpkh' | 'p2tr';
 
 /**
- * Conservative vsize estimate for a 1-input P2TR key-path → 1 P2TR change + 1 OP_RETURN(32) tx.
+ * Conservative vsize estimate for a 1-input P2TR key-path to 1 P2TR change + 1 OP_RETURN(32) tx.
  * Stripped 137 + witness ≈ 68 (marker + flag + stack-count + sig-len + 64 BIP-340 sig).
  * Weight = 137*4 + 68 = 616, vsize ≈ 154, rounded to 160 for headroom.
  */
 export const P2TR_BEACON_TX_VSIZE = 160;
 
 /**
- * Conservative vsize estimate for a 1-input P2WPKH → 1 P2WPKH change + 1 OP_RETURN(32) tx.
+ * Conservative vsize estimate for a 1-input P2WPKH to 1 P2WPKH change + 1 OP_RETURN(32) tx.
  * Stripped 125 + witness ≈ 110 (worst-case DER ECDSA sig 72 + sighash byte + 33 pubkey + framing).
  * vsize = ceil((125*4 + 110) / 4) ≈ 153, rounded to 155.
  */
 export const P2WPKH_BEACON_TX_VSIZE = 155;
 
 /**
- * Conservative vsize estimate for a 1-input P2PKH → 1 P2PKH change + 1 OP_RETURN(32) tx.
+ * Conservative vsize estimate for a 1-input P2PKH to 1 P2PKH change + 1 OP_RETURN(32) tx.
  * Legacy (non-segwit): scriptSig carries the full sig+pubkey (~108 bytes), no witness
  * discount. Stripped ≈ 4 nVer + 1 vin-count + (32+4+1+108+4) input + 1 vout-count +
  * 34 P2PKH-change + 43 OP_RETURN + 4 nLockTime ≈ 236 bytes. vsize = 236, rounded to 240.
@@ -169,7 +169,7 @@ async function fetchSpendableUtxo(
  * signing session consumes (via {@link SigningTxData}).
  *
  * This is the reusable counterpart to {@link SinglePartyBeacon.buildSignAndBroadcast}'s internal
- * construction step — the aggregation path must produce an unsigned tx because the
+ * construction step: the aggregation path must produce an unsigned tx because the
  * signature comes from a MuSig2 round, not a local secret key.
  *
  * @param opts Parameters including the cohort's aggregate internal pubkey.
@@ -192,8 +192,13 @@ export async function buildAggregationBeaconTx(opts: {
   const feeEstimator = opts.feeEstimator ?? DEFAULT_FEE_ESTIMATOR;
   const { utxo, prevTxBytes } = await fetchSpendableUtxo(opts.beaconAddress, opts.bitcoin);
 
-  const tapOut = p2tr(opts.internalPubkey, undefined, opts.network);
-  const witnessScript = tapOut.script;
+  // The funded beacon output is a Taproot script-tree output: key path is the
+  // MuSig2 aggregate, script path is the k-of-n fallback + CSV recovery leaves
+  // (see cohort.ts and ADR 042). Derive the witnessUtxo scriptPubKey from the
+  // funded address itself; recomputing a key-path-only p2tr(internalPubkey) here
+  // would not match the script-tree UTXO on chain and would invalidate both the
+  // key-path sighash and the fallback script-path sighash.
+  const witnessScript = OutScript.encode(Address(opts.network).decode(opts.beaconAddress));
 
   // Fee cannot be probe-measured (no secret key for MuSig2 round). Use fixed P2TR vsize.
   const feeSats = await feeEstimator.estimateFee(P2TR_BEACON_TX_VSIZE);
@@ -258,7 +263,7 @@ async function signSingletonInput(
     // directly. We need only the sighash bytes so an external Signer can produce
     // the signature, so we reach through the type system here. If scure ever
     // renames this method, the P2PKH path tests fail loudly.
-    // TODO: track https://github.com/paulmillr/scure-btc-signer/issues/142 —
+    // TODO: track https://github.com/paulmillr/scure-btc-signer/issues/142 -
     // drop the cast once a public preimage (e.g. `preimageP2PKH`) lands upstream.
     const sighashType = SigHash.ALL;
     const sighash = (tx as unknown as {
@@ -302,7 +307,7 @@ async function signSingletonInput(
   // `d' = taprootTweakPrivKey(d, merkleRoot)`; the verifier checks against the
   // tweaked output internal key `Q = P + tG`. The tweak lives inside the Signer
   // (it needs the secret key), so we use scheme 'bip341' rather than the raw
-  // 'bip340' scheme. No script tree on singleton beacons → no merkleRoot.
+  // 'bip340' scheme. No script tree on singleton beacons, no merkleRoot.
   const sighash = tx.preimageWitnessV1(inputIdx, [prevOutScript], SigHash.DEFAULT, [amount]);
   const sig = signer.sign(sighash, 'bip341');
   tx.updateInput(inputIdx, { tapKeySig: sig });
@@ -377,7 +382,7 @@ export abstract class SinglePartyBeacon {
    *
    * Composed from the three extracted phases ({@link buildSinglePartyTx},
    * {@link signSinglePartyTx}, {@link broadcastRawTx}) so each piece can be exercised
-   * in isolation. Aggregation beacons use {@link buildAggregationBeaconTx} instead —
+   * in isolation. Aggregation beacons use {@link buildAggregationBeaconTx} instead:
    * the multi-party path can't share the signing phase, but the tx-construction
    * plumbing (UTXO fetch + OP_RETURN output + change output) is shared.
    *
@@ -409,7 +414,7 @@ export abstract class SinglePartyBeacon {
    *
    * Detects the beacon address script kind (P2PKH / P2WPKH / P2TR) and configures
    * the input accordingly. Validates that the signer's pubkey produces the beacon
-   * address under that script kind — without this check, a misconfigured caller
+   * address under that script kind: without this check, a misconfigured caller
    * would burn a real UTXO on a tx that fails at broadcast. Fees are computed from
    * the per-kind {@link SINGLETON_BEACON_TX_VSIZE} constant, avoiding any probe-sign
    * round-trip.

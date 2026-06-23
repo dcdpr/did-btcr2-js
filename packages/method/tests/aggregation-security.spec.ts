@@ -14,6 +14,9 @@ import {
   createSubmitUpdateMessage,
 } from '../src/index.js';
 
+const TEST_RECOVERY_KEY = 'a'.repeat(64);
+const TEST_RECOVERY_SEQUENCE = 144;
+
 /** Build a plausibly-shaped SignedBTCR2Update with just enough fields to reach
  *  the size-cap check in #handleSubmitUpdate. Verification still fails but
  *  that's intentional for the size-cap test.
@@ -50,7 +53,7 @@ describe('Aggregation security regressions', () => {
       const aliceKeys2 = SchnorrKeyPair.generate();
 
       const service = new AggregationService({ did: serviceDid, publicKey: serviceKeys.publicKey });
-      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
+      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
       service.advertise(cohortId);
 
       // Alice opts in with K1
@@ -65,7 +68,7 @@ describe('Aggregation security regressions', () => {
       service.acceptParticipant(cohortId, aliceDid);
       const firstKey = service.getCohort(cohortId)!.participantKeys.get(aliceDid);
 
-      // Alice tries to opt-in again with a DIFFERENT key — should be rejected
+      // Alice tries to opt-in again with a DIFFERENT key - should be rejected
       service.receive(createCohortOptInMessage({
         from            : aliceDid,
         to              : serviceDid,
@@ -93,7 +96,7 @@ describe('Aggregation security regressions', () => {
         publicKey          : serviceKeys.publicKey,
         maxUpdateSizeBytes : 1024,
       });
-      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
+      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
       service.advertise(cohortId);
       service.receive(createCohortOptInMessage({
         from            : aliceDid, to              : serviceDid, cohortId,
@@ -134,7 +137,7 @@ describe('Aggregation security regressions', () => {
       const aliceDid = DidBtcr2.create(aliceKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
 
       const service = new AggregationService({ did: serviceDid, publicKey: serviceKeys.publicKey });
-      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
+      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
       service.advertise(cohortId);
 
       // Hand-forged message with wrong version
@@ -182,13 +185,13 @@ describe('Aggregation security regressions', () => {
       const serviceKeys = SchnorrKeyPair.generate();
       const serviceDid = DidBtcr2.create(serviceKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
       const service = new AggregationService({ did: serviceDid, publicKey: serviceKeys.publicKey });
-      const cohortId = service.createCohort({ minParticipants: 1, network: 'mutinynet', beaconType: 'CASBeacon' });
+      const cohortId = service.createCohort({ minParticipants: 1, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
       service.advertise(cohortId);
 
       // Force phase to DataDistributed via direct state manipulation is not possible
       // (phases are private), so we verify the transition via the full path in the
       // existing aggregation.spec.ts "validation rejection" scenario. This spec
-      // asserts the prerequisite — the Failed phase constant is emitted and public.
+      // asserts the prerequisite - the Failed phase constant is emitted and public.
       expect(ServiceCohortPhase.Failed).to.equal('Failed');
     });
   });

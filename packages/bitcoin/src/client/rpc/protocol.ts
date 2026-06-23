@@ -7,7 +7,7 @@ import { toBase64 } from '../utils.js';
  * Sans-I/O JSON-RPC protocol for Bitcoin Core.
  *
  * Builds {@link HttpRequest} descriptors for JSON-RPC method calls and
- * provides response parsing — without performing any I/O.
+ * provides response parsing, without performing any I/O.
  *
  * **Security note:** Built requests include an `Authorization` header when
  * credentials are configured.  Do not log or persist {@link HttpRequest}

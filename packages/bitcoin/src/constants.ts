@@ -8,7 +8,7 @@ export const GENESIS_TX_ID = '4a5e1e4baab89f3a32518a88c31bc87f618f76673e2cc77ab2
 /**
  * Default endpoint configuration per Bitcoin network.
  *
- * **Regtest RPC:** Credentials are intentionally omitted — callers must
+ * **Regtest RPC:** Credentials are intentionally omitted - callers must
  * provide `username` and `password` via overrides or explicit config.
  * This prevents accidentally using hardcoded credentials in non-local
  * environments.

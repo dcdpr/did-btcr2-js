@@ -1,6 +1,6 @@
 /**
  * HTTP request descriptor. Represents a request that can be executed
- * by any HTTP client — the library never performs I/O itself at the
+ * by any HTTP client - the library never performs I/O itself at the
  * protocol layer.
  */
 export interface HttpRequest {

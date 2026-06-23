@@ -1,5 +1,5 @@
 import type { SerializedSMTProof } from '@did-btcr2/smt';
-import type { CohortAdvert, PendingSigningRequest, PendingValidation } from '../participant.js';
+import type { CohortAdvert, PendingFallbackRequest, PendingSigningRequest, PendingValidation } from '../participant.js';
 import type { AggregationResult, PendingOptIn, Rejection } from '../service.js';
 
 /**
@@ -13,9 +13,11 @@ export interface CohortCompleteInfo {
   cohortId: string;
   beaconAddress: string;
   beaconType: string;
-  /** DID → base64url update hash. Populated only for CAS beacons. */
+  /** True if this participant submitted an update; false if it declined (non-inclusion). */
+  included: boolean;
+  /** DID to base64url update hash. Populated only for CAS beacons. */
   casAnnouncement?: Record<string, string>;
-  /** Merkle inclusion proof for this participant's slot. Populated only for SMT beacons. */
+  /** Inclusion proof (submitter) or non-inclusion proof (decliner) for this slot. Populated only for SMT beacons. */
   smtProof?: SerializedSMTProof;
 }
 
@@ -34,7 +36,7 @@ export type AggregationServiceEvents = {
   /** A participant has been accepted into the cohort. */
   'participant-accepted': [{ cohortId: string; participantDid: string }];
 
-  /** Keygen has been finalized — beacon address is now available. */
+  /** Keygen has been finalized: beacon address is now available. */
   'keygen-complete': [{ cohortId: string; beaconAddress: string }];
 
   /** A participant has submitted a signed update. */
@@ -53,13 +55,20 @@ export type AggregationServiceEvents = {
   /** A participant has acknowledged validation (approved or rejected). */
   'validation-received': [{ cohortId: string; participantDid: string; approved: boolean }];
 
-  /** Signing has started — auth requests sent to participants. */
+  /** Signing has started: auth requests sent to participants. */
   'signing-started': [{ cohortId: string; sessionId: string }];
+
+  /**
+   * The optimistic n-of-n key path was abandoned and the k-of-n fallback
+   * (script-path) signing round started (ADR 042). After this, the cohort
+   * completes via the fallback once k members sign.
+   */
+  'fallback-started': [{ cohortId: string; sessionId: string }];
 
   /** A participant has contributed their MuSig2 nonce. */
   'nonce-received': [{ cohortId: string; participantDid: string }];
 
-  /** Signing complete — final aggregated signature is ready to broadcast. */
+  /** Signing complete: final aggregated signature is ready to broadcast. */
   'signing-complete': [AggregationResult];
 
   /** Cohort transitioned to Failed phase (e.g. a participant rejected validation). */
@@ -82,17 +91,27 @@ export type AggregationParticipantEvents = {
   /** Participant has opted in to a cohort. */
   'cohort-joined': [{ cohortId: string }];
 
-  /** Cohort keygen is complete — beacon address is now available. */
+  /** Cohort keygen is complete: beacon address is now available. */
   'cohort-ready': [{ cohortId: string; beaconAddress: string }];
 
   /** Participant has submitted their signed update. */
   'update-submitted': [{ cohortId: string }];
+
+  /** Participant declined to submit an update this round (cooperative non-inclusion). */
+  'update-declined': [{ cohortId: string }];
 
   /** Aggregated data has arrived for validation. Fires before the validate callback. */
   'validation-requested': [PendingValidation];
 
   /** Signing request has arrived. Fires before the sign approval callback. */
   'signing-requested': [PendingSigningRequest];
+
+  /**
+   * A fallback (k-of-n script-path) signing request has arrived because the
+   * service abandoned the optimistic key path (ADR 042). Fires before the sign
+   * approval callback; approving signs the fallback spend.
+   */
+  'fallback-requested': [PendingFallbackRequest];
 
   /**
    * Cohort signing is complete from this participant's perspective.

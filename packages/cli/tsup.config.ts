@@ -4,7 +4,7 @@ import { defineConfig } from 'tsup';
  * CJS bundle build for the library entry point.
  *
  * The ESM + types output is produced by `tsc` (see `tsconfig.json`), which
- * also handles the `bin/btcr2.ts` CLI entry (ESM only — it uses top-level
+ * also handles the `bin/btcr2.ts` CLI entry (ESM only, it uses top-level
  * await and `import.meta.url`). This config only produces `dist/cjs/index.js`
  * for consumers that programmatically `require('@did-btcr2/cli')`.
  *

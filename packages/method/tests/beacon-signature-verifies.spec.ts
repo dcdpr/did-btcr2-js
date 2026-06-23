@@ -16,7 +16,7 @@ const network = getNetwork('regtest');
  *
  * Bitcoin's consensus verifier checks `tapKeySig` against the *tweaked* output
  * internal key `Q = P + tG` (BIP-341 §3), not the untweaked Schnorr pubkey.
- * `tx.finalize()` in scure-btc-signer does not perform this check — it
+ * `tx.finalize()` in scure-btc-signer does not perform this check: it
  * accepts any structurally-valid 64-byte signature into the witness. The vsize
  * spec asserts shape only and the tx-builder will happily produce a hex string
  * whose signature is valid BIP-340 over the sighash but invalid under
@@ -24,7 +24,7 @@ const network = getNetwork('regtest');
  *
  * This spec verifies the signature against `p2tr(internalKey).tweakedPubkey`
  * (the same Q the Bitcoin verifier uses) and a sentinel that asserts the
- * signature does NOT verify against the untweaked P — exercising the BIP-341
+ * signature does NOT verify against the untweaked P, exercising the BIP-341
  * tweak contract end-to-end at the unit-test layer.
  *
  * ECDSA paths (P2PKH, P2WPKH) are covered by `signer.spec.ts` in
@@ -80,7 +80,7 @@ describe('singleton beacon P2TR signing produces verifiable signatures', () => {
    *
    * Asserted invariants:
    *   1. Happy path: prevOutScript-derived hash equals `hash160(signer.publicKey)`.
-   *   2. A tampered pubkey hash produces a different sighash — the sighash
+   *   2. A tampered pubkey hash produces a different sighash: the sighash
    *      is sensitive to which bytes feed into the scriptCode.
    *
    * ECDSA signature verification across noble versions (v1.9.7 in method,
@@ -112,7 +112,7 @@ describe('singleton beacon P2TR signing produces verifiable signatures', () => {
     if(decoded.type !== 'wpkh') throw new Error('unreachable');
 
     // Invariant 1: in the matching-pubkey happy path, the prevOutScript-derived
-    // hash equals hash160(signer.publicKey) — the two derivations agree when
+    // hash equals hash160(signer.publicKey) - the two derivations agree when
     // signer and prev output reference the same key.
     expect(Array.from(decoded.hash)).to.deep.equal(Array.from(hash160(pubkey)));
 
@@ -120,7 +120,7 @@ describe('singleton beacon P2TR signing produces verifiable signatures', () => {
     const sighashType = SigHash.ALL;
     const sighash = tx.preimageWitnessV0(0, sighashScript, sighashType, 100000n);
 
-    // Invariant 2: a tampered pubkey hash produces a different sighash —
+    // Invariant 2: a tampered pubkey hash produces a different sighash -
     // demonstrating that the sighash is sensitive to which pubkey hash feeds
     // into the scriptCode. Deriving from prevOutScript locks the scriptCode to
     // the bytes actually committed on-chain.

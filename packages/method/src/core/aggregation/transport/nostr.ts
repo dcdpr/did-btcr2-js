@@ -64,9 +64,9 @@ interface ActorEntry {
  * sending or receiving.
  *
  * Message routing:
- * - Keygen messages (COHORT_ADVERT, COHORT_OPT_IN, COHORT_OPT_IN_ACCEPT, COHORT_READY) → kind 1 (plaintext)
- * - Update messages (SUBMIT_UPDATE, DISTRIBUTE_AGGREGATED_DATA, VALIDATION_ACK) → kind 1059 (NIP-44 encrypted)
- * - Sign messages → kind 1059 (NIP-44 encrypted)
+ * - Keygen messages (COHORT_ADVERT, COHORT_OPT_IN, COHORT_OPT_IN_ACCEPT, COHORT_READY) to kind 1 (plaintext)
+ * - Update messages (SUBMIT_UPDATE, DISTRIBUTE_AGGREGATED_DATA, VALIDATION_ACK) to kind 1059 (NIP-44 encrypted)
+ * - Sign messages to kind 1059 (NIP-44 encrypted)
  *
  * @class NostrTransport
  * @implements {Transport}
@@ -354,13 +354,13 @@ export class NostrTransport implements Transport {
    * backfill historical events to late subscribers: republishing gives late
    * joiners a window to discover the message without requiring protocol
    * changes. Relay rate-limit / publish failures inside the interval are
-   * caught and logged rather than propagated — the caller should stop the
+   * caught and logged rather than propagated - the caller should stop the
    * repeater once the protocol condition is satisfied.
    */
   publishRepeating(message: BaseMessage, sender: Did, intervalMs: number, recipient?: Did): () => void {
     let stopped = false;
     // Fire the first publish eagerly; any error surfaces as a rejected
-    // promise that we swallow to avoid unhandled rejections — the caller can
+    // promise that we swallow to avoid unhandled rejections - the caller can
     // observe delivery via receive-side handlers.
     void this.sendMessage(message, sender, recipient).catch((err) => {
       this.#logger.debug('publishRepeating first send failed:', err);
@@ -418,7 +418,7 @@ export class NostrTransport implements Transport {
       // Relay self-echo: sendMessage() adds the sender's own pubkey to the
       // event's `p` tags (so recipients can reply). The directed subscription
       // filter `{'#p': [actor_pk]}` therefore matches every event this actor
-      // publishes. Skip — we don't need to process our own outgoing events,
+      // publishes. Skip - we don't need to process our own outgoing events,
       // and attempting to NIP-44-decrypt them fails with "invalid MAC" because
       // the content was encrypted for the recipient, not self.
       if(event.pubkey === bytesToHex(actor.keys.publicKey.x)) return;

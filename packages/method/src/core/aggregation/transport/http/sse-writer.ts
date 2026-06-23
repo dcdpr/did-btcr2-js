@@ -1,7 +1,7 @@
 /**
  * Format an SSE event frame. Pairs with {@link parseSseStream}.
  *
- * Multi-line `data` is split across multiple `data:` lines per the SSE spec —
+ * Multi-line `data` is split across multiple `data:` lines per the SSE spec -
  * each embedded `\n` becomes its own line, and the parser rejoins them.
  *
  * The returned string includes a trailing blank line (the dispatch marker).

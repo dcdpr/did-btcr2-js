@@ -31,11 +31,11 @@ describe('HTTP transport nonce cache', () => {
     cache.store('d', 'a', 1);
     cache.store('d', 'b', 2);
     cache.store('d', 'c', 3);
-    cache.store('d', 'e', 4); // forces eviction of 'a' → cache is now [b, c, e]
+    cache.store('d', 'e', 4); // forces eviction of 'a', cache is now [b, c, e]
     expect(cache.size()).to.equal(3);
     // 'a' was evicted; replaying it now succeeds (and evicts 'b' as the new oldest).
     expect(cache.store('d', 'a', 5)).to.be.true;
-    // 'c' is still present → replay rejected.
+    // 'c' is still present, replay rejected.
     expect(cache.store('d', 'c', 5)).to.be.false;
   });
 

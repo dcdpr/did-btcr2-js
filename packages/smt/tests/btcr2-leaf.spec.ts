@@ -29,7 +29,7 @@ describe('btcr2-leaf', () => {
       expect(a).to.not.equal(b);
     });
 
-    it('matches hand-computed SHA-256(encode(did)) → bigint', () => {
+    it('matches hand-computed SHA-256(encode(did)) to bigint', () => {
       const did = 'did:btcr2:k1qtest';
       const hash = sha256(new TextEncoder().encode(did));
       let expected = 0n;

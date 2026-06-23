@@ -11,7 +11,7 @@ export interface TreeEntry {
   did: string;
   /** 32-byte random nonce for privacy. */
   nonce: Uint8Array;
-  /** Canonical bytes of the signed BTCR2 update. Absent → non-inclusion. */
+  /** Canonical bytes of the signed BTCR2 update. Absent means non-inclusion. */
   signedUpdate?: Uint8Array;
 }
 
@@ -25,7 +25,7 @@ export interface TreeEntry {
  * zero-subtree hashes at every level. Produces serialized proofs verifiable by
  * the spec's verifier.
  *
- * Lifecycle: `addEntries()` → `finalize()` → `proof(did)`.
+ * Lifecycle: `addEntries()` -> `finalize()` -> `proof(did)`.
  */
 export class BTCR2MerkleTree {
   readonly #entries = new Map<bigint, TreeEntry>();

@@ -93,7 +93,7 @@ function collectAnchors(): Anchor[] {
 async function run(): Promise<void> {
   const dry = process.argv.includes('--dry');
   const anchors = collectAnchors();
-  console.log(`=== scenario:anchor (${NETWORK}) — ${anchors.length} OP_RETURN signals ===`);
+  console.log(`=== scenario:anchor (${NETWORK}) - ${anchors.length} OP_RETURN signals ===`);
 
   if (dry) {
     for (const a of anchors) console.log(`  ${a.signalHex.slice(0, 20)}...  [${a.label}]`);

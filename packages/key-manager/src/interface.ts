@@ -8,12 +8,12 @@ export type KeyIdentifier = string;
  * Signature schemes supported by a {@link KeyManager}.
  *
  * Mirrors the `SigningScheme` type from `@did-btcr2/keypair`:
- * - `'ecdsa'`  — DER-encoded, low-S ECDSA over secp256k1. Used by P2PKH and
+ * - `'ecdsa'`  - DER-encoded, low-S ECDSA over secp256k1. Used by P2PKH and
  *   P2WPKH (BIP-143) Bitcoin inputs.
- * - `'bip340'` — Raw BIP-340 Schnorr signature using the *untweaked* secret
+ * - `'bip340'` - Raw BIP-340 Schnorr signature using the *untweaked* secret
  *   key. Used by Data Integrity proofs and any other BIP-340-over-message
- *   context (NOT for Bitcoin taproot inputs — those need `'bip341'`).
- * - `'bip341'` — BIP-341 taproot key-path Schnorr signature. The KeyManager
+ *   context (NOT for Bitcoin taproot inputs, those need `'bip341'`).
+ * - `'bip341'` - BIP-341 taproot key-path Schnorr signature. The KeyManager
  *   applies the per-output tweak `t = H_taptweak(P || merkleRoot)` to the
  *   secret before signing; secret bytes never leave the store. The resulting
  *   signature verifies against the tweaked output key `Q = P + tG`.
@@ -138,7 +138,7 @@ export interface KeyManager {
 
   /**
    * Verify a signature using the specified key. `'bip341'` is not supported
-   * here — taproot signatures verify against the tweaked output key, not the
+   * here: taproot signatures verify against the tweaked output key, not the
    * entry's untweaked pubkey, so callers needing that should verify against
    * the tweaked key directly with `@noble/curves`.
    *

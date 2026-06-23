@@ -18,7 +18,7 @@ describe('HTTP transport rate limiter', () => {
     for(let i = 0; i < 5; i++) limiter.consume('k', 0);
     expect(limiter.consume('k', 0)).to.be.false;
 
-    // 200ms later → 2 tokens refilled (10 rps * 0.2s = 2).
+    // 200ms later, 2 tokens refilled (10 rps * 0.2s = 2).
     expect(limiter.consume('k', 200)).to.be.true;
     expect(limiter.consume('k', 200)).to.be.true;
     expect(limiter.consume('k', 200)).to.be.false;
@@ -27,7 +27,7 @@ describe('HTTP transport rate limiter', () => {
   it('caps refills at burst size', () => {
     const limiter = new RateLimiter({ rps: 10, burst: 3 });
     limiter.consume('k', 0);
-    // Huge elapsed time — but bucket won't exceed burst.
+    // Huge elapsed time, but bucket won't exceed burst.
     expect(limiter.consume('k', 1_000_000)).to.be.true;
     expect(limiter.consume('k', 1_000_000)).to.be.true;
     expect(limiter.consume('k', 1_000_000)).to.be.true;

@@ -43,13 +43,17 @@ export interface AggregateBeaconStrategy {
 
   /**
    * Participant: verify the aggregated data they received reflects their own
-   * submitted update. Pure function — returns matches + sidecar fields for
-   * the caller to store.
+   * slot. A submitter (`included: true`) checks its update is included; a
+   * decliner (`included: false`, cooperative non-inclusion) checks its
+   * non-inclusion slot instead (absence from the CAS map, or an SMT
+   * non-inclusion proof). `submittedUpdate`/`expectedHash` are present only for a
+   * submitter. Pure function: returns matches + sidecar fields for the caller.
    */
   validateParticipantView(params: {
     participantDid: string;
-    submittedUpdate: SignedBTCR2Update;
-    expectedHash: string;
+    included: boolean;
+    submittedUpdate?: SignedBTCR2Update;
+    expectedHash?: string;
     body: BaseBody;
   }): BeaconValidationResult;
 }
@@ -65,9 +69,13 @@ const CAS_STRATEGY: AggregateBeaconStrategy = {
     return { casAnnouncement: cohort.casAnnouncement };
   },
 
-  validateParticipantView({ participantDid, expectedHash, body }) {
+  validateParticipantView({ participantDid, included, expectedHash, body }) {
     const casAnnouncement = body.casAnnouncement;
     if(!casAnnouncement) return { matches: false };
+    if(!included) {
+      // Cooperative non-inclusion: the decliner must be ABSENT from the map.
+      return { matches: !(participantDid in casAnnouncement), casAnnouncement };
+    }
     return {
       matches : casAnnouncement[participantDid] === expectedHash,
       casAnnouncement,
@@ -87,9 +95,20 @@ const SMT_STRATEGY: AggregateBeaconStrategy = {
     return { smtProof: proof as unknown as Record<string, unknown> | undefined };
   },
 
-  validateParticipantView({ participantDid, submittedUpdate, body }) {
+  validateParticipantView({ participantDid, included, submittedUpdate, body }) {
     const smtProof = body.smtProof as unknown as SerializedSMTProof | undefined;
-    if(!smtProof?.updateId || !smtProof?.nonce) return { matches: false };
+    const index = didToIndex(participantDid);
+
+    if(!included) {
+      // Cooperative non-inclusion: the proof has a nonce but no updateId by
+      // construction. The leaf is SHA-256(SHA-256(nonce)); do NOT run the
+      // inclusion-only updateId guard (a missing updateId is correct here).
+      if(!smtProof?.nonce || smtProof?.updateId) return { matches: false, smtProof };
+      const candidateHash = blockHash(blockHash(base64UrlToHash(smtProof.nonce)));
+      return { matches: verifySerializedProof(smtProof, index, candidateHash), smtProof };
+    }
+
+    if(!smtProof?.updateId || !smtProof?.nonce || !submittedUpdate) return { matches: false, smtProof };
     // Verify updateId matches the canonicalized update hash. Proof hash fields
     // are base64url (no padding) per the SMT Proof spec.
     const canonicalBytes = new TextEncoder().encode(canonicalize(submittedUpdate as unknown as Record<string, unknown>));
@@ -97,8 +116,7 @@ const SMT_STRATEGY: AggregateBeaconStrategy = {
     if(smtProof.updateId !== expectedUpdateId) {
       return { matches: false, smtProof };
     }
-    // Verify Merkle inclusion
-    const index = didToIndex(participantDid);
+    // Verify Merkle inclusion. The leaf is SHA-256(SHA-256(nonce) || SHA-256(update)).
     const candidateHash = blockHash(blockHash(base64UrlToHash(smtProof.nonce)), base64UrlToHash(smtProof.updateId));
     return {
       matches : verifySerializedProof(smtProof, index, candidateHash),

@@ -135,8 +135,8 @@ export class DidBtcr2 implements DidMethod {
    *
    * Factory method that validates the update parameters and returns a sans-I/O
    * {@link Updater} state machine. The caller drives the updater through its
-   * phases (Construct → Sign → Broadcast → Complete) by calling `advance()` and
-   * `provide()`. The method package performs **zero I/O** — signing key retrieval
+   * phases (Construct -> Sign -> Broadcast -> Complete) by calling `advance()` and
+   * `provide()`. The method package performs **zero I/O**: signing key retrieval
    * (or KMS delegation) and the on-chain broadcast are the caller's responsibility.
    *
    * For a fully-wired version with Bitcoin broadcast and key handling, see

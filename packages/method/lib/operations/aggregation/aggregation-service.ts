@@ -1,5 +1,5 @@
 /**
- * Aggregation Service — Standalone Process (Runner API)
+ * Aggregation Service - Standalone Process (Runner API)
  *
  * Runs an AggregationServiceRunner in its own process. Pairs with
  * `aggregation-participant.ts` running in separate terminals.
@@ -37,9 +37,9 @@ const service = new AggregationServiceRunner({
   transport,
   did     : serviceDid,
   keys    : serviceKeys,
-  config  : { minParticipants: MIN_PARTICIPANTS, network: 'mutinynet', beaconType: 'CASBeacon' },
+  config  : { minParticipants: MIN_PARTICIPANTS, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: bytesToHex(serviceKeys.publicKey.compressed.slice(1)), recoverySequence: 144 },
 
-  // Auto-accept all opt-ins (default behavior — explicit here for clarity)
+  // Auto-accept all opt-ins (default behavior, explicit here for clarity)
   onOptInReceived : async () => ({ accepted: true }),
 
   // Build a dummy P2TR transaction (in production: query Bitcoin for UTXO + build tx)

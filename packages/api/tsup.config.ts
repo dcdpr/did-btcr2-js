@@ -10,7 +10,7 @@ import { defineConfig } from 'tsup';
  * Bundled-inline deps (no `require` export condition in their package.json):
  * - multiformats subpath exports
  *
- * `helia` and `@helia/strings` are not used directly by api — they are only
+ * `helia` and `@helia/strings` are not used directly by api, they are only
  * reached via `@did-btcr2/method`, which lazy-loads them from `appendix.ts`.
  *
  * `@did-btcr2/*` workspace packages are kept external and resolved from

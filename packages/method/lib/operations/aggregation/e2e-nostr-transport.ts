@@ -78,7 +78,7 @@ const service = new AggregationServiceRunner({
   transport : serviceTransport,
   did       : serviceDid,
   keys      : serviceKeys,
-  config    : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' },
+  config    : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: bytesToHex(serviceKeys.publicKey.compressed.slice(1)), recoverySequence: 144 },
 
   onProvideTxData : async ({ cohortId }) => {
     const cohort = service.session.getCohort(cohortId)!;

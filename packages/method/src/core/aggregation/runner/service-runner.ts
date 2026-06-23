@@ -3,12 +3,15 @@ import { AggregationServiceError } from '../errors.js';
 import type { BaseMessage } from '../messages/base.js';
 import {
   COHORT_OPT_IN,
+  FALLBACK_SIGNATURE,
   NONCE_CONTRIBUTION,
   SIGNATURE_AUTHORIZATION,
+  SUBMIT_NONINCLUDED,
   SUBMIT_UPDATE,
   VALIDATION_ACK,
 } from '../messages/constants.js';
 import { ServiceCohortPhase } from '../phases.js';
+import type { ServiceCohortPhaseType } from '../phases.js';
 import type {
   AggregationResult,
   CohortConfig,
@@ -68,7 +71,7 @@ export interface AggregationServiceRunnerOptions {
 
   /**
    * Provide the Bitcoin transaction data to sign.
-   * REQUIRED — no sensible default.
+   * REQUIRED - no sensible default.
    */
   onProvideTxData: OnProvideTxData;
 
@@ -98,7 +101,7 @@ export interface AggregationServiceRunnerOptions {
   /**
    * Re-publish COHORT_ADVERT on this interval until a cohort's keygen is
    * finalized. Works around relays that don't backfill historical events to
-   * late subscribers — a republish gives late joiners a window to discover the
+   * late subscribers - a republish gives late joiners a window to discover the
    * advert without protocol changes. The first publish is immediate;
    * subsequent publishes fire every `advertRepeatIntervalMs` until that
    * cohort's keygen completes, fails, or is stopped. Defaults to
@@ -106,6 +109,17 @@ export interface AggregationServiceRunnerOptions {
    * once and never retry.
    */
   advertRepeatIntervalMs?: number;
+
+  /**
+   * When a cohort stalls (phase timeout) while the optimistic n-of-n signing
+   * round is in flight, fall back to the k-of-n script path instead of failing
+   * the cohort (graceful liveness, ADR 042). Off by default: enabling it trades a
+   * cheaper/private key-path spend for a larger script-path spend whenever the
+   * optimistic round does not complete in time. A stall outside the signing
+   * phases still fails the cohort. Operators can also drive the fallback
+   * explicitly via {@link AggregationServiceRunner.triggerFallback}.
+   */
+  autoFallbackOnStall?: boolean;
 }
 
 /** Default cadence for re-publishing COHORT_ADVERT until keygen completes: 60 seconds. */
@@ -139,6 +153,14 @@ interface RunContext {
   finalizing: boolean;
   /** Once settled (resolved or rejected), late timers/messages must not re-settle. */
   settled: boolean;
+  /**
+   * The spend path this cohort is committed to once signing reaches a decision:
+   * `optimistic` (n-of-n key path) or `fallback` (k-of-n script path). A cohort
+   * spends its single beacon UTXO exactly once, so this latch (set synchronously
+   * before any await) ensures the optimistic completion and the fallback never
+   * both finalize and broadcast the same UTXO (the ADR-042 double-spend hazard).
+   */
+  committedPath?: 'optimistic' | 'fallback';
   cohortTtlTimer?: ReturnType<typeof setTimeout>;
   phaseTimer?: ReturnType<typeof setTimeout>;
   lastObservedPhase?: string;
@@ -155,7 +177,7 @@ interface RunContext {
  *
  * A single runner is a long-lived multiplexer: it advertises and drives many
  * cohorts concurrently over one transport. Each advertised cohort owns an
- * independent completion promise and fails in isolation — a stalled or failed
+ * independent completion promise and fails in isolation - a stalled or failed
  * cohort never settles its siblings (see ADR 040). Use
  * {@link AggregationServiceRunner.advertiseCohort} for the multi-cohort path;
  * {@link AggregationServiceRunner.run} is a thin single-cohort convenience over
@@ -206,6 +228,14 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
   readonly #cohortTtlMs?: number;
   readonly #phaseTimeoutMs?: number;
   readonly #advertRepeatIntervalMs: number;
+  readonly #autoFallbackOnStall: boolean;
+
+  /** Phases during which a stall can be salvaged by the k-of-n fallback (ADR 042). */
+  static readonly #SIGNING_PHASES: readonly ServiceCohortPhaseType[] = [
+    ServiceCohortPhase.SigningStarted,
+    ServiceCohortPhase.NoncesCollected,
+    ServiceCohortPhase.AwaitingPartialSigs,
+  ];
 
   /** Per-cohort run state, keyed by cohortId. */
   readonly #contexts: Map<string, RunContext> = new Map();
@@ -225,6 +255,7 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
     this.#cohortTtlMs = options.cohortTtlMs;
     this.#phaseTimeoutMs = options.phaseTimeoutMs;
     this.#advertRepeatIntervalMs = options.advertRepeatIntervalMs ?? DEFAULT_ADVERT_REPEAT_INTERVAL_MS;
+    this.#autoFallbackOnStall = options.autoFallbackOnStall ?? false;
 
     this.session = new AggregationService({
       // The coordinator never signs, so the state machine receives only the
@@ -269,7 +300,7 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
     }
     this.#registerHandlers();
     // createCohort validates the conditions and throws on a bad config before
-    // any context exists — fail-fast, nothing to clean up.
+    // any context exists - fail-fast, nothing to clean up.
     const cohortId = this.session.createCohort(config);
 
     let resolve!: (result: AggregationResult) => void;
@@ -293,7 +324,7 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
       this.#onPhaseMaybeChanged(ctx);
       this.emit('cohort-advertised', { cohortId });
       // Publish the advert. If advertRepeatIntervalMs > 0 we republish on that
-      // cadence until this cohort's keygen-complete / fail / stop — works around
+      // cadence until this cohort's keygen-complete / fail / stop - works around
       // relays that don't backfill historical events to late subscribers.
       // Otherwise fall back to a single send.
       if(this.#advertRepeatIntervalMs > 0) {
@@ -404,10 +435,51 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
     ctx.phaseTimer = undefined;
     if(this.#phaseTimeoutMs === undefined) return;
     ctx.phaseTimer = setTimeout(() => {
+      // A stall during the optimistic signing round can be salvaged by the k-of-n
+      // fallback rather than failing the whole cohort (graceful liveness, ADR
+      // 042) - but only if enabled and not already committed to a path.
+      const phase = this.session.getCohortPhase(ctx.cohortId);
+      const inSigning = phase !== undefined && AggregationServiceRunner.#SIGNING_PHASES.includes(phase);
+      if(this.#autoFallbackOnStall && inSigning && !ctx.committedPath && !ctx.settled) {
+        this.triggerFallback(ctx.cohortId).catch(err => this.#failCohort(ctx, err as Error));
+        return;
+      }
       const reason = `Cohort ${ctx.cohortId} stalled in phase ${ctx.lastObservedPhase ?? '?'} for ${this.#phaseTimeoutMs}ms`;
       this.emit('cohort-failed', { cohortId: ctx.cohortId, reason });
       this.#failCohort(ctx, new Error(reason));
     }, this.#phaseTimeoutMs);
+  }
+
+  /**
+   * Abandon the optimistic n-of-n key path for a cohort and collect k-of-n
+   * fallback (script-path) signatures instead (ADR 042). Idempotent and safe
+   * against the optimistic completion: it commits the cohort to the fallback
+   * path synchronously (the `committedPath` latch) before sending anything, so a
+   * late optimistic signature can no longer complete-and-broadcast a competing
+   * spend of the same UTXO. No-op if the cohort is unknown, already settled, or
+   * already committed to a path.
+   *
+   * Wired automatically to the phase-stall timer when `autoFallbackOnStall` is
+   * set; otherwise call it from an operator decision (a UI "fall back now"
+   * action). Throws only if the underlying state machine rejects the transition
+   * (e.g. signing has not started).
+   */
+  async triggerFallback(cohortId: string): Promise<void> {
+    const ctx = this.#contexts.get(cohortId);
+    if(!ctx || ctx.settled || ctx.committedPath) return;
+    // startFallbackSigning is synchronous and throws if the cohort is not in a
+    // signing phase (e.g. a premature operator call). Run it FIRST so a rejected
+    // transition cannot poison the latch: only after it commits the state machine
+    // to the fallback do we set committedPath. This still happens synchronously
+    // before any await, so a concurrent optimistic completion observes the latch
+    // and stands down - but a bad-phase call leaves the optimistic path intact.
+    const messages = this.session.startFallbackSigning(cohortId);
+    ctx.committedPath = 'fallback';
+    this.#stopAdvertRepeating(ctx);
+    this.#onPhaseMaybeChanged(ctx);
+    const sessionId = this.session.getSigningSessionId(cohortId) ?? '';
+    this.emit('fallback-started', { cohortId, sessionId });
+    await this.#sendAll(messages);
   }
 
   /** Detect a phase change for a cohort since the last observation and reset its phase timer. */
@@ -505,14 +577,16 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
   static readonly #HANDLED_MESSAGE_TYPES: readonly string[] = [
     COHORT_OPT_IN,
     SUBMIT_UPDATE,
+    SUBMIT_NONINCLUDED,
     VALIDATION_ACK,
     NONCE_CONTRIBUTION,
     SIGNATURE_AUTHORIZATION,
+    FALLBACK_SIGNATURE,
   ];
 
   /**
    * Internal: handler registration with the transport. Idempotent. Handlers
-   * are DID-scoped and cohort-agnostic — one registration serves every cohort
+   * are DID-scoped and cohort-agnostic - one registration serves every cohort
    * this runner drives; demux to the right {@link RunContext} happens in each
    * handler via the inbound message's cohortId.
    */
@@ -522,9 +596,14 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
 
     this.#transport.registerMessageHandler(this.#did, COHORT_OPT_IN, this.#handleOptIn.bind(this));
     this.#transport.registerMessageHandler(this.#did, SUBMIT_UPDATE, this.#handleSubmitUpdate.bind(this));
+    // A non-inclusion (decline) is an update-phase response handled identically:
+    // session.receive() routes by type, and the response gate + distribute
+    // trigger are shared with SUBMIT_UPDATE.
+    this.#transport.registerMessageHandler(this.#did, SUBMIT_NONINCLUDED, this.#handleSubmitUpdate.bind(this));
     this.#transport.registerMessageHandler(this.#did, VALIDATION_ACK, this.#handleValidationAck.bind(this));
     this.#transport.registerMessageHandler(this.#did, NONCE_CONTRIBUTION, this.#handleNonceContribution.bind(this));
     this.#transport.registerMessageHandler(this.#did, SIGNATURE_AUTHORIZATION, this.#handleSignatureAuthorization.bind(this));
+    this.#transport.registerMessageHandler(this.#did, FALLBACK_SIGNATURE, this.#handleFallbackSignature.bind(this));
   }
 
   /** Internal: detach from the transport. Safe to call repeatedly. */
@@ -584,7 +663,7 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
 
       // Check if it's time to finalize. The per-cohort `finalizing` flag is set
       // synchronously before the first await so concurrent opt-in handlers for
-      // the same cohort observe it and skip — otherwise two handlers could both
+      // the same cohort observe it and skip - otherwise two handlers could both
       // pass the minParticipants check and both call finalizeKeygen, the second
       // of which would throw (phase mismatch).
       const cohort = this.session.getCohort(ctx.cohortId)!;
@@ -595,7 +674,7 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
           minRequired   : ctx.config.minParticipants,
         });
         if(!finalizeDecision.finalize) {
-          // Operator declined — reset the flag so a later opt-in can retry.
+          // Operator declined - reset the flag so a later opt-in can retry.
           ctx.finalizing = false;
           return;
         }
@@ -604,7 +683,7 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
         // (which can run all the way to signing-complete) would resolve the
         // cohort's completion promise before this event fires.
         const readyMsgs = this.session.finalizeKeygen(ctx.cohortId);
-        // Keygen done — stop re-advertising the cohort. New participants
+        // Keygen done - stop re-advertising the cohort. New participants
         // arriving after this point would be rejected anyway.
         this.#stopAdvertRepeating(ctx);
         this.emit('keygen-complete', {
@@ -733,7 +812,38 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
       this.#drainRejections(ctx);
       this.#onPhaseMaybeChanged(ctx);
 
-      // The state machine auto-completes when all partial sigs received
+      // If the cohort already committed to the fallback path, ignore a late
+      // optimistic completion: only one path may finalize the single beacon UTXO.
+      if(ctx.committedPath === 'fallback') return;
+
+      // The state machine auto-completes when all partial sigs received.
+      const result = this.session.getResult(ctx.cohortId);
+      if(result) {
+        ctx.committedPath = 'optimistic';
+        this.#completeCohort(ctx, result);
+      }
+    } catch(err) {
+      this.#failCohort(ctx, err as Error);
+    }
+  }
+
+  /**
+   * Handler for receiving fallback (k-of-n script-path) signatures. The state
+   * machine assembles and finalizes the fallback spend once k valid signatures
+   * are in; the result is then emitted and the cohort's completion resolves. The
+   * cohort is already committed to the fallback path (via {@link triggerFallback}).
+   * @param {BaseMessage} msg - The incoming FALLBACK_SIGNATURE message.
+   * @returns {Promise<void>} Resolves when handling is complete.
+   */
+  async #handleFallbackSignature(msg: BaseMessage): Promise<void> {
+    if(this.#stopped) return;
+    const ctx = this.#contextFor(msg);
+    if(!ctx) return;
+    try {
+      this.session.receive(msg);
+      this.#drainRejections(ctx);
+      this.#onPhaseMaybeChanged(ctx);
+
       const result = this.session.getResult(ctx.cohortId);
       if(result) {
         this.#completeCohort(ctx, result);

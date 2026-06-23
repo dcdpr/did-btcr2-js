@@ -132,7 +132,7 @@ describe('SinglePartyBeacon.processSignals', () => {
 
       const result = beacon.processSignals([fakeSignal(announcementHashHex)], sidecar);
 
-      // No update for our DID in this announcement — silently skip, no needs emitted
+      // No update for our DID in this announcement - silently skip, no needs emitted
       expect(result.updates).to.be.empty;
       expect(result.needs).to.be.empty;
     });
@@ -199,7 +199,7 @@ describe('SinglePartyBeacon.processSignals', () => {
       // A non-inclusion proof has nonce but no updateId
       const nonce = randomBytes(32);
       const tree = new BTCR2MerkleTree();
-      tree.addEntries([{ did: DID, nonce }]); // no signedUpdate → non-inclusion
+      tree.addEntries([{ did: DID, nonce }]); // no signedUpdate, non-inclusion
       tree.finalize();
       const proof = tree.proof(DID);
       expect(proof.updateId).to.be.undefined;
@@ -209,7 +209,7 @@ describe('SinglePartyBeacon.processSignals', () => {
 
       const result = beacon.processSignals([fakeSignal(proof.id)], sidecar);
 
-      // Non-inclusion: no updates, no needs emitted — this beacon has nothing for this DID
+      // Non-inclusion: no updates, no needs emitted - this beacon has nothing for this DID
       expect(result.updates).to.be.empty;
       expect(result.needs).to.be.empty;
     });
@@ -219,7 +219,7 @@ describe('SinglePartyBeacon.processSignals', () => {
       const updateHashHex = bytesToHex(hash(canonicalize(update)));
       const rootHex = '1111111111111111111111111111111111111111111111111111111111111111';
 
-      // Malformed proof — has updateId but no nonce
+      // Malformed proof - has updateId but no nonce
       const badProof: SMTProof = {
         id        : rootHex,
         updateId  : updateHashHex,

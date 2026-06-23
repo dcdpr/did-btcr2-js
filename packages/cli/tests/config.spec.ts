@@ -260,14 +260,14 @@ describe('defaultApiFactory', () => {
       casGateway : 'https://ipfs.io',
     });
     expect(api).to.exist;
-    // Accessing api.cas should NOT throw — gateway config was wired through
+    // Accessing api.cas should NOT throw - gateway config was wired through
     expect(() => api.cas).to.not.throw();
   });
 
   it('defaults to public IPFS gateway when no casGateway is provided', () => {
     const api = defaultApiFactory('regtest', { config: join(tempDir, 'nope.json') });
     expect(api).to.exist;
-    // CAS should be configured with the default gateway — no throw
+    // CAS should be configured with the default gateway - no throw
     expect(() => api.cas).to.not.throw();
   });
 });

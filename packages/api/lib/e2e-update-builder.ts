@@ -12,7 +12,7 @@
  *
  * Env:
  *   BITCOIN_NETWORK   default: regtest
- *   BEACON_KIND       default: p2pkh — one of p2pkh|p2wpkh|p2tr
+ *   BEACON_KIND       default: p2pkh - one of p2pkh|p2wpkh|p2tr
  *
  * Usage:
  *   npx tsx packages/api/lib/e2e-update-builder.ts
@@ -63,7 +63,7 @@ console.log(`[2] DID: ${did}`);
 // ─── Step 3: Resolve source document deterministically ──────────────────────
 
 const sourceDocument = Resolver.deterministic(Identifier.decode(did));
-// service[0]=p2pkh, service[1]=p2wpkh, service[2]=p2tr — selected by BEACON_KIND.
+// service[0]=p2pkh, service[1]=p2wpkh, service[2]=p2tr, selected by BEACON_KIND.
 const beaconService = sourceDocument.service![KIND_INDEX[KIND]]!;
 const beaconAddress = beaconService.serviceEndpoint.replace('bitcoin:', '');
 console.log(`[3] Beacon address (${KIND.toUpperCase()}): ${beaconAddress}`);

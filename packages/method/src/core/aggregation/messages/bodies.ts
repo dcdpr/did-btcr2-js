@@ -13,6 +13,8 @@
 
 import type { SerializedSMTProof } from '@did-btcr2/smt';
 import type { CohortConditions } from '../conditions.js';
+import { KNOWN_FUNDING_MODELS } from '../conditions.js';
+import { MAX_RECOVERY_SEQUENCE } from '../recovery-policy.js';
 import type { BaseMessage } from './base.js';
 import {
   AGGREGATED_NONCE,
@@ -22,8 +24,11 @@ import {
   COHORT_OPT_IN_ACCEPT,
   COHORT_READY,
   DISTRIBUTE_AGGREGATED_DATA,
+  FALLBACK_AUTHORIZATION_REQUEST,
+  FALLBACK_SIGNATURE,
   NONCE_CONTRIBUTION,
   SIGNATURE_AUTHORIZATION,
+  SUBMIT_NONINCLUDED,
   SUBMIT_UPDATE,
   VALIDATION_ACK,
 } from './constants.js';
@@ -57,6 +62,15 @@ export interface CohortReadyBody {
 export interface SubmitUpdateBody {
   cohortId: string;
   signedUpdate: Record<string, unknown>;
+}
+
+/**
+ * A member declines to submit an update this round (cooperative non-inclusion).
+ * Carries only the cohortId; membership is proven by the signed transport
+ * envelope (the sender DID), so no payload is needed.
+ */
+export interface SubmitNonIncludedBody {
+  cohortId: string;
 }
 
 export interface DistributeAggregatedDataBody {
@@ -100,6 +114,33 @@ export interface SignatureAuthorizationBody {
   partialSignature: Uint8Array;
 }
 
+/**
+ * Service asks members to authorize the k-of-n fallback (script-path) spend of
+ * the SAME beacon transaction (ADR 042). Carries the unsigned tx and the spent
+ * output so each member recomputes the script-path sighash itself. The fallback
+ * leaf script is included for cross-check; members recompute it from their own
+ * cohort state.
+ */
+export interface FallbackAuthorizationRequestBody {
+  cohortId: string;
+  sessionId: string;
+  pendingTx: string;
+  prevOutScriptHex: string;
+  prevOutValue: string;
+  fallbackLeafScriptHex: string;
+}
+
+/**
+ * A member's standalone BIP-340 signature over the fallback script-path sighash.
+ * `signerPk` is the member's x-only key (which CHECKSIGADD slot it satisfies).
+ */
+export interface FallbackSignatureBody {
+  cohortId: string;
+  sessionId: string;
+  signerPk: Uint8Array;
+  fallbackSignature: Uint8Array;
+}
+
 // ── Narrow message types (BaseMessage & { type, body }) ──────────────────
 
 export type CohortAdvertMessage = BaseMessage & { type: typeof COHORT_ADVERT; body: CohortAdvertBody };
@@ -107,12 +148,15 @@ export type CohortOptInMessage = BaseMessage & { type: typeof COHORT_OPT_IN; bod
 export type CohortOptInAcceptMessage = BaseMessage & { type: typeof COHORT_OPT_IN_ACCEPT; body: CohortOptInAcceptBody };
 export type CohortReadyMessage = BaseMessage & { type: typeof COHORT_READY; body: CohortReadyBody };
 export type SubmitUpdateMessage = BaseMessage & { type: typeof SUBMIT_UPDATE; body: SubmitUpdateBody };
+export type SubmitNonIncludedMessage = BaseMessage & { type: typeof SUBMIT_NONINCLUDED; body: SubmitNonIncludedBody };
 export type DistributeAggregatedDataMessage = BaseMessage & { type: typeof DISTRIBUTE_AGGREGATED_DATA; body: DistributeAggregatedDataBody };
 export type ValidationAckMessage = BaseMessage & { type: typeof VALIDATION_ACK; body: ValidationAckBody };
 export type AuthorizationRequestMessage = BaseMessage & { type: typeof AUTHORIZATION_REQUEST; body: AuthorizationRequestBody };
 export type NonceContributionMessage = BaseMessage & { type: typeof NONCE_CONTRIBUTION; body: NonceContributionBody };
 export type AggregatedNonceMessage = BaseMessage & { type: typeof AGGREGATED_NONCE; body: AggregatedNonceBody };
 export type SignatureAuthorizationMessage = BaseMessage & { type: typeof SIGNATURE_AUTHORIZATION; body: SignatureAuthorizationBody };
+export type FallbackAuthorizationRequestMessage = BaseMessage & { type: typeof FALLBACK_AUTHORIZATION_REQUEST; body: FallbackAuthorizationRequestBody };
+export type FallbackSignatureMessage = BaseMessage & { type: typeof FALLBACK_SIGNATURE; body: FallbackSignatureBody };
 
 /** Discriminated union of every well-formed aggregation message. */
 export type AggregationMessage =
@@ -121,12 +165,15 @@ export type AggregationMessage =
   | CohortOptInAcceptMessage
   | CohortReadyMessage
   | SubmitUpdateMessage
+  | SubmitNonIncludedMessage
   | DistributeAggregatedDataMessage
   | ValidationAckMessage
   | AuthorizationRequestMessage
   | NonceContributionMessage
   | AggregatedNonceMessage
-  | SignatureAuthorizationMessage;
+  | SignatureAuthorizationMessage
+  | FallbackAuthorizationRequestMessage
+  | FallbackSignatureMessage;
 
 // ── Type guards ───────────────────────────────────────────────────────────
 // Each guard validates `type` plus required body fields so it's safe to use
@@ -143,6 +190,16 @@ const hasIntMin = (b: unknown, k: string, min: number): boolean => {
 const optIntMin = (b: unknown, k: string, min: number): boolean => {
   const v = b ? (b as Record<string, unknown>)[k] : undefined;
   return v === undefined || (typeof v === 'number' && Number.isInteger(v) && v >= min);
+};
+/** Present, an integer, and within [min, max] inclusive. */
+const intInRange = (b: unknown, k: string, min: number, max: number): boolean => {
+  const v = b ? (b as Record<string, unknown>)[k] : undefined;
+  return typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
+};
+/** Absent, or present as a string in the allowed set. */
+const optStrOneOf = (b: unknown, k: string, allowed: readonly string[]): boolean => {
+  const v = b ? (b as Record<string, unknown>)[k] : undefined;
+  return v === undefined || (typeof v === 'string' && allowed.includes(v));
 };
 const hasBool = (b: unknown, k: string): boolean =>
   !!b && typeof (b as Record<string, unknown>)[k] === 'boolean';
@@ -164,6 +221,20 @@ export function isCohortAdvertMessage(m: BaseMessage): m is CohortAdvertMessage 
     && optIntMin(m.body, 'maxParticipants', 1)
     && hasStr(m.body, 'beaconType')
     && hasStr(m.body, 'network')
+    // Recovery params are mandatory: a participant must see the recovery terms
+    // (key + timelock) before funding the beacon UTXO (ADR 042). recoverySequence
+    // is range-checked here because the participant funds based on the advert and
+    // does not separately run validateCohortConditions: an out-of-range value
+    // (e.g. one with the BIP-68 disable bit set) must be rejected before funding.
+    && hasStr(m.body, 'recoveryKey')
+    && intInRange(m.body, 'recoverySequence', 1, MAX_RECOVERY_SEQUENCE)
+    // fundingModel is optional on the wire (absent means the operator-funded
+    // default), but when present it must name a known model.
+    && optStrOneOf(m.body, 'fundingModel', KNOWN_FUNDING_MODELS)
+    // fallbackThreshold is optional (absent means n-1 at keygen); when present it
+    // must be a positive integer. The upper bound against the cohort size is
+    // checked when the participant recomputes the beacon address.
+    && optIntMin(m.body, 'fallbackThreshold', 1)
     && hasBytes(m.body, 'communicationPk');
 }
 
@@ -189,6 +260,10 @@ export function isSubmitUpdateMessage(m: BaseMessage): m is SubmitUpdateMessage 
   return m.type === SUBMIT_UPDATE
     && hasStr(m.body, 'cohortId')
     && !!m.body && typeof (m.body as Record<string, unknown>).signedUpdate === 'object';
+}
+
+export function isSubmitNonIncludedMessage(m: BaseMessage): m is SubmitNonIncludedMessage {
+  return m.type === SUBMIT_NONINCLUDED && hasStr(m.body, 'cohortId');
 }
 
 export function isDistributeAggregatedDataMessage(m: BaseMessage): m is DistributeAggregatedDataMessage {
@@ -232,4 +307,22 @@ export function isSignatureAuthorizationMessage(m: BaseMessage): m is SignatureA
     && hasStr(m.body, 'cohortId')
     && hasStr(m.body, 'sessionId')
     && hasBytes(m.body, 'partialSignature');
+}
+
+export function isFallbackAuthorizationRequestMessage(m: BaseMessage): m is FallbackAuthorizationRequestMessage {
+  return m.type === FALLBACK_AUTHORIZATION_REQUEST
+    && hasStr(m.body, 'cohortId')
+    && hasStr(m.body, 'sessionId')
+    && hasStr(m.body, 'pendingTx')
+    && hasStr(m.body, 'prevOutScriptHex')
+    && hasStr(m.body, 'prevOutValue')
+    && hasStr(m.body, 'fallbackLeafScriptHex');
+}
+
+export function isFallbackSignatureMessage(m: BaseMessage): m is FallbackSignatureMessage {
+  return m.type === FALLBACK_SIGNATURE
+    && hasStr(m.body, 'cohortId')
+    && hasStr(m.body, 'sessionId')
+    && hasBytes(m.body, 'signerPk')
+    && hasBytes(m.body, 'fallbackSignature');
 }

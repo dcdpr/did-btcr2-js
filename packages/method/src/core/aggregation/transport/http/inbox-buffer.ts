@@ -13,7 +13,7 @@ export interface StoredEvent {
  * When a subscriber (re)connects with a `Last-Event-ID` header, the server
  * uses {@link since} to replay everything that arrived while the subscriber
  * was disconnected. Events older than the replay window (evicted from the
- * ring) are unrecoverable — callers should choose `capacity` based on
+ * ring) are unrecoverable - callers should choose `capacity` based on
  * expected message rate × acceptable reconnect window.
  */
 export class InboxBuffer {

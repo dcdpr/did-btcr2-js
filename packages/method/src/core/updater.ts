@@ -116,7 +116,7 @@ export interface UpdaterParams {
 }
 
 /**
- * Sans-I/O state machine for did:btcr2 updates — the counterpart to {@link Resolver}.
+ * Sans-I/O state machine for did:btcr2 updates: the counterpart to {@link Resolver}.
  *
  * Created by {@link DidBtcr2.update} (the factory). The caller drives the update by
  * repeatedly calling {@link advance} and {@link provide}:
@@ -168,7 +168,7 @@ export class Updater {
   readonly #beaconService: BeaconService;
 
   /**
-   * @internal — Use {@link DidBtcr2.update} to create instances.
+   * @internal Use {@link DidBtcr2.update} to create instances.
    */
   constructor(params: UpdaterParams) {
     this.#sourceDocument = params.sourceDocument;
@@ -216,7 +216,7 @@ export class Updater {
     // checks W3C conformance but not this equality, so it's enforced explicitly here.
     if(targetDocument.id !== sourceDocument.id) {
       throw new UpdateError(
-        `Patches must not change the DID document id (source "${sourceDocument.id}" → target "${targetDocument.id}").`,
+        `Patches must not change the DID document id (source "${sourceDocument.id}" to target "${targetDocument.id}").`,
         INVALID_DID_UPDATE, { sourceId: sourceDocument.id, targetId: targetDocument.id }
       );
     }
@@ -315,8 +315,8 @@ export class Updater {
 
   /**
    * Advance the state machine. Returns either:
-   * - `{ status: 'action-required', needs }` — caller must provide data via {@link provide}
-   * - `{ status: 'complete', result }` — update is signed and broadcast
+   * - `{ status: 'action-required', needs }` caller must provide data via {@link provide}
+   * - `{ status: 'complete', result }` update is signed and broadcast
    */
   advance(): UpdaterState {
     while(true) {
@@ -331,7 +331,7 @@ export class Updater {
         }
 
         // Phase: Sign
-        // Emit NeedSigningKey — the caller supplies the secret key (or a KMS signature).
+        // Emit NeedSigningKey: the caller supplies the secret key (or a KMS signature).
         case 'Sign': {
           return {
             status : 'action-required',

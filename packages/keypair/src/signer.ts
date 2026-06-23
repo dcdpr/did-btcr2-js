@@ -63,12 +63,12 @@ export function signWithScheme(
 /**
  * Signature schemes supported by a {@link Signer}.
  *
- * - `'ecdsa'`  — DER-encoded, low-S ECDSA over secp256k1. Used by P2PKH and
+ * - `'ecdsa'`  : DER-encoded, low-S ECDSA over secp256k1. Used by P2PKH and
  *   P2WPKH (BIP-143) Bitcoin inputs.
- * - `'bip340'` — Raw BIP-340 Schnorr signature using the *untweaked* secret
+ * - `'bip340'` : Raw BIP-340 Schnorr signature using the *untweaked* secret
  *   key. Used by Data Integrity proofs and any other BIP-340-over-message
- *   context (NOT for Bitcoin taproot inputs — those need `'bip341'`).
- * - `'bip341'` — BIP-341 taproot key-path Schnorr signature. The signer
+ *   context (NOT for Bitcoin taproot inputs, those need `'bip341'`).
+ * - `'bip341'` : BIP-341 taproot key-path Schnorr signature. The signer
  *   applies the per-output tweak `t = H_taptweak(P || merkleRoot)` to the
  *   secret before signing, so the resulting signature verifies against the
  *   tweaked output internal key `Q = P + tG` that the P2TR scriptPubKey
@@ -91,13 +91,13 @@ export interface SignOptions {
 /**
  * Abstract signer over secp256k1. The DID method's update path and the beacon
  * broadcast path both depend on a `Signer` rather than raw secret-key bytes,
- * so callers can wire in any key store behind a single interface — keys held
+ * so callers can wire in any key store behind a single interface: keys held
  * locally in this process, in a KMS, in an HSM, in a hardware wallet, in a
  * browser extension, or behind a remote signing service.
  *
  * Built-in implementations:
- * - {@link LocalSigner} — secret key bytes in this process's heap.
- * - `KeyManagerSigner` (in `@did-btcr2/key-manager`) — secret key managed by a `KeyManager`.
+ * - {@link LocalSigner}: secret key bytes in this process's heap.
+ * - `KeyManagerSigner` (in `@did-btcr2/key-manager`): secret key managed by a `KeyManager`.
  *
  * Custom signers should sign deterministically when possible and must produce
  * signatures compatible with `@noble/curves` for the requested scheme.
@@ -115,7 +115,7 @@ export interface Signer {
    * caller never sees the secret.
    *
    * The caller is responsible for hashing `data` to the correct digest before
-   * passing it in — no scheme prehashes internally.
+   * passing it in - no scheme prehashes internally.
    *
    * @param data Bytes to sign.
    * @param scheme Signature scheme.

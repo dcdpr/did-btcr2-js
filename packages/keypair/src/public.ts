@@ -160,7 +160,7 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
         'CONSTRUCTOR_ERROR', { keyBytes }
       );
     }
-    // Defensive copy — caller cannot mutate internal state
+    // Defensive copy - caller cannot mutate internal state
     this.#bytes = new Uint8Array(keyBytes);
 
     // Set multibase

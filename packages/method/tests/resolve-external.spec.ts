@@ -11,7 +11,7 @@ describe('Resolve External', () => {
   it('should return a Resolver that starts in GenesisDocument phase without sidecar genesis doc',
     async () => {
       for(const {did} of data) {
-        // Create resolver WITHOUT genesis document — should request it
+        // Create resolver WITHOUT genesis document - should request it
         const resolver = DidBtcr2.resolve(did);
         const state = resolver.resolve();
 
@@ -28,7 +28,7 @@ describe('Resolve External', () => {
       for(const {did, genesisDocument} of data) {
         const resolver = DidBtcr2.resolve(did, { sidecar: { genesisDocument } });
 
-        // First resolve() — genesis doc was in sidecar, validates hash and requests signals
+        // First resolve() - genesis doc was in sidecar, validates hash and requests signals
         const state = resolver.resolve();
         expect(state.status).to.equal('action-required');
         if(state.status !== 'action-required') return;

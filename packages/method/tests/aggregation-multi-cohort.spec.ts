@@ -1,7 +1,7 @@
 import type { DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from '@did-btcr2/cryptosuite';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
-import { p2tr, Transaction } from '@scure/btc-signer';
+import { p2tr, Script, Transaction } from '@scure/btc-signer';
 import * as musig2 from '@scure/btc-signer/musig2';
 import { expect } from 'chai';
 import {
@@ -12,6 +12,9 @@ import {
   type CohortConfig,
 } from '../src/index.js';
 import { MessageBus, MockTransport } from './helpers/mock-transport.js';
+
+const TEST_RECOVERY_KEY = 'a'.repeat(64);
+const TEST_RECOVERY_SEQUENCE = 144;
 
 /**
  * Executable coverage for ADR 040 (multi-cohort aggregation service runner):
@@ -57,15 +60,17 @@ function dummyTxData(cohort: AggregationCohort) {
   const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
   const payment = p2tr(aggPk);
   const prevOutValue = 100000n;
-  const tx = new Transaction({ version: 2 });
+  const tx = new Transaction({ version: 2, allowUnknownOutputs: true });
   tx.addInput({ txid: '00'.repeat(32), index: 0, witnessUtxo: { amount: prevOutValue, script: payment.script } });
   tx.addOutput({ script: payment.script, amount: prevOutValue - 500n });
+  // Members bind their nonce approval to the validated signal: anchor it in an OP_RETURN.
+  if(cohort.signalBytes) tx.addOutput({ script: Script.encode([ 'RETURN', cohort.signalBytes ]), amount: 0n });
   return { tx, prevOutScripts: [ payment.script ], prevOutValues: [ prevOutValue ] };
 }
 
-const CAS = (minParticipants = 1): CohortConfig => ({ minParticipants, network: 'mutinynet', beaconType: 'CASBeacon' });
+const CAS = (minParticipants = 1): CohortConfig => ({ minParticipants, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
 
-/** Build a service runner (no default config — driven via advertiseCohort). */
+/** Build a service runner (no default config, driven via advertiseCohort). */
 function makeService(bus: MessageBus, opts: Partial<ConstructorParameters<typeof AggregationServiceRunner>[0]> = {}): AggregationServiceRunner {
   const keys = SchnorrKeyPair.generate();
   const did = DidBtcr2.create(keys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
@@ -189,7 +194,7 @@ describe('Aggregation Multi-Cohort (AGG-4)', () => {
     await alicePromise;
     expect(ra.cohortId).to.equal(a.cohortId);
 
-    // No participant remains to join B — it stalls and its own TTL fails it.
+    // No participant remains to join B - it stalls and its own TTL fails it.
     const b = service.advertiseCohort(CAS());
     let err: unknown;
     try { await b.completion; } catch(e) { err = e; }

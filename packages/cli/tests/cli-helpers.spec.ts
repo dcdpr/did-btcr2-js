@@ -39,7 +39,7 @@ describe('CLI Helpers', () => {
     const errors: any[] = [];
     console.error = (...args: any[]) => errors.push(args[0]);
 
-    // Trigger a create with invalid byte length — validation in the create command
+    // Trigger a create with invalid byte length - validation in the create command
     // throws a CLIError before reaching the API.
     await cli.run(['node', 'btcr2', 'create', '-t', 'k', '-n', 'bitcoin', '-b', 'aa']);
 
@@ -91,7 +91,7 @@ describe('CLI Helpers', () => {
     const spy: ApiFactory = (network, overrides) => {
       capturedNetwork = network;
       capturedOverrides = overrides;
-      return createApi(); // unconfigured — resolve will fail, that's OK
+      return createApi(); // unconfigured - resolve will fail, that's OK
     };
     const cli = new DidBtcr2Cli(spy);
     console.error = () => {}; // suppress error output from expected failure

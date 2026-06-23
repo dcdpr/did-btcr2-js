@@ -60,7 +60,7 @@ export class SMTBeacon extends SinglePartyBeacon {
       const smtProof = sidecar.smtMap.get(signal.signalBytes);
 
       if(!smtProof) {
-        // SMT Proof not available — emit a need
+        // SMT Proof not available, emit a need
         needs.push({
           kind            : 'NeedSMTProof',
           smtRootHash     : signal.signalBytes,
@@ -95,7 +95,7 @@ export class SMTBeacon extends SinglePartyBeacon {
         );
       }
 
-      // Non-inclusion proof verified — no update for this DID this epoch, skip.
+      // Non-inclusion proof verified: no update for this DID this epoch, skip.
       if(!smtProof.updateId) {
         continue;
       }
@@ -106,7 +106,7 @@ export class SMTBeacon extends SinglePartyBeacon {
       const signedUpdate = sidecar.updateMap.get(updateHashHex);
 
       if(!signedUpdate) {
-        // Signed update not available — emit a need
+        // Signed update not available, emit a need
         needs.push({
           kind             : 'NeedSignedUpdate',
           updateHash       : updateHashHex,

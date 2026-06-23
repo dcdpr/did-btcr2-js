@@ -105,7 +105,7 @@ describe('HttpServerTransport', () => {
     });
   }
 
-  describe('handleRequest — basics', () => {
+  describe('handleRequest - basics', () => {
     it('responds to OPTIONS preflight with 204 and CORS headers (with Origin)', async () => {
       server = makeServer();
       const res = await server.handleRequest(req('OPTIONS', '/v1/messages', { origin: 'https://x.example.com' }));
@@ -240,7 +240,7 @@ describe('HttpServerTransport', () => {
     });
   });
 
-  describe('handleSse — broadcast subscription', () => {
+  describe('handleSse - broadcast subscription', () => {
     it('replays the cached advert to a late subscriber', () => {
       server = makeServer();
       server.registerActor(serverDid, serverKeys);
@@ -270,7 +270,7 @@ describe('HttpServerTransport', () => {
     });
   });
 
-  describe('handleSse — inbox subscription', () => {
+  describe('handleSse - inbox subscription', () => {
     const inboxPath = (did: string): string => `/v1/actors/${encodeURIComponent(did)}/inbox`;
 
     it('closes the stream without an Authorization header', () => {
@@ -294,7 +294,7 @@ describe('HttpServerTransport', () => {
       server = makeServer();
       const sse = makeSseMock();
 
-      // peerKeys signed for peerDid but hitting otherDid's inbox — should fail because
+      // peerKeys signed for peerDid but hitting otherDid's inbox - should fail because
       // the pubkey we resolve for otherDid != peerKeys.
       const mismatchAuth = buildRequestAuth(peerDid, peerKeys, inboxPath(otherDid));
       server.handleSse(req('GET', inboxPath(otherDid), { authorization: mismatchAuth }), sse.stream);

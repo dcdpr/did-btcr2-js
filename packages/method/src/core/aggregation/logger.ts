@@ -6,7 +6,7 @@
  * {@link SILENT_LOGGER} to suppress output (useful for tests) or a custom
  * implementation to route logs to pino, winston, Sentry, etc.
  *
- * The interface is intentionally small — we don't want production code taking
+ * The interface is intentionally small: we don't want production code taking
  * a hard dependency on any specific logger library.
  */
 export interface Logger {

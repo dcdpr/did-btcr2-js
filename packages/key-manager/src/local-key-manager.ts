@@ -150,7 +150,7 @@ export class LocalKeyManager implements KeyManager {
 
   /**
    * Verify a signature using the specified key. `'bip341'` is not supported
-   * here — taproot signatures verify against the tweaked output key, not the
+   * here: taproot signatures verify against the tweaked output key, not the
    * entry's untweaked pubkey.
    *
    * @param {SignatureBytes} signature The signature bytes to verify.
@@ -170,7 +170,7 @@ export class LocalKeyManager implements KeyManager {
     const scheme = options.scheme ?? 'bip340';
     if (scheme === 'ecdsa') {
       // The entry stores a 33-byte compressed key; noble v2 accepts that directly.
-      // prehash: false — matches the sign-path contract; `data` is the digest.
+      // prehash: false - matches the sign-path contract; `data` is the digest.
       return secp256k1.verify(signature, data, entry.publicKey, {
         format  : 'der',
         prehash : false,
@@ -202,7 +202,7 @@ export class LocalKeyManager implements KeyManager {
       throw new KeyManagerError(`Key already exists: ${id}`, 'KEY_FOUND');
     }
 
-    // Build key entry — secret key may not be available for watch-only pairs
+    // Build key entry: secret key may not be available for watch-only pairs
     const entry: KeyEntry = {
       publicKey : keyPair.publicKey.compressed,
       ...(options.tags && { tags: options.tags }),

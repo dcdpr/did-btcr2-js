@@ -8,8 +8,11 @@ import {
   COHORT_OPT_IN_ACCEPT,
   COHORT_READY,
   DISTRIBUTE_AGGREGATED_DATA,
+  FALLBACK_AUTHORIZATION_REQUEST,
+  FALLBACK_SIGNATURE,
   NONCE_CONTRIBUTION,
   SIGNATURE_AUTHORIZATION,
+  SUBMIT_NONINCLUDED,
   SUBMIT_UPDATE,
   VALIDATION_ACK,
 } from './constants.js';
@@ -100,6 +103,22 @@ type SubmitUpdateMessage = {
 export function createSubmitUpdateMessage(fields: SubmitUpdateMessage): BaseMessage {
   const { from, to, ...body } = fields;
   return new BaseMessage({ type: SUBMIT_UPDATE, from, to, body });
+}
+
+type SubmitNonIncludedMessage = {
+  from: string;
+  to: string;
+  cohortId: string;
+};
+
+/**
+ * Factory for a Submit Non-Included message: a member declares it has no update
+ * this round (cooperative non-inclusion). Membership is proven by the signed
+ * envelope, so the body carries only the cohortId.
+ */
+export function createSubmitNonIncludedMessage(fields: SubmitNonIncludedMessage): BaseMessage {
+  const { from, to, ...body } = fields;
+  return new BaseMessage({ type: SUBMIT_NONINCLUDED, from, to, body });
 }
 
 /**
@@ -237,4 +256,42 @@ export function createAggregatedNonceMessage(fields: AggregatedNonceMessage): Ba
 export function createSignatureAuthorizationMessage(fields: SignatureAuthorizationMessage): BaseMessage {
   const { from, to, ...body } = fields;
   return new BaseMessage({ type: SIGNATURE_AUTHORIZATION, from, to, body });
+}
+
+type FallbackAuthorizationRequestMessage = {
+  from: string;
+  to: string;
+  cohortId: string;
+  sessionId: string;
+  pendingTx: string;
+  prevOutScriptHex: string;
+  prevOutValue: string;
+  fallbackLeafScriptHex: string;
+};
+type FallbackSignatureMessage = {
+  from: string;
+  to: string;
+  cohortId: string;
+  sessionId: string;
+  signerPk: Uint8Array;
+  fallbackSignature: Uint8Array;
+};
+
+/**
+ * Factory for a Fallback Authorization Request: the service asks members to
+ * authorize the k-of-n script-path spend of the beacon transaction when the
+ * optimistic n-of-n key path stalls (ADR 042).
+ */
+export function createFallbackAuthorizationRequestMessage(fields: FallbackAuthorizationRequestMessage): BaseMessage {
+  const { from, to, ...body } = fields;
+  return new BaseMessage({ type: FALLBACK_AUTHORIZATION_REQUEST, from, to, body });
+}
+
+/**
+ * Factory for a Fallback Signature: a member's standalone BIP-340 signature over
+ * the fallback script-path sighash (no nonce round).
+ */
+export function createFallbackSignatureMessage(fields: FallbackSignatureMessage): BaseMessage {
+  const { from, to, ...body } = fields;
+  return new BaseMessage({ type: FALLBACK_SIGNATURE, from, to, body });
 }

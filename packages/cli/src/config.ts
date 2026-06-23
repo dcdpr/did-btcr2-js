@@ -67,7 +67,7 @@ export type ConfigFile = {
  * default Bitcoin endpoints (mempool.space for public networks, localhost
  * Polar for regtest). Optional `overrides` let callers replace individual
  * endpoints on top of the defaults. When `network` is omitted, no Bitcoin
- * or CAS is configured — suitable for offline operations like `create`.
+ * or CAS is configured - suitable for offline operations like `create`.
  */
 export type ApiFactory = (network?: NetworkOption, overrides?: ConnectionOverrides) => DidBtcr2Api;
 
@@ -158,7 +158,7 @@ export function profileToOverrides(
  * regtest).
  *
  * Override precedence (highest wins):
- * CLI flags → env vars → config file profile → network defaults.
+ * CLI flags -> env vars -> config file profile -> network defaults.
  *
  * When no `--profile` is given, the network name is used as the profile
  * key (e.g. a regtest DID auto-selects the `"regtest"` profile).
@@ -175,7 +175,7 @@ export function defaultApiFactory(network?: NetworkOption, overrides?: Connectio
   // Layer 2: Environment variables
   const env = readEnvOverrides();
 
-  // Merge: CLI flags → env vars → config file → (network defaults handled by BitcoinConnection)
+  // Merge: CLI flags -> env vars -> config file -> (network defaults handled by BitcoinConnection)
   const merged: ConnectionOverrides = {
     btcRest    : overrides?.btcRest    ?? env.btcRest    ?? fileOverrides.btcRest,
     btcRpcUrl  : overrides?.btcRpcUrl  ?? env.btcRpcUrl  ?? fileOverrides.btcRpcUrl,

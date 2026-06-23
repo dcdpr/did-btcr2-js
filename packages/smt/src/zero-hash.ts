@@ -6,7 +6,7 @@ import { blockHash, hashesEqual } from './hash.js';
  * algorithm (https://dcdpr.github.io/did-btcr2/algorithms.html#smt-proof-verification).
  *
  * This is a full-depth (256-level) SMT where empty siblings contribute a
- * precomputed "zero" subtree hash and EVERY level is hashed — distinct from a
+ * precomputed "zero" subtree hash and EVERY level is hashed, distinct from a
  * collapsing/path-compressing SMT, which skips empty siblings and yields a
  * different root. The authoritative verifier walks MSB-first (`i = 255 - n`),
  * selecting `cachedZero[n]` for a set `collapsed[i]` bit or the next provided

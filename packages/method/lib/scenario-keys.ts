@@ -1,6 +1,6 @@
 // Assign a fixed secret key to every scenario recipe so that re-running the
 // orchestrator is deterministic: same scenario -> same DID -> same beacon
-// addresses. Idempotent — scenarios already marked `fixed` are left untouched.
+// addresses. Idempotent - scenarios already marked `fixed` are left untouched.
 //
 // This must be run (once) before funding, because funded UTXOs are tied to
 // addresses derived from the scenario key. With `generate` keys, every build
@@ -48,7 +48,7 @@ for (const file of readdirSync(SCENARIOS_DIR).filter((f) => f.endsWith('.json'))
   } else if (isFixed) {
     next = raw.replace(FIXED_RE, replacement);
   } else {
-    console.log(`  WARN   ${file} has no recognizable keys field — skipping`);
+    console.log(`  WARN   ${file} has no recognizable keys field - skipping`);
     skipped++;
     continue;
   }
@@ -58,7 +58,6 @@ for (const file of readdirSync(SCENARIOS_DIR).filter((f) => f.endsWith('.json'))
   console.log(`  fixed  ${file} -> ${secretHex.slice(0, 16)}...`);
 }
 
-// ─── Cohort (aggregator) keys ───────────────────────────────────────────────
 // Paired scenarios (09-12) anchor at a SHARED beacon whose address derives from
 // the cohort's own key, not any member's genesis key. Fix those here too so the
 // shared addresses are stable and fundable. cohorts.json is structured, so we

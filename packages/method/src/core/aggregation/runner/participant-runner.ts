@@ -8,6 +8,7 @@ import {
   COHORT_OPT_IN_ACCEPT,
   COHORT_READY,
   DISTRIBUTE_AGGREGATED_DATA,
+  FALLBACK_AUTHORIZATION_REQUEST,
 } from '../messages/constants.js';
 import type {
   CohortAdvert,
@@ -29,7 +30,7 @@ export type ShouldJoin = (advert: CohortAdvert) => Promise<boolean>;
 export type OnProvideUpdate = (info: {
   cohortId: string;
   beaconAddress: string;
-}) => Promise<SignedBTCR2Update>;
+}) => Promise<SignedBTCR2Update | null>;
 
 /** Decision callback: approve or reject aggregated data. */
 export type OnValidateData = (info: PendingValidation) => Promise<{ approved: boolean }>;
@@ -53,7 +54,7 @@ export interface AggregationParticipantRunnerOptions {
 
   /**
    * Provide a signed BTCR2 update for the cohort.
-   * REQUIRED — no sensible default.
+   * REQUIRED - no sensible default.
    */
   onProvideUpdate: OnProvideUpdate;
 
@@ -161,6 +162,7 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
     DISTRIBUTE_AGGREGATED_DATA,
     AUTHORIZATION_REQUEST,
     AGGREGATED_NONCE,
+    FALLBACK_AUTHORIZATION_REQUEST,
   ];
 
   /** Internal: detach from the transport. Safe to call repeatedly. */
@@ -200,7 +202,7 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
    *
    * For an open-ended, long-lived subscriber (no fixed count), construct an
    * {@link AggregationParticipantRunner} directly, set `shouldJoin`, call
-   * `start()`, and listen for `cohort-complete` — the runner already drives
+   * `start()`, and listen for `cohort-complete` - the runner already drives
    * any number of cohorts concurrently.
    *
    * @param options Participant runner options (set `shouldJoin` to select cohorts).
@@ -240,6 +242,7 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
     this.#transport.registerMessageHandler(this.#did, DISTRIBUTE_AGGREGATED_DATA, this.#handleDistributeData.bind(this));
     this.#transport.registerMessageHandler(this.#did, AUTHORIZATION_REQUEST, this.#handleAuthorizationRequest.bind(this));
     this.#transport.registerMessageHandler(this.#did, AGGREGATED_NONCE, this.#handleAggregatedNonce.bind(this));
+    this.#transport.registerMessageHandler(this.#did, FALLBACK_AUTHORIZATION_REQUEST, this.#handleFallbackAuthorizationRequest.bind(this));
   }
 
   /**
@@ -302,13 +305,20 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
       if (!info) return;
       this.emit('cohort-ready', { cohortId, beaconAddress: info.beaconAddress });
 
-      // Construct the signed update via caller callback and submit
+      // Construct the signed update via caller callback and submit. A null return
+      // means the member has no update this round: it declines (cooperative
+      // non-inclusion) but stays in the cohort and still signs.
       const signedUpdate = await this.#onProvideUpdate({
         cohortId,
         beaconAddress : info.beaconAddress,
       });
-      await this.#sendAll(this.session.submitUpdate(cohortId, signedUpdate));
-      this.emit('update-submitted', { cohortId });
+      if(signedUpdate === null) {
+        await this.#sendAll(this.session.declineUpdate(cohortId));
+        this.emit('update-declined', { cohortId });
+      } else {
+        await this.#sendAll(this.session.submitUpdate(cohortId, signedUpdate));
+        this.emit('update-submitted', { cohortId });
+      }
     } catch (err) {
       this.emit('error', err as Error);
     }
@@ -398,27 +408,69 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
       await this.#sendAll(this.session.generatePartialSignature(cohortId));
 
       // Check if we've reached completion
-      if (this.session.getCohortPhase(cohortId) === ParticipantCohortPhase.Complete) {
-        const info = this.session.joinedCohorts.get(cohortId);
-        if (info) {
-          // Surface the sidecar data the participant will need for future resolutions:
-          // the CAS Announcement map (CAS beacons) or their SMT inclusion proof.
-          // Read via getValidation (not pendingValidations, which lists only the
-          // AwaitingValidation phase) so the sidecar is still available now that
-          // the cohort has reached Complete.
-          const validation = this.session.getValidation(cohortId);
-          this.emit('cohort-complete', {
-            cohortId,
-            beaconAddress   : info.beaconAddress,
-            beaconType      : validation?.beaconType ?? '',
-            casAnnouncement : validation?.casAnnouncement,
-            smtProof        : validation?.smtProof,
-          });
-        }
-      }
+      this.#emitCohortCompleteIfDone(cohortId);
     } catch (err) {
       this.emit('error', err as Error);
     }
+  }
+
+  /**
+   * Internal: handler for fallback authorization requests. The service abandoned
+   * the optimistic key path; the member authorizes the k-of-n script-path spend
+   * of the same beacon transaction (ADR 042). Reuses `onApproveSigning` to gate
+   * the decision, signs the fallback, and completes once it has contributed (the
+   * service needs only k members).
+   * @param {BaseMessage} msg - The received fallback authorization request message.
+   * @returns {Promise<void>} Resolves when processing is complete.
+   */
+  async #handleFallbackAuthorizationRequest(msg: BaseMessage): Promise<void> {
+    if (this.#stopped) return;
+    try {
+      this.session.receive(msg);
+
+      const cohortId = msg.body?.cohortId;
+      if (!cohortId) return;
+
+      const req = this.session.pendingFallbackRequests.get(cohortId);
+      if (!req) return;
+      this.emit('fallback-requested', req);
+
+      const decision = await this.#onApproveSigning(req);
+      if (!decision.approved) {
+        this.emit('cohort-failed', { cohortId, reason: 'Fallback signing rejected by participant' });
+        return;
+      }
+
+      await this.#sendAll(this.session.approveFallback(cohortId));
+      // The member has contributed its fallback signature and is done from its
+      // own perspective, regardless of whether the service has yet collected k.
+      this.#emitCohortCompleteIfDone(cohortId);
+    } catch (err) {
+      this.emit('error', err as Error);
+    }
+  }
+
+  /**
+   * Internal: emit `cohort-complete` with the participant's retained sidecar once
+   * the cohort has reached the Complete phase. Surfaces the CAS Announcement map
+   * (CAS beacons) or the SMT proof (SMT beacons) the participant keeps for future
+   * DID resolution. Read via getValidation (not pendingValidations, which lists
+   * only the AwaitingValidation phase) so the sidecar is still available at
+   * Complete. Shared by the optimistic and fallback completion paths.
+   */
+  #emitCohortCompleteIfDone(cohortId: string): void {
+    if (this.session.getCohortPhase(cohortId) !== ParticipantCohortPhase.Complete) return;
+    const info = this.session.joinedCohorts.get(cohortId);
+    if (!info) return;
+    const validation = this.session.getValidation(cohortId);
+    this.emit('cohort-complete', {
+      cohortId,
+      beaconAddress   : info.beaconAddress,
+      beaconType      : validation?.beaconType ?? '',
+      included        : validation?.included ?? true,
+      casAnnouncement : validation?.casAnnouncement,
+      smtProof        : validation?.smtProof,
+    });
   }
 
   /**

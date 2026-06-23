@@ -1,7 +1,7 @@
 /**
  * In-process bridge that wires an {@link HttpClientTransport}'s injected
  * `fetch` directly into an {@link HttpServerTransport}'s handlers. Lets
- * integration tests exercise the real client ↔ server wire protocol without
+ * integration tests exercise the real client to and from server wire protocol without
  * spinning up a network server.
  */
 import type {

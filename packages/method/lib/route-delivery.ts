@@ -13,7 +13,7 @@
  * The content hash is exactly what the resolver will ask for at resolution time:
  * a `Need*` carries the hex canonical hash, and the IPFS CID is derived from the
  * same hash in base64url (see ADR 023). So a routed item is fetched from CAS by
- * the same address the resolver already computes — no extra index needed.
+ * the same address the resolver already computes - no extra index needed.
  *
  * Delivery is declared in the scenario recipe (lib/scenarios/<id>.json):
  *   - top-level `delivery.genesis`      : 'cas' | 'sidecar' (default sidecar; x1 only)
@@ -25,7 +25,7 @@
  * (`other.json` genesis, `update[/NN]/output.json` signed updates, the cohort
  * artifact in `scenarios/cohorts/<id>.json`), and the sidecar is reassembled from
  * scratch each run. Re-running never double-trims or loses an artifact. This step
- * does NOT sign anything, so it never perturbs the anchored cohort signals — run
+ * does NOT sign anything, so it never perturbs the anchored cohort signals - run
  * it after `build-artifacts`, before `anchor`.
  *
  * Usage:
@@ -193,7 +193,7 @@ function run(): void {
       }
     }
 
-    // SMT PROOFS — preserved exactly as build-artifacts wrote them.
+    // SMT PROOFS - preserved exactly as build-artifacts wrote them.
     if (oldSidecar.smtProofs) sidecar.smtProofs = oldSidecar.smtProofs;
 
     // Write back the trimmed sidecar.

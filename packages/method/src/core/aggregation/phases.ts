@@ -19,6 +19,7 @@ export type ServiceCohortPhaseType =
   | 'SigningStarted'
   | 'NoncesCollected'
   | 'AwaitingPartialSigs'
+  | 'FallbackRequested'
   | 'Complete'
   | 'Failed';
 
@@ -33,6 +34,8 @@ export enum ServiceCohortPhase {
   SigningStarted = 'SigningStarted',
   NoncesCollected = 'NoncesCollected',
   AwaitingPartialSigs = 'AwaitingPartialSigs',
+  /** Optimistic n-of-n key path abandoned; collecting k-of-n fallback signatures (ADR 042). */
+  FallbackRequested = 'FallbackRequested',
   Complete = 'Complete',
   Failed = 'Failed',
 }
@@ -42,11 +45,13 @@ export type ParticipantCohortPhaseType =
   | 'OptedIn'
   | 'CohortReady'
   | 'UpdateSubmitted'
+  | 'NonIncluded'
   | 'AwaitingValidation'
   | 'ValidationSent'
   | 'AwaitingSigning'
   | 'NonceSent'
   | 'AwaitingPartialSig'
+  | 'AwaitingFallbackSig'
   | 'Complete'
   | 'Failed';
 
@@ -55,11 +60,15 @@ export enum ParticipantCohortPhase {
   OptedIn = 'OptedIn',
   CohortReady = 'CohortReady',
   UpdateSubmitted = 'UpdateSubmitted',
+  /** Member declined to submit an update this round (cooperative non-inclusion); still signs. */
+  NonIncluded = 'NonIncluded',
   AwaitingValidation = 'AwaitingValidation',
   ValidationSent = 'ValidationSent',
   AwaitingSigning = 'AwaitingSigning',
   NonceSent = 'NonceSent',
   AwaitingPartialSig = 'AwaitingPartialSig',
+  /** Service fell back to the k-of-n script path; member can sign the fallback (ADR 042). */
+  AwaitingFallbackSig = 'AwaitingFallbackSig',
   Complete = 'Complete',
   Failed = 'Failed',
 }

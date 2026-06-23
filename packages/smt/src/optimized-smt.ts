@@ -14,11 +14,11 @@ interface FinalizeStepResult {
 /**
  * Optimized Sparse Merkle Tree.
  *
- * Lifecycle: `add()` indexes → `setHash()` per leaf → `finalize()` → `proof()`.
+ * Lifecycle: `add()` indexes -> `setHash()` per leaf -> `finalize()` -> `proof()`.
  * Call `reset()` to clear hashes and re-finalize with new data.
  */
 export class OptimizedSMT {
-  /** `2^256` — sentinel bit above the key space. Used by batch validation. */
+  /** `2^256`: sentinel bit above the key space. Used by batch validation. */
   static readonly OUTER_BIT = OUTER_BIT;
 
   /** Pre-computed MSB-first bit masks for tree traversal. */
