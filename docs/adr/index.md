@@ -44,6 +44,8 @@ children:
   - ./041-cooperative-non-inclusion-signaling.md
   - ./042-fault-tolerant-beacon-output.md
   - ./043-k-of-n-fallback-protocol.md
+  - ./044-beacon-change-output-address.md
+  - ./045-analytical-vsize-aggregation-fees.md
 ---
 
 # Architecture Decision Records
@@ -95,3 +97,5 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 041 | 2026-06-23 | [Cooperative Non-Inclusion Signaling for Aggregate Beacons](041-cooperative-non-inclusion-signaling.md) (superseded by 042) |
 | 042 | 2026-06-23 | [Fault-Tolerant Aggregate Beacon Output (Hybrid Taproot)](042-fault-tolerant-beacon-output.md) |
 | 043 | 2026-06-24 | [k-of-n Fallback Signing Protocol for Aggregate Beacons](043-k-of-n-fallback-protocol.md) |
+| 044 | 2026-06-24 | [Beacon Change Output - Caller-Supplied Address to End Beacon-Address Reuse](044-beacon-change-output-address.md) |
+| 045 | 2026-06-24 | [Analytical-vsize Dynamic Fees for the Aggregation Beacon Broadcast](045-analytical-vsize-aggregation-fees.md) |

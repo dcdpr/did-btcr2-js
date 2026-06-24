@@ -7,6 +7,7 @@ import { AggregationParticipantRunner } from './participant-runner.js';
 import type { OnProvideUpdate } from './participant-runner.js';
 import { AggregationServiceRunner } from './service-runner.js';
 import type { OnProvideTxData } from './service-runner.js';
+import type { FeeEstimator } from '../../beacon/fee-estimator.js';
 
 /** Identity (DID + keys) for one actor in an {@link AggregationRunner.solo} run. */
 export interface SoloActor {
@@ -39,6 +40,11 @@ export interface SoloCohortOptions {
   onProvideUpdate: OnProvideUpdate;
   /** Provide the Bitcoin transaction data the cohort signs. */
   onProvideTxData: OnProvideTxData;
+  /**
+   * Fee estimator forwarded to {@link onProvideTxData} so the cohort transaction is
+   * sized at a chosen rate. Defaults to a static 5 sat/vB estimator (ADR 045).
+   */
+  feeEstimator?: FeeEstimator;
   /** Optional overall wall-clock budget for the run (ms). */
   cohortTtlMs?: number;
   /** Optional per-phase stall timeout (ms). */
@@ -92,6 +98,7 @@ export class AggregationRunner {
       keys                   : options.service.keys,
       config                 : { minParticipants: 1, network: options.config.network, beaconType: options.config.beaconType, recoveryKey, recoverySequence, fundingModel: DEFAULT_FUNDING_MODEL },
       onProvideTxData        : options.onProvideTxData,
+      feeEstimator           : options.feeEstimator,
       cohortTtlMs            : options.cohortTtlMs,
       phaseTimeoutMs         : options.phaseTimeoutMs,
       // In-process bus with the participant already listening: a single advert

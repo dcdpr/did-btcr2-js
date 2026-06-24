@@ -21,6 +21,8 @@ import {
   AggregationService
 } from '../service.js';
 import type { Transport } from '../transport/transport.js';
+import { DEFAULT_FEE_ESTIMATOR } from '../../beacon/fee-estimator.js';
+import type { FeeEstimator } from '../../beacon/fee-estimator.js';
 import type { AggregationServiceEvents } from './events.js';
 import { TypedEventEmitter } from './typed-emitter.js';
 
@@ -38,6 +40,13 @@ export type OnProvideTxData = (info: {
   cohortId: string;
   beaconAddress: string;
   signalBytes: Uint8Array;
+  /**
+   * Fee estimator the runner is configured with (the runner's `feeEstimator`
+   * option, or a static 5 sat/vB default). Forward it to the beacon transaction
+   * builder so a dynamic rate injected at the runner is honored, rather than
+   * hard-coding a rate inside this callback (ADR 045).
+   */
+  feeEstimator: FeeEstimator;
 }) => Promise<SigningTxData>;
 
 export interface AggregationServiceRunnerOptions {
@@ -74,6 +83,15 @@ export interface AggregationServiceRunnerOptions {
    * REQUIRED - no sensible default.
    */
   onProvideTxData: OnProvideTxData;
+
+  /**
+   * Fee estimator passed to {@link OnProvideTxData} so the beacon transaction the
+   * callback builds is sized at a chosen rate. Inject a dynamic estimator (a mempool
+   * API or Bitcoin Core `estimatesmartfee`) here as the single standard point for
+   * fee-rate selection, instead of hard-coding a rate inside the callback (ADR 045).
+   * Defaults to a static 5 sat/vB estimator.
+   */
+  feeEstimator?: FeeEstimator;
 
   /**
    * Maximum canonicalized byte-length of a signed update body. Submissions
@@ -192,8 +210,9 @@ interface RunContext {
  *   transport,
  *   did: serviceDid,
  *   keys: serviceKeys,
- *   onProvideTxData: async ({ cohortId, beaconAddress, signalBytes }) => {
- *     return await buildBeaconTransaction(beaconAddress, signalBytes, bitcoin);
+ *   onProvideTxData: async ({ beaconAddress, signalBytes, feeEstimator }) => {
+ *     // Forward feeEstimator so a dynamic rate injected at the runner is honored.
+ *     return await buildBeaconTransaction(beaconAddress, signalBytes, bitcoin, feeEstimator);
  *   },
  * });
  *
@@ -225,6 +244,7 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
   readonly #onOptInReceived: OnOptInReceived;
   readonly #onReadyToFinalize: OnReadyToFinalize;
   readonly #onProvideTxData: OnProvideTxData;
+  readonly #feeEstimator: FeeEstimator;
   readonly #cohortTtlMs?: number;
   readonly #phaseTimeoutMs?: number;
   readonly #advertRepeatIntervalMs: number;
@@ -252,6 +272,7 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
       finalize : acceptedCount >= minRequired,
     }));
     this.#onProvideTxData = options.onProvideTxData;
+    this.#feeEstimator = options.feeEstimator ?? DEFAULT_FEE_ESTIMATOR;
     this.#cohortTtlMs = options.cohortTtlMs;
     this.#phaseTimeoutMs = options.phaseTimeoutMs;
     this.#advertRepeatIntervalMs = options.advertRepeatIntervalMs ?? DEFAULT_ADVERT_REPEAT_INTERVAL_MS;
@@ -760,6 +781,7 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
           cohortId      : ctx.cohortId,
           beaconAddress : cohort.beaconAddress,
           signalBytes   : cohort.signalBytes!,
+          feeEstimator  : this.#feeEstimator,
         });
         const authMsgs = this.session.startSigning(ctx.cohortId, txData);
         const sessionId = this.session.getSigningSessionId(ctx.cohortId) ?? '';

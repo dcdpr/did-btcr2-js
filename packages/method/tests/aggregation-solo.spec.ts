@@ -3,7 +3,8 @@ import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { Address, OutScript, Script, SigHash, Transaction } from '@scure/btc-signer';
 import { expect } from 'chai';
-import { AggregationRunner, DidBtcr2, Resolver, Updater } from '../src/index.js';
+import { AggregationRunner, DidBtcr2, Resolver, StaticFeeEstimator, Updater } from '../src/index.js';
+import type { FeeEstimator } from '../src/index.js';
 
 describe('AggregationRunner.solo (cohort of one)', () => {
   it('drives a single-participant SMT cohort to a verifiable MuSig2 signature', async function() {
@@ -41,16 +42,22 @@ describe('AggregationRunner.solo (cohort of one)', () => {
     let capturedSighash: Uint8Array | undefined;
     let capturedTweakedPk: Uint8Array | undefined;
     let capturedBeaconAddress: string | undefined;
+    let capturedFeeEstimator: FeeEstimator | undefined;
+
+    // A distinct estimator instance so we can assert the runner forwards it (ADR 045).
+    const feeEstimator = new StaticFeeEstimator(7);
 
     const result = await AggregationRunner.solo({
       service        : { did: serviceDid, keys: serviceKeys },
       participant    : { did: participantDid, keys: participantKeys },
       config         : { network: 'mutinynet', beaconType: 'SMTBeacon' },
       phaseTimeoutMs : 10_000,
+      feeEstimator,
 
       onProvideUpdate : async ({ beaconAddress }) => buildSignedUpdate(beaconAddress),
 
-      onProvideTxData : async ({ beaconAddress, signalBytes }) => {
+      onProvideTxData : async ({ beaconAddress, signalBytes, feeEstimator: provided }) => {
+        capturedFeeEstimator = provided;
         // The cohort beacon address is a P2TR key-path output of the aggregated
         // cohort key. AggregationCohort.computeBeaconAddress() derives it for the
         // cohort's network (here mutinynet to tb1p), so decode it with the same
@@ -86,6 +93,8 @@ describe('AggregationRunner.solo (cohort of one)', () => {
     expect(capturedSighash, 'onProvideTxData ran').to.not.be.undefined;
     expect(capturedTweakedPk, 'tweaked key captured').to.not.be.undefined;
     expect(capturedBeaconAddress, 'beacon address captured').to.be.a('string');
+    // The runner forwarded the configured estimator into the tx-data callback.
+    expect(capturedFeeEstimator, 'runner forwarded its feeEstimator').to.equal(feeEstimator);
 
     // The aggregated MuSig2 signature must verify against the Taproot-tweaked
     // output key + BIP-341 sighash - the ground truth a broadcast relies on.
