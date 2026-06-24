@@ -7,12 +7,9 @@ import { Address, OutScript, p2pkh, p2tr, p2wpkh, Script, SigHash, Transaction }
 import type { BeaconProcessResult } from '../resolver.js';
 import type { SidecarData } from '../types.js';
 import { BeaconError } from './error.js';
-import { StaticFeeEstimator } from './fee-estimator.js';
+import { DEFAULT_FEE_ESTIMATOR } from './fee-estimator.js';
 import type { FeeEstimator } from './fee-estimator.js';
 import type { BeaconService, BeaconSignal } from './interfaces.js';
-
-/** Default fee estimator used when none is supplied. ~5 sat/vB static rate. */
-const DEFAULT_FEE_ESTIMATOR: FeeEstimator = new StaticFeeEstimator(5);
 
 /**
  * Singleton beacon script kinds. Per the did:btcr2 spec, deterministic DID documents
@@ -52,6 +49,54 @@ export const SINGLETON_BEACON_TX_VSIZE: Readonly<Record<SingletonScriptKind, num
 };
 
 /**
+ * Serialized size (vbytes) of a single change output, by script kind:
+ * 8 (value) + 1 (scriptPubKey length) + scriptPubKey bytes. P2PKH 25, P2WPKH 22,
+ * P2TR 34. These are non-witness bytes, so each contributes its full byte count to
+ * the transaction vsize. The {@link SINGLETON_BEACON_TX_VSIZE} constants bake in a
+ * same-kind change output; {@link beaconTxVsize} uses these deltas to re-size the
+ * fee when a caller routes change to an address of a different kind (ADR 044).
+ */
+export const CHANGE_OUTPUT_VBYTES: Readonly<Record<SingletonScriptKind, number>> = {
+  p2pkh  : 34,
+  p2wpkh : 31,
+  p2tr   : 43,
+};
+
+/**
+ * Dust threshold (sats) below which a change output is not worth creating, by script
+ * kind (the standard Bitcoin Core dust relay thresholds at the default 3 sat/vB dust
+ * rate). When the change after fees falls below this, the builders omit the change
+ * output and let the remainder fall into the fee rather than emit an unspendable,
+ * relay-rejected dust output (ADR 044).
+ */
+export const DUST_LIMIT_SATS: Readonly<Record<SingletonScriptKind, number>> = {
+  p2pkh  : 546,
+  p2wpkh : 294,
+  p2tr   : 330,
+};
+
+/**
+ * vsize (vbytes) for a beacon transaction that spends one input of `beaconKind`
+ * and returns change to an output of `changeKind`, plus the OP_RETURN(32) signal.
+ *
+ * When `changeKind === beaconKind` (the default, change to the beacon address) this
+ * returns the per-kind {@link SINGLETON_BEACON_TX_VSIZE} constant unchanged, so the
+ * default path and the constants' lock-in tests are byte-identical. A differing
+ * `changeKind` swaps the assumed same-kind change output for the actual one, keeping
+ * the result a valid upper bound. The aggregation key-path spend is the
+ * `beaconKind: 'p2tr'` case (its input is always the cohort's P2TR key path; only the
+ * change output varies), the analytical sizing ADR 045 calls for, computed without a
+ * secret.
+ */
+export function beaconTxVsize(
+  beaconKind: SingletonScriptKind,
+  changeKind: SingletonScriptKind,
+): number {
+  const base = SINGLETON_BEACON_TX_VSIZE[beaconKind] - CHANGE_OUTPUT_VBYTES[beaconKind];
+  return base + CHANGE_OUTPUT_VBYTES[changeKind];
+}
+
+/**
  * Detect the singleton script kind of a Bitcoin address (P2PKH / P2WPKH / P2TR).
  * The deterministic-DID document emits all three kinds; the broadcast path needs
  * to know which is in use to construct the input and dispatch the signing primitive.
@@ -89,11 +134,55 @@ export function deriveSingletonAddress(
 }
 
 /**
+ * Resolve the change-output recipient for a beacon transaction. Returns the beacon
+ * address when no change address is supplied (preserving the prior behavior of
+ * returning change to the spent address), otherwise validates the caller-supplied
+ * address against the network and returns it. Validating here fails fast rather than
+ * burning a real UTXO on a transaction that breaks at broadcast (ADR 044).
+ */
+export function resolveChangeAddress(
+  beaconAddress: string,
+  network: BTCNetwork,
+  changeAddress?: string,
+): string {
+  if(!changeAddress || changeAddress === beaconAddress) return beaconAddress;
+  try {
+    Address(network).decode(changeAddress);
+  } catch {
+    throw new BeaconError(
+      `Invalid change address "${changeAddress}" for network "${network}".`,
+      'INVALID_CHANGE_ADDRESS',
+      { changeAddress, network }
+    );
+  }
+  return changeAddress;
+}
+
+/**
+ * Detect the change output's script kind for fee sizing. A change address that is not
+ * one of the three singleton kinds (for example P2SH or P2WSH) is sized as P2TR, the
+ * largest standard change output, so the estimated fee stays a valid upper bound.
+ */
+function changeOutputKind(changeAddress: string, network: BTCNetwork): SingletonScriptKind {
+  try {
+    return detectSingletonScriptKind(changeAddress, network);
+  } catch {
+    return 'p2tr';
+  }
+}
+
+/**
  * Options accepted by {@link SinglePartyBeacon.buildSignAndBroadcast} and related helpers.
  */
 export interface BroadcastOptions {
   /** Fee estimator for computing the transaction fee. Defaults to {@link DEFAULT_FEE_ESTIMATOR}. */
   feeEstimator?: FeeEstimator;
+  /**
+   * Address to send change to. Defaults to the beacon address (reuses the spent
+   * address, the prior behavior). Supply a fresh address the controller owns to
+   * stop linking the beacon's announcements into one on-chain chain (ADR 044).
+   */
+  changeAddress?: string;
 }
 
 /**
@@ -107,8 +196,10 @@ export interface BeaconTxPlan {
   prevOutScripts: Uint8Array[];
   /** Amounts (sats) of the consumed previous outputs. */
   prevOutValues: bigint[];
-  /** Address change was sent back to (same as the beacon address). */
+  /** The beacon address this tx spends from. */
   beaconAddress: string;
+  /** Address the change output was sent to (the beacon address unless a change address was supplied). */
+  changeAddress: string;
   /** The UTXO this tx consumes. */
   utxo: AddressUtxo;
   /** The fee (sats) already deducted from the change output. */
@@ -188,9 +279,17 @@ export async function buildAggregationBeaconTx(opts: {
   network: BTCNetwork;
   /** Optional fee estimator (defaults to 5 sat/vB). */
   feeEstimator?: FeeEstimator;
+  /**
+   * Address to send change to. Defaults to the beacon (cohort) address. Supply the
+   * funder's address (an operator-funded cohort's funding wallet) to stop reusing the
+   * cohort address for change (ADR 044). Change ownership is the funder's call, which
+   * the cohort-condition model leaves to the caller (ADR 039).
+   */
+  changeAddress?: string;
 }): Promise<BeaconTxPlan> {
   const feeEstimator = opts.feeEstimator ?? DEFAULT_FEE_ESTIMATOR;
   const { utxo, prevTxBytes } = await fetchSpendableUtxo(opts.beaconAddress, opts.bitcoin);
+  const changeAddress = resolveChangeAddress(opts.beaconAddress, opts.network, opts.changeAddress);
 
   // The funded beacon output is a Taproot script-tree output: key path is the
   // MuSig2 aggregate, script path is the k-of-n fallback + CSV recovery leaves
@@ -200,8 +299,11 @@ export async function buildAggregationBeaconTx(opts: {
   // key-path sighash and the fallback script-path sighash.
   const witnessScript = OutScript.encode(Address(opts.network).decode(opts.beaconAddress));
 
-  // Fee cannot be probe-measured (no secret key for MuSig2 round). Use fixed P2TR vsize.
-  const feeSats = await feeEstimator.estimateFee(P2TR_BEACON_TX_VSIZE);
+  // The fee cannot be probe-measured (no secret key until the downstream MuSig2
+  // round), so size it analytically. The input is the cohort's P2TR key path; only
+  // the change output's kind varies, so the vsize follows the change address (ADR 045).
+  const changeKind = changeOutputKind(changeAddress, opts.network);
+  const feeSats = await feeEstimator.estimateFee(beaconTxVsize('p2tr', changeKind));
   if(BigInt(utxo.value) <= feeSats) {
     throw new BeaconError(
       `UTXO value (${utxo.value}) insufficient to cover fee (${feeSats}).`,
@@ -221,7 +323,12 @@ export async function buildAggregationBeaconTx(opts: {
     witnessUtxo    : { amount: BigInt(utxo.value), script: witnessScript },
     tapInternalKey : opts.internalPubkey,
   });
-  tx.addOutputAddress(opts.beaconAddress, BigInt(utxo.value) - feeSats, opts.network);
+  // Change first (omitted when it would be dust, sweeping the remainder into the
+  // fee), then the OP_RETURN signal, which the spec requires to be the last output.
+  const changeValue = BigInt(utxo.value) - feeSats;
+  if(changeValue >= BigInt(DUST_LIMIT_SATS[changeKind])) {
+    tx.addOutputAddress(changeAddress, changeValue, opts.network);
+  }
   tx.addOutput({ script: opReturnScript(opts.signalBytes), amount: 0n });
 
   return {
@@ -229,6 +336,7 @@ export async function buildAggregationBeaconTx(opts: {
     prevOutScripts : [witnessScript],
     prevOutValues  : [BigInt(utxo.value)],
     beaconAddress  : opts.beaconAddress,
+    changeAddress,
     utxo,
     feeSats,
     scriptKind     : 'p2tr',
@@ -404,6 +512,7 @@ export abstract class SinglePartyBeacon {
     const { utxo, prevTxBytes } = await fetchSpendableUtxo(beaconAddress, bitcoin);
     const plan = await this.buildSinglePartyTx({
       signalBytes, beaconAddress, utxo, prevTxBytes, signer, bitcoin, feeEstimator,
+      changeAddress : options?.changeAddress,
     });
     const signedHex = await this.signSinglePartyTx(plan, signer);
     return this.broadcastRawTx(bitcoin, signedHex);
@@ -416,8 +525,9 @@ export abstract class SinglePartyBeacon {
    * the input accordingly. Validates that the signer's pubkey produces the beacon
    * address under that script kind: without this check, a misconfigured caller
    * would burn a real UTXO on a tx that fails at broadcast. Fees are computed from
-   * the per-kind {@link SINGLETON_BEACON_TX_VSIZE} constant, avoiding any probe-sign
-   * round-trip.
+   * the per-kind {@link SINGLETON_BEACON_TX_VSIZE} constant (via {@link beaconTxVsize}),
+   * avoiding any probe-sign round-trip; a change address of a different kind re-sizes
+   * the fee by the change output's size delta so it stays a valid upper bound.
    */
   protected async buildSinglePartyTx(opts: {
     signalBytes: Uint8Array;
@@ -427,10 +537,12 @@ export abstract class SinglePartyBeacon {
     signer: Signer;
     bitcoin: BitcoinConnection;
     feeEstimator: FeeEstimator;
+    changeAddress?: string;
   }): Promise<BeaconTxPlan> {
     const network = opts.bitcoin.data;
     const pubkey = opts.signer.publicKey;
     const kind = detectSingletonScriptKind(opts.beaconAddress, network);
+    const changeAddress = resolveChangeAddress(opts.beaconAddress, network, opts.changeAddress);
 
     const derivedAddress = deriveSingletonAddress(kind, pubkey, network);
     if(derivedAddress !== opts.beaconAddress) {
@@ -441,7 +553,8 @@ export abstract class SinglePartyBeacon {
       );
     }
 
-    const feeSats = await opts.feeEstimator.estimateFee(SINGLETON_BEACON_TX_VSIZE[kind]);
+    const changeKind = changeOutputKind(changeAddress, network);
+    const feeSats = await opts.feeEstimator.estimateFee(beaconTxVsize(kind, changeKind));
     const amount = BigInt(opts.utxo.value);
     if(amount <= feeSats) {
       throw new BeaconError(
@@ -487,7 +600,12 @@ export abstract class SinglePartyBeacon {
       });
     }
 
-    tx.addOutputAddress(opts.beaconAddress, amount - feeSats, network);
+    // Change first (omitted when it would be dust, sweeping the remainder into the
+    // fee), then the OP_RETURN signal, which the spec requires to be the last output.
+    const changeValue = amount - feeSats;
+    if(changeValue >= BigInt(DUST_LIMIT_SATS[changeKind])) {
+      tx.addOutputAddress(changeAddress, changeValue, network);
+    }
     tx.addOutput({ script: opReturnScript(opts.signalBytes), amount: 0n });
 
     return {
@@ -495,6 +613,7 @@ export abstract class SinglePartyBeacon {
       prevOutScripts : [prevOutScript],
       prevOutValues  : [amount],
       beaconAddress  : opts.beaconAddress,
+      changeAddress,
       utxo           : opts.utxo,
       feeSats,
       scriptKind     : kind,

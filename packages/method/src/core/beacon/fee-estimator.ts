@@ -50,3 +50,12 @@ export class StaticFeeEstimator implements FeeEstimator {
     return BigInt(Math.ceil(vsize * this.satsPerVbyte));
   }
 }
+
+/**
+ * Default fee estimator used when a caller supplies none: a static 5 sat/vB rate.
+ * Suitable for tests and regtest. Production callers should inject a dynamic
+ * estimator (a mempool API, or Bitcoin Core `estimatesmartfee`) at the point the
+ * beacon transaction is built (single-party broadcast options, or the aggregation
+ * service runner's fee estimator).
+ */
+export const DEFAULT_FEE_ESTIMATOR: FeeEstimator = new StaticFeeEstimator(5);

@@ -6,6 +6,7 @@ import { concatBytes } from '@noble/hashes/utils.js';
 import { OutScript, p2pkh, p2tr, p2wpkh, SigHash, Transaction } from '@scure/btc-signer';
 import { expect } from 'chai';
 import {
+  beaconTxVsize,
   opReturnScript,
   P2PKH_BEACON_TX_VSIZE,
   P2TR_BEACON_TX_VSIZE,
@@ -120,5 +121,76 @@ describe('beacon vsize constants', () => {
     const actual = tx.vsize;
     expect(actual).to.be.at.most(P2TR_BEACON_TX_VSIZE);
     expect(actual).to.be.at.least(P2TR_BEACON_TX_VSIZE - SLACK);
+  });
+});
+
+/**
+ * Lock in {@link beaconTxVsize} for a change output whose script kind differs from
+ * the beacon (input) kind (ADR 044): the analytical vsize must stay a tight upper
+ * bound for the real finalized transaction so the fee is never under-paid. Covers
+ * the aggregation P2TR key path with a cheaper change kind, and the risky combination
+ * of a small-kind input with the largest (P2TR) change output.
+ */
+describe('beacon vsize by change-output kind', () => {
+  it('P2TR input with P2WPKH change (aggregation key path, cheaper change)', () => {
+    const kp = SchnorrKeyPair.generate();
+    const internalKey = kp.publicKey.x;
+    const tapOut = p2tr(internalKey, undefined, network);
+    const changeOut = p2wpkh(SchnorrKeyPair.generate().publicKey.compressed, network);
+
+    const tx = new Transaction({ allowUnknownOutputs: true });
+    tx.addInput({
+      txid           : new Uint8Array(32),
+      index          : 0,
+      witnessUtxo    : { amount: 100000n, script: tapOut.script },
+      tapInternalKey : internalKey,
+    });
+    tx.addOutputAddress(changeOut.address!, 99000n, network);
+    tx.addOutput({ script: opReturnScript(new Uint8Array(32)), amount: 0n });
+    tx.updateInput(0, { tapKeySig: new Uint8Array(64) });
+    tx.finalize();
+
+    const bound = beaconTxVsize('p2tr', 'p2wpkh');
+    expect(tx.vsize).to.be.at.most(bound);
+    expect(tx.vsize).to.be.at.least(bound - SLACK);
+  });
+
+  it('P2PKH input with P2TR change (larger change than the input kind assumes)', () => {
+    const kp = SchnorrKeyPair.generate();
+    const signer = new LocalSigner(kp.secretKey.bytes);
+    const pubkey = signer.publicKey;
+    const pkOut = p2pkh(pubkey, network);
+    const changeOut = p2tr(SchnorrKeyPair.generate().publicKey.x, undefined, network);
+
+    const prevTx = new Transaction();
+    prevTx.addOutput({ amount: 100000n, script: pkOut.script });
+    prevTx.addInput({
+      txid           : new Uint8Array(32),
+      index          : 0xffffffff,
+      finalScriptSig : new Uint8Array([0x00]),
+    });
+    const prevTxBytes = prevTx.toBytes();
+
+    const tx = new Transaction({ allowUnknownOutputs: true });
+    tx.addInput({
+      txid           : sha256(sha256(prevTxBytes)).reverse(),
+      index          : 0,
+      nonWitnessUtxo : prevTxBytes,
+    });
+    tx.addOutputAddress(changeOut.address!, 99000n, network);
+    tx.addOutput({ script: opReturnScript(new Uint8Array(32)), amount: 0n });
+
+    const sighashType = SigHash.ALL;
+    const sighash = (tx as unknown as {
+      preimageLegacy: (idx: number, prevScript: Uint8Array, hashType: number) => Uint8Array;
+    }).preimageLegacy(0, pkOut.script, sighashType);
+    const sig = signer.sign(sighash, 'ecdsa');
+    const sigWithType = concatBytes(sig, new Uint8Array([sighashType]));
+    tx.updateInput(0, { partialSig: [[pubkey, sigWithType]] }, true);
+    tx.finalize();
+
+    const bound = beaconTxVsize('p2pkh', 'p2tr');
+    expect(tx.vsize).to.be.at.most(bound);
+    expect(tx.vsize).to.be.at.least(bound - SLACK);
   });
 });
