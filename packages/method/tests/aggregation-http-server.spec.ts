@@ -11,6 +11,7 @@ import {
   HTTP_ROUTE,
   HttpServerTransport,
   type HttpRequestLike,
+  resolveBtcr2SenderPk,
   SILENT_LOGGER,
   SSE_EVENT,
   type SignedEnvelope,
@@ -101,6 +102,7 @@ describe('HttpServerTransport', () => {
     return new HttpServerTransport({
       logger              : SILENT_LOGGER,
       heartbeatIntervalMs : 0,
+      resolveSenderPk     : resolveBtcr2SenderPk,
       ...overrides,
     });
   }

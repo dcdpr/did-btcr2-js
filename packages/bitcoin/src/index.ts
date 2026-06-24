@@ -23,6 +23,10 @@ export { JsonRpcTransport } from './client/rpc/json-rpc.js';
 export { BitcoinRpcError, BitcoinRestError } from './errors.js';
 export type { RpcErrorType } from './errors.js';
 
+// Fee estimation
+export { StaticFeeEstimator } from './fee-estimator.js';
+export type { FeeEstimator } from './fee-estimator.js';
+
 // Helpers
 export { getNetwork } from './network.js';
 export type { BTCNetwork } from './network.js';

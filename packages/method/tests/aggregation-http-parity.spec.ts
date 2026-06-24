@@ -10,6 +10,7 @@ import {
   DidBtcr2,
   HttpClientTransport,
   HttpServerTransport,
+  resolveBtcr2SenderPk,
   SILENT_LOGGER,
 } from '../src/index.js';
 
@@ -30,7 +31,7 @@ describe('HTTP transport parity (client <-> server in-process)', () => {
     participantKeys = SchnorrKeyPair.generate();
     participantDid  = DidBtcr2.create(participantKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
 
-    server = new HttpServerTransport({ logger: SILENT_LOGGER, heartbeatIntervalMs: 0 });
+    server = new HttpServerTransport({ logger: SILENT_LOGGER, heartbeatIntervalMs: 0, resolveSenderPk: resolveBtcr2SenderPk });
     server.registerActor(serverDid, serverKeys);
 
     client = new HttpClientTransport({
@@ -38,6 +39,7 @@ describe('HTTP transport parity (client <-> server in-process)', () => {
       fetchImpl        : bridgeClientToServer(server),
       logger           : SILENT_LOGGER,
       reconnectBackoff : () => 0,
+      resolveSenderPk  : resolveBtcr2SenderPk,
     });
     client.registerActor(participantDid, participantKeys);
   });

@@ -21,10 +21,13 @@ import {
   AggregationService
 } from '../service.js';
 import type { Transport } from '../transport/transport.js';
-import { DEFAULT_FEE_ESTIMATOR } from '../../beacon/fee-estimator.js';
-import type { FeeEstimator } from '../../beacon/fee-estimator.js';
+import { StaticFeeEstimator } from '@did-btcr2/bitcoin';
+import type { FeeEstimator } from '@did-btcr2/bitcoin';
 import type { AggregationServiceEvents } from './events.js';
 import { TypedEventEmitter } from './typed-emitter.js';
+
+/** Default fee estimator the runner uses when a caller supplies none: a static 5 sat/vB rate. */
+const DEFAULT_FEE_ESTIMATOR: FeeEstimator = new StaticFeeEstimator(5);
 
 /** Decision callback: accept or reject a participant's opt-in. */
 export type OnOptInReceived = (optIn: PendingOptIn) => Promise<{ accepted: boolean }>;

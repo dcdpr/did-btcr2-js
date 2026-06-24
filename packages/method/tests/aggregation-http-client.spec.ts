@@ -10,6 +10,7 @@ import {
   HTTP_ROUTE,
   HttpClientTransport,
   HttpTransportError,
+  resolveBtcr2SenderPk,
   SILENT_LOGGER,
   SSE_EVENT,
   type SignedEnvelope,
@@ -152,6 +153,7 @@ describe('HttpClientTransport', () => {
     fetchImpl        : helper.fetch,
     logger           : SILENT_LOGGER,
     reconnectBackoff : () => 0,
+    resolveSenderPk  : resolveBtcr2SenderPk,
   });
 
   describe('construction', () => {

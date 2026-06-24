@@ -30,6 +30,7 @@ import {
   DidBtcr2,
   HttpClientTransport,
   HttpServerTransport,
+  resolveBtcr2SenderPk,
   Resolver,
   Updater,
   formatSseComment,
@@ -57,7 +58,7 @@ const bobDid      = DidBtcr2.create(bobKeys.publicKey.compressed, { idType: 'KEY
 // Service-side HTTP server (node:http adapter + HttpServerTransport)
 // ────────────────────────────────────────────────
 
-const serviceTransport = new HttpServerTransport({ heartbeatIntervalMs: 15_000 });
+const serviceTransport = new HttpServerTransport({ heartbeatIntervalMs: 15_000, resolveSenderPk: resolveBtcr2SenderPk });
 serviceTransport.registerActor(serviceDid, serviceKeys);
 
 async function readBody(req: IncomingMessage): Promise<string> {
@@ -140,10 +141,10 @@ const httpServer = createServer(async (req, res) => {
 // Participant transports - real fetch against the real server
 // ────────────────────────────────────────────────
 
-const aliceTransport = new HttpClientTransport({ baseUrl: BASE_URL });
+const aliceTransport = new HttpClientTransport({ baseUrl: BASE_URL, resolveSenderPk: resolveBtcr2SenderPk });
 aliceTransport.registerActor(aliceDid, aliceKeys);
 
-const bobTransport = new HttpClientTransport({ baseUrl: BASE_URL });
+const bobTransport = new HttpClientTransport({ baseUrl: BASE_URL, resolveSenderPk: resolveBtcr2SenderPk });
 bobTransport.registerActor(bobDid, bobKeys);
 
 // ────────────────────────────────────────────────

@@ -1,7 +1,6 @@
 import type { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 
-import { Identifier } from '../../../identifier.js';
 import type { Logger } from '../../logger.js';
 import { CONSOLE_LOGGER } from '../../logger.js';
 import type { BaseMessage } from '../../messages/base.js';
@@ -28,6 +27,13 @@ export interface HttpClientTransportConfig {
   reconnectBackoff?: (attempt: number) => number;
   /** Envelope / request-auth clock-skew tolerance in seconds. */
   clockSkewSec?: number;
+  /**
+   * Resolve a sender's communication public key from its DID when the sender is not a
+   * registered peer. Lets the transport stay DID-method-agnostic: the caller supplies
+   * the decode (for example, a did:btcr2 KEY identifier yields its genesis key). When
+   * omitted, sender resolution is limited to registered peers.
+   */
+  resolveSenderPk?: (did: string) => CompressedSecp256k1PublicKey | undefined;
 }
 
 /** Default exponential backoff: 1s, 2s, 4s, ..., capped at 30s, 20% jitter. */
@@ -57,6 +63,7 @@ export class HttpClientTransport implements Transport {
   readonly #logger:       Logger;
   readonly #backoff:      (attempt: number) => number;
   readonly #clockSkewSec: number;
+  readonly #resolveSenderPkFn?: (did: string) => CompressedSecp256k1PublicKey | undefined;
 
   readonly #actors: Map<string, ActorEntry>   = new Map();
   readonly #peers:  Map<string, Uint8Array>   = new Map();
@@ -71,6 +78,7 @@ export class HttpClientTransport implements Transport {
     this.#logger       = config.logger ?? CONSOLE_LOGGER;
     this.#backoff      = config.reconnectBackoff ?? defaultReconnectBackoff;
     this.#clockSkewSec = config.clockSkewSec ?? DEFAULT_CLOCK_SKEW_SEC;
+    this.#resolveSenderPkFn = config.resolveSenderPk;
 
     const fetchImpl = config.fetchImpl ?? globalThis.fetch;
     if(typeof fetchImpl !== 'function') {
@@ -358,17 +366,9 @@ export class HttpClientTransport implements Transport {
     const peerBytes = this.#peers.get(did);
     if(peerBytes) {
       try { return new CompressedSecp256k1PublicKey(peerBytes); }
-      catch { /* fall through to DID decode */ }
+      catch { /* fall through to the injected resolver */ }
     }
-    try {
-      const components = Identifier.decode(did);
-      if(components.idType === 'KEY') {
-        return new CompressedSecp256k1PublicKey(components.genesisBytes);
-      }
-    } catch {
-      // Not a decodable did:btcr2 KEY identifier.
-    }
-    return undefined;
+    return this.#resolveSenderPkFn?.(did);
   }
 }
 

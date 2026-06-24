@@ -5,6 +5,10 @@
       "path": "."
     },
     {
+      "name": "aggregation",
+      "path": "packages/aggregation"
+    },
+    {
       "name": "api",
       "path": "packages/api"
     },

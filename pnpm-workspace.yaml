@@ -1,4 +1,5 @@
 packages:
+  - packages/aggregation
   - packages/api
   - packages/bitcoin
   - packages/cli

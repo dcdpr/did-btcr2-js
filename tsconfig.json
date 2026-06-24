@@ -8,6 +8,7 @@
     { "path": "packages/bitcoin" },
     { "path": "packages/key-manager" },
     { "path": "packages/smt" },
+    { "path": "packages/aggregation" },
     { "path": "packages/method" },
     { "path": "packages/api" },
     { "path": "packages/cli" }
