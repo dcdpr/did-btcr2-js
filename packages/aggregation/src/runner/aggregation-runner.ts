@@ -7,7 +7,7 @@ import { AggregationParticipantRunner } from './participant-runner.js';
 import type { OnProvideUpdate } from './participant-runner.js';
 import { AggregationServiceRunner } from './service-runner.js';
 import type { OnProvideTxData } from './service-runner.js';
-import type { FeeEstimator } from '../../beacon/fee-estimator.js';
+import type { FeeEstimator } from '@did-btcr2/bitcoin';
 
 /** Identity (DID + keys) for one actor in an {@link AggregationRunner.solo} run. */
 export interface SoloActor {

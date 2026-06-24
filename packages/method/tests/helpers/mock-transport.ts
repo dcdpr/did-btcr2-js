@@ -6,4 +6,4 @@
 export {
   InMemoryBus as MessageBus,
   InMemoryTransport as MockTransport,
-} from '../../src/core/aggregation/transport/in-memory.js';
+} from '@did-btcr2/aggregation';

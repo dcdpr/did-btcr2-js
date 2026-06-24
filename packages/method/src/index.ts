@@ -1,20 +1,5 @@
-// Aggregation
-export * from './core/aggregation/service.js';
-export * from './core/aggregation/participant.js';
-export * from './core/aggregation/signer.js';
-export * from './core/aggregation/conditions.js';
-export * from './core/aggregation/recovery-policy.js';
-export * from './core/aggregation/recovery-spend.js';
-export * from './core/aggregation/fallback-spend.js';
-export * from './core/aggregation/cohort.js';
-export * from './core/aggregation/signing-session.js';
-export * from './core/aggregation/phases.js';
-export * from './core/aggregation/errors.js';
-export * from './core/aggregation/beacon-strategy.js';
-export * from './core/aggregation/logger.js';
-export * from './core/aggregation/messages/index.js';
-export * from './core/aggregation/transport/index.js';
-export * from './core/aggregation/runner/index.js';
+// Aggregation (extracted to @did-btcr2/aggregation; re-exported here for backward compatibility)
+export * from '@did-btcr2/aggregation';
 
 // Beacons
 export * from './core/beacon/beacon.js';
@@ -29,6 +14,7 @@ export * from './core/beacon/smt-beacon.js';
 export * from './core/beacon/utils.js';
 
 // Core
+export * from './core/did-sender-resolver.js';
 export * from './core/identifier.js';
 export * from './core/interfaces.js';
 export * from './core/resolver.js';

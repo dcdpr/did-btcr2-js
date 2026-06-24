@@ -1,7 +1,6 @@
 import type { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 
-import { Identifier } from '../../../identifier.js';
 import type { Logger } from '../../logger.js';
 import { CONSOLE_LOGGER } from '../../logger.js';
 import type { BaseMessage } from '../../messages/base.js';
@@ -79,6 +78,13 @@ export interface HttpServerTransportConfig {
   heartbeatIntervalMs?: number;
   /** Clock injection point for tests. Returns unix milliseconds. */
   now?: () => number;
+  /**
+   * Resolve a sender's communication public key from its DID when the sender is not a
+   * registered peer. Lets the transport stay DID-method-agnostic: the caller supplies
+   * the decode (for example, a did:btcr2 KEY identifier yields its genesis key). When
+   * omitted, sender resolution is limited to registered peers.
+   */
+  resolveSenderPk?: (did: string) => CompressedSecp256k1PublicKey | undefined;
 }
 
 interface ActorEntry {
@@ -135,6 +141,7 @@ export class HttpServerTransport implements Transport {
   readonly #rateLimiter:        RateLimiter;
   readonly #nonceCache:         NonceCache;
   readonly #now:                () => number;
+  readonly #resolveSenderPkFn?: (did: string) => CompressedSecp256k1PublicKey | undefined;
 
   readonly #actors:   Map<string, ActorEntry> = new Map();
   readonly #peers:    Map<string, Uint8Array> = new Map();
@@ -155,6 +162,7 @@ export class HttpServerTransport implements Transport {
     this.#rateLimiter     = config.rateLimiter ?? new RateLimiter();
     this.#nonceCache      = config.nonceCache ?? new NonceCache();
     this.#now             = config.now ?? (() => Date.now());
+    this.#resolveSenderPkFn = config.resolveSenderPk;
   }
 
   // ----------------------------------------------------------------
@@ -512,15 +520,9 @@ export class HttpServerTransport implements Transport {
     const peerBytes = this.#peers.get(did);
     if(peerBytes) {
       try { return new CompressedSecp256k1PublicKey(peerBytes); }
-      catch { /* fall through */ }
+      catch { /* fall through to the injected resolver */ }
     }
-    try {
-      const components = Identifier.decode(did);
-      if(components.idType === 'KEY') {
-        return new CompressedSecp256k1PublicKey(components.genesisBytes);
-      }
-    } catch { /* not decodable */ }
-    return undefined;
+    return this.#resolveSenderPkFn?.(did);
   }
 
   #safeWrite(stream: SseStream, event: string, data: string, id?: string): void {

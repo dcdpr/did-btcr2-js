@@ -7,10 +7,17 @@ import { schnorr } from '@noble/curves/secp256k1.js';
 import { concatBytes, hexToBytes, randomBytes } from '@noble/hashes/utils';
 import { p2tr } from '@scure/btc-signer';
 import { keyAggExport, keyAggregate, sortKeys } from '@scure/btc-signer/musig2';
-import type { CASAnnouncement } from '../types.js';
 import { AggregationCohortError } from './errors.js';
 import type { FundingModel } from './recovery-policy.js';
 import { DEFAULT_FUNDING_MODEL, buildRecoveryLeaves, resolveFallbackThreshold } from './recovery-policy.js';
+
+/**
+ * The CAS Beacon Announcement Map a cohort produces: a record of DID to update hash.
+ * Defined locally so the aggregation package does not depend on method; it is
+ * structurally compatible with method's resolution-side `CASAnnouncement` type, which
+ * the resolver consumes when reading the announcement off the content-addressed store.
+ */
+export type CASAnnouncementMap = Record<string, string>;
 
 export type AggregationCohortParams = {
   id?: string;
@@ -117,7 +124,7 @@ export class AggregationCohort {
   nonIncluded: Set<string> = new Set();
 
   /** CAS Beacon Announcement Map (DID to updateHash), set by buildCASAnnouncement(). */
-  casAnnouncement?: CASAnnouncement;
+  casAnnouncement?: CASAnnouncementMap;
 
   /** Per-participant SMT proofs, set by buildSMTTree(). */
   smtProofs?: Map<string, SerializedSMTProof>;
@@ -322,14 +329,14 @@ export class AggregationCohort {
    * the map: the body iterates {@link pendingUpdates}, which never holds a
    * decliner. Absence from the map is exactly the CAS non-inclusion signal.
    */
-  public buildCASAnnouncement(): CASAnnouncement {
+  public buildCASAnnouncement(): CASAnnouncementMap {
     if(!this.hasAllResponses()) {
       throw new AggregationCohortError(
         'Cannot build CAS Announcement: not all participants have responded.',
         'INCOMPLETE_RESPONSES', { cohortId: this.id, updates: this.pendingUpdates.size, declined: this.nonIncluded.size, total: this.participants.length }
       );
     }
-    const announcement: CASAnnouncement = {};
+    const announcement: CASAnnouncementMap = {};
     for(const [did, signedUpdate] of this.pendingUpdates) {
       announcement[did] = canonicalHash(signedUpdate);
     }

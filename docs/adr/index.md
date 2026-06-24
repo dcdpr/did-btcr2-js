@@ -46,6 +46,7 @@ children:
   - ./043-k-of-n-fallback-protocol.md
   - ./044-beacon-change-output-address.md
   - ./045-analytical-vsize-aggregation-fees.md
+  - ./046-extract-aggregation-package.md
 ---
 
 # Architecture Decision Records
@@ -99,3 +100,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 043 | 2026-06-24 | [k-of-n Fallback Signing Protocol for Aggregate Beacons](043-k-of-n-fallback-protocol.md) |
 | 044 | 2026-06-24 | [Beacon Change Output - Caller-Supplied Address to End Beacon-Address Reuse](044-beacon-change-output-address.md) |
 | 045 | 2026-06-24 | [Analytical-vsize Dynamic Fees for the Aggregation Beacon Broadcast](045-analytical-vsize-aggregation-fees.md) |
+| 046 | 2026-06-24 | [Extract the Aggregation Subsystem into @did-btcr2/aggregation](046-extract-aggregation-package.md) |
