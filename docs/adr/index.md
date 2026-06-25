@@ -49,6 +49,7 @@ children:
   - ./046-extract-aggregation-package.md
   - ./047-cli-encrypted-keystore.md
   - ./048-cli-config-profile-model.md
+  - ./049-cli-create-default-keygen.md
 ---
 
 # Architecture Decision Records
@@ -105,3 +106,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 046 | 2026-06-24 | [Extract the Aggregation Subsystem into @did-btcr2/aggregation](046-extract-aggregation-package.md) |
 | 047 | 2026-06-25 | [CLI Secret-Key Custody via an Encrypted File-Backed Keystore](047-cli-encrypted-keystore.md) |
 | 048 | 2026-06-25 | [CLI Configuration and Profile Model: Writable Config with Identity and Aggregation Profiles](048-cli-config-profile-model.md) |
+| 049 | 2026-06-25 | [Default Keypair Generation in the create Command](049-cli-create-default-keygen.md) |

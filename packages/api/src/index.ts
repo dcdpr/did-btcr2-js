@@ -1,5 +1,5 @@
 // Upstream re-exports
-export { DidDocument, DidDocumentBuilder, Identifier } from '@did-btcr2/method';
+export { DidDocument, DidDocumentBuilder, GenesisDocument, Identifier } from '@did-btcr2/method';
 export { IdentifierTypes } from '@did-btcr2/common';
 export type {
   BlockV3,
