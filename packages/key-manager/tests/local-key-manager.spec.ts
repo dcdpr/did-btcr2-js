@@ -294,4 +294,44 @@ describe('LocalKeyManager', () => {
       expect(exported.publicKey.compressed).to.deep.equal(kp.publicKey.compressed);
     });
   });
+
+  // -------------------------------------------------------------------------
+  // getEntry
+  // -------------------------------------------------------------------------
+
+  describe('getEntry', () => {
+    it('returns publicKey and tags with the secret omitted', () => {
+      const kms = new LocalKeyManager();
+      const tags = { name: 'alice' };
+      const id = kms.importKey(SchnorrKeyPair.generate(), { tags });
+      const entry = kms.getEntry(id);
+      expect(entry.publicKey).to.be.instanceOf(Uint8Array);
+      expect(entry.tags).to.deep.equal(tags);
+      expect(entry).to.not.have.property('secretKey');
+    });
+
+    it('omits tags when none are set', () => {
+      const kms = new LocalKeyManager();
+      const id = kms.importKey(SchnorrKeyPair.generate());
+      expect(kms.getEntry(id)).to.not.have.property('tags');
+    });
+
+    it('defaults to the active key', () => {
+      const kms = new LocalKeyManager();
+      const id = kms.generateKey({ setActive: true });
+      expect(kms.getEntry().publicKey).to.deep.equal(kms.getPublicKey(id));
+    });
+
+    it('throws ACTIVE_KEY_NOT_SET when no id and no active key', () => {
+      const kms = new LocalKeyManager();
+      expect(() => kms.getEntry())
+        .to.throw(KeyManagerError).with.property('type', 'ACTIVE_KEY_NOT_SET');
+    });
+
+    it('throws KEY_NOT_FOUND for an unknown id', () => {
+      const kms = new LocalKeyManager();
+      expect(() => kms.getEntry('urn:kms:secp256k1:missing'))
+        .to.throw(KeyManagerError).with.property('type', 'KEY_NOT_FOUND');
+    });
+  });
 });

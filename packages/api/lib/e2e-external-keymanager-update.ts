@@ -96,6 +96,10 @@ class StubKeyManager implements KeyManager {
     return this.#entry(id).publicKey;
   }
 
+  getEntry(id?: KeyIdentifier): { publicKey: KeyBytes; tags?: Record<string, string> } {
+    return { publicKey: this.#entry(id).publicKey };
+  }
+
   sign(data: Bytes, id?: KeyIdentifier, options: SignOptions = {}): SignatureBytes {
     const entry = this.#entry(id);
     if(!entry.secretKey) {

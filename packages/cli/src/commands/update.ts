@@ -1,6 +1,9 @@
+import { KeyManagerSigner } from '@did-btcr2/key-manager';
 import type { Command } from 'commander';
 import { deriveNetwork, type ApiFactory } from '../config.js';
 import { CLIError } from '../error.js';
+import { resolveKeyRef } from '../keystore/resolve-key-ref.js';
+import { formatResult } from '../output.js';
 import type { GlobalOptions, UpdateCommandOptions } from '../types.js';
 
 export function registerUpdateCommand(
@@ -41,6 +44,13 @@ export function registerUpdateCommand(
       verificationMethodId : string;
       beaconId             : unknown;
     }) => {
+      if (!/^\d+$/.test(options.sourceVersionId)) {
+        throw new CLIError(
+          '--source-version-id must be a non-negative integer.',
+          'INVALID_ARGUMENT_ERROR',
+          { value: options.sourceVersionId },
+        );
+      }
       const parsed: UpdateCommandOptions = {
         sourceDocument       : options.sourceDocument as UpdateCommandOptions['sourceDocument'],
         patches              : options.patches as UpdateCommandOptions['patches'],
@@ -56,19 +66,19 @@ export function registerUpdateCommand(
           options
         );
       }
-      // The CLI does not yet have a way to load signing material (keystore,
-      // KMS config, hardware wallet, etc.), so signed updates from the CLI are
-      // not yet wired up. Drive the SDK directly with a `Signer` for now.
-      // Variables above are kept so command parsing + validation still works.
-      void deriveNetwork(did);
-      void factory;
-      void globals;
-      void parsed;
-      throw new CLIError(
-        'CLI signing is not yet implemented. Use @did-btcr2/api with a Signer directly.',
-        'NOT_IMPLEMENTED_ERROR',
-        { command: 'update' }
-      );
+      const network = deriveNetwork(did);
+      const api = factory(network, globals());
+      const keyId = resolveKeyRef(api.kms.kms, globals().signingKey);
+      const signer = new KeyManagerSigner(api.kms.kms, keyId);
+      const data = await api.btcr2.update({
+        sourceDocument       : parsed.sourceDocument,
+        patches              : parsed.patches,
+        sourceVersionId      : parsed.sourceVersionId,
+        verificationMethodId : parsed.verificationMethodId,
+        beaconId             : parsed.beaconId,
+        signer,
+      });
+      console.log(formatResult({ action: 'update', data }, globals()));
     });
 }
 

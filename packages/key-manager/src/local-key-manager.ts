@@ -124,6 +124,18 @@ export class LocalKeyManager implements KeyManager {
   }
 
   /**
+   * Read an entry's public key and tags with the secret omitted.
+   *
+   * @param id Key identifier. Uses active key if omitted.
+   * @returns The compressed public key and any metadata tags.
+   * @throws {KeyManagerError} If key not found or no active key set.
+   */
+  getEntry(id?: KeyIdentifier): { publicKey: KeyBytes; tags?: Record<string, string> } {
+    const entry = this.#getEntryOrThrow(id);
+    return { publicKey: entry.publicKey, ...(entry.tags && { tags: entry.tags }) };
+  }
+
+  /**
    * Sign data using the specified key. See {@link SigningScheme} for the
    * contract of each scheme. The KMS applies any key-derivation step
    * (BIP-341 taproot tweak) internally; secret bytes never leave this object.

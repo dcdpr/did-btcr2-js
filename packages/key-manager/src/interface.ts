@@ -121,6 +121,16 @@ export interface KeyManager {
   getPublicKey(id?: KeyIdentifier): KeyBytes;
 
   /**
+   * Read an entry's public material and metadata tags, with the secret key
+   * omitted. Lets callers list or inspect keys (including their tags) without
+   * exposing or materializing secret bytes.
+   * @param id Key identifier. Uses active key if omitted.
+   * @returns The compressed public key and any tags.
+   * @throws {KeyManagerError} If key not found or no active key set.
+   */
+  getEntry(id?: KeyIdentifier): { publicKey: KeyBytes; tags?: Record<string, string> };
+
+  /**
    * Sign data using the specified key.
    *
    * The KeyManager is responsible for any key-derivation step the scheme

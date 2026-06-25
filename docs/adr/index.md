@@ -47,6 +47,8 @@ children:
   - ./044-beacon-change-output-address.md
   - ./045-analytical-vsize-aggregation-fees.md
   - ./046-extract-aggregation-package.md
+  - ./047-cli-encrypted-keystore.md
+  - ./048-cli-config-profile-model.md
 ---
 
 # Architecture Decision Records
@@ -101,3 +103,5 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 044 | 2026-06-24 | [Beacon Change Output - Caller-Supplied Address to End Beacon-Address Reuse](044-beacon-change-output-address.md) |
 | 045 | 2026-06-24 | [Analytical-vsize Dynamic Fees for the Aggregation Beacon Broadcast](045-analytical-vsize-aggregation-fees.md) |
 | 046 | 2026-06-24 | [Extract the Aggregation Subsystem into @did-btcr2/aggregation](046-extract-aggregation-package.md) |
+| 047 | 2026-06-25 | [CLI Secret-Key Custody via an Encrypted File-Backed Keystore](047-cli-encrypted-keystore.md) |
+| 048 | 2026-06-25 | [CLI Configuration and Profile Model: Writable Config with Identity and Aggregation Profiles](048-cli-config-profile-model.md) |
