@@ -10,12 +10,6 @@ export const SUPPORTED_NETWORKS: NetworkOption[] = [
   'bitcoin', 'testnet3', 'testnet4', 'signet', 'mutinynet', 'regtest'
 ];
 
-export interface CreateCommandOptions {
-  type    : 'k' | 'x';
-  bytes   : string;
-  network : NetworkOption;
-}
-
 export interface ResolveCommandOptions {
   identifier : string;
   options?   : ResolutionOptions;
@@ -30,7 +24,7 @@ export interface UpdateCommandOptions {
 }
 
 export type CommandResult =
-  | { action: 'create'; data: string }
+  | { action: 'create'; data: string; keyId?: string; publicKey?: string }
   | { action: 'resolve'; data: DidResolutionResult }
   | { action: 'update'; data: SignedBTCR2Update }
   | { action: 'deactivate'; data: SignedBTCR2Update }

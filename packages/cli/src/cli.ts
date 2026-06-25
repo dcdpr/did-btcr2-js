@@ -57,7 +57,7 @@ export class DidBtcr2Cli {
 
     const globals = (): GlobalOptions => this.program.opts() as GlobalOptions;
 
-    registerCreateCommand(this.program, factory, globals);
+    registerCreateCommand(this.program, factory, keystoreFactory, globals);
     registerResolveCommand(this.program, factory, globals);
     registerUpdateCommand(this.program, keystoreFactory, globals);
     registerDeactivateCommand(this.program, keystoreFactory, globals);

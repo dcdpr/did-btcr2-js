@@ -232,6 +232,29 @@ export function profileToOverrides(
 }
 
 /**
+ * Resolves the default Bitcoin network for offline identifier creation when no
+ * `--network` flag is given. Resolution order: the config file's
+ * `defaults.network`, then an active profile named for a network (an explicit
+ * `--profile` flag or `defaults.profile`), then `regtest` as the development
+ * fallback. Generation itself is offline; this only fixes which network the
+ * identifier encodes.
+ */
+export function resolveDefaultNetwork(overrides?: ConnectionOverrides): NetworkOption {
+  const configPath = overrides?.config ?? defaultConfigPath();
+  const file = readConfigFile(configPath);
+
+  const explicit = file?.defaults?.network;
+  if (explicit && SUPPORTED_NETWORKS.includes(explicit)) return explicit;
+
+  const profile = overrides?.profile ?? file?.defaults?.profile;
+  if (profile && SUPPORTED_NETWORKS.includes(profile as NetworkOption)) {
+    return profile as NetworkOption;
+  }
+
+  return 'regtest';
+}
+
+/**
  * Resolves the Bitcoin and CAS connection config for a network by merging,
  * in precedence order, CLI flags, environment variables, and the config-file
  * profile on top of the per-network defaults (handled by `BitcoinConnection`).
