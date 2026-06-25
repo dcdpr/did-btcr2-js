@@ -1,6 +1,9 @@
+import { KeyManagerSigner } from '@did-btcr2/key-manager';
 import type { Command } from 'commander';
 import { deriveNetwork, type ApiFactory } from '../config.js';
 import { CLIError } from '../error.js';
+import { resolveKeyRef } from '../keystore/resolve-key-ref.js';
+import { formatResult } from '../output.js';
 import type { GlobalOptions, UpdateCommandOptions } from '../types.js';
 
 /** The JSON Patch that marks a DID document as permanently deactivated. */
@@ -39,6 +42,13 @@ export function registerDeactivateCommand(
       verificationMethodId : string;
       beaconId             : unknown;
     }) => {
+      if (!/^\d+$/.test(options.sourceVersionId)) {
+        throw new CLIError(
+          '--source-version-id must be a non-negative integer.',
+          'INVALID_ARGUMENT_ERROR',
+          { value: options.sourceVersionId },
+        );
+      }
       const parsed: UpdateCommandOptions = {
         sourceDocument       : options.sourceDocument as UpdateCommandOptions['sourceDocument'],
         patches              : DEACTIVATION_PATCH,
@@ -54,18 +64,21 @@ export function registerDeactivateCommand(
           options
         );
       }
-      // CLI signing is not yet wired up; deactivate uses the same update path
-      // and inherits the same gap. Drive the SDK directly with a `Signer` for now.
-      // Variables above are kept so command parsing + validation still works.
-      void deriveNetwork(did);
-      void factory;
-      void globals;
-      void parsed;
-      throw new CLIError(
-        'CLI signing is not yet implemented. Use @did-btcr2/api with a Signer directly.',
-        'NOT_IMPLEMENTED_ERROR',
-        { command: 'deactivate' }
-      );
+      // Deactivation is an update that applies the deactivation patch. The core
+      // method has no separate deactivate path, so this routes through update.
+      const network = deriveNetwork(did);
+      const api = factory(network, globals());
+      const keyId = resolveKeyRef(api.kms.kms, globals().signingKey);
+      const signer = new KeyManagerSigner(api.kms.kms, keyId);
+      const data = await api.btcr2.update({
+        sourceDocument       : parsed.sourceDocument,
+        patches              : parsed.patches,
+        sourceVersionId      : parsed.sourceVersionId,
+        verificationMethodId : parsed.verificationMethodId,
+        beaconId             : parsed.beaconId,
+        signer,
+      });
+      console.log(formatResult({ action: 'deactivate', data }, globals()));
     });
 }
 

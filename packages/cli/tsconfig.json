@@ -13,6 +13,8 @@
   "references": [
     { "path": "../common" },
     { "path": "../cryptosuite" },
+    { "path": "../key-manager" },
+    { "path": "../keypair" },
     { "path": "../method" },
     { "path": "../api" }
   ]

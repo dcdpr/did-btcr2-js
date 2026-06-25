@@ -389,9 +389,24 @@ importers:
       '@did-btcr2/cryptosuite':
         specifier: workspace:^
         version: link:../cryptosuite
+      '@did-btcr2/key-manager':
+        specifier: workspace:^
+        version: link:../key-manager
+      '@did-btcr2/keypair':
+        specifier: workspace:^
+        version: link:../keypair
       '@did-btcr2/method':
         specifier: workspace:^
         version: link:../method
+      '@noble/ciphers':
+        specifier: ^2.1.1
+        version: 2.1.1
+      '@noble/hashes':
+        specifier: ^2.0.1
+        version: 2.0.1
+      '@scure/base':
+        specifier: ^1.2.6
+        version: 1.2.6
       '@web5/dids':
         specifier: ^1.2.0
         version: 1.2.0

@@ -48,6 +48,11 @@ export class KeyManagerApi {
     return this.kms.getPublicKey(id);
   }
 
+  /** Read a key's public material and tags, with the secret omitted. */
+  getEntry(id?: KeyIdentifier): { publicKey: Bytes; tags?: Record<string, string> } {
+    return this.kms.getEntry(id);
+  }
+
   /** Import a Schnorr keypair into the KMS. */
   import(kp: SchnorrKeyPair, options?: ImportKeyOptions): KeyIdentifier {
     return this.kms.importKey(kp, options);

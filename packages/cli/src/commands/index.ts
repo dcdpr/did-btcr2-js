@@ -2,3 +2,7 @@ export { registerCreateCommand } from './create.js';
 export { registerResolveCommand } from './resolve.js';
 export { registerUpdateCommand } from './update.js';
 export { registerDeactivateCommand } from './deactivate.js';
+export { registerKeyCommand } from './key.js';
+export { registerConfigCommand } from './config.js';
+export { registerProfileCommand } from './profile.js';
+export { registerCompletionCommand } from './completion.js';

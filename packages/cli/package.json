@@ -1,6 +1,6 @@
 {
   "name": "@did-btcr2/cli",
-  "version": "0.10.3",
+  "version": "0.11.0",
   "type": "module",
   "description": "CLI for interacting with did-btcr2-js, the JavaScript/TypeScript reference implementation of the did:btcr2 method. Exposes various parts of multiple packages in the did-btcr2-js monorepo.",
   "main": "./dist/cjs/index.js",
@@ -78,7 +78,12 @@
     "@did-btcr2/api": "workspace:^",
     "@did-btcr2/common": "workspace:^",
     "@did-btcr2/cryptosuite": "workspace:^",
+    "@did-btcr2/key-manager": "workspace:^",
+    "@did-btcr2/keypair": "workspace:^",
     "@did-btcr2/method": "workspace:^",
+    "@noble/ciphers": "^2.1.1",
+    "@noble/hashes": "^2.0.1",
+    "@scure/base": "^1.2.6",
     "@web5/dids": "^1.2.0",
     "commander": "^13.1.0"
   },

@@ -33,17 +33,36 @@ export type CommandResult =
   | { action: 'create'; data: string }
   | { action: 'resolve'; data: DidResolutionResult }
   | { action: 'update'; data: SignedBTCR2Update }
-  | { action: 'deactivate'; data: SignedBTCR2Update };
+  | { action: 'deactivate'; data: SignedBTCR2Update }
+  | { action: 'key-generate'; data: { keyId: string; publicKey: string; active: boolean } }
+  | { action: 'key-list'; data: Array<{ keyId: string; fingerprint: string; name?: string; active: boolean }> }
+  | { action: 'key-show'; data: { keyId: string; publicKey: string; tags?: Record<string, string> } }
+  | { action: 'key-import'; data: { keyId: string; publicKey: string; watchOnly: boolean; active: boolean } }
+  | { action: 'key-export'; data: { keyId: string; publicKey?: string; secretWrittenTo?: string } }
+  | { action: 'key-delete'; data: { keyId: string; deleted: true } }
+  | { action: 'key-use'; data: { keyId: string; active: true } }
+  | { action: 'config-init'; data: { path: string } }
+  | { action: 'config-get'; data: unknown }
+  | { action: 'config-set'; data: { path: string } }
+  | { action: 'config-unset'; data: { path: string } }
+  | { action: 'config-list'; data: unknown }
+  | { action: 'profile-add'; data: { profile: string } }
+  | { action: 'profile-use'; data: { profile: string } }
+  | { action: 'profile-show'; data: unknown }
+  | { action: 'profile-remove'; data: { profile: string } };
 
 export interface GlobalOptions {
-  output     : OutputFormat;
-  verbose    : boolean;
-  quiet      : boolean;
-  config?    : string;
-  profile?   : string;
-  btcRest?   : string;
-  btcRpcUrl? : string;
-  btcRpcUser?: string;
-  btcRpcPass?: string;
-  casGateway?: string;
+  output         : OutputFormat;
+  verbose        : boolean;
+  quiet          : boolean;
+  config?        : string;
+  profile?       : string;
+  btcRest?       : string;
+  btcRpcUrl?     : string;
+  btcRpcUser?    : string;
+  btcRpcPass?    : string;
+  casGateway?    : string;
+  keystore?      : string;
+  passphraseFile?: string;
+  signingKey?    : string;
 }
