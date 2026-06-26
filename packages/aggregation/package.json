@@ -1,6 +1,6 @@
 {
   "name": "@did-btcr2/aggregation",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Multi-party coordination for did:btcr2 aggregate beacons: sans-I/O AggregationService and AggregationParticipant state machines, MuSig2 (BIP-327) signing sessions, cohort conditions, and pluggable transports (Nostr, HTTP, in-memory).",
   "main": "./dist/cjs/index.js",
@@ -12,6 +12,21 @@
       "browser": "./dist/browser.mjs",
       "import": "./dist/esm/index.js",
       "require": "./dist/cjs/index.js"
+    },
+    "./core": {
+      "types": "./dist/types/core/index.d.ts",
+      "import": "./dist/esm/core/index.js",
+      "require": "./dist/cjs/core/index.js"
+    },
+    "./participant": {
+      "types": "./dist/types/participant/index.d.ts",
+      "import": "./dist/esm/participant/index.js",
+      "require": "./dist/cjs/participant/index.js"
+    },
+    "./service": {
+      "types": "./dist/types/service/index.d.ts",
+      "import": "./dist/esm/service/index.js",
+      "require": "./dist/cjs/service/index.js"
     },
     "./browser": {
       "types": "./dist/types/index.d.ts",
@@ -75,6 +90,7 @@
     "clean:tests": "rimraf coverage tests/compiled",
     "wipe": "rimraf node_modules pnpm-lock.json",
     "reinstall": "pnpm install --force",
+    "do": "bun",
     "build": "pnpm clean:build && pnpm build:esm && pnpm build:cjs && pnpm build:browser",
     "build:esm": "rimraf dist/esm dist/types && pnpm tsc -p tsconfig.json",
     "build:cjs": "tsup && echo '{\"type\": \"commonjs\"}' > ./dist/cjs/package.json",
@@ -101,6 +117,7 @@
     "nostr-tools": "^2.23.3"
   },
   "devDependencies": {
+    "@did-btcr2/method": "workspace:^",
     "@eslint/js": "^9.20.0",
     "@types/chai": "^5.0.1",
     "@types/chai-as-promised": "^8.0.1",

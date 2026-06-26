@@ -1,23 +1,13 @@
-// State machines + core data
-export * from './service.js';
-export * from './participant.js';
-export * from './signer.js';
-export * from './conditions.js';
-export * from './recovery-policy.js';
-export * from './recovery-spend.js';
-export * from './fallback-spend.js';
-export * from './cohort.js';
-export * from './signing-session.js';
-export * from './phases.js';
-export * from './errors.js';
-export * from './beacon-strategy.js';
-export * from './logger.js';
-
-// Messages
-export * from './messages/index.js';
-
-// Transport
-export * from './transport/index.js';
-
-// Runner facades
-export * from './runner/index.js';
+// @did-btcr2/aggregation (umbrella entry)
+//
+// The whole aggregation surface in one import. Applications should prefer the
+// role entry points - `@did-btcr2/aggregation/core`, `/participant`, `/service`
+// - so a client never bundles server code and a service never bundles client
+// code. This umbrella additionally carries the two cross-role conveniences that
+// legitimately need both roles: the in-process single-party runner (for
+// single-participant test vectors) and the transport factory.
+export * from './core/index.js';
+export * from './participant/index.js';
+export * from './service/index.js';
+export * from './aggregation-runner.js';
+export * from './transport-factory.js';

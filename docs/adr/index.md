@@ -50,6 +50,7 @@ children:
   - ./047-cli-encrypted-keystore.md
   - ./048-cli-config-profile-model.md
   - ./049-cli-create-default-keygen.md
+  - ./050-split-aggregation-packages.md
 ---
 
 # Architecture Decision Records
@@ -107,3 +108,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 047 | 2026-06-25 | [CLI Secret-Key Custody via an Encrypted File-Backed Keystore](047-cli-encrypted-keystore.md) |
 | 048 | 2026-06-25 | [CLI Configuration and Profile Model: Writable Config with Identity and Aggregation Profiles](048-cli-config-profile-model.md) |
 | 049 | 2026-06-25 | [Default Keypair Generation in the create Command](049-cli-create-default-keygen.md) |
+| 050 | 2026-06-26 | [Split the Aggregation Package into Core, Participant, and Service Subpath Exports](050-split-aggregation-packages.md) |

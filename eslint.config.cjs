@@ -91,6 +91,33 @@ module.exports = [
     }
   },
   {
+    // Aggregation role boundary (ADR 050): the participant (client) role must
+    // not import the service (server) role, so a client never bundles
+    // server-hosting code. Both roles may import the shared core.
+    files : ['packages/aggregation/src/participant/**/*.ts'],
+    rules : {
+      'no-restricted-imports': ['error', {
+        patterns: [{
+          group   : ['**/service/*', '**/service'],
+          message : 'participant code must not import the service role (ADR 050: keeps the client bundle free of server-hosting code). Shared code belongs in core.',
+        }],
+      }],
+    }
+  },
+  {
+    // Aggregation role boundary (ADR 050): the service role must not import the
+    // participant role. Both roles may import the shared core.
+    files : ['packages/aggregation/src/service/**/*.ts'],
+    rules : {
+      'no-restricted-imports': ['error', {
+        patterns: [{
+          group   : ['**/participant/*', '**/participant'],
+          message : 'service code must not import the participant role (ADR 050: keeps the role boundary clean). Shared code belongs in core.',
+        }],
+      }],
+    }
+  },
+  {
     ignores: [
       '**/*.js',
       '**/*.cjs',

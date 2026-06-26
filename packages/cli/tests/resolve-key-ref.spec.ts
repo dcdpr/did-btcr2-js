@@ -55,6 +55,17 @@ describe('resolveKeyRef', () => {
     expect(resolveKeyRef(km, 'alice')).to.equal(id);
   });
 
+  it('prefers an exact name over a colliding fingerprint prefix', () => {
+    const km = open();
+    const idA = km.generateKey();
+    const collidingName = idA.split(':').pop()!.slice(0, 8);
+    // Name a second key with the first key's fingerprint prefix; the exact name
+    // must win over the fuzzy fingerprint-prefix match (a hex-looking name like
+    // "cafe" must not be shadowed by another key's fingerprint).
+    const idB = km.generateKey({ tags: { name: collidingName } });
+    expect(resolveKeyRef(km, collidingName)).to.equal(idB);
+  });
+
   it('throws on an ambiguous name', () => {
     const km = open();
     km.generateKey({ tags: { name: 'dup' } });
