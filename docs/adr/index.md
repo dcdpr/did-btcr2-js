@@ -51,6 +51,7 @@ children:
   - ./048-cli-config-profile-model.md
   - ./049-cli-create-default-keygen.md
   - ./050-split-aggregation-packages.md
+  - ./051-update-verifies-signing-key.md
 ---
 
 # Architecture Decision Records
@@ -109,3 +110,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 048 | 2026-06-25 | [CLI Configuration and Profile Model: Writable Config with Identity and Aggregation Profiles](048-cli-config-profile-model.md) |
 | 049 | 2026-06-25 | [Default Keypair Generation in the create Command](049-cli-create-default-keygen.md) |
 | 050 | 2026-06-26 | [Split the Aggregation Package into Core, Participant, and Service Subpath Exports](050-split-aggregation-packages.md) |
+| 051 | 2026-06-26 | [Verify the Signing Key Against the Named Verification Method in Updater.sign](051-update-verifies-signing-key.md) |

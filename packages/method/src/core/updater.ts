@@ -266,6 +266,27 @@ export class Updater {
     const id = verificationMethod.id.slice(hashIdx);
     const multikey = SchnorrMultikey.fromSigner(id, controller, signer);
 
+    // Fail fast if the signer's public key is not the key published in the named
+    // verification method. Signing with the wrong key yields a Data Integrity
+    // proof that cannot verify against the method, so the resulting on-chain
+    // announcement is wasted: a resolver replaying the update rejects it. Catching
+    // it here guards every update path (state machine, builder, api, cli) at a
+    // single chokepoint. The check is skipped when the method carries no
+    // publicKeyMultibase, which a well-formed btcr2 Multikey method never omits.
+    const signerKey = multikey.publicKey.multibase.encoded;
+    if(verificationMethod.publicKeyMultibase && signerKey !== verificationMethod.publicKeyMultibase) {
+      throw new UpdateError(
+        `Signing key does not match verification method "${verificationMethod.id}": the signer's public `
+        + 'key differs from the method\'s published publicKeyMultibase.',
+        INVALID_DID_UPDATE,
+        {
+          verificationMethodId : verificationMethod.id,
+          expected             : verificationMethod.publicKeyMultibase,
+          actual               : signerKey,
+        }
+      );
+    }
+
     const config: DataIntegrityConfig = {
       '@context' : [
         'https://w3id.org/security/v2',

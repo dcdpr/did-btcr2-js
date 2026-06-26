@@ -227,6 +227,15 @@ describe('Updater', () => {
       expect(() => updater.provide(signingNeed)).to.throw(/Signer/i);
     });
 
+    it('provide(NeedSigningKey) throws when the signer does not match the verification method', () => {
+      // Drives the same guard through the state-machine path the api and cli use.
+      const state = updater.advance();
+      if(state.status !== 'action-required') throw new Error('expected action-required');
+      const wrongSigner = new LocalSigner(new Uint8Array(32).fill(0x42));
+      expect(() => updater.provide(state.needs[0] as NeedSigningKey, wrongSigner))
+        .to.throw(/does not match verification method/i);
+    });
+
     it('provide(NeedFunding) throws if called before signing is done', () => {
       const bogusFunding: NeedFunding = {
         kind          : 'NeedFunding',
@@ -286,20 +295,38 @@ describe('Updater', () => {
       expect(result.verified).to.be.true;
     });
 
-    it('verification fails when proof is signed by a different key', () => {
+    it('Updater.sign throws when the signer does not match the verification method', () => {
       const unsigned = Updater.construct(sourceDocument, [], 1);
       const vm = sourceDocument.verificationMethod![0]!;
 
-      // Sign with a key that does NOT match the verification method.
-      const wrongKey = new Uint8Array(32).fill(0x42);
-      const wrongSigner = new LocalSigner(wrongKey);
-      const signed = Updater.sign(sourceDocument.id, unsigned, vm, wrongSigner);
+      // Sign with a key that does NOT match the method's published publicKeyMultibase.
+      // The guard fails fast here, before an unverifiable proof is produced and an
+      // on-chain announcement wasted.
+      const wrongSigner = new LocalSigner(new Uint8Array(32).fill(0x42));
+      expect(() => Updater.sign(sourceDocument.id, unsigned, vm, wrongSigner))
+        .to.throw(/does not match verification method/i);
+    });
 
-      const verifierMultikey = SchnorrMultikey.fromVerificationMethod(vm);
-      const cryptosuite = verifierMultikey.toCryptosuite();
-      const result = cryptosuite.verifyProof(signed);
+    it('verifier still rejects a self-consistent proof made by a key other than the document\'s', () => {
+      // Defense in depth: even when a proof is internally consistent (the signer's
+      // key matches the method it was signed against), a resolver verifying against
+      // the document's actual published key rejects a proof an attacker signed with
+      // their own key while claiming the document's verification method id.
+      const unsigned = Updater.construct(sourceDocument, [], 1);
+      const realVm = sourceDocument.verificationMethod![0]!;
+      const fragment = realVm.id.slice(realVm.id.indexOf('#'));
 
-      expect(result.verified).to.be.false;
+      const wrongSigner = new LocalSigner(new Uint8Array(32).fill(0x42));
+      const attackerKey = SchnorrMultikey
+        .fromSigner(fragment, realVm.controller, wrongSigner)
+        .publicKey.multibase.encoded;
+      // A method that legitimately matches the attacker's key, so the sign guard passes.
+      const attackerVm = { ...realVm, publicKeyMultibase: attackerKey };
+      const signed = Updater.sign(sourceDocument.id, unsigned, attackerVm, wrongSigner);
+
+      // The resolver checks against the document's REAL published key, which rejects it.
+      const verifier = SchnorrMultikey.fromVerificationMethod(realVm).toCryptosuite();
+      expect(verifier.verifyProof(signed).verified).to.be.false;
     });
 
     it('cross-signer parity: LocalSigner and inline literal Signer both produce verifiable proofs', () => {
