@@ -9,7 +9,6 @@
   },
   "include": ["src"],
   "references": [
-    { "path": "../aggregation" },
     { "path": "../common" },
     { "path": "../keypair" },
     { "path": "../cryptosuite" },

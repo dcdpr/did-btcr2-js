@@ -4,12 +4,19 @@ import { defineConfig } from 'tsup';
  * CJS bundle build.
  *
  * The ESM + types output is produced by `tsc` (see `tsconfig.json`). This config
- * only produces `dist/cjs/index.js`. All runtime dependencies (the workspace
- * packages, `@scure/btc-signer`, `@noble/*`, `nostr-tools`) ship a `require` export
- * condition, so nothing needs to be bundled inline.
+ * produces `dist/cjs/index.js` (the umbrella) and one CJS entry per role subpath
+ * (`core`, `participant`, `service`), mirroring the package `exports` map. All
+ * runtime dependencies (the workspace packages, `@scure/btc-signer`, `@noble/*`,
+ * `nostr-tools`) ship a `require` export condition, so nothing needs to be
+ * bundled inline.
  */
 export default defineConfig({
-  entry     : ['src/index.ts'],
+  entry     : [
+    'src/index.ts',
+    'src/core/index.ts',
+    'src/participant/index.ts',
+    'src/service/index.ts',
+  ],
   format    : ['cjs'],
   outDir    : 'dist/cjs',
   target    : 'node22',

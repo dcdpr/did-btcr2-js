@@ -10,8 +10,9 @@ function fingerprintOf(id: KeyIdentifier): string | undefined {
  * Resolves a user-supplied key reference to a key identifier. Resolution order:
  * 1. No reference: the active key (errors if none is set).
  * 2. Exact URN identifier match.
- * 3. Unique fingerprint-prefix match (against the hex tail of the URN).
- * 4. Unique `name` tag match.
+ * 3. Unique `name` tag match (an exact name wins over a fuzzy fingerprint prefix,
+ *    so a hex-looking name like "cafe" is never shadowed by another key's fingerprint).
+ * 4. Unique fingerprint-prefix match (against the hex tail of the URN).
  *
  * Reads only public material (listKeys + getEntry), so resolving a reference
  * never decrypts a secret or prompts for a passphrase.
@@ -37,22 +38,26 @@ export function resolveKeyRef(kms: KeyManager, ref?: string): KeyIdentifier {
 
   if (ids.includes(ref)) return ref;
 
+  // An exact name match takes precedence over a fuzzy fingerprint prefix: a name
+  // the caller chose is more specific than a partial fingerprint, and a name can
+  // itself be valid hex (e.g. "cafe") that must not be shadowed by another key's
+  // fingerprint.
+  const byName = ids.filter(id => kms.getEntry(id).tags?.name === ref);
+  if (byName.length === 1) return byName[0];
+  if (byName.length > 1) {
+    throw new CLIError(
+      `Ambiguous key name "${ref}" matches ${byName.length} keys.`,
+      'KEY_REF_AMBIGUOUS_ERROR',
+      { ref },
+    );
+  }
+
   const prefix = ref.toLowerCase();
   const byPrefix = ids.filter(id => fingerprintOf(id)?.startsWith(prefix));
   if (byPrefix.length === 1) return byPrefix[0];
   if (byPrefix.length > 1) {
     throw new CLIError(
       `Ambiguous key reference "${ref}" matches ${byPrefix.length} keys by fingerprint.`,
-      'KEY_REF_AMBIGUOUS_ERROR',
-      { ref },
-    );
-  }
-
-  const byName = ids.filter(id => kms.getEntry(id).tags?.name === ref);
-  if (byName.length === 1) return byName[0];
-  if (byName.length > 1) {
-    throw new CLIError(
-      `Ambiguous key name "${ref}" matches ${byName.length} keys.`,
       'KEY_REF_AMBIGUOUS_ERROR',
       { ref },
     );

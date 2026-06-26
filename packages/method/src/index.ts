@@ -1,6 +1,3 @@
-// Aggregation (extracted to @did-btcr2/aggregation; re-exported here for backward compatibility)
-export * from '@did-btcr2/aggregation';
-
 // Beacons
 export * from './core/beacon/beacon.js';
 export * from './core/beacon/cas-beacon.js';
