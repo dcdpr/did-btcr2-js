@@ -56,6 +56,7 @@ children:
   - ./053-bitcoin-defaults-in-sdk.md
   - ./054-cryptosuite-method-agnostic.md
   - ./055-resolver-provide-trust-boundary.md
+  - ./056-beacon-signal-format-validation.md
 ---
 
 # Architecture Decision Records
@@ -119,3 +120,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 053 | 2026-06-27 | [Bitcoin Service Defaults Belong to the SDK, Not the Sans-I/O Transport](053-bitcoin-defaults-in-sdk.md) |
 | 054 | 2026-06-27 | [Make the bip340-jcs-2025 Cryptosuite Method-Agnostic](054-cryptosuite-method-agnostic.md) |
 | 055 | 2026-06-27 | [Harden the Resolver provide() Trust Boundary](055-resolver-provide-trust-boundary.md) |
+| 056 | 2026-06-27 | [Validate the Beacon Signal Output Format and Document the CAS Announcement Hash Chain](056-beacon-signal-format-validation.md) |

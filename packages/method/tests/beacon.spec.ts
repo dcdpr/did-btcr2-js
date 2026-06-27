@@ -1,4 +1,4 @@
-import { canonicalize, canonicalHash, hash } from '@did-btcr2/common';
+import { canonicalize, canonicalHash, decode, encode, hash } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '@did-btcr2/method';
 import { BTCR2MerkleTree } from '@did-btcr2/smt';
 import { bytesToHex, randomBytes } from '@noble/hashes/utils';
@@ -306,5 +306,62 @@ describe('BeaconFactory.establish', () => {
   it('throws on an unknown beacon type', () => {
     const service = { id: base, type: 'BogusBeacon', serviceEndpoint: endpoint } as unknown as BeaconService;
     expect(() => BeaconFactory.establish(service)).to.throw('Invalid Beacon Type');
+  });
+});
+
+describe('CAS announcement hash chain (regression)', () => {
+  // Pins the two encoding transitions that link an on-chain CAS signal to a signed
+  // update (see the CASBeacon class docs). If canonicalHash's default encoding
+  // (base64urlnopad) or the on-chain hex encoding ever drifts, resolution would
+  // silently fail to find the update; these assertions make that break loud.
+  const service: BeaconService = {
+    id              : `${DID}#beacon-1`,
+    type            : 'CASBeacon',
+    serviceEndpoint : 'bitcoin:bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
+  };
+  const beacon = new CASBeacon(service);
+
+  it('signal hop: on-chain signalBytes (hex) equals the casMap key canonicalHash(announcement, hex)', () => {
+    const update = fakeUpdate('cas-chain-signal');
+    // The announcement is built exactly as broadcastSignal builds it.
+    const announcement: CASAnnouncement = { [DID]: canonicalHash(update) };
+
+    // Broadcast writes hash(canonicalize(announcement)) as the OP_RETURN payload, hex on-chain.
+    const onChainSignalHex = bytesToHex(hash(canonicalize(announcement)));
+    // The resolver keys casMap by canonicalHash(announcement, { encoding: 'hex' }).
+    const casMapKey = canonicalHash(announcement, { encoding: 'hex' });
+
+    expect(casMapKey).to.equal(onChainSignalHex);
+  });
+
+  it('update hop: decoded announcement value (hex) equals the updateMap key canonicalHash(update, hex)', () => {
+    const update = fakeUpdate('cas-chain-update');
+
+    // The announcement stores the update hash as base64urlnopad (canonicalHash default).
+    const announcementValueB64 = canonicalHash(update);
+    // The resolver decodes that value to hex to key updateMap.
+    const decodedToHex = encode(decode(announcementValueB64, 'base64urlnopad'), 'hex');
+    const updateMapKey = canonicalHash(update, { encoding: 'hex' });
+
+    expect(decodedToHex).to.equal(updateMapKey);
+  });
+
+  it('end-to-end: a broadcast-shaped announcement resolves to the update with no needs', () => {
+    const update = fakeUpdate('cas-chain-e2e');
+
+    // Mirror broadcastSignal: announcement value is base64urlnopad, signal is the hex announcement hash.
+    const announcement: CASAnnouncement = { [DID]: canonicalHash(update) };
+    const announcementHashHex = bytesToHex(hash(canonicalize(announcement)));
+
+    // Mirror Resolver.sidecarData: both maps keyed by canonicalHash hex.
+    const sidecar = emptySidecar();
+    sidecar.casMap.set(canonicalHash(announcement, { encoding: 'hex' }), announcement);
+    sidecar.updateMap.set(canonicalHash(update, { encoding: 'hex' }), update);
+
+    const result = beacon.processSignals([fakeSignal(announcementHashHex)], sidecar);
+
+    expect(result.updates).to.have.length(1);
+    expect(result.updates[0]![0]).to.deep.equal(update);
+    expect(result.needs).to.be.empty;
   });
 });

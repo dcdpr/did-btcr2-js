@@ -11,6 +11,40 @@ import type { BeaconService, BeaconSignal } from './interfaces.js';
 import { BeaconUtils } from './utils.js';
 
 /**
+ * Parses a scriptPubKey asm string and returns the beacon signal hash if and only
+ * if the output is exactly `OP_RETURN OP_PUSHBYTES_32 <32-byte hex>`.
+ *
+ * Beacon signals encode a single 32-byte update or announcement hash in an
+ * OP_RETURN data push. Any other shape (a bare `OP_RETURN`, a push of the wrong
+ * size, or a non-hex payload) is not a valid signal and returns `null`, so a
+ * malformed or adversarial on-chain output cannot be mistaken for a real signal
+ * downstream.
+ *
+ * @param {string | undefined} asm The scriptPubKey asm string to parse.
+ * @returns {string | null} The lowercased 32-byte hex hash, or `null` if not a valid signal.
+ */
+export function extractOpReturnSignal(asm: string | undefined): string | null {
+  if(!asm) {
+    return null;
+  }
+
+  // A standard NULL_DATA beacon output is exactly three asm tokens: the OP_RETURN
+  // opcode, the 32-byte push opcode, and the 64-character hex payload.
+  const tokens = asm.trim().split(/\s+/);
+  if(tokens.length !== 3 || tokens[0] !== 'OP_RETURN' || tokens[1] !== 'OP_PUSHBYTES_32') {
+    return null;
+  }
+
+  // The payload must be exactly 32 bytes of hex (64 hex characters).
+  const signalHash = tokens[2];
+  if(!/^[0-9a-fA-F]{64}$/.test(signalHash)) {
+    return null;
+  }
+
+  return signalHash.toLowerCase();
+}
+
+/**
  * Static utility class for discovering Beacon Signals on the Bitcoin blockchain.
  * Extracted from `Resolver` for single-responsibility and independent testability.
  *
@@ -62,23 +96,14 @@ export class BeaconSignalDiscovery {
          *  value: 0
          * }
          */
-        if(!signalVout || !signalVout.scriptpubkey_asm.includes('OP_RETURN')) {
+        if(!signalVout) {
           continue;
         }
 
-        // Construct output map for easier access
-        const outputMap = new Map<string, string | number>(Object.entries(signalVout));
-
-        // Grab the signal vout scriptpubkey
-        const signalVoutScriptPubkey = outputMap.get('scriptpubkey_asm') as string;
-
-        // If the signal vout scriptpubkey does not exist, continue to next signal
-        if(!signalVoutScriptPubkey){
-          continue;
-        }
-
-        // Extract hex string hash of the signal bytes from the scriptpubkey
-        const updateHash = signalVoutScriptPubkey.split(' ').slice(-1)[0];
+        // A beacon signal output must be exactly `OP_RETURN OP_PUSHBYTES_32 <32-byte hash>`.
+        // Reject any other shape (bare OP_RETURN, wrong push size, non-hex payload) so a
+        // malformed on-chain output cannot masquerade as a phantom signal downstream.
+        const updateHash = extractOpReturnSignal(signalVout.scriptpubkey_asm);
         if(!updateHash) {
           continue;
         }
@@ -192,20 +217,17 @@ export class BeaconSignalDiscovery {
             continue;
           }
 
-          // Look for 'OP_RETURN' in the scriptPubKey asm
+          // A beacon signal output must be exactly `OP_RETURN OP_PUSHBYTES_32 <32-byte hash>`.
+          // Reject any other shape so a malformed on-chain output cannot masquerade as a
+          // phantom signal downstream.
           const txVoutScriptPubkeyAsm = prevout.vout[vin.vout].scriptPubKey.asm;
-          if(!txVoutScriptPubkeyAsm.includes('OP_RETURN')) {
+          const updateHash = extractOpReturnSignal(txVoutScriptPubkeyAsm);
+          if(!updateHash) {
             continue;
           }
 
           // Log the found txid and beacon
           console.info(`Tx ${tx.txid} contains beacon service address ${scriptPubKey.address} and OP_RETURN!`, tx);
-
-          // Extract hex string hash of the signal bytes from the scriptpubkey
-          const updateHash = txVoutScriptPubkeyAsm.split(' ').slice(-1)[0];
-          if(!updateHash) {
-            continue;
-          }
 
           // Push the beacon signal object to the beacon signals array for that beacon service
           beaconServiceSignals.get(beaconService)?.push({
