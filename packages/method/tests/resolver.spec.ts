@@ -621,4 +621,130 @@ describe('Resolver', () => {
       }
     });
   });
+
+  describe('provide() validation and bounded discovery (hardening)', () => {
+    // Drive a deterministic DID to the NeedSignedUpdate phase via a singleton
+    // signal whose hash is absent from the (empty) sidecar.
+    function reachNeedSignedUpdate(): { resolver: ReturnType<typeof DidBtcr2.resolve>; need: NeedSignedUpdate } {
+      const { did } = deterministicData[2];
+      const resolver = DidBtcr2.resolve(did);
+      let state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected action-required');
+      const beaconNeed = state.needs[0] as NeedBeaconSignals;
+      const signals = new Map<BeaconService, Array<BeaconSignal>>();
+      signals.set(beaconNeed.beaconServices[0] as BeaconService, [{
+        tx            : {} as any,
+        signalBytes   : 'deadbeef'.repeat(8),
+        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+      }]);
+      resolver.provide(beaconNeed, signals);
+      state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected NeedSignedUpdate');
+      return { resolver, need: state.needs[0] as NeedSignedUpdate };
+    }
+
+    it('rejects a NeedSignedUpdate payload whose hash does not match the signal', () => {
+      const { resolver, need } = reachNeedSignedUpdate();
+      // Well-formed signed-update shape, but not the update the signal asked for.
+      const wellFormedButWrong = {
+        '@context'      : [],
+        patch           : [],
+        sourceHash      : 'aa',
+        targetHash      : 'bb',
+        targetVersionId : 2,
+        proof           : {
+          type               : 'DataIntegrityProof',
+          cryptosuite        : 'bip340-jcs-2025',
+          verificationMethod : 'did:btcr2:x#k',
+          proofPurpose       : 'capabilityInvocation',
+          proofValue         : 'zz'
+        }
+      };
+      expect(() => resolver.provide(need, wellFormedButWrong as any)).to.throw(/hash mismatch/i);
+    });
+
+    it('rejects a NeedSignedUpdate payload that is not a signed update', () => {
+      const { resolver, need } = reachNeedSignedUpdate();
+      expect(() => resolver.provide(need, { not: 'an update' } as any)).to.throw(/not a signed BTCR2 update/i);
+    });
+
+    it('rejects a NeedCASAnnouncement payload whose hash does not match the signal', () => {
+      const { genesisDocument } = externalData[2];
+      const casGenesisDoc = JSON.parse(JSON.stringify(genesisDocument));
+      casGenesisDoc.service[0].type = 'CASBeacon';
+      const casDid = DidBtcr2.create(hash(canonicalize(casGenesisDoc)), { idType: 'EXTERNAL', version: 1, network: 'regtest' });
+      const resolver = DidBtcr2.resolve(casDid, { sidecar: { genesisDocument: casGenesisDoc } });
+
+      let state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+      const beaconNeed = state.needs[0] as NeedBeaconSignals;
+      const signals = new Map<BeaconService, Array<BeaconSignal>>();
+      signals.set(beaconNeed.beaconServices[0] as BeaconService, [{
+        tx            : {} as any,
+        signalBytes   : 'abcdef01'.repeat(8),
+        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+      }]);
+      resolver.provide(beaconNeed, signals);
+
+      state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected NeedCASAnnouncement');
+      const casNeed = state.needs[0] as NeedCASAnnouncement;
+      // Valid announcement shape (record of string hashes), wrong hash.
+      expect(() => resolver.provide(casNeed, { someUpdate: 'someHash' } as any)).to.throw(/hash mismatch/i);
+    });
+
+    it('rejects a non-Map payload for NeedBeaconSignals', () => {
+      const resolver = DidBtcr2.resolve(deterministicData[0].did);
+      const state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected action-required');
+      expect(() => resolver.provide(state.needs[0] as NeedBeaconSignals, [] as any)).to.throw(/Map of beacon services/i);
+    });
+
+    it('rejects a non-object payload for NeedGenesisDocument', () => {
+      const resolver = DidBtcr2.resolve(externalData[0].did);
+      const state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected action-required');
+      expect(state.needs[0].kind).to.equal('NeedGenesisDocument');
+      expect(() => resolver.provide(state.needs[0] as NeedGenesisDocument, 'not-an-object' as any)).to.throw(/document object/i);
+    });
+
+    it('fails closed when discovery exceeds maxDiscoveryRounds', () => {
+      const fixture = deterministicData[2];
+      const did = fixture.did;
+
+      // Resolve once to get the source document.
+      const initResolver = DidBtcr2.resolve(did);
+      let initState = initResolver.resolve();
+      if(initState.status !== 'action-required') throw new Error('expected action-required');
+      provideEmptySignals(initResolver, initState.needs[0] as NeedBeaconSignals);
+      initState = initResolver.resolve();
+      if(initState.status !== 'resolved') throw new Error('expected resolved');
+      const sourceDocument = initState.result.didDocument;
+
+      // An update that adds a new beacon service, forcing one discovery round.
+      const patches = [{
+        op    : 'add' as const,
+        path  : '/service/-',
+        value : { id: `${did}#beacon-new`, type: 'SingletonBeacon', serviceEndpoint: 'bitcoin:mqTxx2aK3Ay3cDk5xM5E5wT6J4QoT6f8vT' }
+      }];
+      const vm = sourceDocument.verificationMethod![0]!;
+      const unsigned = Updater.construct(sourceDocument, patches, 1);
+      const signed = Updater.sign(did, unsigned, vm, new LocalSigner(hexToBytes(fixture.secretKey)));
+      const updateHashHex = canonicalHash(signed, { encoding: 'hex' });
+
+      // A zero round budget means the first loop-back fails closed.
+      const resolver = DidBtcr2.resolve(did, { sidecar: { updates: [signed] }, maxDiscoveryRounds: 0 });
+      const state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+      const round1 = state.needs[0] as NeedBeaconSignals;
+      const signals = new Map<BeaconService, Array<BeaconSignal>>();
+      signals.set(round1.beaconServices[0] as BeaconService, [{
+        tx            : {} as any,
+        signalBytes   : updateHashHex,
+        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+      }]);
+      resolver.provide(round1, signals);
+      expect(() => resolver.resolve()).to.throw(/maximum beacon-discovery rounds/i);
+    });
+  });
 });

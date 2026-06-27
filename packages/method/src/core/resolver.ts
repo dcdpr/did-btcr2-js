@@ -37,6 +37,14 @@ import type { CASAnnouncement, Sidecar, SidecarData } from './types.js';
 import { equalBytes } from '@noble/curves/utils.js';
 
 /**
+ * Default upper bound on multi-round beacon discovery. Each round applies the
+ * updates found so far and looks for beacon services those updates added; a
+ * document whose updates keep adding services would otherwise loop unbounded.
+ * Overridable via `ResolutionOptions.maxDiscoveryRounds`.
+ */
+export const DEFAULT_MAX_DISCOVERY_ROUNDS = 10;
+
+/**
  * The response object for DID Resolution.
  */
 export interface DidResolutionResponse {
@@ -111,6 +119,38 @@ export interface BeaconProcessResult {
   needs: Array<DataNeed>;
 }
 
+// ─── provide() payload guards ────────────────────────────────────────────────
+// Runtime shape checks so a malformed payload fails fast at the provide()
+// boundary rather than flowing downstream as an unchecked `as` cast.
+
+/** True if `value` is a non-null, non-array object. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** True if `value` has the shape of a CAS Announcement (a flat record of string hashes). */
+function isCASAnnouncement(value: unknown): value is CASAnnouncement {
+  return isRecord(value) && Object.values(value).every(v => typeof v === 'string');
+}
+
+/** True if `value` has the shape of a signed BTCR2 update. */
+function isSignedBTCR2Update(value: unknown): value is SignedBTCR2Update {
+  if(!isRecord(value)) return false;
+  return Array.isArray(value.patch)
+    && typeof value.sourceHash === 'string'
+    && typeof value.targetHash === 'string'
+    && typeof value.targetVersionId === 'number'
+    && isRecord(value.proof);
+}
+
+/** True if `value` has the shape of an SMT inclusion / non-inclusion proof. */
+function isSMTProof(value: unknown): value is SMTProof {
+  if(!isRecord(value)) return false;
+  return typeof value.id === 'string'
+    && typeof value.collapsed === 'string'
+    && Array.isArray(value.hashes);
+}
+
 /**
  * Different possible Resolver states representing phases in the resolution process.
  */
@@ -163,6 +203,11 @@ export class Resolver {
   #unsortedUpdates: Array<[SignedBTCR2Update, BlockMetadata]> = [];
   #resolvedResponse: DidResolutionResponse | null = null;
 
+  /** Upper bound on multi-round beacon-discovery passes; see {@link DEFAULT_MAX_DISCOVERY_ROUNDS}. */
+  readonly #maxDiscoveryRounds: number;
+  /** Count of beacon-discovery passes driven by updates adding new beacon services. */
+  #discoveryRounds = 0;
+
   /**
    * @internal Use {@link DidBtcr2.resolve} to create instances.
    */
@@ -170,13 +215,14 @@ export class Resolver {
     didComponents: DidComponents,
     sidecarData: SidecarData,
     currentDocument: DidDocument | null,
-    options?: { versionId?: string; versionTime?: string; genesisDocument?: object }
+    options?: { versionId?: string; versionTime?: string; genesisDocument?: object; maxDiscoveryRounds?: number }
   ) {
     this.#didComponents = didComponents;
     this.#sidecarData = sidecarData;
     this.#currentDocument = currentDocument;
     this.#versionId = options?.versionId;
     this.#versionTime = options?.versionTime;
+    this.#maxDiscoveryRounds = options?.maxDiscoveryRounds ?? DEFAULT_MAX_DISCOVERY_ROUNDS;
 
     // If a genesis document was provided (from sidecar), pre-seed it for validation
     if(options?.genesisDocument) {
@@ -653,6 +699,17 @@ export class Resolver {
             });
 
             if(hasNewServices) {
+              // Bound multi-round discovery: a document whose updates keep adding
+              // beacon services would otherwise loop without end. Fail closed once
+              // the configured number of rounds is exceeded.
+              if(++this.#discoveryRounds > this.#maxDiscoveryRounds) {
+                throw new ResolveError(
+                  `Exceeded maximum beacon-discovery rounds (${this.#maxDiscoveryRounds}); `
+                  + 'the DID document may chain beacon services without terminating.',
+                  INVALID_DID_DOCUMENT,
+                  { maxDiscoveryRounds: this.#maxDiscoveryRounds }
+                );
+              }
               // Loop back to discover signals for new beacon services
               this.#phase = ResolverPhase.BeaconDiscovery;
               continue;
@@ -697,42 +754,85 @@ export class Resolver {
   provide(need: DataNeed, data: object | Map<BeaconService, Array<BeaconSignal>> | CASAnnouncement | SignedBTCR2Update | SMTProof): void {
     switch(need.kind) {
       case 'NeedGenesisDocument': {
+        if(!isRecord(data)) {
+          throw new ResolveError(
+            'Provided data for NeedGenesisDocument must be a document object.',
+            INVALID_DID_UPDATE, { kind: need.kind }
+          );
+        }
         this.#providedGenesisDocument = data;
         break;
       }
 
       case 'NeedBeaconSignals': {
-        const signals = data as Map<BeaconService, Array<BeaconSignal>>;
-        for(const [service, serviceSignals] of signals) {
+        if(!(data instanceof Map)) {
+          throw new ResolveError(
+            'Provided data for NeedBeaconSignals must be a Map of beacon services to signals.',
+            INVALID_DID_UPDATE, { kind: need.kind }
+          );
+        }
+        for(const [service, serviceSignals] of data) {
           this.#beaconServicesSignals.set(service, serviceSignals);
         }
         break;
       }
 
       case 'NeedCASAnnouncement': {
-        const announcement = data as CASAnnouncement;
-        this.#sidecarData.casMap.set(canonicalHash(announcement, { encoding: 'hex' }), announcement);
+        if(!isCASAnnouncement(data)) {
+          throw new ResolveError(
+            'Provided data for NeedCASAnnouncement is not a CAS announcement.',
+            INVALID_DID_UPDATE, { kind: need.kind }
+          );
+        }
+        // Fail fast if the provided announcement is not the one the on-chain
+        // signal requested: its canonical hash must equal the need's hash.
+        const announcementHash = canonicalHash(data, { encoding: 'hex' });
+        if(announcementHash !== need.announcementHash) {
+          throw new ResolveError(
+            `CAS announcement hash mismatch: expected ${need.announcementHash}, got ${announcementHash}.`,
+            INVALID_DID_UPDATE, { expected: need.announcementHash, actual: announcementHash }
+          );
+        }
+        this.#sidecarData.casMap.set(announcementHash, data);
         break;
       }
 
       case 'NeedSignedUpdate': {
-        const update = data as SignedBTCR2Update;
-        this.#sidecarData.updateMap.set(canonicalHash(update, { encoding: 'hex' }), update);
+        if(!isSignedBTCR2Update(data)) {
+          throw new ResolveError(
+            'Provided data for NeedSignedUpdate is not a signed BTCR2 update.',
+            INVALID_DID_UPDATE, { kind: need.kind }
+          );
+        }
+        // Fail fast if the provided update is not the one the on-chain signal
+        // requested: its canonical hash must equal the need's hash.
+        const updateHash = canonicalHash(data, { encoding: 'hex' });
+        if(updateHash !== need.updateHash) {
+          throw new ResolveError(
+            `Signed update hash mismatch: expected ${need.updateHash}, got ${updateHash}.`,
+            INVALID_DID_UPDATE, { expected: need.updateHash, actual: updateHash }
+          );
+        }
+        this.#sidecarData.updateMap.set(updateHash, data);
         break;
       }
 
       case 'NeedSMTProof': {
-        const smtNeed = need as NeedSMTProof;
-        const proof = data as SMTProof;
-        // proof.id is base64url per spec; smtRootHash is the hex on-chain signal.
-        const proofIdHex = encodeHash(decodeHash(proof.id, 'base64urlnopad'), 'hex');
-        if(proofIdHex !== smtNeed.smtRootHash) {
+        if(!isSMTProof(data)) {
           throw new ResolveError(
-            `SMT proof root hash mismatch: expected ${smtNeed.smtRootHash}, got ${proofIdHex}`,
-            INVALID_DID_UPDATE, { expected: smtNeed.smtRootHash, actual: proofIdHex }
+            'Provided data for NeedSMTProof is not an SMT proof.',
+            INVALID_DID_UPDATE, { kind: need.kind }
           );
         }
-        this.#sidecarData.smtMap.set(smtNeed.smtRootHash, proof);
+        // proof.id is base64url per spec; smtRootHash is the hex on-chain signal.
+        const proofIdHex = encodeHash(decodeHash(data.id, 'base64urlnopad'), 'hex');
+        if(proofIdHex !== need.smtRootHash) {
+          throw new ResolveError(
+            `SMT proof root hash mismatch: expected ${need.smtRootHash}, got ${proofIdHex}`,
+            INVALID_DID_UPDATE, { expected: need.smtRootHash, actual: proofIdHex }
+          );
+        }
+        this.#sidecarData.smtMap.set(need.smtRootHash, data);
         break;
       }
     }
