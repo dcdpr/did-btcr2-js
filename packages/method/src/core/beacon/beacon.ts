@@ -1,6 +1,6 @@
 import type { AddressUtxo, BitcoinConnection, BTCNetwork } from '@did-btcr2/bitcoin';
 import type { KeyBytes } from '@did-btcr2/common';
-import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { SignedBTCR2Update } from '../btcr2-update.js';
 import type { Signer } from '@did-btcr2/keypair';
 import { concatBytes, hexToBytes } from '@noble/hashes/utils.js';
 import { Address, OutScript, p2pkh, p2tr, p2wpkh, Script, SigHash, Transaction } from '@scure/btc-signer';

@@ -1,5 +1,5 @@
 import { canonicalize, canonicalHash, hash } from '@did-btcr2/common';
-import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { SignedBTCR2Update } from '@did-btcr2/method';
 import { BTCR2MerkleTree } from '@did-btcr2/smt';
 import { bytesToHex, randomBytes } from '@noble/hashes/utils';
 import { expect } from 'chai';

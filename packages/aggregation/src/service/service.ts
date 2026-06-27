@@ -1,5 +1,5 @@
 import { canonicalize } from '@did-btcr2/common';
-import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { SecuredDocument } from '@did-btcr2/cryptosuite';
 import { BIP340Cryptosuite, SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import type { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { schnorr } from '@noble/curves/secp256k1.js';
@@ -429,7 +429,7 @@ export class AggregationService {
 
 
   /** Updates collected so far for a cohort. */
-  collectedUpdates(cohortId: string): ReadonlyMap<string, SignedBTCR2Update> {
+  collectedUpdates(cohortId: string): ReadonlyMap<string, SecuredDocument> {
     const state = this.#cohortStates.get(cohortId);
     if(!state) return new Map();
     return state.cohort.pendingUpdates;
@@ -449,7 +449,7 @@ export class AggregationService {
     if(!state) return;
     if(state.phase !== ServiceCohortPhase.CohortSet && state.phase !== ServiceCohortPhase.CollectingUpdates) return;
 
-    const signedUpdate = message.body?.signedUpdate as SignedBTCR2Update | undefined;
+    const signedUpdate = message.body?.signedUpdate as SecuredDocument | undefined;
     if(!signedUpdate) {
       state.rejections.push({
         from   : message.from,
@@ -572,13 +572,13 @@ export class AggregationService {
    * signature fails verification.
    * @param {ServiceCohortState} state - the current state of the cohort to which the update was submitted
    * @param {string} sender - the DID of the participant who submitted the update
-   * @param {SignedBTCR2Update} signedUpdate - the signed update containing the proof to verify
+   * @param {SecuredDocument} signedUpdate - the signed update containing the proof to verify
    * @returns {boolean} - `true` if the proof is valid and the update can be accepted; `false` otherwise
    */
   #verifySubmittedUpdate(
     state: ServiceCohortState,
     sender: string,
-    signedUpdate: SignedBTCR2Update,
+    signedUpdate: SecuredDocument,
   ): boolean {
     const proof = signedUpdate.proof;
     if(!proof?.verificationMethod || !proof.proofValue) return false;

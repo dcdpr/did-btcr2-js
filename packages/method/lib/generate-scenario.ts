@@ -27,7 +27,7 @@ import { fileURLToPath } from 'node:url';
 
 import { getNetwork } from '@did-btcr2/bitcoin';
 import { JSONPatch, type PatchOperation } from '@did-btcr2/common';
-import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { SignedBTCR2Update } from '../src/core/btcr2-update.js';
 import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { hex } from '@scure/base';
 import { p2pkh, p2tr, p2wpkh } from '@scure/btc-signer';

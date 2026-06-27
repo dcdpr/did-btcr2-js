@@ -54,6 +54,7 @@ children:
   - ./051-update-verifies-signing-key.md
   - ./052-cli-keystore-file-locking.md
   - ./053-bitcoin-defaults-in-sdk.md
+  - ./054-cryptosuite-method-agnostic.md
 ---
 
 # Architecture Decision Records
@@ -115,3 +116,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 051 | 2026-06-26 | [Verify the Signing Key Against the Named Verification Method in Updater.sign](051-update-verifies-signing-key.md) |
 | 052 | 2026-06-26 | [Cross-Process File Locking for the CLI Keystore](052-cli-keystore-file-locking.md) |
 | 053 | 2026-06-27 | [Bitcoin Service Defaults Belong to the SDK, Not the Sans-I/O Transport](053-bitcoin-defaults-in-sdk.md) |
+| 054 | 2026-06-27 | [Make the bip340-jcs-2025 Cryptosuite Method-Agnostic](054-cryptosuite-method-agnostic.md) |

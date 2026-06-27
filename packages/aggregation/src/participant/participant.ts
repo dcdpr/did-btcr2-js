@@ -1,5 +1,5 @@
 import { canonicalHash } from '@did-btcr2/common';
-import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { SecuredDocument } from '@did-btcr2/cryptosuite';
 import type { SerializedSMTProof} from '@did-btcr2/smt';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
@@ -126,7 +126,7 @@ interface ParticipantCohortState {
   serviceDid: string;
   advert?: CohortAdvert;
   cohort?: AggregationCohort;
-  submittedUpdate?: SignedBTCR2Update;
+  submittedUpdate?: SecuredDocument;
   /**
    * This round's intent, persisted because the phase advances past
    * NonIncluded/UpdateSubmitted into validation/signing. true = submitted an
@@ -339,7 +339,7 @@ export class AggregationParticipant {
    * User action: submit a signed BTCR2 update for inclusion in the cohort's
    * aggregated signal.
    */
-  public submitUpdate(cohortId: string, signedUpdate: SignedBTCR2Update): BaseMessage[] {
+  public submitUpdate(cohortId: string, signedUpdate: SecuredDocument): BaseMessage[] {
     const state = this.#cohortStates.get(cohortId);
     if(!state || state.phase !== ParticipantCohortPhase.CohortReady) {
       throw new AggregationParticipantError(

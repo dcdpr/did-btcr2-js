@@ -1,4 +1,4 @@
-import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { SignedBTCR2Update } from './btcr2-update.js';
 import type { SMTProof } from './interfaces.js';
 
 /**

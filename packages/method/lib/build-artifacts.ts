@@ -39,7 +39,7 @@ import { fileURLToPath } from 'node:url';
 
 import { getNetwork } from '@did-btcr2/bitcoin';
 import { canonicalHash, canonicalize, encode } from '@did-btcr2/common';
-import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { SignedBTCR2Update } from '../src/core/btcr2-update.js';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { blockHash, BTCR2MerkleTree, type SerializedSMTProof } from '@did-btcr2/smt';
 import { hex } from '@scure/base';

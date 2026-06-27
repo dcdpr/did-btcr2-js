@@ -4,17 +4,16 @@ import type {
   SignatureBytes
 } from '@did-btcr2/common';
 import type {
-  BTCR2Update,
-  DataIntegrityConfig,
   DataIntegrityProofObject,
-  SignedBTCR2Update,
-  UnsignedBTCR2Update
+  DataIntegrityProofOptions,
+  SecuredDocument,
+  UnsecuredDocument
 } from '../data-integrity-proof/interface.js';
 import type { SchnorrMultikey } from '../multikey/index.js';
 
 export interface VerificationResult {
     verified: boolean;
-    verifiedDocument?: SignedBTCR2Update;
+    verifiedDocument?: SecuredDocument;
     mediaType?: string;
 }
 
@@ -41,28 +40,28 @@ export interface Cryptosuite {
   multikey: SchnorrMultikey;
 
   /**
-   * Create a proof for an insecure document.
-   * @param {UnsignedBTCR2Update} insecureDocument The document to create a proof for.
-   * @param {DataIntegrityConfig} config The config to use when creating the proof.
-   * @returns {Proof} The proof for the document.
+   * Create a proof for an unsecured document.
+   * @param {UnsecuredDocument} insecureDocument The document to create a proof for.
+   * @param {DataIntegrityProofOptions} config The proof options to use when creating the proof.
+   * @returns {DataIntegrityProofObject} The proof for the document.
    */
-  createProof(insecureDocument: UnsignedBTCR2Update, config: DataIntegrityConfig): DataIntegrityProofObject;
+  createProof(insecureDocument: UnsecuredDocument, config: DataIntegrityProofOptions): DataIntegrityProofObject;
 
   /**
-   * Verify a proof for a secure document.
-   * @param {SignedBTCR2Update} secureDocument The secure document to verify.
+   * Verify a proof for a secured document.
+   * @param {SecuredDocument} secureDocument The secured document to verify.
    * @returns {VerificationResult} The result of the verification.
    */
-  verifyProof(secureDocument: SignedBTCR2Update): VerificationResult;
+  verifyProof(secureDocument: SecuredDocument): VerificationResult;
 
   /**
-   * Transform a document (secure didUpdateInvocation or insecure didUpdatePayload) into canonical form.
-   * @param {UnsignedBTCR2Update | SignedBTCR2Update} document The document to transform.
-   * @param {DataIntegrityConfig} config The config to use when transforming the document.
+   * Transform a document (secured or unsecured) into canonical form.
+   * @param {UnsecuredDocument} document The document to transform.
+   * @param {DataIntegrityProofOptions} config The proof options to use when transforming the document.
    * @returns {string} The canonicalized document.
    * @throws {MethodError} if the document cannot be transformed.
    */
-  transformDocument(document: BTCR2Update, config: DataIntegrityConfig): string;
+  transformDocument(document: UnsecuredDocument, config: DataIntegrityProofOptions): string;
 
   /**
    * Generate a hash of the canonical proof configuration and document.
@@ -74,32 +73,32 @@ export interface Cryptosuite {
 
   /**
    * Configure the proof by canonicalzing it.
-   * @param {DataIntegrityConfig} config The config to use when transforming the proof.
+   * @param {DataIntegrityProofOptions} config The config to use when transforming the proof.
    * @returns {string} The canonicalized proof configuration.
    * @throws {MethodError} if the proof configuration cannot be canonicalized.
    */
-  proofConfiguration(config: DataIntegrityConfig): CanonicalizedProofConfig;
+  proofConfiguration(config: DataIntegrityProofOptions): CanonicalizedProofConfig;
 
   /**
    * Serialize the proof into a byte array.
    * @param {HashBytes} hash The canonicalized proof configuration.
-   * @param {DataIntegrityConfig} config The config to use when serializing the proof.
+   * @param {DataIntegrityProofOptions} config The config to use when serializing the proof.
    * @returns {SignatureBytes} The serialized proof.
    * @throws {MethodError} if the multikey does not match the verification method.
    */
-  proofSerialization(hash: HashBytes, config: DataIntegrityConfig): SignatureBytes;
+  proofSerialization(hash: HashBytes, config: DataIntegrityProofOptions): SignatureBytes;
 
   /**
    * Verify the proof by comparing the hash of the proof configuration and document to the proof bytes.
    * @param {HashBytes} hash The canonicalized proof configuration.
    * @param {SignatureBytes} signature The serialized proof.
-   * @param {DataIntegrityConfig} config The config to use when verifying the proof.
+   * @param {DataIntegrityProofOptions} config The config to use when verifying the proof.
    * @returns {boolean} True if the proof is verified, false otherwise.
    * @throws {MethodError} if the multikey does not match the verification method.
    */
   proofVerification(
     hash: HashBytes,
     signature: SignatureBytes,
-    config: DataIntegrityConfig
+    config: DataIntegrityProofOptions
   ): boolean;
 }

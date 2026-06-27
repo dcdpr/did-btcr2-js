@@ -1,4 +1,4 @@
-import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { SecuredDocument } from '@did-btcr2/cryptosuite';
 import type { SchnorrKeyPair } from '@did-btcr2/keypair';
 import type { BaseMessage } from '../core/messages/base.js';
 import {
@@ -30,7 +30,7 @@ export type ShouldJoin = (advert: CohortAdvert) => Promise<boolean>;
 export type OnProvideUpdate = (info: {
   cohortId: string;
   beaconAddress: string;
-}) => Promise<SignedBTCR2Update | null>;
+}) => Promise<SecuredDocument | null>;
 
 /** Decision callback: approve or reject aggregated data. */
 export type OnValidateData = (info: PendingValidation) => Promise<{ approved: boolean }>;

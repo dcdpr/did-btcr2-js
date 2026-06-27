@@ -1,10 +1,9 @@
 import type { Bytes, Entropy, HexString, KeyBytes, SchnorrKeyPairObject, SignatureBytes } from '@did-btcr2/common';
 import type {
-  BTCR2Update,
-  DataIntegrityConfig,
   DataIntegrityProofObject,
-  SignedBTCR2Update,
-  UnsignedBTCR2Update,
+  DataIntegrityProofOptions,
+  SecuredDocument,
+  UnsecuredDocument,
   VerificationResult
 } from '@did-btcr2/cryptosuite';
 import {
@@ -147,8 +146,8 @@ export class CryptosuiteApi {
    * @returns The created proof.
    */
   createProof(
-    document: BTCR2Update,
-    config: DataIntegrityConfig,
+    document: UnsecuredDocument,
+    config: DataIntegrityProofOptions,
     cryptosuite?: BIP340Cryptosuite
   ): DataIntegrityProofObject {
     const cs = cryptosuite ?? this.#requireCurrent();
@@ -162,7 +161,7 @@ export class CryptosuiteApi {
    * @param cryptosuite Optional explicit cryptosuite; defaults to current.
    * @returns The full verification result.
    */
-  verifyProof(document: SignedBTCR2Update, cryptosuite?: BIP340Cryptosuite): VerificationResult {
+  verifyProof(document: SecuredDocument, cryptosuite?: BIP340Cryptosuite): VerificationResult {
     const cs = cryptosuite ?? this.#requireCurrent();
     return cs.verifyProof(document);
   }
@@ -225,11 +224,11 @@ export class DataIntegrityProofApi {
    * @param proof Optional explicit proof instance; defaults to current.
    * @returns A document with a proof added.
    */
-  addProof(
-    document: UnsignedBTCR2Update,
-    config: DataIntegrityConfig,
+  addProof<T extends UnsecuredDocument>(
+    document: T,
+    config: DataIntegrityProofOptions,
     proof?: BIP340DataIntegrityProof
-  ): SignedBTCR2Update {
+  ): SecuredDocument<T> {
     const p = proof ?? this.#requireCurrent();
     return p.addProof(document, config);
   }
@@ -242,11 +241,11 @@ export class DataIntegrityProofApi {
    * @param config The Data Integrity proof configuration.
    * @returns The signed document with proof attached.
    */
-  signDocument(
+  signDocument<T extends UnsecuredDocument>(
     multikey: SchnorrMultikey,
-    document: UnsignedBTCR2Update,
-    config: DataIntegrityConfig
-  ): SignedBTCR2Update {
+    document: T,
+    config: DataIntegrityProofOptions
+  ): SecuredDocument<T> {
     const cs = new BIP340Cryptosuite(multikey);
     const proofInst = new BIP340DataIntegrityProof(cs);
     return proofInst.addProof(document, config);
@@ -502,26 +501,26 @@ export class CryptoApi {
   }
 
   /**
-   * Sign a BTCR2 update document using the current proof instance.
+   * Add a Data Integrity proof to a document using the current proof instance.
    * Shorthand for `crypto.proof.addProof(document, config)`.
    *
    * Requires {@link activate} to have been called first, or the three
    * sub-facades to have been configured individually.
-   * @param document The unsigned BTCR2 update document.
-   * @param config The Data Integrity proof configuration.
-   * @returns The signed document with proof attached.
+   * @param document The unsecured document to sign (any JSON object).
+   * @param config The Data Integrity proof options.
+   * @returns The secured document with proof attached.
    */
-  signDocument(document: UnsignedBTCR2Update, config: DataIntegrityConfig): SignedBTCR2Update {
+  signDocument<T extends UnsecuredDocument>(document: T, config: DataIntegrityProofOptions): SecuredDocument<T> {
     return this.proof.addProof(document, config);
   }
 
   /**
-   * Verify a signed BTCR2 update document using the current cryptosuite.
+   * Verify a secured document using the current cryptosuite.
    * Shorthand for `crypto.cryptosuite.verifyProof(document)`.
-   * @param document The signed document to verify.
+   * @param document The secured document to verify.
    * @returns The full verification result.
    */
-  verifyDocument(document: SignedBTCR2Update): VerificationResult {
+  verifyDocument(document: SecuredDocument): VerificationResult {
     return this.cryptosuite.verifyProof(document);
   }
 }

@@ -26,7 +26,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { canonicalHash } from '@did-btcr2/common';
-import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { SignedBTCR2Update } from '../src/core/btcr2-update.js';
 
 import { anchorSignal } from './wallet/tx-builder.js';
 import type { Network } from './wallet/store.js';

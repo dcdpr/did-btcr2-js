@@ -1,5 +1,5 @@
 import { canonicalize } from '@did-btcr2/common';
-import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { SecuredDocument } from '@did-btcr2/cryptosuite';
 import type { SerializedSMTProof } from '@did-btcr2/smt';
 import { base64UrlToHash, blockHash, didToIndex, hashToBase64Url, verifySerializedProof } from '@did-btcr2/smt';
 import type { AggregationCohort } from './cohort.js';
@@ -52,7 +52,7 @@ export interface AggregateBeaconStrategy {
   validateParticipantView(params: {
     participantDid: string;
     included: boolean;
-    submittedUpdate?: SignedBTCR2Update;
+    submittedUpdate?: SecuredDocument;
     expectedHash?: string;
     body: BaseBody;
   }): BeaconValidationResult;

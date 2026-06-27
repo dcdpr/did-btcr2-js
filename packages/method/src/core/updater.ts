@@ -1,8 +1,9 @@
 import type { BitcoinConnection } from '@did-btcr2/bitcoin';
 import type { PatchOperation } from '@did-btcr2/common';
 import { canonicalHash, INVALID_DID_UPDATE, JSONPatch, UpdateError } from '@did-btcr2/common';
-import { SchnorrMultikey, type DataIntegrityConfig, type SignedBTCR2Update, type UnsignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import type { Signer } from '@did-btcr2/keypair';
+import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from './btcr2-update.js';
 import { DidDocument, type Btcr2DidDocument, type DidVerificationMethod } from '../utils/did-document.js';
 import { BeaconFactory } from './beacon/factory.js';
 import type { BeaconService } from './beacon/interfaces.js';
@@ -287,7 +288,7 @@ export class Updater {
       );
     }
 
-    const config: DataIntegrityConfig = {
+    const config: Btcr2DataIntegrityConfig = {
       '@context' : [
         'https://w3id.org/security/v2',
         'https://w3id.org/zcap/v1',

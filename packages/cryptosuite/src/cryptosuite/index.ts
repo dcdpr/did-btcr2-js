@@ -16,7 +16,7 @@ import { sha256 } from '@noble/hashes/sha2';
 import { concatBytes, utf8ToBytes } from '@noble/hashes/utils';
 import { base58btc } from 'multiformats/bases/base58';
 import { BIP340DataIntegrityProof } from '../data-integrity-proof/index.js';
-import type { SignedBTCR2Update, BTCR2Update, DataIntegrityConfig, DataIntegrityProofObject } from '../data-integrity-proof/interface.js';
+import type { DataIntegrityProofObject, DataIntegrityProofOptions, SecuredDocument, UnsecuredDocument } from '../data-integrity-proof/interface.js';
 import type { SchnorrMultikey } from '../multikey/index.js';
 import type { Cryptosuite, VerificationResult } from './interface.js';
 
@@ -64,15 +64,15 @@ export class BIP340Cryptosuite implements Cryptosuite {
   /**
    * Create a proof for an insecure document.
    * @param {DidUpdatePayload} document The document to create a proof for.
-   * @param {DataIntegrityConfig} config The options to use when creating the proof.
+   * @param {DataIntegrityProofOptions} config The options to use when creating the proof.
    * @returns {DataIntegrityProofObject} The proof for the document.
    */
   createProof(
-    document: BTCR2Update,
-    config: DataIntegrityConfig
+    document: UnsecuredDocument,
+    config: DataIntegrityProofOptions
   ): DataIntegrityProofObject {
     // Set the context using the document context or the existing config context
-    config['@context'] = document['@context'] ?? config['@context'];
+    config['@context'] = (document['@context'] as string | string[] | undefined) ?? config['@context'];
 
     // Create a canonical form of the proof configuration
     const canonicalConfig = this.proofConfiguration(config);
@@ -104,10 +104,10 @@ export class BIP340Cryptosuite implements Cryptosuite {
 
   /**
    * Verify a proof for a secure document.
-   * @param {SignedBTCR2Update} secureDocument The secure document to verify.
+   * @param {SecuredDocument} secureDocument The secured document to verify.
    * @returns {VerificationResult} The result of the verification.
    */
-  verifyProof(secureDocument: SignedBTCR2Update): VerificationResult {
+  verifyProof(secureDocument: SecuredDocument): VerificationResult {
     // Destructure the proof from the secure document and create an unsecured document without the proof
     const { proof, ...unsecureDocument } = secureDocument;
 
@@ -135,12 +135,12 @@ export class BIP340Cryptosuite implements Cryptosuite {
 
   /**
    * Transform a document into canonical form.
-   * @param {UnsignedBTCR2Update | SignedBTCR2Update} document The document to transform.
-   * @param {DataIntegrityConfig} config The config to use when transforming the document.
+   * @param {UnsecuredDocument} document The document to transform.
+   * @param {DataIntegrityProofOptions} config The config to use when transforming the document.
    * @returns {string} The canonicalized document.
    * @throws {MethodError} if the document cannot be transformed.
    */
-  transformDocument(document: BTCR2Update, config: DataIntegrityConfig): string {
+  transformDocument(document: UnsecuredDocument, config: DataIntegrityProofOptions): string {
     // Get the type from the options and check if it matches this type
     if (config.type !== this.type) {
       throw new MethodError(
@@ -183,11 +183,11 @@ export class BIP340Cryptosuite implements Cryptosuite {
 
   /**
    * Configure the proof by canonicalzing it.
-   * @param {DataIntegrityConfig} config The config to use when transforming the proof.
+   * @param {DataIntegrityProofOptions} config The config to use when transforming the proof.
    * @returns {string} The canonicalized proof configuration.
    * @throws {CryptosuiteError} if the proof configuration cannot be canonicalized.
    */
-  proofConfiguration(config: DataIntegrityConfig): CanonicalizedProofConfig {
+  proofConfiguration(config: DataIntegrityProofOptions): CanonicalizedProofConfig {
     // If the config type does not match the cryptosuite type, throw CryptosuiteError
     if (config.type !== this.type) {
       throw new CryptosuiteError(
@@ -220,11 +220,11 @@ export class BIP340Cryptosuite implements Cryptosuite {
   /**
    * Serialize the proof into a byte array.
    * @param {HashBytes} hash The canonicalized proof configuration.
-   * @param {DataIntegrityConfig} config The config to use when serializing the proof.
+   * @param {DataIntegrityProofOptions} config The config to use when serializing the proof.
    * @returns {SignatureBytes} The serialized proof.
    * @throws {CryptosuiteError} if the multikey does not match the verification method.
    */
-  proofSerialization(hash: HashBytes, config: DataIntegrityConfig): SignatureBytes {
+  proofSerialization(hash: HashBytes, config: DataIntegrityProofOptions): SignatureBytes {
     // Check if the verification method from the config does not match the multikey fullId
     if (config.verificationMethod !== this.multikey.fullId()) {
       // Throw CryptosuiteError
@@ -242,14 +242,14 @@ export class BIP340Cryptosuite implements Cryptosuite {
    * Verify the proof by comparing the hash of the proof configuration and document to the proof bytes.
    * @param {HashBytes} hash The canonicalized proof configuration and document hash.
    * @param {SignatureBytes} signature The proof bytes to verify against.
-   * @param {DataIntegrityConfig} config The config to use when verifying the proof.
+   * @param {DataIntegrityProofOptions} config The config to use when verifying the proof.
    * @returns {boolean} True if the proof is verified, false otherwise.
    * @throws {CryptosuiteError} if the multikey does not match the verification method.
    */
   proofVerification(
     hash: HashBytes,
     signature: SignatureBytes,
-    config: DataIntegrityConfig
+    config: DataIntegrityProofOptions
   ): boolean {
     // If the config verification method !== the multikey fullId, throw CryptosuiteError
     if (config.verificationMethod !== this.multikey.fullId()) {
