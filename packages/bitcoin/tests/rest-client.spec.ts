@@ -4,7 +4,6 @@ import { BitcoinBlock } from '../src/client/rest/block.js';
 import { BitcoinRestClient } from '../src/client/rest/index.js';
 import { BitcoinTransaction } from '../src/client/rest/transaction.js';
 import { EsploraProtocol } from '../src/client/rest/protocol.js';
-import { DEFAULT_BITCOIN_NETWORK_CONFIG } from '../src/constants.js';
 import { BitcoinRestError } from '../src/errors.js';
 import type { HttpExecutor, HttpRequest } from '../src/client/http.js';
 
@@ -191,8 +190,8 @@ describe('EsploraProtocol', () => {
 describe('BitcoinRestClient', () => {
   describe('construction', () => {
     it('constructs with config and exposes protocol', () => {
-      const rest = new BitcoinRestClient(DEFAULT_BITCOIN_NETWORK_CONFIG.regtest.rest);
-      expect(rest.config.host).to.equal(DEFAULT_BITCOIN_NETWORK_CONFIG.regtest.rest.host);
+      const rest = new BitcoinRestClient({ host: 'http://localhost:3000' });
+      expect(rest.config.host).to.equal('http://localhost:3000');
       expect(rest.protocol).to.be.instanceOf(EsploraProtocol);
     });
 

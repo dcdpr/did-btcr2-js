@@ -1,11 +1,9 @@
-import { MethodError } from '@did-btcr2/common';
 import type { HttpExecutor } from './client/http.js';
 import { BitcoinRestClient } from './client/rest/index.js';
 import { BitcoinCoreRpcClient } from './client/rpc/index.js';
 import type { BTCNetwork } from './network.js';
 import { getNetwork } from './network.js';
 import type { NetworkName, RestConfig, RpcConfig } from './types.js';
-import { DEFAULT_BITCOIN_NETWORK_CONFIG } from './constants.js';
 
 /**
  * Options for creating a BitcoinConnection.
@@ -27,13 +25,19 @@ export type BitcoinConnectionOptions = {
  * executed via the global `fetch` function.  Supply a custom
  * {@link HttpExecutor} to use any HTTP client.
  *
+ * Endpoints are explicit: this transport layer holds no service URLs. Callers
+ * supply the REST host (and optional RPC) themselves, or use the SDK facade
+ * ({@link https://github.com/dcdpr/did-btcr2-js/tree/main/packages/api | @did-btcr2/api}),
+ * which carries per-network convenience defaults.
+ *
  * @example
  * ```ts
- * // Quick setup with defaults (uses fetch)
- * const btc = BitcoinConnection.forNetwork('regtest');
+ * // Explicit endpoint (uses the global fetch executor by default)
+ * const btc = new BitcoinConnection({ network: 'regtest', rest: { host: 'http://localhost:3000' } });
  *
  * // With a custom HTTP executor
- * const btc = BitcoinConnection.forNetwork('testnet4', {
+ * const btc = new BitcoinConnection({
+ *   network: 'testnet4',
  *   rest: { host: 'https://my-mempool/api' },
  *   executor: myCustomExecutor,
  * });
@@ -65,44 +69,6 @@ export class BitcoinConnection {
     this.rest = new BitcoinRestClient(options.rest, options.executor);
     this.rpc  = options.rpc ? new BitcoinCoreRpcClient(options.rpc, options.executor) : undefined;
     this.data = getNetwork(options.network);
-  }
-
-  /**
-   * Create a connection for a single network with optional REST/RPC endpoint overrides.
-   * Merges overrides on top of defaults from DEFAULT_BITCOIN_NETWORK_CONFIG.
-   * Does not read environment variables.
-   *
-   * @param network The network name (e.g., 'regtest', 'testnet4', 'bitcoin').
-   * @param overrides Optional endpoint and executor overrides.
-   * @returns A BitcoinConnection for the requested network.
-   */
-  static forNetwork(
-    network: NetworkName,
-    overrides?: { rest?: Partial<RestConfig>; rpc?: RpcConfig; executor?: HttpExecutor }
-  ): BitcoinConnection {
-    const defaults = DEFAULT_BITCOIN_NETWORK_CONFIG[network];
-
-    if (!defaults) {
-      throw new MethodError(
-        `Unknown network '${network}'. Available: bitcoin, testnet3, testnet4, signet, mutinynet, regtest`,
-        'UNKNOWN_NETWORK',
-        { network }
-      );
-    }
-
-    const restCfg: RestConfig = { ...defaults.rest, ...overrides?.rest };
-
-    const hasRpc = defaults.rpc !== undefined || overrides?.rpc !== undefined;
-    const rpcCfg = hasRpc
-      ? { ...defaults.rpc, ...overrides?.rpc } as RpcConfig
-      : undefined;
-
-    return new BitcoinConnection({
-      network,
-      rest     : restCfg,
-      rpc      : rpcCfg,
-      executor : overrides?.executor,
-    });
   }
 
   /**

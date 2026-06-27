@@ -1,12 +1,83 @@
 import type {
   BitcoinCoreRpcClient,
-  BitcoinRestClient} from '@did-btcr2/bitcoin';
+  BitcoinRestClient,
+  NetworkName,
+  RestConfig,
+  RpcConfig} from '@did-btcr2/bitcoin';
 import {
   BitcoinConnection,
   type RawTransactionRest
 } from '@did-btcr2/bitcoin';
 import { assertString } from './helpers.js';
 import type { BitcoinApiConfig } from './types.js';
+
+/**
+ * Default per-network service endpoints the SDK applies when the caller supplies
+ * no overrides. These name concrete third-party services (Esplora-compatible
+ * REST APIs) and a local-node assumption for regtest, so they live in the SDK
+ * facade rather than in the sans-I/O `@did-btcr2/bitcoin` transport, which holds
+ * no service URLs. This mirrors how the CAS default gateway lives in the API
+ * layer (`DEFAULT_CAS_GATEWAY`), and follows the convention that the transport
+ * requires explicit endpoints while the SDK provides convenience defaults.
+ *
+ * **Regtest RPC:** credentials are intentionally omitted - callers must provide
+ * `username` and `password` via overrides or explicit config, so hardcoded
+ * credentials never reach a non-local environment.
+ *
+ * @public
+ */
+export const DEFAULT_BITCOIN_NETWORK_CONFIG = {
+  bitcoin : {
+    rpc  : undefined,
+    rest : { host: 'https://mempool.space/api' }
+  },
+  testnet3 : {
+    rpc  : undefined,
+    rest : { host: 'https://mempool.space/testnet/api' }
+  },
+  testnet4 : {
+    rpc  : undefined,
+    rest : { host: 'https://mempool.space/testnet4/api' }
+  },
+  signet  : {
+    rpc  : undefined,
+    rest : { host: 'https://mempool.space/signet/api' }
+  },
+  mutinynet : {
+    rpc  : undefined,
+    rest : { host: 'https://mutinynet.com/api' }
+  },
+  regtest : {
+    rpc  : {
+      host               : 'http://localhost:18443',
+      allowDefaultWallet : true,
+    },
+    rest : { host: 'http://localhost:3000' }
+  },
+} as const;
+
+/**
+ * Resolves a {@link BitcoinApiConfig} to explicit transport options: the
+ * per-network defaults from {@link DEFAULT_BITCOIN_NETWORK_CONFIG} with the
+ * caller's REST/RPC overrides merged on top. Throws a friendly error naming the
+ * supported networks when the requested one is unknown.
+ */
+function resolveConnectionOptions(
+  cfg: BitcoinApiConfig,
+  executor: BitcoinApiConfig['executor'],
+): { network: NetworkName; rest: RestConfig; rpc?: RpcConfig; executor?: BitcoinApiConfig['executor'] } {
+  const defaults = DEFAULT_BITCOIN_NETWORK_CONFIG[cfg.network as keyof typeof DEFAULT_BITCOIN_NETWORK_CONFIG];
+  if (!defaults) {
+    throw new Error(
+      `Unknown Bitcoin network '${cfg.network}'. `
+      + `Available: ${Object.keys(DEFAULT_BITCOIN_NETWORK_CONFIG).join(', ')}.`
+    );
+  }
+  const rest: RestConfig = { ...defaults.rest, ...cfg.rest };
+  const hasRpc = defaults.rpc !== undefined || cfg.rpc !== undefined;
+  const rpc = hasRpc ? { ...defaults.rpc, ...cfg.rpc } as RpcConfig : undefined;
+  return { network: cfg.network, rest, rpc, executor };
+}
 
 /**
  * Bitcoin network operations sub-facade.
@@ -56,7 +127,9 @@ export class BitcoinApi {
 
   /**
    * Create a BitcoinApi for a specific network with optional endpoint overrides.
-   * Uses BitcoinConnection.forNetwork(): no env vars consulted.
+   * Applies the SDK's per-network {@link DEFAULT_BITCOIN_NETWORK_CONFIG} under any
+   * caller overrides, then constructs the underlying transport with explicit
+   * endpoints. No environment variables are consulted.
    * @param cfg The network and optional REST/RPC overrides.
    */
   constructor(cfg: BitcoinApiConfig) {
@@ -72,11 +145,7 @@ export class BitcoinApi {
         signal  : AbortSignal.timeout(ms),
       });
     }
-    this.connection = BitcoinConnection.forNetwork(cfg.network, {
-      rest : cfg.rest,
-      rpc  : cfg.rpc,
-      executor,
-    });
+    this.connection = new BitcoinConnection(resolveConnectionOptions(cfg, executor));
   }
 
   /**

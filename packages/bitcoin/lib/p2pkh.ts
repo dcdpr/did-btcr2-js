@@ -3,7 +3,7 @@ import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { p2pkh, Transaction } from '@scure/btc-signer';
 import { BitcoinConnection } from '../src/connection.js';
 
-const bitcoin = BitcoinConnection.forNetwork('mutinynet');
+const bitcoin = new BitcoinConnection({ network: 'mutinynet', rest: { host: 'https://mutinynet.com/api' } });
 const holderKeys = SchnorrKeyPair.fromSecret('42e72793956e39f459768e53c19c04cf316fed05ab38e62f2aa54580c0049621');
 const holderP2PKHAddress = p2pkh(holderKeys.publicKey.compressed, bitcoin.data).address;
 

@@ -1,7 +1,7 @@
 import { expect, use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import type { HttpExecutor } from '@did-btcr2/bitcoin';
-import { BitcoinApi } from '../src/index.js';
+import type { HttpExecutor, NetworkName } from '@did-btcr2/bitcoin';
+import { BitcoinApi, DEFAULT_BITCOIN_NETWORK_CONFIG } from '../src/index.js';
 
 use(chaiAsPromised);
 
@@ -161,5 +161,36 @@ describe('BitcoinApi', () => {
     await btc.getUtxos('bcrt1qfakeaddress');
     expect(requests).to.have.lengthOf(1);
     expect(requests[0].url).to.include('bcrt1qfakeaddress');
+  });
+
+  // --- per-network default resolution (the SDK now owns service endpoints) ---
+
+  it('applies the per-network default REST host when no override is given', () => {
+    expect(new BitcoinApi({ network: 'bitcoin' }).rest.config.host).to.equal('https://mempool.space/api');
+    expect(new BitcoinApi({ network: 'mutinynet' }).rest.config.host).to.equal('https://mutinynet.com/api');
+  });
+
+  it('lets a REST override win over the default host', () => {
+    const btc = new BitcoinApi({ network: 'testnet4', rest: { host: 'https://custom-mempool/api' } });
+    expect(btc.rest.config.host).to.equal('https://custom-mempool/api');
+    expect(btc.rpc).to.be.undefined;
+  });
+
+  it('adds an RPC client when an RPC override is given on a network without default RPC', () => {
+    const btc = new BitcoinApi({
+      network : 'testnet4',
+      rpc     : { host: 'http://mynode:18332', username: 'u', password: 'p' }
+    });
+    expect(btc.rpc).to.exist;
+  });
+
+  it('throws a friendly error for an unknown network', () => {
+    expect(() => new BitcoinApi({ network: 'nope' as unknown as NetworkName }))
+      .to.throw(/Unknown Bitcoin network 'nope'/);
+  });
+
+  it('exposes the per-network defaults map', () => {
+    expect(DEFAULT_BITCOIN_NETWORK_CONFIG.regtest.rest.host).to.equal('http://localhost:3000');
+    expect(DEFAULT_BITCOIN_NETWORK_CONFIG.bitcoin.rest.host).to.equal('https://mempool.space/api');
   });
 });

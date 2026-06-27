@@ -8,48 +8,16 @@ import type { HttpExecutor, HttpRequest } from '../src/client/http.js';
  * BitcoinConnection Test Suite
  */
 describe('BitcoinConnection', () => {
-  describe('forNetwork()', () => {
-    it('creates a connection with network defaults', () => {
-      const btc = BitcoinConnection.forNetwork('regtest');
-      expect(btc.name).to.equal('regtest');
-      expect(btc.rest).to.exist;
-      expect(btc.rpc).to.exist;
-      expect(btc.data).to.exist;
+  // A regtest connection with explicit endpoints. The transport layer carries no
+  // service defaults: per-network URLs live in the SDK facade (@did-btcr2/api),
+  // so connections here name their endpoints directly.
+  const regtest = (overrides: Partial<{ executor: HttpExecutor }> = {}) =>
+    new BitcoinConnection({
+      network : 'regtest',
+      rest    : { host: 'http://localhost:3000' },
+      rpc     : { host: 'http://localhost:18443' },
+      ...overrides,
     });
-
-    it('creates a connection with REST overrides', () => {
-      const btc = BitcoinConnection.forNetwork('testnet4', {
-        rest : { host: 'https://custom-mempool/api' }
-      });
-      expect(btc.name).to.equal('testnet4');
-      expect(btc.rest.config.host).to.equal('https://custom-mempool/api');
-      expect(btc.rpc).to.be.undefined;
-    });
-
-    it('creates a connection with RPC overrides on a network without default RPC', () => {
-      const btc = BitcoinConnection.forNetwork('testnet4', {
-        rpc : { host: 'http://mynode:18332', username: 'u', password: 'p' }
-      });
-      expect(btc.rpc).to.exist;
-    });
-
-    it('throws on unknown network', () => {
-      expect(() => BitcoinConnection.forNetwork('unknown' as any)).to.throw('Unknown network');
-    });
-
-    it('forwards executor to REST and RPC clients', () => {
-      const seen: HttpRequest[] = [];
-      const executor: HttpExecutor = async (req) => {
-        seen.push(req);
-        return new Response('{}');
-      };
-
-      const btc = BitcoinConnection.forNetwork('regtest', { executor });
-      expect(btc.rest).to.exist;
-      expect(btc.rpc).to.exist;
-      expect(btc.rest.protocol).to.be.instanceOf(EsploraProtocol);
-    });
-  });
 
   describe('constructor', () => {
     it('creates a connection with REST and RPC', () => {
@@ -87,7 +55,7 @@ describe('BitcoinConnection', () => {
 
   describe('protocol layer access', () => {
     it('exposes EsploraProtocol on rest client', () => {
-      const btc = BitcoinConnection.forNetwork('regtest');
+      const btc = regtest();
       const txid = 'a'.repeat(64);
       const req = btc.rest.protocol.getTx(txid);
       expect(req.url).to.include(`/tx/${txid}`);
@@ -96,7 +64,7 @@ describe('BitcoinConnection', () => {
     });
 
     it('exposes JsonRpcProtocol on rpc transport', () => {
-      const btc = BitcoinConnection.forNetwork('regtest');
+      const btc = regtest();
       const req = btc.rpc!.client.protocol.buildRequest('getblockcount', []);
       expect(req.method).to.equal('POST');
       const body = JSON.parse(req.body!);
@@ -153,7 +121,7 @@ describe('BitcoinConnection', () => {
       };
 
       const txid = 'a'.repeat(64);
-      const btc = BitcoinConnection.forNetwork('regtest', { executor });
+      const btc = regtest({ executor });
       const tx = await btc.rest.transaction.get(txid);
       expect(tx).to.deep.equal({ txid: 'mock-txid' });
       expect(seen).to.have.length(1);
@@ -170,7 +138,7 @@ describe('BitcoinConnection', () => {
         });
       };
 
-      const btc = BitcoinConnection.forNetwork('regtest', { executor });
+      const btc = regtest({ executor });
       const count = await btc.rpc!.getBlockCount();
       expect(count).to.equal(12345);
       expect(seen).to.have.length(1);

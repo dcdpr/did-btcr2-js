@@ -3,7 +3,7 @@ import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { p2pkh, Transaction } from '@scure/btc-signer';
 import { BitcoinConnection } from '../src/connection.js';
 
-const bitcoin = BitcoinConnection.forNetwork('regtest');
+const bitcoin = new BitcoinConnection({ network: 'regtest', rest: { host: 'http://localhost:3000' } });
 const holderKeys = SchnorrKeyPair.fromSecret('ce0739fae382a630f374f1cafcd2ed226d9b8870747bf49b391d10f352cc52d2');
 const holderP2PKHAddress = p2pkh(holderKeys.publicKey.compressed, bitcoin.data).address;
 

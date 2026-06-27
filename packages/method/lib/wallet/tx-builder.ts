@@ -7,7 +7,8 @@
  * at the target sat/vB, rebuild with the corrected change amount. Same pattern
  * used by the SinglePartyBeacon base class and the sweep-mutinynet recovery script.
  */
-import { BitcoinConnection, getNetwork } from '@did-btcr2/bitcoin';
+import { getNetwork, type BitcoinConnection } from '@did-btcr2/bitcoin';
+import { connectBitcoin } from '../bitcoin-endpoints.js';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { hex } from '@scure/base';
 import { p2tr, p2wpkh, Transaction } from '@scure/btc-signer';
@@ -31,11 +32,11 @@ type Utxo = {
 
 export function connectionFor(network: Network): BitcoinConnection {
   if (network === 'regtest') {
-    return BitcoinConnection.forNetwork('regtest', {
+    return connectBitcoin('regtest', {
       rpc : { username: 'polaruser', password: 'polarpass' },
     });
   }
-  return BitcoinConnection.forNetwork(network);
+  return connectBitcoin(network);
 }
 
 async function fetchUtxos(address: string, btc: BitcoinConnection): Promise<Utxo[]> {
