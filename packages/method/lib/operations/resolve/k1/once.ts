@@ -1,13 +1,13 @@
-import { BitcoinConnection } from '@did-btcr2/bitcoin';
 import { DidBtcr2 } from '../../../../src/did-btcr2.js';
 import type { ResolutionOptions } from '../../../../src/index.js';
 import { BeaconSignalDiscovery } from '../../../../src/index.js';
+import { connectBitcoin } from '../../../bitcoin-endpoints.js';
 
 const did = 'did:btcr2:k1q5psrwzjhw7nkxd0vshleh42lpk87tz80f24f2s6wjuntg8jpv8ykmqj7ec8p';
 const resolutionOptions = {} as ResolutionOptions;
 const resolver = DidBtcr2.resolve(did, resolutionOptions);
 let state = resolver.resolve();
-const bitcoin = BitcoinConnection.forNetwork('mutinynet');
+const bitcoin = connectBitcoin('mutinynet');
 while(state.status === 'action-required') {
   for(const need of state.needs) {
     switch(need.kind) {

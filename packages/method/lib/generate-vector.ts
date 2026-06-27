@@ -3,7 +3,8 @@ import { join } from 'node:path';
 import { stdin, stdout } from 'node:process';
 import * as readline from 'node:readline/promises';
 
-import { BitcoinConnection, getNetwork } from '@did-btcr2/bitcoin';
+import { getNetwork, type BitcoinConnection } from '@did-btcr2/bitcoin';
+import { connectBitcoin } from './bitcoin-endpoints.js';
 import type { PatchOperation } from '@did-btcr2/common';
 import { canonicalize } from '@did-btcr2/common';
 import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
@@ -263,7 +264,7 @@ function loadVectorContext(hash: string): VectorContext {
  */
 function requireBitcoinConnection(net: string): BitcoinConnection {
   try {
-    return BitcoinConnection.forNetwork(net as any, {rpc: { username: 'polaruser', password: 'polarpass' },});
+    return connectBitcoin(net, { rpc: { username: 'polaruser', password: 'polarpass' } });
   } catch (err: any) {
     console.error(`Error: Failed to connect to Bitcoin network "${net}".`);
     console.error(`  ${err.message}`);

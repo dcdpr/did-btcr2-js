@@ -12,8 +12,8 @@ import { SUPPORTED_NETWORKS, type NetworkOption, type OutputFormat } from './typ
 
 /**
  * Endpoint overrides provided via CLI flags, env vars, or config file.
- * These override the per-network defaults from
- * `DEFAULT_BITCOIN_NETWORK_CONFIG`.
+ * These override the per-network defaults the SDK applies
+ * (`DEFAULT_BITCOIN_NETWORK_CONFIG` in `@did-btcr2/api`).
  *
  * `config` and `profile` control config-file resolution and are only
  * meaningful when passed through the full merge chain.

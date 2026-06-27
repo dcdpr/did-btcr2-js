@@ -34,7 +34,6 @@ export { toBase64, safeText } from './client/utils.js';
 
 // Constants
 export {
-  DEFAULT_BITCOIN_NETWORK_CONFIG,
   INITIAL_BLOCK_REWARD,
   HALVING_INTERVAL,
   COINBASE_MATURITY_DELAY,

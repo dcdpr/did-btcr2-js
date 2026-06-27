@@ -11,7 +11,8 @@
  *       confirms 1+ block, then presses Y; everything else (queries, broadcast,
  *       discovery) goes through Esplora/REST.
  */
-import { BitcoinConnection } from '@did-btcr2/bitcoin';
+import type { BitcoinConnection } from '@did-btcr2/bitcoin';
+import { BitcoinApi } from '../src/index.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,10 +47,8 @@ export function parseNetworkEnv(): E2ENetwork {
  * only for regtest (no public network has callable RPC).
  */
 export function bitcoinFor(network: E2ENetwork): BitcoinConnection {
-  if (network === 'regtest') {
-    return BitcoinConnection.forNetwork('regtest', { rpc: REGTEST_RPC });
-  }
-  return BitcoinConnection.forNetwork(network);
+  const cfg = network === 'regtest' ? { network, rpc: REGTEST_RPC } : { network };
+  return new BitcoinApi(cfg).connection;
 }
 
 /**

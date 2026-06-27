@@ -26,7 +26,8 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { BitcoinConnection } from '@did-btcr2/bitcoin';
+import type { BitcoinConnection } from '@did-btcr2/bitcoin';
+import { connectBitcoin } from './bitcoin-endpoints.js';
 import { canonicalize } from '@did-btcr2/common';
 import { hex } from '@scure/base';
 import { CID } from 'multiformats/cid';
@@ -107,7 +108,7 @@ async function verifyScenario(dir: string, btc: BitcoinConnection): Promise<{ ok
 }
 
 async function run(): Promise<void> {
-  const btc = BitcoinConnection.forNetwork(NETWORK);
+  const btc = connectBitcoin(NETWORK);
   console.log(`=== scenario:verify:live (${NETWORK}, CAS ${GATEWAY}) ===`);
 
   let pass = 0, fail = 0;
