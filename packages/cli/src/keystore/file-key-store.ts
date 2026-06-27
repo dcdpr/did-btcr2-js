@@ -6,6 +6,7 @@ import { assertSecurePerms, ensureDir, writeFileAtomic } from './atomic.js';
 import { DEFAULT_ARGON_PARAMS, decryptSecret, encryptSecret } from './envelope.js';
 import type { ArgonParams, SecretEnvelope } from './envelope.js';
 import { KeyStoreError } from './error.js';
+import { withFileLock, type LockOptions } from './lock.js';
 import { defaultKeystorePath } from './paths.js';
 
 /** Current on-disk keystore file format version. */
@@ -41,6 +42,8 @@ export type FileKeyStoreOptions = {
   getPassphrase: () => string;
   /** argon2id cost parameters used when sealing new secrets. Defaults to {@link DEFAULT_ARGON_PARAMS}. */
   argonParams?: ArgonParams;
+  /** Tuning for the cross-process write lock. Defaults documented on {@link LockOptions}. */
+  lock?: LockOptions;
 };
 
 /**
@@ -49,6 +52,15 @@ export type FileKeyStoreOptions = {
  * in memory at construction and flushing the whole file atomically on every
  * mutation.
  *
+ * Every mutation runs under an exclusive cross-process lock and, inside that
+ * lock, reloads the file from disk before applying its change and flushing.
+ * Caching at construction and flushing the whole file is otherwise a lost-update
+ * race: two `btcr2` processes that each load, then each write, would have the
+ * second overwrite the first. The lock serializes the writers and the reload
+ * merges any change the other made, so concurrent invocations compose instead of
+ * clobbering. Reads stay lock-free: an atomic rename means a concurrent reader
+ * always sees a complete file, old or new.
+ *
  * Secrets are materialized only through {@link FileKeyStore.get}. The
  * {@link FileKeyStore.list} and {@link FileKeyStore.entries} projections omit
  * secret keys and never decrypt, so enumerating the store never triggers a
@@ -56,6 +68,8 @@ export type FileKeyStoreOptions = {
  */
 export class FileKeyStore implements KeyValueStore<KeyIdentifier, KeyEntry> {
   readonly #path: string;
+  readonly #lockPath: string;
+  readonly #lockOptions: LockOptions;
   readonly #getPassphrase: () => string;
   readonly #argonParams: ArgonParams;
   readonly #cache: Map<KeyIdentifier, CacheEntry> = new Map();
@@ -63,13 +77,15 @@ export class FileKeyStore implements KeyValueStore<KeyIdentifier, KeyEntry> {
 
   constructor(options: FileKeyStoreOptions) {
     this.#path = options.path ?? defaultKeystorePath();
+    this.#lockPath = `${this.#path}.lock`;
+    this.#lockOptions = options.lock ?? {};
     this.#getPassphrase = options.getPassphrase;
     this.#argonParams = options.argonParams ?? DEFAULT_ARGON_PARAMS;
     ensureDir(dirname(this.#path), 0o700);
-    this.#load();
+    this.#loadFromDisk();
   }
 
-  #load(): void {
+  #loadFromDisk(): void {
     if (!existsSync(this.#path)) return;
     assertSecurePerms(this.#path);
     let parsed: KeystoreFile;
@@ -134,6 +150,44 @@ export class FileKeyStore implements KeyValueStore<KeyIdentifier, KeyEntry> {
     writeFileAtomic(this.#path, `${JSON.stringify(file, null, 2)}\n`, 0o600);
   }
 
+  /**
+   * Re-reads the file into the cache, discarding the prior in-memory view so a
+   * mutation applies on top of whatever other processes have written. Secrets
+   * already decrypted this session are carried over for entries whose sealed
+   * envelope is byte-identical on disk, so a mid-session write does not force a
+   * re-prompt for keys it did not touch.
+   */
+  #reload(): void {
+    const carried = new Map<KeyIdentifier, { secret: SecretEnvelope; decrypted: Uint8Array }>();
+    for (const [ id, entry ] of this.#cache) {
+      if (entry.secret && entry.decrypted) carried.set(id, { secret: entry.secret, decrypted: entry.decrypted });
+    }
+    this.#cache.clear();
+    this.#active = undefined;
+    this.#loadFromDisk();
+    for (const [ id, prior ] of carried) {
+      const entry = this.#cache.get(id);
+      if (entry?.secret && JSON.stringify(entry.secret) === JSON.stringify(prior.secret)) {
+        entry.decrypted = prior.decrypted;
+      }
+    }
+  }
+
+  /**
+   * Runs a cache mutation under the exclusive write lock, reloading the file
+   * first so the change merges with any concurrent writer's change rather than
+   * overwriting it, then flushing the result atomically. Callers must do any
+   * expensive work (such as sealing a secret with argon2id) before calling this,
+   * so the locked critical section stays short.
+   */
+  #mutate(apply: () => void): void {
+    withFileLock(this.#lockPath, () => {
+      this.#reload();
+      apply();
+      this.#flush();
+    }, this.#lockOptions);
+  }
+
   get(id: KeyIdentifier): KeyEntry | undefined {
     const entry = this.#cache.get(id);
     if (!entry) return undefined;
@@ -165,31 +219,37 @@ export class FileKeyStore implements KeyValueStore<KeyIdentifier, KeyEntry> {
   }
 
   set(id: KeyIdentifier, value: KeyEntry): void {
+    // Seal the secret before taking the lock: argon2id is deliberately slow and
+    // must not extend the critical section that blocks other processes.
     const secret = value.secretKey
       ? encryptSecret(value.secretKey, this.#getPassphrase(), this.#argonParams)
       : undefined;
-    this.#cache.set(id, {
-      publicKey : value.publicKey,
-      ...(value.tags && { tags: value.tags }),
-      ...(secret && { secret }),
-      ...(value.secretKey && { decrypted: value.secretKey }),
+    this.#mutate(() => {
+      this.#cache.set(id, {
+        publicKey : value.publicKey,
+        ...(value.tags && { tags: value.tags }),
+        ...(secret && { secret }),
+        ...(value.secretKey && { decrypted: value.secretKey }),
+      });
     });
-    this.#flush();
   }
 
   delete(id: KeyIdentifier): boolean {
-    const existed = this.#cache.delete(id);
-    if (existed) {
-      if (this.#active === id) this.#active = undefined;
-      this.#flush();
-    }
+    // `existed` reflects the freshly-reloaded state inside the lock, so a key a
+    // concurrent process already removed reads as absent rather than resurrected.
+    let existed = false;
+    this.#mutate(() => {
+      existed = this.#cache.delete(id);
+      if (existed && this.#active === id) this.#active = undefined;
+    });
     return existed;
   }
 
   clear(): void {
-    this.#cache.clear();
-    this.#active = undefined;
-    this.#flush();
+    this.#mutate(() => {
+      this.#cache.clear();
+      this.#active = undefined;
+    });
   }
 
   /** All stored values with secret keys omitted. Never decrypts, never prompts. */
@@ -233,10 +293,13 @@ export class FileKeyStore implements KeyValueStore<KeyIdentifier, KeyEntry> {
    * clears it. Throws if the identifier is not a known key.
    */
   setActive(id: KeyIdentifier | undefined): void {
-    if (id !== undefined && !this.#cache.has(id)) {
-      throw new KeyStoreError(`Cannot set unknown key as active: ${id}.`, 'KEY_NOT_FOUND_ERROR', { keyId: id });
-    }
-    this.#active = id;
-    this.#flush();
+    this.#mutate(() => {
+      // The existence check runs against the reloaded state, so a key another
+      // process added in the meantime is a valid active target.
+      if (id !== undefined && !this.#cache.has(id)) {
+        throw new KeyStoreError(`Cannot set unknown key as active: ${id}.`, 'KEY_NOT_FOUND_ERROR', { keyId: id });
+      }
+      this.#active = id;
+    });
   }
 }
