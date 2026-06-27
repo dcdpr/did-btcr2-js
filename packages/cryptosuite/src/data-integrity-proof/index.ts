@@ -1,7 +1,7 @@
 import { DataIntegrityProofError, PROOF_GENERATION_ERROR, PROOF_VERIFICATION_ERROR } from '@did-btcr2/common';
 import type { BIP340Cryptosuite } from '../cryptosuite/index.js';
 import type { VerificationResult } from '../cryptosuite/interface.js';
-import type { SignedBTCR2Update, UnsignedBTCR2Update, DataIntegrityConfig, DataIntegrityProof } from './interface.js';
+import type { DataIntegrityProof, DataIntegrityProofOptions, SecuredDocument, UnsecuredDocument } from './interface.js';
 
 /**
  * Implements section {@link https://dcdpr.github.io/data-integrity-schnorr-secp256k1/#dataintegrityproof | 2.2.1 DataIntegrityProof}
@@ -24,11 +24,11 @@ export class BIP340DataIntegrityProof implements DataIntegrityProof {
 
   /**
    * Add a proof to a document.
-   * @param {UnsignedBTCR2Update} unsignedDocument The document to add the proof to.
-   * @param {DataIntegrityConfig} config The configuration for generating the proof.
-   * @returns {SignedBTCR2Update} A document with a proof added.
+   * @param {UnsecuredDocument} unsignedDocument The document to add the proof to.
+   * @param {DataIntegrityProofOptions} config The proof options for generating the proof.
+   * @returns {SecuredDocument} A document with a proof added.
    */
-  addProof(unsignedDocument: UnsignedBTCR2Update, config: DataIntegrityConfig): SignedBTCR2Update {
+  addProof<T extends UnsecuredDocument>(unsignedDocument: T, config: DataIntegrityProofOptions): SecuredDocument<T> {
     // Generate the proof
     const proof = this.cryptosuite.createProof(unsignedDocument, config);
 
@@ -61,13 +61,13 @@ export class BIP340DataIntegrityProof implements DataIntegrityProof {
         );
     }
 
-    // Cast the unsignedDocument to a SignedBTCR2Update to add the proof
-    const signedDocument = unsignedDocument as SignedBTCR2Update;
+    // Attach the proof, securing the document
+    const signedDocument = unsignedDocument as SecuredDocument<T>;
 
-    // Set the proof in the document and return as a SignedBTCR2Update
+    // Set the proof in the document and return the secured document
     signedDocument.proof = proof;
 
-    // Return the signed document
+    // Return the secured document
     return signedDocument;
   }
 
@@ -88,7 +88,7 @@ export class BIP340DataIntegrityProof implements DataIntegrityProof {
     expectedChallenge?: string,
   ): VerificationResult {
     // Parse the document
-    const signedDocument = JSON.parse(document) as SignedBTCR2Update;
+    const signedDocument = JSON.parse(document) as SecuredDocument;
 
     // Parse the proof from the document
     const proof = signedDocument.proof;

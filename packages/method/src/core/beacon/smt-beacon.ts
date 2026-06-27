@@ -1,6 +1,6 @@
 import type { BitcoinConnection } from '@did-btcr2/bitcoin';
 import { canonicalize } from '@did-btcr2/common';
-import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { SignedBTCR2Update } from '../btcr2-update.js';
 import type { Signer } from '@did-btcr2/keypair';
 import { base64UrlToHash, blockHash, BTCR2MerkleTree, didToIndex, hashToHex, verifySerializedProof } from '@did-btcr2/smt';
 import { randomBytes } from '@noble/hashes/utils';

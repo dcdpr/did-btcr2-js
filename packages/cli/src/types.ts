@@ -1,6 +1,5 @@
 import type { PatchOperation } from '@did-btcr2/common';
-import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
-import type { Btcr2DidDocument, ResolutionOptions } from '@did-btcr2/method';
+import type { Btcr2DidDocument, ResolutionOptions, SignedBTCR2Update } from '@did-btcr2/method';
 import type { DidResolutionResult } from '@web5/dids';
 
 export type NetworkOption = 'bitcoin' | 'testnet3' | 'testnet4' | 'signet' | 'mutinynet' | 'regtest';

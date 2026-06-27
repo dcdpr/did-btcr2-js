@@ -1,7 +1,7 @@
 import { SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { expect } from 'chai';
 import type {
-  DataIntegrityConfig} from '../src/index.js';
+  DataIntegrityProofOptions} from '../src/index.js';
 import {
   BIP340Cryptosuite,
   BIP340DataIntegrityProof,
@@ -27,7 +27,7 @@ const unsecuredDocument = {
 } as any;
 const id = '#initialKey';
 const controller = 'did:btcr2:k1qqpkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5dsaaw53r';
-const config: DataIntegrityConfig = {
+const config: DataIntegrityProofOptions = {
   '@context' : [
     'https://w3id.org/security/v2',
     'https://w3id.org/zcap/v1',

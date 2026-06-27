@@ -1,4 +1,4 @@
-import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { SignedBTCR2Update } from '@did-btcr2/method';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { expect } from 'chai';
 import {

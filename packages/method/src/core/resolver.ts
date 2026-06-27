@@ -17,7 +17,7 @@ import type { HashBytes } from '@did-btcr2/common';
 import type {
   SignedBTCR2Update,
   UnsignedBTCR2Update
-} from '@did-btcr2/cryptosuite';
+} from './btcr2-update.js';
 import {
   BIP340Cryptosuite,
   BIP340DataIntegrityProof,

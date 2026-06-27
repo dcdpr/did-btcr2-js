@@ -1,4 +1,4 @@
-import type { DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from '@did-btcr2/method';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { getNetwork } from '@did-btcr2/bitcoin';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
@@ -56,7 +56,7 @@ function createSignedUpdate(did: string, keys: SchnorrKeyPair, version = 2): Sig
     targetHash      : `zQmTargetHash${did.slice(-6)}`,
     targetVersionId : version,
   };
-  const config: DataIntegrityConfig = {
+  const config: Btcr2DataIntegrityConfig = {
     '@context'         : context,
     cryptosuite        : 'bip340-jcs-2025',
     type               : 'DataIntegrityProof',

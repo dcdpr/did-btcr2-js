@@ -11,6 +11,7 @@ export * from './core/beacon/smt-beacon.js';
 export * from './core/beacon/utils.js';
 
 // Core
+export * from './core/btcr2-update.js';
 export * from './core/did-sender-resolver.js';
 export * from './core/identifier.js';
 export * from './core/interfaces.js';

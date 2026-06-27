@@ -1,6 +1,6 @@
 import { getNetwork } from '@did-btcr2/bitcoin';
 import { canonicalHash, canonicalize, hash } from '@did-btcr2/common';
-import type { SignedBTCR2Update } from '@did-btcr2/cryptosuite';
+import type { SecuredDocument } from '@did-btcr2/cryptosuite';
 import type { SerializedSMTProof, TreeEntry } from '@did-btcr2/smt';
 import { BTCR2MerkleTree } from '@did-btcr2/smt';
 import { schnorr } from '@noble/curves/secp256k1.js';
@@ -113,7 +113,7 @@ export class AggregationCohort {
   beaconAddress: string = '';
 
   /** Pending DID updates submitted by participants, keyed by DID. */
-  pendingUpdates: Map<string, SignedBTCR2Update> = new Map();
+  pendingUpdates: Map<string, SecuredDocument> = new Map();
 
   /**
    * Participant DIDs that explicitly declined to submit an update this round
@@ -274,7 +274,7 @@ export class AggregationCohort {
     );
   }
 
-  public addUpdate(participantDid: string, signedUpdate: SignedBTCR2Update): void {
+  public addUpdate(participantDid: string, signedUpdate: SecuredDocument): void {
     if(!this.participants.includes(participantDid)) {
       throw new AggregationCohortError(
         `Participant ${participantDid} is not in cohort ${this.id}.`,
