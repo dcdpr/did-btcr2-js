@@ -26,6 +26,28 @@ export interface CASBroadcastOptions extends BroadcastOptions {
  * During resolution, the CAS Announcement is retrieved from the sidecar (or CAS)
  * and used to look up the individual signed update for the DID being resolved.
  *
+ * ## CAS announcement hash chain
+ *
+ * Resolution links an on-chain signal to a signed update through two hashes, with
+ * an encoding transition at each hop. The write path ({@link broadcastSignal})
+ * produces both hashes; the read path ({@link processSignals}) re-derives them:
+ *
+ * 1. **Signal hop.** The OP_RETURN payload is `canonicalHash(announcement)` in
+ *    **hex**: this is `signal.signalBytes` and the lookup key into `sidecar.casMap`.
+ *    Broadcast emits `hash(canonicalize(announcement))`; the resolver keys `casMap`
+ *    by `canonicalHash(announcement, { encoding: 'hex' })`. These are the same bytes,
+ *    so `signalBytes === canonicalHash(announcement, hex)`.
+ * 2. **Update hop.** Each `announcement[did]` is `canonicalHash(signedUpdate)` in
+ *    **base64urlnopad** (per spec). It is decoded back to **hex** to key
+ *    `sidecar.updateMap`, so `hex(decode(announcement[did])) === canonicalHash(signedUpdate, hex)`.
+ *
+ * Both links are enforced when sidecar data is supplied via `Resolver.provide()`
+ * (which validates the provided announcement and update against the need's hash),
+ * and structurally when sidecar maps are pre-loaded (they are keyed by
+ * `canonicalHash`, so a mismatched entry simply misses the lookup). The two
+ * encoding transitions (hex for on-chain and map keys, base64urlnopad for
+ * announcement values) are the subtle part: a regression test pins them.
+ *
  * @class CASBeacon
  * @type {CASBeacon}
  * @extends {SinglePartyBeacon}
