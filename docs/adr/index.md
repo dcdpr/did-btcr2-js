@@ -52,6 +52,7 @@ children:
   - ./049-cli-create-default-keygen.md
   - ./050-split-aggregation-packages.md
   - ./051-update-verifies-signing-key.md
+  - ./052-cli-keystore-file-locking.md
 ---
 
 # Architecture Decision Records
@@ -111,3 +112,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 049 | 2026-06-25 | [Default Keypair Generation in the create Command](049-cli-create-default-keygen.md) |
 | 050 | 2026-06-26 | [Split the Aggregation Package into Core, Participant, and Service Subpath Exports](050-split-aggregation-packages.md) |
 | 051 | 2026-06-26 | [Verify the Signing Key Against the Named Verification Method in Updater.sign](051-update-verifies-signing-key.md) |
+| 052 | 2026-06-26 | [Cross-Process File Locking for the CLI Keystore](052-cli-keystore-file-locking.md) |
