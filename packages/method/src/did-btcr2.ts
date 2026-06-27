@@ -124,9 +124,10 @@ export class DidBtcr2 implements DidMethod {
 
     // Return the sans-I/O state machine
     return new Resolver(didComponents, sidecarData, currentDocument, {
-      versionId       : resolutionOptions.versionId,
-      versionTime     : resolutionOptions.versionTime,
-      genesisDocument : resolutionOptions.sidecar?.genesisDocument
+      versionId          : resolutionOptions.versionId,
+      versionTime        : resolutionOptions.versionTime,
+      genesisDocument    : resolutionOptions.sidecar?.genesisDocument,
+      maxDiscoveryRounds : resolutionOptions.maxDiscoveryRounds
     });
   }
 

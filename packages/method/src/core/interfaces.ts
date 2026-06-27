@@ -35,6 +35,14 @@ export interface ResolutionOptions extends DidResolutionOptions {
    * Includes Singleton beacon updates, CAS announcements, and SMT proofs.
    */
   sidecar?: Sidecar;
+
+  /**
+   * Maximum number of multi-round beacon-discovery passes before resolution
+   * fails. Each pass applies the updates found so far, then looks for new beacon
+   * services those updates added. A document whose updates keep adding beacon
+   * services would otherwise drive discovery without bound. Default: 10.
+   */
+  maxDiscoveryRounds?: number;
 }
 
 /**
