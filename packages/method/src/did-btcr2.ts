@@ -23,6 +23,10 @@ import type { ResolutionOptions } from './core/interfaces.js';
 import { Resolver } from './core/resolver.js';
 import { Updater } from './core/updater.js';
 import { Appendix } from './utils/appendix.js';
+import {
+  MULTIKEY_PUBLIC_KEY_MULTIBASE_PREFIX,
+  MULTIKEY_VERIFICATION_METHOD_TYPE
+} from './utils/did-document.js';
 import type { Btcr2DidDocument, DidVerificationMethod } from './utils/did-document.js';
 
 export interface DidCreateOptions {
@@ -187,17 +191,17 @@ export class DidBtcr2 implements DidMethod {
     }
 
     // Validate the verificationMethod is of type 'Multikey'
-    if(verificationMethod.type !== 'Multikey') {
+    if(verificationMethod.type !== MULTIKEY_VERIFICATION_METHOD_TYPE) {
       throw new UpdateError(
-        'Invalid verificationMethod: verificationMethod.type must be "Multikey"',
+        `Invalid verificationMethod: verificationMethod.type must be "${MULTIKEY_VERIFICATION_METHOD_TYPE}"`,
         INVALID_DID_DOCUMENT, verificationMethod
       );
     }
 
     // Validate the publicKeyMultibase prefix is 'zQ3s'
-    if(verificationMethod.publicKeyMultibase?.slice(0, 4) !== 'zQ3s') {
+    if(!verificationMethod.publicKeyMultibase?.startsWith(MULTIKEY_PUBLIC_KEY_MULTIBASE_PREFIX)) {
       throw new UpdateError(
-        'Invalid verificationMethodId: publicKeyMultibase prefix must start with "zQ3s"',
+        `Invalid verificationMethodId: publicKeyMultibase prefix must start with "${MULTIKEY_PUBLIC_KEY_MULTIBASE_PREFIX}"`,
         INVALID_DID_DOCUMENT, verificationMethod
       );
     }
