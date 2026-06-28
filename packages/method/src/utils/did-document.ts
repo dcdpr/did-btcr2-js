@@ -24,6 +24,15 @@ export const BTCR2_DID_DOCUMENT_CONTEXT = [
   'https://www.w3.org/ns/did/v1.1',
   'https://btcr2.dev/context/v1',
 ];
+
+/** The `type` every did:btcr2 verification method must declare. */
+export const MULTIKEY_VERIFICATION_METHOD_TYPE = 'Multikey';
+
+/**
+ * The multibase prefix of a did:btcr2 verification method's `publicKeyMultibase`.
+ * `zQ3s` is the multibase-base58btc encoding of a Schnorr secp256k1 public key.
+ */
+export const MULTIKEY_PUBLIC_KEY_MULTIBASE_PREFIX = 'zQ3s';
 export const ID_PLACEHOLDER_VALUE = 'did:btcr2:_';
 export const BECH32M_CHARS = '';
 export const DID_REGEX = /did:btcr2:(x1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]*)/g;
@@ -57,6 +66,33 @@ export interface Btcr2VerificationMethod extends W3CDidVerificationMethod {
 }
 
 /**
+ * Determines whether a value is a valid did:btcr2 verification method.
+ *
+ * Beyond the structural id/type/controller shape, a btcr2 verification method is
+ * a {@link MULTIKEY_VERIFICATION_METHOD_TYPE | Multikey} whose public key is a
+ * Schnorr secp256k1 key, multibase-encoded with the
+ * {@link MULTIKEY_PUBLIC_KEY_MULTIBASE_PREFIX | zQ3s} prefix. This is the single
+ * source of truth for that invariant: it is enforced both when a
+ * {@link DidVerificationMethod} is constructed and when a {@link DidDocument}'s
+ * `verificationMethod` array is validated, rather than only for the one method
+ * being signed with at update time.
+ *
+ * @param {unknown} vm The value to check.
+ * @returns {boolean} True if `vm` is a Multikey verification method with a zQ3s key.
+ */
+export function isMultikeyVerificationMethod(vm: unknown): boolean {
+  if(!Appendix.isDidVerificationMethod(vm)) {
+    return false;
+  }
+  // `vm` is a structurally-valid verification method; check the btcr2 Multikey
+  // invariant on the raw fields (the public key is unconstrained by the guard).
+  const { type, publicKeyMultibase } = vm as { type: unknown; publicKeyMultibase: unknown };
+  return type === MULTIKEY_VERIFICATION_METHOD_TYPE
+    && typeof publicKeyMultibase === 'string'
+    && publicKeyMultibase.startsWith(MULTIKEY_PUBLIC_KEY_MULTIBASE_PREFIX);
+}
+
+/**
  * DID BTCR2 Verification Method extends the DidVerificationMethod class adding helper methods and properties
  * @class DidVerificationMethod
  * @type {DidVerificationMethod}
@@ -70,6 +106,21 @@ export class DidVerificationMethod implements Btcr2VerificationMethod {
   secretKeyMultibase?: string | undefined;
 
   constructor({ id, type, controller, publicKeyMultibase, secretKeyMultibase }: Btcr2VerificationMethod) {
+    // A btcr2 verification method must be a Multikey carrying a Schnorr secp256k1
+    // public key (zQ3s multibase prefix). Enforce it here so the invariant holds
+    // wherever a verification method is constructed, not only at update time.
+    if(type !== MULTIKEY_VERIFICATION_METHOD_TYPE) {
+      throw new DidDocumentError(
+        `Invalid verification method: type must be "${MULTIKEY_VERIFICATION_METHOD_TYPE}"`,
+        INVALID_DID_DOCUMENT, { id, type }
+      );
+    }
+    if(typeof publicKeyMultibase !== 'string' || !publicKeyMultibase.startsWith(MULTIKEY_PUBLIC_KEY_MULTIBASE_PREFIX)) {
+      throw new DidDocumentError(
+        `Invalid verification method: publicKeyMultibase must start with "${MULTIKEY_PUBLIC_KEY_MULTIBASE_PREFIX}"`,
+        INVALID_DID_DOCUMENT, { id, publicKeyMultibase }
+      );
+    }
     this.id = id;
     this.type = type;
     this.controller = controller;
@@ -305,10 +356,12 @@ export class DidDocument implements Btcr2DidDocument {
    * @returns {boolean} True if the context is valid.
    */
   private static isValidContext(context: unknown): boolean {
-    if(!context) return false;
-    if(!Array.isArray(context)) return false;
-    if(!context.every(ctx => typeof ctx === 'string' && BTCR2_DID_DOCUMENT_CONTEXT.includes(ctx))) return false;
-    return true;
+    // "@context" must be a non-empty array of context entries.
+    if(!Array.isArray(context) || context.length === 0) return false;
+    // The btcr2 base contexts must all be present. Additional proof-suite or
+    // extension contexts (string or inline object) are permitted per W3C DID
+    // Core 4.1 and are no longer rejected by a strict whitelist.
+    return BTCR2_DID_DOCUMENT_CONTEXT.every(required => context.includes(required));
   }
 
   /**
@@ -334,7 +387,7 @@ export class DidDocument implements Btcr2DidDocument {
    * @returns {boolean} True if the verification methods are valid.
    */
   private static isValidVerificationMethods(verificationMethod: unknown): boolean {
-    return Array.isArray(verificationMethod) && verificationMethod.every(Appendix.isDidVerificationMethod);
+    return Array.isArray(verificationMethod) && verificationMethod.every(isMultikeyVerificationMethod);
   }
 
   /**
