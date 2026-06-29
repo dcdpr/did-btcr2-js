@@ -60,6 +60,7 @@ children:
   - ./057-did-document-validation-standards.md
   - ./058-remove-legacy-helia-cas-path.md
   - ./059-unbounded-beacon-discovery-default.md
+  - ./060-resolver-cross-round-version-continuity.md
 ---
 
 # Architecture Decision Records
@@ -127,3 +128,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 057 | 2026-06-28 | [Extensible @context and Uniform Multikey Enforcement in DID Document Validation](057-did-document-validation-standards.md) |
 | 058 | 2026-06-29 | [Remove the Legacy Helia CAS Read Path and Shrink the Method Bundle](058-remove-legacy-helia-cas-path.md) |
 | 059 | 2026-06-29 | [Beacon Discovery Is Unbounded by Default, With an Opt-In Round Cap](059-unbounded-beacon-discovery-default.md) |
+| 060 | 2026-06-29 | [Carry the Version Counter and Update-Hash History Across Resolver Discovery Rounds](060-resolver-cross-round-version-continuity.md) |

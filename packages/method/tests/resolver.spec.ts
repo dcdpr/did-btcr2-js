@@ -12,7 +12,7 @@ import { BeaconUtils } from '../src/core/beacon/utils.js';
 import type { BeaconService, BeaconSignal } from '../src/core/beacon/interfaces.js';
 import type { DidDocument } from '../src/utils/did-document.js';
 import type { SignedBTCR2Update } from '../src/core/btcr2-update.js';
-import type { NeedBeaconSignals, NeedCASAnnouncement, NeedGenesisDocument, NeedSMTProof, NeedSignedUpdate } from '../src/core/resolver.js';
+import type { DidResolutionResponse, NeedBeaconSignals, NeedCASAnnouncement, NeedGenesisDocument, NeedSMTProof, NeedSignedUpdate } from '../src/core/resolver.js';
 import { Updater } from '../src/core/updater.js';
 import deterministicData from './data/deterministic-data.js';
 import externalData from './data/external-data.js';
@@ -37,12 +37,12 @@ function resolveDeterministic(did: string): DidDocument {
  * Build a chain of `numHops` signed updates that each add a new SingletonBeacon
  * service, wired so the beacon added by one hop carries the update for the next.
  *
- * Every update is a v1-to-v2 update (sourceVersionId 1) whose sourceHash chains
- * to the running document. That is the only shape that drives the resolver's
- * per-round discovery counter: Resolver.updates() restarts its version counter
- * each round, so a genuine linear history spread across rounds (v2, v3, ...) would
- * be rejected as late publishing. This re-declared-v2 chain is exactly the runaway
- * shape an opt-in maxDiscoveryRounds is meant to bound.
+ * This is a genuine linear history: hop i is a v(i+1)-to-v(i+2) update whose
+ * sourceHash chains to the running document. Hop 0 (v1-to-v2) is announced on the
+ * genesis beacon, the beacon it adds carries hop 1 (v2-to-v3), and so on. Each new
+ * version is only discoverable a round later, on a beacon the previous update added,
+ * so resolving past v2 requires the version counter to persist across discovery
+ * rounds rather than reset each pass.
  *
  * Returns the signed updates (for the sidecar) plus a map from beacon address to
  * the hex update hash to deliver on the beacon at that address; the terminal
@@ -78,7 +78,7 @@ function buildDiscoveryChain(
       value : { id: `${did}#beacon-${i}`, type: 'SingletonBeacon', serviceEndpoint: `bitcoin:${address}` }
     }];
 
-    const unsigned = Updater.construct(currentDoc, patches, 1);
+    const unsigned = Updater.construct(currentDoc, patches, i + 1);
     const signed = Updater.sign(did, unsigned, vm, signer);
     updates.push(signed);
 
@@ -102,7 +102,7 @@ function driveDiscoveryChain(
   updates: Array<SignedBTCR2Update>,
   signalByAddress: Map<string, string>,
   options?: { maxDiscoveryRounds?: number }
-): DidDocument {
+): DidResolutionResponse {
   const resolver = DidBtcr2.resolve(did, { sidecar: { updates }, ...options });
   let height = 100;
   let state = resolver.resolve();
@@ -122,7 +122,7 @@ function driveDiscoveryChain(
     state = resolver.resolve();
   }
   if(state.status !== 'resolved') throw new Error('expected resolved');
-  return state.result.didDocument;
+  return state.result;
 }
 
 describe('Resolver', () => {
@@ -685,6 +685,24 @@ describe('Resolver', () => {
     });
   });
 
+  describe('cross-round version continuity (regression)', () => {
+    it('resolves a linear history whose later versions live on beacons added by earlier updates', () => {
+      const fixture = deterministicData[2]; // regtest - has a known secretKey
+      const sourceDocument = resolveDeterministic(fixture.did);
+      const hops = 3;
+      const { updates, signalByAddress } = buildDiscoveryChain(fixture.did, sourceDocument, fixture.secretKey, hops);
+
+      // Genesis is v1. Hop 0 (v1->v2) is announced on the genesis beacon, hop 1
+      // (v2->v3) on the beacon hop 0 added, hop 2 (v3->v4) on the beacon hop 1 added.
+      // Each version is only discoverable a round later, so resolving past v2 requires
+      // the version counter to persist across discovery rounds. Previously the resolver
+      // reset that counter every round and rejected hop 1 at round two as late publishing.
+      const resolved = driveDiscoveryChain(fixture.did, updates, signalByAddress);
+      expect(resolved.metadata.versionId).to.equal(`${hops + 1}`);
+      expect(resolved.didDocument.service.length).to.equal(sourceDocument.service.length + hops);
+    });
+  });
+
   describe('edge cases', () => {
     it('resolves immediately for k1 when no beacon services have signals', () => {
       const resolver = DidBtcr2.resolve(deterministicData[0].did);
@@ -828,7 +846,7 @@ describe('Resolver', () => {
       const { updates, signalByAddress } = buildDiscoveryChain(fixture.did, sourceDocument, fixture.secretKey, hops);
 
       const resolved = driveDiscoveryChain(fixture.did, updates, signalByAddress);
-      expect(resolved.service.length).to.equal(initialServiceCount + hops);
+      expect(resolved.didDocument.service.length).to.equal(initialServiceCount + hops);
     });
 
     it('treats a non-positive maxDiscoveryRounds as unbounded', () => {
@@ -838,7 +856,7 @@ describe('Resolver', () => {
 
       // 0 used to trip immediately; under the new semantics it means "no limit".
       const resolved = driveDiscoveryChain(fixture.did, updates, signalByAddress, { maxDiscoveryRounds: 0 });
-      expect(resolved.service.length).to.equal(sourceDocument.service.length + 3);
+      expect(resolved.didDocument.service.length).to.equal(sourceDocument.service.length + 3);
     });
 
     it('still enforces an explicit positive maxDiscoveryRounds cap (INTERNAL_ERROR)', () => {

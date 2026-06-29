@@ -197,6 +197,20 @@ export class Resolver {
   #resolvedResponse: DidResolutionResponse | null = null;
 
   /**
+   * Monotonic DID-document version counter and the update-hash history that backs
+   * duplicate confirmation, both carried across the entire resolution. The spec's
+   * read algorithm keeps a single version counter and a single update-hash history
+   * for the whole signal-processing loop, re-deriving beacons from the contemporary
+   * document on each pass. This sans-I/O resolver splits that one loop into discovery
+   * rounds, so the two must persist across rounds rather than restart each pass.
+   * Restarting them would reject a legitimate linear history whose later updates are
+   * announced on beacons that earlier updates added: round two would forget it had
+   * already reached version two, see version three, and raise a late-publishing error.
+   */
+  #currentVersionId = 1;
+  #updateHashHistory: HashBytes[] = [];
+
+  /**
    * Opt-in upper bound on multi-round beacon-discovery passes. `Infinity` (the
    * default) leaves discovery unbounded; termination is already guaranteed by
    * de-duplicating already-queried beacon addresses. A positive value is a
@@ -345,19 +359,25 @@ export class Resolver {
    * @param {Array<[SignedBTCR2Update, BlockMetadata]>} unsortedUpdates The unsorted array of BTCR2 Signed Updates and their associated Block Metadata.
    * @param {string} [versionTime] The optional version time to limit updates to.
    * @param {string} [versionId] The optional version id to limit updates to.
+   * @param {{ currentVersionId: number; updateHashHistory: HashBytes[] }} [resolutionState]
+   *   Version counter and update-hash history carried from earlier discovery rounds.
+   *   Standalone callers omit it and start fresh at version 1 with an empty history.
    * @returns {DidResolutionResponse} The updated DID Document, number of confirmations, and version id.
    */
   static updates(
     currentDocument: DidDocument,
     unsortedUpdates: Array<[SignedBTCR2Update, BlockMetadata]>,
     versionTime?: string,
-    versionId?: string
+    versionId?: string,
+    resolutionState: { currentVersionId: number; updateHashHistory: HashBytes[] } =
+    { currentVersionId: 1, updateHashHistory: [] }
   ): DidResolutionResponse {
-    // Start the version number being processed at 1
-    let currentVersionId = 1;
-
-    // Initialize an empty array to hold the update hashes (raw bytes)
-    const updateHashHistory: HashBytes[] = [];
+    // Continue the version counter and update-hash history from earlier discovery
+    // rounds so the whole resolution is one monotonic sequence, matching the spec's
+    // single signal-processing loop. updateHashHistory is shared by reference, so the
+    // appends made below are visible to the next round.
+    let currentVersionId = resolutionState.currentVersionId;
+    const updateHashHistory: HashBytes[] = resolutionState.updateHashHistory;
 
     // 1. Sort updates by targetVersionId (ascending), using blockheight as tie-breaker
     const updates = unsortedUpdates.sort(([upd0, blk0], [upd1, blk1]) =>
@@ -682,13 +702,20 @@ export class Resolver {
         // Apply collected updates, then check for new beacon services (multi-round).
         case ResolverPhase.ApplyUpdates: {
           if(this.#unsortedUpdates.length > 0) {
-            // Apply all collected updates to the current document
+            // Apply this round's updates, continuing the resolution-wide version
+            // counter and update-hash history rather than restarting them. Without
+            // this carry, a linear history split across discovery rounds would be
+            // rejected at round two as late publishing.
             this.#resolvedResponse = Resolver.updates(
               this.#currentDocument!,
               this.#unsortedUpdates,
               this.#versionTime,
-              this.#versionId
+              this.#versionId,
+              { currentVersionId: this.#currentVersionId, updateHashHistory: this.#updateHashHistory }
             );
+            // updates() reports the version it reached via metadata.versionId; carry
+            // it forward so the next round continues the monotonic sequence.
+            this.#currentVersionId = Number(this.#resolvedResponse.metadata.versionId);
             this.#currentDocument = this.#resolvedResponse.didDocument;
             this.#unsortedUpdates = [];
 
