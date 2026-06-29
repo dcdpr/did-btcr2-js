@@ -37,10 +37,13 @@ export interface ResolutionOptions extends DidResolutionOptions {
   sidecar?: Sidecar;
 
   /**
-   * Maximum number of multi-round beacon-discovery passes before resolution
-   * fails. Each pass applies the updates found so far, then looks for new beacon
-   * services those updates added. A document whose updates keep adding beacon
-   * services would otherwise drive discovery without bound. Default: 10.
+   * Opt-in upper bound on multi-round beacon-discovery passes. Each pass applies
+   * the updates found so far, then looks for new beacon services those updates
+   * added. Discovery is unbounded by default: termination is already guaranteed
+   * by de-duplicating already-queried beacon addresses. Set a positive value only
+   * to impose a resource guard; a non-positive value or omitting the field means
+   * no limit. Exceeding a configured limit surfaces as an INTERNAL_ERROR, the
+   * document is well-formed, the resolver simply stopped at the caller's limit.
    */
   maxDiscoveryRounds?: number;
 }

@@ -59,6 +59,7 @@ children:
   - ./056-beacon-signal-format-validation.md
   - ./057-did-document-validation-standards.md
   - ./058-remove-legacy-helia-cas-path.md
+  - ./059-unbounded-beacon-discovery-default.md
 ---
 
 # Architecture Decision Records
@@ -125,3 +126,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 056 | 2026-06-27 | [Validate the Beacon Signal Output Format and Document the CAS Announcement Hash Chain](056-beacon-signal-format-validation.md) |
 | 057 | 2026-06-28 | [Extensible @context and Uniform Multikey Enforcement in DID Document Validation](057-did-document-validation-standards.md) |
 | 058 | 2026-06-29 | [Remove the Legacy Helia CAS Read Path and Shrink the Method Bundle](058-remove-legacy-helia-cas-path.md) |
+| 059 | 2026-06-29 | [Beacon Discovery Is Unbounded by Default, With an Opt-In Round Cap](059-unbounded-beacon-discovery-default.md) |
