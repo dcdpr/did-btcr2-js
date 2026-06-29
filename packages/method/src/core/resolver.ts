@@ -6,6 +6,7 @@ import {
   DateUtils,
   encode as encodeHash,
   decode as decodeHash,
+  INTERNAL_ERROR,
   INVALID_DID_DOCUMENT,
   INVALID_DID_UPDATE,
   JSONPatch,
@@ -35,14 +36,6 @@ import { Identifier } from './identifier.js';
 import type { SMTProof } from './interfaces.js';
 import type { CASAnnouncement, Sidecar, SidecarData } from './types.js';
 import { equalBytes } from '@noble/curves/utils.js';
-
-/**
- * Default upper bound on multi-round beacon discovery. Each round applies the
- * updates found so far and looks for beacon services those updates added; a
- * document whose updates keep adding services would otherwise loop unbounded.
- * Overridable via `ResolutionOptions.maxDiscoveryRounds`.
- */
-export const DEFAULT_MAX_DISCOVERY_ROUNDS = 10;
 
 /**
  * The response object for DID Resolution.
@@ -203,7 +196,12 @@ export class Resolver {
   #unsortedUpdates: Array<[SignedBTCR2Update, BlockMetadata]> = [];
   #resolvedResponse: DidResolutionResponse | null = null;
 
-  /** Upper bound on multi-round beacon-discovery passes; see {@link DEFAULT_MAX_DISCOVERY_ROUNDS}. */
+  /**
+   * Opt-in upper bound on multi-round beacon-discovery passes. `Infinity` (the
+   * default) leaves discovery unbounded; termination is already guaranteed by
+   * de-duplicating already-queried beacon addresses. A positive value is a
+   * caller-imposed resource guard; a non-positive value or omission means no limit.
+   */
   readonly #maxDiscoveryRounds: number;
   /** Count of beacon-discovery passes driven by updates adding new beacon services. */
   #discoveryRounds = 0;
@@ -222,7 +220,10 @@ export class Resolver {
     this.#currentDocument = currentDocument;
     this.#versionId = options?.versionId;
     this.#versionTime = options?.versionTime;
-    this.#maxDiscoveryRounds = options?.maxDiscoveryRounds ?? DEFAULT_MAX_DISCOVERY_ROUNDS;
+    // Discovery is unbounded by default; a positive maxDiscoveryRounds opts into a
+    // finite resource guard. A non-positive or omitted value means no limit.
+    const rounds = options?.maxDiscoveryRounds;
+    this.#maxDiscoveryRounds = typeof rounds === 'number' && rounds > 0 ? rounds : Infinity;
 
     // If a genesis document was provided (from sidecar), pre-seed it for validation
     if(options?.genesisDocument) {
@@ -699,15 +700,18 @@ export class Resolver {
             });
 
             if(hasNewServices) {
-              // Bound multi-round discovery: a document whose updates keep adding
-              // beacon services would otherwise loop without end. Fail closed once
-              // the configured number of rounds is exceeded.
+              // Discovery is unbounded by default: termination is guaranteed by
+              // address de-duplication (#requestCache), so a well-formed DID
+              // resolves in however many rounds its history requires. An opt-in
+              // maxDiscoveryRounds lets a caller bound the work as a resource
+              // guard. Exceeding it is a limit the caller imposed, not a malformed
+              // document, so it surfaces as INTERNAL_ERROR, not INVALID_DID_DOCUMENT.
               if(++this.#discoveryRounds > this.#maxDiscoveryRounds) {
                 throw new ResolveError(
-                  `Exceeded maximum beacon-discovery rounds (${this.#maxDiscoveryRounds}); `
-                  + 'the DID document may chain beacon services without terminating.',
-                  INVALID_DID_DOCUMENT,
-                  { maxDiscoveryRounds: this.#maxDiscoveryRounds }
+                  `Exceeded the configured maximum of ${this.#maxDiscoveryRounds} beacon-discovery `
+                  + 'rounds. Raise or remove ResolutionOptions.maxDiscoveryRounds to resolve this DID.',
+                  INTERNAL_ERROR,
+                  { maxDiscoveryRounds: this.#maxDiscoveryRounds, discoveryRounds: this.#discoveryRounds }
                 );
               }
               // Loop back to discover signals for new beacon services

@@ -1,11 +1,17 @@
 import { expect } from 'chai';
 import { randomBytes } from 'crypto';
-import { canonicalHash, encode, hash, canonicalize } from '@did-btcr2/common';
+import { canonicalHash, encode, hash, canonicalize, INTERNAL_ERROR, JSONPatch } from '@did-btcr2/common';
+import { getNetwork } from '@did-btcr2/bitcoin';
 import { LocalSigner } from '@did-btcr2/keypair';
 import { BTCR2MerkleTree, hashToHex } from '@did-btcr2/smt';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { hexToBytes } from '@noble/hashes/utils';
+import { p2wpkh } from '@scure/btc-signer';
 import { DidBtcr2 } from '../src/did-btcr2.js';
+import { BeaconUtils } from '../src/core/beacon/utils.js';
 import type { BeaconService, BeaconSignal } from '../src/core/beacon/interfaces.js';
+import type { DidDocument } from '../src/utils/did-document.js';
+import type { SignedBTCR2Update } from '../src/core/btcr2-update.js';
 import type { NeedBeaconSignals, NeedCASAnnouncement, NeedGenesisDocument, NeedSMTProof, NeedSignedUpdate } from '../src/core/resolver.js';
 import { Updater } from '../src/core/updater.js';
 import deterministicData from './data/deterministic-data.js';
@@ -14,6 +20,109 @@ import externalData from './data/external-data.js';
 /** Helper: provide empty signals for a NeedBeaconSignals need. */
 function provideEmptySignals(resolver: ReturnType<typeof DidBtcr2.resolve>, need: NeedBeaconSignals): void {
   resolver.provide(need, new Map<BeaconService, Array<BeaconSignal>>());
+}
+
+/** Helper: resolve a deterministic (k1) DID with empty signals to obtain its source document. */
+function resolveDeterministic(did: string): DidDocument {
+  const resolver = DidBtcr2.resolve(did);
+  let state = resolver.resolve();
+  if(state.status !== 'action-required') throw new Error('expected action-required');
+  provideEmptySignals(resolver, state.needs[0] as NeedBeaconSignals);
+  state = resolver.resolve();
+  if(state.status !== 'resolved') throw new Error('expected resolved');
+  return state.result.didDocument;
+}
+
+/**
+ * Build a chain of `numHops` signed updates that each add a new SingletonBeacon
+ * service, wired so the beacon added by one hop carries the update for the next.
+ *
+ * Every update is a v1-to-v2 update (sourceVersionId 1) whose sourceHash chains
+ * to the running document. That is the only shape that drives the resolver's
+ * per-round discovery counter: Resolver.updates() restarts its version counter
+ * each round, so a genuine linear history spread across rounds (v2, v3, ...) would
+ * be rejected as late publishing. This re-declared-v2 chain is exactly the runaway
+ * shape an opt-in maxDiscoveryRounds is meant to bound.
+ *
+ * Returns the signed updates (for the sidecar) plus a map from beacon address to
+ * the hex update hash to deliver on the beacon at that address; the terminal
+ * beacon has no entry.
+ */
+function buildDiscoveryChain(
+  did: string,
+  sourceDocument: DidDocument,
+  secretKey: string,
+  numHops: number
+): { updates: Array<SignedBTCR2Update>; signalByAddress: Map<string, string> } {
+  const vm = sourceDocument.verificationMethod![0]!;
+  const signer = new LocalSigner(hexToBytes(secretKey));
+  const network = getNetwork('regtest');
+  const updates: Array<SignedBTCR2Update> = [];
+  const signalByAddress = new Map<string, string>();
+
+  // The first genesis beacon delivers the first update.
+  let prevAddress = BeaconUtils.parseBitcoinAddress(
+    BeaconUtils.getBeaconServices(sourceDocument)[0]!.serviceEndpoint as string
+  );
+  let currentDoc: DidDocument = sourceDocument;
+
+  for(let i = 0; i < numHops; i++) {
+    // Distinct, valid regtest P2WPKH address for the new beacon.
+    const secret = new Uint8Array(32);
+    secret[31] = i + 1;
+    const address = p2wpkh(secp256k1.getPublicKey(secret, true), network).address!;
+
+    const patches = [{
+      op    : 'add' as const,
+      path  : '/service/-',
+      value : { id: `${did}#beacon-${i}`, type: 'SingletonBeacon', serviceEndpoint: `bitcoin:${address}` }
+    }];
+
+    const unsigned = Updater.construct(currentDoc, patches, 1);
+    const signed = Updater.sign(did, unsigned, vm, signer);
+    updates.push(signed);
+
+    // The beacon discovered in the previous round points at this update.
+    signalByAddress.set(prevAddress, canonicalHash(signed, { encoding: 'hex' }));
+
+    currentDoc = JSONPatch.apply(currentDoc, patches) as DidDocument;
+    prevAddress = address;
+  }
+
+  return { updates, signalByAddress };
+}
+
+/**
+ * Drive a resolver through a beacon-discovery chain, delivering on each beacon the
+ * update hash recorded for its address (empty signals otherwise). Returns the
+ * resolved document, or propagates whatever the resolver throws.
+ */
+function driveDiscoveryChain(
+  did: string,
+  updates: Array<SignedBTCR2Update>,
+  signalByAddress: Map<string, string>,
+  options?: { maxDiscoveryRounds?: number }
+): DidDocument {
+  const resolver = DidBtcr2.resolve(did, { sidecar: { updates }, ...options });
+  let height = 100;
+  let state = resolver.resolve();
+  while(state.status === 'action-required') {
+    const need = state.needs[0];
+    if(need.kind !== 'NeedBeaconSignals') throw new Error(`unexpected need: ${need.kind}`);
+    const signals = new Map<BeaconService, Array<BeaconSignal>>();
+    for(const service of need.beaconServices) {
+      const address = BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string);
+      const updateHashHex = signalByAddress.get(address);
+      signals.set(service, updateHashHex
+        ? [{ tx: {} as any, signalBytes: updateHashHex, blockMetadata: { height: height++, time: 1700000000, confirmations: 6 } }]
+        : []
+      );
+    }
+    resolver.provide(need, signals);
+    state = resolver.resolve();
+  }
+  if(state.status !== 'resolved') throw new Error('expected resolved');
+  return state.result.didDocument;
 }
 
 describe('Resolver', () => {
@@ -708,43 +817,46 @@ describe('Resolver', () => {
       expect(() => resolver.provide(state.needs[0] as NeedGenesisDocument, 'not-an-object' as any)).to.throw(/document object/i);
     });
 
-    it('fails closed when discovery exceeds maxDiscoveryRounds', () => {
+    it('resolves a DID whose updates drive many discovery rounds (default is unbounded)', () => {
       const fixture = deterministicData[2];
-      const did = fixture.did;
+      const sourceDocument = resolveDeterministic(fixture.did);
+      const initialServiceCount = sourceDocument.service.length;
 
-      // Resolve once to get the source document.
-      const initResolver = DidBtcr2.resolve(did);
-      let initState = initResolver.resolve();
-      if(initState.status !== 'action-required') throw new Error('expected action-required');
-      provideEmptySignals(initResolver, initState.needs[0] as NeedBeaconSignals);
-      initState = initResolver.resolve();
-      if(initState.status !== 'resolved') throw new Error('expected resolved');
-      const sourceDocument = initState.result.didDocument;
+      // More rounds than the old fixed default of 10, so this would have failed
+      // closed before; the default is now unbounded and it resolves cleanly.
+      const hops = 12;
+      const { updates, signalByAddress } = buildDiscoveryChain(fixture.did, sourceDocument, fixture.secretKey, hops);
 
-      // An update that adds a new beacon service, forcing one discovery round.
-      const patches = [{
-        op    : 'add' as const,
-        path  : '/service/-',
-        value : { id: `${did}#beacon-new`, type: 'SingletonBeacon', serviceEndpoint: 'bitcoin:mqTxx2aK3Ay3cDk5xM5E5wT6J4QoT6f8vT' }
-      }];
-      const vm = sourceDocument.verificationMethod![0]!;
-      const unsigned = Updater.construct(sourceDocument, patches, 1);
-      const signed = Updater.sign(did, unsigned, vm, new LocalSigner(hexToBytes(fixture.secretKey)));
-      const updateHashHex = canonicalHash(signed, { encoding: 'hex' });
+      const resolved = driveDiscoveryChain(fixture.did, updates, signalByAddress);
+      expect(resolved.service.length).to.equal(initialServiceCount + hops);
+    });
 
-      // A zero round budget means the first loop-back fails closed.
-      const resolver = DidBtcr2.resolve(did, { sidecar: { updates: [signed] }, maxDiscoveryRounds: 0 });
-      const state = resolver.resolve();
-      if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
-      const round1 = state.needs[0] as NeedBeaconSignals;
-      const signals = new Map<BeaconService, Array<BeaconSignal>>();
-      signals.set(round1.beaconServices[0] as BeaconService, [{
-        tx            : {} as any,
-        signalBytes   : updateHashHex,
-        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
-      }]);
-      resolver.provide(round1, signals);
-      expect(() => resolver.resolve()).to.throw(/maximum beacon-discovery rounds/i);
+    it('treats a non-positive maxDiscoveryRounds as unbounded', () => {
+      const fixture = deterministicData[2];
+      const sourceDocument = resolveDeterministic(fixture.did);
+      const { updates, signalByAddress } = buildDiscoveryChain(fixture.did, sourceDocument, fixture.secretKey, 3);
+
+      // 0 used to trip immediately; under the new semantics it means "no limit".
+      const resolved = driveDiscoveryChain(fixture.did, updates, signalByAddress, { maxDiscoveryRounds: 0 });
+      expect(resolved.service.length).to.equal(sourceDocument.service.length + 3);
+    });
+
+    it('still enforces an explicit positive maxDiscoveryRounds cap (INTERNAL_ERROR)', () => {
+      const fixture = deterministicData[2];
+      const sourceDocument = resolveDeterministic(fixture.did);
+      const { updates, signalByAddress } = buildDiscoveryChain(fixture.did, sourceDocument, fixture.secretKey, 4);
+
+      // Cap at 2 rounds: the 3rd discovery round exceeds it. The document is
+      // well-formed, so the caller-imposed limit surfaces as INTERNAL_ERROR.
+      let thrown: any;
+      try {
+        driveDiscoveryChain(fixture.did, updates, signalByAddress, { maxDiscoveryRounds: 2 });
+      } catch(error) {
+        thrown = error;
+      }
+      expect(thrown, 'expected resolution to throw').to.exist;
+      expect(thrown.message).to.match(/beacon-discovery/i);
+      expect(thrown.type).to.equal(INTERNAL_ERROR);
     });
   });
 });
