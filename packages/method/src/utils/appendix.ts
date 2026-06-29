@@ -1,4 +1,3 @@
-import type { HashBytes } from '@did-btcr2/common';
 import type {
   DidDocument,
   DidService,
@@ -8,8 +7,6 @@ import {
   DidErrorCode,
   DidVerificationRelationship
 } from '@web5/dids';
-import { CID } from 'multiformats';
-import { create as createDigest } from 'multiformats/hashes/digest';
 import type { RootCapability } from '../core/interfaces.js';
 
 /**
@@ -203,26 +200,5 @@ export class Appendix {
 
     // 9. Return rootCapability.
     return rootCapability;
-  }
-
-  /**
-   * Implements CAS Lookup Step from {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process-beacon-signals | 7.2.e Process Beacon Signals }.
-   * @param {HashBytes} hashBytes The hash bytes to look up in the CAS system.
-   * @returns {Promise<string | undefined>} The content fetched from the CAS system, or undefined if not found.
-   */
-  static async fetchFromCas(hashBytes: HashBytes): Promise<string | undefined> {
-    // Construct CID from hash bytes
-    const cid = CID.create(1, 1, createDigest(1, hashBytes));
-
-    // Lazy-load helia to avoid bundling its native deps into downstream CJS builds.
-    const { createHelia } = await import('helia');
-    const { strings } = await import('@helia/strings');
-
-    // Connect to IPFS/Helia node
-    const helia = await createHelia();
-    const node = strings(helia);
-
-    // Return the IPFS get result
-    return await node.get(cid, {});
   }
 }
