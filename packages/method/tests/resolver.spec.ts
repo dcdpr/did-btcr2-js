@@ -1,6 +1,7 @@
 import { expect } from 'chai';
 import { randomBytes } from 'crypto';
 import { canonicalHash, encode, hash, canonicalize, INTERNAL_ERROR, JSONPatch } from '@did-btcr2/common';
+import type { PatchOperation } from '@did-btcr2/common';
 import { getNetwork } from '@did-btcr2/bitcoin';
 import { LocalSigner } from '@did-btcr2/keypair';
 import { BTCR2MerkleTree, hashToHex } from '@did-btcr2/smt';
@@ -121,6 +122,69 @@ function driveDiscoveryChain(
     resolver.provide(need, signals);
     state = resolver.resolve();
   }
+  if(state.status !== 'resolved') throw new Error('expected resolved');
+  return state.result;
+}
+
+/**
+ * A benign, non-beacon mutation that keeps the document valid: append an existing key reference
+ * to assertionMethod (duplicate string refs are allowed by isValidVerificationRelationships).
+ * Used to build version hops that do NOT add a beacon, so the whole chain stays in one round.
+ */
+function benignPatch(did: string): PatchOperation[] {
+  return [{ op: 'add' as const, path: '/assertionMethod/-', value: `${did}#initialKey` }];
+}
+
+/**
+ * Build a linear chain of signed updates (v2, v3, ...) from `sourceDocument`, applying
+ * `patchesPerHop[i]` at hop i with correctly chained sourceHashes. With no beacon-adding
+ * patches, every update is discoverable in a single discovery round on the genesis beacon.
+ */
+function buildUpdateChain(
+  did: string,
+  sourceDocument: DidDocument,
+  secretKey: string,
+  patchesPerHop: Array<PatchOperation[]>
+): Array<SignedBTCR2Update> {
+  const vm = sourceDocument.verificationMethod![0]!;
+  const signer = new LocalSigner(hexToBytes(secretKey));
+  const signed: Array<SignedBTCR2Update> = [];
+  let currentDoc: DidDocument = sourceDocument;
+  patchesPerHop.forEach((patches, i) => {
+    const unsigned = Updater.construct(currentDoc, patches, i + 1);
+    signed.push(Updater.sign(did, unsigned, vm, signer));
+    currentDoc = JSONPatch.apply(currentDoc, patches) as DidDocument;
+  });
+  return signed;
+}
+
+/**
+ * Drive a resolver delivering every update as a signal on the single genesis beacon in one
+ * discovery round (the updates add no beacons). Optional versionId/versionTime limits and
+ * per-update block times exercise the early-return branches inside Resolver.updates().
+ */
+function driveSingleBeacon(
+  did: string,
+  updates: Array<SignedBTCR2Update>,
+  options?: { versionId?: string; versionTime?: string; times?: Array<number> }
+): ReturnType<typeof driveDiscoveryChain> {
+  const resolver = DidBtcr2.resolve(did, {
+    sidecar : { updates },
+    ...(options?.versionId ? { versionId: options.versionId } : {}),
+    ...(options?.versionTime ? { versionTime: options.versionTime } : {})
+  });
+  let state = resolver.resolve();
+  if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+  const need = state.needs[0] as NeedBeaconSignals;
+  const genesis = need.beaconServices[0] as BeaconService;
+  const signals = new Map<BeaconService, Array<BeaconSignal>>();
+  signals.set(genesis, updates.map((update, i) => ({
+    tx            : {} as any,
+    signalBytes   : canonicalHash(update, { encoding: 'hex' }),
+    blockMetadata : { height: 100 + i, time: options?.times?.[i] ?? (1700000000 + i), confirmations: 6 }
+  })));
+  resolver.provide(need, signals);
+  state = resolver.resolve();
   if(state.status !== 'resolved') throw new Error('expected resolved');
   return state.result;
 }
@@ -700,6 +764,51 @@ describe('Resolver', () => {
       const resolved = driveDiscoveryChain(fixture.did, updates, signalByAddress);
       expect(resolved.metadata.versionId).to.equal(`${hops + 1}`);
       expect(resolved.didDocument.service.length).to.equal(sourceDocument.service.length + hops);
+    });
+  });
+
+  describe('update-processing limits (versionId / versionTime / deactivated)', () => {
+    const fixture = deterministicData[2]; // regtest - has a known secretKey
+
+    it('stops at the requested versionId and ignores later updates', () => {
+      const source = resolveDeterministic(fixture.did);
+      // v2, v3, v4 - three benign hops, all delivered on the genesis beacon in one round.
+      const updates = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        benignPatch(fixture.did), benignPatch(fixture.did), benignPatch(fixture.did)
+      ]);
+      const { metadata, didDocument } = driveSingleBeacon(fixture.did, updates, { versionId: '3' });
+      // The loop applies v2 then v3; once currentVersionId reaches 3 it returns, never applying v4.
+      expect(metadata.versionId).to.equal('3');
+      expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 2);
+    });
+
+    it('stops before an update dated after versionTime', () => {
+      const source = resolveDeterministic(fixture.did);
+      const updates = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        benignPatch(fixture.did), benignPatch(fixture.did)
+      ]);
+      // v2 block time 2023-11-14, v3 block time 2027-01-15; versionTime sits between them, so
+      // v2 applies and v3 is short-circuited before it is applied.
+      const { metadata, didDocument } = driveSingleBeacon(fixture.did, updates, {
+        versionTime : '2025-01-01T00:00:00Z',
+        times       : [1700000000, 1800000000]
+      });
+      expect(metadata.versionId).to.equal('2');
+      expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 1);
+    });
+
+    it('stops at a deactivating update and reports deactivated', () => {
+      const source = resolveDeterministic(fixture.did);
+      const updates = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        [{ op: 'add' as const, path: '/deactivated', value: true }], // v2 deactivates
+        benignPatch(fixture.did)                                     // v3 must never be reached
+      ]);
+      const { metadata, didDocument } = driveSingleBeacon(fixture.did, updates);
+      expect(metadata.deactivated).to.equal(true);
+      expect(didDocument.deactivated).to.equal(true);
+      expect(metadata.versionId).to.equal('2');
+      // v3's benign append was never applied, so assertionMethod is unchanged from genesis.
+      expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length);
     });
   });
 
