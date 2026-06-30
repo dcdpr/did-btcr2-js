@@ -480,13 +480,6 @@ export class DidDocument implements Btcr2DidDocument {
   }
 }
 
-export class Document {
-  public static isValid(didDocument: DidDocument | GenesisDocument): boolean {
-    return new DidDocument(didDocument).validateGenesis();
-  }
-}
-
-
 /**
  * GenesisDocument extends the DidDocument class for creating and managing intermediate DID documents.
  * This class is used to create a minimal DID document with a placeholder ID.
