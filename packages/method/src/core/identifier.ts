@@ -55,30 +55,34 @@ export class Identifier {
    * @returns {string} The new did:btcr2 identifier.
    */
   static encode(genesisBytes: KeyBytes | DocumentBytes, options: DidCreateOptions): string {
-    // Deconstruct the options
-    const { idType, version = 1, network } = options;
+    // Deconstruct the options, defaulting version to 1 and network to "bitcoin" (matching DidBtcr2.create).
+    const { idType, version = 1, network = 'bitcoin' } = options;
 
-    // If idType is not a valid value per above, raise invalidDid error.
+    // idType MUST be "KEY" or "EXTERNAL".
     if (!(idType in IdentifierTypes)) {
-      throw new IdentifierError('Expected "idType" to be "KEY" or "EXTERNAL"', INVALID_DID, {idType});
+      throw new IdentifierError('Expected "idType" to be "KEY" or "EXTERNAL"', INVALID_DID, { idType });
     }
 
-    // 2. If version is greater than 1, raise invalidDid error.
-    if (isNaN(version) || version > 1) {
-      throw new IdentifierError('Expected "version" to be 1', INVALID_DID, {version});
+    // The only valid version_number is 1 (which encodes a btcr2_version of 0). Any other value would
+    // overflow or corrupt the version nibble, so reject everything except exactly 1. This also rejects
+    // NaN and non-number inputs, which are never strictly equal to 1.
+    if (version !== 1) {
+      throw new IdentifierError('Expected "version" to be 1', INVALID_DID, { version });
     }
 
-    // 3. If network is not a valid value (bitcoin|signet|regtest|testnet3|testnet4|number), raise invalidDid error.
-    if (typeof network === 'string' && !(network in BitcoinNetworkNames)) {
-      throw new IdentifierError('Invalid "network" name', INVALID_DID, {network});
+    // network MUST be a known network name. This encoder does not mint custom/numeric networks: the
+    // public surface (DidCreateOptions.network) is a string, and a numeric nibble >= 5 would overflow
+    // the 4-bit network field and corrupt the version nibble. Custom networks remain decode-only.
+    if (typeof network !== 'string') {
+      throw new IdentifierError('Expected "network" to be a known network name', INVALID_DID, { network });
+    }
+    const networkValue = BitcoinNetworkNames[network as keyof typeof BitcoinNetworkNames] as number | undefined;
+    if (networkValue === undefined) {
+      throw new IdentifierError('Invalid "network" name', INVALID_DID, { network });
     }
 
-    // 4. If network is a number and is outside the range of 1-8, raise invalidDid error.
-    if(typeof network === 'number' && (network < 0 || network > 8)) {
-      throw new IdentifierError('Invalid "network" number', INVALID_DID, {network});
-    }
-
-    // 5. If idType is “key” and genesisBytes is not a valid compressed secp256k1 public key, raise invalidDid error.
+    // genesisBytes MUST match the identifier type: a valid compressed secp256k1 public key for KEY,
+    // or a 32-byte hash for EXTERNAL. An EXTERNAL DID minted with any other length is unresolvable.
     if (idType === 'KEY') {
       try {
         new CompressedSecp256k1PublicKey(genesisBytes);
@@ -88,56 +92,20 @@ export class Identifier {
           INVALID_DID, { genesisBytes }
         );
       }
+    } else if (genesisBytes.length !== 32) {
+      throw new IdentifierError(
+        'Expected "genesisBytes" to be a 32-byte hash for EXTERNAL identifiers',
+        INVALID_DID, { genesisBytes }
+      );
     }
 
-    // 6. Map idType to hrp from the following:
-    //   6.1 “key” - “k”
-    //   6.2 “external” - “x”
+    // Map idType to its human-readable part: KEY -> "k", EXTERNAL -> "x".
     const hrp = idType === 'KEY' ? 'k' : 'x';
 
-    // 7. Create an empty nibbles numeric array.
-    const nibbles: Array<number> = [];
-
-    // 8. Set fCount equal to (version - 1) / 15, rounded down.
-    const fCount = Math.floor((version - 1) / 15);
-
-    // 9. Append hexadecimal F (decimal 15) to nibbles fCount times.
-    for (let i = 0; i < fCount; i++) {
-      nibbles.push(15);
-    }
-
-    // 10. Append (version - 1) mod 15 to nibbles.
-    nibbles.push((version - 1) % 15);
-
-    // 11. If network is a string, append the numeric value from the following map to nibbles:
-    //     "bitcoin" - 0
-    //     "signet" - 1
-    //     "regtest" - 2
-    //     "testnet3" - 3
-    //     "testnet4" - 4
-    //     "mutinynet" - 5
-    if(typeof network === 'string') {
-      nibbles.push(BitcoinNetworkNames[network as keyof typeof BitcoinNetworkNames]);
-    } else if (typeof network === 'number') {
-      // 12. If network is a number, append network + 11 to nibbles.
-      nibbles.push(network + 11);
-    }
-
-    // 13. If the number of entries in nibbles is odd, append 0.
-    if (nibbles.length % 2 !== 0) {
-      nibbles.push(0);
-    }
-
-    // 14. Create a dataBytes byte array from nibbles, where index is from 0 to nibbles.length / 2 - 1 and
-    //     encodingBytes[index] = (nibbles[2 * index] << 4) | nibbles[2 * index + 1].
-    if (fCount !== 0){
-      for(const index in Array.from({ length: (nibbles.length / 2) - 1 })) {
-        throw new IdentifierError('Not implemented', 'NOT_IMPLEMENTED', { index });
-      }
-    }
-    const dataBytes = new Uint8Array([(nibbles[2 * 0] << 4) | nibbles[2 * 0 + 1], ...genesisBytes]);
-
-    // 18. Return identifier.
+    // Pack btcr2_version (high nibble, = version - 1 = 0) and network_value (low nibble) into the first
+    // byte, then append genesisBytes. Bech32m-encode the result.
+    const firstByte = ((version - 1) << 4) | networkValue;
+    const dataBytes = new Uint8Array([firstByte, ...genesisBytes]);
     return `did:btcr2:${bech32m.encodeFromBytes(hrp, dataBytes)}`;
   }
 
@@ -150,129 +118,89 @@ export class Identifier {
    * @throws {DidErrorCode.MethodNotSupported} if the method is not supported
    */
   static decode(identifier: string): DidComponents {
-    // 1. Split identifier into an array of components at the colon : character.
+    // 1. Split the identifier into scheme, method, and encoded id at the colon character.
     const components = identifier.split(':');
 
-    // 2. If the length of the components array is not 3, raise invalidDid error.
+    // 2. There MUST be exactly three colon-separated components.
     if (components.length !== 3){
       throw new IdentifierError(`Invalid did: ${identifier}`, INVALID_DID, { identifier });
     }
 
-    // Deconstruct the components of the identifier: scheme, method, encoded
     const [scheme, method, encoded] = components;
 
-    // 3. If components[0] is not “did”, raise invalidDid error.
+    // 3. The scheme MUST be "did".
     if (scheme !== 'did') {
       throw new IdentifierError(`Invalid did: ${identifier}`, INVALID_DID, { identifier });
     }
-    // 4. If components[1] is not “btcr2”, raise methodNotSupported error.
+
+    // 4. The method MUST be "btcr2".
     if (method !== 'btcr2') {
       throw new IdentifierError(`Invalid did method: ${method}`, METHOD_NOT_SUPPORTED, { identifier });
     }
 
-    // 5. Set encodedString to components[2].
+    // 5. The method-specific id MUST be present.
     if (!encoded) {
       throw new IdentifierError(`Invalid method-specific id: ${identifier}`, INVALID_DID, { identifier });
     }
-    // 6. Pass encodedString to the Bech32m Decoding algorithm, retrieving hrp and dataBytes.
-    const {prefix: hrp, bytes: dataBytes} = bech32m.decodeToBytes(encoded);
 
-    // 7. If the Bech32m decoding algorithm fails, raise invalidDid error.
+    // 6. Bech32m-decode the id into its hrp and dataBytes.
+    const { prefix: hrp, bytes: dataBytes } = bech32m.decodeToBytes(encoded);
+
+    // 7. The hrp MUST be "k" (KEY) or "x" (EXTERNAL).
     if (!['x', 'k'].includes(hrp)) {
       throw new IdentifierError(`Invalid hrp: ${hrp}`, INVALID_DID, { identifier });
     }
-    if (!dataBytes) {
+
+    // 8. There MUST be at least one byte to read btcr2_version and network_value from.
+    if (!dataBytes || dataBytes.length < 1) {
       throw new IdentifierError(`Failed to decode id: ${encoded}`, INVALID_DID, { identifier });
     }
 
-    // 8. Map hrp to idType from the following:
-    //    “k” - “key”
-    //    “x” - “external”
-    //    other - raise invalidDid error
+    // 9. Map hrp to idType.
     const idType = hrp === 'k' ? 'KEY' : 'EXTERNAL';
 
-    // 9. Set version to 1.
-    let version = 1;
-    let byteIndex = 0;
-    // 10. If at any point in the remaining steps there are not enough nibbles to complete the process,
-    //     raise invalidDid error.
-    let nibblesConsumed = 0;
+    // 10. btcr2_version is the high nibble of the first byte and MUST be 0, which is version_number 1.
+    //     The version-extension scheme (a leading nibble of 0xF chaining into further bytes) is reserved
+    //     and not valid under v1, so any non-zero high nibble (0x1 through 0xF) is a malformed or forged
+    //     identifier and is rejected here. Reading a single flat nibble (rather than looping on 0xF) is
+    //     what makes this guard actually fire: the previous loop body never ran for a leading nibble of
+    //     0x1 through 0xE, silently accepting forged versions.
+    const btcr2Version = dataBytes[0] >>> 4;
+    if (btcr2Version !== 0) {
+      throw new IdentifierError(`Invalid btcr2_version (expected 0): ${btcr2Version}`, INVALID_DID, { identifier });
+    }
+    const version = 1;
 
-    // 11. Start with the first nibble (the higher nibble of the first byte) of dataBytes.
-    let currentByte = dataBytes[byteIndex];
-    let versionNibble = currentByte >>> 4;
-
-    // 12. Add the value of the current nibble to version.
-    while (versionNibble === 0xF) {
-      // 13. If the value of the nibble is hexadecimal F (decimal 15), advance to the next nibble (the lower nibble of
-      //     the current byte or the higher nibble of the next byte) and return to the previous step.
-      version += 15;
-
-      if (nibblesConsumed % 2 === 0) {
-        versionNibble = currentByte & 0x0F;
-      } else {
-        currentByte = dataBytes[++byteIndex];
-        versionNibble = currentByte >>> 4;
-      }
-      nibblesConsumed += 1;
-      // 14. If version is greater than 1, raise invalidDid error.
-      if (version > 1) {
-        throw new IdentifierError(`Invalid version: ${version}`, INVALID_DID, { identifier });
-      }
+    // 11. network_value is the low nibble of the first byte. 0-5 map to named networks; 12-14 are custom
+    //     networks (returned as the numeric values 1-3); 6-11 and 15 are reserved/out-of-range and rejected.
+    const networkValue = dataBytes[0] & 0x0F;
+    const networkName = BitcoinNetworkNames[networkValue] as string | undefined;
+    let network: string | number;
+    if (typeof networkName === 'string') {
+      network = networkName;
+    } else if (networkValue >= 12 && networkValue <= 14) {
+      network = networkValue - 11;
+    } else {
+      throw new IdentifierError(`Invalid network: ${networkValue}`, INVALID_DID, { identifier });
     }
 
-    version += versionNibble;
-    nibblesConsumed += 1;
+    // 12. genesisBytes is everything after the first byte.
+    const genesisBytes = dataBytes.slice(1);
 
-    // 15. Advance to the next nibble and set networkValue to its value.
-    let networkValue: number = nibblesConsumed % 2 === 0
-      ? dataBytes[++byteIndex] >>> 4
-      : currentByte & 0x0F;
-
-    nibblesConsumed += 1;
-
-    // 16. Map networkValue to network from the following:
-    //     0 - "bitcoin"
-    //     1 - "signet"
-    //     2 - "regtest"
-    //     3 - "testnet3"
-    //     4 - "testnet4"
-    //     5 - "mutinynet"
-    //     6-7 - raise invalidDid error
-    //     8-F - networkValue - 11
-    let network: string | number | undefined = BitcoinNetworkNames[networkValue];
-    if (!network) {
-      if (networkValue >= 0x8 && networkValue <= 0xF) {
-        network = networkValue - 11;
-      } else {
-        throw new IdentifierError(`Invalid did: ${identifier}`, INVALID_DID, { identifier });
-      }
-    }
-
-    // 17. If the number of nibbles consumed is odd:
-    if (nibblesConsumed % 2 === 1) {
-      //     17.1 Advance to the next nibble and set fillerNibble to its value.
-      const fillerNibble = currentByte & 0x0F;
-      //     17.2 If fillerNibble is not 0, raise invalidDid error.
-      if (fillerNibble !== 0) {
-        throw new IdentifierError(`Invalid did: ${identifier}`, INVALID_DID, { identifier });
-      }
-    }
-
-    // 18. Set genesisBytes to the remaining dataBytes.
-    const genesisBytes = dataBytes.slice(byteIndex + 1);
-
-    // 19. If idType is “key” and genesisBytes is not a valid compressed secp256k1 public key, raise invalidDid error.
+    // 13. genesisBytes MUST match the identifier type: a valid compressed secp256k1 public key for KEY,
+    //     or a 32-byte hash for EXTERNAL.
     if (idType === 'KEY') {
       try {
         new CompressedSecp256k1PublicKey(genesisBytes);
       } catch {
         throw new IdentifierError(`Invalid genesisBytes: ${genesisBytes}`, INVALID_DID, { identifier });
       }
+    } else if (genesisBytes.length !== 32) {
+      throw new IdentifierError(`Invalid genesisBytes: ${genesisBytes}`, INVALID_DID, { identifier });
     }
 
-    // 20. Return idType, version, network, and genesisBytes.
-    return {idType, hrp, version, network, genesisBytes} as DidComponents;
+    // 14. Return idType, hrp, version, network, and genesisBytes.
+    return { idType, hrp, version, network, genesisBytes } as DidComponents;
   }
 
   /**
