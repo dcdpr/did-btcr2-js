@@ -62,6 +62,7 @@ children:
   - ./059-unbounded-beacon-discovery-default.md
   - ./060-resolver-cross-round-version-continuity.md
   - ./061-remove-dead-document-class.md
+  - ./062-identifier-encoding-hardening.md
 ---
 
 # Architecture Decision Records
@@ -131,3 +132,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 059 | 2026-06-29 | [Beacon Discovery Is Unbounded by Default, With an Opt-In Round Cap](059-unbounded-beacon-discovery-default.md) |
 | 060 | 2026-06-29 | [Carry the Version Counter and Update-Hash History Across Resolver Discovery Rounds](060-resolver-cross-round-version-continuity.md) |
 | 061 | 2026-06-30 | [Remove the Unused Public Document Wrapper Class](061-remove-dead-document-class.md) |
+| 062 | 2026-06-30 | [Harden did:btcr2 Identifier Encoding and Decoding](062-identifier-encoding-hardening.md) |
