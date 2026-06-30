@@ -986,4 +986,259 @@ describe('Resolver', () => {
       expect(thrown.type).to.equal(INTERNAL_ERROR);
     });
   });
+
+  describe('provide() idempotency and dedup (RES-4)', () => {
+    // These lock in that provide() is safe to call redundantly or out of order:
+    // double-provide of the same need, provide after a need was already satisfied,
+    // and a stale need fulfilled a discovery round late. provide() is idempotent by
+    // construction: the three hash-bound needs (CAS, SignedUpdate, SMTProof) write
+    // hash-keyed sidecar maps, and NeedBeaconSignals is gated downstream by
+    // #processedServices (keyed on service id). None of these tests deliver one
+    // update as two signals; that duplicate-handling path lives in Resolver.updates()
+    // and is tracked separately (finding-resolver-duplicate-handling).
+    const fixture = deterministicData[2]; // regtest - has a known secretKey
+
+    it('double-providing the same NeedSignedUpdate is idempotent (no double application)', () => {
+      const source = resolveDeterministic(fixture.did);
+      // One real benign v1-to-v2 update, delivered as a singleton signal but withheld
+      // from the sidecar so the resolver asks for it via NeedSignedUpdate.
+      const [ signed ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ benignPatch(fixture.did) ]);
+      const updateHashHex = canonicalHash(signed, { encoding: 'hex' });
+
+      const resolver = DidBtcr2.resolve(fixture.did); // empty sidecar
+      let state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+      const beaconNeed = state.needs[0] as NeedBeaconSignals;
+      const genesis = beaconNeed.beaconServices[0] as BeaconService;
+      const signals = new Map<BeaconService, Array<BeaconSignal>>();
+      signals.set(genesis, [{
+        tx            : {} as any,
+        signalBytes   : updateHashHex,
+        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+      }]);
+      resolver.provide(beaconNeed, signals);
+
+      state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected NeedSignedUpdate');
+      const updateNeed = state.needs[0] as NeedSignedUpdate;
+      expect(updateNeed.updateHash).to.equal(updateHashHex);
+
+      // Provide the same valid update twice; the second is a hash-keyed map overwrite.
+      resolver.provide(updateNeed, signed);
+      expect(() => resolver.provide(updateNeed, signed)).to.not.throw();
+
+      state = resolver.resolve();
+      expect(state.status).to.equal('resolved');
+      if(state.status !== 'resolved') return;
+      // Applied exactly once: version is 2 (not 3) and the benign patch landed once.
+      expect(state.result.metadata.versionId).to.equal('2');
+      expect(state.result.didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 1);
+    });
+
+    it('double-providing the same NeedCASAnnouncement is idempotent (advances identically)', () => {
+      const { genesisDocument } = externalData[2];
+      const casGenesisDoc = JSON.parse(JSON.stringify(genesisDocument));
+      casGenesisDoc.service[0].type = 'CASBeacon';
+      const casDid = DidBtcr2.create(hash(canonicalize(casGenesisDoc)), { idType: 'EXTERNAL', version: 1, network: 'regtest' });
+      const resolver = DidBtcr2.resolve(casDid, { sidecar: { genesisDocument: casGenesisDoc } });
+
+      let state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+      const beaconNeed = state.needs[0] as NeedBeaconSignals;
+      const casService = beaconNeed.beaconServices[0] as BeaconService;
+
+      const fakeUpdate = { '@context': [ 'test' ], patch: [], targetHash: 'fake', targetVersionId: 2, sourceHash: 'fake' };
+      const updateHash = canonicalHash(fakeUpdate);
+      const updateHashHex = canonicalHash(fakeUpdate, { encoding: 'hex' });
+      const announcement = { [casDid]: updateHash };
+      const announcementHashHex = canonicalHash(announcement, { encoding: 'hex' });
+
+      const signals = new Map<BeaconService, Array<BeaconSignal>>();
+      signals.set(casService, [{
+        tx            : {} as any,
+        signalBytes   : announcementHashHex,
+        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+      }]);
+      resolver.provide(beaconNeed, signals);
+
+      state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected NeedCASAnnouncement');
+      const casNeed = state.needs[0] as NeedCASAnnouncement;
+
+      // Provide the same announcement twice; the second is a hash-keyed map overwrite.
+      resolver.provide(casNeed, announcement);
+      expect(() => resolver.provide(casNeed, announcement)).to.not.throw();
+
+      state = resolver.resolve();
+      expect(state.status).to.equal('action-required');
+      if(state.status !== 'action-required') return;
+      expect(state.needs[0].kind).to.equal('NeedSignedUpdate');
+      expect((state.needs[0] as NeedSignedUpdate).updateHash).to.equal(updateHashHex);
+    });
+
+    it('double-providing the same NeedSMTProof is idempotent (advances identically)', () => {
+      const { genesisDocument } = externalData[2];
+      const smtGenesisDoc = JSON.parse(JSON.stringify(genesisDocument));
+      smtGenesisDoc.service[0].type = 'SMTBeacon';
+      const smtDid = DidBtcr2.create(hash(canonicalize(smtGenesisDoc)), { idType: 'EXTERNAL', version: 1, network: 'regtest' });
+
+      const fakeUpdate = { '@context': [ 'test' ], patch: [], targetHash: 'fake', targetVersionId: 2, sourceHash: 'fake' };
+      const nonce = randomBytes(32);
+      const signedUpdateBytes = new TextEncoder().encode(canonicalize(fakeUpdate));
+      const tree = new BTCR2MerkleTree();
+      tree.addEntries([{ did: smtDid, nonce, signedUpdate: signedUpdateBytes }]);
+      tree.finalize();
+      const rootHashHex = hashToHex(tree.rootHash);
+      const smtProof = tree.proof(smtDid);
+
+      const resolver = DidBtcr2.resolve(smtDid, { sidecar: { genesisDocument: smtGenesisDoc } });
+      let state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+      const beaconNeed = state.needs[0] as NeedBeaconSignals;
+      const smtService = beaconNeed.beaconServices[0] as BeaconService;
+      const signals = new Map<BeaconService, Array<BeaconSignal>>();
+      signals.set(smtService, [{
+        tx            : {} as any,
+        signalBytes   : rootHashHex,
+        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+      }]);
+      resolver.provide(beaconNeed, signals);
+
+      state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected NeedSMTProof');
+      const smtNeed = state.needs[0] as NeedSMTProof;
+
+      // Provide the same proof twice; the second is a root-hash-keyed map overwrite.
+      resolver.provide(smtNeed, smtProof);
+      expect(() => resolver.provide(smtNeed, smtProof)).to.not.throw();
+
+      state = resolver.resolve();
+      expect(state.status).to.equal('action-required');
+      if(state.status !== 'action-required') return;
+      expect(state.needs[0].kind).to.equal('NeedSignedUpdate');
+      expect((state.needs[0] as NeedSignedUpdate).updateHash).to.equal(canonicalHash(fakeUpdate, { encoding: 'hex' }));
+    });
+
+    it('providing data after resolution is complete does not change the result', () => {
+      const resolver = DidBtcr2.resolve(fixture.did);
+      let state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+      const beaconNeed = state.needs[0] as NeedBeaconSignals;
+      provideEmptySignals(resolver, beaconNeed);
+      state = resolver.resolve();
+      if(state.status !== 'resolved') throw new Error('expected resolved');
+      const before = state.result;
+      expect(before.metadata.versionId).to.equal('1');
+
+      // A late, non-empty signal for the genesis beacon (a real update hash) must not
+      // reopen resolution: the Complete phase returns the cached response.
+      const source = resolveDeterministic(fixture.did);
+      const [ signed ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ benignPatch(fixture.did) ]);
+      const late = new Map<BeaconService, Array<BeaconSignal>>();
+      late.set(beaconNeed.beaconServices[0] as BeaconService, [{
+        tx            : {} as any,
+        signalBytes   : canonicalHash(signed, { encoding: 'hex' }),
+        blockMetadata : { height: 200, time: 1700000000, confirmations: 6 }
+      }]);
+      expect(() => resolver.provide(beaconNeed, late)).to.not.throw();
+
+      state = resolver.resolve();
+      expect(state.status).to.equal('resolved');
+      if(state.status !== 'resolved') return;
+      expect(state.result.metadata.versionId).to.equal('1');
+      expect(state.result.didDocument.id).to.equal(before.didDocument.id);
+      expect(canonicalHash(state.result.didDocument)).to.equal(canonicalHash(before.didDocument));
+    });
+
+    it('providing NeedBeaconSignals twice for the same service before processing: last write wins', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ signed ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ benignPatch(fixture.did) ]);
+      const updateHashHex = canonicalHash(signed, { encoding: 'hex' });
+
+      const resolver = DidBtcr2.resolve(fixture.did, { sidecar: { updates: [ signed ] } });
+      const state0 = resolver.resolve();
+      if(state0.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+      const beaconNeed = state0.needs[0] as NeedBeaconSignals;
+      const genesis = beaconNeed.beaconServices[0] as BeaconService;
+
+      // First: a real update signal on the genesis beacon. Second: empty signals for
+      // the same service object. The second set() overwrites the first (the map is
+      // keyed by service object reference), so the update is never delivered.
+      const withUpdate = new Map<BeaconService, Array<BeaconSignal>>();
+      withUpdate.set(genesis, [{
+        tx            : {} as any,
+        signalBytes   : updateHashHex,
+        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+      }]);
+      resolver.provide(beaconNeed, withUpdate);
+
+      const empty = new Map<BeaconService, Array<BeaconSignal>>();
+      empty.set(genesis, []);
+      resolver.provide(beaconNeed, empty);
+
+      const state = resolver.resolve();
+      expect(state.status).to.equal('resolved');
+      if(state.status !== 'resolved') return;
+      // The empty second provide won: no update applied, version stays 1.
+      expect(state.result.metadata.versionId).to.equal('1');
+      expect(state.result.didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length);
+    });
+
+    it('a stale round-1 need fulfilled after round 2 begins is skipped by id-dedup', () => {
+      const source = resolveDeterministic(fixture.did);
+      const { updates, signalByAddress } = buildDiscoveryChain(fixture.did, source, fixture.secretKey, 2);
+
+      const resolver = DidBtcr2.resolve(fixture.did, { sidecar: { updates } });
+      let height = 100;
+      const signalsFor = (need: NeedBeaconSignals): Map<BeaconService, Array<BeaconSignal>> => {
+        const map = new Map<BeaconService, Array<BeaconSignal>>();
+        for(const service of need.beaconServices) {
+          const address = BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string);
+          const updateHashHex = signalByAddress.get(address);
+          map.set(service as BeaconService, updateHashHex
+            ? [{ tx: {} as any, signalBytes: updateHashHex, blockMetadata: { height: height++, time: 1700000000, confirmations: 6 } }]
+            : []
+          );
+        }
+        return map;
+      };
+
+      // Round 1: deliver hop0 on the genesis beacon (others get empty signals).
+      let state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected round 1 NeedBeaconSignals');
+      const round1Need = state.needs[0] as NeedBeaconSignals;
+      resolver.provide(round1Need, signalsFor(round1Need));
+
+      // Round 2: the beacon hop0 added.
+      state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected round 2 NeedBeaconSignals');
+      const round2Need = state.needs[0] as NeedBeaconSignals;
+
+      // Stale fulfillment: re-provide the round-1 need with FRESH service objects of
+      // the same ids, re-delivering hop0. Every round-1 service id is already in
+      // #processedServices, so the stale signals must be skipped (no re-collection, no
+      // version inflation), even though the map is keyed by object reference.
+      const staleSignals = new Map<BeaconService, Array<BeaconSignal>>();
+      for(const [ service, sig ] of signalsFor(round1Need)) {
+        const fresh: BeaconService = { id: service.id, type: service.type, serviceEndpoint: service.serviceEndpoint };
+        staleSignals.set(fresh, sig);
+      }
+      resolver.provide(round1Need, staleSignals);
+
+      // Now fulfill round 2 (hop1 on the beacon hop0 added).
+      resolver.provide(round2Need, signalsFor(round2Need));
+
+      // Round 3: terminal beacon hop1 added; empty signals, then resolve.
+      state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected round 3 NeedBeaconSignals');
+      provideEmptySignals(resolver, state.needs[0] as NeedBeaconSignals);
+
+      state = resolver.resolve();
+      expect(state.status).to.equal('resolved');
+      if(state.status !== 'resolved') return;
+      // Two hops applied exactly once each despite the stale re-provide: v3, +2 services.
+      expect(state.result.metadata.versionId).to.equal('3');
+      expect(state.result.didDocument.service.length).to.equal(source.service.length + 2);
+    });
+  });
 });
