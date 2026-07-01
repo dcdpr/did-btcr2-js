@@ -63,6 +63,7 @@ children:
   - ./060-resolver-cross-round-version-continuity.md
   - ./061-remove-dead-document-class.md
   - ./062-identifier-encoding-hardening.md
+  - ./063-beacon-utxo-selection-hardening.md
 ---
 
 # Architecture Decision Records
@@ -133,3 +134,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 060 | 2026-06-29 | [Carry the Version Counter and Update-Hash History Across Resolver Discovery Rounds](060-resolver-cross-round-version-continuity.md) |
 | 061 | 2026-06-30 | [Remove the Unused Public Document Wrapper Class](061-remove-dead-document-class.md) |
 | 062 | 2026-06-30 | [Harden did:btcr2 Identifier Encoding and Decoding](062-identifier-encoding-hardening.md) |
+| 063 | 2026-07-01 | [Harden Beacon UTXO Selection (Confirmed, Non-Dust, Deepest-First, Deterministic)](063-beacon-utxo-selection-hardening.md) |

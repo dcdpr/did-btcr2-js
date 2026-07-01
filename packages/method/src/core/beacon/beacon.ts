@@ -229,27 +229,97 @@ export function opReturnScript(signalBytes: Uint8Array): Uint8Array {
 }
 
 /**
- * Fetch the most recent confirmed UTXO at `bitcoinAddress` + the raw bytes of its
- * parent transaction (needed by PSBT inputs). Throws if unfunded.
+ * Minimum value (sats) a beacon UTXO must exceed for {@link selectSpendableUtxo} to
+ * treat it as spendable. This is a fixed, conservative, script-kind-agnostic floor:
+ * an output at or below it is too small to be worth spending, so selection discards
+ * it in favor of a larger confirmed UTXO. Keeping the floor a constant (rather than
+ * deriving it from a fee estimate) keeps selection pure and fee-estimator-independent.
+ *
+ * The floor is a coarse pre-filter, not the fee-coverage boundary: whether a selected
+ * UTXO actually covers the transaction fee is a separate check, enforced against the
+ * live {@link FeeEstimator} by the builders' `value <= feeSats` guard
+ * ({@link SinglePartyBeacon.buildSinglePartyTx} and {@link buildAggregationBeaconTx}).
+ * At the default 5 sat/vB rate that fee (roughly 775 to 1200 sats across the three
+ * script kinds) sits above this floor, so a UTXO can clear the dust filter and still
+ * be rejected as insufficient; conversely, at a very low fee rate an output near the
+ * floor could cover the fee. The floor's job is only to skip trivially small inputs.
+ *
+ * The value is the standard Bitcoin Core P2PKH dust threshold, the largest of the
+ * three singleton beacon script kinds (P2PKH 546, P2TR 330, P2WPKH 294 per
+ * {@link DUST_LIMIT_SATS}): a UTXO above it is non-dust under any beacon address kind.
+ * Distinct from {@link DUST_LIMIT_SATS}, which sizes the outgoing change output by
+ * kind; this bounds the incoming UTXO chosen to fund the transaction.
+ */
+export const SPENDABLE_DUST_LIMIT_SATS = 546;
+
+/**
+ * Deterministic ordering for spendable UTXO selection: deepest first (ascending
+ * block height, so the most-confirmed UTXO sorts first), tie-broken by `txid` then
+ * `vout`. The tie-break makes the winner independent of the order the REST API
+ * returns UTXOs in, so retries and independent resolvers converge on the same input.
+ */
+function byDepthThenId(a: AddressUtxo, b: AddressUtxo): number {
+  if(a.status.block_height !== b.status.block_height) {
+    return a.status.block_height - b.status.block_height;
+  }
+  const txidOrder = a.txid.localeCompare(b.txid);
+  return txidOrder !== 0 ? txidOrder : a.vout - b.vout;
+}
+
+/**
+ * Select the beacon UTXO to fund a signal transaction from the set of UTXOs at a
+ * beacon address. Pure and deterministic: the same address state always yields the
+ * same input, across broadcast retries and across independent resolvers.
+ *
+ * Filters to confirmed UTXOs (an unconfirmed input is reorg- and RBF-unsafe: a
+ * signal built on it can be orphaned or double-spent before it confirms), then drops
+ * dust at or below {@link SPENDABLE_DUST_LIMIT_SATS}, then picks the deepest via
+ * {@link byDepthThenId}. The did:btcr2 spec does not mandate a selection rule or a
+ * confirmation depth (only the security considerations favor deeper confirmations),
+ * so this is an implementation policy: prefer safety and reproducibility over
+ * spending the newest or largest output.
+ *
+ * @param utxos UTXOs reported at the beacon address.
+ * @param address Beacon address, used only to annotate thrown errors.
+ * @returns The confirmed, non-dust, deepest UTXO.
+ * @throws {BeaconError} `UNFUNDED_BEACON_ADDRESS` when no UTXOs exist at all;
+ *   `NO_SPENDABLE_BEACON_UTXO` when UTXOs exist but none are both confirmed and above
+ *   the dust limit (the message distinguishes all-unconfirmed from all-dust).
+ */
+export function selectSpendableUtxo(utxos: Array<AddressUtxo>, address?: string): AddressUtxo {
+  if(!utxos.length) {
+    throw new BeaconError(
+      'No UTXOs found, please fund address!',
+      'UNFUNDED_BEACON_ADDRESS', { address }
+    );
+  }
+  const confirmed = utxos.filter(utxo => utxo.status.confirmed === true);
+  const spendable = confirmed.filter(utxo => utxo.value > SPENDABLE_DUST_LIMIT_SATS);
+  if(!spendable.length) {
+    const reason = confirmed.length === 0
+      ? `all ${utxos.length} UTXO(s) are unconfirmed`
+      : `all ${confirmed.length} confirmed UTXO(s) are at or below the ${SPENDABLE_DUST_LIMIT_SATS}-sat dust limit`;
+    throw new BeaconError(
+      `No spendable UTXO at beacon address: ${reason}.`,
+      'NO_SPENDABLE_BEACON_UTXO',
+      { address, total: utxos.length, confirmed: confirmed.length, dustLimit: SPENDABLE_DUST_LIMIT_SATS }
+    );
+  }
+  return [ ...spendable ].sort(byDepthThenId)[0]!;
+}
+
+/**
+ * Fetch the deepest confirmed, non-dust spendable UTXO at `bitcoinAddress` plus the
+ * raw bytes of its parent transaction (needed by PSBT inputs). Selection is delegated
+ * to {@link selectSpendableUtxo}; throws {@link BeaconError} when the address is
+ * unfunded or has no confirmed, non-dust UTXO.
  */
 async function fetchSpendableUtxo(
   bitcoinAddress: string,
   bitcoin: BitcoinConnection,
 ): Promise<{ utxo: AddressUtxo; prevTxBytes: Uint8Array }> {
   const utxos = await bitcoin.rest.address.getUtxos(bitcoinAddress);
-  if(!utxos.length) {
-    throw new BeaconError(
-      'No UTXOs found, please fund address!',
-      'UNFUNDED_BEACON_ADDRESS', { address: bitcoinAddress }
-    );
-  }
-  const utxo = utxos.sort((a, b) => b.status.block_height - a.status.block_height).shift();
-  if(!utxo) {
-    throw new BeaconError(
-      'Beacon bitcoin address unfunded or utxos unconfirmed.',
-      'UNFUNDED_BEACON_ADDRESS', { address: bitcoinAddress }
-    );
-  }
+  const utxo = selectSpendableUtxo(utxos, bitcoinAddress);
   const prevTxHex = await bitcoin.rest.transaction.getHex(utxo.txid);
   return { utxo, prevTxBytes: hexToBytes(prevTxHex) };
 }
