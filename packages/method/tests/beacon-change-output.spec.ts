@@ -30,7 +30,7 @@ function mockBitcoin(beaconAddress: string, value: number): BitcoinConnection {
   prevTx.addOutput({ amount: BigInt(value), script: beaconScript });
   prevTx.addInput({ txid: new Uint8Array(32), index: 0xffffffff, finalScriptSig: new Uint8Array([0x00]) });
   const prevTxBytes = prevTx.toBytes();
-  const utxo: AddressUtxo = { txid: prevTx.id, vout: 0, value, status: { block_height: 100 } as never };
+  const utxo: AddressUtxo = { txid: prevTx.id, vout: 0, value, status: { confirmed: true, block_height: 100 } as never };
   return {
     data : network,
     rest : {
