@@ -75,7 +75,7 @@ const sigBip341 = signer.sign(data, 'bip341', { merkleRoot: new Uint8Array(0) })
 ## Architecture Principles
 
 - **Noble + @scure, browser-compatible by construction.** Curve and Schnorr operations come from `@noble/curves`; the BIP-341 taproot tweak uses `@scure/btc-signer`. No `bitcoinjs-lib`, no `elliptic`, no `node:crypto`.
-- **No silent fallbacks.** A `LocalSigner` constructed without a secret throws on `sign()`; a watch-only key throws on `secretKey` access. Failures surface at the boundary they happen at.
+- **No silent fallbacks.** A `LocalSigner` requires a 32-byte secret and throws in its constructor if given anything else; a watch-only key throws on `secretKey` access. Failures surface at the boundary they happen at.
 - **Single signing entry point.** `signWithScheme()` is the one function that knows how to produce each scheme; both `LocalSigner` and the key manager delegate to it.
 
 ## Build & Test

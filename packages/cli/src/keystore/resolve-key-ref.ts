@@ -27,7 +27,7 @@ export function resolveKeyRef(kms: KeyManager, ref?: string): KeyIdentifier {
   if (!ref) {
     if (!kms.activeKeyId) {
       throw new CLIError(
-        'No key specified and no active key is set. Use --key <ref> or set one with `btcr2 key use <ref>`.',
+        'No key specified and no active key is set. Use --signing-key <ref> or set one with `btcr2 key use <ref>`.',
         'INVALID_ARGUMENT_ERROR',
       );
     }

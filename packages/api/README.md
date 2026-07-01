@@ -15,7 +15,7 @@ If you're integrating did:btcr2 into an app, start here. If you're customizing t
 - **`UpdateBuilder`** is a fluent chain over `DidMethodApi.update()` for callers who prefer named steps over a positional argument bag.
 - **`tryResolveDid(did)`** returns a discriminated `{ ok, document } | { ok, error, errorMessage }` instead of throwing, for cases where resolution failure is an expected outcome.
 
-The api wires the configured `BitcoinApi` into the sans-I/O Resolver and Updater state machines, fulfilling `NeedBeaconSignals`, `NeedFunding`, `NeedBroadcast`, and CAS-related needs (`NeedGenesisDocument`, `NeedCASAnnouncement`, `NeedSignedUpdate`) automatically. `NeedSMTProof` is not auto-fulfilled by the facade: SMT proofs must be provided upfront via `options.sidecar.smtProofs`. Multi-party aggregation is out of scope here; drive the Updater directly and hand `NeedBroadcast` to the aggregation runner from `@did-btcr2/method`.
+The api wires the configured `BitcoinApi` into the sans-I/O Resolver and Updater state machines, fulfilling `NeedBeaconSignals`, `NeedFunding`, `NeedBroadcast`, and CAS-related needs (`NeedGenesisDocument`, `NeedCASAnnouncement`, `NeedSignedUpdate`) automatically. `NeedSMTProof` is not auto-fulfilled by the facade: SMT proofs must be provided upfront via `options.sidecar.smtProofs`. Multi-party aggregation is out of scope here; drive the Updater directly and hand `NeedBroadcast` to the aggregation runner from `@did-btcr2/aggregation`.
 
 ## Install
 

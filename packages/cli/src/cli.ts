@@ -53,7 +53,7 @@ export class DidBtcr2Cli {
       .option('--cas-gateway <url>', 'IPFS HTTP gateway for CAS reads')
       .option('--keystore <path>', 'Path to the keystore file (default: $XDG_DATA_HOME/btcr2/keystore.json)')
       .option('--passphrase-file <path>', 'Read the keystore passphrase from a file (unattended use)')
-      .option('--signing-key <ref>', 'Key for update/deactivate signing: a URN, fingerprint prefix, or name');
+      .option('--signing-key <ref>', 'Key for create/update/deactivate signing: a URN, fingerprint prefix, or name');
 
     const globals = (): GlobalOptions => this.program.opts() as GlobalOptions;
 

@@ -121,8 +121,7 @@
         "@web5/crypto": "^1.0.6",
         "@web5/dids": "^1.2.0",
         "canonicalize": "^2.1.0",
-        "dotenv": "^16.6.1",
-        "nostr-tools": "^2.23.3"
+        "dotenv": "^16.6.1"
     },
     "devDependencies": {
         "@eslint/js": "^9.39.4",
