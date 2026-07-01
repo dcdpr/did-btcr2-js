@@ -6,9 +6,9 @@ Part of the [`did-btcr2-js`](https://github.com/dcdpr/did-btcr2-js) monorepo.
 
 ## Summary
 
-This package produces and verifies the [Data Integrity](https://www.w3.org/TR/vc-data-integrity/) proofs that authenticate every did:btcr2 update. A signed update is a JSON document plus a `proof` block carrying a BIP-340 Schnorr signature over the JCS-canonicalized payload.
+This package produces and verifies method-agnostic [Data Integrity](https://www.w3.org/TR/vc-data-integrity/) proofs; its primary consumer is did:btcr2, whose updates it authenticates. A secured document is any JSON object plus a `proof` block carrying a BIP-340 Schnorr signature over the JCS-canonicalized payload.
 
-- **`BIP340Cryptosuite`** creates and verifies proofs for the `bip340-jcs-2025` suite (JCS-canonicalized hashing). The RDF Dataset Canonicalization variant (`bip340-rdfc-2025`) shares the same code path with a different canonicalization step.
+- **`BIP340Cryptosuite`** creates and verifies proofs for the `bip340-jcs-2025` suite (JCS-canonicalized hashing).
 - **`BIP340DataIntegrityProof`** is the proof-construction primitive: builds the proof config, hashes the canonical bytes, calls into a `Signer` for the actual signature, and assembles the final proof block.
 - **`SchnorrMultikey`** is the verification-method wrapper used in DID documents. It binds a `SchnorrKeyPair` to its multibase encoding (`zQ3s...`), supports watch-only verification, and accepts an injected `Signer` so production code never has to pass raw secret bytes.
 
@@ -34,10 +34,10 @@ The package ships both ESM (`dist/esm/`) and CJS (`dist/cjs/`) via conditional e
 |---|---|
 | Build / verify proofs | `BIP340Cryptosuite`, `Cryptosuite`, `VerificationResult` |
 | Proof primitive | `BIP340DataIntegrityProof`, `DataIntegrityProof`, `DataIntegrityProofObject` |
-| Update payload types | `UnsignedBTCR2Update`, `SignedBTCR2Update`, `BTCR2Update` |
+| Document payload types | `UnsecuredDocument`, `SecuredDocument` |
 | Verification method wrapper | `SchnorrMultikey`, `Multikey`, `MultikeyObject` |
 | Construction helpers | `FromSecretKey`, `FromPublicKey` |
-| Cryptosuite config | `DataIntegrityConfig` |
+| Proof options | `DataIntegrityProofOptions` |
 
 ## Quick Start
 
@@ -52,7 +52,7 @@ const id           = '#initialKey';
 const secretKeyBytes = new Secp256k1SecretKey(rawSecretBytes).bytes; // 32-byte Uint8Array
 const multikey     = SchnorrMultikey.fromSecretKey(id, controller, secretKeyBytes);
 
-const unsigned = { /* UnsignedBTCR2Update: @context, patch, sourceHash, targetHash, targetVersionId */ };
+const unsigned = { /* UnsecuredDocument: any JSON object to add a proof to (e.g. an unsigned did:btcr2 update) */ };
 const config = {
   '@context'         : ['https://w3id.org/security/v2', 'https://w3id.org/zcap/v1', 'https://w3id.org/json-ld-patch/v1', 'https://btcr2.dev/context/v1'],
   type               : 'DataIntegrityProof' as const,

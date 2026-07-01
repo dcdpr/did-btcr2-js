@@ -5,6 +5,7 @@
   "private": true,
   "type": "module",
   "workspaces": [
+    "packages/aggregation",
     "packages/api",
     "packages/bitcoin",
     "packages/cli",

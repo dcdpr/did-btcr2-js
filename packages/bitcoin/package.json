@@ -83,9 +83,6 @@
     "dependencies": {
         "@did-btcr2/common": "workspace:^",
         "@did-btcr2/keypair": "workspace:^",
-        "@noble/curves": "^1.9.7",
-        "@noble/hashes": "^2.0.1",
-        "@noble/secp256k1": "^2.3.0",
         "@scure/btc-signer": "^1.8.1"
     },
     "devDependencies": {

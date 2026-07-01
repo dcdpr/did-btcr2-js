@@ -91,7 +91,6 @@
         "@did-btcr2/keypair": "workspace:^",
         "@did-btcr2/key-manager": "workspace:^",
         "@did-btcr2/method": "workspace:^",
-        "@helia/strings": "^4.0.2",
         "@noble/curves": "^2.0.1",
         "@noble/hashes": "^2.0.1",
         "@noble/secp256k1": "^2.1.0",

@@ -68,7 +68,7 @@ throw new MethodError('beacon address mismatch', 'BEACON_VALIDATION', {
 
 - **Zero workspace dependencies.** This package is the root of the dependency graph; everything else can depend on it without cycles.
 - **Browser-compatible.** Pure TypeScript, no Node.js-only APIs. Runtime dependencies: `@noble/hashes`, `@scure/base`, `fast-json-patch`, and `json-canonicalize`. `@scure/bip32` is an optional peer dependency for HD-key consumers.
-- **Stable encoding contracts.** `base64urlnopad` is the default for hash encoding; byte comparisons use `equalBytes()` to handle interop with hex-encoded protocol fields.
+- **Stable encoding contracts.** `base64urlnopad` is the default for hash encoding; protocol fields that carry raw bytes are hex-encoded, so downstream callers normalize to a common encoding before comparing.
 
 ## Build & Test
 

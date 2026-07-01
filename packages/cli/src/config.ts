@@ -79,13 +79,6 @@ export type ConfigFile = {
       keystore?: string;
       default?: string;
     };
-    /** Aggregation transport and cohort defaults, mirroring the aggregation runner inputs. */
-    aggregation?: {
-      transport?: 'nostr' | 'http' | 'didcomm';
-      relays?: string[];
-      httpBaseUrl?: string;
-      cohort?: Record<string, unknown>;
-    };
   }>;
 };
 

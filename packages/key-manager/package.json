@@ -77,8 +77,7 @@
     "@did-btcr2/common": "workspace:^",
     "@did-btcr2/keypair": "workspace:^",
     "@noble/curves": "^2.0.1",
-    "@noble/hashes": "^2.0.1",
-    "@scure/btc-signer": "^1.8.1"
+    "@noble/hashes": "^2.0.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.22.0",

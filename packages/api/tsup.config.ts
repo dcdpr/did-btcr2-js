@@ -10,8 +10,8 @@ import { defineConfig } from 'tsup';
  * Bundled-inline deps (no `require` export condition in their package.json):
  * - multiformats subpath exports
  *
- * `helia` and `@helia/strings` are not used directly by api, they are only
- * reached via `@did-btcr2/method`, which lazy-loads them from `appendix.ts`.
+ * `helia` is imported by `cas.ts` for its `Helia` type only (the instance is
+ * supplied by the caller), so it erases at build time and is not bundled.
  *
  * `@did-btcr2/*` workspace packages are kept external and resolved from
  * `node_modules` at runtime (they each produce their own CJS bundle).
