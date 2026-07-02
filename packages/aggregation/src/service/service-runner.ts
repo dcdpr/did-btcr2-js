@@ -665,7 +665,12 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
       // PendingOptIn already carries cohortId, so this event is cohort-identified.
       this.emit('opt-in-received', optIn);
 
-      // Register peer key for encrypted messaging
+      // Register peer key for encrypted messaging. For an EXTERNAL (x1) sender over an
+      // authenticating transport (HTTP), the transport already registered the
+      // genesis-derived key during its bootstrap and cross-checked that it equals this
+      // self-declared communicationPk, so this call re-registers the identical key (an
+      // idempotent no-op). For KEY (k1) senders and non-authenticating transports it is the
+      // sole registration.
       if(optIn.communicationPk) {
         this.#transport.registerPeer(msg.from, optIn.communicationPk);
       }

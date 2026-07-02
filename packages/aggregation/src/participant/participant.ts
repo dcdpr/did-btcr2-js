@@ -147,6 +147,17 @@ export interface AggregationParticipantParams {
    * pass a {@link KeyPairAggregationSigner} to back it with an in-memory keypair.
    */
   signer: AggregationSigner;
+  /**
+   * The joining identity's genesis DID document. Required for an EXTERNAL (x1) did:btcr2
+   * identifier, whose key is not in the DID string: it is attached to every cohort opt-in
+   * this participant sends so the service can bootstrap-authenticate the participant from
+   * the self-verifying genesis. Omitted for a KEY (k1) identifier. When present, the
+   * participant's `signer` MUST be the keypair of the genesis document's
+   * `capabilityInvocation[0]` verification method, so the advertised `communicationPk`
+   * matches the genesis-derived key the service verifies against. Typed as a plain record
+   * to keep the aggregation package DID-method-agnostic.
+   */
+  genesisDocument?: Record<string, unknown>;
 }
 
 /**
@@ -165,12 +176,16 @@ export class AggregationParticipant {
   /** MuSig2 signing capability. The raw secret never lives as a field here. */
   readonly #signer: AggregationSigner;
 
+  /** EXTERNAL (x1) genesis document attached to opt-ins for bootstrap auth; undefined for k1. */
+  readonly #genesisDocument?: Record<string, unknown>;
+
   /** Per-cohort state, keyed by cohortId. */
   #cohortStates: Map<string, ParticipantCohortState> = new Map();
 
-  constructor({ did, signer }: AggregationParticipantParams) {
+  constructor({ did, signer, genesisDocument }: AggregationParticipantParams) {
     this.did = did;
     this.#signer = signer;
+    this.#genesisDocument = genesisDocument;
   }
 
   /** The participant's compressed (33-byte) MuSig2 public key. Not secret. */
@@ -289,6 +304,9 @@ export class AggregationParticipant {
       cohortId,
       participantPk   : this.publicKey,
       communicationPk : this.publicKey,
+      // Attach the genesis so an EXTERNAL (x1) sender can be bootstrap-authenticated by
+      // the service; omitted for a KEY (k1) sender.
+      ...(this.#genesisDocument ? { genesisDocument: this.#genesisDocument } : {}),
     });
 
     return [optInMessage];

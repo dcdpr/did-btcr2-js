@@ -24,6 +24,10 @@ export class DidCommTransport implements Transport {
     throw new NotImplementedError('DidCommTransport not implemented.');
   }
 
+  // When implemented, this transport must authenticate an EXTERNAL (x1) did:btcr2 sender
+  // the same way the HTTP transport does: an x1 DID's key is not in the DID string, so it
+  // is derived from a self-verifying genesis document carried in-band on a bootstrap opt-in
+  // and registered here (see ADR 066).
   public registerPeer(_did: string, _communicationPk: Uint8Array): void {
     throw new NotImplementedError('DidCommTransport not implemented.');
   }

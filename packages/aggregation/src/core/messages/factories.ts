@@ -34,6 +34,8 @@ type CohortOptInMessage = {
   cohortId: string;
   participantPk: Uint8Array;
   communicationPk: Uint8Array;
+  /** An EXTERNAL (`x1`) sender's genesis DID document (see {@link CohortOptInBody}). */
+  genesisDocument?: Record<string, unknown>;
 };
 type CohortOptInAcceptMessage = {
   from: string;

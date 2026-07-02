@@ -1,4 +1,4 @@
-import { DidBtcr2, Resolver, Updater, resolveBtcr2SenderPk } from '@did-btcr2/method';
+import { DidBtcr2, GenesisDocument, Identifier, Resolver, Updater, resolveBtcr2SenderPk } from '@did-btcr2/method';
 /**
  * E2E Demo: HTTP/REST Transport (Runner API)
  *
@@ -38,8 +38,11 @@ const PORT    = Number(process.env.PORT ?? 8080);
 const BASE_URL = `http://localhost:${PORT}/`;
 
 // ────────────────────────────────────────────────
-// Keys + DIDs (all KEY DIDs; pubkeys derive from the DID string so no
-// pre-registerPeer dance is needed - see ADR-002)
+// Keys + DIDs. Service and Alice are KEY (k1) DIDs: the pubkey derives from the
+// DID string, so no pre-registerPeer dance is needed. Bob is an EXTERNAL (x1) DID:
+// its DID commits to the hash of a genesis document and its capabilityInvocation[0]
+// key is bobKeys. The genesis rides in-band on Bob's opt-in so the service can
+// bootstrap-authenticate him with zero trust (ADR 066).
 // ────────────────────────────────────────────────
 
 const serviceKeys = SchnorrKeyPair.generate();
@@ -49,7 +52,26 @@ const aliceKeys   = SchnorrKeyPair.generate();
 const aliceDid    = DidBtcr2.create(aliceKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
 
 const bobKeys     = SchnorrKeyPair.generate();
-const bobDid      = DidBtcr2.create(bobKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
+const bobGenesis: Record<string, unknown> = {
+  'id'                 : 'did:btcr2:_',
+  '@context'           : ['https://www.w3.org/ns/did/v1.1', 'https://btcr2.dev/context/v1'],
+  'verificationMethod' : [{
+    'id'                 : 'did:btcr2:_#key-0',
+    'type'               : 'Multikey',
+    'controller'         : 'did:btcr2:_',
+    'publicKeyMultibase' : bobKeys.publicKey.multibase.encoded,
+  }],
+  'authentication'       : ['did:btcr2:_#key-0'],
+  'assertionMethod'      : ['did:btcr2:_#key-0'],
+  'capabilityInvocation' : ['did:btcr2:_#key-0'],
+  'capabilityDelegation' : ['did:btcr2:_#key-0'],
+  'service'              : [{
+    'id'              : 'did:btcr2:_#service-0',
+    'type'            : 'SingletonBeacon',
+    'serviceEndpoint' : 'bitcoin:mhME7XiWpho6Ft4pvT3U3h6X8hHtE58ZDJ',
+  }],
+};
+const bobDid      = DidBtcr2.create(GenesisDocument.toGenesisBytes(bobGenesis), { idType: 'EXTERNAL', network: 'mutinynet' });
 
 // ────────────────────────────────────────────────
 // Service-side HTTP server (node:http adapter + HttpServerTransport)
@@ -148,14 +170,18 @@ bobTransport.registerActor(bobDid, bobKeys);
 // Signed update helper (same as Nostr E2E demos)
 // ────────────────────────────────────────────────
 
-function buildSignedUpdate(did: string, kp: SchnorrKeyPair, beaconAddress: string) {
-  const doc = Resolver.deterministic({
-    genesisBytes : kp.publicKey.compressed,
-    hrp          : 'k',
-    idType       : 'KEY',
-    version      : 1,
-    network      : 'mutinynet',
-  });
+function buildSignedUpdate(did: string, kp: SchnorrKeyPair, beaconAddress: string, genesisDocument?: Record<string, unknown>) {
+  // KEY (k1) DIDs resolve deterministically from the pubkey; an EXTERNAL (x1) DID
+  // resolves from its (self-verifying) genesis document.
+  const doc = genesisDocument
+    ? Resolver.external(Identifier.decode(did), genesisDocument)
+    : Resolver.deterministic({
+      genesisBytes : kp.publicKey.compressed,
+      hrp          : 'k',
+      idType       : 'KEY',
+      version      : 1,
+      network      : 'mutinynet',
+    });
   const vm = doc.verificationMethod![0];
   const unsigned = Updater.construct(doc, [{
     op    : 'add',
@@ -206,13 +232,14 @@ service.on('validation-received', ({ participantDid, approved }) => console.log(
 service.on('signing-complete', ({ signature }) => console.log(`[service] signature: ${bytesToHex(signature)}`));
 service.on('error', (err) => console.error('[service] error:', err.message));
 
-function makeParticipantRunner(name: string, did: string, keys: SchnorrKeyPair, transport: Transport) {
+function makeParticipantRunner(name: string, did: string, keys: SchnorrKeyPair, transport: Transport, genesisDocument?: Record<string, unknown>) {
   const runner = new AggregationParticipantRunner({
     transport,
     did,
     keys,
+    genesisDocument,
     shouldJoin      : async () => true,
-    onProvideUpdate : async ({ beaconAddress }) => buildSignedUpdate(did, keys, beaconAddress),
+    onProvideUpdate : async ({ beaconAddress }) => buildSignedUpdate(did, keys, beaconAddress, genesisDocument),
   });
 
   runner.on('cohort-discovered', (advert) => console.log(`[${name}] discovered cohort ${advert.cohortId}`));
@@ -227,7 +254,7 @@ function makeParticipantRunner(name: string, did: string, keys: SchnorrKeyPair, 
 }
 
 const alice = makeParticipantRunner('alice', aliceDid, aliceKeys, aliceTransport);
-const bob   = makeParticipantRunner('bob',   bobDid,   bobKeys,   bobTransport);
+const bob   = makeParticipantRunner('bob',   bobDid,   bobKeys,   bobTransport, bobGenesis);
 
 // ────────────────────────────────────────────────
 // Wire everything up and run

@@ -30,10 +30,15 @@ export interface HttpClientTransportConfig {
   /**
    * Resolve a sender's communication public key from its DID when the sender is not a
    * registered peer. Lets the transport stay DID-method-agnostic: the caller supplies
-   * the decode (for example, a did:btcr2 KEY identifier yields its genesis key). When
-   * omitted, sender resolution is limited to registered peers.
+   * the decode (for example, a did:btcr2 KEY identifier yields its genesis key). The
+   * optional `genesisDocument` mirrors the server transport's genesis-aware signature so a
+   * single injected resolver serves both; the client does not itself bootstrap senders.
+   * When omitted, sender resolution is limited to registered peers.
    */
-  resolveSenderPk?: (did: string) => CompressedSecp256k1PublicKey | undefined;
+  resolveSenderPk?: (
+    did: string,
+    opts?: { genesisDocument?: object },
+  ) => CompressedSecp256k1PublicKey | undefined;
 }
 
 /** Default exponential backoff: 1s, 2s, 4s, ..., capped at 30s, 20% jitter. */
@@ -63,7 +68,10 @@ export class HttpClientTransport implements Transport {
   readonly #logger:       Logger;
   readonly #backoff:      (attempt: number) => number;
   readonly #clockSkewSec: number;
-  readonly #resolveSenderPkFn?: (did: string) => CompressedSecp256k1PublicKey | undefined;
+  readonly #resolveSenderPkFn?: (
+    did: string,
+    opts?: { genesisDocument?: object },
+  ) => CompressedSecp256k1PublicKey | undefined;
 
   readonly #actors: Map<string, ActorEntry>   = new Map();
   readonly #peers:  Map<string, Uint8Array>   = new Map();
@@ -362,13 +370,16 @@ export class HttpClientTransport implements Transport {
     if(handler) await handler(flat);
   }
 
-  #resolveSenderPk(did: string): CompressedSecp256k1PublicKey | undefined {
+  #resolveSenderPk(
+    did: string,
+    opts?: { genesisDocument?: object },
+  ): CompressedSecp256k1PublicKey | undefined {
     const peerBytes = this.#peers.get(did);
     if(peerBytes) {
       try { return new CompressedSecp256k1PublicKey(peerBytes); }
       catch { /* fall through to the injected resolver */ }
     }
-    return this.#resolveSenderPkFn?.(did);
+    return this.#resolveSenderPkFn?.(did, opts);
   }
 }
 

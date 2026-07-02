@@ -45,6 +45,12 @@ export interface CohortOptInBody {
   cohortId: string;
   participantPk: Uint8Array;
   communicationPk: Uint8Array;
+  /**
+   * An EXTERNAL (`x1`) sender's genesis DID document, carried in-band so the service can
+   * bootstrap-verify the sender's communication key. Omitted for KEY (`k1`) senders;
+   * {@link isCohortOptInMessage} stays tolerant of its absence.
+   */
+  genesisDocument?: Record<string, unknown>;
 }
 
 export interface CohortOptInAcceptBody {
