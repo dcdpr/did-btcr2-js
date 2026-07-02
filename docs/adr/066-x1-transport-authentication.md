@@ -243,9 +243,11 @@ server performs the bootstrap.
 
 `in-memory` and `nostr` need no code change: `in-memory` enforces no inbound auth, and
 `nostr` authenticates by event signature, so an `x1` participant already completes a cohort
-on both once the participant emits its genesis-derived signing key. Both gain symmetry tests.
-The `didcomm` stub gains a comment noting the same `x1` requirement for when it is
-implemented.
+on both once the participant emits its genesis-derived signing key. `in-memory` gains a unit
+symmetry test (a mixed `k1` + `x1` cohort completing with a valid aggregate signature); the
+`nostr` path, which needs a live relay, is exercised by the `e2e-nostr-transport.ts` script
+(one KEY and one EXTERNAL participant), mirroring the HTTP e2e. The `didcomm` stub gains a
+comment noting the same `x1` requirement for when it is implemented.
 
 ### Method-agnosticism preserved (ADR 046, ADR 054)
 

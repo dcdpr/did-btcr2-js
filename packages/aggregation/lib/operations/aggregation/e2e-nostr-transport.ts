@@ -1,4 +1,4 @@
-import { DidBtcr2, Resolver, Updater } from '@did-btcr2/method';
+import { DidBtcr2, GenesisDocument, Identifier, Resolver, Updater } from '@did-btcr2/method';
 /**
  * E2E Demo: Per-Actor Nostr Transports (Runner API)
  *
@@ -31,8 +31,32 @@ const serviceDid = DidBtcr2.create(serviceKeys.publicKey.compressed, { idType: '
 const aliceKeys = SchnorrKeyPair.generate();
 const aliceDid = DidBtcr2.create(aliceKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
 
+// Bob is an EXTERNAL (x1) DID: its DID commits to the hash of a genesis document and its
+// capabilityInvocation[0] key is bobKeys. Nostr needs no bootstrap - each event is
+// self-signed, so authenticity rides the event signature rather than a did-to-key
+// resolution - so an x1 participant completes a cohort here exactly as a k1 participant
+// does. The genesis still rides on Bob's opt-in and drives his update construction (ADR 066).
 const bobKeys = SchnorrKeyPair.generate();
-const bobDid = DidBtcr2.create(bobKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
+const bobGenesis: Record<string, unknown> = {
+  'id'                 : 'did:btcr2:_',
+  '@context'           : ['https://www.w3.org/ns/did/v1.1', 'https://btcr2.dev/context/v1'],
+  'verificationMethod' : [{
+    'id'                 : 'did:btcr2:_#key-0',
+    'type'               : 'Multikey',
+    'controller'         : 'did:btcr2:_',
+    'publicKeyMultibase' : bobKeys.publicKey.multibase.encoded,
+  }],
+  'authentication'       : ['did:btcr2:_#key-0'],
+  'assertionMethod'      : ['did:btcr2:_#key-0'],
+  'capabilityInvocation' : ['did:btcr2:_#key-0'],
+  'capabilityDelegation' : ['did:btcr2:_#key-0'],
+  'service'              : [{
+    'id'              : 'did:btcr2:_#service-0',
+    'type'            : 'SingletonBeacon',
+    'serviceEndpoint' : 'bitcoin:mhME7XiWpho6Ft4pvT3U3h6X8hHtE58ZDJ',
+  }],
+};
+const bobDid = DidBtcr2.create(GenesisDocument.toGenesisBytes(bobGenesis), { idType: 'EXTERNAL', network: 'mutinynet' });
 
 const serviceTransport = new NostrTransport({ relays: [RELAY] });
 const aliceTransport = new NostrTransport({ relays: [RELAY] });
@@ -53,14 +77,18 @@ serviceTransport.registerPeer(bobDid, bobKeys.publicKey.compressed);
 aliceTransport.registerPeer(serviceDid, serviceKeys.publicKey.compressed);
 bobTransport.registerPeer(serviceDid, serviceKeys.publicKey.compressed);
 
-function buildSignedUpdate(did: string, kp: SchnorrKeyPair, beaconAddress: string) {
-  const doc = Resolver.deterministic({
-    genesisBytes : kp.publicKey.compressed,
-    hrp          : 'k',
-    idType       : 'KEY',
-    version      : 1,
-    network      : 'mutinynet',
-  });
+function buildSignedUpdate(did: string, kp: SchnorrKeyPair, beaconAddress: string, genesisDocument?: Record<string, unknown>) {
+  // KEY (k1) DIDs resolve deterministically from the pubkey; an EXTERNAL (x1) DID
+  // resolves from its (self-verifying) genesis document.
+  const doc = genesisDocument
+    ? Resolver.external(Identifier.decode(did), genesisDocument)
+    : Resolver.deterministic({
+      genesisBytes : kp.publicKey.compressed,
+      hrp          : 'k',
+      idType       : 'KEY',
+      version      : 1,
+      network      : 'mutinynet',
+    });
   const vm = doc.verificationMethod![0];
   const unsigned = Updater.construct(doc, [{
     op    : 'add', path  : '/service/-', value : {
@@ -100,13 +128,14 @@ service.on('keygen-complete', ({ beaconAddress }) => console.log(`[service] keyg
 service.on('signing-complete', ({ signature }) => console.log(`[service] signature: ${bytesToHex(signature)}`));
 service.on('error', (err) => console.error('[service] error:', err.message));
 
-function makeParticipantRunner(name: string, did: string, keys: SchnorrKeyPair, transport: Transport) {
+function makeParticipantRunner(name: string, did: string, keys: SchnorrKeyPair, transport: Transport, genesisDocument?: Record<string, unknown>) {
   const runner = new AggregationParticipantRunner({
     transport,
     did,
     keys,
+    genesisDocument,
     shouldJoin      : async () => true,
-    onProvideUpdate : async ({ beaconAddress }) => buildSignedUpdate(did, keys, beaconAddress),
+    onProvideUpdate : async ({ beaconAddress }) => buildSignedUpdate(did, keys, beaconAddress, genesisDocument),
   });
 
   runner.on('cohort-discovered', (advert) => console.log(`[${name}] discovered cohort ${advert.cohortId}`));
@@ -119,7 +148,7 @@ function makeParticipantRunner(name: string, did: string, keys: SchnorrKeyPair, 
 }
 
 const alice = makeParticipantRunner('alice', aliceDid, aliceKeys, aliceTransport);
-const bob = makeParticipantRunner('bob', bobDid, bobKeys, bobTransport);
+const bob = makeParticipantRunner('bob', bobDid, bobKeys, bobTransport, bobGenesis);
 
 console.log(`\n══ Connecting to relay: ${RELAY} ══\n`);
 
