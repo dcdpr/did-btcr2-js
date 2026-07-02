@@ -17,9 +17,6 @@ importers:
       '@eslint/js':
         specifier: ^9.22.0
         version: 9.35.0
-      '@npmcli/package-json':
-        specifier: ^6.1.1
-        version: 6.2.0
       '@typescript-eslint/eslint-plugin':
         specifier: ^8.24.1
         version: 8.44.0(@typescript-eslint/parser@8.44.0(eslint@9.39.4)(typescript@5.7.3))(eslint@9.39.4)(typescript@5.7.3)
@@ -29,9 +26,6 @@ importers:
       audit-ci:
         specifier: ^7.1.0
         version: 7.1.0
-      debug:
-        specifier: ^4.4.3
-        version: 4.4.3(supports-color@8.1.1)
       eslint-plugin-mocha:
         specifier: ^10.5.0
         version: 10.5.0(eslint@9.39.4)
@@ -90,12 +84,6 @@ importers:
       '@types/chai':
         specifier: ^5.0.1
         version: 5.2.3
-      '@types/chai-as-promised':
-        specifier: ^8.0.1
-        version: 8.0.2
-      '@types/eslint':
-        specifier: ^9.6.1
-        version: 9.6.1
       '@types/mocha':
         specifier: ^10.0.10
         version: 10.0.10
@@ -114,9 +102,6 @@ importers:
       chai:
         specifier: ^5.2.0
         version: 5.3.3
-      chai-as-promised:
-        specifier: ^8.0.1
-        version: 8.0.2(chai@5.3.3)
       esbuild:
         specifier: ^0.25.0
         version: 0.25.9
@@ -132,9 +117,6 @@ importers:
       mocha:
         specifier: ^11.1.0
         version: 11.7.2
-      mocha-junit-reporter:
-        specifier: ^2.2.1
-        version: 2.2.1(mocha@11.7.2)
       node-stdlib-browser:
         specifier: ^1.3.1
         version: 1.3.1
@@ -144,15 +126,9 @@ importers:
       tsup:
         specifier: ^8.5.1
         version: 8.5.1(typescript@5.9.3)(yaml@2.8.3)
-      typedoc-plugin-markdown:
-        specifier: ^4.7.0
-        version: 4.11.0(typedoc@0.28.13(typescript@5.9.3))
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
-      typescript-eslint:
-        specifier: ^8.24.1
-        version: 8.58.0(eslint@9.39.4)(typescript@5.9.3)
 
   packages/api:
     dependencies:
@@ -174,64 +150,34 @@ importers:
       '@did-btcr2/method':
         specifier: workspace:^
         version: link:../method
-      '@noble/curves':
-        specifier: ^2.0.1
-        version: 2.0.1
-      '@noble/hashes':
-        specifier: ^2.0.1
-        version: 2.0.1
-      '@noble/secp256k1':
-        specifier: ^2.1.0
-        version: 2.3.0
-      '@scure/base':
-        specifier: ^1.1.9
-        version: 1.2.6
-      '@scure/bip32':
-        specifier: ^1.5.0
-        version: 1.7.0
-      '@scure/bip39':
-        specifier: ^1.4.0
-        version: 1.6.0
-      '@scure/btc-signer':
-        specifier: ^1.8.1
-        version: 1.8.1
-      '@web5/common':
-        specifier: ^1.1.0
-        version: 1.1.0
-      '@web5/crypto':
-        specifier: ^1.0.6
-        version: 1.0.6
       '@web5/dids':
         specifier: ^1.2.0
         version: 1.2.0
-      canonicalize:
-        specifier: ^2.1.0
-        version: 2.1.0
-      dotenv:
-        specifier: ^16.5.0
-        version: 16.6.1
       helia:
         specifier: ^5.2.1
         version: 5.5.1(react-native@0.81.4(@babel/core@7.29.0)(react@19.1.1))
       multiformats:
         specifier: ^13.3.1
         version: 13.4.1
-      nostr-tools:
-        specifier: ^2.15.0
-        version: 2.16.2(typescript@5.7.3)
     devDependencies:
       '@eslint/js':
         specifier: ^9.22.0
         version: 9.35.0
+      '@noble/curves':
+        specifier: ^2.0.1
+        version: 2.0.1
+      '@noble/hashes':
+        specifier: ^2.0.1
+        version: 2.0.1
+      '@scure/btc-signer':
+        specifier: ^1.8.1
+        version: 1.8.1
       '@types/chai':
         specifier: ^5.0.1
         version: 5.2.2
       '@types/chai-as-promised':
         specifier: ^8.0.1
         version: 8.0.2
-      '@types/eslint':
-        specifier: ^9.6.1
-        version: 9.6.1
       '@types/mocha':
         specifier: ^10.0.9
         version: 10.0.10
@@ -268,9 +214,6 @@ importers:
       mocha:
         specifier: ^10.8.2
         version: 10.8.2
-      mocha-junit-reporter:
-        specifier: ^2.2.1
-        version: 2.2.1(mocha@10.8.2)
       node-stdlib-browser:
         specifier: ^1.3.1
         version: 1.3.1
@@ -280,40 +223,28 @@ importers:
       tsup:
         specifier: ^8.5.1
         version: 8.5.1(typescript@5.7.3)(yaml@2.8.3)
-      typedoc-plugin-markdown:
-        specifier: ^4.7.0
-        version: 4.8.1(typedoc@0.28.13(typescript@5.7.3))
       typescript:
         specifier: ^5.6.2
         version: 5.7.3
-      typescript-eslint:
-        specifier: ^8.19.1
-        version: 8.44.0(eslint@9.35.0)(typescript@5.7.3)
 
   packages/bitcoin:
     dependencies:
       '@did-btcr2/common':
         specifier: workspace:^
         version: link:../common
-      '@did-btcr2/keypair':
-        specifier: workspace:^
-        version: link:../keypair
       '@scure/btc-signer':
         specifier: ^1.8.1
         version: 1.8.1
     devDependencies:
+      '@did-btcr2/keypair':
+        specifier: workspace:^
+        version: link:../keypair
       '@eslint/js':
         specifier: ^9.22.0
         version: 9.35.0
       '@types/chai':
         specifier: ^5.0.1
         version: 5.2.2
-      '@types/chai-as-promised':
-        specifier: ^8.0.1
-        version: 8.0.2
-      '@types/eslint':
-        specifier: ^9.6.1
-        version: 9.6.1
       '@types/mocha':
         specifier: ^10.0.9
         version: 10.0.10
@@ -332,12 +263,6 @@ importers:
       chai:
         specifier: ^5.1.2
         version: 5.3.3
-      chai-as-promised:
-        specifier: ^8.0.0
-        version: 8.0.2(chai@5.3.3)
-      esbuild:
-        specifier: ^0.24.2
-        version: 0.24.2
       eslint:
         specifier: ^9.14.0
         version: 9.35.0
@@ -350,24 +275,12 @@ importers:
       mocha:
         specifier: ^10.8.2
         version: 10.8.2
-      mocha-junit-reporter:
-        specifier: ^2.2.1
-        version: 2.2.1(mocha@10.8.2)
-      node-stdlib-browser:
-        specifier: ^1.3.1
-        version: 1.3.1
       rimraf:
         specifier: ^6.0.1
         version: 6.0.1
-      typedoc-plugin-markdown:
-        specifier: ^4.7.0
-        version: 4.8.1(typedoc@0.28.13(typescript@5.7.3))
       typescript:
         specifier: ^5.6.2
         version: 5.7.3
-      typescript-eslint:
-        specifier: ^8.19.1
-        version: 8.44.0(eslint@9.35.0)(typescript@5.7.3)
 
   packages/cli:
     dependencies:
@@ -377,9 +290,6 @@ importers:
       '@did-btcr2/common':
         specifier: workspace:^
         version: link:../common
-      '@did-btcr2/cryptosuite':
-        specifier: workspace:^
-        version: link:../cryptosuite
       '@did-btcr2/key-manager':
         specifier: workspace:^
         version: link:../key-manager
@@ -414,9 +324,6 @@ importers:
       '@types/chai-as-promised':
         specifier: ^8.0.1
         version: 8.0.2
-      '@types/eslint':
-        specifier: ^9.6.1
-        version: 9.6.1
       '@types/mocha':
         specifier: ^10.0.10
         version: 10.0.10
@@ -438,9 +345,6 @@ importers:
       chai-as-promised:
         specifier: ^8.0.1
         version: 8.0.2(chai@5.3.3)
-      esbuild:
-        specifier: ^0.25.0
-        version: 0.25.9
       eslint:
         specifier: ^9.21.0
         version: 9.35.0
@@ -453,27 +357,15 @@ importers:
       mocha:
         specifier: ^11.1.0
         version: 11.7.2
-      mocha-junit-reporter:
-        specifier: ^2.2.1
-        version: 2.2.1(mocha@11.7.2)
-      node-stdlib-browser:
-        specifier: ^1.3.1
-        version: 1.3.1
       rimraf:
         specifier: ^6.0.1
         version: 6.0.1
       tsup:
         specifier: ^8.5.1
         version: 8.5.1(typescript@5.7.3)(yaml@2.8.3)
-      typedoc-plugin-markdown:
-        specifier: ^4.7.0
-        version: 4.8.1(typedoc@0.28.13(typescript@5.7.3))
       typescript:
         specifier: ~5.7.3
         version: 5.7.3
-      typescript-eslint:
-        specifier: ^8.25.0
-        version: 8.44.0(eslint@9.35.0)(typescript@5.7.3)
 
   packages/common:
     dependencies:
@@ -502,9 +394,6 @@ importers:
       '@types/chai-as-promised':
         specifier: ^8.0.1
         version: 8.0.2
-      '@types/eslint':
-        specifier: ^9.6.1
-        version: 9.6.1
       '@types/mocha':
         specifier: ^10.0.10
         version: 10.0.10
@@ -541,24 +430,12 @@ importers:
       mocha:
         specifier: ^11.1.0
         version: 11.7.2
-      mocha-junit-reporter:
-        specifier: ^2.2.1
-        version: 2.2.1(mocha@11.7.2)
-      node-stdlib-browser:
-        specifier: ^1.3.1
-        version: 1.3.1
       rimraf:
         specifier: ^6.0.1
         version: 6.0.1
-      typedoc-plugin-markdown:
-        specifier: ^4.7.0
-        version: 4.8.1(typedoc@0.28.13(typescript@5.7.3))
       typescript:
         specifier: ~5.7.3
         version: 5.7.3
-      typescript-eslint:
-        specifier: ^8.25.0
-        version: 8.44.0(eslint@9.35.0)(typescript@5.7.3)
 
   packages/cryptosuite:
     dependencies:
@@ -587,12 +464,6 @@ importers:
       '@types/chai':
         specifier: ^5.0.1
         version: 5.2.2
-      '@types/chai-as-promised':
-        specifier: ^8.0.1
-        version: 8.0.2
-      '@types/eslint':
-        specifier: ^9.6.1
-        version: 9.6.1
       '@types/mocha':
         specifier: ^10.0.10
         version: 10.0.10
@@ -611,12 +482,6 @@ importers:
       chai:
         specifier: ^5.2.0
         version: 5.3.3
-      chai-as-promised:
-        specifier: ^8.0.1
-        version: 8.0.2(chai@5.3.3)
-      esbuild:
-        specifier: ^0.25.0
-        version: 0.25.9
       eslint:
         specifier: ^9.20.1
         version: 9.35.0
@@ -629,27 +494,15 @@ importers:
       mocha:
         specifier: ^11.1.0
         version: 11.7.2
-      mocha-junit-reporter:
-        specifier: ^2.2.1
-        version: 2.2.1(mocha@11.7.2)
-      node-stdlib-browser:
-        specifier: ^1.3.1
-        version: 1.3.1
       rimraf:
         specifier: ^6.0.1
         version: 6.0.1
       tsup:
         specifier: ^8.5.1
         version: 8.5.1(typescript@5.7.3)(yaml@2.8.3)
-      typedoc-plugin-markdown:
-        specifier: ^4.7.0
-        version: 4.8.1(typedoc@0.28.13(typescript@5.7.3))
       typescript:
         specifier: ^5.7.3
         version: 5.7.3
-      typescript-eslint:
-        specifier: ^8.24.1
-        version: 8.44.0(eslint@9.35.0)(typescript@5.7.3)
 
   packages/key-manager:
     dependencies:
@@ -672,12 +525,6 @@ importers:
       '@types/chai':
         specifier: ^5.0.1
         version: 5.2.3
-      '@types/chai-as-promised':
-        specifier: ^8.0.1
-        version: 8.0.2
-      '@types/eslint':
-        specifier: ^9.6.1
-        version: 9.6.1
       '@types/mocha':
         specifier: ^10.0.9
         version: 10.0.10
@@ -696,12 +543,6 @@ importers:
       chai:
         specifier: ^5.1.2
         version: 5.3.3
-      chai-as-promised:
-        specifier: ^8.0.0
-        version: 8.0.2(chai@5.3.3)
-      esbuild:
-        specifier: ^0.24.2
-        version: 0.24.2
       eslint:
         specifier: ^9.14.0
         version: 9.39.4
@@ -714,24 +555,12 @@ importers:
       mocha:
         specifier: ^10.8.2
         version: 10.8.2
-      mocha-junit-reporter:
-        specifier: ^2.2.1
-        version: 2.2.1(mocha@10.8.2)
-      node-stdlib-browser:
-        specifier: ^1.3.1
-        version: 1.3.1
       rimraf:
         specifier: ^6.0.1
         version: 6.1.3
-      typedoc-plugin-markdown:
-        specifier: ^4.7.0
-        version: 4.11.0(typedoc@0.28.13(typescript@5.9.3))
       typescript:
         specifier: ^5.6.2
         version: 5.9.3
-      typescript-eslint:
-        specifier: ^8.19.1
-        version: 8.58.0(eslint@9.39.4)(typescript@5.9.3)
 
   packages/keypair:
     dependencies:
@@ -757,12 +586,6 @@ importers:
       '@types/chai':
         specifier: ^5.0.1
         version: 5.2.2
-      '@types/chai-as-promised':
-        specifier: ^8.0.1
-        version: 8.0.2
-      '@types/eslint':
-        specifier: ^9.6.1
-        version: 9.6.1
       '@types/mocha':
         specifier: ^10.0.10
         version: 10.0.10
@@ -781,12 +604,6 @@ importers:
       chai:
         specifier: ^5.2.0
         version: 5.3.3
-      chai-as-promised:
-        specifier: ^8.0.1
-        version: 8.0.2(chai@5.3.3)
-      esbuild:
-        specifier: ^0.25.0
-        version: 0.25.9
       eslint:
         specifier: ^9.20.1
         version: 9.35.0
@@ -799,24 +616,12 @@ importers:
       mocha:
         specifier: ^11.1.0
         version: 11.7.2
-      mocha-junit-reporter:
-        specifier: ^2.2.1
-        version: 2.2.1(mocha@11.7.2)
-      node-stdlib-browser:
-        specifier: ^1.3.1
-        version: 1.3.1
       rimraf:
         specifier: ^6.0.1
         version: 6.0.1
-      typedoc-plugin-markdown:
-        specifier: ^4.7.0
-        version: 4.8.1(typedoc@0.28.13(typescript@5.7.3))
       typescript:
         specifier: ^5.7.3
         version: 5.7.3
-      typescript-eslint:
-        specifier: ^8.24.1
-        version: 8.44.0(eslint@9.35.0)(typescript@5.7.3)
 
   packages/method:
     dependencies:
@@ -841,36 +646,15 @@ importers:
       '@noble/hashes':
         specifier: ^1.8.0
         version: 1.8.0
-      '@noble/secp256k1':
-        specifier: ^2.3.0
-        version: 2.3.0
       '@scure/base':
         specifier: ^1.2.6
         version: 1.2.6
-      '@scure/bip32':
-        specifier: ^1.7.0
-        version: 1.7.0
-      '@scure/bip39':
-        specifier: ^1.6.0
-        version: 1.6.0
       '@scure/btc-signer':
         specifier: ^1.8.1
         version: 1.8.1
-      '@web5/common':
-        specifier: ^1.1.0
-        version: 1.1.0
-      '@web5/crypto':
-        specifier: ^1.0.6
-        version: 1.0.6
       '@web5/dids':
         specifier: ^1.2.0
         version: 1.2.0
-      canonicalize:
-        specifier: ^2.1.0
-        version: 2.1.0
-      dotenv:
-        specifier: ^16.6.1
-        version: 16.6.1
     devDependencies:
       '@eslint/js':
         specifier: ^9.39.4
@@ -878,12 +662,6 @@ importers:
       '@types/chai':
         specifier: ^5.2.3
         version: 5.2.3
-      '@types/chai-as-promised':
-        specifier: ^8.0.2
-        version: 8.0.2
-      '@types/eslint':
-        specifier: ^9.6.1
-        version: 9.6.1
       '@types/mocha':
         specifier: ^10.0.10
         version: 10.0.10
@@ -902,9 +680,6 @@ importers:
       chai:
         specifier: ^5.3.3
         version: 5.3.3
-      chai-as-promised:
-        specifier: ^8.0.2
-        version: 8.0.2(chai@5.3.3)
       commander:
         specifier: ^13.1.0
         version: 13.1.0
@@ -923,9 +698,6 @@ importers:
       mocha:
         specifier: ^10.8.2
         version: 10.8.2
-      mocha-junit-reporter:
-        specifier: ^2.2.1
-        version: 2.2.1(mocha@10.8.2)
       multiformats:
         specifier: ^13.4.2
         version: 13.4.2
@@ -938,15 +710,9 @@ importers:
       tsup:
         specifier: ^8.5.1
         version: 8.5.1(typescript@5.9.3)(yaml@2.8.3)
-      typedoc-plugin-markdown:
-        specifier: ^4.11.0
-        version: 4.11.0(typedoc@0.28.13(typescript@5.9.3))
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
-      typescript-eslint:
-        specifier: ^8.58.0
-        version: 8.58.0(eslint@9.39.4)(typescript@5.9.3)
 
   packages/smt:
     dependencies:
@@ -966,12 +732,6 @@ importers:
       '@types/chai':
         specifier: ^5.0.1
         version: 5.2.2
-      '@types/chai-as-promised':
-        specifier: ^8.0.1
-        version: 8.0.2
-      '@types/eslint':
-        specifier: ^9.6.1
-        version: 9.6.1
       '@types/mocha':
         specifier: ^10.0.10
         version: 10.0.10
@@ -990,12 +750,6 @@ importers:
       chai:
         specifier: ^5.2.0
         version: 5.3.3
-      chai-as-promised:
-        specifier: ^8.0.1
-        version: 8.0.2(chai@5.3.3)
-      esbuild:
-        specifier: ^0.25.0
-        version: 0.25.9
       eslint:
         specifier: ^9.21.0
         version: 9.35.0
@@ -1008,24 +762,12 @@ importers:
       mocha:
         specifier: ^11.1.0
         version: 11.7.2
-      mocha-junit-reporter:
-        specifier: ^2.2.1
-        version: 2.2.1(mocha@11.7.2)
-      node-stdlib-browser:
-        specifier: ^1.3.1
-        version: 1.3.1
       rimraf:
         specifier: ^6.0.1
         version: 6.0.1
-      typedoc-plugin-markdown:
-        specifier: ^4.7.0
-        version: 4.8.1(typedoc@0.28.13(typescript@5.7.3))
       typescript:
         specifier: ~5.7.3
         version: 5.7.3
-      typescript-eslint:
-        specifier: ^8.25.0
-        version: 8.44.0(eslint@9.35.0)(typescript@5.7.3)
 
 packages:
 
@@ -2073,12 +1815,6 @@ packages:
     resolution: {integrity: sha512-bysYuiVfhxNJuldNXlFEitTVdNnYUc+XNJZd7Qm2a5j1vZHgY+fazadNFWFaMK/2vye0JVlxV3gHmC0WDfAOQw==}
     engines: {node: '>= 20.19.0'}
 
-  '@noble/curves@1.1.0':
-    resolution: {integrity: sha512-091oBExgENk/kGj3AZmtBDMpxQPDtxQABR2B9lb1JbVTs6ytdzZNwvhxQ4MWasRNEzlbEH8jCWFCwhF/Obj5AA==}
-
-  '@noble/curves@1.2.0':
-    resolution: {integrity: sha512-oYclrNgRaM9SsBUBVbb8M6DTV7ZHRTKugureoYEncY5c65HOmRzvSiTE3y5CYaPYJA/GVkrhXEoF0M3Ya9PMnw==}
-
   '@noble/curves@1.3.0':
     resolution: {integrity: sha512-t01iSXPuN+Eqzb4eBX0S5oubSqXbK/xXa1Ne18Hj8f9pStxztHCE2gfboSp/dZRLSqfuLpRK2nDXDK+W9puocA==}
 
@@ -2092,14 +1828,6 @@ packages:
 
   '@noble/ed25519@2.3.0':
     resolution: {integrity: sha512-M7dvXL2B92/M7dw9+gzuydL8qn/jiqNHaoR3Q+cb1q1GHV7uwE17WCyFMG+Y+TZb5izcaXk5TdJRrDUxHXL78A==}
-
-  '@noble/hashes@1.3.1':
-    resolution: {integrity: sha512-EbqwksQwz9xDRGfDST86whPBgM65E0OH/pCgqW0GBVzO22bNE+NuIbeTb714+IfSjU3aRk47EUvXIb5bTsenKA==}
-    engines: {node: '>= 16'}
-
-  '@noble/hashes@1.3.2':
-    resolution: {integrity: sha512-MVC8EAQp7MvEcm30KWENFjgR+Mkmf+D189XJTkFIlwohU5hcBbn1ZkKq7KVTi2Hme3PMGF390DaL52beVrIihQ==}
-    engines: {node: '>= 16'}
 
   '@noble/hashes@1.3.3':
     resolution: {integrity: sha512-V7/fPHgl+jsVPXqqeOzT8egNj2iBIVt+ECeMMG8TdcnTikP3oaBtUVqpT/gYCR68aEBJSF+XbYUxStjbFMqIIA==}
@@ -2131,18 +1859,6 @@ packages:
   '@nodelib/fs.walk@1.2.8':
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
-
-  '@npmcli/git@6.0.3':
-    resolution: {integrity: sha512-GUYESQlxZRAdhs3UhbB6pVRNUELQOHXwK9ruDkwmCv2aZ5y0SApQzUJCg02p3A7Ue2J5hxvlk1YI53c00NmRyQ==}
-    engines: {node: ^18.17.0 || >=20.5.0}
-
-  '@npmcli/package-json@6.2.0':
-    resolution: {integrity: sha512-rCNLSB/JzNvot0SEyXqWZ7tX2B5dD2a1br2Dp0vSYVo5jh8Z0EZ7lS9TsZ1UtziddB1UfNUaMCc538/HztnJGA==}
-    engines: {node: ^18.17.0 || >=20.5.0}
-
-  '@npmcli/promise-spawn@8.0.3':
-    resolution: {integrity: sha512-Yb00SWaL4F8w+K8YGhQ55+xE4RUNdMHV43WZGsiTM92gS+lC0mGsn7I4hLug7pbao035S6bj3Y3w0cUNGLfmkg==}
-    engines: {node: ^18.17.0 || >=20.5.0}
 
   '@peculiar/asn1-cms@2.5.0':
     resolution: {integrity: sha512-p0SjJ3TuuleIvjPM4aYfvYw8Fk1Hn/zAVyPJZTtZ2eE9/MIer6/18ROxX6N/e6edVSfvuZBqhxAj3YgsmSjQ/A==}
@@ -2357,32 +2073,17 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@scure/base@1.1.1':
-    resolution: {integrity: sha512-ZxOhsSyxYwLJj3pLZCefNitxsj093tb2vq90mp2txoYeBqbcjDjqFhyM8eUjq/uFm6zJ+mUuqxlS2FkuSY1MTA==}
-
-  '@scure/base@1.1.9':
-    resolution: {integrity: sha512-8YKhl8GHiNI/pU2VMaofa2Tor7PJRAjwQLBBuilkJ9L5+13yVbC7JO/wS7piioAvPSwR3JKM1IJ/u4xQzbcXKg==}
-
   '@scure/base@1.2.6':
     resolution: {integrity: sha512-g/nm5FgUa//MCj1gV09zTJTaM6KBAHqLN907YVQqf7zC49+DcO4B1so4ZX07Ef10Twr6nuqYEH9GEggFXA4Fmg==}
 
   '@scure/base@2.0.0':
     resolution: {integrity: sha512-3E1kpuZginKkek01ovG8krQ0Z44E3DHPjc5S2rjJw9lZn3KSQOs8S7wqikF/AH7iRanHypj85uGyxk0XAyC37w==}
 
-  '@scure/bip32@1.3.1':
-    resolution: {integrity: sha512-osvveYtyzdEVbt3OfwwXFr4P2iVBL5u1Q3q4ONBfDY/UpOuXmOlbgwc1xECEboY8wIays8Yt6onaWMUdUbfl0A==}
-
   '@scure/bip32@1.7.0':
     resolution: {integrity: sha512-E4FFX/N3f4B80AKWp5dP6ow+flD1LQZo/w8UnLGYZO674jS6YnYeepycOOksv+vLPSpgN35wgKgy+ybfTb2SMw==}
 
   '@scure/bip32@2.0.1':
     resolution: {integrity: sha512-4Md1NI5BzoVP+bhyJaY3K6yMesEFzNS1sE/cP+9nuvE7p/b0kx9XbpDHHFl8dHtufcbdHRUUQdRqLIPHN/s7yA==}
-
-  '@scure/bip39@1.2.1':
-    resolution: {integrity: sha512-Z3/Fsz1yr904dduJD0NpiyRHhRYHdcnyh73FZWiV+/qhWi83wNJ3NWolYqCEN+ZWsUz2TWwajJggcRE9r1zUYg==}
-
-  '@scure/bip39@1.6.0':
-    resolution: {integrity: sha512-+lF0BbLiJNwVlev4eKelw1WWLaiKXw7sSl8T6FvBlWkdX+94aGJ4o8XjUdlyhTCjd8c+B3KT3JfS8P0bLRNU6A==}
 
   '@scure/bip39@2.0.1':
     resolution: {integrity: sha512-PsxdFj/d2AcJcZDX1FXN3dDgitDDTmwf78rKZq1a6c1P1Nan1X/Sxc7667zU3U+AN60g7SxxP0YCVw2H/hBycg==}
@@ -2448,9 +2149,6 @@ packages:
 
   '@types/dns-packet@5.6.5':
     resolution: {integrity: sha512-qXOC7XLOEe43ehtWJCMnQXvgcIpv6rPmQ1jXT98Ad8A3TB1Ue50jsCbSSSyuazScEuZ/Q026vHbrOTVkmwA+7Q==}
-
-  '@types/eslint@9.6.1':
-    resolution: {integrity: sha512-FXx2pKgId/WyYo2jXw63kk7/+TY7u7AziEJxJAnSFzHlqTAS3Ync6SvgYAN/k4/PQpnnVuzoMuVnByKK2qp0ag==}
 
   '@types/estree@1.0.8':
     resolution: {integrity: sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w==}
@@ -2993,9 +2691,6 @@ packages:
   chardet@2.1.0:
     resolution: {integrity: sha512-bNFETTG/pM5ryzQ9Ad0lJOTa6HWD/YsScAR3EnCPZRPlQh77JocYktSHOUHelyhm8IARL+o4c4F1bP5KVOjiRA==}
 
-  charenc@0.0.2:
-    resolution: {integrity: sha512-yrLQ/yVUFXkzg7EDQsPieE/53+0RlaWTs+wBrvW36cyilJ2SaDWfl4Yj7MtLTXleV9uEKefbAGUPv2/iWSooRA==}
-
   check-error@2.1.1:
     resolution: {integrity: sha512-OAlb+T7V4Op9OwdkjmguYRqncdlx5JiofwOAUkmTF+jNdHwzTaTs4sRAGpzLF3oOz5xAyDGrPgeIDFQmDOTiJw==}
     engines: {node: '>= 16'}
@@ -3124,9 +2819,6 @@ packages:
     resolution: {integrity: sha512-uV2QOWP2nWzsy2aMp8aRibhi9dlzF5Hgh5SHaB9OiTGEyDTiJJyx0uy51QXdyWbtAHNua4XJzUKca3OzKUd3vA==}
     engines: {node: '>= 8'}
 
-  crypt@0.0.2:
-    resolution: {integrity: sha512-mCxBlsHFYh9C+HVpiEacem8FEBnMXgU9gy4zmNC+SXAZNB/1idgp/aulFJ4FgCi7GPEVbfyng092GqL2k2rmow==}
-
   crypto-browserify@3.12.1:
     resolution: {integrity: sha512-r4ESw/IlusD17lgQi1O20Fa3qNnsckR126TdUuBgAu7GBYSIPvdNyONd3Zrxh0xCwA4+6w/TDArBPsMvhur+KQ==}
     engines: {node: '>= 0.10'}
@@ -3243,10 +2935,6 @@ packages:
     resolution: {integrity: sha512-IGBwjF7tNk3cwypFNH/7bfzBcgSCbaMOD3GsaY1AU/JRrnHnYgEM0+9kQt52iZxjNsjBtJYtao146V+f8jFZNw==}
     engines: {node: '>=10'}
 
-  dotenv@16.6.1:
-    resolution: {integrity: sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==}
-    engines: {node: '>=12'}
-
   dotenv@8.6.0:
     resolution: {integrity: sha512-IrPdXQsk2BbzvCBGBOTmmSH5SodmqZNt4ERAZDmW4CT+tL8VtvinqywuANaFu4bOMWki16nqf0e4oC0QIaDr/g==}
     engines: {node: '>=10'}
@@ -3297,9 +2985,6 @@ packages:
   entities@4.5.0:
     resolution: {integrity: sha512-V0hjH4dGPh9Ao5p0MoRY6BVqtwCjhz6vI5LT8AJ55H+4g9/4vbHx1I54fS0XuclLhDHArPQCiMjDxjaL8fPxhw==}
     engines: {node: '>=0.12'}
-
-  err-code@2.0.3:
-    resolution: {integrity: sha512-2bmlRpNKBxT/CRmPOlyISQpNj+qSeYvcym/uT0Jx2bMOlKLtSy1ZmLuVxSEKKyor/N5yhvp/ZiG1oE3DEYMSFA==}
 
   err-code@3.0.1:
     resolution: {integrity: sha512-GiaH0KJUewYok+eeY05IIgjtAe4Yltygk9Wqp1V5yVWLdhf0hYZchRjNIT9bb0mSwRcIusT3cx7PJUf3zEIfUA==}
@@ -3753,10 +3438,6 @@ packages:
   hmac-drbg@1.0.1:
     resolution: {integrity: sha512-Tti3gMqLdZfhOQY1Mzf/AanLiqh1WTiJgEj26ZuYQ9fbkLomzGchCws4FyrSd4VkpBfiNhaE1On+lOz894jvXg==}
 
-  hosted-git-info@8.1.0:
-    resolution: {integrity: sha512-Rw/B2DNQaPBICNXEm8balFz9a6WpZrkCGpcWFpy7nCj+NyhSdqXipmfvtmWt9xGfp0wZnBxB+iVpLmQMYt47Tw==}
-    engines: {node: ^18.17.0 || >=20.5.0}
-
   html-escaper@2.0.2:
     resolution: {integrity: sha512-H2iMtd0I4Mt5eYiapRdIDjp+XzelXQ0tFE4JS7YFwFevXXMmOp9myNrUvCg0D6ws8iqkRPBfKHgbwig1SmlLfg==}
 
@@ -3823,10 +3504,6 @@ packages:
   ini@1.3.8:
     resolution: {integrity: sha512-JV/yugV2uzW5iMRSiZAyDtQd+nxtUnjeLt0acNdw98kKLrvuRVyB80tsREOE7yvGVgalhZ6RNXCmEHkUKBKxew==}
 
-  ini@5.0.0:
-    resolution: {integrity: sha512-+N0ngpO3e7cRUWOJAS7qw0IZIVc6XPrW4MlFBdD066F2L4k1L6ker3hLqSq7iXxU5tgS4WGkIUElWn5vogAEnw==}
-    engines: {node: ^18.17.0 || >=20.5.0}
-
   interface-blockstore@5.3.2:
     resolution: {integrity: sha512-oA9Pjkxun/JHAsZrYEyKX+EoPjLciTzidE7wipLc/3YoHDjzsnXRJzAzFJXNUvogtY4g7hIwxArx8+WKJs2RIg==}
 
@@ -3853,9 +3530,6 @@ packages:
   is-binary-path@2.1.0:
     resolution: {integrity: sha512-ZMERYes6pDydyuGidse7OsHxtbI7WVeUEozgR/g7rd0xUimYNlvZRE/K2MgZTjWy725IfelLeVcEM97mmtRGXw==}
     engines: {node: '>=8'}
-
-  is-buffer@1.1.6:
-    resolution: {integrity: sha512-NcdALwpXkTm5Zvvbk7owOUSvVvBKDgKP5/ewfXEznmQFfs4ZRmanOeKBTjRVjka3QFoN6XJ+9F3USqfHqTaU5w==}
 
   is-buffer@2.0.5:
     resolution: {integrity: sha512-i2R6zNFDwgEHJyQUtJEk0XFi1i0dPFn/oqjK3/vPCcDeJvW5NQ83V8QbicfF1SupOaB0h8ntgBC2YiE7dfyctQ==}
@@ -3956,10 +3630,6 @@ packages:
 
   isexe@2.0.0:
     resolution: {integrity: sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw==}
-
-  isexe@3.1.1:
-    resolution: {integrity: sha512-LpB/54B+/2J5hqQ7imZHfdU31OlgQqx7ZicVlkm9kzg9/w8GKLEcFfJl/t7DCEDueOyBAD6zCCwTO6Fzs0NoEQ==}
-    engines: {node: '>=16'}
 
   isomorphic-timers-promises@1.0.1:
     resolution: {integrity: sha512-u4sej9B1LPSxTGKB/HiuzvEQnXH0ECYkSVQU39koSwmFAxhlEAFl9RdTvLv4TOTQUgBS5O3O5fwUxk6byBZ+IQ==}
@@ -4140,10 +3810,6 @@ packages:
   json-canonicalize@1.2.0:
     resolution: {integrity: sha512-TTdjBvqrqJKSADlEsY5rWbx8/1tOrVlTR/aSLU8N2VSInCTffP0p+byYB8Es+OmL4ZOeEftjUdvV+eJeSzJC/Q==}
 
-  json-parse-even-better-errors@4.0.0:
-    resolution: {integrity: sha512-lR4MXjGNgkJc7tkQ97kb2nuEMnNCyU//XYVH0MKTGcXEiSudQ5MKGKen3C5QubYy0vmq+JGitUg92uuywGEwIA==}
-    engines: {node: ^18.17.0 || >=20.5.0}
-
   json-schema-traverse@0.4.1:
     resolution: {integrity: sha512-xbbCH5dCYU5T8LcEhhuh7HJ88HXuW3qsI3Y0zOZFKfZEHcpWiHU/Jxzk629Brsab/mMiHQti9wMP+845RPe3Vg==}
 
@@ -4284,9 +3950,6 @@ packages:
 
   md5.js@1.3.5:
     resolution: {integrity: sha512-xitP+WxNPcTTOgnTJcrhM0xvdPepipPSf3I8EIpGKeFLjt3PlJLIDG3u8EX53ZIubkb+5U2+3rELYpEhHhzdkg==}
-
-  md5@2.3.0:
-    resolution: {integrity: sha512-T1GITYmFaKuO91vxyoQMFETst+O71VUPEU3ze5GNzDm0OWdP8v1ziTaAEPUr/3kLsY3Sftgz242A1SetQiDL7g==}
 
   mdurl@2.0.0:
     resolution: {integrity: sha512-Lf+9+2r+Tdp5wXDXC4PcIBjTDtq4UKjCPMQhKIuzpJNW0b96kVqSwW0bT7FhRSfmAiFYgP+SCRvdrDozfh0U5w==}
@@ -4442,18 +4105,8 @@ packages:
     engines: {node: '>=10'}
     hasBin: true
 
-  mkdirp@3.0.1:
-    resolution: {integrity: sha512-+NsyUUAZDmo6YVHzL/stxSu3t9YS1iljliy3BSDrXJ/dkn1KYdmtZODGGjLcc9XLgVVpH4KshHB8XmZgMhaBXg==}
-    engines: {node: '>=10'}
-    hasBin: true
-
   mlly@1.8.0:
     resolution: {integrity: sha512-l8D9ODSRWLe2KHJSifWGwBqpTZXIXTeo8mlKjY+E2HAakaTeNpqAyBZ8GSqLzHgw4XmHmC8whvpjJNMbFZN7/g==}
-
-  mocha-junit-reporter@2.2.1:
-    resolution: {integrity: sha512-iDn2tlKHn8Vh8o4nCzcUVW4q7iXp7cC4EB78N0cDHIobLymyHNwe0XG8HEHHjc3hJlXm0Vy6zcrxaIhnI2fWmw==}
-    peerDependencies:
-      mocha: '>=2.2.5'
 
   mocha@10.8.2:
     resolution: {integrity: sha512-VZlYo/WE8t1tstuRmqgeyBgCbJc/lEdopaa+axcKzTBJ+UIdlAB9XnmvTCAH4pwR4ElNInaedhEBmZD8iCSVEg==}
@@ -4570,14 +4223,6 @@ packages:
     resolution: {integrity: sha512-6eZs5Ls3WtCisHWp9S2GUy8dqkpGi4BVSz3GaqiE6ezub0512ESztXUwUB6C6IKbQkY2Pnb/mD4WYojCRwcwLA==}
     engines: {node: '>=0.10.0'}
 
-  nostr-tools@2.16.2:
-    resolution: {integrity: sha512-ZxH9EbSt5ypURZj2TGNJxZd0Omb5ag5KZSu8IyJMCdLyg2KKz+2GA0sP/cSawCQEkyviIN4eRT4G2gB/t9lMRw==}
-    peerDependencies:
-      typescript: '>=5.0.0'
-    peerDependenciesMeta:
-      typescript:
-        optional: true
-
   nostr-tools@2.23.3:
     resolution: {integrity: sha512-AALyt9k8xPdF4UV2mlLJ2mgCn4kpTB0DZ8t2r6wjdUh6anfx2cTVBsHUlo9U0EY/cKC5wcNyiMAmRJV5OVEalA==}
     peerDependencies:
@@ -4593,22 +4238,6 @@ packages:
     resolution: {integrity: sha512-IsMvXUxkpk9UpSUDkKxrUdpWRpDYGr1aSEhBmgnYU/beUg+rS9MwWH97SNe/8chiUzfB3ojN7Z1m+DHO0vu67g==}
     engines: {node: '>=14.0.0'}
     hasBin: true
-
-  npm-install-checks@7.1.2:
-    resolution: {integrity: sha512-z9HJBCYw9Zr8BqXcllKIs5nI+QggAImbBdHphOzVYrz2CB4iQ6FzWyKmlqDZua+51nAu7FcemlbTc9VgQN5XDQ==}
-    engines: {node: ^18.17.0 || >=20.5.0}
-
-  npm-normalize-package-bin@4.0.0:
-    resolution: {integrity: sha512-TZKxPvItzai9kN9H/TkmCtx/ZN/hvr3vUycjlfmH0ootY9yFBzNOpiXAdIn1Iteqsvk4lQn6B5PTrt+n6h8k/w==}
-    engines: {node: ^18.17.0 || >=20.5.0}
-
-  npm-package-arg@12.0.2:
-    resolution: {integrity: sha512-f1NpFjNI9O4VbKMOlA5QoBq/vSQPORHcTZ2feJpFkTHJ9eQkdlmZEKSjcAhxTGInC7RlEyScT9ui67NaOsjFWA==}
-    engines: {node: ^18.17.0 || >=20.5.0}
-
-  npm-pick-manifest@10.0.0:
-    resolution: {integrity: sha512-r4fFa4FqYY8xaM7fHecQ9Z2nE9hgNfJR+EmoKv0+chvzWkBcORX3r0FpTByP+CbOVJDladMXnPQGVN8PBLGuTQ==}
-    engines: {node: ^18.17.0 || >=20.5.0}
 
   nullthrows@1.1.1:
     resolution: {integrity: sha512-2vPPEi+Z7WqML2jZYddDIfy5Dqb0r2fze2zTxNNknZaFpVHU3mFB3R+DWeJWGVx0ecvttSGlJTI+WG+8Z4cDWw==}
@@ -4857,10 +4486,6 @@ packages:
     resolution: {integrity: sha512-Pdlw/oPxN+aXdmM9R00JVC9WVFoCLTKJvDVLgmJ+qAffBMxsV85l/Lu7sNx4zSzPyoL2euImuEwHhOXdEgNFZQ==}
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
 
-  proc-log@5.0.0:
-    resolution: {integrity: sha512-Azwzvl90HaF0aCz1JrDdXQykFakSSNPaPoiZ9fm5qJIMHioDZEi7OAdRwSm6rSoPtY3Qutnm3L7ogmg3dc+wbQ==}
-    engines: {node: ^18.17.0 || >=20.5.0}
-
   process-nextick-args@2.0.1:
     resolution: {integrity: sha512-3ouUOpQhtgrbOa17J7+uxOTpITYWaGP7/AhoR3+A+/1e9skrzelGi/dXzEYyvbxubEF6Wn2ypscTKiKJFFn1ag==}
 
@@ -4870,10 +4495,6 @@ packages:
 
   progress-events@1.0.1:
     resolution: {integrity: sha512-MOzLIwhpt64KIVN64h1MwdKWiyKFNc/S6BoYKPIVUHFg0/eIEyBulhWCgn678v/4c0ri3FdGuzXymNCv02MUIw==}
-
-  promise-retry@2.0.1:
-    resolution: {integrity: sha512-y+WKFlBR8BGXnsNlIHFGPZmyDf3DFMoLhaflAnyZgV6rG6xu+JwesTo2Q9R6XwYmtmwAFCkAk3e35jEdoeh/3g==}
-    engines: {node: '>=10'}
 
   promise@8.3.0:
     resolution: {integrity: sha512-rZPNPKTOYVNEEKFaq1HqTgOwZD+4/YHS5ukLzQCypkj+OkYx7iv0mA91lJlpPPZ8vMau3IIGj5Qlwrx+8iiSmg==}
@@ -5030,10 +4651,6 @@ packages:
 
   retimeable-signal@1.0.1:
     resolution: {integrity: sha512-Cy26CYfbWnYu8HMoJeDhaMpW/EYFIbne3vMf6G9RSrOyWYXbPehja/BEdzpqmM84uy2bfBD7NPZhoQ4GZEtgvg==}
-
-  retry@0.12.0:
-    resolution: {integrity: sha512-9LkiTwjUh6rT555DtE9rTX+BKByPfrMzEAtnlEtdEwr3Nkffwiihqe2bWADg+OQRjt9gl6ICdmB/ZFDCGAtSow==}
-    engines: {node: '>= 4'}
 
   retry@0.13.1:
     resolution: {integrity: sha512-XQBQ3I8W1Cge0Seh+6gjj03LbmRFWuoszgK9ooCpwYIrhhoO80pfq4cUkU5DkknwfOfFteRwlZ56PYOGYyFWdg==}
@@ -5210,18 +4827,6 @@ packages:
 
   spawndamnit@3.0.1:
     resolution: {integrity: sha512-MmnduQUuHCoFckZoWnXsTg7JaiLBJrKFj9UI2MbRPGaJeVpsLcVBu6P/IGZovziM/YBsellCmsprgNA+w0CzVg==}
-
-  spdx-correct@3.2.0:
-    resolution: {integrity: sha512-kN9dJbvnySHULIluDHy32WHRUu3Og7B9sbY7tsFLctQkIqnMh3hErYgdMjTYuqmcXX+lK5T1lnUt3G7zNswmZA==}
-
-  spdx-exceptions@2.5.0:
-    resolution: {integrity: sha512-PiU42r+xO4UbUS1buo3LPJkjlO7430Xn5SVAhdpzzsPHsjbYVflnnFdATgabnLude+Cqu25p6N+g2lw/PFsa4w==}
-
-  spdx-expression-parse@3.0.1:
-    resolution: {integrity: sha512-cbqHunsQWnJNE6KhVSMsMeH5H/L9EpymbzqTQ3uLwNCLZ1Q481oWaofqH7nO6V07xlXwY6PhQdQ2IedWx/ZK4Q==}
-
-  spdx-license-ids@3.0.22:
-    resolution: {integrity: sha512-4PRT4nh1EImPbt2jASOKHX7PB7I+e4IWNLvkKFDxNhJlfjbYlleYQh285Z/3mPTHSAK/AvdMmw5BNNuYH8ShgQ==}
 
   split@1.0.1:
     resolution: {integrity: sha512-mTyOoPbrivtXnwnIxZRFYRrPNtEFKlpB2fvjSnCQUiAA6qAZzqwna5envK4uk6OIeP17CsdF3rSBGYVBsU0Tkg==}
@@ -5487,38 +5092,12 @@ packages:
     resolution: {integrity: sha512-nAYYwfY3qnzX30IkA6AQZjVbtK6duGontcQm1WSG1MD94YLqK0515GNApXkoxKOWMusVssAHWLh9SeaoefYFGw==}
     engines: {node: '>= 0.4'}
 
-  typedoc-plugin-markdown@4.11.0:
-    resolution: {integrity: sha512-2iunh2ALyfyh204OF7h2u0kuQ84xB3jFZtFyUr01nThJkLvR8oGGSSDlyt2gyO4kXhvUxDcVbO0y43+qX+wFbw==}
-    engines: {node: '>= 18'}
-    peerDependencies:
-      typedoc: 0.28.x
-
-  typedoc-plugin-markdown@4.8.1:
-    resolution: {integrity: sha512-ug7fc4j0SiJxSwBGLncpSo8tLvrT9VONvPUQqQDTKPxCoFQBADLli832RGPtj6sfSVJebNSrHZQRUdEryYH/7g==}
-    engines: {node: '>= 18'}
-    peerDependencies:
-      typedoc: 0.28.x
-
   typedoc@0.28.13:
     resolution: {integrity: sha512-dNWY8msnYB2a+7Audha+aTF1Pu3euiE7ySp53w8kEsXoYw7dMouV5A1UsTUY345aB152RHnmRMDiovuBi7BD+w==}
     engines: {node: '>= 18', pnpm: '>= 10'}
     hasBin: true
     peerDependencies:
       typescript: 5.0.x || 5.1.x || 5.2.x || 5.3.x || 5.4.x || 5.5.x || 5.6.x || 5.7.x || 5.8.x || 5.9.x
-
-  typescript-eslint@8.44.0:
-    resolution: {integrity: sha512-ib7mCkYuIzYonCq9XWF5XNw+fkj2zg629PSa9KNIQ47RXFF763S5BIX4wqz1+FLPogTZoiw8KmCiRPRa8bL3qw==}
-    engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
-    peerDependencies:
-      eslint: ^8.57.0 || ^9.0.0
-      typescript: '>=4.8.4 <6.0.0'
-
-  typescript-eslint@8.58.0:
-    resolution: {integrity: sha512-e2TQzKfaI85fO+F3QywtX+tCTsu/D3WW5LVU6nz8hTFKFZ8yBJ6mSYRpXqdR3mFjPWmO0eWsTa5f+UpAOe/FMA==}
-    engines: {node: ^18.18.0 || ^20.9.0 || >=21.1.0}
-    peerDependencies:
-      eslint: ^8.57.0 || ^9.0.0 || ^10.0.0
-      typescript: '>=4.8.4 <6.1.0'
 
   typescript@5.7.3:
     resolution: {integrity: sha512-84MVSjMEHP+FQRPy3pX9sTVV/INIex71s9TL2Gm5FG/WG1SqXeKyZ0k7/blY/4FdOzI12CBy1vGc4og/eus0fw==}
@@ -5603,13 +5182,6 @@ packages:
     resolution: {integrity: sha512-kiGUalWN+rgBJ/1OHZsBtU4rXZOfj/7rKQxULKlIzwzQSvMJUUNgPwJEEh7gU6xEVxC0ahoOBvN2YI8GH6FNgA==}
     engines: {node: '>=10.12.0'}
 
-  validate-npm-package-license@3.0.4:
-    resolution: {integrity: sha512-DpKm2Ui/xN7/HQKCtpZxoRWBhZ9Z0kqtygG8XCgNQ8ZlDnxuQmWhj566j8fN4Cu3/JmbhsDo7fcAJq4s9h27Ew==}
-
-  validate-npm-package-name@6.0.2:
-    resolution: {integrity: sha512-IUoow1YUtvoBBC06dXs8bR8B9vuA3aJfmQNKMoaPG/OFsPmoQvw8xh+6Ye25Gx9DQhoEom3Pcu9MKHerm/NpUQ==}
-    engines: {node: ^18.17.0 || >=20.5.0}
-
   vlq@1.0.1:
     resolution: {integrity: sha512-gQpnTgkubC6hQgdIcRdYGDSDc+SaujOdyesZQMv6JlfQee/9Mp0Qhnys6WxDWvQnL5WZdT7o2Ul187aSt0Rq+w==}
 
@@ -5645,11 +5217,6 @@ packages:
   which@2.0.2:
     resolution: {integrity: sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA==}
     engines: {node: '>= 8'}
-    hasBin: true
-
-  which@5.0.0:
-    resolution: {integrity: sha512-JEdGzHwwkrbWoGOlIHqQ5gtprKGOenpDHpxE9zVR1bWbOtYRyPPHMe9FaP6x61CmNaTThSkb0DAJte5jD+DmzQ==}
-    engines: {node: ^18.17.0 || >=20.5.0}
     hasBin: true
 
   word-wrap@1.2.5:
@@ -5715,9 +5282,6 @@ packages:
   xml2js@0.6.2:
     resolution: {integrity: sha512-T4rieHaC1EXcES0Kxxj4JWgaUQHDk+qwHcYOCFHfiwKz7tOVPLq7Hjq9dM1WCMhylqMEfP7hMcOIChvotiZegA==}
     engines: {node: '>=4.0.0'}
-
-  xml@1.0.1:
-    resolution: {integrity: sha512-huCv9IH9Tcf95zuYCsQraZtWnJvBtLVE0QHMOs8bWyZAFZNDcYjsPq1nEx8jKA9y+Beo9v+7OBPRisQTjinQMw==}
 
   xmlbuilder@11.0.1:
     resolution: {integrity: sha512-fDlsI/kFEx7gLvbecc0/ohLG50fugQp8ryHzMTuW9vSa1GJ0XYWKnhsUx7oie3G98+r56aTQIUB4kht42R3JvA==}
@@ -7258,14 +6822,6 @@ snapshots:
 
   '@noble/ciphers@2.1.1': {}
 
-  '@noble/curves@1.1.0':
-    dependencies:
-      '@noble/hashes': 1.3.1
-
-  '@noble/curves@1.2.0':
-    dependencies:
-      '@noble/hashes': 1.3.2
-
   '@noble/curves@1.3.0':
     dependencies:
       '@noble/hashes': 1.3.3
@@ -7279,10 +6835,6 @@ snapshots:
       '@noble/hashes': 2.0.1
 
   '@noble/ed25519@2.3.0': {}
-
-  '@noble/hashes@1.3.1': {}
-
-  '@noble/hashes@1.3.2': {}
 
   '@noble/hashes@1.3.3': {}
 
@@ -7305,31 +6857,6 @@ snapshots:
     dependencies:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.19.1
-
-  '@npmcli/git@6.0.3':
-    dependencies:
-      '@npmcli/promise-spawn': 8.0.3
-      ini: 5.0.0
-      lru-cache: 10.4.3
-      npm-pick-manifest: 10.0.0
-      proc-log: 5.0.0
-      promise-retry: 2.0.1
-      semver: 7.7.2
-      which: 5.0.0
-
-  '@npmcli/package-json@6.2.0':
-    dependencies:
-      '@npmcli/git': 6.0.3
-      glob: 10.4.5
-      hosted-git-info: 8.1.0
-      json-parse-even-better-errors: 4.0.0
-      proc-log: 5.0.0
-      semver: 7.7.2
-      validate-npm-package-license: 3.0.4
-
-  '@npmcli/promise-spawn@8.0.3':
-    dependencies:
-      which: 5.0.0
 
   '@peculiar/asn1-cms@2.5.0':
     dependencies:
@@ -7558,19 +7085,9 @@ snapshots:
   '@rollup/rollup-win32-x64-msvc@4.50.2':
     optional: true
 
-  '@scure/base@1.1.1': {}
-
-  '@scure/base@1.1.9': {}
-
   '@scure/base@1.2.6': {}
 
   '@scure/base@2.0.0': {}
-
-  '@scure/bip32@1.3.1':
-    dependencies:
-      '@noble/curves': 1.1.0
-      '@noble/hashes': 1.3.3
-      '@scure/base': 1.1.9
 
   '@scure/bip32@1.7.0':
     dependencies:
@@ -7583,16 +7100,6 @@ snapshots:
       '@noble/curves': 2.0.1
       '@noble/hashes': 2.0.1
       '@scure/base': 2.0.0
-
-  '@scure/bip39@1.2.1':
-    dependencies:
-      '@noble/hashes': 1.3.3
-      '@scure/base': 1.1.9
-
-  '@scure/bip39@1.6.0':
-    dependencies:
-      '@noble/hashes': 1.8.0
-      '@scure/base': 1.2.6
 
   '@scure/bip39@2.0.1':
     dependencies:
@@ -7679,11 +7186,6 @@ snapshots:
   '@types/dns-packet@5.6.5':
     dependencies:
       '@types/node': 22.18.4
-
-  '@types/eslint@9.6.1':
-    dependencies:
-      '@types/estree': 1.0.8
-      '@types/json-schema': 7.0.15
 
   '@types/estree@1.0.8': {}
 
@@ -8432,8 +7934,6 @@ snapshots:
 
   chardet@2.1.0: {}
 
-  charenc@0.0.2: {}
-
   check-error@2.1.1: {}
 
   chokidar@3.6.0:
@@ -8589,8 +8089,6 @@ snapshots:
       shebang-command: 2.0.0
       which: 2.0.2
 
-  crypt@0.0.2: {}
-
   crypto-browserify@3.12.1:
     dependencies:
       browserify-cipher: 1.0.1
@@ -8698,8 +8196,6 @@ snapshots:
 
   domain-browser@4.22.0: {}
 
-  dotenv@16.6.1: {}
-
   dotenv@8.6.0: {}
 
   dunder-proto@1.0.1:
@@ -8746,8 +8242,6 @@ snapshots:
       strip-ansi: 6.0.1
 
   entities@4.5.0: {}
-
-  err-code@2.0.3: {}
 
   err-code@3.0.1: {}
 
@@ -9364,10 +8858,6 @@ snapshots:
       minimalistic-assert: 1.0.1
       minimalistic-crypto-utils: 1.0.1
 
-  hosted-git-info@8.1.0:
-    dependencies:
-      lru-cache: 10.4.3
-
   html-escaper@2.0.2: {}
 
   http-cookie-agent@6.0.8(tough-cookie@5.1.2)(undici@6.21.3):
@@ -9426,8 +8916,6 @@ snapshots:
 
   ini@1.3.8: {}
 
-  ini@5.0.0: {}
-
   interface-blockstore@5.3.2:
     dependencies:
       interface-store: 6.0.3
@@ -9467,8 +8955,6 @@ snapshots:
   is-binary-path@2.1.0:
     dependencies:
       binary-extensions: 2.3.0
-
-  is-buffer@1.1.6: {}
 
   is-buffer@2.0.5: {}
 
@@ -9547,8 +9033,6 @@ snapshots:
   isarray@2.0.5: {}
 
   isexe@2.0.0: {}
-
-  isexe@3.1.1: {}
 
   isomorphic-timers-promises@1.0.1: {}
 
@@ -9802,8 +9286,6 @@ snapshots:
 
   json-canonicalize@1.2.0: {}
 
-  json-parse-even-better-errors@4.0.0: {}
-
   json-schema-traverse@0.4.1: {}
 
   json-stable-stringify-without-jsonify@1.0.1: {}
@@ -9964,12 +9446,6 @@ snapshots:
       hash-base: 3.0.5
       inherits: 2.0.4
       safe-buffer: 5.2.1
-
-  md5@2.3.0:
-    dependencies:
-      charenc: 0.0.2
-      crypt: 0.0.2
-      is-buffer: 1.1.6
 
   mdurl@2.0.0: {}
 
@@ -10221,36 +9697,12 @@ snapshots:
 
   mkdirp@1.0.4: {}
 
-  mkdirp@3.0.1: {}
-
   mlly@1.8.0:
     dependencies:
       acorn: 8.16.0
       pathe: 2.0.3
       pkg-types: 1.3.1
       ufo: 1.6.1
-
-  mocha-junit-reporter@2.2.1(mocha@10.8.2):
-    dependencies:
-      debug: 4.4.3(supports-color@8.1.1)
-      md5: 2.3.0
-      mkdirp: 3.0.1
-      mocha: 10.8.2
-      strip-ansi: 6.0.1
-      xml: 1.0.1
-    transitivePeerDependencies:
-      - supports-color
-
-  mocha-junit-reporter@2.2.1(mocha@11.7.2):
-    dependencies:
-      debug: 4.4.3(supports-color@8.1.1)
-      md5: 2.3.0
-      mkdirp: 3.0.1
-      mocha: 11.7.2
-      strip-ansi: 6.0.1
-      xml: 1.0.1
-    transitivePeerDependencies:
-      - supports-color
 
   mocha@10.8.2:
     dependencies:
@@ -10402,18 +9854,6 @@ snapshots:
 
   normalize-path@3.0.0: {}
 
-  nostr-tools@2.16.2(typescript@5.7.3):
-    dependencies:
-      '@noble/ciphers': 0.5.3
-      '@noble/curves': 1.2.0
-      '@noble/hashes': 1.3.1
-      '@scure/base': 1.1.1
-      '@scure/bip32': 1.3.1
-      '@scure/bip39': 1.2.1
-      nostr-wasm: 0.1.0
-    optionalDependencies:
-      typescript: 5.7.3
-
   nostr-tools@2.23.3(typescript@5.9.3):
     dependencies:
       '@noble/ciphers': 2.1.1
@@ -10436,26 +9876,6 @@ snapshots:
       node-emoji: 2.2.0
       open-file-explorer: 1.0.2
       rxjs: 7.8.2
-
-  npm-install-checks@7.1.2:
-    dependencies:
-      semver: 7.7.4
-
-  npm-normalize-package-bin@4.0.0: {}
-
-  npm-package-arg@12.0.2:
-    dependencies:
-      hosted-git-info: 8.1.0
-      proc-log: 5.0.0
-      semver: 7.7.4
-      validate-npm-package-name: 6.0.2
-
-  npm-pick-manifest@10.0.0:
-    dependencies:
-      npm-install-checks: 7.1.2
-      npm-normalize-package-bin: 4.0.0
-      npm-package-arg: 12.0.2
-      semver: 7.7.2
 
   nullthrows@1.1.1: {}
 
@@ -10684,18 +10104,11 @@ snapshots:
       ansi-styles: 5.2.0
       react-is: 18.3.1
 
-  proc-log@5.0.0: {}
-
   process-nextick-args@2.0.1: {}
 
   process@0.11.10: {}
 
   progress-events@1.0.1: {}
-
-  promise-retry@2.0.1:
-    dependencies:
-      err-code: 2.0.3
-      retry: 0.12.0
 
   promise@8.3.0:
     dependencies:
@@ -10899,8 +10312,6 @@ snapshots:
       supports-preserve-symlinks-flag: 1.0.0
 
   retimeable-signal@1.0.1: {}
-
-  retry@0.12.0: {}
 
   retry@0.13.1: {}
 
@@ -11116,20 +10527,6 @@ snapshots:
     dependencies:
       cross-spawn: 7.0.6
       signal-exit: 4.1.0
-
-  spdx-correct@3.2.0:
-    dependencies:
-      spdx-expression-parse: 3.0.1
-      spdx-license-ids: 3.0.22
-
-  spdx-exceptions@2.5.0: {}
-
-  spdx-expression-parse@3.0.1:
-    dependencies:
-      spdx-exceptions: 2.5.0
-      spdx-license-ids: 3.0.22
-
-  spdx-license-ids@3.0.22: {}
 
   split@1.0.1:
     dependencies:
@@ -11431,14 +10828,6 @@ snapshots:
       es-errors: 1.3.0
       is-typed-array: 1.1.15
 
-  typedoc-plugin-markdown@4.11.0(typedoc@0.28.13(typescript@5.9.3)):
-    dependencies:
-      typedoc: 0.28.13(typescript@5.9.3)
-
-  typedoc-plugin-markdown@4.8.1(typedoc@0.28.13(typescript@5.7.3)):
-    dependencies:
-      typedoc: 0.28.13(typescript@5.7.3)
-
   typedoc@0.28.13(typescript@5.7.3):
     dependencies:
       '@gerrit0/mini-shiki': 3.12.2
@@ -11447,37 +10836,6 @@ snapshots:
       minimatch: 9.0.5
       typescript: 5.7.3
       yaml: 2.8.3
-
-  typedoc@0.28.13(typescript@5.9.3):
-    dependencies:
-      '@gerrit0/mini-shiki': 3.12.2
-      lunr: 2.3.9
-      markdown-it: 14.1.0
-      minimatch: 9.0.5
-      typescript: 5.9.3
-      yaml: 2.8.3
-
-  typescript-eslint@8.44.0(eslint@9.35.0)(typescript@5.7.3):
-    dependencies:
-      '@typescript-eslint/eslint-plugin': 8.44.0(@typescript-eslint/parser@8.44.0(eslint@9.35.0)(typescript@5.7.3))(eslint@9.35.0)(typescript@5.7.3)
-      '@typescript-eslint/parser': 8.44.0(eslint@9.35.0)(typescript@5.7.3)
-      '@typescript-eslint/typescript-estree': 8.44.0(typescript@5.7.3)
-      '@typescript-eslint/utils': 8.44.0(eslint@9.35.0)(typescript@5.7.3)
-      eslint: 9.35.0
-      typescript: 5.7.3
-    transitivePeerDependencies:
-      - supports-color
-
-  typescript-eslint@8.58.0(eslint@9.39.4)(typescript@5.9.3):
-    dependencies:
-      '@typescript-eslint/eslint-plugin': 8.58.0(@typescript-eslint/parser@8.58.0(eslint@9.39.4)(typescript@5.9.3))(eslint@9.39.4)(typescript@5.9.3)
-      '@typescript-eslint/parser': 8.58.0(eslint@9.39.4)(typescript@5.9.3)
-      '@typescript-eslint/typescript-estree': 8.58.0(typescript@5.9.3)
-      '@typescript-eslint/utils': 8.58.0(eslint@9.39.4)(typescript@5.9.3)
-      eslint: 9.39.4
-      typescript: 5.9.3
-    transitivePeerDependencies:
-      - supports-color
 
   typescript@5.7.3: {}
 
@@ -11553,13 +10911,6 @@ snapshots:
       '@types/istanbul-lib-coverage': 2.0.6
       convert-source-map: 2.0.0
 
-  validate-npm-package-license@3.0.4:
-    dependencies:
-      spdx-correct: 3.2.0
-      spdx-expression-parse: 3.0.1
-
-  validate-npm-package-name@6.0.2: {}
-
   vlq@1.0.1: {}
 
   vm-browserify@1.1.2: {}
@@ -11608,10 +10959,6 @@ snapshots:
     dependencies:
       isexe: 2.0.0
 
-  which@5.0.0:
-    dependencies:
-      isexe: 3.1.1
-
   word-wrap@1.2.5: {}
 
   workerpool@6.5.1: {}
@@ -11649,8 +10996,6 @@ snapshots:
     dependencies:
       sax: 1.4.1
       xmlbuilder: 11.0.1
-
-  xml@1.0.1: {}
 
   xmlbuilder@11.0.1: {}
 

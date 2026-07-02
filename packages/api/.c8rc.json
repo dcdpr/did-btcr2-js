@@ -13,8 +13,10 @@
     "tests/compiled/**/src/types/**"
   ],
   "reporter": [
+    "text",
+    "lcov",
     "cobertura",
-    "text"
+    "json-summary"
   ],
   "omit-relative": true,
   "cwd": "./",
