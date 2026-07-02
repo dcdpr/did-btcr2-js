@@ -34,6 +34,13 @@ export type BaseBody = Partial<CohortConditions> & {
   prevOutValue?: string;
   communicationPk?: Uint8Array;
   data?: string;
+  /**
+   * An EXTERNAL (`x1`) sender's genesis DID document, carried in-band on a bootstrap
+   * opt-in so the service can derive and verify the sender's communication key before
+   * the sender is a registered peer. Omitted for KEY (`k1`) senders. Typed as a plain
+   * record to keep the transport DID-method-agnostic.
+   */
+  genesisDocument?: Record<string, unknown>;
   signedUpdate?: Record<string, unknown>;
   casAnnouncement?: Record<string, string>;
   smtProof?: Record<string, unknown>;

@@ -66,6 +66,7 @@ children:
   - ./063-beacon-utxo-selection-hardening.md
   - ./064-foss-coverage-and-dependency-audit-gate.md
   - ./065-changesets-for-changelogs-manual-release.md
+  - ./066-x1-transport-authentication.md
 ---
 
 # Architecture Decision Records
@@ -139,3 +140,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 063 | 2026-07-01 | [Harden Beacon UTXO Selection (Confirmed, Non-Dust, Deepest-First, Deterministic)](063-beacon-utxo-selection-hardening.md) |
 | 064 | 2026-07-02 | [FOSS In-Repo Coverage Reporting and a Dependency-Audit Gate](064-foss-coverage-and-dependency-audit-gate.md) |
 | 065 | 2026-07-02 | [Adopt Changesets for Per-Package Changelogs with Manual Publishing](065-changesets-for-changelogs-manual-release.md) |
+| 066 | 2026-07-02 | [Trustless Transport Authentication for EXTERNAL (x1) DIDs via In-Band Genesis Documents](066-x1-transport-authentication.md) |

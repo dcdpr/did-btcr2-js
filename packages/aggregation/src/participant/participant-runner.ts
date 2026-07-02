@@ -69,6 +69,15 @@ export interface AggregationParticipantRunnerOptions {
    * Default: approve.
    */
   onApproveSigning?: OnApproveSigning;
+
+  /**
+   * The identity's genesis DID document. Required for an EXTERNAL (x1) did:btcr2 identifier
+   * so the service can bootstrap-authenticate this participant from a self-verifying opt-in;
+   * omitted for a KEY (k1) identifier. When present, `keys` MUST be the keypair of the
+   * genesis document's `capabilityInvocation[0]` verification method (see
+   * {@link AggregationParticipantParams.genesisDocument}).
+   */
+  genesisDocument?: Record<string, unknown>;
 }
 
 /**
@@ -131,8 +140,9 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
     this.#onApproveSigning = options.onApproveSigning ?? (async () => ({ approved: true }));
 
     this.session = new AggregationParticipant({
-      did    : options.did,
-      signer : new KeyPairAggregationSigner(options.keys),
+      did             : options.did,
+      signer          : new KeyPairAggregationSigner(options.keys),
+      genesisDocument : options.genesisDocument,
     });
   }
 

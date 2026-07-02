@@ -1,9 +1,11 @@
 import type { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
+import { equalBytes } from '@noble/curves/utils.js';
 
 import type { Logger } from '../core/logger.js';
 import { CONSOLE_LOGGER } from '../core/logger.js';
 import type { BaseMessage } from '../core/messages/base.js';
+import { COHORT_OPT_IN } from '../core/messages/constants.js';
 import type { MessageHandler, Transport } from '../core/transport/transport.js';
 import { reviveFromWire, signEnvelope, verifyEnvelope } from '../core/transport/http/envelope.js';
 import { HttpTransportError } from '../core/transport/http/errors.js';
@@ -79,12 +81,26 @@ export interface HttpServerTransportConfig {
   /** Clock injection point for tests. Returns unix milliseconds. */
   now?: () => number;
   /**
+   * Maximum accepted request-body size for the authenticated POST routes, measured as the
+   * body string length. Bounds the work an unauthenticated party can force before the
+   * genesis-bootstrap hash check runs, so a large fake genesis cannot be parsed and hashed.
+   * A request larger than this receives 413 before its body is parsed. Default 65536 (64
+   * KiB), well above a real genesis document.
+   */
+  maxBodyBytes?: number;
+  /**
    * Resolve a sender's communication public key from its DID when the sender is not a
    * registered peer. Lets the transport stay DID-method-agnostic: the caller supplies
-   * the decode (for example, a did:btcr2 KEY identifier yields its genesis key). When
+   * the decode (for example, a did:btcr2 KEY identifier yields its genesis key). The
+   * optional `genesisDocument` is passed through on a bootstrap opt-in from an as-yet
+   * unregistered sender (for example a did:btcr2 EXTERNAL identifier, whose key is not in
+   * the DID string but is derivable from its self-verifying genesis document). When
    * omitted, sender resolution is limited to registered peers.
    */
-  resolveSenderPk?: (did: string) => CompressedSecp256k1PublicKey | undefined;
+  resolveSenderPk?: (
+    did: string,
+    opts?: { genesisDocument?: object },
+  ) => CompressedSecp256k1PublicKey | undefined;
 }
 
 interface ActorEntry {
@@ -118,6 +134,7 @@ const INBOX_PATH_SUFFIX = '/inbox';
 
 const DEFAULT_ADVERT_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_HEARTBEAT_MS  = 20_000;
+const DEFAULT_MAX_BODY_BYTES = 64 * 1024;
 
 /**
  * Server-side HTTP transport. Sans-I/O - the caller mounts
@@ -141,7 +158,11 @@ export class HttpServerTransport implements Transport {
   readonly #rateLimiter:        RateLimiter;
   readonly #nonceCache:         NonceCache;
   readonly #now:                () => number;
-  readonly #resolveSenderPkFn?: (did: string) => CompressedSecp256k1PublicKey | undefined;
+  readonly #maxBodyBytes:       number;
+  readonly #resolveSenderPkFn?: (
+    did: string,
+    opts?: { genesisDocument?: object },
+  ) => CompressedSecp256k1PublicKey | undefined;
 
   readonly #actors:   Map<string, ActorEntry> = new Map();
   readonly #peers:    Map<string, Uint8Array> = new Map();
@@ -162,6 +183,7 @@ export class HttpServerTransport implements Transport {
     this.#rateLimiter     = config.rateLimiter ?? new RateLimiter();
     this.#nonceCache      = config.nonceCache ?? new NonceCache();
     this.#now             = config.now ?? (() => Date.now());
+    this.#maxBodyBytes    = config.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
     this.#resolveSenderPkFn = config.resolveSenderPk;
   }
 
@@ -343,19 +365,31 @@ export class HttpServerTransport implements Transport {
   // ----------------------------------------------------------------
 
   async #handleMessagesPost(req: HttpRequestLike): Promise<HttpResponseLike> {
+    const tooLarge = this.#enforceBodySize(req);
+    if(tooLarge) return tooLarge;
+
     const envelope = parseJsonBody<SignedEnvelope>(req.body);
     if(!envelope) return this.#respondJson(400, { error: 'invalid_json' }, req);
 
     const senderPk = this.#resolveSenderPk(envelope.from);
-    if(!senderPk) {
-      return this.#respondJson(401, { error: 'unknown_sender' }, req);
-    }
-
-    try {
-      verifyEnvelope(envelope, senderPk, { clockSkewSec: this.#clockSkewSec });
-    } catch(err) {
-      this.#logger.debug('POST /v1/messages: envelope verification failed:', err);
-      return this.#respondJson(401, { error: 'invalid_envelope' }, req);
+    let bootstrappedPk: CompressedSecp256k1PublicKey | undefined;
+    if(senderPk) {
+      try {
+        verifyEnvelope(envelope, senderPk, { clockSkewSec: this.#clockSkewSec });
+      } catch(err) {
+        this.#logger.debug('POST /v1/messages: envelope verification failed:', err);
+        return this.#respondJson(401, { error: 'invalid_envelope' }, req);
+      }
+    } else {
+      // The sender is not a registered peer and its DID does not decode to a key on its
+      // own (an EXTERNAL x1 DID commits to a genesis-document hash, not a key). The only
+      // way to authenticate is a self-verifying bootstrap opt-in carrying that genesis
+      // document; #bootstrapSenderPk derives the key, cross-checks the advertised
+      // communicationPk, and verifies the envelope. The derived key is not registered
+      // until the request clears every gate below (there is no trust-on-first-use, and a
+      // request that is later rejected leaves no peer-registry state behind).
+      bootstrappedPk = this.#bootstrapSenderPk(envelope);
+      if(!bootstrappedPk) return this.#respondJson(401, { error: 'unknown_sender' }, req);
     }
 
     if(!this.#nonceCache.store(envelope.from, envelope.nonce, envelope.timestamp)) {
@@ -376,6 +410,24 @@ export class HttpServerTransport implements Transport {
 
     const revived = reviveFromWire(envelope.message) as Record<string, unknown>;
     const flat = flattenMessage(revived);
+
+    // Bind the inner message to the authenticated envelope: a sender may only speak as
+    // itself. The envelope signature authenticates envelope.from, but the dispatched
+    // message carries its own `from` that the runner trusts (it registers a peer and
+    // records an opt-in under message.from). Without this check a sender authenticated as
+    // its own DID could carry an inner message claiming a different `from`, spoofing that
+    // DID into the cohort and poisoning the peer registry for it.
+    if(flat.from !== envelope.from) {
+      return this.#respondJson(401, { error: 'sender_mismatch' }, req);
+    }
+
+    // The request has cleared every gate; only now register a bootstrapped x1 peer, so its
+    // later messages resolve from the registry without re-deriving from the genesis. This
+    // is the sole point that mutates peer state, and only for a fully-validated request.
+    if(bootstrappedPk) {
+      this.registerPeer(envelope.from, bootstrappedPk.compressed);
+    }
+
     const messageType = typeof flat.type === 'string' ? flat.type : undefined;
     if(!messageType) return this.#respondJson(400, { error: 'missing_message_type' }, req);
 
@@ -390,6 +442,9 @@ export class HttpServerTransport implements Transport {
   }
 
   async #handleAdvertsPost(req: HttpRequestLike): Promise<HttpResponseLike> {
+    const tooLarge = this.#enforceBodySize(req);
+    if(tooLarge) return tooLarge;
+
     const envelope = parseJsonBody<SignedEnvelope>(req.body);
     if(!envelope) return this.#respondJson(400, { error: 'invalid_json' }, req);
 
@@ -516,13 +571,70 @@ export class HttpServerTransport implements Transport {
     return inbox;
   }
 
-  #resolveSenderPk(did: string): CompressedSecp256k1PublicKey | undefined {
+  #resolveSenderPk(
+    did: string,
+    opts?: { genesisDocument?: object },
+  ): CompressedSecp256k1PublicKey | undefined {
     const peerBytes = this.#peers.get(did);
     if(peerBytes) {
       try { return new CompressedSecp256k1PublicKey(peerBytes); }
       catch { /* fall through to the injected resolver */ }
     }
-    return this.#resolveSenderPkFn?.(did);
+    return this.#resolveSenderPkFn?.(did, opts);
+  }
+
+  /**
+   * Bootstrap-authenticate a sender that {@link #resolveSenderPk} could not resolve, from a
+   * self-verifying COHORT_OPT_IN. An EXTERNAL (x1) did:btcr2 DID commits to the hash of its
+   * genesis document, so a genesis carried in-band on the opt-in authenticates the sender's
+   * communication key with zero trust. This derives the key through the injected
+   * genesis-aware resolver (which rejects a genesis that does not hash to the DID),
+   * cross-checks it against the advertised `communicationPk` (so a controller cannot
+   * authenticate with one key while advertising another), and verifies the envelope
+   * signature against it. Returns the derived key on success, or `undefined` on any
+   * failure. It performs no registration and mutates no state: the caller registers the
+   * returned key only after the request clears its remaining gates (there is no
+   * trust-on-first-use).
+   */
+  #bootstrapSenderPk(envelope: SignedEnvelope): CompressedSecp256k1PublicKey | undefined {
+    if(!this.#resolveSenderPkFn) return undefined;
+
+    // Inspect the still-untrusted message only to derive a candidate key; nothing is
+    // trusted until the envelope verifies against that key below.
+    const flat = flattenMessage(reviveFromWire(envelope.message) as Record<string, unknown>);
+    if(flat.type !== COHORT_OPT_IN) return undefined;
+
+    const genesisDocument = flat.genesisDocument;
+    if(!genesisDocument || typeof genesisDocument !== 'object') return undefined;
+
+    const derived = this.#resolveSenderPkFn(envelope.from, { genesisDocument: genesisDocument as object });
+    if(!derived) return undefined;
+
+    const communicationPk = flat.communicationPk;
+    if(!(communicationPk instanceof Uint8Array) || !equalBytes(communicationPk, derived.compressed)) {
+      return undefined;
+    }
+
+    try {
+      verifyEnvelope(envelope, derived, { clockSkewSec: this.#clockSkewSec });
+    } catch(err) {
+      this.#logger.debug('POST /v1/messages: bootstrap envelope verification failed:', err);
+      return undefined;
+    }
+
+    return derived;
+  }
+
+  /**
+   * Reject an over-large request body before it is parsed, so a large fake genesis cannot be
+   * parsed and hashed. Returns a 413 response when the body exceeds {@link #maxBodyBytes},
+   * or `undefined` to continue.
+   */
+  #enforceBodySize(req: HttpRequestLike): HttpResponseLike | undefined {
+    if(req.body !== undefined && req.body.length > this.#maxBodyBytes) {
+      return this.#respondJson(413, { error: 'payload_too_large' }, req);
+    }
+    return undefined;
   }
 
   #safeWrite(stream: SseStream, event: string, data: string, id?: string): void {
