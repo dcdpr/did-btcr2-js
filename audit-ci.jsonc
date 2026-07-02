@@ -1,0 +1,21 @@
+{
+  // FOSS dependency-vulnerability gate: audit-ci wraps `pnpm audit` (the package
+  // manager's own advisory feed). No third-party/SaaS service is involved.
+  //
+  // Gate level is `critical`: CI fails when a NEW critical advisory appears in the
+  // dependency tree. High/moderate advisories are surfaced by `pnpm audit` but do
+  // not block, because the current tree carries ~28 transitive high advisories from
+  // the `helia` IPFS stack (libp2p/undici/react-native-webrtc) that we cannot fix
+  // directly; gating on `high` today would be red-on-arrival. Tighten this to
+  // `"high": true` once the helia transitive surface is reduced (see the CAS/helia
+  // follow-up).
+  "$schema": "https://github.com/IBM/audit-ci/raw/main/docs/schema.json",
+  "critical": true,
+  "allowlist": [
+    // shell-quote command injection, reached only via helia > @libp2p/webrtc >
+    // react-native-webrtc > react-native > react-devtools-core > shell-quote. That
+    // react-native code path is never loaded in our node/browser usage, so this is
+    // not reachable exposure. Remove if the helia dependency is dropped/replaced.
+    "GHSA-w7jw-789q-3m8p"
+  ]
+}

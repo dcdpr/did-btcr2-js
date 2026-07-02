@@ -20,7 +20,10 @@ jobs:
           node-version: '22.x'
 
       - name: Install dependencies
-        run: pnpm install -r --no-lockfile
+        run: pnpm install -r --frozen-lockfile
+
+      - name: Security audit (fails on new critical advisories)
+        run: pnpm audit-ci
 
       - name: Run linter
         run: pnpm lint
@@ -33,3 +36,7 @@ jobs:
 
       - name: Run tests
         run: pnpm test
+
+      - name: Coverage report
+        run: pnpm coverage:report
+        continue-on-error: true

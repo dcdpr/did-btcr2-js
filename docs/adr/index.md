@@ -64,6 +64,8 @@ children:
   - ./061-remove-dead-document-class.md
   - ./062-identifier-encoding-hardening.md
   - ./063-beacon-utxo-selection-hardening.md
+  - ./064-foss-coverage-and-dependency-audit-gate.md
+  - ./065-changesets-for-changelogs-manual-release.md
 ---
 
 # Architecture Decision Records
@@ -135,3 +137,5 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 061 | 2026-06-30 | [Remove the Unused Public Document Wrapper Class](061-remove-dead-document-class.md) |
 | 062 | 2026-06-30 | [Harden did:btcr2 Identifier Encoding and Decoding](062-identifier-encoding-hardening.md) |
 | 063 | 2026-07-01 | [Harden Beacon UTXO Selection (Confirmed, Non-Dust, Deepest-First, Deterministic)](063-beacon-utxo-selection-hardening.md) |
+| 064 | 2026-07-02 | [FOSS In-Repo Coverage Reporting and a Dependency-Audit Gate](064-foss-coverage-and-dependency-audit-gate.md) |
+| 065 | 2026-07-02 | [Adopt Changesets for Per-Package Changelogs with Manual Publishing](065-changesets-for-changelogs-manual-release.md) |

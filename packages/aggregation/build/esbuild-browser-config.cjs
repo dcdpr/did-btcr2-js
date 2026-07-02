@@ -15,7 +15,7 @@ module.exports = {
     bundle: true,
     format: 'esm',
     sourcemap: false,
-    minify: false,
+    minify: true,
     platform: 'browser',
     target: ['chrome101', 'firefox108', 'safari16'],
     mainFields: ['browser', 'module', 'main'],
