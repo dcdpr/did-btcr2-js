@@ -1,5 +1,22 @@
 # @did-btcr2/method
 
+## 0.52.0
+
+### Minor Changes
+
+- Fix resolver duplicate-update confirmation so a re-announced update no longer bricks resolution (ADR 067)
+
+  A confirmed duplicate update (the same version announced more than once on chain, for
+  example on two of a k1 DID's own beacons or replayed by a third party at another derivable
+  beacon address) no longer advances the version counter. `Resolver.updates()` now increments
+  `current_version_id`, and the `versionId` it reports, only on the apply path, and confirms a
+  duplicate against the update-hash history without appending to it. This removes a `versionId`
+  inflation that mis-classified the next genuine update and raised a false `LATE_PUBLISHING_ERROR`,
+  bricking an otherwise-valid linear history in a single discovery round and across rounds. The
+  duplicate-confirmation guard still rejects an update that claims an already-used version but
+  carries different content. This is a deliberate, traced deviation from the current spec prose on
+  when the counter increments, pursued upstream as a spec erratum; see ADR 067.
+
 ## 0.51.0
 
 ### Minor Changes

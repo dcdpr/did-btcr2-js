@@ -419,15 +419,23 @@ export class Resolver {
         }
       }
 
-      // Check update.targetVersionId against currentVersionId
-      // If update.targetVersionId <= currentVersionId, confirm duplicate update
+      // Check update.targetVersionId against currentVersionId.
+      // If update.targetVersionId <= currentVersionId, this update re-announces a version
+      // that has already been applied. Confirm it is a true duplicate, then skip it: a
+      // duplicate does not advance the version counter (the increment and the
+      // metadata.versionId it sets run only on the apply path below), and confirmation
+      // compares against the update-hash history without appending to it, because the
+      // history already holds the applied update at updateHashHistory[targetVersionId - 2].
+      // Holding the increment off the duplicate path is the deliberate did:btcr2 deviation
+      // recorded in ADR 067: the read algorithm's "Increment current_version_id" belongs
+      // to the apply branch, not to every tuple.
       if(update.targetVersionId <= currentVersionId) {
-        updateHashHistory.push(currentDocumentHash);
         this.confirmDuplicate(update, updateHashHistory);
+        continue;
       }
 
       // If update.targetVersionId == currentVersionId + 1, apply the update
-      else if (update.targetVersionId === currentVersionId + 1) {
+      if (update.targetVersionId === currentVersionId + 1) {
         // Check if update.sourceHash !== currentDocumentHash (byte comparison)
         const sourceHashBytes = decodeHash(update.sourceHash, 'base64urlnopad');
         if (!equalBytes(sourceHashBytes, currentDocumentHash)) {
@@ -448,11 +456,12 @@ export class Resolver {
         updateHashHistory.push(canonicalHashBytes(unsignedUpdate));
       }
 
-      // If update.targetVersionId > currentVersionId + 1, throw LATE_PUBLISHING error
-      else if(update.targetVersionId > currentVersionId + 1) {
+      // Otherwise update.targetVersionId > currentVersionId + 1: a version was skipped,
+      // so throw LATE_PUBLISHING error. The duplicate case already continued above.
+      else {
         throw new ResolveError(
           `Version Id Mismatch: targetVersionId cannot be > currentVersionId + 1`,
-          'LATE_PUBLISHING_ERROR', {
+          LATE_PUBLISHING_ERROR, {
             targetVersionId  : update.targetVersionId,
             currentVersionId : currentVersionId + 1
           }
@@ -462,7 +471,7 @@ export class Resolver {
       // Increment currentVersionId
       currentVersionId++;
 
-      // Set response.versionId to be the new  currentVersionId
+      // Set response.versionId to be the new currentVersionId
       response.metadata.versionId = `${currentVersionId}`;
 
       // If resolutionOptions.versionId is defined and <= currentVersionId, return currentDocument
