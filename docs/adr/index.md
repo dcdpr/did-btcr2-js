@@ -68,6 +68,7 @@ children:
   - ./065-changesets-for-changelogs-manual-release.md
   - ./066-x1-transport-authentication.md
   - ./067-resolver-duplicate-confirmation.md
+  - ./068-resolver-versiontime-duplicate-order.md
 ---
 
 # Architecture Decision Records
@@ -143,3 +144,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 065 | 2026-07-02 | [Adopt Changesets for Per-Package Changelogs with Manual Publishing](065-changesets-for-changelogs-manual-release.md) |
 | 066 | 2026-07-02 | [Trustless Transport Authentication for EXTERNAL (x1) DIDs via In-Band Genesis Documents](066-x1-transport-authentication.md) |
 | 067 | 2026-07-02 | [Resolver Duplicate-Update Confirmation - Conditional Increment and Compare-Only History](067-resolver-duplicate-confirmation.md) |
+| 068 | 2026-07-06 | [versionTime Evaluation Order for Duplicates and Guarded Duplicate Confirmation](068-resolver-versiontime-duplicate-order.md) |

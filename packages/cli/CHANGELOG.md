@@ -1,5 +1,13 @@
 # @did-btcr2/cli
 
+## 0.12.17
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/method@0.53.0
+  - @did-btcr2/api@0.13.12
+
 ## 0.12.16
 
 ### Patch Changes

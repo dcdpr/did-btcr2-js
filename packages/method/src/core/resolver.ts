@@ -126,13 +126,18 @@ function isCASAnnouncement(value: unknown): value is CASAnnouncement {
   return isRecord(value) && Object.values(value).every(v => typeof v === 'string');
 }
 
-/** True if `value` has the shape of a signed BTCR2 update. */
+/**
+ * True if `value` has the shape of a signed BTCR2 update. targetVersionId must be an
+ * integer of at least 2: an update targets the version after the one it patches, and
+ * genesis is version 1, so no conformant update can target a lower version (ADR 068).
+ */
 function isSignedBTCR2Update(value: unknown): value is SignedBTCR2Update {
   if(!isRecord(value)) return false;
   return Array.isArray(value.patch)
     && typeof value.sourceHash === 'string'
     && typeof value.targetHash === 'string'
-    && typeof value.targetVersionId === 'number'
+    && Number.isInteger(value.targetVersionId)
+    && (value.targetVersionId as number) >= 2
     && isRecord(value.proof);
 }
 
@@ -411,14 +416,6 @@ export class Resolver {
       // Set confirmations to the block confirmations
       response.metadata.confirmations = block.confirmations;
 
-      // if resolutionOptions.versionTime is defined and the blocktime is more recent, return currentDocument
-      if(versionTime) {
-        // Safely convert versionTime to timestamp
-        if(blocktime > DateUtils.dateStringToTimestamp(versionTime)) {
-          return response;
-        }
-      }
-
       // Check update.targetVersionId against currentVersionId.
       // If update.targetVersionId <= currentVersionId, this update re-announces a version
       // that has already been applied. Confirm it is a true duplicate, then skip it: a
@@ -428,10 +425,26 @@ export class Resolver {
       // history already holds the applied update at updateHashHistory[targetVersionId - 2].
       // Holding the increment off the duplicate path is the deliberate did:btcr2 deviation
       // recorded in ADR 067: the read algorithm's "Increment current_version_id" belongs
-      // to the apply branch, not to every tuple.
+      // to the apply branch, not to every tuple. Duplicates are confirmed whatever their
+      // blocktime, before the versionTime check below, so a re-announcement mined after
+      // versionTime can neither truncate the in-window history nor dodge late-publishing
+      // detection (ADR 068).
       if(update.targetVersionId <= currentVersionId) {
         this.confirmDuplicate(update, updateHashHistory);
         continue;
+      }
+
+      // if resolutionOptions.versionTime is defined and the blocktime is more recent, return
+      // currentDocument. Evaluated only for tuples that would change state (apply or late
+      // publishing). The spec places this check before the duplicate branch, where the sort
+      // by targetVersionId lets a duplicate of an early version mined after versionTime end
+      // resolution before genuine in-window updates are processed; checking it here is the
+      // deliberate deviation recorded in ADR 068.
+      if(versionTime) {
+        // Safely convert versionTime to timestamp
+        if(blocktime > DateUtils.dateStringToTimestamp(versionTime)) {
+          return response;
+        }
       }
 
       // If update.targetVersionId == currentVersionId + 1, apply the update
@@ -501,6 +514,17 @@ export class Resolver {
    * @returns {void} Does not return a value, but throws an error if the update is not a valid duplicate.
    */
   private static confirmDuplicate(update: SignedBTCR2Update, updateHashHistory: HashBytes[]): void {
+    // A conformant update targets the version after the one it patches, so targetVersionId
+    // is an integer of at least 2 (genesis is version 1). Anything else cannot name an
+    // applied update: it is a malformed update, not a duplicate, and without this guard it
+    // would read a nonexistent history slot below and crash on the byte comparison (ADR 068).
+    if (!Number.isInteger(update.targetVersionId) || update.targetVersionId < 2) {
+      throw new ResolveError(
+        `Invalid duplicate: targetVersionId must be an integer >= 2`,
+        INVALID_DID_UPDATE, { targetVersionId: update.targetVersionId }
+      );
+    }
+
     // Create unsigned_update by removing the proof property from update.
     const { proof: _, ...unsignedUpdate } = update;
 
@@ -509,6 +533,20 @@ export class Resolver {
 
     // Let historicalUpdateHash equal updateHashHistory[updateHashIndex].
     const historicalUpdateHash = updateHashHistory[update.targetVersionId - 2];
+
+    // The resolver's own loop records one history entry per applied version, so this slot
+    // always exists on that path; a standalone caller, however, can pass a resolutionState
+    // whose version counter outruns its history. A duplicate that cannot be checked against
+    // an applied update is unconfirmable, which is late-publishing evidence, not a pass.
+    if (historicalUpdateHash === undefined) {
+      throw new ResolveError(
+        `Invalid duplicate: no applied update in history for targetVersionId`,
+        LATE_PUBLISHING_ERROR, {
+          targetVersionId : update.targetVersionId,
+          historyLength   : updateHashHistory.length
+        }
+      );
+    }
 
     // Check if the updateHash matches the historical hash (byte comparison)
     if (!equalBytes(historicalUpdateHash, unsignedUpdateHash)) {
