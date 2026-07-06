@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { randomBytes } from 'crypto';
-import { canonicalHash, encode, hash, canonicalize, INTERNAL_ERROR, JSONPatch } from '@did-btcr2/common';
+import { canonicalHash, encode, hash, canonicalize, INTERNAL_ERROR, JSONPatch, LATE_PUBLISHING_ERROR } from '@did-btcr2/common';
 import type { PatchOperation } from '@did-btcr2/common';
 import { getNetwork } from '@did-btcr2/bitcoin';
 import { LocalSigner } from '@did-btcr2/keypair';
@@ -182,6 +182,42 @@ function driveSingleBeacon(
     tx            : {} as any,
     signalBytes   : canonicalHash(update, { encoding: 'hex' }),
     blockMetadata : { height: 100 + i, time: options?.times?.[i] ?? (1700000000 + i), confirmations: 6 }
+  })));
+  resolver.provide(need, signals);
+  state = resolver.resolve();
+  if(state.status !== 'resolved') throw new Error('expected resolved');
+  return state.result;
+}
+
+/**
+ * Drive resolution delivering an explicit, ordered list of signals on the single
+ * genesis beacon in one round. `signalUpdates` may repeat an update to model a
+ * duplicate re-announcement (SingletonBeacon.processSignals does not dedup, so each
+ * signal becomes its own update tuple). Every update the resolver may need is placed
+ * in the sidecar. Per-signal block metadata lets a duplicate carry a later time and a
+ * different confirmation depth than the apply it duplicates. Returns the resolved
+ * response or propagates whatever the resolver throws.
+ */
+function driveSignalSequence(
+  did: string,
+  sidecarUpdates: Array<SignedBTCR2Update>,
+  signalUpdates: Array<SignedBTCR2Update>,
+  blocks?: Array<{ height?: number; time?: number; confirmations?: number }>
+): DidResolutionResponse {
+  const resolver = DidBtcr2.resolve(did, { sidecar: { updates: sidecarUpdates } });
+  let state = resolver.resolve();
+  if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+  const need = state.needs[0] as NeedBeaconSignals;
+  const genesis = need.beaconServices[0] as BeaconService;
+  const signals = new Map<BeaconService, Array<BeaconSignal>>();
+  signals.set(genesis, signalUpdates.map((update, i) => ({
+    tx            : {} as any,
+    signalBytes   : canonicalHash(update, { encoding: 'hex' }),
+    blockMetadata : {
+      height        : blocks?.[i]?.height ?? (100 + i),
+      time          : blocks?.[i]?.time ?? (1700000000 + i),
+      confirmations : blocks?.[i]?.confirmations ?? 6
+    }
   })));
   resolver.provide(need, signals);
   state = resolver.resolve();
@@ -1239,6 +1275,170 @@ describe('Resolver', () => {
       // Two hops applied exactly once each despite the stale re-provide: v3, +2 services.
       expect(state.result.metadata.versionId).to.equal('3');
       expect(state.result.didDocument.service.length).to.equal(source.service.length + 2);
+    });
+  });
+
+  describe('duplicate update handling (Path C, ADR 067)', () => {
+    // A confirmed duplicate re-announces an already-applied version. Under Path C it
+    // advances neither the version counter nor the document, and it leaves the response
+    // metadata (updated / confirmations / versionId) on the last update that actually
+    // changed the document. These reproduce the finding-resolver-duplicate-handling
+    // traces end-to-end through the resolver loop. Before Path C the version counter
+    // incremented on every tuple, which inflated versionId and false-tripped
+    // LATE_PUBLISHING_ERROR on the next genuine update.
+    const fixture = deterministicData[2]; // regtest - has a known secretKey
+
+    it('resolves [v2, v2-dup, v3]: a duplicate no longer bricks the next genuine update', () => {
+      const source = resolveDeterministic(fixture.did);
+      // Two genuine benign hops (v1->v2, v2->v3), both discoverable on the genesis beacon.
+      const [ u2, u3 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        benignPatch(fixture.did), benignPatch(fixture.did)
+      ]);
+      // Deliver v2 twice (the second is the duplicate), then v3.
+      const { metadata, didDocument } = driveSignalSequence(fixture.did, [ u2, u3 ], [ u2, u2, u3 ]);
+      // Before Path C the unconditional increment drove currentVersionId to 3 on the
+      // duplicate, so genuine v3 was misread as a duplicate and confirmDuplicate read an
+      // empty history slot, throwing a false LATE_PUBLISHING_ERROR. Now it resolves to v3.
+      expect(metadata.versionId).to.equal('3');
+      expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 2);
+    });
+
+    it('a confirmed duplicate does not inflate versionId', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ benignPatch(fixture.did) ]);
+      // v2 announced twice, no v3: the duplicate must not advance the counter to 3.
+      const { metadata, didDocument } = driveSignalSequence(fixture.did, [ u2 ], [ u2, u2 ]);
+      expect(metadata.versionId).to.equal('2');
+      expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 1);
+    });
+
+    it('resolves [v2, v2-dup, v3, v3-dup]: duplicates of two different non-final versions', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2, u3 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        benignPatch(fixture.did), benignPatch(fixture.did)
+      ]);
+      // This is the pattern the reference-impl's contemporary-hash push mishandles; Path C
+      // (compare-only) handles it because the history holds only applied-update hashes.
+      const { metadata, didDocument } = driveSignalSequence(fixture.did, [ u2, u3 ], [ u2, u2, u3, u3 ]);
+      expect(metadata.versionId).to.equal('3');
+      expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 2);
+    });
+
+    it('resolves [v2, v3, v3-dup]: a duplicate of the latest version is confirmed, not misread', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2, u3 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        benignPatch(fixture.did), benignPatch(fixture.did)
+      ]);
+      // updateHashHistory[targetVersionId - 2] holds the applied v3 update once v3 is
+      // applied, so the duplicate confirms without the removed contemporary-hash push.
+      const { metadata, didDocument } = driveSignalSequence(fixture.did, [ u2, u3 ], [ u2, u3, u3 ]);
+      expect(metadata.versionId).to.equal('3');
+      expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 2);
+    });
+
+    it('confirms a cross-round duplicate re-announced on a beacon an earlier update added', () => {
+      const source = resolveDeterministic(fixture.did);
+      // Genuine two-hop history: u2 (v1->v2) adds beacon B0 and is announced on the genesis
+      // beacon; u3 (v2->v3) is announced on B0 and so is only discovered a round later.
+      const { updates, signalByAddress } = buildDiscoveryChain(fixture.did, source, fixture.secretKey, 2);
+      const [ u2 ] = updates;
+      const u2hash = canonicalHash(u2, { encoding: 'hex' });
+      // Recompute B0's address the way buildDiscoveryChain derives it (secret byte i+1),
+      // so round 2 can re-announce u2 there as a redundant duplicate.
+      const secret = new Uint8Array(32);
+      secret[31] = 1;
+      const addedBeaconAddress = p2wpkh(secp256k1.getPublicKey(secret, true), getNetwork('regtest')).address!;
+
+      const resolver = DidBtcr2.resolve(fixture.did, { sidecar: { updates } });
+      let height = 100;
+      let state = resolver.resolve();
+      while(state.status === 'action-required') {
+        const need = state.needs[0] as NeedBeaconSignals;
+        const signals = new Map<BeaconService, Array<BeaconSignal>>();
+        for(const service of need.beaconServices) {
+          const address = BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string);
+          const sigs: Array<BeaconSignal> = [];
+          const primary = signalByAddress.get(address);
+          if(primary) sigs.push({ tx: {} as any, signalBytes: primary, blockMetadata: { height: height++, time: 1700000000, confirmations: 6 } });
+          // Redundantly re-announce u2 on the beacon it added; this signal is discovered a
+          // round after u2 was applied, so confirmDuplicate must confirm it against the
+          // update-hash history carried across discovery rounds (ADR 060), not misread it.
+          if(address === addedBeaconAddress) sigs.push({ tx: {} as any, signalBytes: u2hash, blockMetadata: { height: height++, time: 1700000050, confirmations: 6 } });
+          signals.set(service as BeaconService, sigs);
+        }
+        resolver.provide(need, signals);
+        state = resolver.resolve();
+      }
+      if(state.status !== 'resolved') throw new Error('expected resolved');
+      // Before Path C the cross-round duplicate false-tripped LATE_PUBLISHING_ERROR; now the
+      // history resolves to v3 with both added beacons present.
+      expect(state.result.metadata.versionId).to.equal('3');
+      expect(state.result.didDocument.service.length).to.equal(source.service.length + 2);
+    });
+
+    it('still rejects a false duplicate whose unsigned hash does not match history', () => {
+      const source = resolveDeterministic(fixture.did);
+      const vm = source.verificationMethod![0]!;
+      const signer = new LocalSigner(hexToBytes(fixture.secretKey));
+      // Two distinct v1->v2 updates (both targetVersionId 2) with different patches, so
+      // their unsigned-update hashes differ.
+      const applied = Updater.sign(
+        fixture.did, Updater.construct(source, benignPatch(fixture.did), 1), vm, signer
+      );
+      const forgedDuplicate = Updater.sign(
+        fixture.did,
+        Updater.construct(
+          source,
+          [{ op: 'add' as const, path: '/capabilityDelegation/-', value: `${fixture.did}#initialKey` }],
+          1
+        ),
+        vm, signer
+      );
+      // `applied` applies first (v1->v2); `forgedDuplicate` then enters the duplicate
+      // branch (targetVersionId 2 <= currentVersionId 2) but fails confirmation because
+      // its unsigned hash does not match the applied update recorded in the history.
+      let thrown: any;
+      try {
+        driveSignalSequence(fixture.did, [ applied, forgedDuplicate ], [ applied, forgedDuplicate ]);
+      } catch(error) {
+        thrown = error;
+      }
+      expect(thrown, 'expected a false duplicate to throw').to.exist;
+      expect(thrown.type).to.equal(LATE_PUBLISHING_ERROR);
+      expect(thrown.message).to.match(/invalid duplicate/i);
+    });
+
+    it('confirms a duplicate arriving on a second beacon the DID controls (redundant announcement)', () => {
+      const source = resolveDeterministic(fixture.did);
+      // A deterministic k1 DID exposes three beacons (p2pkh/p2wpkh/p2tr) derived from the
+      // one key. Announcing the same real update on two of them is a plausible redundancy
+      // pattern; both signals reach Resolver.updates() as the same update, one applied and
+      // one confirmed as a duplicate.
+      const [ u2 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ benignPatch(fixture.did) ]);
+      const updateHashHex = canonicalHash(u2, { encoding: 'hex' });
+
+      const resolver = DidBtcr2.resolve(fixture.did, { sidecar: { updates: [ u2 ] } });
+      let state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+      const need = state.needs[0] as NeedBeaconSignals;
+      expect(need.beaconServices.length).to.equal(3);
+
+      // Deliver u2 on the first two beacons, empty on the third.
+      const signals = new Map<BeaconService, Array<BeaconSignal>>();
+      need.beaconServices.forEach((service, i) => {
+        signals.set(service as BeaconService, i < 2
+          ? [{ tx: {} as any, signalBytes: updateHashHex, blockMetadata: { height: 100 + i, time: 1700000000, confirmations: 6 } }]
+          : []
+        );
+      });
+      resolver.provide(need, signals);
+
+      state = resolver.resolve();
+      expect(state.status).to.equal('resolved');
+      if(state.status !== 'resolved') return;
+      // Applied once, confirmed once: version 2 (not inflated to 3), patch landed once.
+      expect(state.result.metadata.versionId).to.equal('2');
+      expect(state.result.didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 1);
     });
   });
 });
