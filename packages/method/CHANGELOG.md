@@ -1,5 +1,24 @@
 # @did-btcr2/method
 
+## 0.53.0
+
+### Minor Changes
+
+- Fix versionTime queries against duplicate-containing histories and guard duplicate confirmation (ADR 068)
+
+  Updates sort by targetVersionId before block height, so a duplicate re-announcement of an
+  early version mined after the queried versionTime used to trip the versionTime early-return
+  before genuine in-window updates were processed, silently resolving to an earlier version
+  than the one valid at the query point. Duplicates are now confirmed before the versionTime
+  check, so a re-announcement (or third-party replay) mined after versionTime can no longer
+  truncate the in-window history, and a false duplicate of an in-window version now fails
+  resolution with `LATE_PUBLISHING_ERROR` instead of being masked by the early return. Separately, the duplicate-confirmation history read is now guarded: a crafted
+  `targetVersionId` that is not an integer of at least 2 raises a typed `INVALID_DID_UPDATE`
+  (and is rejected at the `provide()` boundary), and an unconfirmable duplicate whose history
+  slot does not exist raises `LATE_PUBLISHING_ERROR`, where both previously crashed with a raw
+  `TypeError`. The versionTime reorder is a deliberate, traced deviation from the current spec
+  step order, pursued upstream as an erratum alongside ADR 067's; see ADR 068.
+
 ## 0.52.0
 
 ### Minor Changes

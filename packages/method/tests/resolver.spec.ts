@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { randomBytes } from 'crypto';
-import { canonicalHash, encode, hash, canonicalize, INTERNAL_ERROR, JSONPatch, LATE_PUBLISHING_ERROR } from '@did-btcr2/common';
+import { canonicalHash, encode, hash, canonicalize, INTERNAL_ERROR, INVALID_DID_UPDATE, JSONPatch, LATE_PUBLISHING_ERROR } from '@did-btcr2/common';
 import type { PatchOperation } from '@did-btcr2/common';
 import { getNetwork } from '@did-btcr2/bitcoin';
 import { LocalSigner } from '@did-btcr2/keypair';
@@ -13,6 +13,7 @@ import { BeaconUtils } from '../src/core/beacon/utils.js';
 import type { BeaconService, BeaconSignal } from '../src/core/beacon/interfaces.js';
 import type { DidDocument } from '../src/utils/did-document.js';
 import type { SignedBTCR2Update } from '../src/core/btcr2-update.js';
+import { Resolver } from '../src/core/resolver.js';
 import type { DidResolutionResponse, NeedBeaconSignals, NeedCASAnnouncement, NeedGenesisDocument, NeedSMTProof, NeedSignedUpdate } from '../src/core/resolver.js';
 import { Updater } from '../src/core/updater.js';
 import deterministicData from './data/deterministic-data.js';
@@ -202,9 +203,13 @@ function driveSignalSequence(
   did: string,
   sidecarUpdates: Array<SignedBTCR2Update>,
   signalUpdates: Array<SignedBTCR2Update>,
-  blocks?: Array<{ height?: number; time?: number; confirmations?: number }>
+  blocks?: Array<{ height?: number; time?: number; confirmations?: number }>,
+  versionTime?: string
 ): DidResolutionResponse {
-  const resolver = DidBtcr2.resolve(did, { sidecar: { updates: sidecarUpdates } });
+  const resolver = DidBtcr2.resolve(did, {
+    sidecar : { updates: sidecarUpdates },
+    ...(versionTime ? { versionTime } : {})
+  });
   let state = resolver.resolve();
   if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
   const need = state.needs[0] as NeedBeaconSignals;
@@ -1439,6 +1444,203 @@ describe('Resolver', () => {
       // Applied once, confirmed once: version 2 (not inflated to 3), patch landed once.
       expect(state.result.metadata.versionId).to.equal('2');
       expect(state.result.didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 1);
+    });
+  });
+
+  describe('duplicate edge cases (ADR 068)', () => {
+    // Two edges of duplicate handling: (1) updates sort by targetVersionId before block
+    // height, so a duplicate of an early version mined after a versionTime query point
+    // used to trip the versionTime early-return before genuine in-window updates were
+    // processed; duplicates are now confirmed before the versionTime check. (2) the
+    // duplicate-confirmation history read updateHashHistory[targetVersionId - 2] used to
+    // be unguarded, so a crafted targetVersionId below 2 (or a non-integer) crashed with
+    // a raw TypeError instead of a typed ResolveError.
+    const fixture = deterministicData[2]; // regtest - has a known secretKey
+
+    it('versionTime: an over-window duplicate does not truncate the in-window history', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2, u3 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        benignPatch(fixture.did), benignPatch(fixture.did)
+      ]);
+      // u2 mined Nov 2023 (in-window), a duplicate of u2 re-announced in 2030 (over-window),
+      // genuine u3 mined Dec 2024 (in-window). Sorting by targetVersionId puts the 2030
+      // duplicate ahead of u3, so the old check returned v2 and never processed u3.
+      const { metadata, didDocument } = driveSignalSequence(
+        fixture.did, [ u2, u3 ], [ u2, u2, u3 ],
+        [
+          { height: 100, time: 1700000000, confirmations: 6 },
+          { height: 200, time: 1900000000, confirmations: 6 },
+          { height: 150, time: 1735000000, confirmations: 6 }
+        ],
+        '2025-01-01T00:00:00Z'
+      );
+      // The version valid at 2025-01-01 is v3: both genuine updates predate it.
+      expect(metadata.versionId).to.equal('3');
+      expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 2);
+    });
+
+    it('versionTime: a skipped over-window duplicate does not extend the view past versionTime', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2, u3 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        benignPatch(fixture.did), benignPatch(fixture.did)
+      ]);
+      // The mirror of the test above: u2 is in-window, but its duplicate AND genuine u3 are
+      // both mined after versionTime. The duplicate is confirmed and skipped; u3 must still
+      // trip the versionTime early-return on its own blocktime, stopping at v2. Pins that
+      // the duplicate branch's continue never carries resolution past the query point.
+      const { metadata, didDocument } = driveSignalSequence(
+        fixture.did, [ u2, u3 ], [ u2, u2, u3 ],
+        [
+          { height: 100, time: 1700000000, confirmations: 6 },
+          { height: 200, time: 1900000000, confirmations: 6 },
+          { height: 210, time: 1910000000, confirmations: 6 }
+        ],
+        '2025-01-01T00:00:00Z'
+      );
+      expect(metadata.versionId).to.equal('2');
+      expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 1);
+    });
+
+    it('versionTime: an over-window false duplicate still fails resolution as late publishing', () => {
+      const source = resolveDeterministic(fixture.did);
+      const vm = source.verificationMethod![0]!;
+      const signer = new LocalSigner(hexToBytes(fixture.secretKey));
+      const applied = Updater.sign(
+        fixture.did, Updater.construct(source, benignPatch(fixture.did), 1), vm, signer
+      );
+      // A different update claiming the already-applied version 2, mined after versionTime.
+      const forged = Updater.sign(
+        fixture.did,
+        Updater.construct(
+          source,
+          [{ op: 'add' as const, path: '/capabilityDelegation/-', value: `${fixture.did}#initialKey` }],
+          1
+        ),
+        vm, signer
+      );
+      // A versionTime query is a view of the history, not an integrity waiver: equivocation
+      // evidence mined after versionTime still fails resolution instead of being hidden by
+      // the early return.
+      let thrown: any;
+      try {
+        driveSignalSequence(
+          fixture.did, [ applied, forged ], [ applied, forged ],
+          [
+            { height: 100, time: 1700000000, confirmations: 6 },
+            { height: 200, time: 1900000000, confirmations: 6 }
+          ],
+          '2025-01-01T00:00:00Z'
+        );
+      } catch(error) {
+        thrown = error;
+      }
+      expect(thrown, 'expected the false duplicate to fail resolution').to.exist;
+      expect(thrown.type).to.equal(LATE_PUBLISHING_ERROR);
+      expect(thrown.message).to.match(/invalid duplicate/i);
+    });
+
+    it('a crafted update with targetVersionId 1 throws a typed error, not a TypeError', () => {
+      // Enters the duplicate branch on the first tuple (1 <= 1); the history is empty, so
+      // the unguarded read used to crash with a raw TypeError on the byte comparison.
+      const crafted = {
+        '@context'      : [ 'test' ],
+        patch           : [],
+        sourceHash      : 'x',
+        targetHash      : 'y',
+        targetVersionId : 1,
+        proof           : { type: 'DataIntegrityProof' }
+      } as unknown as SignedBTCR2Update;
+      let thrown: any;
+      try {
+        driveSignalSequence(fixture.did, [ crafted ], [ crafted ]);
+      } catch(error) {
+        thrown = error;
+      }
+      expect(thrown, 'expected the crafted duplicate to throw').to.exist;
+      expect(thrown).to.not.be.instanceOf(TypeError);
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.match(/targetVersionId/i);
+    });
+
+    it('a crafted update with a non-integer targetVersionId throws a typed error', () => {
+      // 0.5 <= currentVersionId 1 routes into the duplicate branch; the fractional index
+      // used to read an undefined slot and crash.
+      const crafted = {
+        '@context'      : [ 'test' ],
+        patch           : [],
+        sourceHash      : 'x',
+        targetHash      : 'y',
+        targetVersionId : 0.5,
+        proof           : { type: 'DataIntegrityProof' }
+      } as unknown as SignedBTCR2Update;
+      let thrown: any;
+      try {
+        driveSignalSequence(fixture.did, [ crafted ], [ crafted ]);
+      } catch(error) {
+        thrown = error;
+      }
+      expect(thrown, 'expected the crafted duplicate to throw').to.exist;
+      expect(thrown).to.not.be.instanceOf(TypeError);
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+    });
+
+    it('Resolver.updates() with a version counter that outruns its history throws typed late publishing', () => {
+      // A standalone caller can pass a resolutionState whose counter exceeds its history;
+      // a duplicate then names a version with no recorded applied update. Unconfirmable
+      // duplicates are late-publishing evidence, and must not surface as a TypeError.
+      const source = resolveDeterministic(fixture.did);
+      const [ , u3 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        benignPatch(fixture.did), benignPatch(fixture.did)
+      ]);
+      let thrown: any;
+      try {
+        Resolver.updates(
+          source,
+          [[ u3, { height: 100, time: 1700000000, confirmations: 6 } ]],
+          undefined,
+          undefined,
+          { currentVersionId: 5, updateHashHistory: [] }
+        );
+      } catch(error) {
+        thrown = error;
+      }
+      expect(thrown, 'expected the unconfirmable duplicate to throw').to.exist;
+      expect(thrown).to.not.be.instanceOf(TypeError);
+      expect(thrown.type).to.equal(LATE_PUBLISHING_ERROR);
+      expect(thrown.message).to.match(/no applied update/i);
+    });
+
+    it('provide() rejects a signed update whose targetVersionId is not an integer >= 2', () => {
+      // The crafted update passes every other shape check and matches the signal's hash
+      // binding (the signal IS its hash), so only the tightened targetVersionId guard
+      // rejects it at the provide() boundary.
+      const crafted = {
+        '@context'      : [ 'test' ],
+        patch           : [],
+        sourceHash      : 'x',
+        targetHash      : 'y',
+        targetVersionId : 1,
+        proof           : { type: 'DataIntegrityProof' }
+      };
+      const craftedHashHex = canonicalHash(crafted, { encoding: 'hex' });
+
+      const resolver = DidBtcr2.resolve(fixture.did); // empty sidecar
+      let state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+      const beaconNeed = state.needs[0] as NeedBeaconSignals;
+      const signals = new Map<BeaconService, Array<BeaconSignal>>();
+      signals.set(beaconNeed.beaconServices[0] as BeaconService, [{
+        tx            : {} as any,
+        signalBytes   : craftedHashHex,
+        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+      }]);
+      resolver.provide(beaconNeed, signals);
+
+      state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected NeedSignedUpdate');
+      const updateNeed = state.needs[0] as NeedSignedUpdate;
+      expect(updateNeed.updateHash).to.equal(craftedHashHex);
+      expect(() => resolver.provide(updateNeed, crafted as any)).to.throw(/not a signed BTCR2 update/i);
     });
   });
 });
