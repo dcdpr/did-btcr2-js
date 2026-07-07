@@ -196,10 +196,11 @@ export class DidBtcr2Api {
    *
    * If `sourceDocument` and `sourceVersionId` are both provided, resolution
    * is skipped. Otherwise the DID is resolved first to obtain them.
-   * @param params The update parameters. `publishToCas` (default `'auto'`)
+   * @param params The update parameters. `publishToCas` (default `'never'`)
    *   controls whether update artifacts are published to the configured CAS
-   *   before the on-chain broadcast; `broadcastOptions` passes fee estimator /
-   *   change address through to the beacon transaction.
+   *   before the on-chain broadcast; publication is opt-in and never required.
+   *   `broadcastOptions` passes fee estimator / change address through to the
+   *   beacon transaction.
    * @returns The broadcast artifacts: signed update, signal txid, per-beacon-type
    *   sidecar data, and which artifacts were published to CAS.
    */

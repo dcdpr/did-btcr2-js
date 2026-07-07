@@ -1,3 +1,4 @@
+import type { PublishToCasMode } from '@did-btcr2/api';
 import { KeyManagerSigner } from '@did-btcr2/key-manager';
 import type { Command } from 'commander';
 import { deriveNetwork, type ApiFactory } from '../config.js';
@@ -37,12 +38,20 @@ export function registerUpdateCommand(
       'Beacon ID as a JSON string',
       parseJsonArg('--beacon-id'),
     )
+    .option(
+      '--publish-to-cas <mode>',
+      'Publish update artifacts to a writable CAS before broadcast: auto|always|never. '
+        + 'CAS publication is optional; the default distributes the returned artifacts via sidecar.',
+      parsePublishToCasMode,
+      'never',
+    )
     .action(async (options: {
       sourceDocument       : unknown;
       sourceVersionId      : string;
       patches              : unknown;
       verificationMethodId : string;
       beaconId             : unknown;
+      publishToCas         : PublishToCasMode;
     }) => {
       if (!/^\d+$/.test(options.sourceVersionId)) {
         throw new CLIError(
@@ -70,9 +79,12 @@ export function registerUpdateCommand(
       const api = factory(network, globals());
       const keyId = resolveKeyRef(api.kms.kms, globals().signingKey);
       const signer = new KeyManagerSigner(api.kms.kms, keyId);
-      // The CLI's CAS is a read-only gateway (no writable CAS is configurable
-      // yet), so CAS publication is disabled explicitly. The returned artifacts
-      // (txid, announcement, proof) are printed for manual sidecar distribution.
+      // CAS publication is optional and never required: every beacon update can
+      // be completed and shared via sidecar alone. It is opt-in and defaults to
+      // 'never'; pass --publish-to-cas auto|always to publish the signed update
+      // (and, for CAS beacons, the announcement) to a writable CAS configured
+      // via --cas-rpc-url. The returned artifacts (txid, announcement, proof)
+      // are always printed for sidecar distribution regardless.
       const data = await api.btcr2.update({
         sourceDocument       : parsed.sourceDocument,
         patches              : parsed.patches,
@@ -80,10 +92,25 @@ export function registerUpdateCommand(
         verificationMethodId : parsed.verificationMethodId,
         beaconId             : parsed.beaconId,
         signer,
-        publishToCas         : 'never',
+        publishToCas         : options.publishToCas,
       });
       console.log(formatResult({ action: 'update', data }, globals()));
     });
+}
+
+/**
+ * Commander argParser for `--publish-to-cas`. Validates the value is one of the
+ * three {@link PublishToCasMode} policies, erroring at parse time otherwise.
+ */
+function parsePublishToCasMode(value: string): PublishToCasMode {
+  if (value !== 'auto' && value !== 'always' && value !== 'never') {
+    throw new CLIError(
+      '--publish-to-cas must be one of "auto", "always", or "never".',
+      'INVALID_ARGUMENT_ERROR',
+      { value },
+    );
+  }
+  return value;
 }
 
 /**

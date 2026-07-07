@@ -86,12 +86,13 @@ Required flags: `-s/--source-document`, `--source-version-id`, `-p/--patches`, `
 | `-p, --patches <json>` | JSON Patch operations as a JSON array string |
 | `-m, --verification-method-id <id>` | DID document verification method ID |
 | `-b, --beacon-id <json>` | Beacon ID as a JSON string |
+| `--publish-to-cas <mode>` | Publish update artifacts to a writable CAS before broadcast: `auto`, `always`, or `never` (default: `never`). See [Publishing updates to CAS](#publishing-updates-to-cas) |
 
 ### deactivate (alias: delete)
 
 Permanently deactivates a DID. This is irreversible. Deactivation applies the `{ "op": "add", "path": "/deactivated", "value": true }` patch and routes through the same signed-update path as `update`, so it also signs via the keystore.
 
-Required flags: `-s/--source-document`, `--source-version-id`, `-m/--verification-method-id`, `-b/--beacon-id`.
+Required flags: `-s/--source-document`, `--source-version-id`, `-m/--verification-method-id`, `-b/--beacon-id`. Optional: `--publish-to-cas <mode>` (same as `update`).
 
 ### key
 
@@ -222,7 +223,8 @@ Override precedence, highest wins: CLI flags, then environment variables, then c
 | `--btc-rpc-url <url>` | Override Bitcoin Core RPC endpoint |
 | `--btc-rpc-user <user>` | Bitcoin Core RPC username |
 | `--btc-rpc-pass <pass>` | Bitcoin Core RPC password |
-| `--cas-gateway <url>` | IPFS HTTP gateway for CAS reads |
+| `--cas-gateway <url>` | IPFS HTTP gateway for CAS reads (read-only) |
+| `--cas-rpc-url <url>` | IPFS HTTP RPC endpoint for a writable CAS (reads + writes; enables `--publish-to-cas`) |
 | `--keystore <path>` | Path to the keystore file (default: `$XDG_DATA_HOME/btcr2/keystore.json`) |
 | `--passphrase-file <path>` | Read the keystore passphrase from a file (unattended use) |
 | `--signing-key <ref>` | Key for create/update/deactivate signing: a URN, fingerprint prefix, or name |
@@ -236,6 +238,7 @@ Override precedence, highest wins: CLI flags, then environment variables, then c
 | `BTCR2_BTC_RPC_USER` | `--btc-rpc-user` |
 | `BTCR2_BTC_RPC_PASS` | `--btc-rpc-pass` |
 | `BTCR2_CAS_GATEWAY` | `--cas-gateway` |
+| `BTCR2_CAS_RPC_URL` | `--cas-rpc-url` |
 
 ### Config file
 
@@ -256,11 +259,13 @@ Profiles are matched by network name when `--profile` is not specified. For exam
     },
     "bitcoin": {
       "btc": { "rest": "https://my-mempool/api" },
-      "cas": { "gateway": "https://ipfs.io" }
+      "cas": { "gateway": "https://ipfs.io", "rpcUrl": "http://127.0.0.1:5001" }
     }
   }
 }
 ```
+
+`cas.gateway` is a read-only IPFS HTTP gateway (used for reads). `cas.rpcUrl` is an IPFS HTTP RPC endpoint that supports writes; configure it to enable `--publish-to-cas`. When both are set, `rpcUrl` takes precedence.
 
 ### Defaults
 
@@ -268,7 +273,35 @@ When no overrides are configured:
 
 - **Bitcoin REST**: [mempool.space](https://mempool.space) for `bitcoin`, `testnet3`, `testnet4`, and `signet`; [mutinynet.com](https://mutinynet.com) for `mutinynet`; `http://localhost:3000` for `regtest`
 - **Bitcoin RPC**: `http://localhost:18443` for `regtest` (credentials required), not configured for public networks
-- **CAS**: [ipfs.io](https://ipfs.io) HTTP gateway (read-only)
+- **CAS**: [ipfs.io](https://ipfs.io) HTTP gateway (read-only). Configure a writable CAS with `--cas-rpc-url` (or `cas.rpcUrl`) to publish with `--publish-to-cas`
+
+## Publishing updates to CAS
+
+CAS publication is **optional and never required**. Every `update` and `deactivate` can be completed and shared entirely via sidecar: the command always prints the artifacts a resolver needs (the signed update, the transaction id, the CAS announcement for CAS beacons, and the SMT proof for SMT beacons) for you to distribute yourself.
+
+Optionally, the signed update (and, for CAS beacons, the announcement) can be published to a content-addressed store before the on-chain broadcast, so any OP_RETURN update hash is fetchable from CAS at resolution time without sidecar data. This is opt-in via `--publish-to-cas`:
+
+| Mode | Behavior |
+|---|---|
+| `never` (default) | Publish nothing. Distribute the printed artifacts via sidecar. |
+| `auto` | Best-effort. Publish when a writable CAS is configured; otherwise skip publication silently for every beacon type and proceed. Never blocks an update. |
+| `always` | Require a writable CAS; error up-front for every beacon type when none is configured. |
+
+A writable CAS is configured with `--cas-rpc-url <url>` (an IPFS HTTP RPC endpoint, e.g. a local Kubo node at `http://127.0.0.1:5001`), the `BTCR2_CAS_RPC_URL` environment variable, or a profile's `cas.rpcUrl`. The default IPFS gateway is read-only, so without a configured `--cas-rpc-url`, `--publish-to-cas auto` publishes nothing and completes the update sidecar-only, while `--publish-to-cas always` errors up-front (naming the fix) for every beacon type.
+
+**Privacy:** under `auto`/`always`, canonical signed updates (and announcements) are published to the configured, possibly public, CAS before the on-chain anchor. Keep `never` (the default) to distribute update data privately via sidecar.
+
+```bash
+# Opt into CAS publication against a local IPFS (Kubo) node
+btcr2 update \
+  --cas-rpc-url http://127.0.0.1:5001 \
+  --publish-to-cas auto \
+  -s "$(cat did.json)" \
+  --source-version-id 1 \
+  -p '[{"op":"add","path":"/service/-","value":{"id":"#svc","type":"X","serviceEndpoint":"https://x"}}]' \
+  -m 'did:btcr2:k1qq...#key-0' \
+  -b '{"id":"#beacon-0","type":"SingletonBeacon","serviceEndpoint":"bitcoin:bc1..."}'
+```
 
 ## Links
 

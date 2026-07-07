@@ -77,11 +77,34 @@ describe('update and deactivate (signing)', () => {
     expect(captured.params.signer).to.be.instanceOf(KeyManagerSigner);
     expect(captured.params.sourceVersionId).to.equal(2);
     expect(captured.params.patches).to.deep.equal(JSON.parse(PATCHES));
-    // The CLI has no writable CAS configuration yet, so it must opt out of
-    // CAS publication explicitly (otherwise CAS-beacon updates would throw
-    // under the api's default 'auto' policy).
+    // CAS publication is opt-in and never required; with no --publish-to-cas
+    // flag the CLI defaults to 'never' so updates complete sidecar-only.
     expect(captured.params.publishToCas).to.equal('never');
     expect(JSON.parse(out[0]).signed).to.equal('mock');
+  });
+
+  it('update forwards --publish-to-cas auto to the api', async () => {
+    seedActiveKey();
+    const cli = new DidBtcr2Cli(createTestApiFactory(), stubFactory());
+    await sub(cli, 'update').parseAsync(
+      ['-s', sourceDoc(), '--source-version-id', '2', '-p', PATCHES, '-m', '#k0', '-b', '"#beacon-0"',
+        '--publish-to-cas', 'auto'],
+      { from: 'user' },
+    );
+    expect(captured.params.publishToCas).to.equal('auto');
+  });
+
+  it('update rejects an invalid --publish-to-cas value before signing', async () => {
+    seedActiveKey();
+    const cli = new DidBtcr2Cli(createTestApiFactory(), stubFactory());
+    await expect(
+      sub(cli, 'update').parseAsync(
+        ['-s', sourceDoc(), '--source-version-id', '2', '-p', PATCHES, '-m', '#k0', '-b', '"#beacon-0"',
+          '--publish-to-cas', 'sometimes'],
+        { from: 'user' },
+      ),
+    ).to.be.rejectedWith(CLIError, /must be one of "auto", "always", or "never"/);
+    expect(captured.params).to.equal(undefined);
   });
 
   it('rejects a non-numeric --source-version-id before signing', async () => {
@@ -106,5 +129,29 @@ describe('update and deactivate (signing)', () => {
     expect(captured.params.signer).to.be.instanceOf(KeyManagerSigner);
     expect(captured.params.patches).to.deep.equal([{ op: 'add', path: '/deactivated', value: true }]);
     expect(captured.params.publishToCas).to.equal('never');
+  });
+
+  it('deactivate forwards --publish-to-cas always to the api', async () => {
+    seedActiveKey();
+    const cli = new DidBtcr2Cli(createTestApiFactory(), stubFactory());
+    await sub(cli, 'deactivate').parseAsync(
+      ['-s', sourceDoc(), '--source-version-id', '3', '-m', '#k0', '-b', '"#beacon-0"',
+        '--publish-to-cas', 'always'],
+      { from: 'user' },
+    );
+    expect(captured.params.publishToCas).to.equal('always');
+  });
+
+  it('deactivate rejects an invalid --publish-to-cas value before signing', async () => {
+    seedActiveKey();
+    const cli = new DidBtcr2Cli(createTestApiFactory(), stubFactory());
+    await expect(
+      sub(cli, 'deactivate').parseAsync(
+        ['-s', sourceDoc(), '--source-version-id', '3', '-m', '#k0', '-b', '"#beacon-0"',
+          '--publish-to-cas', 'sometimes'],
+        { from: 'user' },
+      ),
+    ).to.be.rejectedWith(CLIError, /must be one of "auto", "always", or "never"/);
+    expect(captured.params).to.equal(undefined);
   });
 });

@@ -17,7 +17,7 @@ If you're integrating did:btcr2 into an app, start here. If you're customizing t
 
 The api wires the configured `BitcoinApi` into the sans-I/O Resolver and Updater state machines, fulfilling `NeedBeaconSignals`, `NeedFunding`, `NeedBroadcast`, and CAS-related needs (`NeedGenesisDocument`, `NeedCASAnnouncement`, `NeedSignedUpdate`) automatically. `NeedSMTProof` is not auto-fulfilled by the facade: SMT proofs are nonce-blinded (there is no content address to fetch them by), so they must be provided upfront via `options.sidecar.smtProofs`; resolution fails fast with that pointer otherwise. Multi-party aggregation is out of scope here; drive the Updater directly and hand `NeedBroadcast` to the aggregation runner from `@did-btcr2/aggregation`.
 
-On the write path, `publishToCas` (`'auto'` | `'always'` | `'never'`, default `'auto'`) controls whether update artifacts are published to the configured CAS **before** the on-chain broadcast. With a writable CAS, `'auto'` publishes the canonical signed update (all beacon types) plus the CAS Announcement (CAS beacons), so resolvers can fetch every OP_RETURN update hash from the CAS with no sidecar. Update calls return a `DidUpdateResult` carrying the signal `txid` and the per-beacon-type sidecar artifacts (announcement, SMT proof) for callers that distribute them out-of-band instead.
+On the write path, `publishToCas` (`'never'` | `'auto'` | `'always'`, default `'never'`) controls whether update artifacts are published to the configured CAS **before** the on-chain broadcast. CAS publication is optional and never required: every update, for every beacon type, completes and is distributable via sidecar regardless. Publishing is opt-in: pass `'auto'` (best-effort - publishes when a writable CAS is configured, otherwise skips silently and never blocks the update) or `'always'` (requires a writable CAS and throws up-front when none is available). When publication happens, the canonical signed update (all beacon types) plus the CAS Announcement (CAS beacons) reach the CAS, so resolvers can fetch every OP_RETURN update hash from the CAS with no sidecar. Update calls return a `DidUpdateResult` carrying the signal `txid` and the per-beacon-type sidecar artifacts (announcement, SMT proof).
 
 ## Install
 
@@ -95,9 +95,12 @@ const result = await api.updateDid({
   verificationMethodId : `${did}#initialKey`,
   beaconId             : `${did}#initialP2WPKH`,
   signer,
-  // publishToCas defaults to 'auto'. Use 'never' for sidecar-only privacy:
-  // 'auto'/'always' publish canonical signed updates to the configured
-  // (possibly public) CAS before the on-chain anchor.
+  // publishToCas defaults to 'never' (opt-in): update artifacts are returned
+  // for sidecar distribution and nothing is published. Opt in with 'auto' to
+  // publish to the writable CAS configured above. Note 'auto'/'always' publish
+  // canonical signed updates to the configured (possibly public) CAS before the
+  // on-chain anchor, so keep the 'never' default for sidecar-only privacy.
+  publishToCas         : 'auto',
 });
 console.log(result.txid, result.publishedToCas); // e.g. { update: true, announcement: false }
 ```
@@ -154,7 +157,8 @@ The `lib/` directory contains end-to-end scripts that exercise the full update p
 - **[ADR-006](../../docs/adr/006-api-package-boundary.md)** API package boundary
 - **[ADR-024](../../docs/adr/024-api-facade-lazy-and-layered-config.md)** API facade lazy initialization + layered config
 - **[ADR-069](../../docs/adr/069-fetch-based-cas-executors-drop-helia.md)** Fetch-based CAS executors
-- **[ADR-071](../../docs/adr/071-api-cas-publication-policy.md)** CAS publication policy on the update path
+- **[ADR-071](../../docs/adr/071-api-cas-publication-policy.md)** CAS publication policy on the update path (default corrected by ADR-073)
+- **[ADR-073](../../docs/adr/073-cas-publication-is-opt-in.md)** CAS publication is opt-in: `publishToCas` defaults to `'never'` and `'auto'` never blocks
 - **Source reference** See JSDoc on `DidBtcr2Api`, `DidMethodApi`, and the sub-facade classes.
 
 ## License

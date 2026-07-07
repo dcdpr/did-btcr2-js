@@ -1,5 +1,21 @@
 # @did-btcr2/cli
 
+## 0.14.0
+
+### Minor Changes
+
+- Add writable-CAS configuration and an opt-in `--publish-to-cas` flag to `update`/`deactivate`.
+
+  - New global `--cas-rpc-url <url>` flag, `BTCR2_CAS_RPC_URL` environment variable, and `profiles.<n>.cas.rpcUrl` config key configure a writable IPFS HTTP RPC endpoint (reads + writes). `resolveConnectionConfig` now carries `cas.rpcUrl` through the flag/env/config precedence chain; a previously silently-dropped `config set profiles.x.cas.rpcUrl` is now honored. When both a gateway and an RPC URL are set, the writable RPC endpoint takes precedence.
+  - `update` and `deactivate` gain `--publish-to-cas <auto|always|never>`, validated at parse time and forwarded to the api's `publishToCas`. It **defaults to `never`**: CAS publication is optional and never required, so updates complete sidecar-only unless the user opts in. This replaces the hardcoded `'never'` from the previous release with no change to default behavior.
+
+  See ADR 072.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/api@0.16.0
+
 ## 0.13.0
 
 ### Minor Changes

@@ -50,7 +50,8 @@ export class DidBtcr2Cli {
       .option('--btc-rpc-url <url>', 'Override Bitcoin Core RPC endpoint')
       .option('--btc-rpc-user <user>', 'Bitcoin Core RPC username')
       .option('--btc-rpc-pass <pass>', 'Bitcoin Core RPC password')
-      .option('--cas-gateway <url>', 'IPFS HTTP gateway for CAS reads')
+      .option('--cas-gateway <url>', 'IPFS HTTP gateway for CAS reads (read-only)')
+      .option('--cas-rpc-url <url>', 'IPFS HTTP RPC endpoint for a writable CAS (reads + writes; enables --publish-to-cas)')
       .option('--keystore <path>', 'Path to the keystore file (default: $XDG_DATA_HOME/btcr2/keystore.json)')
       .option('--passphrase-file <path>', 'Read the keystore passphrase from a file (unattended use)')
       .option('--signing-key <ref>', 'Key for create/update/deactivate signing: a URN, fingerprint prefix, or name');

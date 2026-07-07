@@ -39,6 +39,7 @@ describe('readEnvOverrides', () => {
     expect(overrides.btcRpcUser).to.be.undefined;
     expect(overrides.btcRpcPass).to.be.undefined;
     expect(overrides.casGateway).to.be.undefined;
+    expect(overrides.casRpcUrl).to.be.undefined;
   });
 
   it('reads BTCR2_BTC_REST', () => {
@@ -55,6 +56,14 @@ describe('readEnvOverrides', () => {
     expect(overrides.btcRpcUrl).to.equal('http://env-rpc:18443');
     expect(overrides.btcRpcUser).to.equal('envuser');
     expect(overrides.btcRpcPass).to.equal('envpass');
+  });
+
+  it('reads BTCR2_CAS_GATEWAY and BTCR2_CAS_RPC_URL', () => {
+    process.env[ENV_VARS.CAS_GATEWAY] = 'https://ipfs.io';
+    process.env[ENV_VARS.CAS_RPC_URL] = 'http://127.0.0.1:5001';
+    const overrides = readEnvOverrides();
+    expect(overrides.casGateway).to.equal('https://ipfs.io');
+    expect(overrides.casRpcUrl).to.equal('http://127.0.0.1:5001');
   });
 
   it('treats empty string as undefined', () => {
@@ -114,7 +123,7 @@ describe('profileToOverrides', () => {
           rpcUser : 'polaruser',
           rpcPass : 'polarpass',
         },
-        cas : { gateway: 'http://localhost:8080' },
+        cas : { gateway: 'http://localhost:8080', rpcUrl: 'http://localhost:5001' },
       },
       bitcoin : {
         btc : { rest: 'https://my-mempool/api' },
@@ -129,6 +138,7 @@ describe('profileToOverrides', () => {
     expect(o.btcRpcUser).to.equal('polaruser');
     expect(o.btcRpcPass).to.equal('polarpass');
     expect(o.casGateway).to.equal('http://localhost:8080');
+    expect(o.casRpcUrl).to.equal('http://localhost:5001');
   });
 
   it('extracts partial profile', () => {
@@ -136,6 +146,7 @@ describe('profileToOverrides', () => {
     expect(o.btcRest).to.equal('https://my-mempool/api');
     expect(o.btcRpcUrl).to.be.undefined;
     expect(o.casGateway).to.be.undefined;
+    expect(o.casRpcUrl).to.be.undefined;
   });
 
   it('returns empty object for missing profile', () => {
@@ -254,20 +265,67 @@ describe('defaultApiFactory', () => {
     expect(api.btc.connection.name).to.equal('regtest');
   });
 
-  it('wires casGateway through to CAS executor', () => {
+  it('wires casGateway through to a read-only CAS executor', () => {
     const api = defaultApiFactory('regtest', {
       config     : join(tempDir, 'nope.json'),
       casGateway : 'https://ipfs.io',
     });
     expect(api).to.exist;
-    // Accessing api.cas should NOT throw - gateway config was wired through
+    // Accessing api.cas should NOT throw - gateway config was wired through.
+    // A gateway is read-only, so the CAS is not writable.
     expect(() => api.cas).to.not.throw();
+    expect(api.cas.writable).to.equal(false);
   });
 
-  it('defaults to public IPFS gateway when no casGateway is provided', () => {
+  it('defaults to public IPFS gateway (read-only) when no CAS is provided', () => {
     const api = defaultApiFactory('regtest', { config: join(tempDir, 'nope.json') });
     expect(api).to.exist;
-    // CAS should be configured with the default gateway - no throw
+    // CAS should be configured with the default gateway - no throw, not writable.
     expect(() => api.cas).to.not.throw();
+    expect(api.cas.writable).to.equal(false);
+  });
+
+  it('wires casRpcUrl through to a writable CAS executor', () => {
+    const api = defaultApiFactory('regtest', {
+      config    : join(tempDir, 'nope.json'),
+      casRpcUrl : 'http://127.0.0.1:5001',
+    });
+    expect(api).to.exist;
+    // An IPFS RPC endpoint supports publishing, so the CAS is writable.
+    expect(api.cas.writable).to.equal(true);
+  });
+
+  it('casRpcUrl takes precedence over casGateway and stays writable', () => {
+    const api = defaultApiFactory('regtest', {
+      config     : join(tempDir, 'nope.json'),
+      casGateway : 'https://ipfs.io',
+      casRpcUrl  : 'http://127.0.0.1:5001',
+    });
+    expect(api).to.exist;
+    // Priority is rpcUrl > gateway, so the writable RPC executor wins.
+    expect(api.cas.writable).to.equal(true);
+  });
+
+  it('wires cas.rpcUrl from the config-file profile', () => {
+    const configPath = join(tempDir, 'cas-rpc-profile.json');
+    writeFileSync(configPath, JSON.stringify({
+      profiles : {
+        regtest : { cas: { rpcUrl: 'http://127.0.0.1:5001' } },
+      },
+    }));
+    const api = defaultApiFactory('regtest', { config: configPath });
+    expect(api.cas.writable).to.equal(true);
+  });
+
+  it('env BTCR2_CAS_RPC_URL wires a writable CAS over a gateway-only config file', () => {
+    const configPath = join(tempDir, 'cas-env-over-file.json');
+    writeFileSync(configPath, JSON.stringify({
+      profiles : {
+        regtest : { cas: { gateway: 'https://ipfs.io' } },
+      },
+    }));
+    process.env[ENV_VARS.CAS_RPC_URL] = 'http://127.0.0.1:5001';
+    const api = defaultApiFactory('regtest', { config: configPath });
+    expect(api.cas.writable).to.equal(true);
   });
 });

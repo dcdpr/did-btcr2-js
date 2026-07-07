@@ -56,6 +56,7 @@ export interface GlobalOptions {
   btcRpcUser?    : string;
   btcRpcPass?    : string;
   casGateway?    : string;
+  casRpcUrl?     : string;
   keystore?      : string;
   passphraseFile?: string;
   signingKey?    : string;
