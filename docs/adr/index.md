@@ -148,3 +148,5 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 069 | 2026-07-06 | [Fetch-Based CAS Executors Replace the In-Process IPFS Dependency](069-fetch-based-cas-executors-drop-helia.md) |
 | 070 | 2026-07-07 | [Beacon Broadcasts Return Structured Artifacts and CAS Publication Precedes the On-Chain Spend](070-broadcast-result-and-cas-first-ordering.md) |
 | 071 | 2026-07-07 | [A CAS Publication Policy for the API Update Path (publishToCas), Writable-CAS Capability Detection, and Enriched Update Results](071-api-cas-publication-policy.md) |
+| 072 | 2026-07-07 | [CLI Writable-CAS Configuration and an Opt-In --publish-to-cas Flag](072-cli-writable-cas-and-publish-flag.md) |
+| 073 | 2026-07-07 | [CAS Publication Is Opt-In - Default publishToCas to 'never' and Make 'auto' Non-Blocking](073-cas-publication-is-opt-in.md) |

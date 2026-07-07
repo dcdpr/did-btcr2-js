@@ -12,18 +12,19 @@ import type { Logger } from './types.js';
 
 /**
  * Policy for publishing update artifacts to the configured CAS during
- * {@link DidMethodApi.update}:
+ * {@link DidMethodApi.update}. CAS publication is optional and never required:
+ * every update, for every beacon type, can be completed and distributed via
+ * sidecar alone. Publishing is opt-in, so the default is `'never'`.
  *
- * - `'auto'` (default): publish the signed update (all beacon types) and the CAS
- *   Announcement (CAS beacons) when a writable CAS is configured. Singleton and
- *   SMT beacon updates skip publication silently when the CAS is read-only or
- *   absent; CAS beacon updates **throw up-front** instead, because a CAS beacon
- *   signal whose announcement lands nowhere is unresolvable unless the caller
- *   distributes it out-of-band (opt into that explicitly with `'never'`).
- * - `'always'`: like `'auto'`, but a read-only or absent CAS throws up-front for
- *   every beacon type.
- * - `'never'`: publish nothing; the caller distributes the returned artifacts
- *   (signed update, announcement, proof) via sidecar themselves.
+ * - `'never'` (default): publish nothing. The caller distributes the returned
+ *   artifacts (signed update, announcement, proof) via sidecar themselves.
+ * - `'auto'`: best-effort. Publish the signed update (all beacon types) and the
+ *   CAS Announcement (CAS beacons) when a writable CAS is configured; otherwise
+ *   skip publication silently for every beacon type and return the artifacts for
+ *   sidecar distribution. Never blocks an update for lack of a writable CAS.
+ * - `'always'`: require a writable CAS. A read-only or absent CAS throws
+ *   up-front for every beacon type. Use this to opt into a hard guarantee that
+ *   the artifacts reached the CAS.
  * @public
  */
 export type PublishToCasMode = 'auto' | 'always' | 'never';
@@ -254,7 +255,7 @@ export class DidMethodApi {
     beaconId,
     signer,
     bitcoin,
-    publishToCas = 'auto',
+    publishToCas = 'never',
     broadcastOptions,
   }: {
     sourceDocument: Btcr2DidDocument;
@@ -291,12 +292,10 @@ export class DidMethodApi {
     });
 
     // Decide the CAS publication plan before any signing or spending happens, so
-    // a policy violation (e.g. a CAS beacon with a read-only CAS under 'auto')
-    // fails fast instead of after the update is signed. Runs after the factory so
-    // an invalid beaconId still throws the canonical error; the service lookup
-    // uses the factory's exact-id match.
-    const beaconType = sourceDocument.service?.find(s => s.id === beaconId)?.type;
-    const publishCas = this.#planCasPublication(publishToCas, beaconType, beaconId);
+    // a policy violation ('always' with no writable CAS) fails fast instead of
+    // after the update is signed. Runs after the factory so an invalid beaconId
+    // still throws the canonical error.
+    const publishCas = this.#planCasPublication(publishToCas, beaconId);
 
     // Drive the state machine. All I/O (signing delegation, CAS publication,
     // Bitcoin broadcast) happens inside the need-handlers below - the Updater
@@ -390,42 +389,32 @@ export class DidMethodApi {
   }
 
   /**
-   * Resolve the `publishToCas` policy against the configured CAS and the beacon
-   * type. Returns the {@link CasApi} to publish with, or `null` when publication
-   * is skipped; throws when the policy demands a writable CAS that is not available.
+   * Resolve the `publishToCas` policy against the configured CAS. Returns the
+   * {@link CasApi} to publish with, or `null` when publication is skipped
+   * (`'never'`, or `'auto'` with no writable CAS). Throws only under `'always'`
+   * when no writable CAS is available; `'auto'` never blocks an update, because
+   * CAS publication is optional and the artifacts are always distributable via
+   * sidecar.
    */
   #planCasPublication(
     mode: PublishToCasMode,
-    beaconType: string | undefined,
     beaconId: string,
   ): CasApi | null {
     if(mode === 'never') return null;
 
     if(this.#cas && this.#cas.writable) return this.#cas;
 
-    const casState = this.#cas
-      ? 'the configured CAS is read-only (e.g. an HTTP gateway)'
-      : 'no CAS is configured';
-
+    // No writable CAS. 'auto' is best-effort: skip publication and let the
+    // caller distribute the returned artifacts via sidecar. 'always' opted into
+    // a hard guarantee that cannot be met, so it fails up-front.
     if(mode === 'always') {
+      const casState = this.#cas
+        ? 'the configured CAS is read-only (e.g. an HTTP gateway)'
+        : 'no CAS is configured';
       throw new UpdateError(
         `publishToCas is 'always' but ${casState}. Configure a writable CAS `
         + '(cas.rpcUrl, cas.blockstore, or a custom cas.executor with publish support), '
         + 'or use publishToCas \'auto\'/\'never\'.',
-        INVALID_DID_UPDATE, { beaconId, publishToCas: mode }
-      );
-    }
-
-    // 'auto': a CAS beacon signal points at an announcement that must be
-    // retrievable somewhere; silently publishing nowhere would produce an
-    // unresolvable signal unless the caller distributes sidecar data, which
-    // they must opt into explicitly.
-    if(beaconType === 'CASBeacon') {
-      throw new UpdateError(
-        `CAS beacon updates publish the announcement to a content-addressed store, but ${casState}. `
-        + 'Configure a writable CAS (cas.rpcUrl, cas.blockstore, or a custom cas.executor with '
-        + 'publish support), or set publishToCas \'never\' to distribute the returned announcement '
-        + 'via sidecar yourself.',
         INVALID_DID_UPDATE, { beaconId, publishToCas: mode }
       );
     }
@@ -549,7 +538,7 @@ export class UpdateBuilder {
     return this;
   }
 
-  /** Set the CAS publication policy for this update (default `'auto'`). */
+  /** Set the CAS publication policy for this update (default `'never'`; opt-in). */
   publishToCas(mode: PublishToCasMode): this {
     this.#publishToCas = mode;
     return this;

@@ -157,7 +157,10 @@ describe('DidMethodApi update() CAS publication policy', () => {
       const executor = new MemCasExecutor(order);
       const methodApi = new DidMethodApi(undefined, new CasApi({ executor }));
 
-      const result = await methodApi.update(updateArgs(fixture, order, counters));
+      const result = await methodApi.update({
+        ...updateArgs(fixture, order, counters),
+        publishToCas : 'auto',
+      });
 
       expect(order).to.deep.equal(['cas:update', 'cas:announcement', 'tx-broadcast']);
       expect(result.txid).to.equal(TXID);
@@ -168,27 +171,73 @@ describe('DidMethodApi update() CAS publication policy', () => {
       expect(executor.store.has(canonicalHash(result.announcement!))).to.equal(true);
     });
 
-    it('auto + read-only CAS: throws up-front, before any signing or UTXO lookup', async () => {
+    it('default (omitted) + writable CAS: publishes nothing (publication is opt-in)', async () => {
+      const fixture = updateFixture('CASBeacon');
+      const { order, counters } = recorders();
+      const executor = new MemCasExecutor(order);
+      const methodApi = new DidMethodApi(undefined, new CasApi({ executor }));
+
+      // No publishToCas passed -> the default 'never'. Even a CAS beacon with a
+      // writable CAS configured must publish nothing: CAS publication is opt-in
+      // and never required, and the update completes sidecar-only.
+      const result = await methodApi.update(updateArgs(fixture, order, counters));
+
+      expect(order).to.deep.equal(['tx-broadcast']);
+      expect(executor.store.size, 'nothing may reach the CAS by default').to.equal(0);
+      expect(result.publishedToCas).to.deep.equal({ update: false, announcement: false });
+      expect(result.announcement).to.deep.equal({ [fixture.did]: canonicalHash(result.signedUpdate) });
+    });
+
+    it('auto + read-only CAS: skips publication silently and returns the announcement', async () => {
       const fixture = updateFixture('CASBeacon');
       const { order, counters } = recorders();
       const methodApi = new DidMethodApi(
         undefined, new CasApi({ executor: new MemCasExecutor(order, false) })
       );
 
-      await expect(methodApi.update(updateArgs(fixture, order, counters)))
-        .to.be.rejectedWith(/read-only.*publishToCas 'never'/s);
-      expect(counters.utxoCalls, 'must fail before the funding phase').to.equal(0);
-      expect(order).to.deep.equal([]);
+      // 'auto' is best-effort and never blocks: with no writable CAS it skips
+      // publication for CAS beacons too, and hands back the announcement.
+      const result = await methodApi.update({
+        ...updateArgs(fixture, order, counters),
+        publishToCas : 'auto',
+      });
+
+      expect(order).to.deep.equal(['tx-broadcast']);
+      expect(counters.utxoCalls, 'the update proceeds to funding/broadcast rather than aborting up-front').to.be.greaterThan(0);
+      expect(result.publishedToCas).to.deep.equal({ update: false, announcement: false });
+      expect(result.announcement).to.deep.equal({ [fixture.did]: canonicalHash(result.signedUpdate) });
     });
 
-    it('auto + no CAS configured: throws up-front', async () => {
+    it('auto + no CAS configured: skips publication silently and returns the announcement', async () => {
       const fixture = updateFixture('CASBeacon');
       const { order, counters } = recorders();
       const methodApi = new DidMethodApi();
 
-      await expect(methodApi.update(updateArgs(fixture, order, counters)))
-        .to.be.rejectedWith(/no CAS is configured/);
-      expect(counters.utxoCalls).to.equal(0);
+      const result = await methodApi.update({
+        ...updateArgs(fixture, order, counters),
+        publishToCas : 'auto',
+      });
+
+      expect(order).to.deep.equal(['tx-broadcast']);
+      expect(result.publishedToCas).to.deep.equal({ update: false, announcement: false });
+      expect(result.announcement).to.deep.equal({ [fixture.did]: canonicalHash(result.signedUpdate) });
+    });
+
+    it('always + read-only CAS: throws up-front for a CAS beacon too', async () => {
+      const fixture = updateFixture('CASBeacon');
+      const { order, counters } = recorders();
+      const methodApi = new DidMethodApi(
+        undefined, new CasApi({ executor: new MemCasExecutor(order, false) })
+      );
+
+      // 'always' is the opt-in hard-guarantee mode: it fails up-front for every
+      // beacon type (including CAS) when no writable CAS is available.
+      await expect(methodApi.update({
+        ...updateArgs(fixture, order, counters),
+        publishToCas : 'always',
+      })).to.be.rejectedWith(/'always'.*read-only/s);
+      expect(counters.utxoCalls, 'must fail before the funding phase').to.equal(0);
+      expect(order).to.deep.equal([]);
     });
 
     it('never + read-only CAS: succeeds and returns the announcement for sidecar distribution', async () => {
@@ -232,8 +281,10 @@ describe('DidMethodApi update() CAS publication policy', () => {
         undefined, new CasApi({ executor: new FlakyCasExecutor(order, 1) })
       );
 
-      await expect(methodApi.update(updateArgs(fixture, order, counters)))
-        .to.be.rejectedWith(/cas publish unavailable/);
+      await expect(methodApi.update({
+        ...updateArgs(fixture, order, counters),
+        publishToCas : 'auto',
+      })).to.be.rejectedWith(/cas publish unavailable/);
       expect(order, 'no publish label, no tx broadcast').to.deep.equal([]);
       expect(counters.sent, 'the beacon UTXO must not be spent').to.have.length(0);
     });
@@ -245,8 +296,10 @@ describe('DidMethodApi update() CAS publication policy', () => {
         undefined, new CasApi({ executor: new FlakyCasExecutor(order, 2) })
       );
 
-      await expect(methodApi.update(updateArgs(fixture, order, counters)))
-        .to.be.rejectedWith(/cas publish unavailable/);
+      await expect(methodApi.update({
+        ...updateArgs(fixture, order, counters),
+        publishToCas : 'auto',
+      })).to.be.rejectedWith(/cas publish unavailable/);
       // Partial-publish state: the update reached the CAS (harmless, content-
       // addressed), the announcement did not, and no transaction was broadcast.
       expect(order).to.deep.equal(['cas:update']);
@@ -262,7 +315,10 @@ describe('DidMethodApi update() CAS publication policy', () => {
         undefined, new CasApi({ executor: new MemCasExecutor(order, false) })
       );
 
-      const result = await methodApi.update(updateArgs(fixture, order, counters));
+      const result = await methodApi.update({
+        ...updateArgs(fixture, order, counters),
+        publishToCas : 'auto',
+      });
 
       expect(order).to.deep.equal(['tx-broadcast']);
       expect(result.publishedToCas).to.deep.equal({ update: false, announcement: false });
@@ -277,7 +333,10 @@ describe('DidMethodApi update() CAS publication policy', () => {
       const executor = new MemCasExecutor(order);
       const methodApi = new DidMethodApi(undefined, new CasApi({ executor }));
 
-      const result = await methodApi.update(updateArgs(fixture, order, counters));
+      const result = await methodApi.update({
+        ...updateArgs(fixture, order, counters),
+        publishToCas : 'auto',
+      });
 
       expect(order).to.deep.equal(['cas:update', 'tx-broadcast']);
       expect(result.publishedToCas).to.deep.equal({ update: true, announcement: false });
@@ -314,11 +373,13 @@ describe('DidMethodApi update() CAS publication policy', () => {
       expect(executor.store.has(canonicalHash(result.signedUpdate))).to.equal(true);
     });
 
-    it('auto + NO CAS configured: the default out-of-box path skips publication silently', async () => {
+    it('default (omitted) + NO CAS configured: the out-of-box path publishes nothing', async () => {
       const fixture = updateFixture('SingletonBeacon');
       const { order, counters } = recorders();
       const methodApi = new DidMethodApi();
 
+      // No publishToCas and no CAS: the out-of-box default 'never' completes the
+      // update sidecar-only, publishing nothing.
       const result = await methodApi.update(updateArgs(fixture, order, counters));
 
       expect(order).to.deep.equal(['tx-broadcast']);
@@ -334,7 +395,10 @@ describe('DidMethodApi update() CAS publication policy', () => {
       const executor = new MemCasExecutor(order);
       const methodApi = new DidMethodApi(undefined, new CasApi({ executor }));
 
-      const result = await methodApi.update(updateArgs(fixture, order, counters));
+      const result = await methodApi.update({
+        ...updateArgs(fixture, order, counters),
+        publishToCas : 'auto',
+      });
 
       expect(order).to.deep.equal(['cas:update', 'tx-broadcast']);
       expect(result.publishedToCas).to.deep.equal({ update: true, announcement: false });

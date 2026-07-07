@@ -1,5 +1,19 @@
 # @did-btcr2/api
 
+## 0.16.0
+
+### Minor Changes
+
+- Make CAS publication opt-in: `publishToCas` now defaults to `'never'`, and `'auto'` no longer blocks an update.
+
+  CAS publication is optional and never required: every update, for every beacon type, completes and is distributable via sidecar. The previous default of `'auto'` (from the prior release) was opt-out - it auto-published to any configured CAS and, for CAS beacons with no writable CAS, threw up-front - which effectively required CAS publication for that beacon type. This corrects that:
+
+  - **Default is now `'never'`** on `DidMethodApi.update`, `DidBtcr2Api.updateDid`, and `UpdateBuilder`. Out of the box, nothing is published; a configured CAS never triggers publication on its own.
+  - **`'auto'` is best-effort and never blocks:** it publishes when a writable CAS is configured, otherwise skips silently for every beacon type (CAS beacons included) and returns the artifacts for sidecar distribution. The CAS-beacon up-front throw is removed.
+  - **`'always'` is unchanged:** it requires a writable CAS and throws up-front for every beacon type when none is available.
+
+  Breaking for callers that relied on the implicit `'auto'` default: pass `publishToCas: 'auto'` explicitly to keep auto-publishing. See ADR 073 (supersedes ADR 071 §2).
+
 ## 0.15.0
 
 ### Minor Changes

@@ -1,4 +1,4 @@
-import { createApi, Identifier, type BitcoinApiConfig, type DidBtcr2Api } from '@did-btcr2/api';
+import { createApi, Identifier, type BitcoinApiConfig, type CasConfig, type DidBtcr2Api } from '@did-btcr2/api';
 import type { KeyManager } from '@did-btcr2/key-manager';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -23,7 +23,10 @@ export type ConnectionOverrides = {
   btcRpcUrl?      : string;
   btcRpcUser?     : string;
   btcRpcPass?     : string;
+  /** IPFS HTTP gateway for CAS reads (read-only). */
   casGateway?     : string;
+  /** IPFS HTTP RPC endpoint for a writable CAS (reads + writes). */
+  casRpcUrl?      : string;
   config?         : string;
   profile?        : string;
   /** Keystore file path. Overrides the default `$XDG_DATA_HOME/btcr2/keystore.json`. */
@@ -49,7 +52,7 @@ export type ConnectionOverrides = {
  *     },
  *     "bitcoin": {
  *       "btc": { "rest": "https://my-mempool/api" },
- *       "cas": { "gateway": "https://ipfs.io" }
+ *       "cas": { "gateway": "https://ipfs.io", "rpcUrl": "http://127.0.0.1:5001" }
  *     }
  *   }
  * }
@@ -72,7 +75,10 @@ export type ConfigFile = {
       rpcPass? : string;
     };
     cas?: {
+      /** IPFS HTTP gateway for CAS reads (read-only). */
       gateway?: string;
+      /** IPFS HTTP RPC endpoint for a writable CAS (reads + writes). */
+      rpcUrl?: string;
     };
     /** Signing identity references. Never embeds key material; the secret lives in the keystore. */
     identity?: {
@@ -153,6 +159,7 @@ export type ApiFactory = (network?: NetworkOption, overrides?: ConnectionOverrid
  * | `BTCR2_BTC_RPC_USER`  | `--btc-rpc-user`   |
  * | `BTCR2_BTC_RPC_PASS`  | `--btc-rpc-pass`   |
  * | `BTCR2_CAS_GATEWAY`   | `--cas-gateway`    |
+ * | `BTCR2_CAS_RPC_URL`   | `--cas-rpc-url`    |
  */
 export const ENV_VARS = {
   BTC_REST     : 'BTCR2_BTC_REST',
@@ -160,6 +167,7 @@ export const ENV_VARS = {
   BTC_RPC_USER : 'BTCR2_BTC_RPC_USER',
   BTC_RPC_PASS : 'BTCR2_BTC_RPC_PASS',
   CAS_GATEWAY  : 'BTCR2_CAS_GATEWAY',
+  CAS_RPC_URL  : 'BTCR2_CAS_RPC_URL',
 } as const;
 
 /**
@@ -174,6 +182,7 @@ export function readEnvOverrides(): ConnectionOverrides {
     btcRpcUser : env(ENV_VARS.BTC_RPC_USER),
     btcRpcPass : env(ENV_VARS.BTC_RPC_PASS),
     casGateway : env(ENV_VARS.CAS_GATEWAY),
+    casRpcUrl  : env(ENV_VARS.CAS_RPC_URL),
   };
 }
 
@@ -221,6 +230,7 @@ export function profileToOverrides(
     btcRpcUser : profile.btc?.rpcUser,
     btcRpcPass : profile.btc?.rpcPass,
     casGateway : profile.cas?.gateway,
+    casRpcUrl  : profile.cas?.rpcUrl,
   };
 }
 
@@ -261,7 +271,7 @@ export function resolveDefaultNetwork(overrides?: ConnectionOverrides): NetworkO
 function resolveConnectionConfig(
   network?  : NetworkOption,
   overrides?: ConnectionOverrides,
-): { btc?: BitcoinApiConfig; cas?: { gateway: string } } {
+): { btc?: BitcoinApiConfig; cas?: CasConfig } {
   if (!network) return {};
 
   // Layer 1: Config file profile (lowest precedence of the three override layers)
@@ -280,6 +290,7 @@ function resolveConnectionConfig(
     btcRpcUser : overrides?.btcRpcUser ?? env.btcRpcUser ?? fileOverrides.btcRpcUser,
     btcRpcPass : overrides?.btcRpcPass ?? env.btcRpcPass ?? fileOverrides.btcRpcPass,
     casGateway : overrides?.casGateway ?? env.casGateway ?? fileOverrides.casGateway,
+    casRpcUrl  : overrides?.casRpcUrl  ?? env.casRpcUrl  ?? fileOverrides.casRpcUrl,
   };
 
   const btc: BitcoinApiConfig = { network };
@@ -296,9 +307,15 @@ function resolveConnectionConfig(
     };
   }
 
-  const cas = merged.casGateway ? { gateway: merged.casGateway } : undefined;
+  // A configured RPC endpoint is writable and takes precedence over the
+  // read-only gateway (matching the api's CasConfig priority: rpcUrl > gateway).
+  // Both may be set; the api selects one executor from them.
+  const cas: CasConfig = {};
+  if (merged.casGateway) cas.gateway = merged.casGateway;
+  if (merged.casRpcUrl) cas.rpcUrl = merged.casRpcUrl;
+  const hasCas = merged.casGateway || merged.casRpcUrl;
 
-  return { btc, ...(cas && { cas }) };
+  return { btc, ...(hasCas && { cas }) };
 }
 
 /**
