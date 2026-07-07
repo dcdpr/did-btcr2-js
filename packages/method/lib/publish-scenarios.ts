@@ -4,8 +4,8 @@
  * Reads the publish manifest produced by `route-delivery` and pushes each unique
  * object to a Content-Addressed Store (IPFS). Every object is stored as a raw
  * block (codec 0x55) under a CIDv1 derived from the SHA-256 of its JCS-canonical
- * bytes, the same derivation the resolver's CAS executor uses (see
- * `@did-btcr2/api`'s IpfsCasExecutor and ADR 023). So the CID a resolver computes
+ * bytes, the same derivation the resolver's CAS executor uses (see the
+ * `@did-btcr2/api` CAS executors and ADR 023). So the CID a resolver computes
  * from a `Need*` hash is exactly the CID we pin here.
  *
  * Two modes:

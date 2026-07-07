@@ -2,20 +2,20 @@
   // FOSS dependency-vulnerability gate: audit-ci wraps `pnpm audit` (the package
   // manager's own advisory feed). No third-party/SaaS service is involved.
   //
-  // Gate level is `critical`: CI fails when a NEW critical advisory appears in the
-  // dependency tree. High/moderate advisories are surfaced by `pnpm audit` but do
-  // not block, because the current tree carries ~28 transitive high advisories from
-  // the `helia` IPFS stack (libp2p/undici/react-native-webrtc) that we cannot fix
-  // directly; gating on `high` today would be red-on-arrival. Tighten this to
-  // `"high": true` once the helia transitive surface is reduced (see the CAS/helia
-  // follow-up).
+  // Gate level is `high` over the production dependency tree: CI fails when a
+  // NEW high or critical advisory appears in any published package's runtime
+  // dependencies. The gate was previously `critical`-only (and unscoped) because
+  // the `helia` IPFS stack (libp2p/undici/react-native-webrtc) carried ~28
+  // transitive high advisories we could not fix directly; that dependency was
+  // dropped in favor of fetch-based CAS executors (see ADR 069), so the gate is
+  // tightened and the helia-path allowlist entry (GHSA-w7jw-789q-3m8p) removed.
+  //
+  // `skip-dev` scopes the audit to production dependencies. Dev-tooling chains
+  // (eslint, mocha, rollup, esbuild, browser-polyfill shims) still carry
+  // transitive advisories pinned by their parents; they never ship and are
+  // surfaced by a plain `pnpm audit` for anyone who wants the full list.
   "$schema": "https://github.com/IBM/audit-ci/raw/main/docs/schema.json",
-  "critical": true,
-  "allowlist": [
-    // shell-quote command injection, reached only via helia > @libp2p/webrtc >
-    // react-native-webrtc > react-native > react-devtools-core > shell-quote. That
-    // react-native code path is never loaded in our node/browser usage, so this is
-    // not reachable exposure. Remove if the helia dependency is dropped/replaced.
-    "GHSA-w7jw-789q-3m8p"
-  ]
+  "high": true,
+  "skip-dev": true,
+  "allowlist": []
 }

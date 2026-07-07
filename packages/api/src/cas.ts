@@ -1,6 +1,5 @@
 import type { HashBytes } from '@did-btcr2/common';
 import { canonicalize, decode as decodeHash, encode as encodeHash } from '@did-btcr2/common';
-import type { Helia } from 'helia';
 import { CID } from 'multiformats/cid';
 import * as raw from 'multiformats/codecs/raw';
 import { create as createDigest } from 'multiformats/hashes/digest';
@@ -24,25 +23,57 @@ export interface CasExecutor {
 }
 
 /**
- * Default {@link CasExecutor} backed by IPFS via Helia.
+ * Derive the CIDv1 (raw codec, SHA-256) for a base64url-encoded content hash.
+ * The CID is deterministic in the content hash, so lookups by base64url
+ * SHA-256 hash translate directly to CID lookups.
+ */
+function cidForHash(hash: string): CID {
+  const hashBytes = decodeHash(hash, 'base64urlnopad');
+  return CID.create(1, raw.code, createDigest(sha256.code, hashBytes));
+}
+
+/**
+ * Minimal structural view of an IPFS blockstore: get/put raw blocks by CID.
+ *
+ * Matches the `blockstore` property of an in-process IPFS node (e.g. a Helia
+ * instance), so one can be plugged in without this package depending on an
+ * IPFS implementation.
+ * @public
+ */
+export interface BlockstoreLike {
+  /** Retrieve a raw block by CID. Expected to throw if the block is not found. */
+  get(cid: CID): Promise<Uint8Array>;
+  /** Store a raw block under the given CID. */
+  put(cid: CID, block: Uint8Array): Promise<unknown>;
+}
+
+/**
+ * Anything exposing a {@link BlockstoreLike} `blockstore` property,
+ * e.g. an in-process IPFS node instance.
+ * @public
+ */
+export interface BlockstoreProviderLike {
+  blockstore: BlockstoreLike;
+}
+
+/**
+ * {@link CasExecutor} backed by a caller-supplied in-process blockstore.
  *
  * Stores/retrieves data as raw blocks (`0x55` codec) with SHA-256 hashing.
  * The CID is deterministically derived from the content hash, so lookups
  * by base64url SHA-256 hash translate directly to CID lookups.
  * @public
  */
-export class IpfsCasExecutor implements CasExecutor {
-  readonly #helia: Helia;
+export class BlockstoreCasExecutor implements CasExecutor {
+  readonly #blockstore: BlockstoreLike;
 
-  constructor(helia: Helia) {
-    this.#helia = helia;
+  constructor(store: BlockstoreLike | BlockstoreProviderLike) {
+    this.#blockstore = 'blockstore' in store ? store.blockstore : store;
   }
 
   async retrieve(hash: string): Promise<Uint8Array | null> {
-    const hashBytes = decodeHash(hash, 'base64urlnopad');
-    const cid = CID.create(1, raw.code, createDigest(sha256.code, hashBytes));
     try {
-      return await this.#helia.blockstore.get(cid);
+      return await this.#blockstore.get(cidForHash(hash));
     } catch {
       return null;
     }
@@ -51,10 +82,62 @@ export class IpfsCasExecutor implements CasExecutor {
   async publish(data: Uint8Array): Promise<string> {
     const digest = await sha256.digest(data);
     const cid = CID.createV1(raw.code, digest);
-    await this.#helia.blockstore.put(cid, data);
-    // Return base64url-encoded hash (no padding)
-    return btoa(String.fromCharCode(...digest.bytes.slice(2)))
-      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    await this.#blockstore.put(cid, data);
+    return encodeHash(digest.digest, 'base64urlnopad');
+  }
+}
+
+/**
+ * Read-write {@link CasExecutor} backed by the IPFS HTTP RPC API
+ * (the interface a Kubo node exposes, default port 5001).
+ *
+ * Publishes raw blocks via `block/put` (pinned, raw codec, SHA-256) and
+ * retrieves them via `block/get`, using plain `fetch`: no in-process IPFS
+ * node required. `publish` verifies that the CID returned by the node
+ * matches the CID derived locally from the content hash, so a misconfigured
+ * node cannot silently store content under a different address.
+ * @public
+ */
+export class IpfsRpcCasExecutor implements CasExecutor {
+  readonly #rpcUrl: string;
+
+  constructor(rpcUrl: string) {
+    this.#rpcUrl = rpcUrl.replace(/\/+$/, '');
+  }
+
+  async retrieve(hash: string): Promise<Uint8Array | null> {
+    const cid = cidForHash(hash);
+    try {
+      // The RPC API accepts POST only.
+      const res = await fetch(`${this.#rpcUrl}/api/v0/block/get?arg=${cid.toString()}`, {
+        method : 'POST',
+      });
+      if (!res.ok) return null;
+      return new Uint8Array(await res.arrayBuffer());
+    } catch {
+      return null;
+    }
+  }
+
+  async publish(data: Uint8Array): Promise<string> {
+    const digest = await sha256.digest(data);
+    const cid = CID.createV1(raw.code, digest);
+    const body = new FormData();
+    body.append('file', new Blob([Uint8Array.from(data)]));
+    const res = await fetch(`${this.#rpcUrl}/api/v0/block/put?cid-codec=raw&mhtype=sha2-256&pin=true`, {
+      method : 'POST',
+      body,
+    });
+    if (!res.ok) {
+      throw new Error(`IPFS RPC block/put failed: ${res.status} ${res.statusText}`);
+    }
+    const { Key: returnedCid } = await res.json() as { Key?: string };
+    if (returnedCid !== cid.toString()) {
+      throw new Error(
+        `IPFS RPC block/put returned unexpected CID: expected ${cid.toString()}, got ${returnedCid}`
+      );
+    }
+    return encodeHash(digest.digest, 'base64urlnopad');
   }
 }
 
@@ -66,8 +149,9 @@ export class IpfsCasExecutor implements CasExecutor {
  * {@link https://specs.ipfs.tech/http-gateways/trustless-gateway/ | Trustless Gateway}
  * protocol.
  *
- * Publishing is not supported: use {@link IpfsCasExecutor} with a Helia
- * instance for writes.
+ * Publishing is not supported: use {@link IpfsRpcCasExecutor} against a
+ * node's RPC endpoint, or {@link BlockstoreCasExecutor} with an in-process
+ * blockstore, for writes.
  * @public
  */
 export class HttpGatewayCasExecutor implements CasExecutor {
@@ -78,8 +162,7 @@ export class HttpGatewayCasExecutor implements CasExecutor {
   }
 
   async retrieve(hash: string): Promise<Uint8Array | null> {
-    const hashBytes = decodeHash(hash, 'base64urlnopad');
-    const cid = CID.create(1, raw.code, createDigest(sha256.code, hashBytes));
+    const cid = cidForHash(hash);
     try {
       const res = await fetch(`${this.#gatewayUrl}/ipfs/${cid.toString()}?format=raw`, {
         headers : { Accept: 'application/vnd.ipld.raw' },
@@ -94,7 +177,7 @@ export class HttpGatewayCasExecutor implements CasExecutor {
   async publish(): Promise<string> {
     throw new Error(
       'HttpGatewayCasExecutor is read-only. '
-      + 'Publishing requires a full IPFS node (use IpfsCasExecutor with Helia).'
+      + 'Publishing requires an IPFS node (use IpfsRpcCasExecutor or BlockstoreCasExecutor).'
     );
   }
 }
@@ -105,21 +188,23 @@ export const DEFAULT_CAS_TIMEOUT_MS = 30_000;
 /**
  * Configuration for the CAS (Content-Addressed Storage) driver.
  *
- * Provide exactly one of `executor`, `helia`, or `gateway`.
- * Priority if multiple are set: `executor` > `helia` > `gateway`.
+ * Provide exactly one of `executor`, `blockstore`, `rpcUrl`, or `gateway`.
+ * Priority if multiple are set: `executor` > `blockstore` > `rpcUrl` > `gateway`.
  * @public
  */
 export type CasConfig = {
   /** Custom executor implementation (overrides all other options). */
   executor?: CasExecutor;
-  /** Pre-existing Helia instance for the default IPFS executor. */
-  helia?: Helia;
+  /** In-process blockstore, or anything exposing one (e.g. an IPFS node instance). */
+  blockstore?: BlockstoreLike | BlockstoreProviderLike;
+  /** IPFS HTTP RPC API endpoint for read-write CAS access (e.g. `'http://127.0.0.1:5001'`). */
+  rpcUrl?: string;
   /** IPFS HTTP gateway URL for read-only CAS access (e.g. `'https://ipfs.io'`). */
   gateway?: string;
   /**
    * Timeout in milliseconds for CAS operations. Prevents indefinite hangs
-   * when a Helia DHT lookup or gateway request stalls. Default: 30 000 ms.
-   * Set to `0` to disable.
+   * when a blockstore lookup, RPC call, or gateway request stalls.
+   * Default: 30 000 ms. Set to `0` to disable.
    */
   timeoutMs?: number;
 };
@@ -130,8 +215,8 @@ export type CasConfig = {
  * Provides `publish` and `retrieve` for JSON objects using their
  * JCS-canonicalized SHA-256 hash as the content address.
  *
- * By default uses IPFS (via Helia). Inject a custom {@link CasExecutor}
- * to use a different CAS backend.
+ * The backend is selected from {@link CasConfig}: a custom executor, an
+ * in-process blockstore, an IPFS RPC endpoint, or a read-only HTTP gateway.
  *
  * Lazily initialized by {@link DidBtcr2Api} to avoid startup overhead
  * when CAS features are not used.
@@ -144,13 +229,15 @@ export class CasApi {
   constructor(config: CasConfig) {
     if (config.executor) {
       this.#executor = config.executor;
-    } else if (config.helia) {
-      this.#executor = new IpfsCasExecutor(config.helia);
+    } else if (config.blockstore) {
+      this.#executor = new BlockstoreCasExecutor(config.blockstore);
+    } else if (config.rpcUrl) {
+      this.#executor = new IpfsRpcCasExecutor(config.rpcUrl);
     } else if (config.gateway) {
       this.#executor = new HttpGatewayCasExecutor(config.gateway);
     } else {
       throw new Error(
-        'CAS configuration requires an executor, Helia instance, or gateway URL. '
+        'CAS configuration requires an executor, blockstore, RPC URL, or gateway URL. '
         + 'Example: createApi({ cas: { gateway: \'https://ipfs.io\' } })'
       );
     }

@@ -175,7 +175,7 @@ These packages have dependency graphs that are fully CJS-compatible, so a plain 
 **4 packages** build CJS via `tsup`:
 `cryptosuite`, `method`, `api`, `cli`
 
-These packages have **ESM-only transitive dependencies** (e.g. `multiformats/bases/base58` subpath exports, `helia` + `@helia/strings`) that cannot be consumed from CommonJS via a plain `require()`. `tsup` solves this by bundling the ESM-only deps directly into the CJS output file.
+These packages have **ESM-only transitive dependencies** (e.g. `multiformats/bases/base58` subpath exports) that cannot be consumed from CommonJS via a plain `require()`. `tsup` solves this by bundling the ESM-only deps directly into the CJS output file.
 
 Each has a `tsup.config.ts`:
 
@@ -203,33 +203,11 @@ export default defineConfig({
 });
 ```
 
-**`noExternal`** tells tsup which deps to bundle inline rather than leave as external `require()` calls. For example, `cryptosuite` bundles `multiformats`; `method` bundles `multiformats` but leaves `helia` external (see below).
+**`noExternal`** tells tsup which deps to bundle inline rather than leave as external `require()` calls. For example, `cryptosuite`, `api`, and `cli` bundle `multiformats`.
 
 **`outExtension`** overrides tsup's default `.cjs` extension with `.js` so the output matches the tsc-built packages. The `dist/cjs/package.json` override handles the ESM-vs-CJS distinction at runtime.
 
 **`shims: true`** rewrites ESM-only constructs like `import.meta.url` into CJS-compatible equivalents (`__filename`/`__dirname`).
-
-#### The helia lazy-load pattern
-
-`method` depends on `helia` and `@helia/strings`, which transitively pull in `@libp2p/*` packages, which in turn load native `.node` binaries (`node-datachannel`). These native modules can't be statically bundled into a single CJS file: their `require('./build/Release/node_datachannel.node')` paths would break.
-
-The solution is in `packages/method/src/utils/appendix.ts`:
-
-```typescript
-static async fetchFromCas(hashBytes: HashBytes): Promise<string | undefined> {
-  const cid = CID.create(1, 1, createDigest(1, hashBytes));
-
-  // Lazy-load helia to avoid bundling its native deps into downstream CJS builds.
-  const { createHelia } = await import('helia');
-  const { strings } = await import('@helia/strings');
-
-  const helia = await createHelia();
-  const node = strings(helia);
-  return await node.get(cid, {});
-}
-```
-
-`helia` and `@helia/strings` are **dynamic imports**, not top-level imports. tsup leaves dynamic imports alone at bundle time. At runtime, Node 22+ natively supports `await import(esm)` from a CJS context, so the lazy load works in both the ESM and CJS builds of `method`. CJS consumers who never call `fetchFromCas()` never pay the cost of loading helia at all.
 
 ### Browser bundles
 
