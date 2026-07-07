@@ -4,8 +4,9 @@ import type { SignedBTCR2Update } from '../btcr2-update.js';
 import type { Signer } from '@did-btcr2/keypair';
 import { concatBytes, hexToBytes } from '@noble/hashes/utils.js';
 import { Address, OutScript, p2pkh, p2tr, p2wpkh, Script, SigHash, Transaction } from '@scure/btc-signer';
+import type { SMTProof } from '../interfaces.js';
 import type { BeaconProcessResult } from '../resolver.js';
-import type { SidecarData } from '../types.js';
+import type { CASAnnouncement, SidecarData } from '../types.js';
 import { BeaconError } from './error.js';
 import { DEFAULT_FEE_ESTIMATOR } from './fee-estimator.js';
 import type { FeeEstimator } from './fee-estimator.js';
@@ -183,6 +184,33 @@ export interface BroadcastOptions {
    * stop linking the beacon's announcements into one on-chain chain (ADR 044).
    */
   changeAddress?: string;
+}
+
+/**
+ * Result of a single-party beacon broadcast. Beyond the signed update itself,
+ * it carries every artifact the broadcast produced that a resolver will later
+ * need: without them, some signals are unresolvable (the SMT proof) or the
+ * controller cannot distribute the sidecar data the spec requires them to
+ * retain (the CAS announcement).
+ */
+export interface BroadcastResult {
+  /** The signed update that was broadcast. */
+  signedUpdate: SignedBTCR2Update;
+  /** Transaction id of the on-chain beacon signal. */
+  txid: string;
+  /**
+   * The CAS Announcement whose hash rode in the OP_RETURN output. CAS beacons
+   * only. Capture it for sidecar distribution (or publish it to a CAS): a
+   * resolver cannot process the signal without it.
+   */
+  announcement?: CASAnnouncement;
+  /**
+   * SMT inclusion proof for the broadcast update, including the nonce the leaf
+   * was blinded with. SMT beacons only. Capture it for sidecar distribution:
+   * the nonce is generated at broadcast time and appears nowhere else, so a
+   * signal whose proof is dropped is permanently unresolvable.
+   */
+  proof?: SMTProof;
 }
 
 /**
@@ -544,14 +572,15 @@ export abstract class SinglePartyBeacon {
    *   ECDSA for P2PKH / P2WPKH singletons, Schnorr (BIP-340) for P2TR key-path.
    * @param {BitcoinConnection} bitcoin The Bitcoin network connection.
    * @param {BroadcastOptions} [options] Optional broadcast configuration (e.g. fee estimator).
-   * @returns {Promise<SignedBTCR2Update>} The signed update that was broadcast.
+   * @returns {Promise<BroadcastResult>} The broadcast artifacts: the signed update, the
+   *   signal txid, and the per-beacon-type sidecar data (CAS announcement / SMT proof).
    */
   abstract broadcastSignal(
     signedUpdate: SignedBTCR2Update,
     signer: Signer,
     bitcoin: BitcoinConnection,
     options?: BroadcastOptions
-  ): Promise<SignedBTCR2Update>;
+  ): Promise<BroadcastResult>;
 
   /**
    * Build + sign + broadcast a singleton beacon signal transaction. The beacon

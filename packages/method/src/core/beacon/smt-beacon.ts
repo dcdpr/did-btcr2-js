@@ -6,7 +6,7 @@ import { base64UrlToHash, blockHash, BTCR2MerkleTree, didToIndex, hashToHex, ver
 import { randomBytes } from '@noble/hashes/utils';
 import type { BeaconProcessResult, DataNeed } from '../resolver.js';
 import type { SidecarData } from '../types.js';
-import type { BroadcastOptions } from './beacon.js';
+import type { BroadcastOptions, BroadcastResult } from './beacon.js';
 import { SinglePartyBeacon } from './beacon.js';
 import { SMTBeaconError } from './error.js';
 import type { BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js';
@@ -133,7 +133,9 @@ export class SMTBeacon extends SinglePartyBeacon {
    * @param {Signer} signer Signer that produces the ECDSA signature for the Bitcoin transaction.
    * @param {BitcoinConnection} bitcoin The Bitcoin network connection.
    * @param {BroadcastOptions} [options] Optional broadcast configuration (e.g. fee estimator).
-   * @return {Promise<SignedBTCR2Update>} The signed update that was broadcast.
+   * @return {Promise<BroadcastResult>} The signed update, the signal txid, and the SMT
+   *   inclusion proof (with the leaf nonce embedded). The proof MUST be captured for sidecar
+   *   distribution: the nonce exists only here, so the on-chain signal is unresolvable without it.
    * @throws {BeaconError} if the bitcoin address is invalid, unfunded, or UTXO cannot cover the fee.
    */
   async broadcastSignal(
@@ -141,7 +143,7 @@ export class SMTBeacon extends SinglePartyBeacon {
     signer: Signer,
     bitcoin: BitcoinConnection,
     options?: BroadcastOptions
-  ): Promise<SignedBTCR2Update> {
+  ): Promise<BroadcastResult> {
     // Extract the DID from the beacon service id (strip the #fragment)
     const did = this.service.id.split('#')[0];
 
@@ -152,9 +154,14 @@ export class SMTBeacon extends SinglePartyBeacon {
     tree.addEntries([{ did, nonce, signedUpdate: canonicalBytes }]);
     tree.finalize();
 
-    // Root hash is the signal bytes for the OP_RETURN output
-    await this.buildSignAndBroadcast(tree.rootHash, signer, bitcoin, options);
+    // Serialize the inclusion proof (carrying the nonce and updateId) before
+    // broadcasting: it is the only artifact that can link the on-chain root back
+    // to the update, and the nonce it embeds is irrecoverable once dropped.
+    const proof = tree.proof(did);
 
-    return signedUpdate;
+    // Root hash is the signal bytes for the OP_RETURN output
+    const txid = await this.buildSignAndBroadcast(tree.rootHash, signer, bitcoin, options);
+
+    return { signedUpdate, txid, proof };
   }
 }

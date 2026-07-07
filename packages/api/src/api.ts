@@ -3,7 +3,7 @@ import type { DocumentBytes, KeyBytes, PatchOperation } from '@did-btcr2/common'
 import type { Signer } from '@did-btcr2/keypair';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import type { KeyIdentifier } from '@did-btcr2/key-manager';
-import type { Btcr2DidDocument, DidCreateOptions, ResolutionOptions, SignedBTCR2Update } from '@did-btcr2/method';
+import type { BroadcastOptions, Btcr2DidDocument, DidCreateOptions, ResolutionOptions } from '@did-btcr2/method';
 import type { DidResolutionResult } from '@web5/dids';
 import { BitcoinApi } from './bitcoin.js';
 import { CasApi, DEFAULT_CAS_GATEWAY, type CasConfig } from './cas.js';
@@ -11,7 +11,7 @@ import { CryptoApi } from './crypto.js';
 import { DidApi } from './did.js';
 import { assertString, NOOP_LOGGER } from './helpers.js';
 import { KeyManagerApi } from './key-manager.js';
-import { DidMethodApi } from './method.js';
+import { DidMethodApi, type DidUpdateResult, type PublishToCasMode } from './method.js';
 import type { ApiConfig, BitcoinApiConfig, Logger, ResolutionResult } from './types.js';
 
 /**
@@ -196,8 +196,12 @@ export class DidBtcr2Api {
    *
    * If `sourceDocument` and `sourceVersionId` are both provided, resolution
    * is skipped. Otherwise the DID is resolved first to obtain them.
-   * @param params The update parameters.
-   * @returns The signed update.
+   * @param params The update parameters. `publishToCas` (default `'auto'`)
+   *   controls whether update artifacts are published to the configured CAS
+   *   before the on-chain broadcast; `broadcastOptions` passes fee estimator /
+   *   change address through to the beacon transaction.
+   * @returns The broadcast artifacts: signed update, signal txid, per-beacon-type
+   *   sidecar data, and which artifacts were published to CAS.
    */
   async updateDid({
     did,
@@ -207,6 +211,8 @@ export class DidBtcr2Api {
     signer,
     sourceDocument,
     sourceVersionId,
+    publishToCas,
+    broadcastOptions,
   }: {
     did: string;
     patches: PatchOperation[];
@@ -215,7 +221,9 @@ export class DidBtcr2Api {
     signer: Signer;
     sourceDocument?: Btcr2DidDocument;
     sourceVersionId?: number;
-  }): Promise<SignedBTCR2Update> {
+    publishToCas?: PublishToCasMode;
+    broadcastOptions?: BroadcastOptions;
+  }): Promise<DidUpdateResult> {
     this.#assertNotDisposed();
     assertString(did, 'did');
 
@@ -260,6 +268,8 @@ export class DidBtcr2Api {
       verificationMethodId,
       beaconId,
       signer,
+      publishToCas,
+      broadcastOptions,
     });
   }
 

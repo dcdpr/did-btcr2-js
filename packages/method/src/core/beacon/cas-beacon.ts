@@ -4,14 +4,15 @@ import type { SignedBTCR2Update } from '../btcr2-update.js';
 import type { Signer } from '@did-btcr2/keypair';
 import type { BeaconProcessResult, DataNeed } from '../resolver.js';
 import type { SidecarData } from '../types.js';
-import type { BroadcastOptions } from './beacon.js';
+import type { BroadcastOptions, BroadcastResult } from './beacon.js';
 import { SinglePartyBeacon } from './beacon.js';
 import type { BeaconService, BeaconSignal, BlockMetadata, CasPublishFn } from './interfaces.js';
 
 /**
  * CAS-specific broadcast options: extends {@link BroadcastOptions} with an optional
- * `casPublish` callback used to publish the CAS Announcement off-chain after the
- * OP_RETURN signal is broadcast.
+ * `casPublish` callback used to publish the CAS Announcement off-chain before the
+ * OP_RETURN signal transaction is broadcast. A publish failure aborts the broadcast
+ * while the beacon UTXO is still unspent.
  */
 export interface CASBroadcastOptions extends BroadcastOptions {
   casPublish?: CasPublishFn;
@@ -134,17 +135,23 @@ export class CASBeacon extends SinglePartyBeacon {
   /**
    * Broadcasts a CAS Beacon signal to the Bitcoin network.
    *
-   * Creates a CAS Announcement mapping the DID to the update hash, broadcasts the hash of the
-   * announcement via OP_RETURN, and optionally publishes the announcement off-chain via the
-   * supplied `casPublish` callback. UTXO selection, PSBT construction, fee estimation, signing,
+   * Creates a CAS Announcement mapping the DID to the update hash, optionally publishes the
+   * announcement off-chain via the supplied `casPublish` callback, then broadcasts the hash of
+   * the announcement via OP_RETURN. UTXO selection, PSBT construction, fee estimation, signing,
    * and broadcast are delegated to {@link SinglePartyBeacon.buildSignAndBroadcast}.
+   *
+   * The CAS publish happens **before** the transaction broadcast: a publish failure aborts the
+   * operation while the beacon UTXO is still unspent, so no on-chain signal ever points at an
+   * announcement that failed to publish. The announcement is content-addressed, so a retry
+   * after a failed broadcast re-publishes the same bytes to the same address (idempotent).
    *
    * @param {SignedBTCR2Update} signedUpdate The signed BTCR2 update to broadcast.
    * @param {Signer} signer Signer that produces the ECDSA signature for the Bitcoin transaction.
    * @param {BitcoinConnection} bitcoin The Bitcoin network connection.
    * @param {CASBroadcastOptions} [options] Optional broadcast configuration, including a
    *   `casPublish` callback to publish the announcement off-chain and a `feeEstimator`.
-   * @returns {Promise<SignedBTCR2Update>} The signed update that was broadcast.
+   * @returns {Promise<BroadcastResult>} The signed update, the signal txid, and the CAS
+   *   Announcement (capture it for sidecar distribution when no `casPublish` is supplied).
    * @throws {BeaconError} if the bitcoin address is invalid, unfunded, or UTXO cannot cover the fee.
    */
   async broadcastSignal(
@@ -152,7 +159,7 @@ export class CASBeacon extends SinglePartyBeacon {
     signer: Signer,
     bitcoin: BitcoinConnection,
     options?: CASBroadcastOptions
-  ): Promise<SignedBTCR2Update> {
+  ): Promise<BroadcastResult> {
     // Extract the DID from the beacon service id (strip the #fragment)
     const did = this.service.id.split('#')[0];
 
@@ -165,14 +172,15 @@ export class CASBeacon extends SinglePartyBeacon {
     // Canonicalize and hash the CAS Announcement for the OP_RETURN output
     const announcementHash = hash(canonicalize(casAnnouncement));
 
-    // Delegate UTXO selection, PSBT construction, fee estimation, signing, and broadcast
-    await this.buildSignAndBroadcast(announcementHash, signer, bitcoin, options);
-
-    // Publish CAS Announcement to content-addressed store if callback provided
+    // Publish the announcement to the content-addressed store before spending the
+    // beacon UTXO, so a publish failure aborts pre-spend.
     if(options?.casPublish) {
       await options.casPublish(casAnnouncement);
     }
 
-    return signedUpdate;
+    // Delegate UTXO selection, PSBT construction, fee estimation, signing, and broadcast
+    const txid = await this.buildSignAndBroadcast(announcementHash, signer, bitcoin, options);
+
+    return { signedUpdate, txid, announcement: casAnnouncement };
   }
 }

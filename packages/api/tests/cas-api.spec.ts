@@ -248,6 +248,36 @@ describe('CasApi', () => {
     });
   });
 
+  describe('canPublish / writable', () => {
+    it('HttpGatewayCasExecutor declares canPublish false and CasApi reports non-writable', () => {
+      const executor = new HttpGatewayCasExecutor('https://gateway.example');
+      expect(executor.canPublish).to.equal(false);
+      expect(new CasApi({ executor }).writable).to.equal(false);
+    });
+
+    it('an executor without canPublish is treated as writable (undefined means true)', () => {
+      const executor: CasExecutor = {
+        retrieve : async () => null,
+        publish  : async () => 'hash',
+      };
+      expect(new CasApi({ executor }).writable).to.equal(true);
+    });
+
+    it('an executor with canPublish true is writable', () => {
+      const executor: CasExecutor = {
+        retrieve   : async () => null,
+        publish    : async () => 'hash',
+        canPublish : true,
+      };
+      expect(new CasApi({ executor }).writable).to.equal(true);
+    });
+
+    it('blockstore- and RPC-backed configs are writable', () => {
+      expect(new CasApi({ blockstore: new FakeBlockstore() }).writable).to.equal(true);
+      expect(new CasApi({ rpcUrl: 'http://127.0.0.1:5001' }).writable).to.equal(true);
+    });
+  });
+
   describe('publish / retrieve', () => {
     it('publish canonicalizes the object and returns its canonical hash', async () => {
       const cas = new CasApi({ blockstore: new FakeBlockstore() });

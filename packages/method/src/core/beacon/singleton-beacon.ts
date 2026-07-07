@@ -4,7 +4,7 @@ import type { SignedBTCR2Update } from '../btcr2-update.js';
 import type { Signer } from '@did-btcr2/keypair';
 import type { BeaconProcessResult, DataNeed } from '../resolver.js';
 import type { SidecarData } from '../types.js';
-import type { BroadcastOptions } from './beacon.js';
+import type { BroadcastOptions, BroadcastResult } from './beacon.js';
 import { SinglePartyBeacon } from './beacon.js';
 import type { BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js';
 
@@ -70,7 +70,7 @@ export class SingletonBeacon extends SinglePartyBeacon {
    * @param {Signer} signer Signer that produces the ECDSA signature for the Bitcoin transaction.
    * @param {BitcoinConnection} bitcoin The Bitcoin network connection.
    * @param {BroadcastOptions} [options] Optional broadcast configuration (e.g. fee estimator).
-   * @returns {Promise<SignedBTCR2Update>} The signed update that was broadcast.
+   * @returns {Promise<BroadcastResult>} The signed update and the signal txid.
    * @throws {BeaconError} if the bitcoin address is invalid, unfunded, or UTXO cannot cover the fee.
    */
   async broadcastSignal(
@@ -78,9 +78,9 @@ export class SingletonBeacon extends SinglePartyBeacon {
     signer: Signer,
     bitcoin: BitcoinConnection,
     options?: BroadcastOptions
-  ): Promise<SignedBTCR2Update> {
+  ): Promise<BroadcastResult> {
     const signalBytes = hash(canonicalize(signedUpdate));
-    await this.buildSignAndBroadcast(signalBytes, signer, bitcoin, options);
-    return signedUpdate;
+    const txid = await this.buildSignAndBroadcast(signalBytes, signer, bitcoin, options);
+    return { signedUpdate, txid };
   }
 }

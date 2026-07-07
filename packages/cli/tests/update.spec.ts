@@ -77,6 +77,10 @@ describe('update and deactivate (signing)', () => {
     expect(captured.params.signer).to.be.instanceOf(KeyManagerSigner);
     expect(captured.params.sourceVersionId).to.equal(2);
     expect(captured.params.patches).to.deep.equal(JSON.parse(PATCHES));
+    // The CLI has no writable CAS configuration yet, so it must opt out of
+    // CAS publication explicitly (otherwise CAS-beacon updates would throw
+    // under the api's default 'auto' policy).
+    expect(captured.params.publishToCas).to.equal('never');
     expect(JSON.parse(out[0]).signed).to.equal('mock');
   });
 
@@ -101,5 +105,6 @@ describe('update and deactivate (signing)', () => {
     );
     expect(captured.params.signer).to.be.instanceOf(KeyManagerSigner);
     expect(captured.params.patches).to.deep.equal([{ op: 'add', path: '/deactivated', value: true }]);
+    expect(captured.params.publishToCas).to.equal('never');
   });
 });

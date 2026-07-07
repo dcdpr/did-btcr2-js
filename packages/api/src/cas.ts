@@ -20,6 +20,15 @@ export interface CasExecutor {
   retrieve(hash: string): Promise<Uint8Array | null>;
   /** Publish raw bytes and return the base64url SHA-256 hash. */
   publish(data: Uint8Array): Promise<string>;
+  /**
+   * Whether this executor supports publishing. `undefined` MUST be treated as
+   * `true`: an executor that does not declare the capability is assumed
+   * writable, so existing custom executors keep working unchanged. Read-only
+   * executors (e.g. {@link HttpGatewayCasExecutor}) set `false`, letting
+   * callers route around `publish()` instead of discovering the limitation
+   * as a thrown error mid-operation.
+   */
+  readonly canPublish?: boolean;
 }
 
 /**
@@ -155,6 +164,7 @@ export class IpfsRpcCasExecutor implements CasExecutor {
  * @public
  */
 export class HttpGatewayCasExecutor implements CasExecutor {
+  readonly canPublish = false;
   readonly #gatewayUrl: string;
 
   constructor(gatewayUrl: string) {
@@ -242,6 +252,15 @@ export class CasApi {
       );
     }
     this.#timeoutMs = config.timeoutMs ?? DEFAULT_CAS_TIMEOUT_MS;
+  }
+
+  /**
+   * Whether the configured executor supports publishing. `true` unless the
+   * executor explicitly declares `canPublish: false` (an executor that does
+   * not declare the capability is assumed writable, per {@link CasExecutor}).
+   */
+  get writable(): boolean {
+    return this.#executor.canPublish !== false;
   }
 
   /**
