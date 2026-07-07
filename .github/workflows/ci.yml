@@ -22,7 +22,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install -r --frozen-lockfile
 
-      - name: Security audit (fails on new critical advisories)
+      - name: Security audit (fails on new high or critical production advisories)
         run: pnpm audit-ci
 
       - name: Run linter

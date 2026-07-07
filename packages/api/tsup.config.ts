@@ -10,8 +10,8 @@ import { defineConfig } from 'tsup';
  * Bundled-inline deps (no `require` export condition in their package.json):
  * - multiformats subpath exports
  *
- * `helia` is imported by `cas.ts` for its `Helia` type only (the instance is
- * supplied by the caller), so it erases at build time and is not bundled.
+ * CAS access goes through fetch-based executors or a caller-supplied
+ * blockstore (see `cas.ts`), so no IPFS implementation is bundled.
  *
  * `@did-btcr2/*` workspace packages are kept external and resolved from
  * `node_modules` at runtime (they each produce their own CJS bundle).
