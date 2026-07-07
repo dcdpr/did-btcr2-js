@@ -1,5 +1,6 @@
+import type { DidUpdateResult } from '@did-btcr2/api';
 import type { PatchOperation } from '@did-btcr2/common';
-import type { Btcr2DidDocument, ResolutionOptions, SignedBTCR2Update } from '@did-btcr2/method';
+import type { Btcr2DidDocument, ResolutionOptions } from '@did-btcr2/method';
 import type { DidResolutionResult } from '@web5/dids';
 
 export type NetworkOption = 'bitcoin' | 'testnet3' | 'testnet4' | 'signet' | 'mutinynet' | 'regtest';
@@ -25,8 +26,8 @@ export interface UpdateCommandOptions {
 export type CommandResult =
   | { action: 'create'; data: string; keyId?: string; publicKey?: string }
   | { action: 'resolve'; data: DidResolutionResult }
-  | { action: 'update'; data: SignedBTCR2Update }
-  | { action: 'deactivate'; data: SignedBTCR2Update }
+  | { action: 'update'; data: DidUpdateResult }
+  | { action: 'deactivate'; data: DidUpdateResult }
   | { action: 'key-generate'; data: { keyId: string; publicKey: string; active: boolean } }
   | { action: 'key-list'; data: Array<{ keyId: string; fingerprint: string; name?: string; active: boolean }> }
   | { action: 'key-show'; data: { keyId: string; publicKey: string; tags?: Record<string, string> } }

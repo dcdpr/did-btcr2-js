@@ -97,10 +97,14 @@ while (state.status === 'action-required') {
         // Check UTXOs at need.beaconAddress, fund if needed
         updater.provide(need);
         break;
-      case 'NeedBroadcast':
-        await Updater.announce(need.beaconService, need.signedUpdate, signer, bitcoin);
+      case 'NeedBroadcast': {
+        // Capture the BroadcastResult: broadcast.txid, plus broadcast.announcement
+        // (CAS beacons) and broadcast.proof (SMT beacons; must be retained, the
+        // proof's nonce exists nowhere else).
+        const broadcast = await Updater.announce(need.beaconService, need.signedUpdate, signer, bitcoin);
         updater.provide(need);
         break;
+      }
     }
   }
   state = updater.advance();

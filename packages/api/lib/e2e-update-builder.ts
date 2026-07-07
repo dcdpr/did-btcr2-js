@@ -86,7 +86,7 @@ console.log(`    funded + confirmed + indexed`);
 // ─── Step 5: Drive the UpdateBuilder fluent chain ───────────────────────────
 
 console.log(`\n[5] Calling api.btcr2.buildUpdate(...).signer(LocalSigner).execute() ...`);
-const signed = await api.btcr2
+const { signedUpdate: signed, txid } = await api.btcr2
   .buildUpdate(sourceDocument)
   .patch({
     op    : 'add',
@@ -103,7 +103,7 @@ const signed = await api.btcr2
   .signer(signer)
   .execute();
 
-console.log(`    update broadcast (targetVersionId: ${signed.targetVersionId})`);
+console.log(`    update broadcast (targetVersionId: ${signed.targetVersionId}, txid: ${txid})`);
 
 // Verify the DI proof.
 const verifierMultikey = SchnorrMultikey.fromVerificationMethod(sourceDocument.verificationMethod![0]!);

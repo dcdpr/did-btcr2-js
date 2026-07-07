@@ -15,7 +15,9 @@ If you're integrating did:btcr2 into an app, start here. If you're customizing t
 - **`UpdateBuilder`** is a fluent chain over `DidMethodApi.update()` for callers who prefer named steps over a positional argument bag.
 - **`tryResolveDid(did)`** returns a discriminated `{ ok, document } | { ok, error, errorMessage }` instead of throwing, for cases where resolution failure is an expected outcome.
 
-The api wires the configured `BitcoinApi` into the sans-I/O Resolver and Updater state machines, fulfilling `NeedBeaconSignals`, `NeedFunding`, `NeedBroadcast`, and CAS-related needs (`NeedGenesisDocument`, `NeedCASAnnouncement`, `NeedSignedUpdate`) automatically. `NeedSMTProof` is not auto-fulfilled by the facade: SMT proofs must be provided upfront via `options.sidecar.smtProofs`. Multi-party aggregation is out of scope here; drive the Updater directly and hand `NeedBroadcast` to the aggregation runner from `@did-btcr2/aggregation`.
+The api wires the configured `BitcoinApi` into the sans-I/O Resolver and Updater state machines, fulfilling `NeedBeaconSignals`, `NeedFunding`, `NeedBroadcast`, and CAS-related needs (`NeedGenesisDocument`, `NeedCASAnnouncement`, `NeedSignedUpdate`) automatically. `NeedSMTProof` is not auto-fulfilled by the facade: SMT proofs are nonce-blinded (there is no content address to fetch them by), so they must be provided upfront via `options.sidecar.smtProofs`; resolution fails fast with that pointer otherwise. Multi-party aggregation is out of scope here; drive the Updater directly and hand `NeedBroadcast` to the aggregation runner from `@did-btcr2/aggregation`.
+
+On the write path, `publishToCas` (`'auto'` | `'always'` | `'never'`, default `'auto'`) controls whether update artifacts are published to the configured CAS **before** the on-chain broadcast. With a writable CAS, `'auto'` publishes the canonical signed update (all beacon types) plus the CAS Announcement (CAS beacons), so resolvers can fetch every OP_RETURN update hash from the CAS with no sidecar. Update calls return a `DidUpdateResult` carrying the signal `txid` and the per-beacon-type sidecar artifacts (announcement, SMT proof) for callers that distribute them out-of-band instead.
 
 ## Install
 
@@ -64,14 +66,40 @@ console.log(resolution.didDocument?.id);
 ```typescript
 import { LocalSigner } from '@did-btcr2/keypair';
 
-const signed = await api.btcr2
+// Ids are matched exactly against the document: use full DID URLs
+// (e.g. `${did}#initialKey`), not bare fragments.
+const { signedUpdate, txid, announcement, publishedToCas } = await api.btcr2
   .buildUpdate(currentDoc)
   .patch({ op: 'add', path: '/service/-', value: newService })
   .version(2)
-  .verificationMethodId('#initialKey')
-  .beacon('#beacon-0')
+  .verificationMethodId(`${did}#initialKey`)
+  .beacon(currentDoc.service[0].id)
   .signer(new LocalSigner(secretKey))
   .execute();
+```
+
+### Publish update artifacts to a CAS before broadcasting
+
+```typescript
+// A writable CAS (an IPFS node's RPC endpoint) makes updates resolvable
+// without sidecar data: the signed update (and, for CAS beacons, the
+// announcement) is published before the beacon transaction is broadcast.
+const api = createApi({
+  btc : { network: 'mutinynet' },
+  cas : { rpcUrl: 'http://127.0.0.1:5001' },
+});
+
+const result = await api.updateDid({
+  did,
+  patches              : [{ op: 'add', path: '/service/-', value: newService }],
+  verificationMethodId : `${did}#initialKey`,
+  beaconId             : `${did}#initialP2WPKH`,
+  signer,
+  // publishToCas defaults to 'auto'. Use 'never' for sidecar-only privacy:
+  // 'auto'/'always' publish canonical signed updates to the configured
+  // (possibly public) CAS before the on-chain anchor.
+});
+console.log(result.txid, result.publishedToCas); // e.g. { update: true, announcement: false }
 ```
 
 ### Resolve without throwing
@@ -95,8 +123,8 @@ const signer = new KeyManagerSigner(api.kms.kms, keyId);
 await api.updateDid({
   did,
   patches              : [{ op: 'add', path: '/service/-', value: newService }],
-  verificationMethodId : '#initialKey',
-  beaconId             : '#beacon-0',
+  verificationMethodId : `${did}#initialKey`,
+  beaconId             : `${did}#initialP2WPKH`,
   signer,
 });
 ```
@@ -105,7 +133,7 @@ await api.updateDid({
 
 - **Lazy sub-facades.** `api.btc` / `api.cas` / `api.btcr2` instantiate on first access. Creating an api without a Bitcoin config and never touching the chain costs nothing.
 - **Layered config.** Constructor config is applied first, then per-call overrides win. Bitcoin endpoint defaults come from `@did-btcr2/bitcoin`'s `DEFAULT_BITCOIN_NETWORK_CONFIG`.
-- **CAS has a sensible default.** If no `cas` config is passed, `api.cas` defaults to a read-only HTTP gateway against `https://ipfs.io`. Override for write capability or an alternative gateway.
+- **CAS has a sensible default.** If no `cas` config is passed, `api.cas` defaults to a read-only HTTP gateway against `https://ipfs.io`. Configure `cas.rpcUrl`, `cas.blockstore`, or a custom `cas.executor` for write capability; `api.cas.writable` reports whether the configured backend accepts publishes (executors declare it via `CasExecutor.canPublish`; undefined means writable).
 - **Driver injection.** `api.btcr2.resolve(did, options)` accepts an optional override; the api passes its own `BitcoinConnection` automatically when none is provided.
 
 ## Build & Test
@@ -125,6 +153,8 @@ The `lib/` directory contains end-to-end scripts that exercise the full update p
 - **Package docs on btcr2.dev** [btcr2.dev/impls/ts](https://btcr2.dev/impls/ts)
 - **[ADR-006](../../docs/adr/006-api-package-boundary.md)** API package boundary
 - **[ADR-024](../../docs/adr/024-api-facade-lazy-and-layered-config.md)** API facade lazy initialization + layered config
+- **[ADR-069](../../docs/adr/069-fetch-based-cas-executors-drop-helia.md)** Fetch-based CAS executors
+- **[ADR-071](../../docs/adr/071-api-cas-publication-policy.md)** CAS publication policy on the update path
 - **Source reference** See JSDoc on `DidBtcr2Api`, `DidMethodApi`, and the sub-facade classes.
 
 ## License

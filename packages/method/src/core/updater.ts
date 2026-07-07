@@ -5,6 +5,8 @@ import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import type { Signer } from '@did-btcr2/keypair';
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from './btcr2-update.js';
 import { DidDocument, type Btcr2DidDocument, type DidVerificationMethod } from '../utils/did-document.js';
+import type { BroadcastResult } from './beacon/beacon.js';
+import type { CASBroadcastOptions } from './beacon/cas-beacon.js';
 import { BeaconFactory } from './beacon/factory.js';
 import type { BeaconService } from './beacon/interfaces.js';
 
@@ -56,9 +58,14 @@ export interface FundingProof {
  * The updater needs the caller to broadcast the signed update via the beacon.
  *
  * The caller decides how: for single-party beacons, call
- * `Updater.announce(beaconService, signedUpdate, secretKey, bitcoin)` or
+ * `Updater.announce(beaconService, signedUpdate, signer, bitcoin, options?)` or
  * `BeaconFactory.establish(beaconService).broadcastSignal(...)`. For multi-party
  * aggregate beacons, hand off to the aggregation protocol.
+ *
+ * Both single-party paths return a `BroadcastResult`; capture it. Beyond the txid,
+ * it carries the per-beacon-type sidecar artifacts: the CAS Announcement (CAS
+ * beacons) and the SMT inclusion proof (SMT beacons), whose embedded nonce exists
+ * nowhere else, so a discarded proof makes the signal permanently unresolvable.
  *
  * After the broadcast succeeds, the caller calls `updater.provide(need)` (with no
  * data) to transition the updater to Complete.
@@ -137,10 +144,14 @@ export interface UpdaterParams {
  *         // Check UTXOs at need.beaconAddress, fund if needed
  *         updater.provide(need);
  *         break;
- *       case 'NeedBroadcast':
- *         await Updater.announce(need.beaconService, need.signedUpdate, signer, bitcoin);
+ *       case 'NeedBroadcast': {
+ *         // Capture the BroadcastResult: broadcast.txid, plus broadcast.announcement
+ *         // (CAS beacons) and broadcast.proof (SMT beacons; must be retained, the
+ *         // proof's nonce exists nowhere else).
+ *         const broadcast = await Updater.announce(need.beaconService, need.signedUpdate, signer, bitcoin);
  *         updater.provide(need);
  *         break;
+ *       }
  *     }
  *   }
  *   state = updater.advance();
@@ -315,16 +326,21 @@ export class Updater {
    * @param {SignedBTCR2Update} update The signed update to announce.
    * @param {Signer} signer Signer that produces the ECDSA signature for the Bitcoin transaction.
    * @param {BitcoinConnection} bitcoin The Bitcoin network connection.
-   * @returns {Promise<SignedBTCR2Update>} The signed update that was broadcast.
+   * @param {CASBroadcastOptions} [options] Optional broadcast configuration (fee estimator,
+   *   change address, and, for CAS beacons, a `casPublish` callback invoked before the
+   *   transaction broadcast; other beacon types ignore `casPublish`).
+   * @returns {Promise<BroadcastResult>} The broadcast artifacts: the signed update, the signal
+   *   txid, and any per-beacon-type sidecar data (CAS announcement / SMT proof).
    */
   static async announce(
     beaconService: BeaconService,
     update: SignedBTCR2Update,
     signer: Signer,
-    bitcoin: BitcoinConnection
-  ): Promise<SignedBTCR2Update> {
+    bitcoin: BitcoinConnection,
+    options?: CASBroadcastOptions
+  ): Promise<BroadcastResult> {
     const beacon = BeaconFactory.establish(beaconService);
-    return beacon.broadcastSignal(update, signer, bitcoin);
+    return beacon.broadcastSignal(update, signer, bitcoin, options);
   }
 
   // Private instance wrappers

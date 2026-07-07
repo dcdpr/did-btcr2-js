@@ -2,13 +2,60 @@ import type { BitcoinConnection } from '@did-btcr2/bitcoin';
 import type { DocumentBytes, KeyBytes, PatchOperation } from '@did-btcr2/common';
 import { decode as decodeHash, IdentifierTypes, INVALID_DID_UPDATE, NotImplementedError, UpdateError } from '@did-btcr2/common';
 import type { Signer } from '@did-btcr2/keypair';
-import type { Btcr2DidDocument, CASAnnouncement, DidCreateOptions, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, ResolutionOptions, SignedBTCR2Update } from '@did-btcr2/method';
+import type { BroadcastOptions, BroadcastResult, Btcr2DidDocument, CASAnnouncement, CASBroadcastOptions, DidCreateOptions, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, ResolutionOptions, SignedBTCR2Update, SMTProof } from '@did-btcr2/method';
 import { BeaconFactory, BeaconSignalDiscovery, DidBtcr2 } from '@did-btcr2/method';
 import type { DidResolutionResult, DidVerificationMethod } from '@web5/dids';
 import type { BitcoinApi } from './bitcoin.js';
 import type { CasApi } from './cas.js';
 import { assertBytes, assertCompressedPubkey, assertString, NOOP_LOGGER } from './helpers.js';
 import type { Logger } from './types.js';
+
+/**
+ * Policy for publishing update artifacts to the configured CAS during
+ * {@link DidMethodApi.update}:
+ *
+ * - `'auto'` (default): publish the signed update (all beacon types) and the CAS
+ *   Announcement (CAS beacons) when a writable CAS is configured. Singleton and
+ *   SMT beacon updates skip publication silently when the CAS is read-only or
+ *   absent; CAS beacon updates **throw up-front** instead, because a CAS beacon
+ *   signal whose announcement lands nowhere is unresolvable unless the caller
+ *   distributes it out-of-band (opt into that explicitly with `'never'`).
+ * - `'always'`: like `'auto'`, but a read-only or absent CAS throws up-front for
+ *   every beacon type.
+ * - `'never'`: publish nothing; the caller distributes the returned artifacts
+ *   (signed update, announcement, proof) via sidecar themselves.
+ * @public
+ */
+export type PublishToCasMode = 'auto' | 'always' | 'never';
+
+/**
+ * Result of {@link DidMethodApi.update}: the signed update plus every broadcast
+ * artifact a resolver (or a sidecar distributor) needs afterwards.
+ * @public
+ */
+export interface DidUpdateResult {
+  /** The signed update that was broadcast. */
+  signedUpdate: SignedBTCR2Update;
+  /** Transaction id of the on-chain beacon signal. */
+  txid: string;
+  /**
+   * The CAS Announcement whose hash rode in the OP_RETURN output (CAS beacons
+   * only). Capture it for sidecar distribution when it was not published to CAS.
+   */
+  announcement?: CASAnnouncement;
+  /**
+   * SMT inclusion proof for the update, with the leaf nonce embedded (SMT
+   * beacons only). Not content-addressable; always distribute via sidecar.
+   */
+  proof?: SMTProof;
+  /** Which artifacts were published to the configured CAS. */
+  publishedToCas: {
+    /** The canonical signed update bytes were published. */
+    update: boolean;
+    /** The canonical CAS Announcement bytes were published (CAS beacons only). */
+    announcement: boolean;
+  };
+}
 
 /**
  * DID method operations sub-facade: create, resolve, update, deactivate.
@@ -141,6 +188,25 @@ export class DidMethodApi {
               resolver.provide(need as NeedSignedUpdate, update as SignedBTCR2Update);
               break;
             }
+            case 'NeedSMTProof': {
+              // SMT proofs are nonce-blinded, so they are not content-addressed
+              // by anything on-chain and cannot be fetched from a CAS. Sidecar
+              // is the only channel; without it the need is unfulfillable.
+              throw new Error(
+                `SMT proof required but not in sidecar (root hash: ${need.smtRootHash}). `
+                + 'SMT proofs cannot be fetched from a CAS; provide the proof via '
+                + 'options.sidecar.smtProofs.'
+              );
+            }
+            default: {
+              // The switch is exhaustive over today's DataNeed union; this guards
+              // against a newer method package emitting a need this api version
+              // does not know how to fulfill, which would otherwise spin the
+              // while-loop forever.
+              throw new Error(
+                `Unsupported resolver data need: ${String((need as { kind?: string }).kind)}.`
+              );
+            }
           }
         }
         state = resolver.resolve();
@@ -165,6 +231,10 @@ export class DidMethodApi {
    * Update an existing DID document by driving the sans-I/O {@link Updater} state
    * machine (from @did-btcr2/method). This method handles the I/O side:
    * - Signing: supplies the {@link Signer} to `NeedSigningKey`.
+   * - CAS publication: publishes the signed update (and, for CAS beacons, the
+   *   announcement) to the configured CAS per the `publishToCas` policy,
+   *   **before** the on-chain broadcast, so any OP_RETURN update hash is
+   *   fetchable from CAS at resolution time without sidecar data.
    * - Broadcast: establishes a beacon via {@link BeaconFactory} and calls
    *   `broadcastSignal()` with the bitcoin connection configured on the API.
    *
@@ -173,7 +243,8 @@ export class DidMethodApi {
    * rather than using this high-level method.
    *
    * @param params The update parameters.
-   * @returns The signed update.
+   * @returns The broadcast artifacts: signed update, signal txid, per-beacon-type
+   *   sidecar data, and which artifacts were published to CAS.
    */
   async update({
     sourceDocument,
@@ -183,6 +254,8 @@ export class DidMethodApi {
     beaconId,
     signer,
     bitcoin,
+    publishToCas = 'auto',
+    broadcastOptions,
   }: {
     sourceDocument: Btcr2DidDocument;
     patches: PatchOperation[];
@@ -191,7 +264,9 @@ export class DidMethodApi {
     beaconId: string;
     signer: Signer;
     bitcoin?: BitcoinConnection;
-  }): Promise<SignedBTCR2Update> {
+    publishToCas?: PublishToCasMode;
+    broadcastOptions?: BroadcastOptions;
+  }): Promise<DidUpdateResult> {
     // Bitcoin connection resolution order: per-call `bitcoin` param wins over the
     // BitcoinApi injected at DidBtcr2Api construction time. One of the two must
     // be present; this can't be encoded in the type system, so it's a runtime check.
@@ -215,8 +290,19 @@ export class DidMethodApi {
       beaconId,
     });
 
-    // Drive the state machine. All I/O (signing delegation, Bitcoin broadcast)
-    // happens inside the need-handlers below - the Updater itself is pure.
+    // Decide the CAS publication plan before any signing or spending happens, so
+    // a policy violation (e.g. a CAS beacon with a read-only CAS under 'auto')
+    // fails fast instead of after the update is signed. Runs after the factory so
+    // an invalid beaconId still throws the canonical error; the service lookup
+    // uses the factory's exact-id match.
+    const beaconType = sourceDocument.service?.find(s => s.id === beaconId)?.type;
+    const publishCas = this.#planCasPublication(publishToCas, beaconType, beaconId);
+
+    // Drive the state machine. All I/O (signing delegation, CAS publication,
+    // Bitcoin broadcast) happens inside the need-handlers below - the Updater
+    // itself is pure.
+    let broadcastResult: BroadcastResult | undefined;
+    const publishedToCas = { update: false, announcement: false };
     let state = updater.advance();
     while(state.status === 'action-required') {
       for(const need of state.needs) {
@@ -241,21 +327,110 @@ export class DidMethodApi {
             break;
           }
           case 'NeedBroadcast': {
+            const options: CASBroadcastOptions = { ...broadcastOptions };
+
+            // Publication order: signed update, then announcement (inside the
+            // beacon, via casPublish), then the tx broadcast. Publishing before
+            // spending means a CAS failure aborts while the beacon UTXO is
+            // intact; content addressing makes a retry after a failed broadcast
+            // idempotent (same bytes, same address).
+            if(publishCas) {
+              this.#log.debug('Publishing signed update to CAS');
+              await publishCas.publish(need.signedUpdate);
+              publishedToCas.update = true;
+              if(need.beaconService.type === 'CASBeacon') {
+                options.casPublish = async (announcement) => {
+                  this.#log.debug('Publishing CAS announcement to CAS');
+                  await publishCas.publish(announcement);
+                  publishedToCas.announcement = true;
+                };
+              }
+            }
+
             this.#log.debug(
               'Broadcasting signed update via %s beacon', need.beaconService.type
             );
             const beacon = BeaconFactory.establish(need.beaconService);
-            await beacon.broadcastSignal(need.signedUpdate, signer, btcConnection);
+            broadcastResult = await beacon.broadcastSignal(
+              need.signedUpdate, signer, btcConnection, options
+            );
             updater.provide(need);
             break;
+          }
+          default: {
+            // The switch is exhaustive over today's UpdaterDataNeed union; this
+            // guards against a newer method package emitting a need this api
+            // version cannot fulfill, which would otherwise spin the while-loop
+            // forever (the updater re-emits unfulfilled needs on every advance()).
+            throw new UpdateError(
+              `Unsupported updater data need: ${String((need as { kind?: string }).kind)}.`,
+              INVALID_DID_UPDATE, { beaconId }
+            );
           }
         }
       }
       state = updater.advance();
     }
 
+    if(!broadcastResult) {
+      throw new UpdateError(
+        'Updater completed without reaching the broadcast phase.',
+        INVALID_DID_UPDATE, { beaconId }
+      );
+    }
+
     this.#log.debug('DID update complete', sourceDocument.id);
-    return state.result.signedUpdate;
+    return {
+      signedUpdate : state.result.signedUpdate,
+      txid         : broadcastResult.txid,
+      ...(broadcastResult.announcement ? { announcement: broadcastResult.announcement } : {}),
+      ...(broadcastResult.proof ? { proof: broadcastResult.proof } : {}),
+      publishedToCas,
+    };
+  }
+
+  /**
+   * Resolve the `publishToCas` policy against the configured CAS and the beacon
+   * type. Returns the {@link CasApi} to publish with, or `null` when publication
+   * is skipped; throws when the policy demands a writable CAS that is not available.
+   */
+  #planCasPublication(
+    mode: PublishToCasMode,
+    beaconType: string | undefined,
+    beaconId: string,
+  ): CasApi | null {
+    if(mode === 'never') return null;
+
+    if(this.#cas && this.#cas.writable) return this.#cas;
+
+    const casState = this.#cas
+      ? 'the configured CAS is read-only (e.g. an HTTP gateway)'
+      : 'no CAS is configured';
+
+    if(mode === 'always') {
+      throw new UpdateError(
+        `publishToCas is 'always' but ${casState}. Configure a writable CAS `
+        + '(cas.rpcUrl, cas.blockstore, or a custom cas.executor with publish support), '
+        + 'or use publishToCas \'auto\'/\'never\'.',
+        INVALID_DID_UPDATE, { beaconId, publishToCas: mode }
+      );
+    }
+
+    // 'auto': a CAS beacon signal points at an announcement that must be
+    // retrievable somewhere; silently publishing nowhere would produce an
+    // unresolvable signal unless the caller distributes sidecar data, which
+    // they must opt into explicitly.
+    if(beaconType === 'CASBeacon') {
+      throw new UpdateError(
+        `CAS beacon updates publish the announcement to a content-addressed store, but ${casState}. `
+        + 'Configure a writable CAS (cas.rpcUrl, cas.blockstore, or a custom cas.executor with '
+        + 'publish support), or set publishToCas \'never\' to distribute the returned announcement '
+        + 'via sidecar yourself.',
+        INVALID_DID_UPDATE, { beaconId, publishToCas: mode }
+      );
+    }
+
+    return null;
   }
 
   /**
@@ -275,12 +450,12 @@ export class DidMethodApi {
    *
    * @example
    * ```ts
-   * const signed = await api.btcr2
+   * const { signedUpdate, txid } = await api.btcr2
    *   .buildUpdate(currentDoc)
    *   .patch({ op: 'add', path: '/service/1', value: newService })
    *   .version(2)
-   *   .verificationMethodId('#initialKey')
-   *   .beacon('#beacon-0')
+   *   .verificationMethodId(`${currentDoc.id}#initialKey`)
+   *   .beacon(currentDoc.service[0].id)
    *   .signer(new LocalSigner(secretKey))
    *   .execute();
    * ```
@@ -317,6 +492,8 @@ export class UpdateBuilder {
   #beaconId?: string;
   #signer?: Signer;
   #bitcoin?: BitcoinConnection;
+  #publishToCas?: PublishToCasMode;
+  #broadcastOptions?: BroadcastOptions;
 
   /** @internal */
   constructor(methodApi: DidMethodApi, sourceDocument: Btcr2DidDocument) {
@@ -372,11 +549,23 @@ export class UpdateBuilder {
     return this;
   }
 
+  /** Set the CAS publication policy for this update (default `'auto'`). */
+  publishToCas(mode: PublishToCasMode): this {
+    this.#publishToCas = mode;
+    return this;
+  }
+
+  /** Set beacon broadcast options (fee estimator, change address). */
+  broadcastOptions(options: BroadcastOptions): this {
+    this.#broadcastOptions = options;
+    return this;
+  }
+
   /**
    * Execute the update.
    * @throws {Error} If required fields (version, verificationMethodId, beacon, signer) are missing.
    */
-  async execute(): Promise<SignedBTCR2Update> {
+  async execute(): Promise<DidUpdateResult> {
     if (this.#sourceVersionId === undefined) {
       throw new Error('UpdateBuilder: sourceVersionId is required. Call .version(id) before .execute().');
     }
@@ -401,6 +590,8 @@ export class UpdateBuilder {
       beaconId             : this.#beaconId,
       signer               : this.#signer,
       bitcoin              : this.#bitcoin,
+      publishToCas         : this.#publishToCas,
+      broadcastOptions     : this.#broadcastOptions,
     });
   }
 }

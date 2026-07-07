@@ -68,8 +68,11 @@ export interface BeaconSignal {
 
 /**
  * Callback for publishing a CAS Announcement to a content-addressed store.
- * The method package defines this type; the api layer provides the implementation
- * (e.g., via CasApi.publish backed by IPFS/Helia).
+ * The method package defines this type; the caller provides the implementation
+ * (e.g., the api layer's CasApi.publish backed by any CAS executor).
+ *
+ * Invoked before the beacon signal transaction is broadcast, so a thrown error
+ * aborts the operation while the beacon UTXO is still unspent.
  *
  * @param announcement The CAS Announcement object (DID to update hash mapping).
  */

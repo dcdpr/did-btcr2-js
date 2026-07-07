@@ -70,6 +70,9 @@ export function registerUpdateCommand(
       const api = factory(network, globals());
       const keyId = resolveKeyRef(api.kms.kms, globals().signingKey);
       const signer = new KeyManagerSigner(api.kms.kms, keyId);
+      // The CLI's CAS is a read-only gateway (no writable CAS is configurable
+      // yet), so CAS publication is disabled explicitly. The returned artifacts
+      // (txid, announcement, proof) are printed for manual sidecar distribution.
       const data = await api.btcr2.update({
         sourceDocument       : parsed.sourceDocument,
         patches              : parsed.patches,
@@ -77,6 +80,7 @@ export function registerUpdateCommand(
         verificationMethodId : parsed.verificationMethodId,
         beaconId             : parsed.beaconId,
         signer,
+        publishToCas         : 'never',
       });
       console.log(formatResult({ action: 'update', data }, globals()));
     });
