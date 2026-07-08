@@ -7,7 +7,7 @@ import type { CommandResult, GlobalOptions } from '../types.js';
 /** Registers the `profile` command group for managing configuration profiles. */
 export function registerProfileCommand(program: Command, globals: () => GlobalOptions): void {
   const profile = program.command('profile').description('Manage configuration profiles.');
-  const path = (): string => globals().config ?? defaultConfigPath();
+  const path = (): string => globals().config ?? defaultConfigPath(globals());
   const print = (result: CommandResult): void => console.log(formatResult(result, globals()));
 
   profile

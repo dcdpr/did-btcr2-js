@@ -1,21 +1,8 @@
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { blankToUndef } from '../types.js';
-
 /**
- * Default keystore file path, following the XDG Base Directory Specification's
- * data directory. Secret key material is data a user accumulates, so it lives
- * under the data directory, kept separate from the configuration directory used
- * for portable settings.
- *
- * Resolution order:
- * 1. `$XDG_DATA_HOME/btcr2/keystore.json`
- * 2. `%LOCALAPPDATA%/btcr2/keystore.json` (Windows)
- * 3. `~/.local/share/btcr2/keystore.json` (fallback)
+ * The default keystore path now lives alongside the config file under a single
+ * CLI home root (`<home>/keystore.json`, ADR 079). The implementation lives in
+ * `../paths.ts` (the single source of truth for on-disk state locations); it is
+ * re-exported here so existing `./paths.js` importers in the keystore layer keep
+ * their import surface.
  */
-export function defaultKeystorePath(): string {
-  const base = blankToUndef(process.env.XDG_DATA_HOME)
-    ?? blankToUndef(process.env.LOCALAPPDATA)
-    ?? join(homedir(), '.local', 'share');
-  return join(base, 'btcr2', 'keystore.json');
-}
+export { defaultKeystorePath } from '../paths.js';

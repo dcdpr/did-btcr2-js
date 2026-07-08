@@ -1,7 +1,7 @@
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 import type { Command } from 'commander';
 import type { ApiFactory, ConnectionOverrides } from '../config.js';
-import { profileNetworkMismatch, resolveDefaultNetwork } from '../config.js';
+import { assertKeystoreAllowedForNetwork, profileNetworkMismatch, resolveDefaultNetwork } from '../config.js';
 import { CLIError } from '../error.js';
 import { resolveKeyRef } from '../keystore/resolve-key-ref.js';
 import { formatResult } from '../output.js';
@@ -132,6 +132,8 @@ export function registerCreateCommand(
       }
 
       // Generate: mint a fresh key, persist it, and set it active (passphrase prompt).
+      // Refuse to seal a fresh mainnet key into an unencrypted dev keystore (ADR 080).
+      assertKeystoreAllowedForNetwork(network, overrides);
       const api = keystoreFactory(undefined, overrides);
       const { did, keyId } = api.generateDid({ network, setActive: true });
       const publicKey = bytesToHex(api.kms.getPublicKey(keyId));
@@ -145,6 +147,7 @@ export function registerCreateCommand(
 /** Builds the keystore- and config-resolution overrides from the global flags. */
 function overridesFromGlobals(g: GlobalOptions): ConnectionOverrides {
   return {
+    home           : g.home,
     config         : g.config,
     profile        : g.profile,
     keystore       : g.keystore,

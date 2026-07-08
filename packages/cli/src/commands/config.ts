@@ -1,6 +1,5 @@
 import type { Command } from 'commander';
 import { existsSync } from 'node:fs';
-import { dirname } from 'node:path';
 import {
   CONFIG_SCHEMA_VERSION,
   defaultConfigPath,
@@ -9,23 +8,24 @@ import {
   readConfigFile,
   resolveDefaultNetwork,
   resolveEffectiveConfig,
+  resolveKeystorePath,
   runDoctor,
   setConfigPath,
   unsetConfigPath,
   writeConfigFile,
+  writeDefaultConfigFile,
 } from '../config.js';
 import { findConfigIssues, validateConfigSet } from '../config-schema.js';
 import { CLIError } from '../error.js';
-import { ensureDir, writeFileAtomic } from '../keystore/atomic.js';
-import { defaultKeystorePath } from '../keystore/paths.js';
 import { formatResult, REDACTED, redactSecrets, scrubUrlUserinfo } from '../output.js';
+import { resolveHome } from '../paths.js';
 import type { CommandResult, GlobalOptions, NetworkOption } from '../types.js';
 import { SUPPORTED_NETWORKS } from '../types.js';
 
 /** Registers the `config` command group for reading and writing CLI configuration. */
 export function registerConfigCommand(program: Command, globals: () => GlobalOptions): void {
   const config = program.command('config').description('Read and write CLI configuration.');
-  const path = (): string => globals().config ?? defaultConfigPath();
+  const path = (): string => globals().config ?? defaultConfigPath(globals());
   const print = (result: CommandResult): void => console.log(formatResult(result, globals()));
 
   config
@@ -37,13 +37,7 @@ export function registerConfigCommand(program: Command, globals: () => GlobalOpt
       if (existsSync(p) && !options.force) {
         throw new CLIError(`Config already exists at ${p}. Use --force to overwrite.`, 'INVALID_ARGUMENT_ERROR', { path: p });
       }
-      const scaffold = {
-        schemaVersion : CONFIG_SCHEMA_VERSION,
-        defaults      : { output: 'text' },
-        profiles      : Object.fromEntries(SUPPORTED_NETWORKS.map(n => [ n, {} ])),
-      };
-      ensureDir(dirname(p), 0o700);
-      writeFileAtomic(p, `${JSON.stringify(scaffold, null, 2)}\n`, 0o600);
+      writeDefaultConfigFile(p);
       print({ action: 'config-init', data: { path: p } });
     });
 
@@ -128,11 +122,15 @@ export function registerConfigCommand(program: Command, globals: () => GlobalOpt
 
   config
     .command('path')
-    .description('Print the resolved config-file and keystore paths.')
+    .description('Print the resolved home directory, config-file, and keystore paths.')
     .action(() => {
+      const g = globals();
       const data = {
-        config   : globals().config ?? defaultConfigPath(),
-        keystore : globals().keystore ?? defaultKeystorePath(),
+        home     : resolveHome(g),
+        config   : g.config ?? defaultConfigPath(g),
+        // Diagnostic command: report the path even when the config is malformed
+        // (this is a command you run to find and fix a broken config).
+        keystore : resolveKeystorePath(g, { lenient: true }),
       };
       print({ action: 'config-path', data });
     });

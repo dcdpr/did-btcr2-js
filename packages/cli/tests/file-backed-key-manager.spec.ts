@@ -62,9 +62,10 @@ describe('FileBackedKeyManager', () => {
     const id = 'urn:kms:secp256k1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     const pub = base64urlnopad.encode(SchnorrKeyPair.generate().publicKey.compressed);
     writeFileSync(path, JSON.stringify({
-      v      : 1,
-      active : 'urn:kms:secp256k1:ffffffffffffffffffffffffffffffff',
-      keys   : { [id]: { publicKey: pub } },
+      v          : 1,
+      protection : 'passphrase',
+      active     : 'urn:kms:secp256k1:ffffffffffffffffffffffffffffffff',
+      keys       : { [id]: { publicKey: pub } },
     }), { mode: 0o600 });
     chmodSync(path, 0o600);
     const km = open();

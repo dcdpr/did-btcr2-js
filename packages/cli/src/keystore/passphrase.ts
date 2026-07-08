@@ -12,6 +12,13 @@ export type PassphraseOptions = {
   prompt?: string;
   /** When true, prompt twice and require the entries to match (for a new keystore). */
   confirm?: boolean;
+  /**
+   * When true, skip the environment variable and passphrase file and require a
+   * fresh terminal entry. Used for the *new* passphrase in `change-passphrase`,
+   * where the env var / file holds the *current* passphrase and must not silently
+   * satisfy the new one (which would make the change a no-op).
+   */
+  forcePrompt?: boolean;
 };
 
 /**
@@ -19,16 +26,19 @@ export type PassphraseOptions = {
  * (which would leak into process listings and shell history). Resolution order:
  * the {@link ENV_KEYSTORE_PASSPHRASE} environment variable, a passphrase file,
  * then a non-echoing terminal prompt. Throws if none is available and standard
- * input is not a terminal.
+ * input is not a terminal. When `forcePrompt` is set, the env var and file are
+ * skipped and a terminal entry is required.
  */
 export function acquirePassphrase(options: PassphraseOptions = {}): string {
   // All sources are normalized identically (at most one trailing newline
   // removed) so the KDF input is source-independent.
-  const fromEnv = process.env[ENV_KEYSTORE_PASSPHRASE];
-  if (fromEnv) return assertNonEmpty(fromEnv.replace(/\r?\n$/, ''));
+  if (!options.forcePrompt) {
+    const fromEnv = process.env[ENV_KEYSTORE_PASSPHRASE];
+    if (fromEnv) return assertNonEmpty(fromEnv.replace(/\r?\n$/, ''));
 
-  if (options.passphraseFile) {
-    return assertNonEmpty(readFileSync(options.passphraseFile, 'utf-8').replace(/\r?\n$/, ''));
+    if (options.passphraseFile) {
+      return assertNonEmpty(readFileSync(options.passphraseFile, 'utf-8').replace(/\r?\n$/, ''));
+    }
   }
 
   if (!process.stdin.isTTY) {
@@ -57,8 +67,33 @@ function assertNonEmpty(passphrase: string): string {
 }
 
 /**
+ * A 4-byte shared buffer used only as an {@link Atomics.wait} target. It lets
+ * {@link promptHidden} block briefly on an empty non-blocking TTY instead of
+ * busy-spinning. It is never written to, so the wait always times out.
+ */
+const IDLE_WAIT = new Int32Array(new SharedArrayBuffer(4));
+
+/**
+ * Milliseconds to block on each empty read. Imperceptible to a typist yet long
+ * enough that an open prompt sits idle rather than pegging a CPU core.
+ */
+const IDLE_POLL_MS = 20;
+
+/**
+ * Removes the last whole UTF-8 character from an accumulating byte array in
+ * place: pops any trailing continuation bytes (0b10xxxxxx) then the leading
+ * byte. Exported for testing; a backspace mid-entry must not strand a fragment
+ * that later decodes to U+FFFD.
+ */
+export function dropLastUtf8Char(bytes: number[]): void {
+  while (bytes.length > 0 && (bytes[bytes.length - 1] & 0xc0) === 0x80) bytes.pop();
+  bytes.pop();
+}
+
+/**
  * Reads a line from the terminal synchronously without echoing keystrokes.
- * Bytes are accumulated and decoded as UTF-8 so multibyte passphrases survive.
+ * Bytes are accumulated and decoded as UTF-8 so multibyte passphrases survive,
+ * including a backspace that spans a whole multibyte character.
  * This path runs only when standard input is a terminal.
  */
 function promptHidden(label: string): string {
@@ -75,7 +110,12 @@ function promptHidden(label: string): string {
         read = readSync(stdin.fd, byte, 0, 1, null);
       } catch (error) {
         const code = (error as { code?: string }).code;
-        if (code === 'EAGAIN') continue; // no byte ready yet on a non-blocking TTY
+        if (code === 'EAGAIN') {
+          // No byte ready yet on a non-blocking TTY. Block briefly instead of
+          // spinning so an open prompt does not peg a CPU core while it waits.
+          Atomics.wait(IDLE_WAIT, 0, 0, IDLE_POLL_MS);
+          continue;
+        }
         if (code === 'EOF') break;
         throw error;
       }
@@ -86,7 +126,7 @@ function promptHidden(label: string): string {
         throw new KeyStoreError('Passphrase entry aborted.', 'PASSPHRASE_REQUIRED_ERROR');
       }
       if (ch === 0x7f || ch === 0x08) { // DEL or backspace
-        bytes.pop();
+        dropLastUtf8Char(bytes);
         continue;
       }
       bytes.push(ch);

@@ -36,11 +36,13 @@ npx @did-btcr2/cli resolve -i did:btcr2:k1qq...
 
 | Command | Alias | Description |
 |---|---|---|
+| `init` | - | Set up the btcr2 home: create the directory, a default config, and establish the keystore |
 | `create` | - | Create an identifier and initial DID document |
 | `resolve` | `read` | Resolve a DID document |
 | `update` | - | Update a DID document (signs via the keystore) |
 | `deactivate` | `delete` | Deactivate a DID permanently (signs via the keystore) |
-| `key` | - | Manage keypairs in the encrypted keystore |
+| `key` | - | Manage keypairs in the keystore |
+| `keystore` | - | Establish, inspect, and re-key the keystore |
 | `config` | - | Read and write CLI configuration |
 | `profile` | - | Manage configuration profiles |
 | `completion` | - | Print a shell completion script |
@@ -96,9 +98,29 @@ Permanently deactivates a DID. This is irreversible. Deactivation applies the `{
 
 Required flags: `-s/--source-document`, `--source-version-id`, `-m/--verification-method-id`, `-b/--beacon-id`. Optional: `--publish-to-cas <mode>`, `--fee-rate <satsPerVByte>`, `--change-address <address>` (same as `update`).
 
+### init
+
+`btcr2 init` is the one-command setup: it creates the btcr2 home directory, writes a default config if none exists, and establishes the keystore if none exists. It is idempotent (existing files are left untouched unless `--force`).
+
+| Flag | Description |
+|---|---|
+| `--dev` | Establish an **unencrypted** dev keystore (plaintext keys, no passphrase). Testnet/regtest only; mainnet operations are refused |
+| `--force` | Re-create the config and keystore even if they already exist |
+
+By default `init` establishes an **encrypted** keystore and prompts (with confirmation) for a passphrase up front, so the first `key generate` never seals the keystore under an unconfirmed, mistyped passphrase. Supply the passphrase non-interactively with `BTCR2_KEYSTORE_PASSPHRASE` or `--passphrase-file` for scripted setup.
+
+The workshop happy path:
+
+```bash
+btcr2 init --dev --network mutinynet   # (or: btcr2 init  for an encrypted keystore)
+btcr2 key generate --set-active
+btcr2 create --network mutinynet
+# ...fund the beacon, resolve, update, deactivate...
+```
+
 ### key
 
-Manage keypairs in the encrypted keystore. All subcommands operate offline (no Bitcoin connection).
+Manage keypairs in the keystore. All subcommands operate offline (no Bitcoin connection).
 
 | Subcommand | Alias | Description |
 |---|---|---|
@@ -111,6 +133,18 @@ Manage keypairs in the encrypted keystore. All subcommands operate offline (no B
 | `key use <ref>` | - | Set the active key, persisted across invocations |
 
 A key reference is a full URN, a unique `name` tag, or a unique fingerprint prefix.
+
+### keystore
+
+Establish, inspect, and re-key the keystore. These operate on the keystore file directly (no Bitcoin connection).
+
+| Subcommand | Alias | Description |
+|---|---|---|
+| `keystore init` | - | Establish the keystore (encrypted by default; prompts and confirms the passphrase). `--dev` creates an unencrypted dev keystore; `--force` re-establishes an existing one (discards its keys) |
+| `keystore status` | - | Show the resolved path, protection mode (`encrypted`/`dev`/`absent`), whether a passphrase is established, and the key count. Never decrypts or prompts |
+| `keystore change-passphrase` | `passwd` | Re-seal every key under a new passphrase (encrypted keystores only). Prompts for the current passphrase, then a new one (with confirmation) |
+
+**Encrypted vs dev keystores.** An encrypted keystore seals each secret with argon2id + XChaCha20-Poly1305 under one passphrase, and records a verifier so a mistyped passphrase fails loudly (with `Incorrect passphrase`) instead of sealing a key under an unknown or divergent passphrase. A **dev keystore** (`--dev`) stores secrets in plaintext and never prompts: it is for disposable testnet/regtest keys only, and the CLI **hard-refuses** to sign or generate a mainnet (`bitcoin`) key with one.
 
 ### config
 
@@ -125,7 +159,7 @@ Read and write CLI configuration.
 | `config list` | `ls` | Print the entire config file. Secret values are redacted; `--show-secrets` reveals them |
 | `config validate` | - | Report unknown keys, invalid enum values, and an unsupported schema version |
 | `config effective` | - | Print the resolved connection config with per-value provenance (`flag`/`env`/`file`/`default`). `-n, --network <n>` selects the network; `--show-secrets` reveals the RPC password |
-| `config path` | - | Print the resolved config-file and keystore paths |
+| `config path` | - | Print the resolved home directory, config-file, and keystore paths |
 | `config doctor` | - | Probe reachability of the resolved endpoints (read-only; touches the network). `-n, --network <n>` selects the network |
 
 ### profile
@@ -223,7 +257,8 @@ Override precedence, highest wins: CLI flags, then environment variables, then c
 | `-o, --output <format>` | Output format: `json` or `text` (default: config `defaults.output`, else `text`) |
 | `--verbose` | Verbose output |
 | `--quiet` | Suppress non-essential output |
-| `-c, --config <path>` | Path to config file (default: `$XDG_CONFIG_HOME/btcr2/config.json`) |
+| `--home <dir>` | btcr2 home directory holding `config.json` + `keystore.json` (default: `~/.btcr2`, `%LOCALAPPDATA%\btcr2` on Windows; overrides `$BTCR2_HOME`) |
+| `-c, --config <path>` | Path to config file (default: `<home>/config.json`) |
 | `--profile <name>` | Config profile name (default: auto-detected from network) |
 | `--btc-rest <url>` | Override Bitcoin REST endpoint (Esplora API) |
 | `--btc-rpc-url <url>` | Override Bitcoin Core RPC endpoint |
@@ -236,7 +271,7 @@ Override precedence, highest wins: CLI flags, then environment variables, then c
 | `--cas-gateway <url>` | IPFS HTTP gateway for CAS reads (read-only) |
 | `--cas-rpc-url <url>` | IPFS HTTP RPC endpoint for a writable CAS (reads + writes; enables `--publish-to-cas`) |
 | `--cas-timeout <ms>` | CAS request timeout in milliseconds (default: `30000`; `0` disables) |
-| `--keystore <path>` | Path to the keystore file (default: `$XDG_DATA_HOME/btcr2/keystore.json`) |
+| `--keystore <path>` | Path to the keystore file (default: `<home>/keystore.json`) |
 | `--passphrase-file <path>` | Read the keystore passphrase from a file (unattended use) |
 | `--signing-key <ref>` | Key for create/update/deactivate signing: a URN, fingerprint prefix, or name |
 
@@ -255,10 +290,16 @@ Override precedence, highest wins: CLI flags, then environment variables, then c
 | `BTCR2_CAS_TIMEOUT` | `--cas-timeout` |
 | `BTCR2_FEE_RATE` | `--fee-rate` |
 | `BTCR2_OUTPUT` | `-o, --output` |
+| `BTCR2_HOME` | `--home` |
+| `BTCR2_KEYSTORE_PASSPHRASE` | keystore passphrase (unattended use) |
+
+### Home directory
+
+The CLI keeps its config and keystore side by side in one home directory, resolved as `--home <dir>`, then `$BTCR2_HOME`, then the platform default: `~/.btcr2` on Linux/macOS and `%LOCALAPPDATA%\btcr2` on Windows. Both files live directly under it (`<home>/config.json`, `<home>/keystore.json`); `btcr2 config path` prints the resolved locations. `--config` and `--keystore` still override each file individually, so the historical XDG split can be reproduced explicitly.
 
 ### Config file
 
-Default location: `$XDG_CONFIG_HOME/btcr2/config.json` (falls back to `~/.config/btcr2/config.json`). An empty `$XDG_CONFIG_HOME` is treated as unset. A malformed config file fails loudly (the CLI never silently falls back to public endpoints, and never overwrites an unparseable file).
+Default location: `<home>/config.json`. A malformed config file fails loudly (the CLI never silently falls back to public endpoints, and never overwrites an unparseable file).
 
 Profiles are matched by network name when `--profile` is not specified. For example, resolving a regtest DID automatically selects the `"regtest"` profile. A profile that is not named after a network can declare its network with a `network` field.
 
