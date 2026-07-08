@@ -60,9 +60,19 @@ export class JsonRpcProtocol {
       }
     }
 
+    // Target a named wallet's RPCs when configured: Bitcoin Core exposes
+    // per-wallet RPC methods under the `/wallet/<name>` URL path.
+    if (cfg.wallet) {
+      url = `${url}/wallet/${encodeURIComponent(cfg.wallet)}`;
+    }
+
     this.url = url;
     this.hasAuth = authHeader !== undefined;
+    // Configured headers come first, so a custom or bearer header reaches an
+    // authenticated or proxied endpoint; the fixed Content-Type and the derived
+    // Basic Authorization header take precedence over any same-named entry.
     this._headers = {
+      ...cfg.headers,
       'Content-Type' : 'application/json',
       ...(authHeader ? { Authorization: authHeader } : {}),
     };

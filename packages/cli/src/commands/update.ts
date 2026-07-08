@@ -1,7 +1,7 @@
 import type { PublishToCasMode } from '@did-btcr2/api';
 import { KeyManagerSigner } from '@did-btcr2/key-manager';
 import type { Command } from 'commander';
-import { deriveNetwork, type ApiFactory } from '../config.js';
+import { deriveNetwork, resolveBroadcastOptions, resolveSigningKeyRef, type ApiFactory } from '../config.js';
 import { CLIError } from '../error.js';
 import { resolveKeyRef } from '../keystore/resolve-key-ref.js';
 import { formatResult } from '../output.js';
@@ -45,6 +45,16 @@ export function registerUpdateCommand(
       parsePublishToCasMode,
       'never',
     )
+    .option(
+      '--fee-rate <satsPerVByte>',
+      'Fee rate in sats/vByte for the beacon transaction (default: 5). '
+        + 'Raise it under congestion so the transaction confirms.',
+    )
+    .option(
+      '--change-address <address>',
+      'Send transaction change to this address instead of the beacon address, '
+        + 'so a DID\'s announcements are not linked on-chain (ADR 044).',
+    )
     .action(async (options: {
       sourceDocument       : unknown;
       sourceVersionId      : string;
@@ -52,6 +62,8 @@ export function registerUpdateCommand(
       verificationMethodId : string;
       beaconId             : unknown;
       publishToCas         : PublishToCasMode;
+      feeRate?             : string;
+      changeAddress?       : string;
     }) => {
       if (!/^\d+$/.test(options.sourceVersionId)) {
         throw new CLIError(
@@ -77,8 +89,15 @@ export function registerUpdateCommand(
       }
       const network = deriveNetwork(did);
       const api = factory(network, globals());
-      const keyId = resolveKeyRef(api.kms.kms, globals().signingKey);
+      const keyId = resolveKeyRef(api.kms.kms, resolveSigningKeyRef(globals()));
       const signer = new KeyManagerSigner(api.kms.kms, keyId);
+      // Resolve fee-rate/change-address through the flag -> env -> profile chain
+      // into beacon broadcast options. Undefined when neither is set, so the
+      // SDK defaults (5 sat/vB, change back to the beacon address) still apply.
+      const broadcastOptions = resolveBroadcastOptions(network, globals(), {
+        feeRate       : options.feeRate,
+        changeAddress : options.changeAddress,
+      });
       // CAS publication is optional and never required: every beacon update can
       // be completed and shared via sidecar alone. It is opt-in and defaults to
       // 'never'; pass --publish-to-cas auto|always to publish the signed update
@@ -93,6 +112,7 @@ export function registerUpdateCommand(
         beaconId             : parsed.beaconId,
         signer,
         publishToCas         : options.publishToCas,
+        ...(broadcastOptions ? { broadcastOptions } : {}),
       });
       console.log(formatResult({ action: 'update', data }, globals()));
     });

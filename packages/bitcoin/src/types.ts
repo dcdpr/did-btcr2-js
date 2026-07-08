@@ -114,7 +114,6 @@ export interface RpcConfig {
   password?: string;
   username?: string;
   wallet?: string;
-  allowDefaultWallet?: boolean;
 }
 
 export type FeeEstimateMode = 'UNSET' | 'ECONOMICAL' | 'CONSERVATIVE';

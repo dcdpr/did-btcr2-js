@@ -1,5 +1,12 @@
 # @did-btcr2/method
 
+## 0.54.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/bitcoin@0.9.0
+
 ## 0.54.0
 
 ### Minor Changes

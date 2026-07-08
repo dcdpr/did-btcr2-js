@@ -10,7 +10,7 @@ import {
   registerResolveCommand,
   registerUpdateCommand,
 } from './commands/index.js';
-import { defaultApiFactory, keystoreApiFactory, type ApiFactory } from './config.js';
+import { defaultApiFactory, keystoreApiFactory, resolveOutputFormat, type ApiFactory } from './config.js';
 import type { GlobalOptions } from './types.js';
 import { VERSION } from './version.js';
 
@@ -41,7 +41,7 @@ export class DidBtcr2Cli {
     this.program = new Command('btcr2')
       .version(`btcr2 ${VERSION}`, '-v, --version', 'Output the current version')
       .description('CLI tool for the did:btcr2 method')
-      .option('-o, --output <format>', 'Output format <json|text>', 'text')
+      .option('-o, --output <format>', 'Output format <json|text> (default: config defaults.output, else text)')
       .option('--verbose', 'Verbose output', false)
       .option('--quiet', 'Suppress non-essential output', false)
       .option('-c, --config <path>', 'Path to config file (default: $XDG_CONFIG_HOME/btcr2/config.json)')
@@ -52,11 +52,26 @@ export class DidBtcr2Cli {
       .option('--btc-rpc-pass <pass>', 'Bitcoin Core RPC password')
       .option('--cas-gateway <url>', 'IPFS HTTP gateway for CAS reads (read-only)')
       .option('--cas-rpc-url <url>', 'IPFS HTTP RPC endpoint for a writable CAS (reads + writes; enables --publish-to-cas)')
+      .option('--btc-timeout <ms>', 'Bitcoin REST/RPC request timeout in milliseconds (default: unbounded)')
+      .option('--cas-timeout <ms>', 'CAS request timeout in milliseconds (default: 30000; 0 disables)')
+      .option('--btc-rest-header <header>', 'Extra Bitcoin REST header "Key: Value" (repeatable)', collectHeader, [])
+      .option('--btc-rpc-wallet <name>', 'Bitcoin Core wallet name for wallet-scoped RPCs')
+      .option('--btc-rpc-header <header>', 'Extra Bitcoin Core RPC header "Key: Value" (repeatable)', collectHeader, [])
       .option('--keystore <path>', 'Path to the keystore file (default: $XDG_DATA_HOME/btcr2/keystore.json)')
       .option('--passphrase-file <path>', 'Read the keystore passphrase from a file (unattended use)')
       .option('--signing-key <ref>', 'Key for create/update/deactivate signing: a URN, fingerprint prefix, or name');
 
     const globals = (): GlobalOptions => this.program.opts() as GlobalOptions;
+
+    // Resolve the effective output format (flag -> BTCR2_OUTPUT -> config
+    // defaults.output -> 'text') before any command action runs, so a configured
+    // default is honored while an explicit flag still wins. The commander option
+    // carries no hard default (which would mask defaults.output); the resolved
+    // value is written back so every command reads it through globals().output.
+    this.program.hook('preAction', () => {
+      const opts = this.program.opts() as GlobalOptions;
+      opts.output = resolveOutputFormat({ output: opts.output, config: opts.config });
+    });
 
     registerCreateCommand(this.program, factory, keystoreFactory, globals);
     registerResolveCommand(this.program, factory, globals);
@@ -82,6 +97,14 @@ export class DidBtcr2Cli {
       handleError(error, Boolean(this.program.opts().verbose));
     }
   }
+}
+
+/**
+ * Commander collector for a repeatable header option: accumulates each
+ * `Key: Value` occurrence into an array, preserving order.
+ */
+function collectHeader(value: string, previous: string[]): string[] {
+  return [ ...previous, value ];
 }
 
 /**

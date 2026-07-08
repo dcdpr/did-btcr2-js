@@ -1,5 +1,15 @@
 # @did-btcr2/api
 
+## 0.16.1
+
+### Patch Changes
+
+- Remove the dead `allowDefaultWallet: true` from the exported `DEFAULT_BITCOIN_NETWORK_CONFIG.regtest.rpc` default, following ADR 078's removal of `RpcConfig.allowDefaultWallet` in `@did-btcr2/bitcoin`. The field was never consumed at the transport, so this is a behavior-neutral tidy of the exported config surface.
+
+- Updated dependencies []:
+  - @did-btcr2/bitcoin@0.9.0
+  - @did-btcr2/method@0.54.1
+
 ## 0.16.0
 
 ### Minor Changes
