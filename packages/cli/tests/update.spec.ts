@@ -1,6 +1,7 @@
 import { createApi, type DidBtcr2Api } from '@did-btcr2/api';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { KeyManagerSigner } from '@did-btcr2/key-manager';
+import { StaticFeeEstimator } from '@did-btcr2/method';
 import type { Command } from 'commander';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -153,5 +154,62 @@ describe('update and deactivate (signing)', () => {
       ),
     ).to.be.rejectedWith(CLIError, /must be one of "auto", "always", or "never"/);
     expect(captured.params).to.equal(undefined);
+  });
+
+  it('update forwards --fee-rate as a StaticFeeEstimator in broadcastOptions', async () => {
+    seedActiveKey();
+    const cli = new DidBtcr2Cli(createTestApiFactory(), stubFactory());
+    await sub(cli, 'update').parseAsync(
+      ['-s', sourceDoc(), '--source-version-id', '2', '-p', PATCHES, '-m', '#k0', '-b', '"#beacon-0"',
+        '--fee-rate', '12'],
+      { from: 'user' },
+    );
+    expect(captured.params.broadcastOptions.feeEstimator).to.be.instanceOf(StaticFeeEstimator);
+    expect(captured.params.broadcastOptions.feeEstimator.satsPerVbyte).to.equal(12);
+  });
+
+  it('update forwards --change-address in broadcastOptions', async () => {
+    seedActiveKey();
+    const cli = new DidBtcr2Cli(createTestApiFactory(), stubFactory());
+    await sub(cli, 'update').parseAsync(
+      ['-s', sourceDoc(), '--source-version-id', '2', '-p', PATCHES, '-m', '#k0', '-b', '"#beacon-0"',
+        '--change-address', 'bcrt1qexamplechangeaddr'],
+      { from: 'user' },
+    );
+    expect(captured.params.broadcastOptions.changeAddress).to.equal('bcrt1qexamplechangeaddr');
+  });
+
+  it('update omits broadcastOptions when neither fee-rate nor change-address is set', async () => {
+    seedActiveKey();
+    const cli = new DidBtcr2Cli(createTestApiFactory(), stubFactory());
+    await sub(cli, 'update').parseAsync(
+      ['-s', sourceDoc(), '--source-version-id', '2', '-p', PATCHES, '-m', '#k0', '-b', '"#beacon-0"'],
+      { from: 'user' },
+    );
+    expect(captured.params.broadcastOptions).to.equal(undefined);
+  });
+
+  it('update rejects an invalid --fee-rate before calling update', async () => {
+    seedActiveKey();
+    const cli = new DidBtcr2Cli(createTestApiFactory(), stubFactory());
+    await expect(
+      sub(cli, 'update').parseAsync(
+        ['-s', sourceDoc(), '--source-version-id', '2', '-p', PATCHES, '-m', '#k0', '-b', '"#beacon-0"',
+          '--fee-rate', '-5'],
+        { from: 'user' },
+      ),
+    ).to.be.rejectedWith(CLIError, /positive number of sats/);
+    expect(captured.params).to.equal(undefined);
+  });
+
+  it('deactivate forwards --fee-rate as a StaticFeeEstimator in broadcastOptions', async () => {
+    seedActiveKey();
+    const cli = new DidBtcr2Cli(createTestApiFactory(), stubFactory());
+    await sub(cli, 'deactivate').parseAsync(
+      ['-s', sourceDoc(), '--source-version-id', '3', '-m', '#k0', '-b', '"#beacon-0"',
+        '--fee-rate', '7'],
+      { from: 'user' },
+    );
+    expect(captured.params.broadcastOptions.feeEstimator.satsPerVbyte).to.equal(7);
   });
 });

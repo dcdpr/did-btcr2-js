@@ -30,6 +30,16 @@ describe('JsonRpcProtocol', () => {
       const protocol = new JsonRpcProtocol({ host: 'http://node:8332' });
       expect(protocol.hasAuth).to.be.false;
     });
+
+    it('appends /wallet/<name> to the URL when a wallet is configured', () => {
+      const protocol = new JsonRpcProtocol({ host: 'http://node:8332', wallet: 'primary' });
+      expect(protocol.url).to.equal('http://node:8332/wallet/primary');
+    });
+
+    it('URL-encodes a wallet name with special characters', () => {
+      const protocol = new JsonRpcProtocol({ host: 'http://node:8332', wallet: 'my wallet/2' });
+      expect(protocol.url).to.equal('http://node:8332/wallet/my%20wallet%2F2');
+    });
   });
 
   describe('buildRequest()', () => {
@@ -70,6 +80,30 @@ describe('JsonRpcProtocol', () => {
       const req2 = protocol.buildRequest('b', []);
       req1.headers['X-Mutated'] = 'yes';
       expect(req2.headers['X-Mutated']).to.be.undefined;
+    });
+
+    it('includes configured headers alongside Content-Type', () => {
+      const protocol = new JsonRpcProtocol({ host: 'http://node:8332', headers: { 'X-Api-Key': 'secret' } });
+      const req = protocol.buildRequest('getblockcount', []);
+      expect(req.headers['X-Api-Key']).to.equal('secret');
+      expect(req.headers['Content-Type']).to.equal('application/json');
+    });
+
+    it('does not let a configured Authorization override derived Basic auth', () => {
+      const protocol = new JsonRpcProtocol({
+        host     : 'http://node:8332',
+        username : 'u',
+        password : 'p',
+        headers  : { Authorization: 'Bearer nope' },
+      });
+      const req = protocol.buildRequest('getblockcount', []);
+      expect(req.headers['Authorization']).to.match(/^Basic /);
+    });
+
+    it('keeps a configured Authorization header when no Basic auth is derived', () => {
+      const protocol = new JsonRpcProtocol({ host: 'http://node:8332', headers: { Authorization: 'Bearer token' } });
+      const req = protocol.buildRequest('getblockcount', []);
+      expect(req.headers['Authorization']).to.equal('Bearer token');
     });
   });
 

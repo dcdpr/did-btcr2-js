@@ -49,8 +49,7 @@ export const DEFAULT_BITCOIN_NETWORK_CONFIG = {
   },
   regtest : {
     rpc  : {
-      host               : 'http://localhost:18443',
-      allowDefaultWallet : true,
+      host : 'http://localhost:18443',
     },
     rest : { host: 'http://localhost:3000' }
   },

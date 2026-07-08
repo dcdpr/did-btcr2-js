@@ -1,7 +1,7 @@
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 import type { Command } from 'commander';
 import type { ApiFactory, ConnectionOverrides } from '../config.js';
-import { resolveDefaultNetwork } from '../config.js';
+import { profileNetworkMismatch, resolveDefaultNetwork } from '../config.js';
 import { CLIError } from '../error.js';
 import { resolveKeyRef } from '../keystore/resolve-key-ref.js';
 import { formatResult } from '../output.js';
@@ -62,6 +62,18 @@ export function registerCreateCommand(
       const overrides = overridesFromGlobals(g);
       const network = resolveNetwork(options.network, overrides);
       const signingKey = g.signingKey;
+
+      // Warn (never block) when the network being encoded disagrees with the
+      // active profile's declared network, so a `production` profile holding
+      // mainnet endpoints cannot silently mint a regtest DID.
+      const mismatch = profileNetworkMismatch(network, overrides);
+      if (mismatch && !g.quiet) {
+        process.stderr.write(
+          `Warning: creating a "${network}" identifier while the active profile `
+          + `"${mismatch.profile}" declares network "${mismatch.declared}". The `
+          + 'identifier\'s network and the profile\'s endpoints may not match.\n'
+        );
+      }
 
       /** Prints the result, plus a stderr provenance line in text mode. */
       const print = (result: CommandResult, note?: string): void => {

@@ -2,6 +2,8 @@ import type { DidUpdateResult } from '@did-btcr2/api';
 import type { PatchOperation } from '@did-btcr2/common';
 import type { Btcr2DidDocument, ResolutionOptions } from '@did-btcr2/method';
 import type { DidResolutionResult } from '@web5/dids';
+import type { DoctorReport, EffectiveConfig } from './config.js';
+import type { ConfigIssue } from './config-schema.js';
 
 export type NetworkOption = 'bitcoin' | 'testnet3' | 'testnet4' | 'signet' | 'mutinynet' | 'regtest';
 export type OutputFormat = 'json' | 'text';
@@ -9,6 +11,17 @@ export type OutputFormat = 'json' | 'text';
 export const SUPPORTED_NETWORKS: NetworkOption[] = [
   'bitcoin', 'testnet3', 'testnet4', 'signet', 'mutinynet', 'regtest'
 ];
+
+/**
+ * Normalizes a blank value (empty or whitespace-only) to `undefined`, so a
+ * blank at any precedence layer defers to the next layer instead of masking it.
+ * A non-blank value is returned unchanged. This mirrors the `|| undefined`
+ * treatment the environment layer already applies in `readEnvOverrides`.
+ */
+export function blankToUndef(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  return value.trim() === '' ? undefined : value;
+}
 
 export interface ResolveCommandOptions {
   identifier : string;
@@ -40,6 +53,10 @@ export type CommandResult =
   | { action: 'config-set'; data: { path: string } }
   | { action: 'config-unset'; data: { path: string } }
   | { action: 'config-list'; data: unknown }
+  | { action: 'config-validate'; data: { ok: boolean; issues: ConfigIssue[] } }
+  | { action: 'config-effective'; data: EffectiveConfig }
+  | { action: 'config-path'; data: { config: string; keystore: string } }
+  | { action: 'config-doctor'; data: DoctorReport }
   | { action: 'profile-add'; data: { profile: string } }
   | { action: 'profile-use'; data: { profile: string } }
   | { action: 'profile-show'; data: unknown }
@@ -57,6 +74,11 @@ export interface GlobalOptions {
   btcRpcPass?    : string;
   casGateway?    : string;
   casRpcUrl?     : string;
+  btcTimeout?    : string;
+  casTimeout?    : string;
+  btcRestHeader? : string[];
+  btcRpcWallet?  : string;
+  btcRpcHeader?  : string[];
   keystore?      : string;
   passphraseFile?: string;
   signingKey?    : string;

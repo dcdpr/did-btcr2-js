@@ -150,3 +150,8 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 071 | 2026-07-07 | [A CAS Publication Policy for the API Update Path (publishToCas), Writable-CAS Capability Detection, and Enriched Update Results](071-api-cas-publication-policy.md) |
 | 072 | 2026-07-07 | [CLI Writable-CAS Configuration and an Opt-In --publish-to-cas Flag](072-cli-writable-cas-and-publish-flag.md) |
 | 073 | 2026-07-07 | [CAS Publication Is Opt-In - Default publishToCas to 'never' and Make 'auto' Non-Blocking](073-cas-publication-is-opt-in.md) |
+| 074 | 2026-07-07 | [CLI Configuration Resolution Correctness and Safety](074-cli-config-resolution-correctness.md) |
+| 075 | 2026-07-07 | [CLI Configuration Validation and Introspection](075-cli-config-validation-and-introspection.md) |
+| 076 | 2026-07-07 | [CLI Bitcoin and CAS I/O Passthrough Knobs](076-cli-io-passthrough-knobs.md) |
+| 077 | 2026-07-07 | [CLI Secret Handling for Bitcoin RPC Credentials](077-cli-rpc-secret-handling.md) |
+| 078 | 2026-07-07 | [Wire the Advertised-but-Dead Bitcoin RPC and Profile-Identity Config Surface](078-wire-dead-config-surface.md) |

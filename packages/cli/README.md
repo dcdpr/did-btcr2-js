@@ -87,12 +87,14 @@ Required flags: `-s/--source-document`, `--source-version-id`, `-p/--patches`, `
 | `-m, --verification-method-id <id>` | DID document verification method ID |
 | `-b, --beacon-id <json>` | Beacon ID as a JSON string |
 | `--publish-to-cas <mode>` | Publish update artifacts to a writable CAS before broadcast: `auto`, `always`, or `never` (default: `never`). See [Publishing updates to CAS](#publishing-updates-to-cas) |
+| `--fee-rate <satsPerVByte>` | Fee rate in sats/vByte for the beacon transaction (default: `5`). Raise it under congestion so the transaction confirms (also `BTCR2_FEE_RATE`, profile `btc.feeRate`) |
+| `--change-address <address>` | Send transaction change to this address instead of the beacon address, so a DID's announcements are not linked on-chain (profile `btc.changeAddress`) |
 
 ### deactivate (alias: delete)
 
 Permanently deactivates a DID. This is irreversible. Deactivation applies the `{ "op": "add", "path": "/deactivated", "value": true }` patch and routes through the same signed-update path as `update`, so it also signs via the keystore.
 
-Required flags: `-s/--source-document`, `--source-version-id`, `-m/--verification-method-id`, `-b/--beacon-id`. Optional: `--publish-to-cas <mode>` (same as `update`).
+Required flags: `-s/--source-document`, `--source-version-id`, `-m/--verification-method-id`, `-b/--beacon-id`. Optional: `--publish-to-cas <mode>`, `--fee-rate <satsPerVByte>`, `--change-address <address>` (same as `update`).
 
 ### key
 
@@ -117,10 +119,14 @@ Read and write CLI configuration.
 | Subcommand | Alias | Description |
 |---|---|---|
 | `config init` | - | Create a default config file with one profile per network. `--force` overwrites |
-| `config get [path]` | - | Print a value at a dotted path, or the whole config |
-| `config set <path> <value>` | - | Set a value at a dotted path (value parsed as JSON when valid, else a string) |
+| `config get [path]` | - | Print a value at a dotted path, or the whole config. Secret values are redacted; `--show-secrets` reveals them |
+| `config set <path> <value>` | - | Set a value at a dotted path (value parsed as JSON when valid, else a string). An invalid enum for a known key is rejected; an unknown path warns but writes |
 | `config unset <path>` | - | Delete a value at a dotted path |
-| `config list` | `ls` | Print the entire config file |
+| `config list` | `ls` | Print the entire config file. Secret values are redacted; `--show-secrets` reveals them |
+| `config validate` | - | Report unknown keys, invalid enum values, and an unsupported schema version |
+| `config effective` | - | Print the resolved connection config with per-value provenance (`flag`/`env`/`file`/`default`). `-n, --network <n>` selects the network; `--show-secrets` reveals the RPC password |
+| `config path` | - | Print the resolved config-file and keystore paths |
+| `config doctor` | - | Probe reachability of the resolved endpoints (read-only; touches the network). `-n, --network <n>` selects the network |
 
 ### profile
 
@@ -214,7 +220,7 @@ Override precedence, highest wins: CLI flags, then environment variables, then c
 | Flag | Description |
 |---|---|
 | `-v, --version` | Output the current version |
-| `-o, --output <format>` | Output format: `json` or `text` (default: `text`) |
+| `-o, --output <format>` | Output format: `json` or `text` (default: config `defaults.output`, else `text`) |
 | `--verbose` | Verbose output |
 | `--quiet` | Suppress non-essential output |
 | `-c, --config <path>` | Path to config file (default: `$XDG_CONFIG_HOME/btcr2/config.json`) |
@@ -222,9 +228,14 @@ Override precedence, highest wins: CLI flags, then environment variables, then c
 | `--btc-rest <url>` | Override Bitcoin REST endpoint (Esplora API) |
 | `--btc-rpc-url <url>` | Override Bitcoin Core RPC endpoint |
 | `--btc-rpc-user <user>` | Bitcoin Core RPC username |
-| `--btc-rpc-pass <pass>` | Bitcoin Core RPC password |
+| `--btc-rpc-pass <pass>` | Bitcoin Core RPC password (accepts an `env:<VAR>` or `file:<path>` secret reference) |
+| `--btc-rpc-wallet <name>` | Bitcoin Core wallet name for wallet-scoped RPCs (`/wallet/<name>`) |
+| `--btc-rpc-header <header>` | Extra Bitcoin Core RPC header `"Key: Value"` (repeatable) |
+| `--btc-rest-header <header>` | Extra Bitcoin REST header `"Key: Value"` (repeatable), e.g. an API key |
+| `--btc-timeout <ms>` | Bitcoin REST/RPC request timeout in milliseconds (default: unbounded) |
 | `--cas-gateway <url>` | IPFS HTTP gateway for CAS reads (read-only) |
 | `--cas-rpc-url <url>` | IPFS HTTP RPC endpoint for a writable CAS (reads + writes; enables `--publish-to-cas`) |
+| `--cas-timeout <ms>` | CAS request timeout in milliseconds (default: `30000`; `0` disables) |
 | `--keystore <path>` | Path to the keystore file (default: `$XDG_DATA_HOME/btcr2/keystore.json`) |
 | `--passphrase-file <path>` | Read the keystore passphrase from a file (unattended use) |
 | `--signing-key <ref>` | Key for create/update/deactivate signing: a URN, fingerprint prefix, or name |
@@ -237,35 +248,72 @@ Override precedence, highest wins: CLI flags, then environment variables, then c
 | `BTCR2_BTC_RPC_URL` | `--btc-rpc-url` |
 | `BTCR2_BTC_RPC_USER` | `--btc-rpc-user` |
 | `BTCR2_BTC_RPC_PASS` | `--btc-rpc-pass` |
+| `BTCR2_BTC_RPC_PASS_FILE` | file whose contents are the RPC password |
 | `BTCR2_CAS_GATEWAY` | `--cas-gateway` |
 | `BTCR2_CAS_RPC_URL` | `--cas-rpc-url` |
+| `BTCR2_BTC_TIMEOUT` | `--btc-timeout` |
+| `BTCR2_CAS_TIMEOUT` | `--cas-timeout` |
+| `BTCR2_FEE_RATE` | `--fee-rate` |
+| `BTCR2_OUTPUT` | `-o, --output` |
 
 ### Config file
 
-Default location: `$XDG_CONFIG_HOME/btcr2/config.json` (falls back to `~/.config/btcr2/config.json`).
+Default location: `$XDG_CONFIG_HOME/btcr2/config.json` (falls back to `~/.config/btcr2/config.json`). An empty `$XDG_CONFIG_HOME` is treated as unset. A malformed config file fails loudly (the CLI never silently falls back to public endpoints, and never overwrites an unparseable file).
 
-Profiles are matched by network name when `--profile` is not specified. For example, resolving a regtest DID automatically selects the `"regtest"` profile.
+Profiles are matched by network name when `--profile` is not specified. For example, resolving a regtest DID automatically selects the `"regtest"` profile. A profile that is not named after a network can declare its network with a `network` field.
 
 ```json
 {
+  "schemaVersion": 1,
+  "defaults": {
+    "profile": "production",
+    "network": "bitcoin",
+    "output": "text"
+  },
   "profiles": {
     "regtest": {
       "btc": {
         "rest": "http://localhost:3000",
         "rpcUrl": "http://localhost:18443",
         "rpcUser": "polaruser",
-        "rpcPass": "polarpass"
+        "rpcPass": "polarpass",
+        "wallet": "primary",
+        "feeRate": 5,
+        "timeoutMs": 30000
       }
     },
-    "bitcoin": {
-      "btc": { "rest": "https://my-mempool/api" },
-      "cas": { "gateway": "https://ipfs.io", "rpcUrl": "http://127.0.0.1:5001" }
+    "production": {
+      "network": "bitcoin",
+      "btc": {
+        "rest": "https://my-mempool/api",
+        "headers": { "Authorization": "Bearer <api-key>" },
+        "feeRate": 20
+      },
+      "cas": { "gateway": "https://ipfs.io", "rpcUrl": "http://127.0.0.1:5001", "timeoutMs": 30000 },
+      "identity": { "keystore": "/secure/prod-keystore.json", "default": "did:btcr2:...#key-0" }
     }
   }
 }
 ```
 
-`cas.gateway` is a read-only IPFS HTTP gateway (used for reads). `cas.rpcUrl` is an IPFS HTTP RPC endpoint that supports writes; configure it to enable `--publish-to-cas`. When both are set, `rpcUrl` takes precedence.
+Field notes:
+
+- **`defaults`**: `profile` selects the active profile; `network` fixes the network `create` encodes when `-n` is absent; `output` sets the default output format. `schemaVersion` is stamped on every write; a file written by a newer CLI is refused.
+- **`btc`**: `rest`/`rpcUrl`/`rpcUser`/`rpcPass` are endpoints and credentials; `wallet` targets a Bitcoin Core wallet (`/wallet/<name>`); `headers`/`rpcHeaders` add REST/RPC headers; `feeRate` (sats/vByte), `changeAddress`, and `timeoutMs` set broadcast and request behavior. The RPC url, user, and pass are resolved as one atomic unit, so a URL from a higher-precedence layer never inherits credentials from a lower one.
+- **`cas`**: `gateway` is a read-only IPFS HTTP gateway; `cas.rpcUrl` is a writable IPFS HTTP RPC endpoint (enables `--publish-to-cas`; `rpcUrl` wins over `gateway`); `timeoutMs` bounds CAS operations (`0` disables).
+- **`identity`**: `keystore` points the profile at its own keystore file, and `default` is the profile's default signing key. Both fall **below** the corresponding `--keystore` / `--signing-key` flags.
+
+Use `config validate` to check a file, and `config effective` to see the resolved values with their provenance.
+
+### RPC password and secrets
+
+`config get` and `config list` redact secret-looking values (RPC password and any `pass`/`secret`/`token` key) by default; pass `--show-secrets` to reveal them.
+
+An `rpcPass` written directly into `config.json` is stored in cleartext (the file is mode 0600 but not encrypted). For anything sensitive, keep the secret out of the file with a reference or an RPC-URL-embedded credential:
+
+- `"rpcPass": "env:MY_RPC_PASS"` reads the password from the `MY_RPC_PASS` environment variable.
+- `"rpcPass": "file:/run/secrets/rpc-pass"` reads it from a file (a single trailing newline is trimmed).
+- `BTCR2_BTC_RPC_PASS_FILE=/run/secrets/rpc-pass` names a file to read when no other RPC password source applies.
 
 ### Defaults
 

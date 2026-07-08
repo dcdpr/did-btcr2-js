@@ -1,7 +1,7 @@
 import type { Command } from 'commander';
 import { defaultConfigPath, readConfigFile, writeConfigFile } from '../config.js';
 import { CLIError } from '../error.js';
-import { formatResult } from '../output.js';
+import { formatResult, redactSecrets } from '../output.js';
 import type { CommandResult, GlobalOptions } from '../types.js';
 
 /** Registers the `profile` command group for managing configuration profiles. */
@@ -37,7 +37,8 @@ export function registerProfileCommand(program: Command, globals: () => GlobalOp
   profile
     .command('show [name]')
     .description('Show a profile (defaults to the active profile).')
-    .action((name?: string) => {
+    .option('--show-secrets', 'Reveal secret values (RPC password, etc.) instead of redacting them.', false)
+    .action((name: string | undefined, opts: { showSecrets?: boolean }) => {
       const file = readConfigFile(path()) ?? {};
       const target = name ?? file.defaults?.profile;
       if (!target) {
@@ -47,7 +48,8 @@ export function registerProfileCommand(program: Command, globals: () => GlobalOp
       if (!data) {
         throw new CLIError(`Profile "${target}" not found.`, 'INVALID_ARGUMENT_ERROR', { profile: target });
       }
-      print({ action: 'profile-show', data: { profile: target, ...data } });
+      const payload = { profile: target, ...data };
+      print({ action: 'profile-show', data: opts.showSecrets ? payload : redactSecrets(payload) });
     });
 
   profile

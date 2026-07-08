@@ -33,7 +33,7 @@ export function connectBitcoin(
     throw new Error(`No default REST endpoint for network "${network}". Pass options.restHost explicitly.`);
   }
   const rpc = options.rpc
-    ? { host: REGTEST_RPC_HOST, allowDefaultWallet: true, ...options.rpc } as RpcConfig
+    ? { host: REGTEST_RPC_HOST, ...options.rpc } as RpcConfig
     : undefined;
   return new BitcoinConnection({ network: network as NetworkName, rest: { host }, ...(rpc && { rpc }) });
 }
