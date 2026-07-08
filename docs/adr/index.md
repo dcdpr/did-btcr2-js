@@ -155,3 +155,5 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 076 | 2026-07-07 | [CLI Bitcoin and CAS I/O Passthrough Knobs](076-cli-io-passthrough-knobs.md) |
 | 077 | 2026-07-07 | [CLI Secret Handling for Bitcoin RPC Credentials](077-cli-rpc-secret-handling.md) |
 | 078 | 2026-07-07 | [Wire the Advertised-but-Dead Bitcoin RPC and Profile-Identity Config Surface](078-wire-dead-config-surface.md) |
+| 079 | 2026-07-08 | [Consolidate CLI State Under a Single ~/.btcr2 Home Directory](079-cli-state-directory-consolidation.md) |
+| 080 | 2026-07-08 | [Keystore Lifecycle, a Confirmed First Passphrase, and Opt-In Dev Keystores](080-keystore-lifecycle-and-dev-keystores.md) |

@@ -8,6 +8,13 @@ import type { ConfigIssue } from './config-schema.js';
 export type NetworkOption = 'bitcoin' | 'testnet3' | 'testnet4' | 'signet' | 'mutinynet' | 'regtest';
 export type OutputFormat = 'json' | 'text';
 
+/**
+ * How a keystore protects its secrets, as reported by `keystore status` and
+ * `btcr2 init`: `encrypted` (passphrase-sealed), `dev` (plaintext, testnet-only),
+ * or `absent` (no keystore file yet).
+ */
+export type KeystoreProtectionLabel = 'encrypted' | 'dev' | 'absent';
+
 export const SUPPORTED_NETWORKS: NetworkOption[] = [
   'bitcoin', 'testnet3', 'testnet4', 'signet', 'mutinynet', 'regtest'
 ];
@@ -48,6 +55,7 @@ export type CommandResult =
   | { action: 'key-export'; data: { keyId: string; publicKey?: string; secretWrittenTo?: string } }
   | { action: 'key-delete'; data: { keyId: string; deleted: true } }
   | { action: 'key-use'; data: { keyId: string; active: true } }
+  | { action: 'init'; data: { home: string; config: string; keystore: string; created: string[]; protection: KeystoreProtectionLabel } }
   | { action: 'config-init'; data: { path: string } }
   | { action: 'config-get'; data: unknown }
   | { action: 'config-set'; data: { path: string } }
@@ -55,8 +63,11 @@ export type CommandResult =
   | { action: 'config-list'; data: unknown }
   | { action: 'config-validate'; data: { ok: boolean; issues: ConfigIssue[] } }
   | { action: 'config-effective'; data: EffectiveConfig }
-  | { action: 'config-path'; data: { config: string; keystore: string } }
+  | { action: 'config-path'; data: { home: string; config: string; keystore: string } }
   | { action: 'config-doctor'; data: DoctorReport }
+  | { action: 'keystore-init'; data: { path: string; protection: 'encrypted' | 'dev' } }
+  | { action: 'keystore-status'; data: { path: string; protection: KeystoreProtectionLabel; established: boolean; keyCount: number; active: string | undefined } }
+  | { action: 'keystore-change-passphrase'; data: { path: string; rekeyed: number } }
   | { action: 'profile-add'; data: { profile: string } }
   | { action: 'profile-use'; data: { profile: string } }
   | { action: 'profile-show'; data: unknown }
@@ -66,6 +77,7 @@ export interface GlobalOptions {
   output         : OutputFormat;
   verbose        : boolean;
   quiet          : boolean;
+  home?          : string;
   config?        : string;
   profile?       : string;
   btcRest?       : string;

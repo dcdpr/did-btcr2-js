@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { acquirePassphrase, ENV_KEYSTORE_PASSPHRASE } from '../src/keystore/passphrase.js';
+import { acquirePassphrase, dropLastUtf8Char, ENV_KEYSTORE_PASSPHRASE } from '../src/keystore/passphrase.js';
 import { KeyStoreError } from '../src/keystore/error.js';
 import { expect } from './helpers.js';
 
@@ -59,5 +59,33 @@ describe('acquirePassphrase', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('dropLastUtf8Char (backspace over a hidden entry)', () => {
+  const decode = (bytes: number[]): string => Buffer.from(bytes).toString('utf-8');
+
+  it('removes a whole two-byte character rather than a single byte', () => {
+    const bytes = [ ...Buffer.from('aé', 'utf-8') ]; // é = 0xC3 0xA9
+    dropLastUtf8Char(bytes);
+    expect(decode(bytes)).to.equal('a'); // not a lone 0xC3 that decodes to U+FFFD
+  });
+
+  it('removes a whole four-byte character (emoji)', () => {
+    const bytes = [ ...Buffer.from('x😀', 'utf-8') ]; // 😀 = 0xF0 0x9F 0x98 0x80
+    dropLastUtf8Char(bytes);
+    expect(decode(bytes)).to.equal('x');
+  });
+
+  it('removes a single ASCII byte', () => {
+    const bytes = [ ...Buffer.from('ab', 'utf-8') ];
+    dropLastUtf8Char(bytes);
+    expect(decode(bytes)).to.equal('a');
+  });
+
+  it('is a no-op on an empty buffer', () => {
+    const bytes: number[] = [];
+    dropLastUtf8Char(bytes);
+    expect(bytes).to.deep.equal([]);
   });
 });

@@ -1,5 +1,17 @@
 # @did-btcr2/cli
 
+## 0.16.0
+
+### Minor Changes
+
+- Consolidate CLI state under one home directory and add a keystore lifecycle with a confirmed, verified passphrase and opt-in dev keystores (ADRs 079, 080).
+
+  - **Single home directory (ADR 079, breaking default).** `config.json` and `keystore.json` now live side by side under one home: `~/.btcr2` on Linux/macOS, `%LOCALAPPDATA%\btcr2` on Windows, overridable with `--home` / `$BTCR2_HOME`. The old XDG config/data split is dropped outright (no migration path: re-run `btcr2 init` against the new home); `--config` / `--keystore` still override each file, so the split is reproducible explicitly. `btcr2 config path` now reports the home root.
+  - **Confirmed, verified keystore passphrase (ADR 080).** The first passphrase is now established with a confirm prompt, and a keystore verifier makes every later use fail loudly (`Incorrect passphrase`) instead of sealing a key under an unknown or divergent passphrase, closing a key-loss bug where a first-key typo permanently sealed the keystore.
+  - **`keystore` command group.** `keystore init` (encrypted by default, `--dev` for unencrypted), `keystore status`, and `keystore change-passphrase`.
+  - **Opt-in dev keystores.** `--dev` establishes an unencrypted keystore (plaintext keys, no passphrase) for disposable testnet material; the CLI hard-refuses to sign or generate a mainnet (`bitcoin`) key with one.
+  - **`btcr2 init`.** One-command setup that creates the home, a default config, and establishes the keystore (encrypted by default, `--dev` for testnet).
+
 ## 0.15.0
 
 ### Minor Changes

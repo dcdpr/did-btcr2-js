@@ -33,7 +33,10 @@ describe('keystoreApiFactory', () => {
   });
 
   it('persists a generated key across factory calls', function () {
-    this.timeout(15000); // exercises the real factory path: production argon2id (64 MiB) runs once
+    // Exercises the real factory path with production argon2id (64 MiB). The
+    // establishing generate now runs it twice: once to seal the key and once for
+    // the passphrase verifier written on first establishment (ADR 080).
+    this.timeout(30000);
     process.env[ENV_KEYSTORE_PASSPHRASE] = 'factory-pass';
     const id = keystoreApiFactory(undefined, { keystore }).kms.generateKey();
     expect(keystoreApiFactory(undefined, { keystore }).kms.listKeys()).to.deep.equal([id]);

@@ -3,14 +3,17 @@ import type { KeyManager } from '@did-btcr2/key-manager';
 import { StaticFeeEstimator } from '@did-btcr2/method';
 import type { BroadcastOptions } from '@did-btcr2/method';
 import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname } from 'node:path';
 import { CLIError } from './error.js';
 import { ensureDir, writeFileAtomic } from './keystore/atomic.js';
 import { FileBackedKeyManager } from './keystore/file-backed-key-manager.js';
+import { keystoreProtection } from './keystore/file-key-store.js';
 import { defaultKeystorePath } from './keystore/paths.js';
 import { acquirePassphrase } from './keystore/passphrase.js';
-import { blankToUndef, SUPPORTED_NETWORKS, type NetworkOption, type OutputFormat } from './types.js';
+import { defaultConfigPath } from './paths.js';
+import { blankToUndef, SUPPORTED_NETWORKS, type KeystoreProtectionLabel, type NetworkOption, type OutputFormat } from './types.js';
+
+export { defaultConfigPath };
 
 /**
  * Endpoint overrides provided via CLI flags, env vars, or config file.
@@ -39,9 +42,11 @@ export type ConnectionOverrides = {
   btcRpcWallet?   : string;
   /** Extra Bitcoin Core RPC headers as raw `Key: Value` flag values (repeatable). */
   btcRpcHeader?   : string[];
+  /** CLI home root from `--home`. Colocates config.json + keystore.json (ADR 079). */
+  home?           : string;
   config?         : string;
   profile?        : string;
-  /** Keystore file path. Overrides the default `$XDG_DATA_HOME/btcr2/keystore.json`. */
+  /** Keystore file path. Overrides the home default `<home>/keystore.json`. */
   keystore?       : string;
   /** Path to a file holding the keystore passphrase (for unattended use). */
   passphraseFile? : string;
@@ -144,6 +149,22 @@ export function writeConfigFile(path: string, mutate: (raw: Record<string, unkno
   writeFileAtomic(path, `${JSON.stringify(raw, null, 2)}\n`, 0o600);
 }
 
+/**
+ * Writes a default config scaffold to `path`: schema version, a `text` output
+ * default, and one empty profile per supported network. Shared by `config init`
+ * and `btcr2 init` so the seeded config is identical. Writes atomically (file
+ * 0600, dir 0700); the caller decides whether to overwrite an existing file.
+ */
+export function writeDefaultConfigFile(path: string): void {
+  const scaffold = {
+    schemaVersion : CONFIG_SCHEMA_VERSION,
+    defaults      : { output: 'text' },
+    profiles      : Object.fromEntries(SUPPORTED_NETWORKS.map(n => [ n, {} ])),
+  };
+  ensureDir(dirname(path), 0o700);
+  writeFileAtomic(path, `${JSON.stringify(scaffold, null, 2)}\n`, 0o600);
+}
+
 /** Reads the value at a dotted path (e.g. `profiles.regtest.btc.rest`). */
 export function getConfigPath(config: Record<string, unknown>, path: string): unknown {
   return path.split('.').reduce<unknown>(
@@ -242,21 +263,6 @@ export function readEnvOverrides(): ConnectionOverrides {
     casGateway : env(ENV_VARS.CAS_GATEWAY),
     casRpcUrl  : env(ENV_VARS.CAS_RPC_URL),
   };
-}
-
-/**
- * Default config file path following the XDG Base Directory Specification.
- *
- * Resolution order:
- * 1. `$XDG_CONFIG_HOME/btcr2/config.json`
- * 2. `%APPDATA%/btcr2/config.json` (Windows)
- * 3. `~/.config/btcr2/config.json` (fallback)
- */
-export function defaultConfigPath(): string {
-  const base = blankToUndef(process.env.XDG_CONFIG_HOME)
-    ?? blankToUndef(process.env.APPDATA)
-    ?? join(homedir(), '.config');
-  return join(base, 'btcr2', 'config.json');
 }
 
 /**
@@ -379,7 +385,7 @@ export function resolveActiveProfile(
  * identifier encodes.
  */
 export function resolveDefaultNetwork(overrides?: ConnectionOverrides): NetworkOption {
-  const configPath = overrides?.config ?? defaultConfigPath();
+  const configPath = overrides?.config ?? defaultConfigPath(overrides);
   const file = readConfigFile(configPath);
 
   const explicit = file?.defaults?.network;
@@ -407,7 +413,7 @@ export function profileNetworkMismatch(
   // command that actually resolves a connection.
   let file: ConfigFile | undefined;
   try {
-    file = readConfigFile(overrides?.config ?? defaultConfigPath());
+    file = readConfigFile(overrides?.config ?? defaultConfigPath(overrides));
   } catch {
     return undefined;
   }
@@ -422,13 +428,13 @@ export function profileNetworkMismatch(
  * then `'text'`. A malformed config never blocks output resolution (the command's
  * own read path surfaces it); output format falls back to `'text'` instead.
  */
-export function resolveOutputFormat(options: { output?: string; config?: string }): OutputFormat {
+export function resolveOutputFormat(options: { output?: string; config?: string; home?: string }): OutputFormat {
   const candidates: Array<string | undefined> = [
     blankToUndef(options.output),
     process.env.BTCR2_OUTPUT || undefined,
   ];
   try {
-    candidates.push(readConfigFile(options.config ?? defaultConfigPath())?.defaults?.output);
+    candidates.push(readConfigFile(options.config ?? defaultConfigPath(options))?.defaults?.output);
   } catch {
     // Output format is cosmetic; a broken config is reported by the command
     // itself rather than aborting here (which would block a recovery command).
@@ -501,7 +507,7 @@ export function resolveConnectionConfig(
   // Layer 1: Config file profile (lowest precedence of the three override layers).
   // The active-profile name is resolved through the same shared helper as
   // resolveDefaultNetwork so the two cannot disagree about which profile is live.
-  const configPath = overrides?.config ?? defaultConfigPath();
+  const configPath = overrides?.config ?? defaultConfigPath(overrides);
   const file = readConfigFile(configPath);
   const { name: activeProfile } = resolveActiveProfile(file, overrides);
   const profileName = activeProfile ?? network;
@@ -708,7 +714,7 @@ export function resolveBroadcastOptions(
   overrides: ConnectionOverrides | undefined,
   flags    : { feeRate?: string; changeAddress?: string },
 ): BroadcastOptions | undefined {
-  const file = readConfigFile(overrides?.config ?? defaultConfigPath());
+  const file = readConfigFile(overrides?.config ?? defaultConfigPath(overrides));
   const { name: activeProfile } = resolveActiveProfile(file, overrides);
   const profileBtc = file?.profiles?.[activeProfile ?? network]?.btc;
 
@@ -778,7 +784,7 @@ export interface EffectiveConfig {
  * and each `source` is derived by the same precedence order the merge uses.
  */
 export function resolveEffectiveConfig(network: NetworkOption, overrides?: ConnectionOverrides): EffectiveConfig {
-  const file = readConfigFile(overrides?.config ?? defaultConfigPath());
+  const file = readConfigFile(overrides?.config ?? defaultConfigPath(overrides));
   const { name: activeProfile } = resolveActiveProfile(file, overrides);
   const profileName = activeProfile ?? network;
   const fileOv = file ? profileToOverrides(file, profileName) : {};
@@ -944,17 +950,65 @@ export function defaultApiFactory(network?: NetworkOption, overrides?: Connectio
 function buildKeystoreKms(overrides?: ConnectionOverrides): KeyManager {
   return new FileBackedKeyManager({
     path          : resolveKeystorePath(overrides),
-    getPassphrase : () => acquirePassphrase({ passphraseFile: overrides?.passphraseFile }),
+    // The store decides when to confirm: it passes `confirm: true` only while
+    // establishing a fresh keystore's passphrase, so a first-key typo is caught
+    // by a second entry (ADR 080). confirm is a no-op for env/file sources.
+    getPassphrase : (opts) => acquirePassphrase({ passphraseFile: overrides?.passphraseFile, confirm: opts?.confirm }),
   });
 }
 
 /**
- * Resolves the keystore file path: the `--keystore` flag, else the active
- * profile's `identity.keystore`, else the default XDG keystore path. The flag
- * always wins over the profile default.
+ * The protection mode of the resolved keystore, read without decrypting or
+ * prompting: `encrypted`, `dev` (plaintext), or `absent`. Used by `keystore
+ * status`, `config path`, and the mainnet guard.
  */
-export function resolveKeystorePath(overrides?: ConnectionOverrides): string {
-  return overrides?.keystore ?? activeProfileIdentity(overrides)?.keystore ?? defaultKeystorePath();
+export function resolveKeystoreProtection(overrides?: ConnectionOverrides): KeystoreProtectionLabel {
+  return keystoreProtection(resolveKeystorePath(overrides));
+}
+
+/**
+ * Hard-refuses using an unencrypted dev keystore for a mainnet operation (ADR
+ * 080). A plaintext key must never sign or seal a `bitcoin` did:btcr2; the check
+ * reads only the keystore's protection header, so it never decrypts or prompts.
+ * A no-op for every other network and for encrypted/absent keystores.
+ */
+export function assertKeystoreAllowedForNetwork(network: NetworkOption, overrides?: ConnectionOverrides): void {
+  if (network !== 'bitcoin') return;
+  if (resolveKeystoreProtection(overrides) !== 'dev') return;
+  const path = resolveKeystorePath(overrides);
+  throw new CLIError(
+    `Refusing a mainnet (bitcoin) operation with the unencrypted dev keystore at ${path}. `
+    + 'Dev keystores hold plaintext keys and are for testnet/regtest throwaway material only. '
+    + 'Establish an encrypted keystore (btcr2 keystore init) for mainnet keys.',
+    'DEV_KEYSTORE_MAINNET_ERROR',
+    { path, network },
+  );
+}
+
+/**
+ * Resolves the keystore file path: the `--keystore` flag, else the active
+ * profile's `identity.keystore`, else the default `<home>/keystore.json` (ADR
+ * 079). The flag always wins over the profile default and never reads the config.
+ *
+ * A malformed config aborts loudly by default so a keystore-mutating command
+ * never silently reads or writes the wrong store. Pass `lenient: true` only for
+ * diagnostic/recovery commands (`config path`, `keystore status`) that must still
+ * report a path instead of crashing on the very config you ran them to fix; those
+ * fall back to the home default when the profile identity cannot be read.
+ */
+export function resolveKeystorePath(overrides?: ConnectionOverrides, options?: { lenient?: boolean }): string {
+  // The flag wins outright and short-circuits before any config read. A blank
+  // flag defers to the profile, and a blank profile `identity.keystore` defers to
+  // the default, so neither resolves the keystore to an empty path.
+  const fromFlag = blankToUndef(overrides?.keystore);
+  if (fromFlag) return fromFlag;
+  let identity: { keystore?: string; default?: string } | undefined;
+  try {
+    identity = activeProfileIdentity(overrides);
+  } catch (error) {
+    if (!options?.lenient) throw error;
+  }
+  return blankToUndef(identity?.keystore) ?? defaultKeystorePath(overrides);
 }
 
 /**
@@ -963,7 +1017,14 @@ export function resolveKeystorePath(overrides?: ConnectionOverrides): string {
  * selected by `--profile` or the config's `defaults.profile`.
  */
 function activeProfileIdentity(overrides?: ConnectionOverrides): { keystore?: string; default?: string } | undefined {
-  const file = readConfigFile(overrides?.config ?? defaultConfigPath());
+  // Intentionally propagates a malformed-config error rather than swallowing it.
+  // This feeds resolveKeystorePath for keystore-mutating commands (key generate/
+  // import, keystore init/change-passphrase) and the mainnet dev-keystore guard,
+  // so a broken config must abort loudly instead of silently resolving to the
+  // default keystore and stranding key material there. Diagnostic-only commands
+  // opt into a graceful fallback via resolveKeystorePath's `lenient` option; do
+  // not add a try/catch here (it would re-hide the keystore misdirection).
+  const file = readConfigFile(overrides?.config ?? defaultConfigPath(overrides));
   const { name } = resolveActiveProfile(file, overrides);
   return name ? file?.profiles?.[name]?.identity : undefined;
 }

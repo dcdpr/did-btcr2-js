@@ -5,7 +5,9 @@ import {
   registerConfigCommand,
   registerCreateCommand,
   registerDeactivateCommand,
+  registerInitCommand,
   registerKeyCommand,
+  registerKeystoreCommand,
   registerProfileCommand,
   registerResolveCommand,
   registerUpdateCommand,
@@ -44,7 +46,8 @@ export class DidBtcr2Cli {
       .option('-o, --output <format>', 'Output format <json|text> (default: config defaults.output, else text)')
       .option('--verbose', 'Verbose output', false)
       .option('--quiet', 'Suppress non-essential output', false)
-      .option('-c, --config <path>', 'Path to config file (default: $XDG_CONFIG_HOME/btcr2/config.json)')
+      .option('--home <dir>', 'btcr2 home directory holding config.json + keystore.json (default: ~/.btcr2, %LOCALAPPDATA%\\btcr2 on Windows; overrides $BTCR2_HOME)')
+      .option('-c, --config <path>', 'Path to config file (default: <home>/config.json)')
       .option('--profile <name>', 'Config profile name (default: auto-detected from network)')
       .option('--btc-rest <url>', 'Override Bitcoin REST endpoint (Esplora API)')
       .option('--btc-rpc-url <url>', 'Override Bitcoin Core RPC endpoint')
@@ -57,7 +60,7 @@ export class DidBtcr2Cli {
       .option('--btc-rest-header <header>', 'Extra Bitcoin REST header "Key: Value" (repeatable)', collectHeader, [])
       .option('--btc-rpc-wallet <name>', 'Bitcoin Core wallet name for wallet-scoped RPCs')
       .option('--btc-rpc-header <header>', 'Extra Bitcoin Core RPC header "Key: Value" (repeatable)', collectHeader, [])
-      .option('--keystore <path>', 'Path to the keystore file (default: $XDG_DATA_HOME/btcr2/keystore.json)')
+      .option('--keystore <path>', 'Path to the keystore file (default: <home>/keystore.json)')
       .option('--passphrase-file <path>', 'Read the keystore passphrase from a file (unattended use)')
       .option('--signing-key <ref>', 'Key for create/update/deactivate signing: a URN, fingerprint prefix, or name');
 
@@ -70,14 +73,16 @@ export class DidBtcr2Cli {
     // value is written back so every command reads it through globals().output.
     this.program.hook('preAction', () => {
       const opts = this.program.opts() as GlobalOptions;
-      opts.output = resolveOutputFormat({ output: opts.output, config: opts.config });
+      opts.output = resolveOutputFormat({ output: opts.output, config: opts.config, home: opts.home });
     });
 
+    registerInitCommand(this.program, globals);
     registerCreateCommand(this.program, factory, keystoreFactory, globals);
     registerResolveCommand(this.program, factory, globals);
     registerUpdateCommand(this.program, keystoreFactory, globals);
     registerDeactivateCommand(this.program, keystoreFactory, globals);
     registerKeyCommand(this.program, keystoreFactory, globals);
+    registerKeystoreCommand(this.program, globals);
     registerConfigCommand(this.program, globals);
     registerProfileCommand(this.program, globals);
     registerCompletionCommand(this.program, globals);

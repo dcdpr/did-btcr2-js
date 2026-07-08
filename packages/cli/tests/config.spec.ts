@@ -371,8 +371,8 @@ describe('blankToUndef', () => {
   });
 });
 
-describe('defaultConfigPath / defaultKeystorePath (empty XDG is unset)', () => {
-  const keys = [ 'XDG_CONFIG_HOME', 'APPDATA', 'XDG_DATA_HOME', 'LOCALAPPDATA' ];
+describe('defaultConfigPath / defaultKeystorePath (single home root, ADR 079)', () => {
+  const keys = [ 'BTCR2_HOME', 'XDG_CONFIG_HOME', 'APPDATA', 'XDG_DATA_HOME', 'LOCALAPPDATA' ];
   const saved: Record<string, string | undefined> = {};
 
   beforeEach(() => {
@@ -385,23 +385,44 @@ describe('defaultConfigPath / defaultKeystorePath (empty XDG is unset)', () => {
     }
   });
 
-  it('treats an empty XDG_CONFIG_HOME as unset (absolute home path, never CWD-relative)', () => {
-    process.env.XDG_CONFIG_HOME = '';
+  it('defaults the config to the platform home (~/.btcr2 off Windows) and ignores XDG_CONFIG_HOME', () => {
+    process.env.XDG_CONFIG_HOME = join(tmpdir(), 'xdg-custom');
     const p = defaultConfigPath();
     expect(isAbsolute(p)).to.equal(true);
-    expect(p).to.match(/[/\\]\.config[/\\]btcr2[/\\]config\.json$/);
+    expect(p).to.not.contain('xdg-custom');
+    if (process.platform !== 'win32') expect(p).to.match(/[/\\]\.btcr2[/\\]config\.json$/);
   });
 
-  it('honors a non-blank XDG_CONFIG_HOME', () => {
-    process.env.XDG_CONFIG_HOME = join(tmpdir(), 'xdg-custom');
-    expect(defaultConfigPath()).to.equal(join(tmpdir(), 'xdg-custom', 'btcr2', 'config.json'));
-  });
-
-  it('treats an empty XDG_DATA_HOME as unset for the keystore path', () => {
-    process.env.XDG_DATA_HOME = '';
+  it('colocates the keystore in the same home and ignores XDG_DATA_HOME', () => {
+    process.env.XDG_DATA_HOME = join(tmpdir(), 'xdg-data');
     const p = defaultKeystorePath();
     expect(isAbsolute(p)).to.equal(true);
-    expect(p).to.match(/[/\\]\.local[/\\]share[/\\]btcr2[/\\]keystore\.json$/);
+    expect(p).to.not.contain('xdg-data');
+    if (process.platform !== 'win32') expect(p).to.match(/[/\\]\.btcr2[/\\]keystore\.json$/);
+  });
+
+  it('$BTCR2_HOME relocates both files as a unit', () => {
+    process.env.BTCR2_HOME = join(tmpdir(), 'btcr2home');
+    expect(defaultConfigPath()).to.equal(join(tmpdir(), 'btcr2home', 'config.json'));
+    expect(defaultKeystorePath()).to.equal(join(tmpdir(), 'btcr2home', 'keystore.json'));
+  });
+});
+
+describe('resolveKeystorePath blank handling (ADR 079)', () => {
+  const keys = [ 'BTCR2_HOME', 'XDG_DATA_HOME', 'LOCALAPPDATA' ];
+  const saved: Record<string, string | undefined> = {};
+
+  beforeEach(() => { for (const k of keys) { saved[k] = process.env[k]; delete process.env[k]; } });
+
+  afterEach(() => { for (const k of keys) { if (saved[k] !== undefined) process.env[k] = saved[k]; else delete process.env[k]; } });
+
+  it('an explicit --keystore wins', () => {
+    expect(resolveKeystorePath({ keystore: '/explicit/ks.json' })).to.equal('/explicit/ks.json');
+  });
+
+  it('a blank --keystore defers to the home default instead of resolving to an empty path', () => {
+    process.env.BTCR2_HOME = join(tmpdir(), 'ks-home');
+    expect(resolveKeystorePath({ keystore: '   ' })).to.equal(join(tmpdir(), 'ks-home', 'keystore.json'));
   });
 });
 
@@ -918,5 +939,40 @@ describe('profile identity wiring (keystore + default signing key)', () => {
   it('resolveSigningKeyRef returns undefined when neither flag nor identity.default is set', () => {
     const cfg = writeCfg('id-default-none.json', { defaults: { profile: 'custom' }, profiles: { custom: {} } });
     expect(resolveSigningKeyRef({ config: cfg })).to.be.undefined;
+  });
+
+  it('resolveKeystorePath aborts loudly on a malformed config by default', () => {
+    // A keystore-mutating command must not silently fall back to the default
+    // store under a broken config; that would strand key material in the wrong
+    // keystore. So the default resolution throws rather than degrading.
+    const bad = join(tempDir, 'id-malformed.json');
+    writeFileSync(bad, '{ not valid json ');
+    expect(() => resolveKeystorePath({ config: bad })).to.throw(CLIError, /not valid JSON/);
+  });
+
+  it('resolveKeystorePath degrades to the home default under a malformed config only when lenient', () => {
+    // Diagnostic/recovery commands (`config path`, `keystore status`) opt in so
+    // they can still report a path instead of crashing on the config you ran
+    // them to fix.
+    const bad = join(tempDir, 'id-malformed-lenient.json');
+    writeFileSync(bad, '{ not valid json ');
+    expect(() => resolveKeystorePath({ config: bad }, { lenient: true })).to.not.throw();
+    expect(resolveKeystorePath({ config: bad }, { lenient: true })).to.match(/btcr2[/\\]keystore\.json$/);
+  });
+
+  it('the --keystore flag wins without reading a malformed config, even when strict', () => {
+    // The flag short-circuits before any config read, so a broken config never
+    // blocks an explicit keystore path.
+    const bad = join(tempDir, 'id-malformed-flag.json');
+    writeFileSync(bad, '{ not valid json ');
+    expect(resolveKeystorePath({ config: bad, keystore: '/explicit/ks.json' })).to.equal('/explicit/ks.json');
+  });
+
+  it('resolveSigningKeyRef aborts loudly on a malformed config', () => {
+    // Never silently sign with the default/active key when the configured
+    // signing identity cannot be read.
+    const bad = join(tempDir, 'id-malformed-sign.json');
+    writeFileSync(bad, '{ not valid json ');
+    expect(() => resolveSigningKeyRef({ config: bad })).to.throw(CLIError, /not valid JSON/);
   });
 });

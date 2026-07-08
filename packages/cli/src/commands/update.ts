@@ -1,7 +1,7 @@
 import type { PublishToCasMode } from '@did-btcr2/api';
 import { KeyManagerSigner } from '@did-btcr2/key-manager';
 import type { Command } from 'commander';
-import { deriveNetwork, resolveBroadcastOptions, resolveSigningKeyRef, type ApiFactory } from '../config.js';
+import { assertKeystoreAllowedForNetwork, deriveNetwork, resolveBroadcastOptions, resolveSigningKeyRef, type ApiFactory } from '../config.js';
 import { CLIError } from '../error.js';
 import { resolveKeyRef } from '../keystore/resolve-key-ref.js';
 import { formatResult } from '../output.js';
@@ -88,6 +88,8 @@ export function registerUpdateCommand(
         );
       }
       const network = deriveNetwork(did);
+      // Refuse to sign a mainnet update with an unencrypted dev keystore (ADR 080).
+      assertKeystoreAllowedForNetwork(network, globals());
       const api = factory(network, globals());
       const keyId = resolveKeyRef(api.kms.kms, resolveSigningKeyRef(globals()));
       const signer = new KeyManagerSigner(api.kms.kms, keyId);
