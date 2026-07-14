@@ -9,6 +9,7 @@ import {
   registerKeyCommand,
   registerKeystoreCommand,
   registerProfileCommand,
+  registerQuickstartCommand,
   registerResolveCommand,
   registerUpdateCommand,
 } from './commands/index.js';
@@ -77,6 +78,7 @@ export class DidBtcr2Cli {
     });
 
     registerInitCommand(this.program, globals);
+    registerQuickstartCommand(this.program, globals);
     registerCreateCommand(this.program, factory, keystoreFactory, globals);
     registerResolveCommand(this.program, factory, globals);
     registerUpdateCommand(this.program, keystoreFactory, globals);

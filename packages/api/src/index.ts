@@ -30,6 +30,7 @@ export * from './types.js';
 export * from './helpers.js';
 export * from './bitcoin.js';
 export * from './cas.js';
+export * from './presets.js';
 export * from './key-manager.js';
 export * from './crypto.js';
 export * from './did.js';

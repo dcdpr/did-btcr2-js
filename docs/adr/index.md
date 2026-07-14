@@ -158,3 +158,5 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 079 | 2026-07-08 | [Consolidate CLI State Under a Single ~/.btcr2 Home Directory](079-cli-state-directory-consolidation.md) |
 | 080 | 2026-07-08 | [Keystore Lifecycle, a Confirmed First Passphrase, and Opt-In Dev Keystores](080-keystore-lifecycle-and-dev-keystores.md) |
 | 081 | 2026-07-14 | [A Session Unlock Agent for the Encrypted Keystore](081-cli-keystore-session-unlock.md) |
+| 082 | 2026-07-14 | [Per-Network Presets for Human-Facing Faucet and Explorer Links](082-network-presets.md) |
+| 083 | 2026-07-14 | [A btcr2 quickstart Command that Composes Onboarding into One Step](083-cli-quickstart.md) |

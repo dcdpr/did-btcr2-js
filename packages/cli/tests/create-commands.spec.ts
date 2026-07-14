@@ -136,4 +136,32 @@ describe('create command', () => {
     expect(out[0]).to.match(/^did:btcr2:k1/);
     expect(err.join(' ')).to.match(/Generated and stored key urn:kms:secp256k1:[0-9a-f]{32} \(now the active key\)/);
   });
+
+  describe('funding hint (ADR 082)', () => {
+    it('text mode on a testnet with a faucet prints the beacon, faucet, and explorer', async () => {
+      const pk = freshPublicKeyHex();
+      await run('create', '-t', 'k', '-n', 'mutinynet', '-b', pk);
+      const e = err.join(' ');
+      expect(e).to.match(/Fund the initial beacon/i);
+      expect(e).to.match(/Faucet:\s+https:\/\/faucet\.mutinynet\.com\//);
+      expect(e).to.match(/Explorer:\s+https:\/\/mutinynet\.com\/address\/tb1/);
+    });
+
+    it('omits the funding hint under -o json (machine output stays clean)', async () => {
+      const pk = freshPublicKeyHex();
+      await run('-o', 'json', 'create', '-t', 'k', '-n', 'mutinynet', '-b', pk);
+      expect(err.join(' ')).to.not.match(/Fund the initial beacon/i);
+    });
+
+    it('omits the funding hint on a network without a faucet (regtest)', async () => {
+      const pk = freshPublicKeyHex();
+      await run('create', '-t', 'k', '-n', 'regtest', '-b', pk);
+      expect(err.join(' ')).to.not.match(/Fund the initial beacon/i);
+    });
+
+    it('omits the funding hint for an external (-t x) identifier (no beacon key)', async () => {
+      await run('create', '-t', 'x', '-n', 'mutinynet', '-b', 'ab'.repeat(32));
+      expect(err.join(' ')).to.not.match(/Fund the initial beacon/i);
+    });
+  });
 });

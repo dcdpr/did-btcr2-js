@@ -17,11 +17,12 @@ import {
   MAX_SESSION_TTL_MS,
   parseTtlToMs,
   readSessionStatus,
+  type SessionFile,
   writeSession,
 } from '../keystore/session.js';
 import { formatResult } from '../output.js';
 import { defaultSessionPath } from '../paths.js';
-import { blankToUndef, type CommandResult, type GlobalOptions } from '../types.js';
+import { blankToUndef, type CommandResult, type GlobalOptions, type NetworkOption } from '../types.js';
 
 /**
  * Registers the `keystore` command group: establish, inspect, and re-key the
@@ -129,62 +130,17 @@ export function registerKeystoreCommand(program: Command, globals: () => GlobalO
     .action((options: { ttl?: string; allowMainnet?: boolean }) => {
       const g = globals();
       const path = resolveKeystorePath(g);
-      const summary = keystoreSummary(path);
-      if (summary.protection === 'absent') {
-        throw new CLIError(`No keystore at ${path}. Run "btcr2 init" or "btcr2 keystore init" first.`, 'INVALID_ARGUMENT_ERROR', { path });
-      }
-      if (summary.protection === 'dev') {
-        throw new CLIError(
-          `The keystore at ${path} is an unencrypted dev keystore; it has no passphrase to cache, so no unlock is needed.`,
-          'INVALID_ARGUMENT_ERROR',
-          { path },
-        );
-      }
-      if (!summary.established) {
-        throw new CLIError(
-          `The keystore at ${path} has no passphrase established yet. `
-          + 'Establish one with "btcr2 keystore init" or the first "btcr2 key generate".',
-          'INVALID_ARGUMENT_ERROR',
-          { path },
-        );
-      }
-      // An unlocked encrypted keystore signs prompt-free for the whole TTL,
-      // silently removing per-use passphrase auth. Two guards, both keyed to
-      // --allow-mainnet (ADR 081): this early refusal when the *configured* default
-      // network is mainnet (a clear signal before caching anything), plus the
-      // authoritative one at consumption, where the session records `allowMainnet`
-      // (below) and a `bitcoin` operation, whose network is derived from the DID
-      // rather than the config, is withheld from a session that lacks it. The
-      // active network defaults to a testnet, so this early refusal never fires
-      // for the demo.
-      if (!options.allowMainnet && resolveDefaultNetwork(g) === 'bitcoin') {
-        throw new CLIError(
-          `Refusing to unlock for a mainnet (bitcoin) context: caching the passphrase suspends per-use `
-          + 'authentication for the session. Pass --allow-mainnet to override, or keep signing mainnet '
-          + 'updates with a per-use passphrase prompt.',
-          'MAINNET_UNLOCK_REFUSED_ERROR',
-          { path },
-        );
-      }
       const ttlMs = resolveSessionTtl(options.ttl);
-      // Acquire the passphrase directly (env / file / prompt) with NO session
-      // consultation and NO confirm, verify it against the keystore verifier, and
-      // only then cache it. A wrong passphrase writes no session file.
-      const passphrase = acquirePassphrase({ passphraseFile: g.passphraseFile, prompt: 'Keystore passphrase: ' });
-      if (!verifyKeystorePassphrase(path, passphrase)) {
-        throw new CLIError(`Incorrect passphrase for the keystore at ${path}; no session was created.`, 'DECRYPT_ERROR', { path });
-      }
-      const verifierId = keystoreVerifierId(path);
-      if (!verifierId) {
-        // An established keystore always carries a verifier; defensive guard.
-        throw new CLIError(`The keystore at ${path} has no verifier to bind a session to.`, 'INVALID_ARGUMENT_ERROR', { path });
-      }
-      const session = writeSession(defaultSessionPath(g), {
+      // The op network for the mainnet gate is the configured default here; the
+      // session records `allowMainnet` and the authoritative check happens at
+      // consumption, where a `bitcoin` operation (network derived from the DID) is
+      // withheld from a session that lacks it.
+      const session = unlockSession({
+        g,
         keystorePath : path,
-        verifierId,
-        passphrase,
-        ttlMs,
+        network      : resolveDefaultNetwork(g),
         allowMainnet : !!options.allowMainnet,
+        ttlMs,
       });
       print({ action: 'keystore-unlock', data: { keystore: path, expiresAt: session.expiresAt, ttlSeconds: session.ttlSeconds } });
     });
@@ -202,13 +158,97 @@ export function registerKeystoreCommand(program: Command, globals: () => GlobalO
     });
 }
 
+/** Input for the shared {@link unlockSession} step. */
+export interface UnlockSessionInput {
+  g            : GlobalOptions;
+  /** The resolved keystore path to unlock. */
+  keystorePath : string;
+  /** The operation network for the mainnet gate, passed explicitly (never re-derived). */
+  network      : NetworkOption;
+  /** Whether a mainnet (bitcoin) unlock is permitted (`--allow-mainnet`). */
+  allowMainnet : boolean;
+  /** Session lifetime in milliseconds (already resolved via {@link resolveSessionTtl}). */
+  ttlMs        : number;
+  /**
+   * A pre-acquired passphrase to reuse instead of prompting (the establish-time
+   * passphrase from `quickstart --unlock` on a fresh keystore). Still verified
+   * against the keystore verifier before caching.
+   */
+  passphrase?  : string;
+}
+
+/**
+ * The shared unlock step behind `keystore unlock` and `quickstart --unlock` (ADR
+ * 081/083): validate the keystore, enforce the mainnet gate against the passed
+ * `network`, acquire (or reuse) and verify the passphrase, and write the session.
+ * Refuses an absent, dev, or unestablished keystore. A wrong passphrase writes no
+ * session file. Returns the written {@link SessionFile}. The op network is passed
+ * in rather than re-derived so the mainnet gate is order-independent even when a
+ * caller has just written `defaults.network`.
+ */
+export function unlockSession(input: UnlockSessionInput): SessionFile {
+  const { g, keystorePath: path, network, allowMainnet, ttlMs } = input;
+  const summary = keystoreSummary(path);
+  if (summary.protection === 'absent') {
+    throw new CLIError(`No keystore at ${path}. Run "btcr2 init" or "btcr2 keystore init" first.`, 'INVALID_ARGUMENT_ERROR', { path });
+  }
+  if (summary.protection === 'dev') {
+    throw new CLIError(
+      `The keystore at ${path} is an unencrypted dev keystore; it has no passphrase to cache, so no unlock is needed.`,
+      'INVALID_ARGUMENT_ERROR',
+      { path },
+    );
+  }
+  if (!summary.established) {
+    throw new CLIError(
+      `The keystore at ${path} has no passphrase established yet. `
+      + 'Establish one with "btcr2 keystore init" or the first "btcr2 key generate".',
+      'INVALID_ARGUMENT_ERROR',
+      { path },
+    );
+  }
+  // An unlocked encrypted keystore signs prompt-free for the whole TTL, silently
+  // removing per-use passphrase auth. Refuse a bitcoin context unless allowed; the
+  // authoritative per-use check still happens at consumption from the session's
+  // recorded `allowMainnet` (ADR 081).
+  if (!allowMainnet && network === 'bitcoin') {
+    throw new CLIError(
+      'Refusing to unlock for a mainnet (bitcoin) context: caching the passphrase suspends per-use '
+      + 'authentication for the session. Pass --allow-mainnet to override, or keep signing mainnet '
+      + 'updates with a per-use passphrase prompt.',
+      'MAINNET_UNLOCK_REFUSED_ERROR',
+      { path },
+    );
+  }
+  // Acquire the passphrase directly (env / file / prompt) with NO session
+  // consultation and NO confirm, or reuse a caller-provided one, then verify it
+  // against the keystore verifier before caching. A wrong passphrase writes no
+  // session file.
+  const passphrase = input.passphrase ?? acquirePassphrase({ passphraseFile: g.passphraseFile, prompt: 'Keystore passphrase: ' });
+  if (!verifyKeystorePassphrase(path, passphrase)) {
+    throw new CLIError(`Incorrect passphrase for the keystore at ${path}; no session was created.`, 'DECRYPT_ERROR', { path });
+  }
+  const verifierId = keystoreVerifierId(path);
+  if (!verifierId) {
+    // An established keystore always carries a verifier; defensive guard.
+    throw new CLIError(`The keystore at ${path} has no verifier to bind a session to.`, 'INVALID_ARGUMENT_ERROR', { path });
+  }
+  return writeSession(defaultSessionPath(g), {
+    keystorePath : path,
+    verifierId,
+    passphrase,
+    ttlMs,
+    allowMainnet,
+  });
+}
+
 /**
  * Resolves the session TTL in milliseconds from the `--ttl` flag, then
  * `$BTCR2_KEYSTORE_TTL`, then the one-hour default. Rejects a non-positive,
  * malformed, or over-24h value with a {@link CLIError} that names the actual
  * source (the flag or the env var) so the operator fixes the right input.
  */
-function resolveSessionTtl(flag?: string): number {
+export function resolveSessionTtl(flag?: string): number {
   const fromFlag = blankToUndef(flag);
   const raw = fromFlag ?? blankToUndef(process.env[ENV_KEYSTORE_TTL]);
   if (raw === undefined) return DEFAULT_SESSION_TTL_MS;

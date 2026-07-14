@@ -1,5 +1,17 @@
 # @did-btcr2/api
 
+## 0.17.0
+
+### Minor Changes
+
+- Add per-network presets: human-facing faucet and explorer metadata beside the endpoint config (ADR 082).
+
+  - New `NETWORK_PRESETS` map (keyed by `NetworkName`) and the `NetworkPreset` type, carrying an optional `faucetUrl`, `explorerBaseUrl`, and `blockTimeHint` per network. mutinynet, signet, and the testnets get a faucet and explorer; regtest has neither; mainnet has an explorer but no faucet.
+  - New pure helpers `explorerTxUrl(network, txid)`, `explorerAddressUrl(network, address)`, and `faucetUrl(network)`, each returning `undefined` for a network without the corresponding datum.
+  - These are the single source of truth for the faucet/explorer/block-time data previously duplicated privately in the `lib/` e2e scripts, and are consumed by the CLI to print funding and watch links.
+
+  Purely additive: no existing export changes.
+
 ## 0.16.1
 
 ### Patch Changes

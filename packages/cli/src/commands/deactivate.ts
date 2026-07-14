@@ -3,6 +3,7 @@ import { KeyManagerSigner } from '@did-btcr2/key-manager';
 import type { Command } from 'commander';
 import { assertKeystoreAllowedForNetwork, deriveNetwork, resolveBroadcastOptions, resolveSigningKeyRef, type ApiFactory } from '../config.js';
 import { CLIError } from '../error.js';
+import { printWatchHint } from '../hints.js';
 import { resolveKeyRef } from '../keystore/resolve-key-ref.js';
 import { formatResult } from '../output.js';
 import type { GlobalOptions, UpdateCommandOptions } from '../types.js';
@@ -117,6 +118,7 @@ export function registerDeactivateCommand(
         ...(broadcastOptions ? { broadcastOptions } : {}),
       });
       console.log(formatResult({ action: 'deactivate', data }, globals()));
+      printWatchHint(globals(), network, data.txid);
     });
 }
 

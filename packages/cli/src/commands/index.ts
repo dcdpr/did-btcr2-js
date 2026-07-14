@@ -1,4 +1,5 @@
 export { registerInitCommand } from './init.js';
+export { registerQuickstartCommand } from './quickstart.js';
 export { registerCreateCommand } from './create.js';
 export { registerResolveCommand } from './resolve.js';
 export { registerUpdateCommand } from './update.js';
