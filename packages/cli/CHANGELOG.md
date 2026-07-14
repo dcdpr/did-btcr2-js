@@ -1,5 +1,17 @@
 # @did-btcr2/cli
 
+## 0.17.0
+
+### Minor Changes
+
+- Add a session unlock agent so an encrypted keystore is authenticated once per session instead of on every command (ADR 081).
+
+  - **`keystore unlock`** caches the verified passphrase in `<home>/session.json` (`0600`, TTL, bound to the keystore) so later commands do not re-prompt. `--ttl <duration>` sets the lifetime (bare seconds or an `s`/`m`/`h` suffix; default 1h, hard cap 24h; also `$BTCR2_KEYSTORE_TTL`).
+  - **`keystore lock`** revokes the session; **`keystore status`** now reports whether a session is live and its remaining lifetime (a new `session` field on its output).
+  - A cached session sits below `$BTCR2_KEYSTORE_PASSPHRASE` / `--passphrase-file` and above the interactive prompt, so unattended and CI paths still win and are never weakened by it. Establishment (the confirmed first passphrase, ADR 080) never consults the session, and the keystore verifier still checks every use, so a stale or forged cache can never seal a key under a divergent passphrase.
+  - Mainnet keeps per-use authentication: `keystore unlock` refuses a `bitcoin` _default_ network unless `--allow-mainnet` is passed, and the session records that allowance so that at consumption a `bitcoin` operation (whose network is derived from the DID, not the config default) is withheld from a session lacking it and falls through to a per-use prompt, while other networks are still served. `change-passphrase`, `keystore init --force`, and `btcr2 init` (when it establishes a keystore) invalidate any cached session.
+  - The cached passphrase is base64url-encoded, not encrypted: its only protection at rest is the `0600` file mode. This is a deliberate on-disk v1 for portability and a minimal diff; a future in-memory agent removes the on-disk persistence.
+
 ## 0.16.0
 
 ### Minor Changes

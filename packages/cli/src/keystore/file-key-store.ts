@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { KeyEntry, KeyIdentifier, KeyValueStore } from '@did-btcr2/key-manager';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { utf8ToBytes } from '@noble/hashes/utils.js';
 import { base64urlnopad } from '@scure/base';
 import type { KeystoreProtectionLabel } from '../types.js';
@@ -662,6 +663,48 @@ export function keystoreSummary(path: string): KeystoreSummary {
 /** The protection label of a keystore file, without decrypting or prompting. */
 export function keystoreProtection(path: string): KeystoreProtectionLabel {
   return keystoreSummary(path).protection;
+}
+
+/**
+ * A stable fingerprint of a keystore's passphrase verifier, or `undefined` when
+ * the file is absent, unparsable, or carries no verifier. Compared by equality
+ * to detect a rotated passphrase (`change-passphrase`, `init --force`) or a
+ * re-established keystore, so a cached session (ADR 081) stops matching a
+ * keystore whose passphrase has changed. Never decrypts, never throws.
+ */
+export function keystoreVerifierId(path: string): string | undefined {
+  if (!existsSync(path)) return undefined;
+  let parsed: KeystoreFile;
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf-8')) as KeystoreFile;
+  } catch {
+    return undefined;
+  }
+  if (!parsed.verifier) return undefined;
+  return base64urlnopad.encode(sha256(utf8ToBytes(JSON.stringify(parsed.verifier))));
+}
+
+/**
+ * Checks a candidate passphrase against the keystore's verifier without
+ * constructing a store or opening any key. Returns `false` for an absent,
+ * unparsable, dev, or verifier-less keystore and for a wrong passphrase; `true`
+ * only when the passphrase opens the verifier sentinel. Never throws. Used by
+ * `keystore unlock` (ADR 081) to refuse caching a wrong passphrase.
+ */
+export function verifyKeystorePassphrase(path: string, passphrase: string): boolean {
+  if (!existsSync(path)) return false;
+  let parsed: KeystoreFile;
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf-8')) as KeystoreFile;
+  } catch {
+    return false;
+  }
+  if (parsed.protection !== 'passphrase' || !parsed.verifier) return false;
+  try {
+    return bytesEqual(decryptSecret(parsed.verifier, passphrase), VERIFIER_PLAINTEXT);
+  } catch {
+    return false;
+  }
 }
 
 /** Options for {@link initKeystore}. */

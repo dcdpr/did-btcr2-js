@@ -4,8 +4,9 @@ import { defaultConfigPath, resolveKeystorePath, writeDefaultConfigFile } from '
 import { ensureDir } from '../keystore/atomic.js';
 import { initKeystore, keystoreSummary } from '../keystore/file-key-store.js';
 import { acquirePassphrase } from '../keystore/passphrase.js';
+import { clearSession } from '../keystore/session.js';
 import { formatResult } from '../output.js';
-import { resolveHome } from '../paths.js';
+import { defaultSessionPath, resolveHome } from '../paths.js';
 import type { CommandResult, GlobalOptions } from '../types.js';
 
 /**
@@ -62,6 +63,11 @@ export function registerInitCommand(program: Command, globals: () => GlobalOptio
           protection    : options.dev ? 'none' : 'passphrase',
           getPassphrase : (opts) => acquirePassphrase({ passphraseFile: g.passphraseFile, confirm: opts?.confirm, prompt: 'New keystore passphrase: ' }),
         });
+        // A freshly established keystore mints a new verifier (or none, for --dev),
+        // so any cached session holds a passphrase for a keystore that no longer
+        // exists. Drop it, matching `keystore init` / `change-passphrase`, rather
+        // than leave a stale plaintext passphrase behind (ADR 081).
+        clearSession(defaultSessionPath(g));
         created.push('keystore');
       }
 
