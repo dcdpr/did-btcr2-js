@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { DidBtcr2Cli } from '../src/cli.js';
 import type { ApiFactory } from '../src/config.js';
 import { CLIError } from '../src/error.js';
-import { createKeystoreTestApiFactory, createTestApiFactory, expect, originalConsoleLog } from './helpers.js';
+import { createKeystoreTestApiFactory, createTestApiFactory, expect, originalConsoleError, originalConsoleLog } from './helpers.js';
 
 function sub(cli: DidBtcr2Cli, name: string): Command {
   const c = cli.program.commands.find(x => x.name() === name);
@@ -211,5 +211,64 @@ describe('update and deactivate (signing)', () => {
       { from: 'user' },
     );
     expect(captured.params.broadcastOptions.feeEstimator.satsPerVbyte).to.equal(7);
+  });
+});
+
+describe('update/deactivate watch hint (ADR 082)', () => {
+  let dir: string;
+  let keystore: string;
+  let err: string[];
+  let originalStderrWrite: typeof process.stderr.write;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'btcr2-watch-'));
+    keystore = join(dir, 'keystore.json');
+    err = [];
+    console.log = () => {};
+    console.error = (m?: unknown) => { if (m !== undefined) err.push(String(m)); };
+    originalStderrWrite = process.stderr.write;
+    process.stderr.write = ((chunk: unknown) => { err.push(String(chunk)); return true; }) as typeof process.stderr.write;
+    createKeystoreTestApiFactory(keystore, 'pw')().kms.generateKey({ setActive: true });
+  });
+
+  afterEach(() => {
+    console.log = originalConsoleLog;
+    console.error = originalConsoleError;
+    process.stderr.write = originalStderrWrite;
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /** A signing stub whose update returns a fixed txid, so the watch hint can be observed. */
+  function txidStub(txid: string): ApiFactory {
+    return () => {
+      const realApi = createKeystoreTestApiFactory(keystore, 'pw')();
+      return {
+        kms   : realApi.kms,
+        btcr2 : { update: async () => ({ txid }) },
+      } as unknown as DidBtcr2Api;
+    };
+  }
+
+  const didFor = (network: string): string =>
+    createApi().createDid('deterministic', SchnorrKeyPair.generate().publicKey.compressed, { network: network as never });
+
+  it('prints a Watch link for the txid on a network with an explorer', async () => {
+    const did = didFor('mutinynet');
+    const cli = new DidBtcr2Cli(createTestApiFactory(), txidStub('cafe1234'));
+    await sub(cli, 'update').parseAsync(
+      ['-s', JSON.stringify({ id: did }), '--source-version-id', '1', '-p', '[]', '-m', '#k0', '-b', '"#beacon-0"'],
+      { from: 'user' },
+    );
+    expect(err.join(' ')).to.match(/Watch:\s+https:\/\/mutinynet\.com\/tx\/cafe1234/);
+  });
+
+  it('omits the Watch link on a network without an explorer (regtest)', async () => {
+    const did = didFor('regtest');
+    const cli = new DidBtcr2Cli(createTestApiFactory(), txidStub('cafe1234'));
+    await sub(cli, 'deactivate').parseAsync(
+      ['-s', JSON.stringify({ id: did }), '--source-version-id', '1', '-m', '#k0', '-b', '"#beacon-0"'],
+      { from: 'user' },
+    );
+    expect(err.join(' ')).to.not.match(/Watch:/);
   });
 });

@@ -12,7 +12,7 @@
  *       discovery) goes through Esplora/REST.
  */
 import type { BitcoinConnection } from '@did-btcr2/bitcoin';
-import { BitcoinApi } from '../src/index.js';
+import { BitcoinApi, NETWORK_PRESETS, explorerAddressUrl, faucetUrl } from '../src/index.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -98,26 +98,18 @@ async function promptYes(message: string): Promise<void> {
   }
 }
 
-/** Public mempool.space-style explorer host per network (for operator hints). */
+/**
+ * Explorer address URL for operator hints. Reads the shared per-network preset
+ * (ADR 082); falls back to mainnet mempool for any network without an explorer
+ * base (only reached if a caller passes regtest, which the funding paths do not).
+ */
 function explorerUrl(network: E2ENetwork, address: string): string {
-  switch (network) {
-    case 'mutinynet':  return `https://mutinynet.com/address/${address}`;
-    case 'signet':     return `https://mempool.space/signet/address/${address}`;
-    case 'testnet3':   return `https://mempool.space/testnet/address/${address}`;
-    case 'testnet4':   return `https://mempool.space/testnet4/address/${address}`;
-    default:           return `https://mempool.space/address/${address}`;
-  }
+  return explorerAddressUrl(network, address) ?? `https://mempool.space/address/${address}`;
 }
 
-/** Faucet URL hint per public network. */
+/** Faucet URL hint per public network, from the shared preset (ADR 082). */
 function faucetHint(network: E2ENetwork): string | undefined {
-  switch (network) {
-    case 'mutinynet': return 'https://faucet.mutinynet.com/';
-    case 'signet':    return 'https://signetfaucet.com/';
-    case 'testnet3':  return 'https://coinfaucet.eu/en/btc-testnet/ (or another testnet3 faucet)';
-    case 'testnet4':  return 'https://mempool.space/testnet4/faucet (or another testnet4 faucet)';
-    default:          return undefined;
-  }
+  return faucetUrl(network);
 }
 
 /**
@@ -266,12 +258,7 @@ export function persistKey(args: {
   return filepath;
 }
 
+/** Block-time hint per network, from the shared preset (ADR 082). */
 function blockTimeHint(n: E2ENetwork): string {
-  switch (n) {
-    case 'mutinynet': return '~30 seconds';
-    case 'signet':    return '~10 minutes';
-    case 'testnet3':  return '~10 minutes (highly variable)';
-    case 'testnet4':  return '~10 minutes';
-    default:          return 'on-demand';
-  }
+  return NETWORK_PRESETS[n].blockTimeHint ?? 'on-demand';
 }

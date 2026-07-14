@@ -37,6 +37,7 @@ npx @did-btcr2/cli resolve -i did:btcr2:k1qq...
 | Command | Alias | Description |
 |---|---|---|
 | `init` | - | Set up the btcr2 home: create the directory, a default config, and establish the keystore |
+| `quickstart` | - | One-command onboarding: `init` + record the network + (optionally) cache the session and probe endpoints |
 | `create` | - | Create an identifier and initial DID document |
 | `resolve` | `read` | Resolve a DID document |
 | `update` | - | Update a DID document (signs via the keystore) |
@@ -65,6 +66,8 @@ Creates an identifier and initial DID document. Two identifier types, selected b
 
 `--signing-key <ref>` (global) selects a stored key for the existing-key mode; it applies only to `-t k`.
 
+On a testnet with a public faucet, text-mode `create` (for a `-t k` identifier) also prints a **funding hint** on stderr: the initial P2WPKH beacon address next to its faucet and explorer links, from the per-network preset. It is suppressed under `--quiet` and `-o json`, and absent on regtest and mainnet.
+
 ### resolve (alias: read)
 
 Required flag: `-i/--identifier`. At most one of `-r` or `-p` may be given.
@@ -92,6 +95,8 @@ Required flags: `-s/--source-document`, `--source-version-id`, `-p/--patches`, `
 | `--fee-rate <satsPerVByte>` | Fee rate in sats/vByte for the beacon transaction (default: `5`). Raise it under congestion so the transaction confirms (also `BTCR2_FEE_RATE`, profile `btc.feeRate`) |
 | `--change-address <address>` | Send transaction change to this address instead of the beacon address, so a DID's announcements are not linked on-chain (profile `btc.changeAddress`) |
 
+On a network with a block explorer, text-mode `update` (and `deactivate`) also prints a `Watch:` link on stderr for the broadcast txid, suppressed under `--quiet` and `-o json`.
+
 ### deactivate (alias: delete)
 
 Permanently deactivates a DID. This is irreversible. Deactivation applies the `{ "op": "add", "path": "/deactivated", "value": true }` patch and routes through the same signed-update path as `update`, so it also signs via the keystore.
@@ -100,22 +105,37 @@ Required flags: `-s/--source-document`, `--source-version-id`, `-m/--verificatio
 
 ### init
 
-`btcr2 init` is the one-command setup: it creates the btcr2 home directory, writes a default config if none exists, and establishes the keystore if none exists. It is idempotent (existing files are left untouched unless `--force`).
+`btcr2 init` is the one-command setup: it creates the btcr2 home directory, writes a default config if none exists, and establishes the keystore if none exists. It is idempotent (existing files are left untouched unless `--force`). For a single command that also records the network and (optionally) caches the session and probes the endpoints, see [`quickstart`](#quickstart).
 
 | Flag | Description |
 |---|---|
+| `-n, --network <network>` | Bitcoin network to record as `defaults.network` so later commands can drop `-n`. Written idempotently: it never clobbers a network you set earlier |
 | `--dev` | Establish an **unencrypted** dev keystore (plaintext keys, no passphrase). Testnet/regtest only; mainnet operations are refused |
-| `--force` | Re-create the config and keystore even if they already exist |
+| `--force` | Re-create the config even if it exists. **Never** re-creates the keystore (re-establishing one is the explicit `keystore init --force`) |
 
-By default `init` establishes an **encrypted** keystore and prompts (with confirmation) for a passphrase up front, so the first `key generate` never seals the keystore under an unconfirmed, mistyped passphrase. Supply the passphrase non-interactively with `BTCR2_KEYSTORE_PASSPHRASE` or `--passphrase-file` for scripted setup.
+By default `init` establishes an **encrypted** keystore and prompts (with confirmation) for a passphrase up front, so the first `key generate` never seals the keystore under an unconfirmed, mistyped passphrase. Supply the passphrase non-interactively with `BTCR2_KEYSTORE_PASSPHRASE` or `--passphrase-file` for scripted setup. The output envelope reports the resolved `network` alongside the paths and `protection`.
+
+### quickstart
+
+`btcr2 quickstart` collapses onboarding into one step: it runs `init`'s scaffold, records the network (default **mutinynet**), and optionally caches the session and probes the endpoints. It reimplements nothing - it composes `init`, `keystore unlock`, and `config doctor` - so the keystore and session guarantees hold unchanged.
+
+| Flag | Description |
+|---|---|
+| `-n, --network <network>` | Bitcoin network to set up. Default: `mutinynet` |
+| `--dev` | Establish an unencrypted dev keystore (testnet only) |
+| `--unlock` | Cache the passphrase for the session so later commands do not re-prompt. Opt-in; on a fresh encrypted keystore it reuses the establish-time passphrase with no second prompt |
+| `--ttl <duration>` | Session lifetime with `--unlock`: bare seconds or an `s`/`m`/`h` suffix (default `1h`, max `24h`; also `BTCR2_KEYSTORE_TTL`) |
+| `--no-doctor` | Skip the endpoint reachability probe (which is on by default and **advisory**: a failed probe warns but `quickstart` still exits 0) |
+| `--allow-mainnet` | Permit `-n bitcoin` (records mainnet as the default; dev keystores are still refused). Guarded before any writes |
+| `--force` | Re-create the config even if it exists (never the keystore) |
 
 The workshop happy path:
 
 ```bash
-btcr2 init --dev --network mutinynet   # (or: btcr2 init  for an encrypted keystore)
+btcr2 quickstart -n mutinynet --unlock --ttl 2h   # (or: --dev  for an unencrypted dev keystore)
 btcr2 key generate --set-active
-btcr2 create --network mutinynet
-# ...fund the beacon, resolve, update, deactivate...
+btcr2 create                                       # network comes from defaults.network
+# ...fund the beacon (create prints the faucet + explorer links), resolve, update, deactivate...
 ```
 
 ### key
@@ -141,10 +161,14 @@ Establish, inspect, and re-key the keystore. These operate on the keystore file 
 | Subcommand | Alias | Description |
 |---|---|---|
 | `keystore init` | - | Establish the keystore (encrypted by default; prompts and confirms the passphrase). `--dev` creates an unencrypted dev keystore; `--force` re-establishes an existing one (discards its keys) |
-| `keystore status` | - | Show the resolved path, protection mode (`encrypted`/`dev`/`absent`), whether a passphrase is established, and the key count. Never decrypts or prompts |
-| `keystore change-passphrase` | `passwd` | Re-seal every key under a new passphrase (encrypted keystores only). Prompts for the current passphrase, then a new one (with confirmation) |
+| `keystore status` | - | Show the resolved path, protection mode (`encrypted`/`dev`/`absent`), whether a passphrase is established, the key count, and the `session` state (whether one is live and its remaining lifetime). Never decrypts or prompts |
+| `keystore change-passphrase` | `passwd` | Re-seal every key under a new passphrase (encrypted keystores only). Prompts for the current passphrase, then a new one (with confirmation). Clears any cached session |
+| `keystore unlock` | - | Cache the verified passphrase for the session so later commands do not re-prompt. `--ttl <duration>` sets the lifetime (default `1h`, max `24h`; also `BTCR2_KEYSTORE_TTL`); `--allow-mainnet` permits unlocking a `bitcoin`-default context |
+| `keystore lock` | - | Revoke the cached session so later commands prompt again. Idempotent; needs no passphrase |
 
 **Encrypted vs dev keystores.** An encrypted keystore seals each secret with argon2id + XChaCha20-Poly1305 under one passphrase, and records a verifier so a mistyped passphrase fails loudly (with `Incorrect passphrase`) instead of sealing a key under an unknown or divergent passphrase. A **dev keystore** (`--dev`) stores secrets in plaintext and never prompts: it is for disposable testnet/regtest keys only, and the CLI **hard-refuses** to sign or generate a mainnet (`bitcoin`) key with one.
+
+**Session unlock.** `keystore unlock` caches the verified passphrase in `<home>/session.json` (`0600`) so a returning operator authenticates once instead of on every signing command. A cached session sits below `BTCR2_KEYSTORE_PASSPHRASE` / `--passphrase-file` and above the interactive prompt, so unattended and CI paths still win. Mainnet keeps per-use authentication: a `bitcoin` operation is withheld from a session that was not unlocked with `--allow-mainnet`. The cached passphrase is base64url-encoded, not encrypted; its only protection at rest is the `0600` file mode.
 
 ### config
 
@@ -292,6 +316,7 @@ Override precedence, highest wins: CLI flags, then environment variables, then c
 | `BTCR2_OUTPUT` | `-o, --output` |
 | `BTCR2_HOME` | `--home` |
 | `BTCR2_KEYSTORE_PASSPHRASE` | keystore passphrase (unattended use) |
+| `BTCR2_KEYSTORE_TTL` | session lifetime for `keystore unlock` / `quickstart --unlock` (default `1h`, max `24h`) |
 
 ### Home directory
 

@@ -399,6 +399,81 @@ export function resolveDefaultNetwork(overrides?: ConnectionOverrides): NetworkO
 }
 
 /**
+ * The network recorded at `defaults.network` in the config file, validated, or
+ * `undefined` when the file is absent, malformed, or the value is unset/unknown.
+ * Unlike {@link resolveDefaultNetwork} this consults ONLY the raw
+ * `defaults.network` (no profile fallback, no regtest default), so `quickstart`
+ * can distinguish "the operator set a default" from "there is none yet" before
+ * it writes (ADR 083). Never throws: a malformed config is surfaced loudly by
+ * the write path, so this pre-write read stays quiet.
+ */
+export function readConfiguredDefaultNetwork(overrides?: ConnectionOverrides): NetworkOption | undefined {
+  const configPath = overrides?.config ?? defaultConfigPath(overrides);
+  let raw: Record<string, unknown> | undefined;
+  try {
+    raw = parseConfigFileRaw(configPath);
+  } catch {
+    return undefined;
+  }
+  const value = raw ? getConfigPath(raw, 'defaults.network') : undefined;
+  return typeof value === 'string' && SUPPORTED_NETWORKS.includes(value as NetworkOption)
+    ? value as NetworkOption
+    : undefined;
+}
+
+/**
+ * Persists `defaults.network` idempotently and returns the resolved network,
+ * the shared network-recording step behind `btcr2 init -n` and `btcr2 quickstart`
+ * (ADR 083). Writes when `explicit` (an explicit `-n`) is given, or when a
+ * `fallback` is given and the raw config has no `defaults.network` yet. Keyed on
+ * the **raw** file value (not {@link resolveDefaultNetwork}, which never returns
+ * undefined), so a defaulted re-run never clobbers a network the operator set
+ * earlier. When neither condition writes, the existing default is returned
+ * unchanged. Assumes `configPath` names a parseable config (the caller has just
+ * scaffolded one, or an existing one that a malformed-JSON read surfaces loudly).
+ */
+export function persistDefaultNetwork(
+  configPath : string,
+  opts       : { explicit?: NetworkOption; fallback?: NetworkOption; overrides?: ConnectionOverrides },
+): { network: NetworkOption; wrote: boolean } {
+  const raw = parseConfigFileRaw(configPath);
+  const rawValue = raw ? getConfigPath(raw, 'defaults.network') : undefined;
+  const rawNetwork = typeof rawValue === 'string' && SUPPORTED_NETWORKS.includes(rawValue as NetworkOption)
+    ? rawValue as NetworkOption
+    : undefined;
+
+  if (opts.explicit) {
+    if (opts.explicit !== rawNetwork) {
+      writeConfigFile(configPath, (r) => setConfigPath(r, 'defaults.network', opts.explicit));
+      return { network: opts.explicit, wrote: true };
+    }
+    return { network: opts.explicit, wrote: false };
+  }
+  if (rawNetwork) return { network: rawNetwork, wrote: false };
+  if (opts.fallback) {
+    writeConfigFile(configPath, (r) => setConfigPath(r, 'defaults.network', opts.fallback));
+    return { network: opts.fallback, wrote: true };
+  }
+  return { network: resolveDefaultNetwork(opts.overrides), wrote: false };
+}
+
+/**
+ * Validates an explicit network string against {@link SUPPORTED_NETWORKS},
+ * returning it typed as a {@link NetworkOption} or throwing a {@link CLIError}.
+ * Shared by the `-n/--network` flags on `init` and `quickstart` (ADR 083).
+ */
+export function assertSupportedNetwork(value: string): NetworkOption {
+  if (!SUPPORTED_NETWORKS.includes(value as NetworkOption)) {
+    throw new CLIError(
+      `Invalid network "${value}". Must be one of ${SUPPORTED_NETWORKS.join(', ')}.`,
+      'INVALID_ARGUMENT_ERROR',
+      { network: value },
+    );
+  }
+  return value as NetworkOption;
+}
+
+/**
  * Reports a coherence conflict between the network a `create` run is about to
  * encode and the network the active profile declares, so the CLI can warn
  * instead of silently minting an identifier on one network while wiring

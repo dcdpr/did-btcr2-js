@@ -10,7 +10,7 @@ commands reuse shell variables set by earlier ones, so keep the same session ope
 output block is **illustrative** - your keys, DID strings, and Bitcoin addresses will be
 unique to you, but the shape will match.
 
-Targets `@did-btcr2/cli` **v0.17.0**.
+Targets `@did-btcr2/cli` **v0.18.0**.
 
 ---
 
@@ -66,27 +66,28 @@ btcr2 --version
 ```
 
 ```
-btcr2 0.17.0
+btcr2 0.18.0
 ```
 
-### Set up the btcr2 home and keystore
+### Set up in one command
 
-`btcr2 init` is the one command that gets you ready: it creates the btcr2 home
-directory, writes a default config, and establishes the keystore. Pick one of two paths.
+`btcr2 quickstart` gets you ready in a single step: it creates the btcr2 home directory,
+writes a default config, establishes the keystore, records the network (Mutinynet by
+default), and probes the endpoints so you know the network is reachable. Pick one of two
+paths.
 
 **Path A (recommended) - encrypted keystore, authenticate once per session.** This is the
-real product experience and shows off v0.17.0's session unlock agent. `init` prompts for a
-passphrase (twice, to confirm it) so your keys are encrypted at rest:
+real product experience and shows off the session unlock agent. It prompts for a
+passphrase (twice, to confirm it) so your keys are encrypted at rest, then `--unlock`
+caches it for the session:
 
 ```bash
-btcr2 init
-btcr2 config set defaults.network mutinynet
-btcr2 keystore unlock --ttl 2h
+btcr2 quickstart -n mutinynet --unlock --ttl 2h
 ```
 
-`keystore unlock` caches the passphrase for the session (here, 2 hours) so every later
-command in Parts 1 to 4 runs **without re-prompting**. You authenticate once, not on
-every signing step.
+`--unlock` caches the passphrase for the session (here, 2 hours) so every later command in
+Parts 1 to 4 runs **without re-prompting**. You authenticate once, not on every signing
+step. (Omit `--unlock` and you set the passphrase now but keep a per-use prompt.)
 
 **Path B (fastest) - unencrypted dev keystore, no passphrase at all.** For a smooth
 follow-along with zero passphrase typing, use a dev keystore. Keys are stored in
@@ -94,42 +95,39 @@ plaintext, so this is **testnet/regtest/signet/mutinynet only** (the CLI hard-re
 sign or generate a mainnet key with a dev keystore):
 
 ```bash
-btcr2 init --dev
-btcr2 config set defaults.network mutinynet
+btcr2 quickstart -n mutinynet --dev
 ```
 
-Either way, `init` prints where it put everything (text mode shows just the data; on
-Path B the `protection` reads `"dev"`):
+`quickstart` prints where it put everything, whether a session was cached, and the
+endpoint probe result (text mode shows just the data; on Path B the `protection` reads
+`"dev"` and `unlocked` is `false`):
 
 ```json
 {
   "home": "/home/you/.btcr2",
   "config": "/home/you/.btcr2/config.json",
   "keystore": "/home/you/.btcr2/keystore.json",
+  "network": "mutinynet",
   "created": ["config", "keystore"],
-  "protection": "encrypted"
+  "protection": "encrypted",
+  "unlocked": true,
+  "session": { "expiresAt": 1760000000000, "ttlSeconds": 7200 },
+  "doctor": { "checks": [ { "endpoint": "btc-rest", "target": "https://mutinynet.com/api", "ok": true } ] }
 }
 ```
 
-(Add `-o json` to any command, for example `btcr2 -o json init`, to get the full
+(Add `-o json` to any command, for example `btcr2 -o json quickstart`, to get the full
 `{"action": ..., "data": ...}` envelope instead.)
 
-> `init` is idempotent: run it again and it leaves existing files untouched (it never
-> overwrites a keystore, even with `--force`; re-establishing one is the explicit
-> `btcr2 keystore init --force`). Setting `defaults.network mutinynet` lets you drop
-> `-n mutinynet` from every later command.
-
-### Connectivity check
-
-Confirm your machine can reach Mutinynet's public infrastructure before you go further.
-This probes the resolved endpoints without depending on any particular DID's history:
-
-```bash
-btcr2 config doctor -n mutinynet
-```
-
-If it reports the endpoints reachable, you are ready. (You will also see a live resolve
-of your own DID in Part 3.)
+> `quickstart` is idempotent: run it again and it leaves existing files untouched (it never
+> overwrites a keystore, and it will not clobber a network you set earlier). The endpoint
+> probe is **advisory** - if an endpoint is briefly unreachable it warns but still succeeds;
+> re-run `btcr2 config doctor -n mutinynet` any time for an authoritative check. Pass
+> `--no-doctor` to skip the probe. `-n mutinynet` is the default, so you can drop it.
+>
+> Prefer to do it step by step? `btcr2 init -n mutinynet` scaffolds the home and records
+> the network, `btcr2 keystore unlock --ttl 2h` caches the session, and `btcr2 config
+> doctor` probes the endpoints - `quickstart` just runs those in order.
 
 ### See everything the tool can do
 
@@ -141,6 +139,8 @@ btcr2 --help
 Commands:
   init          Set up the btcr2 home: create the directory, a default config,
                 and establish the keystore.
+  quickstart    One-command onboarding: create the home + config + keystore,
+                record the network, and (optionally) cache the session and probe endpoints.
   create        Create an identifier and initial DID document
   resolve|read  Resolve the DID document of the identifier.
   update        Update a did:btcr2 document.
@@ -240,6 +240,21 @@ That string **is** the identifier. It was produced in milliseconds, with no fee.
 `create --signing-key` only reads the **public** key, so it never needs your passphrase,
 session or not. In text mode it prints the DID to stdout and a `Using stored key ...`
 note to stderr, which is why we redirect `2>/dev/null` when capturing `$DID`.)
+
+Because this DID is on a testnet, `create` also prints a **funding hint** to stderr - the
+initial beacon address next to its faucet and explorer links - so you know where to send
+coins before the on-chain update in Part 4. Run it without the `2>/dev/null` redirect to
+see it:
+
+```
+Fund the initial beacon to anchor updates:
+  Beacon:   tb1qme9lfnkgcqcfu2v43k9w0fy0zj43z8gdgp2ank
+  Faucet:   https://faucet.mutinynet.com/
+  Explorer: https://mutinynet.com/address/tb1qme9lfnkgcqcfu2v43k9w0fy0zj43z8gdgp2ank
+```
+
+(These links come from the per-network preset, so they are absent on regtest and mainnet.
+The `Beacon` address is the same `#initialP2WPKH` service you will resolve in Part 4.)
 
 A few things to show off:
 
@@ -361,6 +376,10 @@ BEACON_ADDR=$(btcr2 -o json resolve -i "$DID" \
 echo "Fund this address: $BEACON_ADDR"
 ```
 
+(This is the same `Beacon` address `create` printed in its funding hint back in Part 2 -
+here we pull it programmatically from the resolved document so the rest of the flow can
+reuse `$BEACON_ADDR`.)
+
 Then:
 
 1. Open https://faucet.mutinynet.com, paste `$BEACON_ADDR`, and request ~100,000 sats.
@@ -404,7 +423,8 @@ btcr2 -o json --signing-key demo update \
 transaction whose `OP_RETURN` carries the update hash. The command's `.data` is an
 enriched result (`.data.txid` is the broadcast transaction id, handy for watching the
 signal confirm); `.data.signedUpdate` is the off-chain half you keep, so we extract just
-that into `signed-update.json`.
+that into `signed-update.json`. In text mode `update` also prints a `Watch:` explorer link
+for the txid to stderr, so you can click straight through to the transaction.
 
 > If the beacon is not funded (or the payment has not confirmed), `update` stops before
 > broadcasting with a clear message, for example:

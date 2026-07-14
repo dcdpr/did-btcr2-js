@@ -56,7 +56,18 @@ export type CommandResult =
   | { action: 'key-export'; data: { keyId: string; publicKey?: string; secretWrittenTo?: string } }
   | { action: 'key-delete'; data: { keyId: string; deleted: true } }
   | { action: 'key-use'; data: { keyId: string; active: true } }
-  | { action: 'init'; data: { home: string; config: string; keystore: string; created: string[]; protection: KeystoreProtectionLabel } }
+  | { action: 'init'; data: { home: string; config: string; keystore: string; network: NetworkOption; created: string[]; protection: KeystoreProtectionLabel } }
+  | { action: 'quickstart'; data: {
+      home       : string;
+      config     : string;
+      keystore   : string;
+      network    : NetworkOption;
+      created    : string[];
+      protection : KeystoreProtectionLabel;
+      unlocked   : boolean;
+      session?   : { expiresAt: number; ttlSeconds: number };
+      doctor?    : DoctorReport;
+    } }
   | { action: 'config-init'; data: { path: string } }
   | { action: 'config-get'; data: unknown }
   | { action: 'config-set'; data: { path: string } }

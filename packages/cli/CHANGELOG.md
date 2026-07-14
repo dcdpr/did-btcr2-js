@@ -1,5 +1,22 @@
 # @did-btcr2/cli
 
+## 0.18.0
+
+### Minor Changes
+
+- Add a `quickstart` command, fold the network into `init`, and print faucet/explorer links (ADRs 082, 083).
+
+  - **`btcr2 quickstart`** collapses onboarding into one step: it composes `init` (home + config + keystore), records the network (default **mutinynet**), and optionally caches the session and probes endpoints. Flags: `-n/--network`, `--dev`, `--unlock` (opt-in session caching), `--ttl`, `--no-doctor`, `--allow-mainnet`, `--force`. Session caching stays opt-in so ADR 081's establish-vs-cache separation holds; on a fresh encrypted keystore `--unlock` reuses the establish-time passphrase with no second prompt. The endpoint probe runs by default but is advisory (a failed probe warns and still exits 0). Mainnet is guarded before any writes: `-n bitcoin` requires `--allow-mainnet`, and `-n bitcoin --dev` is refused.
+  - **`btcr2 init` gains `-n/--network`**, recording `defaults.network` so later commands can drop `-n`; its output envelope gains a `network` field. The network write is idempotent and never clobbers a network the operator set earlier.
+  - **Funding and watch links.** `create` on a testnet now prints the initial beacon address next to its faucet and explorer links; `update`/`deactivate` print a `Watch:` explorer link for the broadcast txid. These are text-mode stderr hints only, suppressed under `--quiet` and `--output json`, so machine output is unchanged.
+
+  Breaking output surface: adds a `quickstart` result shape, a `network` field on `init` output, and new stderr hint lines. Machine (JSON) output shape is otherwise unchanged.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/api@0.17.0
+
 ## 0.17.0
 
 ### Minor Changes

@@ -3,6 +3,7 @@ import type { Command } from 'commander';
 import type { ApiFactory, ConnectionOverrides } from '../config.js';
 import { assertKeystoreAllowedForNetwork, profileNetworkMismatch, resolveDefaultNetwork } from '../config.js';
 import { CLIError } from '../error.js';
+import { printCreateFundingHint } from '../hints.js';
 import { resolveKeyRef } from '../keystore/resolve-key-ref.js';
 import { formatResult } from '../output.js';
 import type { CommandResult, GlobalOptions, NetworkOption } from '../types.js';
@@ -115,6 +116,7 @@ export function registerCreateCommand(
         const genesisBytes = parseGenesisBytes(options.bytes, 'k');
         const did = factory().createDid('deterministic', genesisBytes, { network });
         print({ action: 'create', data: did });
+        printCreateFundingHint(g, network, did);
         return;
       }
 
@@ -128,6 +130,7 @@ export function registerCreateCommand(
           { action: 'create', data: did, keyId, publicKey: bytesToHex(publicKey) },
           `Using stored key ${keyId}.`,
         );
+        printCreateFundingHint(g, network, did);
         return;
       }
 
@@ -141,6 +144,7 @@ export function registerCreateCommand(
         { action: 'create', data: did, keyId, publicKey },
         `Generated and stored key ${keyId} (now the active key).`,
       );
+      printCreateFundingHint(g, network, did);
     });
 }
 
