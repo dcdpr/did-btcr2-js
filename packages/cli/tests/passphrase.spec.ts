@@ -60,6 +60,60 @@ describe('acquirePassphrase', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  describe('beforePrompt session source (ADR 081)', () => {
+    it('consults beforePrompt after env/file and before the no-TTY failure', () => {
+      delete process.env[ENV_KEYSTORE_PASSPHRASE];
+      // Even on a non-TTY runner, a beforePrompt value is used instead of throwing.
+      expect(acquirePassphrase({ beforePrompt: () => 'from-session' })).to.equal('from-session');
+    });
+
+    it('returns the session value verbatim (no re-normalization) and rejects an empty one', () => {
+      delete process.env[ENV_KEYSTORE_PASSPHRASE];
+      // The session holds the exact, already-verified passphrase; a trailing
+      // newline is part of it, not formatting to strip. Re-stripping here would
+      // corrupt the KDF input for a passphrase that legitimately ends in one, so
+      // the value must come back byte-for-byte.
+      expect(acquirePassphrase({ beforePrompt: () => 'sess\n' })).to.equal('sess\n');
+      expect(acquirePassphrase({ beforePrompt: () => 'sess' })).to.equal('sess');
+      expect(() => acquirePassphrase({ beforePrompt: () => '   ' }))
+        .to.throw(KeyStoreError).with.property('type', 'PASSPHRASE_REQUIRED_ERROR');
+    });
+
+    it('lets the env var win over beforePrompt (never consults it)', () => {
+      process.env[ENV_KEYSTORE_PASSPHRASE] = 'env-wins';
+      const beforePrompt = (): string => { throw new Error('beforePrompt must not be consulted when the env var is set'); };
+      expect(acquirePassphrase({ beforePrompt })).to.equal('env-wins');
+    });
+
+    it('lets --passphrase-file win over beforePrompt (never consults it)', () => {
+      delete process.env[ENV_KEYSTORE_PASSPHRASE];
+      const dir = mkdtempSync(join(tmpdir(), 'btcr2-pass-'));
+      const file = join(dir, 'pass.txt');
+      writeFileSync(file, 'file-wins\n');
+      const beforePrompt = (): string => { throw new Error('beforePrompt must not be consulted when a passphrase file is set'); };
+      try {
+        expect(acquirePassphrase({ passphraseFile: file, beforePrompt })).to.equal('file-wins');
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('does not consult beforePrompt under forcePrompt', function () {
+      if (process.stdin.isTTY) return this.skip(); // forcePrompt would otherwise prompt
+      delete process.env[ENV_KEYSTORE_PASSPHRASE];
+      const beforePrompt = (): string => { throw new Error('beforePrompt must not be consulted under forcePrompt'); };
+      expect(() => acquirePassphrase({ forcePrompt: true, beforePrompt }))
+        .to.throw(KeyStoreError).with.property('type', 'PASSPHRASE_REQUIRED_ERROR');
+    });
+
+    it('falls through to the no-TTY failure when beforePrompt yields nothing', function () {
+      if (process.stdin.isTTY) return this.skip();
+      delete process.env[ENV_KEYSTORE_PASSPHRASE];
+      expect(() => acquirePassphrase({ beforePrompt: () => undefined }))
+        .to.throw(KeyStoreError).with.property('type', 'PASSPHRASE_REQUIRED_ERROR');
+    });
+  });
 });
 
 describe('dropLastUtf8Char (backspace over a hidden entry)', () => {

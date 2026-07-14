@@ -4,6 +4,7 @@ import type { Btcr2DidDocument, ResolutionOptions } from '@did-btcr2/method';
 import type { DidResolutionResult } from '@web5/dids';
 import type { DoctorReport, EffectiveConfig } from './config.js';
 import type { ConfigIssue } from './config-schema.js';
+import type { SessionStatus } from './keystore/session.js';
 
 export type NetworkOption = 'bitcoin' | 'testnet3' | 'testnet4' | 'signet' | 'mutinynet' | 'regtest';
 export type OutputFormat = 'json' | 'text';
@@ -66,8 +67,10 @@ export type CommandResult =
   | { action: 'config-path'; data: { home: string; config: string; keystore: string } }
   | { action: 'config-doctor'; data: DoctorReport }
   | { action: 'keystore-init'; data: { path: string; protection: 'encrypted' | 'dev' } }
-  | { action: 'keystore-status'; data: { path: string; protection: KeystoreProtectionLabel; established: boolean; keyCount: number; active: string | undefined } }
+  | { action: 'keystore-status'; data: { path: string; protection: KeystoreProtectionLabel; established: boolean; keyCount: number; active: string | undefined; session: SessionStatus } }
   | { action: 'keystore-change-passphrase'; data: { path: string; rekeyed: number } }
+  | { action: 'keystore-unlock'; data: { keystore: string; expiresAt: number; ttlSeconds: number } }
+  | { action: 'keystore-lock'; data: { path: string; cleared: boolean } }
   | { action: 'profile-add'; data: { profile: string } }
   | { action: 'profile-use'; data: { profile: string } }
   | { action: 'profile-show'; data: unknown }

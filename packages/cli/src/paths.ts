@@ -23,6 +23,8 @@ export const ENV_HOME = 'BTCR2_HOME';
 /** The config and keystore file names, kept side by side under the home root. */
 export const CONFIG_FILENAME = 'config.json';
 export const KEYSTORE_FILENAME = 'keystore.json';
+/** The session file name, holding the unlock agent's cached passphrase (ADR 081). */
+export const SESSION_FILENAME = 'session.json';
 
 /**
  * Resolves the CLI home directory: the single root that holds `config.json` and
@@ -76,4 +78,15 @@ export function defaultConfigPath(overrides?: PathOverrides): string {
  */
 export function defaultKeystorePath(overrides?: PathOverrides): string {
   return join(resolveHome(overrides), KEYSTORE_FILENAME);
+}
+
+/**
+ * Session file path: `<home>/session.json`, where the unlock agent caches the
+ * keystore passphrase (ADR 081). Deliberately derived from the home root alone,
+ * never from `--config` / `--keystore` or the config file, so `keystore lock`
+ * can revoke a session even under a malformed config, and so the read and write
+ * paths always agree on one location per home.
+ */
+export function defaultSessionPath(overrides?: PathOverrides): string {
+  return join(resolveHome(overrides), SESSION_FILENAME);
 }

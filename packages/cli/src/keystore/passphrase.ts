@@ -19,6 +19,16 @@ export type PassphraseOptions = {
    * satisfy the new one (which would make the change a no-op).
    */
   forcePrompt?: boolean;
+  /**
+   * An optional non-interactive source consulted *after* the env var and
+   * passphrase file and *before* the terminal prompt (and before the "no TTY"
+   * failure). The session unlock agent (ADR 081) wires this to a cached
+   * passphrase, so a returning command consumes the session instead of
+   * prompting, and a non-interactive follow-on command does not hard-fail. It
+   * returns `undefined` when no session is available. Skipped when `forcePrompt`
+   * is set, and never wired during passphrase establishment (`confirm`).
+   */
+  beforePrompt?: () => string | undefined;
 };
 
 /**
@@ -39,6 +49,19 @@ export function acquirePassphrase(options: PassphraseOptions = {}): string {
     if (options.passphraseFile) {
       return assertNonEmpty(readFileSync(options.passphraseFile, 'utf-8').replace(/\r?\n$/, ''));
     }
+
+    // A cached session (ADR 081) sits below the env var and file but above the
+    // interactive prompt, so it is consulted before the "no TTY" failure: a
+    // scripted or piped follow-on command consumes the session instead of
+    // hard-failing. Establishment never reaches here (its caller omits it).
+    //
+    // The session already holds the exact, keystore-verified passphrase (encoded
+    // and decoded byte-for-byte), not a raw source needing newline normalization.
+    // Return it verbatim: re-stripping a trailing newline here would corrupt the
+    // KDF input for a passphrase that legitimately ends in one, even though unlock
+    // itself succeeded. assertNonEmpty is a defensive guard only.
+    const fromSession = options.beforePrompt?.();
+    if (fromSession) return assertNonEmpty(fromSession);
   }
 
   if (!process.stdin.isTTY) {

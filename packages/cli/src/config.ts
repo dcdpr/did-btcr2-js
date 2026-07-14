@@ -7,10 +7,11 @@ import { dirname } from 'node:path';
 import { CLIError } from './error.js';
 import { ensureDir, writeFileAtomic } from './keystore/atomic.js';
 import { FileBackedKeyManager } from './keystore/file-backed-key-manager.js';
-import { keystoreProtection } from './keystore/file-key-store.js';
+import { keystoreProtection, keystoreVerifierId } from './keystore/file-key-store.js';
 import { defaultKeystorePath } from './keystore/paths.js';
 import { acquirePassphrase } from './keystore/passphrase.js';
-import { defaultConfigPath } from './paths.js';
+import { readLiveSessionPassphrase } from './keystore/session.js';
+import { defaultConfigPath, defaultSessionPath } from './paths.js';
 import { blankToUndef, SUPPORTED_NETWORKS, type KeystoreProtectionLabel, type NetworkOption, type OutputFormat } from './types.js';
 
 export { defaultConfigPath };
@@ -947,13 +948,34 @@ export function defaultApiFactory(network?: NetworkOption, overrides?: Connectio
  * or opened. The persisted active-key pointer is re-applied (a non-decrypting
  * existence check) so "the active key" survives across invocations.
  */
-function buildKeystoreKms(overrides?: ConnectionOverrides): KeyManager {
+function buildKeystoreKms(overrides?: ConnectionOverrides, network?: NetworkOption): KeyManager {
+  const keystorePath = resolveKeystorePath(overrides);
+  const sessionPath = defaultSessionPath(overrides);
+  // The network the operation will sign under, known here because the factory
+  // receives it. A `bitcoin` operation must not consume a session that was not
+  // unlocked with `--allow-mainnet`, so mainnet keeps per-use authentication even
+  // while a session is live (ADR 081). Key commands pass no network, so the
+  // session serves them as before.
+  const isMainnetOperation = network === 'bitcoin';
   return new FileBackedKeyManager({
-    path          : resolveKeystorePath(overrides),
+    path          : keystorePath,
     // The store decides when to confirm: it passes `confirm: true` only while
     // establishing a fresh keystore's passphrase, so a first-key typo is caught
     // by a second entry (ADR 080). confirm is a no-op for env/file sources.
-    getPassphrase : (opts) => acquirePassphrase({ passphraseFile: overrides?.passphraseFile, confirm: opts?.confirm }),
+    //
+    // On the non-establishing path, a cached session (ADR 081) is consulted below
+    // the env var / --passphrase-file and above the interactive prompt. It is
+    // wired ONLY when not confirming, so establishment never consults the session
+    // and a first passphrase is always entered fresh and twice. The session is
+    // bound to this keystore's verifier, so a rotated passphrase invalidates it.
+    getPassphrase : (opts) => acquirePassphrase({
+      passphraseFile : overrides?.passphraseFile,
+      confirm        : opts?.confirm,
+      ...(opts?.confirm ? {} : {
+        beforePrompt : (): string | undefined =>
+          readLiveSessionPassphrase(sessionPath, keystorePath, keystoreVerifierId(keystorePath), isMainnetOperation),
+      }),
+    }),
   });
 }
 
@@ -1048,7 +1070,7 @@ export function resolveSigningKeyRef(overrides?: ConnectionOverrides): string | 
 export function keystoreApiFactory(network?: NetworkOption, overrides?: ConnectionOverrides): DidBtcr2Api {
   return createApi({
     ...resolveConnectionConfig(network, overrides),
-    kms : buildKeystoreKms(overrides),
+    kms : buildKeystoreKms(overrides, network),
   });
 }
 
