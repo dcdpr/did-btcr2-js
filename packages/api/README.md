@@ -31,7 +31,7 @@ Or with pnpm:
 pnpm add @did-btcr2/api
 ```
 
-**Runtime note:** ESM-only package (requires `import`, not `require`). Ships a browser bundle at `dist/browser.mjs` for bundler-based environments. Requires Node >= 22.
+**Runtime note:** ESM-first package; a CJS build ships via the `require` export condition (some transitive deps are ESM-only, so `import` is the reliable path). Ships a browser bundle at `dist/browser.mjs` for bundler-based environments. Requires Node >= 22.
 
 ## Key Exports
 
@@ -153,6 +153,7 @@ The `lib/` directory contains end-to-end scripts that exercise the full update p
 
 ## Documentation
 
+- **[DEMO.md](./DEMO.md)** Full-lifecycle walkthrough (create, resolve, update, deactivate on Mutinynet), with a runnable companion script at `lib/e2e-full-lifecycle.ts`
 - **Package docs on btcr2.dev** [btcr2.dev/impls/ts](https://btcr2.dev/impls/ts)
 - **[ADR-006](../../docs/adr/006-api-package-boundary.md)** API package boundary
 - **[ADR-024](../../docs/adr/024-api-facade-lazy-and-layered-config.md)** API facade lazy initialization + layered config
