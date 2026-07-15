@@ -118,7 +118,7 @@ function faucetHint(network: E2ENetwork): string | undefined {
  * the operator confirms a block exists, the indexer typically catches up in
  * a few minutes. Mainnet not supported here.
  */
-function utxoTimeoutMs(network: E2ENetwork): number {
+export function utxoTimeoutMs(network: E2ENetwork): number {
   switch (network) {
     case 'regtest':   return 30_000;
     case 'mutinynet': return 90_000;
