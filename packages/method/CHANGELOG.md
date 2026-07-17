@@ -1,5 +1,16 @@
 # @did-btcr2/method
 
+## 0.55.0
+
+### Minor Changes
+
+- `Appendix.getVerificationMethods` throws a typed `DidDocumentError` from `@did-btcr2/common` instead of a bare `TypeError` when called without a `didDocument` (ADR 085). Message unchanged.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/common@9.2.0
+
 ## 0.54.1
 
 ### Patch Changes

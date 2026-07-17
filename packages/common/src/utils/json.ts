@@ -1,3 +1,4 @@
+import { MethodError } from '../errors.js';
 import type { JSONObject, Prototyped, Unprototyped } from '../types.js';
 
 /**
@@ -110,7 +111,7 @@ export class JSONUtils {
     depth: number = 0
   ): boolean {
     if (depth > 1024) {
-      throw new Error('Maximum comparison depth exceeded');
+      throw new MethodError('Maximum comparison depth exceeded', 'MAX_DEPTH_EXCEEDED');
     }
     if (Object.is(a, b)) return true;
 
@@ -256,7 +257,7 @@ export class JSONUtils {
     depth: number = 0
   ): any {
     if (depth > 1024) {
-      throw new Error('Maximum clone depth exceeded');
+      throw new MethodError('Maximum clone depth exceeded', 'MAX_DEPTH_EXCEEDED');
     }
     const transformed = options.transform ? options.transform(value) : value;
     if (transformed !== value) return transformed;
@@ -266,7 +267,7 @@ export class JSONUtils {
     }
 
     if (seen.has(value as object)) {
-      throw new Error('Cannot clone circular structure');
+      throw new MethodError('Cannot clone circular structure', 'CIRCULAR_STRUCTURE');
     }
 
     // Handle arrays and typed arrays

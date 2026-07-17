@@ -118,6 +118,27 @@ module.exports = [
     }
   },
   {
+    // Typed-error policy (ADR 085): core-package sources construct typed errors
+    // from the common DidMethodError hierarchy (or a package error module built
+    // on it), never bare built-in errors. smt is exempt by design (zero-dependency
+    // package, standard JS error types); the api/bitcoin/cli sweep is tracked as
+    // follow-up work in ADR 085.
+    files : [
+      'packages/common/src/**/*.ts',
+      'packages/keypair/src/**/*.ts',
+      'packages/cryptosuite/src/**/*.ts',
+      'packages/key-manager/src/**/*.ts',
+      'packages/method/src/**/*.ts',
+      'packages/aggregation/src/**/*.ts',
+    ],
+    rules : {
+      'no-restricted-syntax': ['error', {
+        selector : 'NewExpression[callee.name=/^(Error|TypeError|RangeError|SyntaxError|EvalError|ReferenceError|URIError)$/]',
+        message  : 'Construct a typed error from the DidMethodError hierarchy instead of a bare built-in error (ADR 085).',
+      }],
+    }
+  },
+  {
     ignores: [
       '**/*.js',
       '**/*.cjs',

@@ -159,25 +159,6 @@ type V8ErrorConstructor = ErrorConstructor & {
   captureStackTrace?: (target: object, ctor: Function) => void;
 };
 
-export class NotImplementedError extends Error {
-  override name: string = 'NotImplementedError';
-  type: string = 'NotImplementedError';
-
-  constructor(message: string, options: ErrorOptions = {}) {
-    super(message);
-    this.type = options.type ?? this.type;
-    this.name = options.name ?? this.name;
-
-    // Ensures that instanceof works properly, the correct prototype chain when using inheritance,
-    // and that V8 stack traces (like Chrome, Edge, and Node.js) are more readable and relevant.
-    Object.setPrototypeOf(this, new.target.prototype);
-
-    // Captures the stack trace in V8 engines (like Chrome, Edge, and Node.js).
-    // In non-V8 environments, the stack trace will still be captured.
-    (Error as V8ErrorConstructor).captureStackTrace?.(this, NotImplementedError);
-  }
-}
-
 export class DidMethodError extends Error {
   override name: string = 'DidMethodError';
   type: string = 'DidMethodError';
@@ -202,6 +183,22 @@ export class DidMethodError extends Error {
 export class MethodError extends DidMethodError {
   constructor(message: string, type: string = 'MethodError', data?: Record<string, any>) {
     super(message, { type, name: type, data });
+  }
+}
+
+export class NotImplementedError extends DidMethodError {
+  constructor(message: string, type?: string, data?: Record<string, any>);
+  /** @deprecated Pass the type string and data object positionally instead. */
+  constructor(message: string, options?: ErrorOptions);
+  constructor(message: string, typeOrOptions: string | ErrorOptions = 'NotImplementedError', data?: Record<string, any>) {
+    const opts: ErrorOptions = typeof typeOrOptions === 'string'
+      ? { type: typeOrOptions, name: typeOrOptions, data }
+      : {
+        type : typeOrOptions.type ?? 'NotImplementedError',
+        name : typeOrOptions.name ?? 'NotImplementedError',
+        data : typeOrOptions.data
+      };
+    super(message, opts);
   }
 }
 

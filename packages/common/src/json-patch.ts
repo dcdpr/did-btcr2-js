@@ -97,16 +97,16 @@ export class JSONPatch {
   /**
  * Validate JSON Patch operations.
  * @param {PatchOperation[]} operations - The operations to validate.
- * @returns {Error | null} An Error if validation fails, otherwise null.
+ * @returns {MethodError | null} A MethodError if validation fails, otherwise null.
  */
-  static validateOperations(operations: PatchOperation[]): Error | null {
-    if (!Array.isArray(operations)) return new Error('Operations must be an array');
+  static validateOperations(operations: PatchOperation[]): MethodError | null {
+    if (!Array.isArray(operations)) return new MethodError('Operations must be an array', 'JSON_PATCH_VALIDATION_ERROR');
     for (const op of operations) {
-      if (!op || typeof op !== 'object') return new Error('Operation must be an object');
-      if (typeof op.op !== 'string') return new Error('Operation.op must be a string');
-      if (typeof op.path !== 'string') return new Error('Operation.path must be a string');
+      if (!op || typeof op !== 'object') return new MethodError('Operation must be an object', 'JSON_PATCH_VALIDATION_ERROR');
+      if (typeof op.op !== 'string') return new MethodError('Operation.op must be a string', 'JSON_PATCH_VALIDATION_ERROR');
+      if (typeof op.path !== 'string') return new MethodError('Operation.path must be a string', 'JSON_PATCH_VALIDATION_ERROR');
       if ((op.op === 'move' || op.op === 'copy') && typeof op.from !== 'string') {
-        return new Error(`Operation.from must be a string for op=${op.op}`);
+        return new MethodError(`Operation.from must be a string for op=${op.op}`, 'JSON_PATCH_VALIDATION_ERROR');
       }
     }
     return null;

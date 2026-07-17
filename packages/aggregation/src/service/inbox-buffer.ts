@@ -1,3 +1,5 @@
+import { AggregationServiceError } from '../core/errors.js';
+
 export interface StoredEvent {
   /** Monotonic ID assigned at append time. Stable across the buffer's lifetime. */
   id: string;
@@ -22,7 +24,7 @@ export class InboxBuffer {
   #nextId = 1;
 
   constructor(capacity = 100) {
-    if(capacity < 1) throw new Error(`InboxBuffer capacity must be >= 1; got ${capacity}`);
+    if(capacity < 1) throw new AggregationServiceError(`InboxBuffer capacity must be >= 1; got ${capacity}`, 'INVALID_INBOX_CAPACITY', { capacity });
     this.#capacity = capacity;
   }
 

@@ -1,3 +1,5 @@
+import { MethodError } from '../errors.js';
+
 /**
  * Utility class for date-related operations.
  * @name DateUtils
@@ -12,7 +14,7 @@ export class DateUtils {
   static toISOStringNonFractional(date: Date = new Date()): string {
     const time = date.getTime();
     if (Number.isNaN(time)) {
-      throw new Error(`Invalid date: ${date}`);
+      throw new MethodError(`Invalid date: ${date}`, 'INVALID_DATE');
     }
     return date.toISOString().replace(/\.\d{3}Z$/, 'Z');
   }
@@ -25,7 +27,7 @@ export class DateUtils {
   static toUnixSeconds(date: Date = new Date()): number {
     const time = date.getTime();
     if (Number.isNaN(time)) {
-      throw new Error(`Invalid date: ${date}`);
+      throw new MethodError(`Invalid date: ${date}`, 'INVALID_DATE');
     }
     return Math.floor(date.getTime() / 1000);
   }

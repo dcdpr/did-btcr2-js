@@ -457,10 +457,7 @@ export class DidMethodApi {
   async deactivate(): Promise<SignedBTCR2Update> {
     throw new NotImplementedError(
       'DidMethodApi.deactivate is not implemented yet.',
-      {
-        type : 'DID_API_METHOD_NOT_IMPLEMENTED',
-        name : 'NOT_IMPLEMENTED_ERROR'
-      }
+      'DID_API_METHOD_NOT_IMPLEMENTED'
     );
   }
 }
