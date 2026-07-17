@@ -48,15 +48,30 @@ jobs:
 
       # Publish the regenerated badge + report to the dedicated ci-badges
       # branch (single orphan commit, force-pushed) so the README badge tracks
-      # every main run without ever putting an automated commit on main
-      # (ADR 084). GITHUB_TOKEN pushes cannot retrigger workflows, and the
-      # [skip ci] marker documents that no CI is expected on that branch.
-      - name: Publish coverage badge (main only)
-        if: github.ref == 'refs/heads/main'
+      # main without ever putting an automated commit on main (ADR 084).
+      # Publishes only when (a) the branch does not exist yet (first-run seed,
+      # from any branch, so the README badge is never a dead link) or (b) this
+      # is a main run and the rendered badge actually changed. GITHUB_TOKEN
+      # pushes cannot retrigger workflows, and the [skip ci] marker documents
+      # that no CI is expected on that branch.
+      - name: Publish coverage badge
         run: |
           if [ ! -f .github/badges/coverage.svg ] || [ ! -f COVERAGE.md ]; then
             echo "coverage artifacts missing (coverage report failed?); skipping badge publish"
             exit 0
+          fi
+          if git ls-remote --exit-code --heads origin ci-badges >/dev/null; then
+            if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+              echo "ci-badges exists and this is not main; skipping badge publish"
+              exit 0
+            fi
+            git fetch -q --depth 1 origin ci-badges
+            if git show FETCH_HEAD:.github/badges/coverage.svg | cmp -s - .github/badges/coverage.svg; then
+              echo "badge unchanged; skipping publish (COVERAGE.md refreshes with the next badge change)"
+              exit 0
+            fi
+          else
+            echo "ci-badges branch missing; seeding it from this run"
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
