@@ -57,11 +57,19 @@ function color(pct) {
   return '#e05d44';                    // red
 }
 function badge(label, message, fill) {
-  const w = s => Math.round(s.length * 6.4) + 12;
-  const lw = w(label), mw = w(message), total = lw + mw;
+  // Per-glyph advance widths for Verdana 11px (the badge's declared font at
+  // font-size 110 / scale .1). textLength is set to the MEASURED text width so
+  // renderers normalize spacing without compressing the glyphs; a flat
+  // per-char estimate undersizes wide glyphs like '%' and squeezes them
+  // together ("91%" needs ~25px, the old formula allotted 19px).
+  const CHAR_W = { '%': 11.0, '.': 4.0, ' ': 3.9, 'r': 4.7, 'c': 6.1, 'e': 6.7 };
+  const charW = ch => CHAR_W[ch] ?? (/[0-9]/.test(ch) ? 6.98 : /[A-Z]/.test(ch) ? 7.9 : 6.9);
+  const textW = s => Math.round([...s].reduce((sum, ch) => sum + charW(ch), 0));
+  const PAD = 10; // 5px horizontal padding each side of a text box
+  const lw = textW(label) + PAD, mw = textW(message) + PAD, total = lw + mw;
   const lx = Math.round((lw / 2) * 10);
   const mx = Math.round((lw + mw / 2) * 10);
-  const ltl = (lw - 12) * 10, mtl = (mw - 12) * 10;
+  const ltl = (lw - PAD) * 10, mtl = (mw - PAD) * 10;
   return `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${total}" height="20" role="img" aria-label="${label}: ${message}">
   <title>${label}: ${message}</title>
   <linearGradient id="s" x2="0" y2="100%">
