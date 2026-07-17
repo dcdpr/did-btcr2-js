@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Aggregate per-package c8 json-summary coverage into one repo-wide number,
-// then emit a committed SVG badge (.github/badges/coverage.svg) and a
-// COVERAGE.md table. Fully FOSS and offline: no third-party coverage service,
-// no network, no uploader. Run via `pnpm coverage` (which runs the tests first)
-// or `pnpm coverage:report` against already-generated coverage/ output.
+// then emit an SVG badge (.github/badges/coverage.svg) and a COVERAGE.md
+// table. Both are git-ignored on main; CI publishes them to the ci-badges
+// branch on every main run (ADR 084). Fully FOSS and offline: no third-party
+// coverage service, no network, no uploader. Run via `pnpm coverage` (which
+// runs the tests first) or `pnpm coverage:report` against existing coverage/.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

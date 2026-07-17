@@ -1,8 +1,9 @@
+import type { Network } from '../store.js';
 import { loadWallet } from '../store.js';
 
 export async function cmdList(opts: { network?: string }) {
   const wallet = loadWallet();
-  const net = (opts.network ?? wallet.network) as keyof typeof wallet.funding.addresses;
+  const net = (opts.network ?? wallet.network) as Network;
 
   console.log(`\n  Wallet (${wallet.beacons.length + (wallet.funding ? 1 : 0)} keys, default network: ${wallet.network}, showing: ${net})\n`);
 

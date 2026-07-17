@@ -53,10 +53,23 @@ pnpm wallet status --network mutinynet        # query a specific network
 pnpm wallet fund <label>                      # default: 10000 sats to P2WPKH
 pnpm wallet fund <label> --amount 50000 --addr-type p2tr
 pnpm wallet fund <label> --network signet --amount 5000
+pnpm wallet fund tb1q...                      # raw address: pay any address directly
+                                              # (--addr-type is ignored; the address pins its own type)
 
 pnpm wallet recover <label>                   # sweep beacon -> funding
 pnpm wallet recover <label> --addr-type p2tr  # sweep a specific address type
+
+pnpm wallet send funding tb1q... --amount 5000   # generic transfer: any wallet key to
+pnpm wallet send beacon-foo funding --all        #   any label or raw address; --all sweeps
+pnpm wallet send /tmp/secret.hex funding --all   # one-off source from a 64-hex secret file
+                                                 #   (used once, never saved to wallet.json)
 ```
+
+`fund` and `recover` are sugar over `send`: `fund X` = `send funding X --amount N`,
+`recover X` = `send X funding --all`. The source of a `send` must be a key the wallet
+can sign with (`funding`, a label, or a secret file); the destination can also be a
+raw address. `--from-type`/`--to-type` pick the address derivation on each end
+(default P2WPKH; `--to-type` applies to labels only, a raw address pins its own type).
 
 ## Fee strategy
 

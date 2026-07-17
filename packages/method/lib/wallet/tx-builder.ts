@@ -11,13 +11,31 @@ import { getNetwork, type BitcoinConnection } from '@did-btcr2/bitcoin';
 import { connectBitcoin } from '../bitcoin-endpoints.js';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { hex } from '@scure/base';
-import { p2tr, p2wpkh, Transaction } from '@scure/btc-signer';
+import { Address, p2tr, p2wpkh, Transaction } from '@scure/btc-signer';
 
 import { opReturnScript } from '../../src/core/beacon/beacon.js';
 import type { Key, Network } from './store.js';
 import { keypairFromKey } from './keys.js';
 
 export type AddrType = 'p2pkh' | 'p2wpkh' | 'p2tr';
+
+/** Block-explorer tx-URL prefixes per network, for post-broadcast hints. */
+export const EXPLORERS: Record<Network, string> = {
+  regtest   : '(no public explorer)',
+  mutinynet : 'https://mutinynet.com/tx/',
+  signet    : 'https://mempool.space/signet/tx/',
+  testnet4  : 'https://mempool.space/testnet4/tx/',
+};
+
+/** True when `target` decodes as an address on `network`. */
+export function isValidAddress(target: string, network: Network): boolean {
+  try {
+    Address(getNetwork(network)).decode(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const FEE_RATE_SAT_PER_VB = 1;
 const MIN_ABS_FEE_SATS = 200n;
@@ -197,6 +215,31 @@ async function broadcastSend(args: {
   return { txid, vsize, feeSats, rawHex };
 }
 
+/**
+ * Send a fixed amount from any wallet key to any address; change returns to
+ * the source address. The generic primitive behind `fund` and `send`.
+ */
+export async function sendSats(args: {
+  fromKey: Key;
+  fromKind: AddrType;
+  destAddress: string;
+  amountSats: bigint;
+  network: Network;
+  feeRateSatPerVb?: number;
+}): Promise<{ txid: string; vsize: number; feeSats: bigint }> {
+  const result = await broadcastSend({
+    fromKey         : args.fromKey,
+    fromKind        : args.fromKind,
+    destAddress     : args.destAddress,
+    destAmount      : args.amountSats,
+    changeAddress   : args.fromKey.addresses[args.network][args.fromKind],
+    network         : args.network,
+    feeRateSatPerVb : args.feeRateSatPerVb,
+  });
+  const { rawHex: _, ...summary } = result;
+  return summary;
+}
+
 export async function fundBeacon(args: {
   funding: Key;
   beacon: Key;
@@ -205,35 +248,36 @@ export async function fundBeacon(args: {
   amountSats: bigint;
   feeRateSatPerVb?: number;
 }): Promise<{ txid: string; vsize: number; feeSats: bigint }> {
-  const destAddress = args.beacon.addresses[args.network][args.destKind];
-  const result = await broadcastSend({
+  return sendSats({
     fromKey         : args.funding,
     fromKind        : 'p2wpkh',  // funding source is always P2WPKH (cheapest)
-    destAddress,
-    destAmount      : args.amountSats,
-    changeAddress   : args.funding.addresses[args.network].p2wpkh,
+    destAddress     : args.beacon.addresses[args.network][args.destKind],
+    amountSats      : args.amountSats,
     network         : args.network,
     feeRateSatPerVb : args.feeRateSatPerVb,
   });
-  const { rawHex: _, ...summary } = result;
-  return summary;
 }
 
-export async function sweepBeacon(args: {
-  funding: Key;
-  beacon: Key;
-  network: Network;
+/**
+ * Sweep everything at one of a key's addresses to any destination address
+ * (dest receives total minus fee, no change output). The generic primitive
+ * behind `recover` and `send --all`.
+ */
+export async function sweepAll(args: {
+  fromKey: Key;
   fromKind: AddrType;
+  destAddress: string;
+  network: Network;
   feeRateSatPerVb?: number;
 }): Promise<{ txid: string; vsize: number; feeSats: bigint; sweptSats: bigint }> {
   const btc = connectionFor(args.network);
   const feeRate = args.feeRateSatPerVb ?? FEE_RATE_SAT_PER_VB;
-  const fromAddress = args.beacon.addresses[args.network][args.fromKind];
-  const destAddress = args.funding.addresses[args.network].p2wpkh;
+  const fromAddress = args.fromKey.addresses[args.network][args.fromKind];
+  const destAddress = args.destAddress;
 
   const utxos = await fetchUtxos(fromAddress, btc);
   if (utxos.length === 0) {
-    throw new Error(`Beacon ${args.beacon.label} (${args.fromKind}) has no UTXOs on ${args.network}`);
+    throw new Error(`Source address ${fromAddress} (${args.fromKind}) has no UTXOs on ${args.network}`);
   }
 
   const totalIn = utxos.reduce((s, u) => s + BigInt(u.value), 0n);
@@ -245,7 +289,7 @@ export async function sweepBeacon(args: {
     }
   }
 
-  const kp = keypairFromKey(args.beacon);
+  const kp = keypairFromKey(args.fromKey);
   const secret = kp.secretKey.bytes;
   const pubkey = kp.publicKey.compressed;
 
@@ -290,6 +334,22 @@ export async function sweepBeacon(args: {
 
   const txid = await broadcast(final.hex, btc);
   return { txid, vsize, feeSats, sweptSats };
+}
+
+export async function sweepBeacon(args: {
+  funding: Key;
+  beacon: Key;
+  network: Network;
+  fromKind: AddrType;
+  feeRateSatPerVb?: number;
+}): Promise<{ txid: string; vsize: number; feeSats: bigint; sweptSats: bigint }> {
+  return sweepAll({
+    fromKey         : args.beacon,
+    fromKind        : args.fromKind,
+    destAddress     : args.funding.addresses[args.network].p2wpkh,
+    network         : args.network,
+    feeRateSatPerVb : args.feeRateSatPerVb,
+  });
 }
 
 export async function getBalance(address: string, btc: BitcoinConnection): Promise<number> {

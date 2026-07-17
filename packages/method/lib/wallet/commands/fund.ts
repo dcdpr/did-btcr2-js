@@ -1,16 +1,9 @@
 import type { Network } from '../store.js';
-import { loadWallet, requireBeacon, requireFunding } from '../store.js';
+import { findBeacon, loadWallet, requireFunding } from '../store.js';
 import type { AddrType } from '../tx-builder.js';
-import { fundBeacon } from '../tx-builder.js';
+import { EXPLORERS, fundBeacon, isValidAddress, sendSats } from '../tx-builder.js';
 
-const EXPLORERS: Record<Network, string> = {
-  regtest   : '(no public explorer)',
-  mutinynet : 'https://mutinynet.com/tx/',
-  signet    : 'https://mempool.space/signet/tx/',
-  testnet4  : 'https://mempool.space/testnet4/tx/',
-};
-
-export async function cmdFund(label: string, opts: {
+export async function cmdFund(labelOrAddress: string, opts: {
   amount?: string;
   network?: Network;
   addrType?: AddrType;
@@ -18,25 +11,45 @@ export async function cmdFund(label: string, opts: {
 }) {
   const wallet = loadWallet();
   const funding = requireFunding(wallet);
-  const beacon = requireBeacon(wallet, label);
 
   const network = opts.network ?? wallet.network;
   const addrType = opts.addrType ?? 'p2wpkh';
   const amountSats = BigInt(opts.amount ?? '10000');
   const feeRate = opts.feeRate ? Number(opts.feeRate) : undefined;
 
-  const destAddress = beacon.addresses[network][addrType];
+  // A registered label wins; anything else must decode as an address on the
+  // target network (`--addr-type` only applies to labels, where the wallet
+  // picks the derivation; a raw address already pins its own type).
+  const beacon = findBeacon(wallet, labelOrAddress);
+  if (!beacon && !isValidAddress(labelOrAddress, network)) {
+    throw new Error(
+      `"${labelOrAddress}" is neither a registered beacon label (see \`pnpm wallet list\`) `
+      + `nor a valid ${network} address.`,
+    );
+  }
+  const destAddress = beacon ? beacon.addresses[network][addrType] : labelOrAddress;
 
-  console.log(`\n  Funding ${label} (${addrType}) on ${network}`);
+  console.log(`\n  Funding ${beacon ? `${labelOrAddress} (${addrType})` : destAddress} on ${network}`);
   console.log(`    from:    ${funding.addresses[network].p2wpkh}  (funding P2WPKH)`);
   console.log(`    to:      ${destAddress}`);
   console.log(`    amount:  ${amountSats} sats`);
   console.log(`    feerate: ${feeRate ?? 1} sat/vB\n`);
 
-  const result = await fundBeacon({
-    funding, beacon, network, destKind        : addrType, amountSats,
-    feeRateSatPerVb : feeRate,
-  });
+  const result = beacon
+    ? await fundBeacon({
+      funding, beacon, network,
+      destKind        : addrType,
+      amountSats,
+      feeRateSatPerVb : feeRate,
+    })
+    : await sendSats({
+      fromKey         : funding,
+      fromKind        : 'p2wpkh',
+      destAddress,
+      amountSats,
+      network,
+      feeRateSatPerVb : feeRate,
+    });
 
   console.log(`  Broadcast: ${result.txid}`);
   console.log(`  vsize:     ${result.vsize} vB`);

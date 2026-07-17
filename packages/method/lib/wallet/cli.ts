@@ -12,8 +12,10 @@
  *   add      register a new beacon key (generated or imported)
  *   list     list registered keys + addresses for one network
  *   status   fetch live balances per key per address type
- *   fund     send sats from the funding key to a beacon address
+ *   fund     send sats from the funding key to a beacon key or raw address
  *   recover  sweep a beacon address back to the funding key
+ *   send     generic transfer: any wallet key (or secret-hex file) to any
+ *            label or raw address; --amount or --all (sweep)
  */
 import { Command } from 'commander';
 
@@ -22,6 +24,7 @@ import { cmdFund } from './commands/fund.js';
 import { cmdInit } from './commands/init.js';
 import { cmdList } from './commands/list.js';
 import { cmdRecover } from './commands/recover.js';
+import { cmdSend } from './commands/send.js';
 import { cmdStatus } from './commands/status.js';
 
 const program = new Command();
@@ -59,13 +62,24 @@ program
   .action(async (opts) => cmdStatus(opts));
 
 program
-  .command('fund <label>')
-  .description('send sats from the funding key to a beacon address')
+  .command('fund <labelOrAddress>')
+  .description('send sats from the funding key to a registered beacon key or a raw address')
   .option('-a, --amount <sats>', 'amount to send', '10000')
-  .option('-t, --addr-type <kind>', 'destination address type: p2pkh|p2wpkh|p2tr', 'p2wpkh')
+  .option('-t, --addr-type <kind>', 'destination address type for labels: p2pkh|p2wpkh|p2tr', 'p2wpkh')
   .option('-n, --network <name>', 'network to broadcast on')
   .option('-f, --fee-rate <sat-per-vb>', 'fee rate override (default 1)')
-  .action(async (label, opts) => cmdFund(label, opts));
+  .action(async (labelOrAddress, opts) => cmdFund(labelOrAddress, opts));
+
+program
+  .command('send <from> <to>')
+  .description('send sats from any wallet key (funding, a label, or a secret-hex file) to a label or raw address')
+  .option('-a, --amount <sats>', 'amount to send (exactly one of --amount / --all)')
+  .option('--all', 'sweep: send everything at the source address, minus fee')
+  .option('--from-type <kind>', 'source address type: p2pkh|p2wpkh|p2tr', 'p2wpkh')
+  .option('--to-type <kind>', 'destination address type for labels: p2pkh|p2wpkh|p2tr', 'p2wpkh')
+  .option('-n, --network <name>', 'network to broadcast on')
+  .option('-f, --fee-rate <sat-per-vb>', 'fee rate override (default 1)')
+  .action(async (from, to, opts) => cmdSend(from, to, opts));
 
 program
   .command('recover <label>')
