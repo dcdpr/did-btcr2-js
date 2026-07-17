@@ -7,6 +7,11 @@ jobs:
   ci:
     runs-on: ubuntu-latest
 
+    # contents: write is needed by the badge-publish step to force-push the
+    # ci-badges branch (ADR 084); everything else only reads.
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -40,3 +45,23 @@ jobs:
       - name: Coverage report
         run: pnpm coverage:report
         continue-on-error: true
+
+      # Publish the regenerated badge + report to the dedicated ci-badges
+      # branch (single orphan commit, force-pushed) so the README badge tracks
+      # every main run without ever putting an automated commit on main
+      # (ADR 084). GITHUB_TOKEN pushes cannot retrigger workflows, and the
+      # [skip ci] marker documents that no CI is expected on that branch.
+      - name: Publish coverage badge (main only)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          if [ ! -f .github/badges/coverage.svg ] || [ ! -f COVERAGE.md ]; then
+            echo "coverage artifacts missing (coverage report failed?); skipping badge publish"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan ci-badges
+          git rm -r -q --cached .
+          git add -f .github/badges/coverage.svg COVERAGE.md
+          git commit -m "coverage badge + report for ${GITHUB_SHA} [skip ci]"
+          git push -f origin ci-badges

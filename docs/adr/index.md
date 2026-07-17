@@ -160,3 +160,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 081 | 2026-07-14 | [A Session Unlock Agent for the Encrypted Keystore](081-cli-keystore-session-unlock.md) |
 | 082 | 2026-07-14 | [Per-Network Presets for Human-Facing Faucet and Explorer Links](082-network-presets.md) |
 | 083 | 2026-07-14 | [A btcr2 quickstart Command that Composes Onboarding into One Step](083-cli-quickstart.md) |
+| 084 | 2026-07-16 | [Publish the Coverage Badge from CI to a Dedicated Branch](084-ci-published-coverage-badge.md) |

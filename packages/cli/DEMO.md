@@ -120,7 +120,9 @@ endpoint probe result (text mode shows just the data; on Path B the `protection`
 `{"action": ..., "data": ...}` envelope instead.)
 
 > `quickstart` is idempotent: run it again and it leaves existing files untouched (it never
-> overwrites a keystore, and it will not clobber a network you set earlier). The endpoint
+> overwrites a keystore, and it will not clobber a network you set earlier; `--force`
+> re-creates the config, never the keystore). Mainnet setup demands an explicit
+> `--allow-mainnet`, and never with `--dev`. The endpoint
 > probe is **advisory** - if an endpoint is briefly unreachable it warns but still succeeds;
 > re-run `btcr2 config doctor -n mutinynet` any time for an authoritative check. Pass
 > `--no-doctor` to skip the probe. `-n mutinynet` is the default, so you can drop it.
@@ -426,6 +428,13 @@ signal confirm); `.data.signedUpdate` is the off-chain half you keep, so we extr
 that into `signed-update.json`. In text mode `update` also prints a `Watch:` explorer link
 for the txid to stderr, so you can click straight through to the transaction.
 
+The broadcast itself is tunable: `--fee-rate <sat/vB>` (default 5) raises the fee under
+congestion, and `--change-address` routes the transaction's change somewhere other than the
+beacon, so a DID's successive announcements are not linkable on-chain. Where the update
+artifacts go is a policy, too: `--publish-to-cas` defaults to `never` (sidecar-only, the
+privacy default this demo shows); the appendix covers the opt-in publication path.
+`deactivate` takes all three of the same knobs.
+
 > If the beacon is not funded (or the payment has not confirmed), `update` stops before
 > broadcasting with a clear message, for example:
 > `Beacon address tb1q... is unfunded. Send BTC to this address before broadcasting the
@@ -444,6 +453,9 @@ update back as **sidecar** data:
 ```bash
 btcr2 resolve -i "$DID" -r "$(jq -c '{sidecar:{updates:[.]}}' signed-update.json)"
 ```
+
+(For a bulky sidecar, write the resolution options to a JSON file and pass
+`-p options.json` instead of the inline `-r` string. Same shape, read from disk.)
 
 Expected: the same document, now with your patch applied and `versionId: "2"`:
 
@@ -473,7 +485,9 @@ The resolver, finding an on-chain update hash but no sidecar, checks the default
 IPFS gateway (where your never-published update was never put) and then fails. The
 `--cas-timeout 1000` just makes that miss return quickly on stage instead of waiting on a
 slow gateway. The takeaway: only the parties you share the sidecar with can see what
-changed. Bitcoin holds the commitment; you hold the contents.
+changed. Bitcoin holds the commitment; you hold the contents. And this is a *policy*, not
+a limitation: `--publish-to-cas never` is the default, and the appendix shows the opt-in
+path that makes an update publicly resolvable when that is what you want.
 
 ---
 
@@ -535,6 +549,26 @@ fails loudly (`Incorrect passphrase`) instead of sealing a key under the wrong o
 disposable testnet/regtest/signet/mutinynet keys only, and the CLI **hard-refuses** to
 sign or generate a mainnet (`bitcoin`) key with one.
 
+### The full key lifecycle
+
+Part 1 used `generate` and `list`; the `key` group covers the whole lifecycle:
+
+```bash
+btcr2 key show demo                                   # inspect one key (public material only)
+btcr2 key use demo                                    # make a key the active signing default
+btcr2 key import --secret-file k.hex --name restored  # import a 32-byte secret from a file
+btcr2 key import --public 03ab.. --name partner       # WATCH-ONLY: public key only
+btcr2 key export demo                                 # public export (prints to stdout)
+btcr2 key export --secret --out demo.hex demo         # secret export: to a fresh 0600 file ONLY
+btcr2 key delete restored --force                     # remove an entry
+```
+
+Two behaviors worth calling out on stage: a **watch-only** entry (imported with
+`--public`) can verify and derive addresses but can never sign, useful for tracking a
+counterparty's key; and a **secret export refuses to write to the terminal**: it demands
+`--out`, creates the file exclusively with `0600` permissions, and warns you to protect
+it. Secrets never appear in scrollback.
+
 ### Environment variables
 
 Handy for pre-seeding attendee machines or unattended runs:
@@ -575,7 +609,46 @@ btcr2 profile use client-demo
 
 `config validate` checks a file, `config effective` shows resolved connection values with
 their provenance (`flag`/`env`/`file`/`default`), and `config doctor` probes endpoint
-reachability.
+reachability. Secret values (Bitcoin RPC passwords, authenticated headers) are **redacted**
+in `config get`/`list`/`effective` and `profile show` output; add `--show-secrets` to see
+them in plaintext deliberately, never accidentally.
+
+### Publish updates to a CAS (opt-in)
+
+Part 4 kept the signed update private by handing it around as sidecar data. When you
+*want* an update to be publicly resolvable, publish it to a content-addressed store
+(IPFS) as part of the update:
+
+```bash
+btcr2 --cas-rpc-url http://127.0.0.1:5001 update ... --publish-to-cas always
+```
+
+`--publish-to-cas` is a three-way policy: `never` (default: sidecar only, the privacy
+default), `auto` (best-effort when a writable CAS is configured, never blocks the
+broadcast), and `always` (publication is required; the command fails without a writable
+CAS). Reads go through `--cas-gateway` (any public IPFS gateway works); writes need
+`--cas-rpc-url` (an IPFS HTTP RPC endpoint you control). After publication, the Part 4
+punchline inverts by design: resolution finds the update in the CAS and succeeds with no
+sidecar at all. Private by default, public by choice.
+
+### Bring your own Bitcoin node
+
+Nothing in the flow requires a third-party API. Every command that touches Bitcoin
+accepts connection overrides, so the whole demo can run against infrastructure you
+control:
+
+```bash
+btcr2 resolve -i "$DID" --btc-rest https://esplora.internal/api      # your own Esplora
+btcr2 --btc-rpc-url http://127.0.0.1:38332 \
+      --btc-rpc-user demo --btc-rpc-pass demo \
+      --btc-rpc-wallet btcr2 \
+      update ...                                                     # your own Bitcoin Core
+```
+
+`--btc-rest-header` / `--btc-rpc-header` attach authentication headers (for example
+`'Authorization: Bearer ...'`) for gated endpoints, `--btc-timeout` bounds slow ones, and
+all of it can live in a per-network config profile instead of on the command line. The
+self-sovereignty story goes end to end: your keys, your node, your resolution.
 
 ### Shell completion
 
@@ -586,8 +659,22 @@ eval "$(btcr2 completion bash)"           # or: zsh, fish
 ### Deactivate
 
 `btcr2 deactivate` (alias `delete`) permanently and irreversibly retires a DID via the
-same on-chain write path as `update` (same funding prerequisite, same signing: a live
-session or a prompt). Do not run it against a DID you want to keep.
+same on-chain write path as `update`: same funding prerequisite, same signing (a live
+session or a prompt), same `--publish-to-cas` / `--fee-rate` / `--change-address` knobs.
+Do not run it against a DID you want to keep. The shape mirrors `update`, minus the
+patches (save the current document to `doc-v2.json` first, as in Part 4 Step B):
+
+```bash
+btcr2 --signing-key demo deactivate \
+  -s "$(cat doc-v2.json)" \
+  --source-version-id 2 \
+  -m "${DID}#initialKey" \
+  -b "\"${DID}#initialP2WPKH\""
+```
+
+Resolving afterwards (with the deactivation supplied via sidecar, like any update)
+returns the document with `didDocumentMetadata.deactivated: true`: the identifier's
+terminal state, anchored to Bitcoin like every state before it.
 
 ### Where your data lives
 
@@ -627,11 +714,11 @@ rm -rf /tmp/btcr2-demo
 btcr2 init [--dev] [--force]
 btcr2 keystore init [--dev] [--force] | status | change-passphrase | unlock [--ttl <dur>] [--allow-mainnet] | lock
 btcr2 key generate --name <n> --set-active
-btcr2 key list|ls | show <ref> | use <ref> | import ... | export [--secret --out <path>] <ref> | delete|rm [--force] <ref>
+btcr2 key list|ls | show <ref> | use <ref> | import [--secret-file <path> | --public <hex>] | export [--secret --out <path>] <ref> | delete|rm [--force] <ref>
 btcr2 create [-t k|x] [-n <network>] [-b <hex>] [--signing-key <ref>]
 btcr2 resolve|read -i <did> [-r <json>] [-p <path>]
 btcr2 update -s <doc-json> --source-version-id <n> -p <patches-json> -m <vm-id> -b <beacon-id-json> [--publish-to-cas <mode>] [--fee-rate <n>] [--change-address <addr>]
-btcr2 deactivate|delete -s <doc-json> --source-version-id <n> -m <vm-id> -b <beacon-id-json>
+btcr2 deactivate|delete -s <doc-json> --source-version-id <n> -m <vm-id> -b <beacon-id-json> [--publish-to-cas <mode>] [--fee-rate <n>] [--change-address <addr>]
 btcr2 config init | get [path] | set <path> <value> | unset <path> | list|ls | validate | effective | path | doctor
 btcr2 profile add <name> | use <name> | show [name] | remove|rm <name>
 btcr2 completion [bash|zsh|fish]
@@ -640,8 +727,9 @@ btcr2 completion [bash|zsh|fish]
 Global flags: -o json|text  --verbose  --quiet  --home <dir>  -c <config>  --profile <name>
               --keystore <path>  --passphrase-file <path>  --signing-key <ref>
               --btc-rest <url>  --btc-rpc-url <url>  --btc-rpc-user <u>  --btc-rpc-pass <p>
+              --btc-rpc-wallet <name>  --btc-rest-header <h>  --btc-rpc-header <h>
               --cas-gateway <url>  --cas-rpc-url <url>  --btc-timeout <ms>  --cas-timeout <ms>
 ```
 
 See `btcr2 --help` (or the README's Global flags and Environment variables tables) for the
-complete surface, including the RPC wallet/header and CAS publication flags.
+complete surface.
