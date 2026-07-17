@@ -7,6 +7,7 @@ import {
   DidErrorCode,
   DidVerificationRelationship
 } from '@web5/dids';
+import { DidDocumentError } from '@did-btcr2/common';
 import type { RootCapability } from '../core/interfaces.js';
 
 /**
@@ -66,10 +67,10 @@ export class Appendix {
    * Extracts the verification methods from a given DID Document.
    * @param didDocument The DID Document to extract the verification methods from
    * @returns An array of DidVerificationMethod objects
-   * @throws TypeError if the didDocument is not provided
+   * @throws {DidDocumentError} if the didDocument is not provided
    */
   public static getVerificationMethods(didDocument: DidDocument): DidVerificationMethod[] {
-    if (!didDocument) throw new TypeError(`Required parameter missing: 'didDocument'`);
+    if (!didDocument) throw new DidDocumentError(`Required parameter missing: 'didDocument'`);
     const verificationMethods: DidVerificationMethod[] = [];
     // Check the 'verificationMethod' array.
     verificationMethods.push(...didDocument.verificationMethod?.filter(Appendix.isDidVerificationMethod) ?? []);

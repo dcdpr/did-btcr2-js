@@ -1,5 +1,22 @@
 # @did-btcr2/aggregation
 
+## 0.5.0
+
+### Minor Changes
+
+- Typed errors for every error constructed in `src/` (ADR 085):
+
+  - Cohort failures surface `AggregationCohortError` with types `COHORT_TTL_EXCEEDED`, `COHORT_PHASE_STALLED`, or `VALIDATION_REJECTED`, each carrying `cohortId` in `data` (validation rejections also carry the rejecting `participantDid`). Previously these were bare `Error(reason)`.
+  - `InboxBuffer` rejects an invalid capacity with `AggregationServiceError` (type `INVALID_INBOX_CAPACITY`, `data.capacity`).
+  - The participant HTTP client's internal sleep abort rejects with `HttpTransportError` (type `SLEEP_ABORTED`); this rejection never escapes the subscribe loops.
+
+  Reason strings are unchanged.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/common@9.2.0
+
 ## 0.4.1
 
 ### Patch Changes

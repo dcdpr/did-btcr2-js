@@ -1,5 +1,5 @@
 import type { SchnorrKeyPair } from '@did-btcr2/keypair';
-import { AggregationServiceError } from '../core/errors.js';
+import { AggregationCohortError, AggregationServiceError } from '../core/errors.js';
 import type { BaseMessage } from '../core/messages/base.js';
 import {
   COHORT_OPT_IN,
@@ -447,7 +447,7 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
       ctx.cohortTtlTimer = setTimeout(() => {
         const reason = `Cohort ${ctx.cohortId} exceeded TTL of ${this.#cohortTtlMs}ms`;
         this.emit('cohort-failed', { cohortId: ctx.cohortId, reason });
-        this.#failCohort(ctx, new Error(reason));
+        this.#failCohort(ctx, new AggregationCohortError(reason, 'COHORT_TTL_EXCEEDED', { cohortId: ctx.cohortId }));
       }, this.#cohortTtlMs);
     }
     this.#resetPhaseTimer(ctx);
@@ -470,7 +470,7 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
       }
       const reason = `Cohort ${ctx.cohortId} stalled in phase ${ctx.lastObservedPhase ?? '?'} for ${this.#phaseTimeoutMs}ms`;
       this.emit('cohort-failed', { cohortId: ctx.cohortId, reason });
-      this.#failCohort(ctx, new Error(reason));
+      this.#failCohort(ctx, new AggregationCohortError(reason, 'COHORT_PHASE_STALLED', { cohortId: ctx.cohortId }));
     }, this.#phaseTimeoutMs);
   }
 
@@ -778,7 +778,7 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
       if(phase === ServiceCohortPhase.Failed) {
         const reason = `Validation rejected by participant ${msg.from}`;
         this.emit('cohort-failed', { cohortId: ctx.cohortId, reason });
-        this.#failCohort(ctx, new Error(reason));
+        this.#failCohort(ctx, new AggregationCohortError(reason, 'VALIDATION_REJECTED', { cohortId: ctx.cohortId, participantDid: msg.from }));
         return;
       }
 

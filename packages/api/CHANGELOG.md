@@ -1,5 +1,17 @@
 # @did-btcr2/api
 
+## 0.18.0
+
+### Minor Changes
+
+- `DidMethodApi.deactivate()` now rejects with a `NotImplementedError` whose `name` and `type` are both `DID_API_METHOD_NOT_IMPLEMENTED` (ADR 085); previously `name` was `NOT_IMPLEMENTED_ERROR` while `type` was `DID_API_METHOD_NOT_IMPLEMENTED`. The error is also now `instanceof DidMethodError` via the reparented `NotImplementedError` in `@did-btcr2/common`.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/common@9.2.0
+  - @did-btcr2/method@0.55.0
+
 ## 0.17.0
 
 ### Minor Changes

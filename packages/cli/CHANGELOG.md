@@ -1,5 +1,14 @@
 # @did-btcr2/cli
 
+## 0.18.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/api@0.18.0
+  - @did-btcr2/common@9.2.0
+  - @did-btcr2/method@0.55.0
+
 ## 0.18.0
 
 ### Minor Changes

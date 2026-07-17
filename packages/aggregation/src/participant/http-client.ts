@@ -388,7 +388,7 @@ function sleep(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
     const onAbort = (): void => {
       clearTimeout(timer);
-      reject(new Error('aborted'));
+      reject(new HttpTransportError('aborted', 'SLEEP_ABORTED'));
     };
     const timer = setTimeout(() => {
       signal.removeEventListener('abort', onAbort);
