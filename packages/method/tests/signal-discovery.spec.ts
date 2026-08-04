@@ -1,5 +1,10 @@
 import { expect } from 'chai';
-import { extractOpReturnSignal } from '../src/core/beacon/signal-discovery.js';
+import type { BitcoinConnection } from '@did-btcr2/bitcoin';
+import { getNetwork } from '@did-btcr2/bitcoin';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { p2wpkh } from '@scure/btc-signer';
+import { BeaconSignalDiscovery, extractOpReturnSignal } from '../src/core/beacon/signal-discovery.js';
+import type { BeaconService } from '../src/core/beacon/interfaces.js';
 
 /**
  * Beacon signal extraction from a scriptPubKey asm string.
@@ -70,5 +75,49 @@ describe('extractOpReturnSignal', () => {
     // OP_RETURN must be the first token of a NULL_DATA output; a script that merely
     // contains the keyword elsewhere is not a beacon signal.
     expect(extractOpReturnSignal(`OP_DUP OP_RETURN OP_PUSHBYTES_32 ${HASH}`)).to.equal(null);
+  });
+});
+
+describe('BeaconSignalDiscovery.indexer', () => {
+  const SIGNAL_HEX = 'ab'.repeat(32);
+  const SIGNAL_ASM = `OP_RETURN OP_PUSHBYTES_32 ${SIGNAL_HEX}`;
+
+  const secret = new Uint8Array(32);
+  secret[31] = 7;
+  const address = p2wpkh(secp256k1.getPublicKey(secret, true), getNetwork('regtest')).address!;
+
+  const service: BeaconService = {
+    id              : 'did:btcr2:x#beacon-0',
+    type            : 'SingletonBeacon',
+    serviceEndpoint : `bitcoin:${address}`
+  };
+
+  /** Minimal BitcoinConnection stub: fixed tip height, canned address transactions. */
+  function mockBitcoin(txs: Array<unknown>): BitcoinConnection {
+    return {
+      rest : {
+        block   : { count: async () => 105 },
+        address : { getTxs: async () => txs }
+      }
+    } as unknown as BitcoinConnection;
+  }
+
+  it('skips mempool (unconfirmed) transactions', async () => {
+    const txs = [{ vout: [{ scriptpubkey_asm: SIGNAL_ASM }], status: { confirmed: false } }];
+    const signals = await BeaconSignalDiscovery.indexer([service], mockBitcoin(txs));
+    expect(signals.get(service)).to.have.lengthOf(0);
+  });
+
+  it('accepts confirmed transactions and computes confirmations from the tip', async () => {
+    const txs = [{
+      vout   : [{ scriptpubkey_asm: SIGNAL_ASM }],
+      status : { confirmed: true, block_height: 100, block_time: 1700000000 }
+    }];
+    const signals = await BeaconSignalDiscovery.indexer([service], mockBitcoin(txs));
+    const found = signals.get(service)!;
+    expect(found).to.have.lengthOf(1);
+    expect(found[0].signalBytes).to.equal(SIGNAL_HEX);
+    expect(found[0].blockMetadata.confirmations).to.equal(6);
+    expect(found[0].blockMetadata.height).to.equal(100);
   });
 });

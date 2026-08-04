@@ -83,6 +83,13 @@ export class BeaconSignalDiscovery {
 
       // Iterate over each signal
       for (const beaconSignal of beaconSignals) {
+        // Skip unconfirmed (mempool) transactions: a beacon signal must be included
+        // in a block. Treating mempool txs as signals yields NaN confirmations and
+        // lets unconfirmed data drive resolution.
+        if(!beaconSignal.status.confirmed) {
+          continue;
+        }
+
         // Get the last vout in the transaction
         const signalVout = beaconSignal.vout.slice(-1)[0];
 

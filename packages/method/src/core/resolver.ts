@@ -50,6 +50,13 @@ export interface DidResolutionResponse {
   }
 }
 
+/**
+ * Default minimum block confirmations required before a beacon signal is
+ * considered valid, per the spec (6 when resolutionOptions.minConf is not
+ * provided). Signals below the threshold are ignored during resolution.
+ */
+export const DEFAULT_MIN_CONFIRMATIONS = 6;
+
 /** The resolver needs a genesis document whose hash matches genesisHash. */
 export interface NeedGenesisDocument {
   readonly kind: 'NeedGenesisDocument';
@@ -226,19 +233,28 @@ export class Resolver {
   #discoveryRounds = 0;
 
   /**
+   * Minimum block confirmations a beacon signal's transaction must have before the
+   * resolver will act on it. Defaults to {@link DEFAULT_MIN_CONFIRMATIONS} per the
+   * spec; overridable via ResolutionOptions.minConf.
+   */
+  readonly #minConf: number;
+
+  /**
    * @internal Use {@link DidBtcr2.resolve} to create instances.
    */
   constructor(
     didComponents: DidComponents,
     sidecarData: SidecarData,
     currentDocument: DidDocument | null,
-    options?: { versionId?: string; versionTime?: string; genesisDocument?: object; maxDiscoveryRounds?: number }
+    options?: { versionId?: string; versionTime?: string; genesisDocument?: object; maxDiscoveryRounds?: number; minConf?: number }
   ) {
     this.#didComponents = didComponents;
     this.#sidecarData = sidecarData;
     this.#currentDocument = currentDocument;
     this.#versionId = options?.versionId;
     this.#versionTime = options?.versionTime;
+    const minConf = options?.minConf;
+    this.#minConf = typeof minConf === 'number' && minConf >= 0 ? minConf : DEFAULT_MIN_CONFIRMATIONS;
     // Discovery is unbounded by default; a positive maxDiscoveryRounds opts into a
     // finite resource guard. A non-positive or omitted value means no limit.
     const rounds = options?.maxDiscoveryRounds;
@@ -367,6 +383,8 @@ export class Resolver {
    * @param {{ currentVersionId: number; updateHashHistory: HashBytes[] }} [resolutionState]
    *   Version counter and update-hash history carried from earlier discovery rounds.
    *   Standalone callers omit it and start fresh at version 1 with an empty history.
+   * @param {number} [minConf] Minimum confirmations a signal's transaction must have
+   *   to be processed. Defaults to {@link DEFAULT_MIN_CONFIRMATIONS} (spec default 6).
    * @returns {DidResolutionResponse} The updated DID Document, number of confirmations, and version id.
    */
   static updates(
@@ -375,7 +393,8 @@ export class Resolver {
     versionTime?: string,
     versionId?: string,
     resolutionState: { currentVersionId: number; updateHashHistory: HashBytes[] } =
-    { currentVersionId: 1, updateHashHistory: [] }
+    { currentVersionId: 1, updateHashHistory: [] },
+    minConf: number = DEFAULT_MIN_CONFIRMATIONS
   ): DidResolutionResponse {
     // Continue the version counter and update-hash history from earlier discovery
     // rounds so the whole resolution is one monotonic sequence, matching the spec's
@@ -402,13 +421,28 @@ export class Resolver {
 
     // Iterate over each (update block) pair
     for(const [update, block] of updates) {
+      // If resolutionOptions.versionId is defined and currentVersionId has reached
+      // it, return the current document. The spec evaluates this before processing
+      // each tuple; checking it here (rather than after an apply) is what makes
+      // time-travel resolution to an earlier version possible.
+      const versionIdNumber = Number(versionId);
+      if(!isNaN(versionIdNumber) && versionIdNumber <= currentVersionId) {
+        return response;
+      }
+
       // Get the hash of the current document as raw bytes
       const currentDocumentHash = canonicalHashBytes(response.didDocument);
 
       // Safely convert block.time to timestamp
       const blocktime = DateUtils.blocktimeToTimestamp(block.time);
 
-      // TODO: How to detect if block is unconfirmed and exit gracefully or return without it
+      // Spec: a beacon signal is only valid once its transaction is included in a
+      // block with at least minConf confirmations (6 when not provided). Signals
+      // below the threshold are not beacon signals: skip them so they neither
+      // apply, nor confirm duplicates, nor clobber resolution metadata. A later
+      // tuple that chains to a skipped update then correctly surfaces as a
+      // late-publishing error.
+      if(block.confirmations < minConf) continue;
 
       // Set the updated field to the blocktime of the current update
       response.metadata.updated = DateUtils.toISOStringNonFractional(blocktime);
@@ -486,12 +520,6 @@ export class Resolver {
 
       // Set response.versionId to be the new currentVersionId
       response.metadata.versionId = `${currentVersionId}`;
-
-      // If resolutionOptions.versionId is defined and <= currentVersionId, return currentDocument
-      const versionIdNumber = Number(versionId);
-      if(!isNaN(versionIdNumber) && versionIdNumber <= currentVersionId) {
-        return response;
-      }
 
       // Check if the current document is deactivated before further processing
       if(response.didDocument.deactivated) {
@@ -601,6 +629,20 @@ export class Resolver {
       throw new ResolveError('No verificationMethod found in update', INVALID_DID_UPDATE, update);
     }
 
+    // Spec "Check update.proof": the update's verificationMethod must be authorized
+    // for capabilityInvocation in the current document. A key listed only under
+    // verificationMethod (or another relationship) must not be able to authorize
+    // DID updates. Entries may be string references or embedded method objects.
+    const authorized = currentDocument.capabilityInvocation?.some(entry =>
+      typeof entry === 'string' ? entry === verificationMethodId : entry.id === verificationMethodId
+    );
+    if(!authorized) {
+      throw new ResolveError(
+        'Invalid update: verificationMethod is not authorized for capabilityInvocation',
+        INVALID_DID_UPDATE, { verificationMethodId, capabilityInvocation: currentDocument.capabilityInvocation }
+      );
+    }
+
     // Get the verificationMethod from the DID Document using the verificationMethodId.
     const vm = DidBtcr2.getSigningMethod(currentDocument, verificationMethodId);
 
@@ -632,6 +674,16 @@ export class Resolver {
 
     // Verify that updatedDocument is conformant to DID Core v1.1.
     DidDocument.validate(updatedDocument);
+
+    // Spec "Apply update": the patched document's id must equal the DID being
+    // resolved. Without this check an update could rebind the document to a
+    // different did:btcr2 identifier.
+    if(updatedDocument.id !== currentDocument.id) {
+      throw new ResolveError(
+        'Invalid update: updated document id does not match the resolved DID',
+        INVALID_DID_UPDATE, { expected: currentDocument.id, actual: updatedDocument.id }
+      );
+    }
 
     // Canonicalize and hash the updatedDocument to get the currentDocumentHash (raw bytes).
     const currentDocumentHash = canonicalHashBytes(updatedDocument);
@@ -720,8 +772,14 @@ export class Resolver {
           const allNeeds: Array<DataNeed> = [];
 
           for(const [service, signals] of this.#beaconServicesSignals) {
-            // Skip already-processed services and services with no signals
-            if(this.#processedServices.has(service.id) || !signals.length) continue;
+            // Skip already-processed services and services with no signals. The
+            // processed key combines the service id with its Bitcoin address: an
+            // update can rotate a beacon to a new address while keeping the same
+            // service id, and keying by id alone would skip the rotated address
+            // and silently drop every update announced on it.
+            const serviceAddress = BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string);
+            const serviceKey = `${service.id}|${serviceAddress}`;
+            if(this.#processedServices.has(serviceKey) || !signals.length) continue;
 
             // Establish a typed beacon and process its signals
             const beacon = BeaconFactory.establish(service);
@@ -733,7 +791,7 @@ export class Resolver {
             } else {
               // All signals for this service resolved, collect updates, mark processed
               this.#unsortedUpdates.push(...result.updates);
-              this.#processedServices.add(service.id);
+              this.#processedServices.add(serviceKey);
             }
           }
 
@@ -758,7 +816,8 @@ export class Resolver {
               this.#unsortedUpdates,
               this.#versionTime,
               this.#versionId,
-              { currentVersionId: this.#currentVersionId, updateHashHistory: this.#updateHashHistory }
+              { currentVersionId: this.#currentVersionId, updateHashHistory: this.#updateHashHistory },
+              this.#minConf
             );
             // updates() reports the version it reached via metadata.versionId; carry
             // it forward so the next round continues the monotonic sequence.

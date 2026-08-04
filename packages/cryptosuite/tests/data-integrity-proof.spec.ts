@@ -57,4 +57,58 @@ describe('Data Integrity Proof', () => {
       expect(verifiedProof.verified).to.be.true;
     });
   });
+
+  describe('verifyProof domain validation', () => {
+    // addProof mutates its inputs (attaches proof / proofValue in place), and the
+    // shared fixtures above are already secured by the time these tests run.
+    // Describe bodies execute at load time, so these captures are pristine.
+    const pristineDocument = { ...unsecuredDocument };
+    const pristineConfig = { ...config };
+
+    it('passes when the expected domain (string) matches proof.domain (string)', () => {
+      const securedDocument = diProof.addProof(
+        { ...pristineDocument }, { ...pristineConfig, domain: 'https://example.com' }
+      );
+      const result = diProof.verifyProof(
+        JSON.stringify(securedDocument), 'attestationMethod', undefined, 'https://example.com'
+      );
+      expect(result.verified).to.be.true;
+    });
+
+    it('passes when every expected domain is present in proof.domain (arrays)', () => {
+      const securedDocument = diProof.addProof(
+        { ...pristineDocument }, { ...pristineConfig, domain: ['https://a.example', 'https://b.example'] }
+      );
+      const result = diProof.verifyProof(
+        JSON.stringify(securedDocument), 'attestationMethod', undefined, ['https://a.example', 'https://b.example']
+      );
+      expect(result.verified).to.be.true;
+    });
+
+    it('passes when a single expected domain is one of several proof domains', () => {
+      const securedDocument = diProof.addProof(
+        { ...pristineDocument }, { ...pristineConfig, domain: ['https://a.example', 'https://b.example'] }
+      );
+      const result = diProof.verifyProof(
+        JSON.stringify(securedDocument), 'attestationMethod', undefined, 'https://b.example'
+      );
+      expect(result.verified).to.be.true;
+    });
+
+    it('throws when the expected domain is not present in proof.domain', () => {
+      const securedDocument = diProof.addProof(
+        { ...pristineDocument }, { ...pristineConfig, domain: 'https://attacker.example' }
+      );
+      expect(() => diProof.verifyProof(
+        JSON.stringify(securedDocument), 'attestationMethod', undefined, 'https://example.com'
+      )).to.throw(/Domain mismatch/);
+    });
+
+    it('throws when the proof carries no domain but one is expected', () => {
+      const securedDocument = diProof.addProof({ ...pristineDocument }, { ...pristineConfig });
+      expect(() => diProof.verifyProof(
+        JSON.stringify(securedDocument), 'attestationMethod', undefined, 'https://example.com'
+      )).to.throw(/Domain mismatch/);
+    });
+  });
 });
