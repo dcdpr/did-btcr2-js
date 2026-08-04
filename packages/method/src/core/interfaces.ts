@@ -46,6 +46,16 @@ export interface ResolutionOptions extends DidResolutionOptions {
    * document is well-formed, the resolver simply stopped at the caller's limit.
    */
   maxDiscoveryRounds?: number;
+
+  /**
+   * Minimum number of block confirmations a beacon signal's transaction must have
+   * before the resolver will act on it. Per the spec, defaults to 6 when not
+   * provided. Signals below the threshold are ignored: they neither apply, nor
+   * confirm duplicates, nor affect resolution metadata. Set a lower value (e.g. 1
+   * or 0) only on regtest/signet-style workflows where shallow confirmations are
+   * expected; on mainnet a low value makes resolution vulnerable to reorgs.
+   */
+  minConf?: number;
 }
 
 /**
