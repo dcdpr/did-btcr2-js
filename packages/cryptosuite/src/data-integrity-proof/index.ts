@@ -123,29 +123,15 @@ export class BIP340DataIntegrityProof implements DataIntegrityProof {
 
     // Check if the expectedDomain is defined
     if(expectedDomain) {
-      // Check if expectedDomain is an array with at least one entry
-      if(Array.isArray(expectedDomain) && expectedDomain.length) {
-        // Check that the domain arrays match in length
-        if(expectedDomain.length !== proof.domain?.length) {
-          // Else throw DataIntegrityProofError
-          throw new DataIntegrityProofError(
-            'Domain mismatch: expectedDomain length does not match proof.domain length',
-            PROOF_VERIFICATION_ERROR, { proof, expectedDomain }
-          );
-        }
-        // Check that each entry in expectedDomain can be found in proof.domain
-        else if(expectedDomain.every(url => proof.domain?.includes(url))) {
-          // Else throw DataIntegrityProofError
-          throw new DataIntegrityProofError(
-            'Domain mismatch: expectedDomain and proof.domain do not match',
-            PROOF_VERIFICATION_ERROR, { proof, expectedDomain }
-          );
-        }
-      }
-      // Else expectedDomain is a string, check that it matches proof.domain
-      else if(proof.domain !== expectedDomain) {
+      // Normalize both sides to arrays: proof.domain and expectedDomain may each
+      // be a single string or a list of strings.
+      const expectedDomains = Array.isArray(expectedDomain) ? expectedDomain : [expectedDomain];
+      const proofDomains = Array.isArray(proof.domain) ? proof.domain : (proof.domain ? [proof.domain] : []);
+
+      // Every expected domain must be present in the proof's domain list.
+      if(!expectedDomains.every(url => proofDomains.includes(url))) {
         throw new DataIntegrityProofError(
-          'Domain mismatch: proof.domain !== expectedDomain',
+          'Domain mismatch: expectedDomain not present in proof.domain',
           PROOF_VERIFICATION_ERROR, { proof, expectedDomain }
         );
       }

@@ -3,7 +3,7 @@ import { randomBytes } from 'crypto';
 import { canonicalHash, encode, hash, canonicalize, INTERNAL_ERROR, INVALID_DID_UPDATE, JSONPatch, LATE_PUBLISHING_ERROR } from '@did-btcr2/common';
 import type { PatchOperation } from '@did-btcr2/common';
 import { getNetwork } from '@did-btcr2/bitcoin';
-import { LocalSigner } from '@did-btcr2/keypair';
+import { LocalSigner, CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { BTCR2MerkleTree, hashToHex } from '@did-btcr2/smt';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { hexToBytes } from '@noble/hashes/utils';
@@ -167,12 +167,13 @@ function buildUpdateChain(
 function driveSingleBeacon(
   did: string,
   updates: Array<SignedBTCR2Update>,
-  options?: { versionId?: string; versionTime?: string; times?: Array<number> }
+  options?: { versionId?: string; versionTime?: string; times?: Array<number>; minConf?: number; confirmations?: number }
 ): ReturnType<typeof driveDiscoveryChain> {
   const resolver = DidBtcr2.resolve(did, {
     sidecar : { updates },
     ...(options?.versionId ? { versionId: options.versionId } : {}),
-    ...(options?.versionTime ? { versionTime: options.versionTime } : {})
+    ...(options?.versionTime ? { versionTime: options.versionTime } : {}),
+    ...(options?.minConf !== undefined ? { minConf: options.minConf } : {})
   });
   let state = resolver.resolve();
   if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
@@ -182,7 +183,7 @@ function driveSingleBeacon(
   signals.set(genesis, updates.map((update, i) => ({
     tx            : {} as any,
     signalBytes   : canonicalHash(update, { encoding: 'hex' }),
-    blockMetadata : { height: 100 + i, time: options?.times?.[i] ?? (1700000000 + i), confirmations: 6 }
+    blockMetadata : { height: 100 + i, time: options?.times?.[i] ?? (1700000000 + i), confirmations: options?.confirmations ?? 6 }
   })));
   resolver.provide(need, signals);
   state = resolver.resolve();
@@ -1642,5 +1643,124 @@ describe('Resolver', () => {
       expect(updateNeed.updateHash).to.equal(craftedHashHex);
       expect(() => resolver.provide(updateNeed, crafted as any)).to.throw(/not a signed BTCR2 update/i);
     });
+  });
+});
+
+describe('Resolver security regressions (audit batch 1)', () => {
+  const fixture = deterministicData[2]; // regtest k1 DID
+  const vmOf = (doc: DidDocument) => doc.verificationMethod![0]!;
+
+  it('H1: rejects an update signed by a key not authorized for capabilityInvocation', () => {
+    const sourceDocument = resolveDeterministic(fixture.did);
+    const signer1 = new LocalSigner(hexToBytes(fixture.secretKey));
+
+    // v2 adds a second verification method to the document but deliberately does
+    // NOT add it to capabilityInvocation.
+    const secret2 = secp256k1.utils.randomSecretKey();
+    const vm2 = {
+      id                 : `${fixture.did}#key-1`,
+      type               : 'Multikey',
+      controller         : fixture.did,
+      publicKeyMultibase : new CompressedSecp256k1PublicKey(secp256k1.getPublicKey(secret2, true)).multibase.encoded
+    };
+    const addVmPatch: PatchOperation[] = [{ op: 'add', path: '/verificationMethod/-', value: vm2 }];
+    const u2 = Updater.sign(fixture.did, Updater.construct(sourceDocument, addVmPatch, 1), vmOf(sourceDocument), signer1);
+    const doc2 = JSONPatch.apply(sourceDocument, addVmPatch) as DidDocument;
+
+    // v3 is a well-formed, validly signed update, but its signing key is only in
+    // verificationMethod, never authorized for capabilityInvocation.
+    const u3 = Updater.sign(fixture.did, Updater.construct(doc2, benignPatch(fixture.did), 2), vm2 as any, new LocalSigner(secret2));
+
+    expect(() => driveSingleBeacon(fixture.did, [u2, u3])).to.throw(/capabilityInvocation/i);
+  });
+
+  it('M1: rejects an update that rebinds the document id to a different DID', () => {
+    const sourceDocument = resolveDeterministic(fixture.did);
+    const signer1 = new LocalSigner(hexToBytes(fixture.secretKey));
+
+    // Updater.construct refuses id-changing patches, so an attacker hand-crafts
+    // the unsigned update; Updater.sign does not repeat the check.
+    const rebindPatch: PatchOperation[] = [{ op: 'replace', path: '/id', value: deterministicData[0].did }];
+    const targetDocument = JSONPatch.apply(sourceDocument, rebindPatch);
+    const unsigned = {
+      '@context'      : [
+        'https://w3id.org/security/v2',
+        'https://w3id.org/zcap/v1',
+        'https://w3id.org/json-ld-patch/v1',
+        'https://btcr2.dev/context/v1'
+      ],
+      patch           : rebindPatch,
+      targetHash      : canonicalHash(targetDocument),
+      targetVersionId : 2,
+      sourceHash      : canonicalHash(sourceDocument),
+    };
+    const u2 = Updater.sign(fixture.did, unsigned, vmOf(sourceDocument), signer1);
+
+    expect(() => driveSingleBeacon(fixture.did, [u2])).to.throw(/does not match the resolved DID/i);
+  });
+
+  it('M2: versionId "1" returns the genesis document even when updates exist', () => {
+    const sourceDocument = resolveDeterministic(fixture.did);
+    const updates = buildUpdateChain(fixture.did, sourceDocument, fixture.secretKey, [benignPatch(fixture.did), benignPatch(fixture.did)]);
+
+    const resolved = driveSingleBeacon(fixture.did, updates, { versionId: '1' });
+    expect(resolved.metadata.versionId).to.equal('1');
+    expect(resolved.didDocument.assertionMethod).to.have.lengthOf(sourceDocument.assertionMethod!.length);
+  });
+
+  it('M2: versionId "2" returns exactly the v2 document', () => {
+    const sourceDocument = resolveDeterministic(fixture.did);
+    const updates = buildUpdateChain(fixture.did, sourceDocument, fixture.secretKey, [benignPatch(fixture.did), benignPatch(fixture.did)]);
+
+    const resolved = driveSingleBeacon(fixture.did, updates, { versionId: '2' });
+    expect(resolved.metadata.versionId).to.equal('2');
+    expect(resolved.didDocument.assertionMethod).to.have.lengthOf(sourceDocument.assertionMethod!.length + 1);
+  });
+
+  it('M3: processes updates announced on a rotated beacon address with the same service id', () => {
+    const sourceDocument = resolveDeterministic(fixture.did);
+    const signer1 = new LocalSigner(hexToBytes(fixture.secretKey));
+
+    // v2 rotates the genesis beacon to a new address but keeps the service id.
+    const secret = new Uint8Array(32);
+    secret[31] = 42;
+    const rotatedAddress = p2wpkh(secp256k1.getPublicKey(secret, true), getNetwork('regtest')).address!;
+    const genesisAddress = BeaconUtils.parseBitcoinAddress(sourceDocument.service[0]!.serviceEndpoint as string);
+
+    const rotatePatch: PatchOperation[] = [{ op: 'replace', path: '/service/0/serviceEndpoint', value: `bitcoin:${rotatedAddress}` }];
+    const u2 = Updater.sign(fixture.did, Updater.construct(sourceDocument, rotatePatch, 1), vmOf(sourceDocument), signer1);
+    const doc2 = JSONPatch.apply(sourceDocument, rotatePatch) as DidDocument;
+
+    // v3 is discoverable only on the rotated address, in a second discovery round.
+    const u3 = Updater.sign(fixture.did, Updater.construct(doc2, benignPatch(fixture.did), 2), vmOf(sourceDocument), signer1);
+
+    const signalByAddress = new Map<string, string>([
+      [genesisAddress, canonicalHash(u2, { encoding: 'hex' })],
+      [rotatedAddress, canonicalHash(u3, { encoding: 'hex' })]
+    ]);
+
+    const resolved = driveDiscoveryChain(fixture.did, [u2, u3], signalByAddress);
+    // v3 must have been applied; before the fix the rotated address was skipped
+    // and resolution completed silently at version 2.
+    expect(resolved.metadata.versionId).to.equal('3');
+    expect(resolved.didDocument.assertionMethod).to.have.lengthOf(sourceDocument.assertionMethod!.length + 1);
+  });
+
+  it('M4: ignores a signal below the default minConf threshold', () => {
+    const sourceDocument = resolveDeterministic(fixture.did);
+    const updates = buildUpdateChain(fixture.did, sourceDocument, fixture.secretKey, [benignPatch(fixture.did)]);
+
+    const resolved = driveSingleBeacon(fixture.did, updates, { confirmations: 3 });
+    expect(resolved.metadata.versionId).to.equal('1');
+    expect(resolved.didDocument.assertionMethod).to.have.lengthOf(sourceDocument.assertionMethod!.length);
+  });
+
+  it('M4: applies a shallow signal when the caller lowers minConf', () => {
+    const sourceDocument = resolveDeterministic(fixture.did);
+    const updates = buildUpdateChain(fixture.did, sourceDocument, fixture.secretKey, [benignPatch(fixture.did)]);
+
+    const resolved = driveSingleBeacon(fixture.did, updates, { confirmations: 3, minConf: 1 });
+    expect(resolved.metadata.versionId).to.equal('2');
+    expect(resolved.didDocument.assertionMethod).to.have.lengthOf(sourceDocument.assertionMethod!.length + 1);
   });
 });
