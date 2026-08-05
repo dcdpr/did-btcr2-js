@@ -340,6 +340,8 @@ export class AggregationParticipant {
     const state = this.#cohortStates.get(cohortId);
     if(!state || !state.cohort) return;
     if(state.phase !== ParticipantCohortPhase.OptedIn) return;
+    // Only the cohort's service may drive its lifecycle
+    if(message.from !== state.serviceDid) return;
 
     const beaconAddress = message.body?.beaconAddress;
     const cohortKeys = message.body?.cohortKeys;
@@ -438,6 +440,8 @@ export class AggregationParticipant {
     // A submitter is in UpdateSubmitted; a decliner (cooperative non-inclusion)
     // is in NonIncluded. Both validate their own slot in the distributed data.
     if(!state || (state.phase !== ParticipantCohortPhase.UpdateSubmitted && state.phase !== ParticipantCohortPhase.NonIncluded)) return;
+    // Only the cohort's service may distribute aggregated data
+    if(message.from !== state.serviceDid) return;
 
     const declined = state.included === false;
     // A submitter must have its update stored; a decliner has none by design.
@@ -486,10 +490,12 @@ export class AggregationParticipant {
     }
     state.phase = ParticipantCohortPhase.ValidationSent;
     return [createValidationAckMessage({
-      from     : this.did,
-      to       : state.serviceDid,
+      from           : this.did,
+      to             : state.serviceDid,
       cohortId,
-      approved : true,
+      approved       : true,
+      // Bind consent to the exact signal this participant validated
+      signalBytesHex : state.validation!.signalBytesHex,
     })];
   }
 
@@ -506,10 +512,11 @@ export class AggregationParticipant {
     }
     state.phase = ParticipantCohortPhase.Failed;
     return [createValidationAckMessage({
-      from     : this.did,
-      to       : state.serviceDid,
+      from           : this.did,
+      to             : state.serviceDid,
       cohortId,
-      approved : false,
+      approved       : false,
+      signalBytesHex : state.validation!.signalBytesHex,
     })];
   }
 
@@ -531,6 +538,8 @@ export class AggregationParticipant {
     const state = this.#cohortStates.get(cohortId);
     if(!state || !state.cohort) return;
     if(state.phase !== ParticipantCohortPhase.ValidationSent) return;
+    // Only the cohort's service may request signing
+    if(message.from !== state.serviceDid) return;
 
     const sessionId = message.body?.sessionId;
     const pendingTxHex = message.body?.pendingTx;
@@ -636,6 +645,8 @@ export class AggregationParticipant {
     const state = this.#cohortStates.get(cohortId);
     if(!state || !state.signingSession) return;
     if(state.phase !== ParticipantCohortPhase.NonceSent) return;
+    // Only the cohort's service may supply the aggregated nonce
+    if(message.from !== state.serviceDid) return;
 
     const aggregatedNonce = message.body?.aggregatedNonce;
     if(!aggregatedNonce) return;
@@ -712,6 +723,8 @@ export class AggregationParticipant {
       ParticipantCohortPhase.Complete,
     ];
     if(!acceptFrom.includes(state.phase)) return;
+    // Only the cohort's service may initiate a fallback
+    if(message.from !== state.serviceDid) return;
 
     const sessionId = message.body?.sessionId;
     const pendingTxHex = message.body?.pendingTx;
@@ -719,6 +732,12 @@ export class AggregationParticipant {
     const prevOutValue = message.body?.prevOutValue;
     const fallbackLeafScriptHex = message.body?.fallbackLeafScriptHex;
     if(!sessionId || !pendingTxHex || !prevOutScriptHex || !prevOutValue || !fallbackLeafScriptHex) return;
+
+    // The fallback must belong to this member's in-flight signing session (the
+    // service reuses the optimistic session id). When no local session exists yet
+    // (a reordered fallback arriving before the AUTHORIZATION_REQUEST) there is
+    // nothing to compare, so the request is accepted.
+    if(state.signingSession && sessionId !== state.signingSession.id) return;
 
     state.fallbackRequest = { cohortId, sessionId, pendingTxHex, prevOutScriptHex, prevOutValue, fallbackLeafScriptHex };
     // The optimistic path is abandoned; wipe any retained secret nonce for it.

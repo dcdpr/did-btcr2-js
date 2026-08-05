@@ -1,7 +1,7 @@
 import type { Did } from '@did-btcr2/common';
 import type { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
+import { bytesToHex } from '@noble/hashes/utils';
 import type { SubCloser } from 'nostr-tools/abstract-pool';
 import type { Event, EventTemplate} from 'nostr-tools';
 import { finalizeEvent, nip44 } from 'nostr-tools';
@@ -13,6 +13,9 @@ import { COHORT_ADVERT } from '../messages/constants.js';
 import { isAggregationMessageType, isKeygenMessageType, isSignMessageType, isUpdateMessageType } from '../messages/guards.js';
 import { TransportAdapterError } from './error.js';
 import type { MessageHandler, Transport } from './transport.js';
+import { signEnvelope } from './http/envelope.js';
+import { DEFAULT_CLOCK_SKEW_SEC } from './http/protocol.js';
+import { authenticateEnvelopeContent } from './envelope-auth.js';
 
 /**
  * Default Nostr relay URLs.
@@ -42,6 +45,27 @@ export interface NostrTransportConfig {
    * {@link DEFAULT_BROADCAST_LOOKBACK_MS} (5 minutes).
    */
   broadcastLookbackMs?: number;
+  /**
+   * Optional DID -> communication-public-key resolver for senders that are not
+   * pre-registered peers (for example `resolveBtcr2SenderPk` from
+   * `@did-btcr2/method`, which decodes KEY identifiers directly and verifies an
+   * in-band genesis document for EXTERNAL identifiers). Without it, only
+   * pre-registered peers can authenticate, and messages from anyone else are
+   * dropped.
+   */
+  resolveSenderPk?: (
+    did: string,
+    opts?: { genesisDocument?: object },
+  ) => CompressedSecp256k1PublicKey | undefined;
+  /**
+   * Envelope timestamp tolerance in seconds (both directions). Messages older
+   * than this are dropped, which is also the stale-history replay guard: relays
+   * replay a directed subscription's full event history on reconnect, and the
+   * timestamp check rejects ancient replays before they reach the state
+   * machines. Defaults to {@link DEFAULT_CLOCK_SKEW_SEC} (60s); raise it if
+   * slow relays deliver legitimately delayed traffic.
+   */
+  clockSkewSec?: number;
 }
 
 /** Default `since` lookback for broadcast (COHORT_ADVERT) subscriptions: 5 minutes. */
@@ -63,10 +87,18 @@ interface ActorEntry {
  * {@link registerActor}; the transport resolves the correct identity when
  * sending or receiving.
  *
+ * Sender authentication: every message is wrapped in a signed envelope (the
+ * same SignedEnvelope scheme as the HTTP transport) before publication, and
+ * incoming envelopes are verified against the sender's registered peer key or
+ * the injected `resolveSenderPk` resolver before dispatch. Messages that fail
+ * verification, arrive from unresolvable DIDs, or carry a stale timestamp are
+ * dropped, so `message.from` is always bound to the signing key when a handler
+ * runs.
+ *
  * Message routing:
- * - Keygen messages (COHORT_ADVERT, COHORT_OPT_IN, COHORT_OPT_IN_ACCEPT, COHORT_READY) to kind 1 (plaintext)
- * - Update messages (SUBMIT_UPDATE, DISTRIBUTE_AGGREGATED_DATA, VALIDATION_ACK) to kind 1059 (NIP-44 encrypted)
- * - Sign messages to kind 1059 (NIP-44 encrypted)
+ * - Keygen messages (COHORT_ADVERT, COHORT_OPT_IN, COHORT_OPT_IN_ACCEPT, COHORT_READY) to kind 1 (plaintext envelope)
+ * - Update messages (SUBMIT_UPDATE, DISTRIBUTE_AGGREGATED_DATA, VALIDATION_ACK) to kind 1059 (NIP-44 encrypted envelope)
+ * - Sign messages to kind 1059 (NIP-44 encrypted envelope)
  *
  * @class NostrTransport
  * @implements {Transport}
@@ -81,11 +113,15 @@ export class NostrTransport implements Transport {
   #started = false;
   #logger: Logger;
   #broadcastLookbackMs: number;
+  #resolveSenderPkFn?: NostrTransportConfig['resolveSenderPk'];
+  #clockSkewSec: number;
 
   constructor(config?: NostrTransportConfig) {
     this.#relays = config?.relays ?? DEFAULT_NOSTR_RELAYS;
     this.#logger = config?.logger ?? CONSOLE_LOGGER;
     this.#broadcastLookbackMs = config?.broadcastLookbackMs ?? DEFAULT_BROADCAST_LOOKBACK_MS;
+    this.#resolveSenderPkFn = config?.resolveSenderPk;
+    this.#clockSkewSec = config?.clockSkewSec ?? DEFAULT_CLOCK_SKEW_SEC;
   }
 
   /**
@@ -297,13 +333,18 @@ export class NostrTransport implements Transport {
       }
     }
 
+    // Wrap the message in a signed envelope so receivers can authenticate the
+    // sender DID against the registered/resolved communication key.
+    const envelope = signEnvelope(message, { did: sender, keys: senderKeys }, { ...(to ? { to } : {}) });
+    const envelopeJson = JSON.stringify(envelope);
+
     // Keygen messages: plaintext, kind 1
     if(isKeygenMessageType(type)) {
       const event = finalizeEvent({
         kind       : 1,
         created_at : Math.floor(Date.now() / 1000),
         tags,
-        content    : JSON.stringify(message, NostrTransport.#jsonReplacer),
+        content    : envelopeJson,
       } as EventTemplate, senderKeys.secretKey.bytes);
       this.#logger.debug(`Publishing kind 1 [${type}]`);
       await this.#publishToRelays(event);
@@ -330,7 +371,7 @@ export class NostrTransport implements Transport {
         senderKeys.secretKey.bytes,
         bytesToHex(recipientPk.x)
       );
-      const content = nip44.v2.encrypt(JSON.stringify(message, NostrTransport.#jsonReplacer), conversationKey);
+      const content = nip44.v2.encrypt(envelopeJson, conversationKey);
 
       const event = finalizeEvent({
         kind       : 1059,
@@ -393,9 +434,10 @@ export class NostrTransport implements Transport {
     const pkHex = bytesToHex(entry.keys.publicKey.x);
 
     // No `since` filter: directed messages must be retrievable on reconnect /
-    // crash-recovery. Out-of-phase messages are silently dropped by the state
-    // machines (AggregationService, AggregationParticipant), so replayed stale
-    // messages are harmless.
+    // crash-recovery. Replayed history is filtered two ways: envelope timestamp
+    // verification drops messages older than `clockSkewSec`, and out-of-phase
+    // messages within the window are silently dropped by the state machines
+    // (AggregationService, AggregationParticipant).
     const sub = this.pool.subscribeMany(this.#relays, { kinds: [1, 1059], '#p': [pkHex] }, {
       onclose : (reasons: string[]) => this.#logger.debug(`Nostr directed subscription closed for ${did}`, reasons),
       onevent : this.#makeActorEventHandler(did),
@@ -423,18 +465,17 @@ export class NostrTransport implements Transport {
       // the content was encrypted for the recipient, not self.
       if(event.pubkey === bytesToHex(actor.keys.publicKey.x)) return;
 
-      let message: Record<string, unknown>;
+      let content: string;
 
       try {
         if(event.kind === 1) {
-          message = JSON.parse(event.content, NostrTransport.#jsonReviver);
+          content = event.content;
         } else if(event.kind === 1059) {
           const conversationKey = nip44.v2.utils.getConversationKey(
             actor.keys.secretKey.bytes,
             event.pubkey
           );
-          const plaintext = nip44.v2.decrypt(event.content, conversationKey);
-          message = JSON.parse(plaintext, NostrTransport.#jsonReviver);
+          content = nip44.v2.decrypt(event.content, conversationKey);
         } else {
           return;
         }
@@ -442,6 +483,11 @@ export class NostrTransport implements Transport {
         this.#logger.debug(`Failed to parse event ${event.id} for ${actorDid}:`, err);
         return;
       }
+
+      // Authenticate the envelope; directed messages must also be addressed to
+      // this actor. Unverifiable senders are dropped here, never dispatched.
+      const message = this.#authenticateContent(content, { expectedTo: actorDid });
+      if(!message) return;
 
       this.#dispatchMessage(message, actor);
     };
@@ -460,17 +506,8 @@ export class NostrTransport implements Transport {
   async #handleBroadcastEvent(event: Event): Promise<void> {
     if(event.kind !== 1) return;
 
-    let message: Record<string, unknown>;
-    try {
-      message = JSON.parse(event.content, NostrTransport.#jsonReviver);
-    } catch(err) {
-      this.#logger.debug(`Failed to parse broadcast event ${event.id}:`, err);
-      return;
-    }
-
-    if(message.body && typeof message.body === 'object') {
-      message = { ...message, ...(message.body as Record<string, unknown>) };
-    }
+    const message = this.#authenticateContent(event.content);
+    if(!message) return;
 
     const messageType = message.type as string;
     if(!messageType || !isAggregationMessageType(messageType)) return;
@@ -480,6 +517,41 @@ export class NostrTransport implements Transport {
       const handler = actor.handlers.get(messageType);
       if(handler) await handler(message);
     }
+  }
+
+  /**
+   * Resolve a sender DID to its communication public key: the registered peer
+   * key wins; otherwise the injected `resolveSenderPk` resolver (KEY identifiers
+   * decode directly; EXTERNAL identifiers authenticate via an in-band genesis
+   * document carried on the message).
+   */
+  #resolveSenderPk(did: string, opts?: { genesisDocument?: object }): CompressedSecp256k1PublicKey | undefined {
+    const peerBytes = this.#peerRegistry.get(did);
+    if(peerBytes) {
+      try { return new CompressedSecp256k1PublicKey(peerBytes); }
+      catch { /* fall through to the injected resolver */ }
+    }
+    return this.#resolveSenderPkFn?.(did, opts);
+  }
+
+  /**
+   * Parse, authenticate, and flatten an incoming envelope payload. Returns the
+   * flattened message with `from` bound to the verified envelope sender, or
+   * `undefined` when the content must be dropped: unparseable, unresolvable
+   * sender, self-advertised key that contradicts the authenticated key, failed
+   * signature verification, stale timestamp, or wrong recipient.
+   *
+   * The inner message is inspected BEFORE verification only to derive a
+   * bootstrap key candidate (an x1 sender's in-band genesis document); nothing
+   * from it is trusted until the envelope verifies.
+   */
+  #authenticateContent(content: string, opts?: { expectedTo?: string }): Record<string, unknown> | undefined {
+    return authenticateEnvelopeContent(content, {
+      expectedTo      : opts?.expectedTo,
+      clockSkewSec    : this.#clockSkewSec,
+      logger          : this.#logger,
+      resolveSenderPk : (did, resolveOpts) => this.#resolveSenderPk(did, resolveOpts),
+    });
   }
 
   /**
@@ -534,43 +606,5 @@ export class NostrTransport implements Transport {
         'PUBLISH_ERROR', { adapter: this.name, reasons: rejected.map(r => String((r as PromiseRejectedResult).reason)) }
       );
     }
-  }
-
-  /**
-   * Custom JSON replacer to handle serialization of Uint8Array values as hex strings in message
-   * content. This allows messages containing binary data (e.g. public keys, signatures) to be correctly
-   * serialized to JSON for Nostr event content. The replacer checks if a value is a Uint8Array and, if so,
-   * converts it to a hex string wrapped in an object with a __bytes property. The corresponding reviver
-   * can then convert this back to a Uint8Array when parsing the message content from the event.
-   * @param {string} _key - The key of the property being processed.
-   * @param {unknown} value - The value to check if the message type is valid.
-   * @returns {unknown} The transformed value for JSON serialization. If the value is a Uint8Array,
-   * it returns an object with a __bytes property containing the hex string. Otherwise, it returns
-   * the value unchanged.
-   */
-  static #jsonReplacer(_key: string, value: unknown): unknown {
-    if(value instanceof Uint8Array) {
-      return { __bytes: bytesToHex(value) };
-    }
-    return value;
-  }
-
-  /**
-   * Custom JSON reviver to handle deserialization of hex strings back into Uint8Array values in message
-   * content. This complements the custom replacer used during serialization, allowing messages that contain
-   * binary data (e.g. public keys, signatures) to be correctly reconstructed when parsing JSON from
-   * Nostr event content. The reviver checks if a value is an object with a __bytes property and,
-   * if so, converts the hex string back into a Uint8Array. Otherwise, it returns the value unchanged.
-   * @param {string} _key - The key of the property being processed.
-   * @param {unknown} value - The value to check if it is an object containing a __bytes property for
-   * hex string conversion.
-   * @returns {unknown} The transformed value for JSON deserialization. If the value is an object
-   * with a __bytes property, it returns a Uint8Array. Otherwise, it returns the value unchanged.
-   */
-  static #jsonReviver(_key: string, value: unknown): unknown {
-    if(value && typeof value === 'object' && '__bytes' in (value as Record<string, unknown>)) {
-      return hexToBytes((value as { __bytes: string }).__bytes);
-    }
-    return value;
   }
 }
