@@ -34,8 +34,9 @@ import {
   createFallbackSignatureMessage,
 } from '../src/index.js';
 import { DidBtcr2 } from '@did-btcr2/method';
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
+import { bytesToHex } from '@noble/hashes/utils';
 import { MessageBus, MockTransport } from './helpers/mock-transport.js';
+import { beaconOutputScript } from './helpers/beacon-script.js';
 
 const TEST_RECOVERY_KEY = 'a'.repeat(64);
 const TEST_RECOVERY_SEQUENCE = 144;
@@ -154,6 +155,9 @@ describe('Aggregate beacon fallback protocol (ADR 042)', () => {
   function beaconTx(script: Uint8Array, internalKey: Uint8Array, value: bigint, signal: Uint8Array): Transaction {
     const tx = new Transaction({ version: 2, allowUnknownInputs: true, allowUnknownOutputs: true });
     tx.addInput({ txid: '22'.repeat(32), index: 0, witnessUtxo: { script, amount: value }, tapInternalKey: internalKey });
+    // Self-change back to the beacon script: members reject any spend whose
+    // change goes elsewhere (and any spend with no change at all) (audit M5).
+    tx.addOutput({ script, amount: value - 500n });
     tx.addOutput({ script: Script.encode([ 'RETURN', signal ]), amount: 0n });
     return tx;
   }
@@ -293,19 +297,21 @@ describe('Aggregate beacon fallback runner: latch safety (ADR 042)', () => {
     transport.registerPeer(svcDid, svcKeys.publicKey.compressed);
     transport.start();
 
-    const dummyScript = p2tr(schnorr.getPublicKey(hexToBytes('77'.repeat(32))), undefined, getNetwork('mutinynet')).script;
     const svc = new AggregationServiceRunner({
       transport,
       did             : svcDid,
       keys            : svcKeys,
-      onProvideTxData : async ({ signalBytes }) => {
+      onProvideTxData : async ({ cohortId, signalBytes }) => {
+        // The well-formed beacon shape: spend the cohort's beacon UTXO, return
+        // self-change to the beacon script, anchor the signal in an OP_RETURN.
+        const script = beaconOutputScript(svc.session.getCohort(cohortId)!);
         const value = 100000n;
         const tx = new Transaction({ version: 2, allowUnknownOutputs: true });
-        tx.addInput({ txid: '00'.repeat(32), index: 0, witnessUtxo: { amount: value, script: dummyScript } });
-        tx.addOutput({ script: dummyScript, amount: value - 500n });
+        tx.addInput({ txid: '00'.repeat(32), index: 0, witnessUtxo: { amount: value, script } });
+        tx.addOutput({ script, amount: value - 500n });
         // Members bind their nonce approval to the validated signal.
         tx.addOutput({ script: Script.encode([ 'RETURN', signalBytes ]), amount: 0n });
-        return { tx, prevOutScripts: [ dummyScript ], prevOutValues: [ value ] };
+        return { tx, prevOutScripts: [ script ], prevOutValues: [ value ] };
       },
     });
     const participants = pKeys.map((k, i) => new AggregationParticipantRunner({
