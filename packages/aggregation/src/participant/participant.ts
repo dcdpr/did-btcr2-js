@@ -1,9 +1,10 @@
 import { canonicalHash } from '@did-btcr2/common';
+import { getNetwork } from '@did-btcr2/bitcoin';
 import type { SecuredDocument } from '@did-btcr2/cryptosuite';
 import type { SerializedSMTProof} from '@did-btcr2/smt';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
-import { Script, Transaction } from '@scure/btc-signer';
+import { Address, OutScript, Script, Transaction } from '@scure/btc-signer';
 import { getBeaconStrategy } from '../core/beacon-strategy.js';
 import { AggregationCohort } from '../core/cohort.js';
 import type { CohortConditions } from '../core/conditions.js';
@@ -59,6 +60,35 @@ function txEmbedsSignal(tx: Transaction, signalHex: string): boolean {
   }
   return false;
 }
+
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  return a.length === b.length && a.every((x, i) => x === b[i]);
+}
+
+/**
+ * The scriptPubKey of the cohort's beacon UTXO, decoded from the beacon address
+ * the member independently recomputed and verified at cohort-ready time
+ * ({@link AggregationCohort.validateMembership}). Used to check that a
+ * service-supplied spend really targets the cohort's beacon output (audit M5).
+ */
+function beaconOutputScript(cohort: AggregationCohort): Uint8Array {
+  return OutScript.encode(Address(getNetwork(cohort.network)).decode(cohort.beaconAddress));
+}
+
+/**
+ * Conservative dust floor for the beacon self-change output (satoshis), matching
+ * the floor used by the recovery spend builder.
+ */
+const SELF_CHANGE_DUST_LIMIT_SATS = 546n;
+
+/**
+ * Default absolute fee ceiling (satoshis) a member will sign for a beacon
+ * announcement. The coordinator builds the tx and the member never sees the fee
+ * rate, only the absolute fee implied by the outputs; the ceiling stops a
+ * malicious or buggy coordinator from burning the beacon UTXO as fee (audit
+ * M5). Typical announcement txs cost a few hundred sats.
+ */
+export const DEFAULT_MAX_FEE_SATS = 100_000n;
 
 /**
  * Cohort advert as discovered by the participant (UI: list of joinable cohorts).
@@ -157,6 +187,14 @@ export interface AggregationParticipantParams {
    */
   maxCohorts?: number;
   /**
+   * Absolute fee ceiling (satoshis) applied to every beacon transaction this
+   * member is asked to sign, on both the optimistic and fallback paths. The
+   * member's signature commits to all outputs, so an uncapped fee lets a
+   * malicious coordinator burn the cohort's beacon UTXO (audit M5). Defaults
+   * to {@link DEFAULT_MAX_FEE_SATS}.
+   */
+  maxFeeSats?: bigint | number;
+  /**
    * The joining identity's genesis DID document. Required for an EXTERNAL (x1) did:btcr2
    * identifier, whose key is not in the DID string: it is attached to every cohort opt-in
    * this participant sends so the service can bootstrap-authenticate the participant from
@@ -194,14 +232,18 @@ export class AggregationParticipant {
   /** Cap on retained cohort states (audit M6). */
   readonly #maxCohorts: number;
 
+  /** Absolute fee ceiling applied to every beacon tx this member signs (audit M5). */
+  readonly #maxFeeSats: bigint;
+
   /** Per-cohort state, keyed by cohortId. */
   #cohortStates: Map<string, ParticipantCohortState> = new Map();
 
-  constructor({ did, signer, genesisDocument, maxCohorts }: AggregationParticipantParams) {
+  constructor({ did, signer, genesisDocument, maxCohorts, maxFeeSats }: AggregationParticipantParams) {
     this.did = did;
     this.#signer = signer;
     this.#genesisDocument = genesisDocument;
     this.#maxCohorts = maxCohorts ?? DEFAULT_MAX_PARTICIPANT_COHORTS;
+    this.#maxFeeSats = maxFeeSats !== undefined ? BigInt(maxFeeSats) : DEFAULT_MAX_FEE_SATS;
   }
 
   /** The participant's compressed (33-byte) MuSig2 public key. Not secret. */
@@ -601,7 +643,111 @@ export class AggregationParticipant {
   }
 
   /**
-   * User action: approve signing and generate nonce contribution.
+   * Refuse to sign unless the service-supplied spend is shaped like a genuine
+   * beacon announcement of THIS cohort (audit M5). The member's signature
+   * (SIGHASH_DEFAULT) commits to every input and output, so a coordinator that
+   * controls the tx could otherwise point change at itself or burn the beacon
+   * UTXO as fee. Checks, all against the member's own verified cohort state:
+   *
+   * 1. `prevOutScript` must equal the beacon output script decoded from the
+   *    cohort's beacon address, so the sighash only validates for spending the
+   *    cohort's actual beacon UTXO.
+   * 2. Exactly one input: the beacon spend. Extra inputs would be silently
+   *    committed to the signature.
+   * 3. Every output is either a zero-value OP_RETURN (the signal) or self-change
+   *    paying the beacon script at or above the dust floor; at least one
+   *    self-change output must exist so the UTXO cannot be burned outright.
+   * 4. The implied absolute fee is capped at {@link #maxFeeSats}.
+   */
+  #assertBeaconTxShape(
+    cohortId: string,
+    state: ParticipantCohortState,
+    tx: Transaction,
+    prevOutScript: Uint8Array,
+    prevOutValue: bigint,
+  ): void {
+    const cohort = state.cohort!;
+    const expectedScript = beaconOutputScript(cohort);
+    if(!bytesEqual(prevOutScript, expectedScript)) {
+      throw new AggregationParticipantError(
+        `Transaction for cohort ${cohortId} does not spend the cohort's beacon UTXO (prevOutScript mismatch).`,
+        'PREVOUT_SCRIPT_MISMATCH', { cohortId }
+      );
+    }
+    if(tx.inputsLength !== 1) {
+      throw new AggregationParticipantError(
+        `Transaction for cohort ${cohortId} has ${tx.inputsLength} inputs; a beacon spend must have exactly one.`,
+        'UNEXPECTED_INPUT_COUNT', { cohortId, inputs: tx.inputsLength }
+      );
+    }
+
+    let outputTotal = 0n;
+    let selfChangeCount = 0;
+    for(let i = 0; i < tx.outputsLength; i++) {
+      const out = tx.getOutput(i);
+      if(!out?.script || out.amount === undefined) {
+        throw new AggregationParticipantError(
+          `Transaction for cohort ${cohortId} has a malformed output at index ${i}.`,
+          'TX_OUTPUT_MALFORMED', { cohortId, index: i }
+        );
+      }
+      outputTotal += out.amount;
+
+      let decoded: Array<string | Uint8Array> | undefined;
+      try { decoded = Script.decode(out.script) as Array<string | Uint8Array>; } catch { decoded = undefined; }
+      if(decoded && decoded[0] === 'RETURN') {
+        // The signal output must carry no value; a non-zero OP_RETURN burns sats.
+        if(out.amount !== 0n) {
+          throw new AggregationParticipantError(
+            `OP_RETURN output ${i} for cohort ${cohortId} carries ${out.amount} sats; signal outputs must be zero-value.`,
+            'SIGNAL_OUTPUT_CARRIES_VALUE', { cohortId, index: i }
+          );
+        }
+        continue;
+      }
+      if(!bytesEqual(out.script, expectedScript)) {
+        throw new AggregationParticipantError(
+          `Output ${i} for cohort ${cohortId} pays a script other than the cohort beacon address; change must return to the beacon.`,
+          'FOREIGN_OUTPUT', { cohortId, index: i }
+        );
+      }
+      if(out.amount < SELF_CHANGE_DUST_LIMIT_SATS) {
+        throw new AggregationParticipantError(
+          `Self-change output ${i} for cohort ${cohortId} is ${out.amount} sats, below the ${SELF_CHANGE_DUST_LIMIT_SATS}-sat dust floor.`,
+          'DUST_SELF_CHANGE', { cohortId, index: i }
+        );
+      }
+      selfChangeCount += 1;
+    }
+    if(selfChangeCount === 0) {
+      throw new AggregationParticipantError(
+        `Transaction for cohort ${cohortId} has no self-change output; the beacon UTXO must be carried forward, not burned.`,
+        'MISSING_SELF_CHANGE', { cohortId }
+      );
+    }
+
+    const fee = prevOutValue - outputTotal;
+    if(fee < 0n) {
+      throw new AggregationParticipantError(
+        `Transaction for cohort ${cohortId} spends ${outputTotal} sats from a ${prevOutValue}-sat UTXO.`,
+        'NEGATIVE_FEE', { cohortId }
+      );
+    }
+    if(fee > this.#maxFeeSats) {
+      throw new AggregationParticipantError(
+        `Transaction for cohort ${cohortId} implies a ${fee}-sat fee, above this member's ${this.#maxFeeSats}-sat ceiling.`,
+        'FEE_TOO_HIGH', { cohortId, fee: fee.toString(), maxFeeSats: this.#maxFeeSats.toString() }
+      );
+    }
+  }
+
+  /**
+   * User action: approve signing and generate nonce contribution. Refuses
+   * (throws) unless the service-supplied transaction anchors the validated
+   * signal AND is shaped like a genuine spend of this cohort's beacon UTXO:
+   * prevOut script bound to the beacon address, single input, zero-value
+   * OP_RETURN, self-change back to the beacon script above dust, and an
+   * absolute fee at or under `maxFeeSats` (audit M5).
    */
   public approveNonce(cohortId: string): BaseMessage[] {
     const state = this.#cohortStates.get(cohortId);
@@ -633,6 +779,11 @@ export class AggregationParticipant {
     // change script.
     const prevOutScripts = [hexToBytes(state.signingRequest.prevOutScriptHex)];
     const prevOutValues = [BigInt(state.signingRequest.prevOutValue)];
+
+    // Refuse to sign a spend that is not shaped like a genuine announcement of
+    // this cohort's beacon UTXO (prevOut binding, single input, self-change
+    // only, capped fee; audit M5).
+    this.#assertBeaconTxShape(cohortId, state, tx, prevOutScripts[0], prevOutValues[0]);
 
     const session = new BeaconSigningSession({
       id        : state.signingRequest.sessionId,
@@ -794,6 +945,10 @@ export class AggregationParticipant {
     // Refuse to sign unless the fallback tx anchors the signal this member
     // validated (the coordinator drives output selection on the fallback path).
     this.#assertTxAnchorsValidatedSignal(cohortId, state, tx);
+
+    // The fallback signs the SAME beacon tx with SIGHASH_DEFAULT, so the full
+    // output/fee sanity check applies identically (audit M5).
+    this.#assertBeaconTxShape(cohortId, state, tx, prevOutScript, prevOutValue);
 
     // Recompute the fallback leaf from our own cohort keys so a malicious service
     // cannot induce a signature over a different leaf than the one the funded

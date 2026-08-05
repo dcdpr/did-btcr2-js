@@ -3,8 +3,7 @@ import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { base64UrlToHash, blockHash, didToIndex, verifySerializedProof } from '@did-btcr2/smt';
 import { hexToBytes } from '@noble/hashes/utils';
-import { p2tr, Script, Transaction } from '@scure/btc-signer';
-import * as musig2 from '@scure/btc-signer/musig2';
+import { Script, Transaction } from '@scure/btc-signer';
 import { expect } from 'chai';
 import {
   AggregationCohort,
@@ -31,6 +30,7 @@ import {
 } from '../src/index.js';
 import { DidBtcr2 } from '@did-btcr2/method';
 import { MessageBus, MockTransport } from './helpers/mock-transport.js';
+import { beaconOutputScript } from './helpers/beacon-script.js';
 
 const TEST_RECOVERY_KEY = 'a'.repeat(64);
 const TEST_RECOVERY_SEQUENCE = 144;
@@ -241,11 +241,10 @@ describe('Aggregate beacon cooperative non-inclusion', () => {
 
     async function driveSigningToComplete(cohortId: string): Promise<void> {
       const cohort = service.getCohort(cohortId)!;
-      const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-      const payment = p2tr(aggPk);
+      const script = beaconOutputScript(cohort);
       const prevOutValue = 100000n;
-      const tx = buildDummyTx(payment.script, prevOutValue, cohort.signalBytes!);
-      await send(serviceTransport, serviceDid, service.startSigning(cohortId, { tx, prevOutScripts: [payment.script], prevOutValues: [prevOutValue] }));
+      const tx = buildDummyTx(script, prevOutValue, cohort.signalBytes!);
+      await send(serviceTransport, serviceDid, service.startSigning(cohortId, { tx, prevOutScripts: [script], prevOutValues: [prevOutValue] }));
       await send(aliceTransport, aliceDid, alice.approveNonce(cohortId));
       await send(bobTransport, bobDid, bob.approveNonce(cohortId));
       await send(serviceTransport, serviceDid, service.sendAggregatedNonce(cohortId));
