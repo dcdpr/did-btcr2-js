@@ -23,6 +23,7 @@ import {
 } from '../src/index.js';
 import { DidBtcr2 } from '@did-btcr2/method';
 import { MessageBus, MockTransport } from './helpers/mock-transport.js';
+import { beaconOutputScript } from './helpers/beacon-script.js';
 
 const TEST_RECOVERY_KEY = 'a'.repeat(64);
 const TEST_RECOVERY_SEQUENCE = 144;
@@ -437,14 +438,13 @@ describe('Aggregation', () => {
 
       // ── Step 4: Sign ──
       const cohort = service.getCohort(cohortId)!;
-      const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-      const payment = p2tr(aggPk);
+      const script = beaconOutputScript(cohort);
       const prevOutValue = 100000n;
-      const tx = buildDummyTx(payment.script, prevOutValue, cohort.signalBytes!);
+      const tx = buildDummyTx(script, prevOutValue, cohort.signalBytes!);
 
       await send(serviceTransport, serviceDid, service.startSigning(cohortId, {
         tx,
-        prevOutScripts : [payment.script],
+        prevOutScripts : [script],
         prevOutValues  : [prevOutValue],
       }));
       expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.SigningStarted);
@@ -510,14 +510,13 @@ describe('Aggregation', () => {
       expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.Validated);
 
       // ── Step 4: Sign ──
-      const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-      const payment = p2tr(aggPk);
+      const script = beaconOutputScript(cohort);
       const prevOutValue = 100000n;
-      const tx = buildDummyTx(payment.script, prevOutValue, cohort.signalBytes!);
+      const tx = buildDummyTx(script, prevOutValue, cohort.signalBytes!);
 
       await send(serviceTransport, serviceDid, service.startSigning(cohortId, {
         tx,
-        prevOutScripts : [payment.script],
+        prevOutScripts : [script],
         prevOutValues  : [prevOutValue],
       }));
 
@@ -655,11 +654,10 @@ describe('Aggregation', () => {
         config          : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE },
         onProvideTxData : async () => {
           const cohort = service.session.cohorts[0];
-          const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-          const payment = p2tr(aggPk);
+          const script = beaconOutputScript(cohort);
           const prevOutValue = 100000n;
-          const tx = buildDummyTx(payment.script, prevOutValue, cohort.signalBytes!);
-          return { tx, prevOutScripts: [payment.script], prevOutValues: [prevOutValue] };
+          const tx = buildDummyTx(script, prevOutValue, cohort.signalBytes!);
+          return { tx, prevOutScripts: [script], prevOutValues: [prevOutValue] };
         },
       });
 
@@ -791,11 +789,10 @@ describe('Aggregation', () => {
         config          : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE },
         onProvideTxData : async () => {
           const cohort = service.session.cohorts[0];
-          const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-          const payment = p2tr(aggPk);
+          const script = beaconOutputScript(cohort);
           const prevOutValue = 100000n;
-          const tx = buildDummyTx(payment.script, prevOutValue, cohort.signalBytes!);
-          return { tx, prevOutScripts: [payment.script], prevOutValues: [prevOutValue] };
+          const tx = buildDummyTx(script, prevOutValue, cohort.signalBytes!);
+          return { tx, prevOutScripts: [script], prevOutValues: [prevOutValue] };
         },
       });
 

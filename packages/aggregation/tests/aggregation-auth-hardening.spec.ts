@@ -1,7 +1,6 @@
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
-import { p2tr, Script, Transaction } from '@scure/btc-signer';
-import * as musig2 from '@scure/btc-signer/musig2';
+import { Script, Transaction } from '@scure/btc-signer';
 import { expect } from 'chai';
 
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update, GenesisDocumentLike } from '@did-btcr2/method';
@@ -21,6 +20,7 @@ import {
   createValidationAckMessage,
   signEnvelope,
 } from '../src/index.js';
+import { beaconOutputScript } from './helpers/beacon-script.js';
 
 const TEST_RECOVERY_KEY = 'a'.repeat(64);
 const TEST_RECOVERY_SEQUENCE = 144;
@@ -352,12 +352,11 @@ describe('Aggregation transport + message auth hardening', () => {
       route(ctx.bobP.approveValidation(cohortId), { [ctx.svc.did]: ctx.service });
 
       const cohort = ctx.service.getCohort(cohortId)!;
-      const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-      const payment = p2tr(aggPk);
-      const tx = buildSignalTx(payment.script, 100000n, cohort.signalBytes!);
+      const script = beaconOutputScript(cohort);
+      const tx = buildSignalTx(script, 100000n, cohort.signalBytes!);
       route(ctx.service.startSigning(cohortId, {
         tx,
-        prevOutScripts : [payment.script],
+        prevOutScripts : [script],
         prevOutValues  : [100000n],
       }), { [ctx.alice.did]: ctx.aliceP, [ctx.bob.did]: ctx.bobP });
 
