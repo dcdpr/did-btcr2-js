@@ -21,6 +21,7 @@
  */
 
 import { getNetwork } from '@did-btcr2/bitcoin';
+import { wipe } from '@did-btcr2/keypair';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { p2tr, Transaction } from '@scure/btc-signer';
 import { keyAggExport, keyAggregate, sortKeys } from '@scure/btc-signer/musig2';
@@ -106,6 +107,12 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
  * block). The returned transaction is ready to broadcast once the UTXO has
  * `recoverySequence` confirmations.
  *
+ * Key custody: `recoverySecretKey` is zeroized once it has been consumed by the
+ * signing path (and on the key-mismatch throw), so the caller's buffer does not
+ * outlive its single use (audit L16). Parameter-validation throws (fee, dust,
+ * address mismatch) occur before signing and leave the buffer intact for a
+ * corrected retry. Callers that need the key beyond one call must pass a copy.
+ *
  * @throws {AggregationCohortError} when the recovery secret key does not match
  * the committed recovery key, when there are no cohort keys, or when the fee
  * exceeds the UTXO value.
@@ -126,8 +133,11 @@ export function buildRecoverySpend(params: RecoverySpendParams): Transaction {
   // The recovery leaf commits to recoveryKey; signing it requires the matching
   // secret. Fail loudly here rather than producing a transaction that cannot
   // finalize (btc-signer would throw an opaque "No taproot scripts signed").
+  // A wrong secret is certainly done being used, so zeroize the caller's buffer
+  // before throwing (audit L16).
   const derivedPub = schnorr.getPublicKey(recoverySecretKey);
   if(!bytesEqual(derivedPub, recoveryKey)) {
+    wipe(recoverySecretKey);
     throw new AggregationCohortError(
       'Recovery secret key does not correspond to the committed recovery key.',
       'RECOVERY_KEY_MISMATCH'
@@ -186,7 +196,16 @@ export function buildRecoverySpend(params: RecoverySpendParams): Transaction {
     sequence      : recoverySequence,
   });
   tx.addOutputAddress(destinationAddress, out, net);
-  tx.signIdx(recoverySecretKey, 0);
-  tx.finalize();
+  // Custody transfer: the builder zeroizes the caller's secret-key buffer once
+  // the signature is produced (success or failure) so a long-lived caller copy
+  // does not outlive its single use (audit L16). Callers that still need the
+  // key afterwards must pass a copy. The earlier parameter-validation throws
+  // leave the buffer intact so the caller can fix the params and retry.
+  try {
+    tx.signIdx(recoverySecretKey, 0);
+    tx.finalize();
+  } finally {
+    wipe(recoverySecretKey);
+  }
   return tx;
 }
