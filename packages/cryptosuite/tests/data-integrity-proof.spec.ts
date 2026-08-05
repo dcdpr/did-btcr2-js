@@ -111,4 +111,63 @@ describe('Data Integrity Proof', () => {
       )).to.throw(/Domain mismatch/);
     });
   });
+
+  describe('expiry enforcement (audit L3)', () => {
+    const pristineDocument = { ...unsecuredDocument };
+    const pristineConfig = { ...config };
+
+    it('verifies a proof whose expires is in the future', () => {
+      const securedDocument = diProof.addProof(
+        { ...pristineDocument }, { ...pristineConfig, expires: '2999-01-01T00:00:00Z' }
+      );
+      const result = diProof.verifyProof(JSON.stringify(securedDocument), 'attestationMethod');
+      expect(result.verified).to.be.true;
+    });
+
+    it('throws for a proof whose expires is in the past', () => {
+      const securedDocument = diProof.addProof(
+        { ...pristineDocument }, { ...pristineConfig, expires: '2020-01-01T00:00:00Z' }
+      );
+      expect(() => diProof.verifyProof(
+        JSON.stringify(securedDocument), 'attestationMethod'
+      )).to.throw(/expired/);
+    });
+
+    it('throws for a malformed expires', () => {
+      // addProof validates the format at generation, so tamper post-signing
+      const securedDocument = diProof.addProof(
+        { ...pristineDocument }, { ...pristineConfig, expires: '2999-01-01T00:00:00Z' }
+      );
+      securedDocument.proof.expires = 'not-a-date';
+      expect(() => diProof.verifyProof(
+        JSON.stringify(securedDocument), 'attestationMethod'
+      )).to.throw(/expires/);
+    });
+  });
+
+  describe('input isolation (audit L4)', () => {
+    it('addProof mutates neither the caller document nor the caller config', () => {
+      const doc = { ...unsecuredDocument };
+      const cfg = { ...config };
+
+      const secured = diProof.addProof(doc, cfg);
+
+      // The returned document carries the proof...
+      expect(secured).to.have.property('proof');
+      expect(secured.proof).to.have.property('proofValue');
+
+      // ...but the caller's objects are untouched
+      expect(doc).to.not.have.property('proof');
+      expect(cfg).to.not.have.property('proofValue');
+    });
+
+    it('mutating the caller config after addProof does not alter the secured proof', () => {
+      const cfg = { ...config, domain: 'https://example.com' };
+      const secured = diProof.addProof({ ...unsecuredDocument }, cfg);
+
+      cfg.domain = 'https://attacker.example';
+
+      expect(secured.proof.domain).to.equal('https://example.com');
+    });
+  });
 });

@@ -295,7 +295,9 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
   }
 
   /**
-   * Verify a signature using schnorr or ecdsa.
+   * Verify a signature using schnorr or ecdsa. For 'ecdsa', the signature must be
+   * DER-encoded and low-S and `data` must already be the 32-byte sighash, matching
+   * the {@link signWithScheme} contract (`prehash: false`).
    * @param {SignatureBytes} signature Signature for verification.
    * @param {string} data Data for verification.
    * @param {CryptoOptions} opts Options for signing.
@@ -307,7 +309,7 @@ export class CompressedSecp256k1PublicKey implements PublicKey {
     opts ??= { scheme: 'schnorr' };
 
     if(opts.scheme === 'ecdsa') {
-      return secp256k1.verify(signature, data, this.compressed);
+      return secp256k1.verify(signature, data, this.compressed, { format: 'der', lowS: true, prehash: false });
     }
     else if(opts.scheme === 'schnorr') {
       return schnorr.verify(signature, data, this.x);

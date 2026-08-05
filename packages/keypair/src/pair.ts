@@ -95,9 +95,9 @@ export class SchnorrKeyPair implements KeyPair {
     if(!this.#secretKey.isValid()) {
       throw new KeyPairError('Secret key is not valid', 'SECRET_KEY_ERROR');
     }
-    // Return a copy of the secret key
-    const secret = this.#secretKey;
-    return secret;
+    // Return a copy of the secret key so a caller cannot destroy() or otherwise
+    // affect the keypair's stored secret through the getter.
+    return new Secp256k1SecretKey(this.#secretKey.bytes);
   }
 
   /**
