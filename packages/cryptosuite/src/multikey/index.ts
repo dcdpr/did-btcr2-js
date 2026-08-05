@@ -1,7 +1,7 @@
 import type { Bytes, SignatureBytes } from '@did-btcr2/common';
 import { MultikeyError, VERIFICATION_METHOD_ERROR } from '@did-btcr2/common';
 import type { Signer } from '@did-btcr2/keypair';
-import { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
+import { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey, wipe } from '@did-btcr2/keypair';
 import { schnorr } from '@noble/curves/secp256k1';
 import type { DidVerificationMethod } from '@web5/dids';
 import { randomBytes } from '@noble/hashes/utils';
@@ -164,7 +164,13 @@ export class SchnorrMultikey implements Multikey {
       throw new MultikeyError('Cannot sign: no secretKey', 'SIGN_ERROR');
     }
 
-    return schnorr.sign(data, this.secretKey.bytes, randomBytes(32));
+    const secretBytes = this.secretKey.bytes;
+    try {
+      return schnorr.sign(data, secretBytes, randomBytes(32));
+    } finally {
+      // Wipe the transient copy pulled from the secret key for this call
+      wipe(secretBytes);
+    }
   }
 
   /**
@@ -212,10 +218,29 @@ export class SchnorrMultikey implements Multikey {
   }
 
   /**
-   * Convert the multikey to a JSON object.
-   * @returns {MultikeyObject} The multikey as a JSON object.
+   * Safe JSON representation. Only includes public material: the embedded keyPair
+   * serializes public-key-only. Called implicitly by JSON.stringify().
+   * Use {@link exportJSON} for full serialization including the secret key.
+   * @returns {MultikeyObject} The multikey as a JSON object (public material only).
    */
   public toJSON(): MultikeyObject {
+    return {
+      id                 : this.id,
+      controller         : this.controller,
+      fullId             : this.fullId(),
+      signer             : this.signer,
+      keyPair            : this.keyPair.toJSON(),
+      verificationMethod : this.toVerificationMethod()
+    };
+  }
+
+  /**
+   * Exports the full multikey as a JSON object. Contains secret key material:
+   * the result must never appear in logs, error payloads, or telemetry.
+   * @returns {MultikeyObject} The multikey as a JSON object including the secret key.
+   * @throws {KeyPairError} If the keyPair carries no secret key.
+   */
+  public exportJSON(): MultikeyObject {
     return {
       id                 : this.id,
       controller         : this.controller,

@@ -120,7 +120,8 @@ export class LocalKeyManager implements KeyManager {
    * @throws {KeyManagerError} If key not found or no active key set.
    */
   getPublicKey(id?: KeyIdentifier): KeyBytes {
-    return this.#getEntryOrThrow(id).publicKey;
+    // Return a copy so callers cannot mutate the store's key material in place
+    return new Uint8Array(this.#getEntryOrThrow(id).publicKey);
   }
 
   /**
@@ -132,7 +133,8 @@ export class LocalKeyManager implements KeyManager {
    */
   getEntry(id?: KeyIdentifier): { publicKey: KeyBytes; tags?: Record<string, string> } {
     const entry = this.#getEntryOrThrow(id);
-    return { publicKey: entry.publicKey, ...(entry.tags && { tags: entry.tags }) };
+    // Copies only: callers must not be able to mutate store state in place
+    return { publicKey: new Uint8Array(entry.publicKey), ...(entry.tags && { tags: { ...entry.tags } }) };
   }
 
   /**

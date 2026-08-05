@@ -1,4 +1,4 @@
-import { DataIntegrityProofError, PROOF_GENERATION_ERROR, PROOF_VERIFICATION_ERROR } from '@did-btcr2/common';
+import { DataIntegrityProofError, DateUtils, PROOF_GENERATION_ERROR, PROOF_VERIFICATION_ERROR } from '@did-btcr2/common';
 import type { BIP340Cryptosuite } from '../cryptosuite/index.js';
 import type { VerificationResult } from '../cryptosuite/interface.js';
 import type { DataIntegrityProof, DataIntegrityProofOptions, SecuredDocument, UnsecuredDocument } from './interface.js';
@@ -61,11 +61,10 @@ export class BIP340DataIntegrityProof implements DataIntegrityProof {
         );
     }
 
-    // Attach the proof, securing the document
-    const signedDocument = unsignedDocument as SecuredDocument<T>;
-
-    // Set the proof in the document and return the secured document
-    signedDocument.proof = proof;
+    // Attach the proof to a fresh copy of the document, securing it. The caller's
+    // document is not mutated in place, so a proof object can never be retroactively
+    // swapped onto (or off of) a document the caller still holds.
+    const signedDocument = { ...unsignedDocument, proof } as SecuredDocument<T>;
 
     // Return the secured document
     return signedDocument;
@@ -133,6 +132,24 @@ export class BIP340DataIntegrityProof implements DataIntegrityProof {
         throw new DataIntegrityProofError(
           'Domain mismatch: expectedDomain not present in proof.domain',
           PROOF_VERIFICATION_ERROR, { proof, expectedDomain }
+        );
+      }
+    }
+
+    // Check if the proof carries an expiry
+    if(proof.expires) {
+      // Validate the format
+      if(!DateUtils.isValidXsdDateTime(proof.expires)) {
+        throw new DataIntegrityProofError(
+          'Invalid proof: "expires" must be a valid XMLSchema DateTime string',
+          PROOF_VERIFICATION_ERROR, { proof }
+        );
+      }
+      // A captured proof must not verify past its expiry
+      if(DateUtils.dateStringToTimestamp(proof.expires).getTime() <= Date.now()) {
+        throw new DataIntegrityProofError(
+          'Proof expired: current time is past proof.expires',
+          PROOF_VERIFICATION_ERROR, { proof }
         );
       }
     }

@@ -1,13 +1,18 @@
-import type { KeyBytes, MessageBytes, SchnorrKeyPairObject, SignatureBytes } from '@did-btcr2/common';
+import type { KeyBytes, MessageBytes, PublicKeyObject, SchnorrKeyPairObject, SignatureBytes } from '@did-btcr2/common';
 import type { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import type { DidVerificationMethod } from '@web5/dids';
 
+/**
+ * JSON shape of a SchnorrMultikey. `keyPair` is public-key-only when produced by
+ * `SchnorrMultikey.toJSON()` (the safe, implicit serialization) and carries the
+ * full secret material only when produced by the explicit `exportJSON()`.
+ */
 export type MultikeyObject = {
   id: string;
   controller: string;
   fullId: string;
   signer: boolean;
-  keyPair: SchnorrKeyPairObject;
+  keyPair: SchnorrKeyPairObject | { publicKey: PublicKeyObject };
   verificationMethod: DidVerificationMethod;
 }
 export interface DidParams {

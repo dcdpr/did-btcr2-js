@@ -335,3 +335,32 @@ describe('LocalKeyManager', () => {
     });
   });
 });
+
+describe('store buffer isolation (audit L1)', () => {
+  it('getPublicKey returns a copy: mutating it does not corrupt the store', () => {
+    const kms = new LocalKeyManager();
+    const kp = SchnorrKeyPair.generate();
+    const id = kms.importKey(kp);
+
+    const fetched = kms.getPublicKey(id);
+    const original = new Uint8Array(fetched);
+    fetched[0]! ^= 0xff;
+
+    expect(kms.getPublicKey(id)).to.deep.equal(original);
+  });
+
+  it('getEntry returns a copy: mutating it does not corrupt the store', () => {
+    const kms = new LocalKeyManager();
+    const kp = SchnorrKeyPair.generate();
+    const id = kms.importKey(kp, { tags: { label: 'original' } });
+
+    const entry = kms.getEntry(id);
+    const original = new Uint8Array(entry.publicKey);
+    entry.publicKey[0]! ^= 0xff;
+    entry.tags!.label = 'tampered';
+
+    const again = kms.getEntry(id);
+    expect(again.publicKey).to.deep.equal(original);
+    expect(again.tags!.label).to.equal('original');
+  });
+});

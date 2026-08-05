@@ -71,23 +71,26 @@ export class BIP340Cryptosuite implements Cryptosuite {
     document: UnsecuredDocument,
     config: DataIntegrityProofOptions
   ): DataIntegrityProofObject {
-    // Set the context using the document context or the existing config context
-    config['@context'] = (document['@context'] as string | string[] | undefined) ?? config['@context'];
+    // Build the proof as a fresh object: the caller's config is neither mutated
+    // nor aliased into the returned proof, so post-hoc mutation of the caller's
+    // config cannot alter the secured document (and vice versa).
+    const proof: DataIntegrityProofObject = {
+      ...config,
+      // Set the context using the document context or the existing config context
+      '@context' : (document['@context'] as string | string[] | undefined) ?? config['@context'],
+    } as DataIntegrityProofObject;
 
     // Create a canonical form of the proof configuration
-    const canonicalConfig = this.proofConfiguration(config);
+    const canonicalConfig = this.proofConfiguration(proof);
 
     // Transform the document into a canonical form
-    const canonicalDocument = this.transformDocument(document, config);
+    const canonicalDocument = this.transformDocument(document, proof);
 
     // Generate a hash of the canonical proof configuration and canonical document
     const hash = this.generateHash(canonicalConfig, canonicalDocument);
 
     // Serialize the proof
-    const serialized = this.proofSerialization(hash, config);
-
-    // Cast the config to a data integrity proof object
-    const proof = config as DataIntegrityProofObject;
+    const serialized = this.proofSerialization(hash, proof);
 
     // Encode the proof bytes to base58btc
     proof.proofValue = base58btc.encode(serialized);
@@ -210,6 +213,16 @@ export class BIP340Cryptosuite implements Cryptosuite {
       if(!DateUtils.isValidXsdDateTime(config.created))
         throw new CryptosuiteError(
           'Invalid config: "created" must be a valid XMLSchema DateTime string',
+          PROOF_GENERATION_ERROR, config
+        );
+    }
+
+    // Check if config.expires is defined
+    if(config.expires) {
+      // Check if config.expires is a valid XMLSchema DateTime string, if not throw CryptosuiteError
+      if(!DateUtils.isValidXsdDateTime(config.expires))
+        throw new CryptosuiteError(
+          'Invalid config: "expires" must be a valid XMLSchema DateTime string',
           PROOF_GENERATION_ERROR, config
         );
     }

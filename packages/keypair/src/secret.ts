@@ -17,6 +17,7 @@ import { base58 } from '@scure/base';
 import { CompressedSecp256k1PublicKey } from './public.js';
 import type { CryptoOptions } from './types.js';
 import { equalBytes } from '@noble/curves/utils.js';
+import { wipe } from './utils.js';
 
 /** Fixed secret key header bytes per the Data Integrity BIP340 Cryptosuite spec: [0x81, 0x26] */
 const BIP340_SECRET_KEY_MULTIBASE_PREFIX: Bytes = new Uint8Array([0x81, 0x26]);
@@ -133,7 +134,10 @@ export class Secp256k1SecretKey implements SecretKey {
   }
 
   /**
-   * Zeros out secret key material from memory.
+   * Best-effort zeroization of the secret key bytes held by this instance.
+   * The bigint seed and any strings or byte copies previously returned (hex,
+   * multibase, exportJSON output) are immutable or caller-owned JS values that
+   * cannot be reclaimed here; treat those as live until garbage-collected.
    * The instance should not be used after calling this method.
    */
   public destroy(): void {
@@ -262,7 +266,9 @@ export class Secp256k1SecretKey implements SecretKey {
 
   /**
    * Produce a signature over arbitrary data using schnorr or ecdsa.
-   * @param {MessageBytes} data Data to be signed.
+   * @param {MessageBytes} data Data to be signed. For 'ecdsa', `data` must already
+   *   be the 32-byte sighash: the contract matches {@link signWithScheme}
+   *   (DER-encoded, low-S, `prehash: false`).
    * @param {CryptoOptions} opts Options for signing.
    * @param {('ecdsa' | 'schnorr')} opts.scheme The signature scheme to use. Default is 'schnorr'.
    * @returns {SignatureBytes} Signature byte array.
@@ -272,21 +278,28 @@ export class Secp256k1SecretKey implements SecretKey {
     // Set default options if not provided
     opts ??= { scheme: 'schnorr' };
 
-    if(opts.scheme === 'ecdsa') {
-      return secp256k1.sign(data, this.bytes);
-    }
+    // Copy once, wipe the copy on all exit paths
+    const keyBytes = this.bytes;
+    try {
+      if(opts.scheme === 'ecdsa') {
+        return secp256k1.sign(data, keyBytes, { format: 'der', lowS: true, prehash: false });
+      }
 
-    if(opts.scheme === 'schnorr') {
-      return schnorr.sign(data, this.bytes);
+      if(opts.scheme === 'schnorr') {
+        return schnorr.sign(data, keyBytes);
+      }
+    } finally {
+      wipe(keyBytes);
     }
 
     throw new SecretKeyError(`Invalid scheme: ${opts.scheme}.`, 'SIGN_ERROR', opts);
   }
 
   /**
-   * Decodes the multibase string to the 34-byte secret key (2 byte prefix + 32 byte key).
+   * Decodes the multibase string to the 32-byte secret key (multicodec prefix
+   * validated and stripped).
    * @param {string} multibase The multibase string to decode
-   * @returns {Bytes} The decoded secret key.
+   * @returns {Bytes} The 32-byte secret key.
    */
   public static decode(multibase: string): Bytes {
     // Decode the public key multibase string
@@ -314,8 +327,8 @@ export class Secp256k1SecretKey implements SecretKey {
       );
     }
 
-    // Return the decoded key bytes
-    return decoded;
+    // Return the decoded key bytes with the 2-byte multicodec prefix stripped
+    return decoded.slice(2);
   }
 
   /**

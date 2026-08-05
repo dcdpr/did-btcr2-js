@@ -199,3 +199,18 @@ describe('SchnorrKeyPair instantiated', () => {
     });
   });
 });
+describe('secretKey getter isolation (audit L6)', () => {
+  it('returns a distinct instance on each access', () => {
+    const kp = SchnorrKeyPair.generate();
+    expect(kp.secretKey).to.not.equal(kp.secretKey);
+  });
+
+  it('destroy() on a returned copy does not affect the keypair', () => {
+    const kp = SchnorrKeyPair.generate();
+    const leaked = kp.secretKey;
+    leaked.destroy();
+    // The keypair's stored secret is untouched
+    expect(kp.secretKey.isValid()).to.be.true;
+    expect(kp.secretKey.hex).to.not.equal(leaked.hex);
+  });
+});

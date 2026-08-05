@@ -4,6 +4,7 @@ import { schnorr, secp256k1 } from '@noble/curves/secp256k1.js';
 import { randomBytes } from '@noble/hashes/utils.js';
 import { taprootTweakPrivKey } from '@scure/btc-signer/utils.js';
 import { Secp256k1SecretKey } from './secret.js';
+import { wipe } from './utils.js';
 
 /**
  * Sign `data` with a 32-byte raw secret key under the requested scheme. The
@@ -52,7 +53,12 @@ export function signWithScheme(
       secretKey,
       opts?.merkleRoot ?? new Uint8Array(0),
     );
-    return schnorr.sign(data, tweaked, randomBytes(32));
+    try {
+      return schnorr.sign(data, tweaked, randomBytes(32));
+    } finally {
+      // The tweaked key is fresh secret material derived for this call only
+      wipe(tweaked);
+    }
   }
   throw new KeyPairError(
     `signWithScheme: unsupported signing scheme: ${scheme as string}`,
@@ -173,6 +179,12 @@ export class LocalSigner implements Signer {
    * place so this signer and `LocalKeyManager` cannot drift.
    */
   sign(data: Bytes, scheme: SigningScheme, opts?: SignOptions): SignatureBytes {
-    return signWithScheme(this.#secretKey.bytes, data, scheme, opts);
+    const secretBytes = this.#secretKey.bytes;
+    try {
+      return signWithScheme(secretBytes, data, scheme, opts);
+    } finally {
+      // Wipe the transient copy pulled from the secret key for this call
+      wipe(secretBytes);
+    }
   }
 }
