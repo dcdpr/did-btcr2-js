@@ -6,6 +6,14 @@ import type { JSONObject } from './types.js';
 const { applyPatch, compare, deepClone } = jsonPatch;
 
 export type PatchOpCode = 'add' | 'remove' | 'replace' | 'move' | 'copy' | 'test';
+
+/** Maximum operations in a single JSON Patch (audit L10). */
+export const MAX_PATCH_OPERATIONS = 1024;
+/** Maximum length of an operation's JSON Pointer path (audit L10). */
+export const MAX_PATCH_PATH_LENGTH = 2048;
+/** Maximum JSON-serialized size of an operation's value, in bytes (audit L10). */
+export const MAX_PATCH_VALUE_BYTES = 256 * 1024;
+
 /**
  * A JSON Patch operation, as defined in {@link https://datatracker.ietf.org/doc/html/rfc6902 | RFC 6902}.
  */
@@ -95,18 +103,40 @@ export class JSONPatch {
   }
 
   /**
- * Validate JSON Patch operations.
- * @param {PatchOperation[]} operations - The operations to validate.
- * @returns {MethodError | null} A MethodError if validation fails, otherwise null.
- */
+   * Validate JSON Patch operations.
+   *
+   * Beyond shape checks, patches carried by untrusted DID updates are bounded
+   * in count, path length, and value size so a hostile update cannot force
+   * unbounded patch work (audit L10).
+   *
+   * @param {PatchOperation[]} operations - The operations to validate.
+   * @returns {MethodError | null} A MethodError if validation fails, otherwise null.
+   */
   static validateOperations(operations: PatchOperation[]): MethodError | null {
     if (!Array.isArray(operations)) return new MethodError('Operations must be an array', 'JSON_PATCH_VALIDATION_ERROR');
+    if (operations.length > MAX_PATCH_OPERATIONS) {
+      return new MethodError(`Too many operations: ${operations.length} > ${MAX_PATCH_OPERATIONS}`, 'JSON_PATCH_VALIDATION_ERROR');
+    }
     for (const op of operations) {
       if (!op || typeof op !== 'object') return new MethodError('Operation must be an object', 'JSON_PATCH_VALIDATION_ERROR');
       if (typeof op.op !== 'string') return new MethodError('Operation.op must be a string', 'JSON_PATCH_VALIDATION_ERROR');
       if (typeof op.path !== 'string') return new MethodError('Operation.path must be a string', 'JSON_PATCH_VALIDATION_ERROR');
+      if (op.path.length > MAX_PATCH_PATH_LENGTH) {
+        return new MethodError(`Operation.path too long: ${op.path.length} > ${MAX_PATCH_PATH_LENGTH}`, 'JSON_PATCH_VALIDATION_ERROR');
+      }
       if ((op.op === 'move' || op.op === 'copy') && typeof op.from !== 'string') {
         return new MethodError(`Operation.from must be a string for op=${op.op}`, 'JSON_PATCH_VALIDATION_ERROR');
+      }
+      if (op.value !== undefined) {
+        let valueSize: number;
+        try {
+          valueSize = JSON.stringify(op.value).length;
+        } catch {
+          return new MethodError('Operation.value is not JSON-serializable', 'JSON_PATCH_VALIDATION_ERROR');
+        }
+        if (valueSize > MAX_PATCH_VALUE_BYTES) {
+          return new MethodError(`Operation.value too large: ${valueSize} > ${MAX_PATCH_VALUE_BYTES} bytes`, 'JSON_PATCH_VALIDATION_ERROR');
+        }
       }
     }
     return null;

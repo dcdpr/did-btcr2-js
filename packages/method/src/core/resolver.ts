@@ -9,6 +9,7 @@ import {
   INTERNAL_ERROR,
   INVALID_DID_DOCUMENT,
   INVALID_DID_UPDATE,
+  INVALID_SIDECAR_DATA,
   JSONPatch,
   JSONUtils,
   LATE_PUBLISHING_ERROR,
@@ -368,7 +369,18 @@ export class Resolver {
     const smtMap = new Map<string, SMTProof>();
     if(sidecar.smtProofs?.length)
       for(const proof of sidecar.smtProofs) {
-        smtMap.set(encodeHash(decodeHash(proof.id, 'base64urlnopad'), 'hex'), proof);
+        // A malformed proof id must surface as a typed error, not a raw decode
+        // throw escaping resolution (audit L7).
+        let rootHashHex: string;
+        try {
+          rootHashHex = encodeHash(decodeHash(proof.id, 'base64urlnopad'), 'hex');
+        } catch {
+          throw new ResolveError(
+            'Malformed SMT proof id in sidecar data',
+            INVALID_SIDECAR_DATA, { proofId: proof?.id }
+          );
+        }
+        smtMap.set(rootHashHex, proof);
       }
 
     return { updateMap, casMap, smtMap };
@@ -415,7 +427,7 @@ export class Resolver {
         versionId     : `${currentVersionId}`,
         confirmations : 0,
         updated       : '',
-        deactivated   : currentDocument.deactivated || false
+        deactivated   : currentDocument.deactivated === true
       }
     };
 
@@ -443,12 +455,6 @@ export class Resolver {
       // tuple that chains to a skipped update then correctly surfaces as a
       // late-publishing error.
       if(block.confirmations < minConf) continue;
-
-      // Set the updated field to the blocktime of the current update
-      response.metadata.updated = DateUtils.toISOStringNonFractional(blocktime);
-
-      // Set confirmations to the block confirmations
-      response.metadata.confirmations = block.confirmations;
 
       // Check update.targetVersionId against currentVersionId.
       // If update.targetVersionId <= currentVersionId, this update re-announces a version
@@ -483,8 +489,18 @@ export class Resolver {
 
       // If update.targetVersionId == currentVersionId + 1, apply the update
       if (update.targetVersionId === currentVersionId + 1) {
-        // Check if update.sourceHash !== currentDocumentHash (byte comparison)
-        const sourceHashBytes = decodeHash(update.sourceHash, 'base64urlnopad');
+        // Check if update.sourceHash !== currentDocumentHash (byte comparison).
+        // A malformed sourceHash must surface as a typed error, not a raw decode
+        // throw escaping resolution (audit L7).
+        let sourceHashBytes: HashBytes;
+        try {
+          sourceHashBytes = decodeHash(update.sourceHash, 'base64urlnopad');
+        } catch {
+          throw new ResolveError(
+            'Malformed update.sourceHash',
+            INVALID_DID_UPDATE, { sourceHash: update.sourceHash }
+          );
+        }
         if (!equalBytes(sourceHashBytes, currentDocumentHash)) {
           throw new ResolveError(
             `Hash mismatch: update.sourceHash !== currentDocumentHash`,
@@ -496,6 +512,12 @@ export class Resolver {
         }
         // Apply the update to the currentDocument and set it in the response
         response.didDocument = this.applyUpdate(response.didDocument, update);
+
+        // Resolution metadata reflects APPLIED updates only. A duplicate
+        // re-announcement (handled above) must not clobber confirmations/updated
+        // with its own later, shallower block data (audit L8).
+        response.metadata.updated = DateUtils.toISOStringNonFractional(blocktime);
+        response.metadata.confirmations = block.confirmations;
 
         // Create unsigned_update by removing the proof property from update.
         const unsignedUpdate = JSONUtils.deleteKeys(update, ['proof']) as UnsignedBTCR2Update;
@@ -521,10 +543,12 @@ export class Resolver {
       // Set response.versionId to be the new currentVersionId
       response.metadata.versionId = `${currentVersionId}`;
 
-      // Check if the current document is deactivated before further processing
-      if(response.didDocument.deactivated) {
+      // Check if the current document is deactivated before further processing.
+      // Strict boolean: a truthy non-boolean (a string, an object) is not a
+      // deactivation (audit I6).
+      if(response.didDocument.deactivated === true) {
         // Set the response deactivated flag to true
-        response.metadata.deactivated = response.didDocument.deactivated;
+        response.metadata.deactivated = true;
         // If deactivated, stop processing further updates and return the response
         return response;
       }
@@ -621,6 +645,17 @@ export class Resolver {
       );
     }
 
+    // The write path signs capabilityAction 'Write'; the resolve path must
+    // enforce it, or a proof carrying any other (or no) action would authorize
+    // a DID update it never intended (audit I4).
+    const capabilityAction = update.proof?.capabilityAction;
+    if(capabilityAction !== 'Write') {
+      throw new ResolveError(
+        'Invalid update: capabilityAction must be "Write"',
+        INVALID_DID_UPDATE, { capabilityAction }
+      );
+    }
+
     // Get the verificationMethod field from the update proof as verificationMethodId.
     const verificationMethodId = update.proof?.verificationMethod;
     // Since this field is optional, check that it exists
@@ -689,7 +724,16 @@ export class Resolver {
     const currentDocumentHash = canonicalHashBytes(updatedDocument);
 
     // Prepare the update targetHash for comparison with currentDocumentHash.
-    const updateTargetHash = decodeHash(update.targetHash);
+    // Typed error on malformed input, not a raw decode throw (audit L7).
+    let updateTargetHash: HashBytes;
+    try {
+      updateTargetHash = decodeHash(update.targetHash);
+    } catch {
+      throw new ResolveError(
+        'Malformed update.targetHash',
+        INVALID_DID_UPDATE, { targetHash: update.targetHash }
+      );
+    }
 
     // Make sure the update.targetHash equals currentDocumentHash.
     if (!equalBytes(updateTargetHash, currentDocumentHash)) {
@@ -864,8 +908,12 @@ export class Resolver {
             result : this.#resolvedResponse ?? {
               didDocument : this.#currentDocument!,
               metadata    : {
-                versionId   : this.#versionId ?? '1',
-                deactivated : this.#currentDocument!.deactivated || false
+                // No updates were applied: the current version is the counter the
+                // resolution actually reached, not the caller's requested
+                // versionId (which may name a version that does not exist)
+                // (audit I2).
+                versionId   : String(this.#currentVersionId),
+                deactivated : this.#currentDocument!.deactivated === true
               }
             }
           };

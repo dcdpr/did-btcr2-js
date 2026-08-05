@@ -121,3 +121,69 @@ describe('BeaconSignalDiscovery.indexer', () => {
     expect(found[0].blockMetadata.height).to.equal(100);
   });
 });
+
+describe('BeaconSignalDiscovery.fullnode', () => {
+  const SIGNAL_HEX = 'cd'.repeat(32);
+  const SIGNAL_ASM = `OP_RETURN OP_PUSHBYTES_32 ${SIGNAL_HEX}`;
+
+  const secret = new Uint8Array(32);
+  secret[31] = 9;
+  const address = p2wpkh(secp256k1.getPublicKey(secret, true), getNetwork('regtest')).address!;
+  const PAYMENT_ASM = 'OP_0 OP_PUSHBYTES_20 751e76e8199196d454941c45d1b3a323f1433bd6';
+
+  const service: BeaconService = {
+    id              : 'did:btcr2:x#beacon-0',
+    type            : 'SingletonBeacon',
+    serviceEndpoint : `bitcoin:${address}`
+  };
+
+  /**
+   * Minimal RPC stub: two blocks. Block 1 contains `spendTx`, a transaction
+   * whose input spends a prevout paying the beacon address. The prevout lookup
+   * returns the funding tx (its output script is the beacon PAYMENT script,
+   * never an OP_RETURN).
+   */
+  function mockFullnode(spendTx: unknown): BitcoinConnection {
+    const fundingTx = {
+      txid  : 'ef'.repeat(32),
+      vout  : [{ scriptPubKey: { asm: PAYMENT_ASM, address } }]
+    };
+    const blocks: Record<number, unknown> = {
+      0 : { hash: '00'.repeat(32), height: 0, time: 1700000000, confirmations: 2, tx: [] },
+      1 : { hash: '11'.repeat(32), height: 1, time: 1700000600, confirmations: 1, tx: [spendTx] },
+    };
+    return {
+      rpc : {
+        getBlockCount     : async () => 1,
+        getBlock          : async ({ height }: { height: number }) => blocks[height],
+        getRawTransaction : async () => fundingTx,
+      }
+    } as unknown as BitcoinConnection;
+  }
+
+  it('discovers the signal on the spending transaction, not the spent prevout (audit H5)', async () => {
+    const spendTx = {
+      txid  : 'ab'.repeat(32),
+      vin   : [{ txid: 'ef'.repeat(32), vout: 0 }],
+      vout  : [
+        { scriptPubKey: { asm: PAYMENT_ASM, address } },  // self-change
+        { scriptPubKey: { asm: SIGNAL_ASM } },            // the beacon signal
+      ],
+    };
+    const signals = await BeaconSignalDiscovery.fullnode([service], mockFullnode(spendTx));
+    const found = signals.get(service)!;
+    expect(found).to.have.lengthOf(1);
+    expect(found[0].signalBytes).to.equal(SIGNAL_HEX);
+    expect(found[0].blockMetadata.height).to.equal(1);
+  });
+
+  it('finds no signal when the spending transaction carries no OP_RETURN', async () => {
+    const spendTx = {
+      txid  : 'ab'.repeat(32),
+      vin   : [{ txid: 'ef'.repeat(32), vout: 0 }],
+      vout  : [{ scriptPubKey: { asm: PAYMENT_ASM, address } }],
+    };
+    const signals = await BeaconSignalDiscovery.fullnode([service], mockFullnode(spendTx));
+    expect(signals.get(service)).to.have.lengthOf(0);
+  });
+});

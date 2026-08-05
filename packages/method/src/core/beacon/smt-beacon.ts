@@ -81,12 +81,22 @@ export class SMTBeacon extends SinglePartyBeacon {
       // inclusion = hash(hash(nonce) || updateId); non-inclusion = hash(hash(nonce)).
       // Hash fields are base64url (no padding) per the SMT Proof spec. A
       // non-inclusion proof (absent updateId) is verified too, not trusted.
-      const index = didToIndex(did);
-      const nonceHash = base64UrlToHash(smtProof.nonce);
-      const candidateHash = smtProof.updateId
-        ? blockHash(blockHash(nonceHash), base64UrlToHash(smtProof.updateId))
-        : blockHash(blockHash(nonceHash));
-      const valid = verifySerializedProof(smtProof, index, candidateHash);
+      // Malformed base64url fields must surface as a typed error, not a raw
+      // decode throw escaping resolution (audit L7).
+      let valid: boolean;
+      try {
+        const index = didToIndex(did);
+        const nonceHash = base64UrlToHash(smtProof.nonce);
+        const candidateHash = smtProof.updateId
+          ? blockHash(blockHash(nonceHash), base64UrlToHash(smtProof.updateId))
+          : blockHash(blockHash(nonceHash));
+        valid = verifySerializedProof(smtProof, index, candidateHash);
+      } catch {
+        throw new SMTBeaconError(
+          'Malformed SMT proof fields.',
+          'INVALID_SMT_PROOF', { smtProof, did }
+        );
+      }
 
       if(!valid) {
         throw new SMTBeaconError(

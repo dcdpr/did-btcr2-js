@@ -1764,3 +1764,92 @@ describe('Resolver security regressions (audit batch 1)', () => {
     expect(resolved.didDocument.assertionMethod).to.have.lengthOf(sourceDocument.assertionMethod!.length + 1);
   });
 });
+
+describe('Resolver security regressions (audit: discovery hardening)', () => {
+  const fixture = deterministicData[2]; // regtest k1 DID
+  const vmOf = (doc: DidDocument) => doc.verificationMethod![0]!;
+
+  it('L7: malformed sidecar SMT proof id throws a typed ResolveError', () => {
+    expect(() => Resolver.sidecarData({
+      smtProofs : [{ id: '!!!not-base64url!!!', collapsed: '', hashes: [] }] as any
+    })).to.throw(/Malformed SMT proof id/);
+  });
+
+  it('L7: a malformed update.sourceHash throws a typed ResolveError, not a raw decode error', () => {
+    const sourceDocument = resolveDeterministic(fixture.did);
+    const signer1 = new LocalSigner(hexToBytes(fixture.secretKey));
+    const u2 = Updater.sign(fixture.did, Updater.construct(sourceDocument, benignPatch(fixture.did), 1), vmOf(sourceDocument), signer1);
+    // A controller signs an update whose sourceHash is not valid base64url: the
+    // proof stays valid (it covers the malformed string), so the decode is reached.
+    const { proof: _p1, ...unsignedSource } = u2 as Record<string, unknown>;
+    const resigned = Updater.sign(fixture.did, { ...unsignedSource, sourceHash: '!!!not-base64!!!' } as any, vmOf(sourceDocument), signer1);
+
+    expect(() => driveSingleBeacon(fixture.did, [resigned])).to.throw(/Malformed update\.sourceHash/);
+  });
+
+  it('L7: a malformed update.targetHash throws a typed ResolveError, not a raw decode error', () => {
+    const sourceDocument = resolveDeterministic(fixture.did);
+    const signer1 = new LocalSigner(hexToBytes(fixture.secretKey));
+    const u2 = Updater.sign(fixture.did, Updater.construct(sourceDocument, benignPatch(fixture.did), 1), vmOf(sourceDocument), signer1);
+    // The targetHash decode runs after proof verification, so the malformed
+    // value must itself be validly signed: strip the old proof and re-sign.
+    const { proof: _p2, ...unsignedTarget } = u2 as Record<string, unknown>;
+    const resigned = Updater.sign(fixture.did, { ...unsignedTarget, targetHash: '!!!not-base64!!!' } as any, vmOf(sourceDocument), signer1);
+
+    expect(() => driveSingleBeacon(fixture.did, [resigned])).to.throw(/Malformed update\.targetHash/);
+  });
+
+  it('L8: a duplicate re-announcement does not clobber confirmations/updated metadata', () => {
+    const sourceDocument = resolveDeterministic(fixture.did);
+    const [u2] = buildUpdateChain(fixture.did, sourceDocument, fixture.secretKey, [benignPatch(fixture.did)]);
+
+    // The same update announced twice: the apply at height 100 (10 confs), the
+    // duplicate at height 105 (5 confs, later time).
+    const resolved = driveSignalSequence(fixture.did, [u2], [u2, u2], [
+      { height: 100, time: 1700000000, confirmations: 10 },
+      { height: 105, time: 1700001000, confirmations: 5 },
+    ]);
+
+    expect(resolved.metadata.versionId).to.equal('2');
+    expect(resolved.metadata.confirmations).to.equal(10);
+    expect(resolved.metadata.updated).to.equal('2023-11-14T22:13:20Z');
+  });
+
+  it('I2: complete-phase metadata reports the actual version, not the requested versionId', () => {
+    // No updates exist; the caller asks for version 5. The resolved document is
+    // version 1 and the metadata must say so.
+    const resolver = DidBtcr2.resolve(fixture.did, { versionId: '5' });
+    let state = resolver.resolve();
+    if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+    resolver.provide(state.needs[0] as NeedBeaconSignals, new Map<BeaconService, Array<BeaconSignal>>());
+    state = resolver.resolve();
+    if(state.status !== 'resolved') throw new Error('expected resolved');
+    expect(state.result.metadata.versionId).to.equal('1');
+  });
+
+  it('I4: rejects an update whose proof capabilityAction is not "Write"', () => {
+    const sourceDocument = resolveDeterministic(fixture.did);
+    const signer1 = new LocalSigner(hexToBytes(fixture.secretKey));
+    const u2 = Updater.sign(fixture.did, Updater.construct(sourceDocument, benignPatch(fixture.did), 1), vmOf(sourceDocument), signer1);
+
+    // Tamper the action post-signing: the check runs before proof verification,
+    // so the refusal must name the capabilityAction.
+    const tampered = JSON.parse(JSON.stringify(u2));
+    tampered.proof.capabilityAction = 'Read';
+    expect(() => driveSingleBeacon(fixture.did, [tampered])).to.throw(/capabilityAction/);
+  });
+
+  it('I6: a truthy non-boolean deactivated value is not treated as deactivated', () => {
+    const sourceDocument = resolveDeterministic(fixture.did);
+    (sourceDocument as any).deactivated = 'yes';
+    const response = Resolver.updates(sourceDocument, []);
+    expect(response.metadata.deactivated).to.be.false;
+  });
+
+  it('I6: a boolean deactivated: true is honored', () => {
+    const sourceDocument = resolveDeterministic(fixture.did);
+    (sourceDocument as any).deactivated = true;
+    const response = Resolver.updates(sourceDocument, []);
+    expect(response.metadata.deactivated).to.be.true;
+  });
+});
