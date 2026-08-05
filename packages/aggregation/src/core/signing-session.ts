@@ -165,6 +165,21 @@ export class BeaconSigningSession {
     }
   }
 
+  /**
+   * Discard a participant's collected partial signature and return the session
+   * to {@link SigningSessionPhase.AwaitingPartialSignatures} so the participant
+   * can resubmit. Used by the service's blame-and-exclude path when
+   * {@link generateFinalSignature} identifies a contribution that fails BIP-327
+   * verification: the cohort survives, the blamed member may retry, and the
+   * k-of-n fallback remains available if they do not. No-op for an unknown DID.
+   */
+  public discardPartialSignature(participantDid: string): void {
+    if(!this.partialSignatures.delete(participantDid)) return;
+    if(this.phase === SigningSessionPhase.PartialSignaturesReceived) {
+      this.phase = SigningSessionPhase.AwaitingPartialSignatures;
+    }
+  }
+
   public generateFinalSignature(): Uint8Array {
     if(this.phase !== SigningSessionPhase.PartialSignaturesReceived) {
       throw new SigningSessionError(
