@@ -174,14 +174,20 @@ export class BeaconUtils {
 
   /**
    * Create a map of address => beaconService with address field.
+   *
+   * Values are the ORIGINAL service objects (not re-parsed copies) so callers
+   * can look a service up by address and then use identity-based collections
+   * keyed by the service itself (e.g. the fullnode discovery result map).
+   *
    * @param {Array<BeaconService>} beacons The list of beacon services.
    * @returns {Map<string, BeaconService>} A map of address => beaconService.
    */
   static getBeaconServicesMap(beacons: Array<BeaconService>): Map<string, BeaconService> {
     return new Map<string, BeaconService>(
-      beacons
-        .map(this.parseBeaconServiceEndpoint)
-        .map((beacon) => ([beacon.serviceEndpoint as string, beacon]))
+      beacons.map((beacon) => ([
+        this.parseBitcoinAddress(beacon.serviceEndpoint as string),
+        beacon
+      ]))
     );
   }
 

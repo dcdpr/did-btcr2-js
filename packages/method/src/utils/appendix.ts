@@ -161,13 +161,17 @@ export class Appendix {
     const rootCapability = {} as RootCapability;
 
     // 2. Set components to the result of capabilityId.split(":").
-    const [urn, zcap, root, did] = capabilityId.split(':') ?? [];
+    const components = capabilityId.split(':');
 
     // 3. Validate components:
-    //    1. Assert length of components is 4.
-    if ([urn, zcap, root, did].length !== 4) {
+    //    1. Assert length of components is 4. Split first, then count: the
+    //    previous destructuring form always produced exactly four slots, so the
+    //    check could never fire and trailing segments were silently ignored
+    //    (audit L9).
+    if (components.length !== 4) {
       throw new DidError(DidErrorCode.InvalidDid, `Invalid capabilityId: ${capabilityId}`);
     }
+    const [urn, zcap, root, did] = components;
 
     //    2. components[0] == urn.
     if (!urn || urn !== 'urn') {
@@ -187,8 +191,15 @@ export class Appendix {
     // 4. Set uriEncodedId to components[3].
     const uriEncodedId = did;
 
-    // 5. Set Identifier the result of decodeURIComponent(uriEncodedId).
-    const Identifier = decodeURIComponent(uriEncodedId);
+    // 5. Set Identifier the result of decodeURIComponent(uriEncodedId). A
+    //    malformed percent-escape throws a raw URIError; surface it as a typed
+    //    error instead.
+    let Identifier: string;
+    try {
+      Identifier = decodeURIComponent(uriEncodedId);
+    } catch {
+      throw new DidError(DidErrorCode.InvalidDid, `Invalid capabilityId encoding: ${capabilityId}`);
+    }
 
     // 6. Set rootCapability.id to capabilityId.
     rootCapability.id = capabilityId;

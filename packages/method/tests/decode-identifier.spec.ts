@@ -50,6 +50,14 @@ describe('Decode Identifier', () => {
     it('rejects malformed bech32m payloads', () => {
       expect(() => Identifier.decode('did:btcr2:k1notavalidbech32m')).to.throw();
     });
+
+    it('rejects malformed bech32m payloads with a typed IdentifierError (audit L7)', () => {
+      expect(() => Identifier.decode('did:btcr2:k1notavalidbech32m')).to.throw(/bech32m/i);
+    });
+
+    it('rejects over-long method-specific ids before decoding (audit I1)', () => {
+      expect(() => Identifier.decode(`did:btcr2:k1${'q'.repeat(200)}`)).to.throw(/too long/i);
+    });
   });
 
   describe('hrp validation', () => {
