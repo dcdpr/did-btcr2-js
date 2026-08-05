@@ -224,11 +224,12 @@ export class BeaconSignalDiscovery {
             continue;
           }
 
-          // A beacon signal output must be exactly `OP_RETURN OP_PUSHBYTES_32 <32-byte hash>`.
-          // Reject any other shape so a malformed on-chain output cannot masquerade as a
-          // phantom signal downstream.
-          const txVoutScriptPubkeyAsm = prevout.vout[vin.vout].scriptPubKey.asm;
-          const updateHash = extractOpReturnSignal(txVoutScriptPubkeyAsm);
+          // The signal is carried by the SPENDING transaction's last output (an
+          // OP_RETURN), never by the spent prevout: the prevout is the beacon
+          // address's payment script, so reading it here always yielded null and
+          // full-node discovery silently reported zero signals (audit H5).
+          const signalVout = tx.vout.slice(-1)[0];
+          const updateHash = extractOpReturnSignal(signalVout?.scriptPubKey?.asm);
           if(!updateHash) {
             continue;
           }

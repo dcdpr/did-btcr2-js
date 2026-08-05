@@ -28,6 +28,14 @@ export interface IdentifierComponents {
     network: string;
     genesisBytes: Bytes;
 }
+
+/**
+ * Upper bound on the bech32m method-specific-id length accepted by
+ * {@link Identifier.decode}. A conformant id is 55-57 characters (1-char hrp,
+ * separator, and 53-55 data chars for a 33- or 34-byte payload).
+ */
+export const MAX_METHOD_SPECIFIC_ID_LENGTH = 96;
+
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/#syntax | 3 Syntax}.
  * A did:btcr2 DID consists of a did:btcr2 prefix, followed by an id-bech32 value, which is a Bech32m encoding of:
@@ -143,8 +151,21 @@ export class Identifier {
       throw new IdentifierError(`Invalid method-specific id: ${identifier}`, INVALID_DID, { identifier });
     }
 
-    // 6. Bech32m-decode the id into its hrp and dataBytes.
-    const { prefix: hrp, bytes: dataBytes } = bech32m.decodeToBytes(encoded);
+    // 6. Bech32m-decode the id into its hrp and dataBytes. Cap the length first
+    //    so an over-long input is rejected with a typed error before any decode
+    //    work (audit I1), and convert the library's raw throw on malformed
+    //    bech32m into a typed error (audit L7). A conformant id is 55-57 chars;
+    //    96 leaves generous headroom while bounding decode work.
+    if (encoded.length > MAX_METHOD_SPECIFIC_ID_LENGTH) {
+      throw new IdentifierError(`Method-specific id too long: ${encoded.length} chars`, INVALID_DID, { identifier });
+    }
+    let hrp: string;
+    let dataBytes: Uint8Array;
+    try {
+      ({ prefix: hrp, bytes: dataBytes } = bech32m.decodeToBytes(encoded));
+    } catch {
+      throw new IdentifierError(`Failed to bech32m-decode id: ${encoded}`, INVALID_DID, { identifier });
+    }
 
     // 7. The hrp MUST be "k" (KEY) or "x" (EXTERNAL).
     if (!['x', 'k'].includes(hrp)) {

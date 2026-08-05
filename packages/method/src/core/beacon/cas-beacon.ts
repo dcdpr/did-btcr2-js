@@ -6,6 +6,7 @@ import type { BeaconProcessResult, DataNeed } from '../resolver.js';
 import type { SidecarData } from '../types.js';
 import type { BroadcastOptions, BroadcastResult } from './beacon.js';
 import { SinglePartyBeacon } from './beacon.js';
+import { CASBeaconError } from './error.js';
 import type { BeaconService, BeaconSignal, BlockMetadata, CasPublishFn } from './interfaces.js';
 
 /**
@@ -111,7 +112,17 @@ export class CASBeacon extends SinglePartyBeacon {
         continue;
       }
 
-      const updateHash = encode(decode(updateHashEncoded, 'base64urlnopad'), 'hex');
+      // A malformed announcement entry must surface as a typed error, not a raw
+      // decode throw escaping resolution (audit L7).
+      let updateHash: string;
+      try {
+        updateHash = encode(decode(updateHashEncoded, 'base64urlnopad'), 'hex');
+      } catch {
+        throw new CASBeaconError(
+          'Malformed update hash in CAS announcement',
+          'INVALID_CAS_ANNOUNCEMENT', { did, updateHashEncoded }
+        );
+      }
 
       // Look up the signed update in sidecar updateMap
       const signedUpdate = sidecar.updateMap.get(updateHash);
