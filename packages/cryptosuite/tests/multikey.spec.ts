@@ -414,3 +414,31 @@ describe('SchnorrMultikey', () => {
     });
   });
 });
+describe('serialization safety (audit H3)', () => {
+  const skBytes = new Uint8Array([
+    69, 112, 198, 176,  14, 103, 100,  73,
+    35, 179, 169,  83,  80, 213, 189, 190,
+    118, 200,   5,  43,  20,  46, 148,  60,
+    109,  37, 134, 164, 162, 174, 185, 201
+  ]);
+  const id = '#initialKey';
+  const controller = 'did:btcr2:k1qqpkyr20hr2ugzcdctulmprrdkz5slj3an64l0x4encgc6kpfz7g5dsaaw53r';
+
+  it('toJSON never exposes secret key material', () => {
+    const multikey = new SchnorrMultikey({ id, controller, keyPair: new SchnorrKeyPair({ secretKey: skBytes }) });
+    const json = multikey.toJSON();
+    expect(json.keyPair).to.not.have.property('secretKey');
+
+    // JSON.stringify path (implicit toJSON) must also be safe
+    const stringified = JSON.stringify(multikey);
+    expect(stringified).to.not.include('secretKey');
+    expect(stringified).to.not.include(Buffer.from(skBytes).toString('hex'));
+  });
+
+  it('exportJSON explicitly includes the secret key', () => {
+    const multikey = new SchnorrMultikey({ id, controller, keyPair: new SchnorrKeyPair({ secretKey: skBytes }) });
+    const exported = multikey.exportJSON();
+    expect(exported.keyPair).to.have.property('secretKey');
+    expect((exported.keyPair as any).secretKey.hex).to.equal(Buffer.from(skBytes).toString('hex'));
+  });
+});

@@ -152,10 +152,26 @@ describe('Secp256k1SecretKey', () => {
     });
 
     it('should sign and verify with ecdsa', () => {
+      // The class-level ecdsa path matches the signWithScheme contract:
+      // DER-encoded, low-S, no prehash over the 32-byte sighash.
       const signature = secretKey.sign(message, { scheme: 'ecdsa' });
       expect(signature).to.be.instanceOf(Uint8Array);
-      expect(signature.length).to.equal(64);
+      expect(signature[0]).to.equal(0x30); // DER sequence tag
       expect(publicKey.verify(signature, message, { scheme: 'ecdsa' })).to.be.true;
+    });
+
+    it('produces ecdsa signatures compatible with the signWithScheme contract (audit M10)', () => {
+      // A class-level signature must verify under the explicit DER/lowS/prehash:false
+      // options that signWithScheme (LocalSigner, LocalKeyManager) uses.
+      const signature = secretKey.sign(message, { scheme: 'ecdsa' });
+      expect(
+        secp256k1.verify(signature, message, publicKey.compressed, { format: 'der', lowS: true, prehash: false })
+      ).to.be.true;
+    });
+
+    it('rejects a compact-format ecdsa signature under the class-level verify (audit M10)', () => {
+      const compact = secp256k1.sign(message, bytes, { format: 'compact', prehash: false });
+      expect(publicKey.verify(compact, message, { scheme: 'ecdsa' })).to.be.false;
     });
 
     it('should reject tampered message', () => {
@@ -209,8 +225,8 @@ describe('Secp256k1SecretKey', () => {
       const sk = new Secp256k1SecretKey(bytes);
       const encoded = sk.multibase;
       const decoded = Secp256k1SecretKey.decode(encoded);
-      expect(decoded.length).to.equal(34);
-      expect(decoded.slice(2)).to.deep.equal(bytes);
+      expect(decoded.length).to.equal(32);
+      expect(decoded).to.deep.equal(bytes);
     });
   });
 });
