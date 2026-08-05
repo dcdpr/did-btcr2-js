@@ -15,6 +15,21 @@ export interface RateLimitStore {
 
 export class InMemoryRateLimitStore implements RateLimitStore {
   readonly #buckets = new Map<string, BucketState>();
+  readonly #maxBuckets: number;
+  readonly #staleMs: number;
+
+  /**
+   * @param {number} [maxBuckets] - Backstop on distinct keys held at once. An
+   * unbounded map lets an attacker mint unlimited DIDs to grow memory without
+   * ever tripping the per-key limit (audit M6). Default 10,000.
+   * @param {number} [staleMs] - A bucket whose last refill is older than this is
+   * evicted first when the backstop is hit (it belongs to a key that has gone
+   * quiet). Default 10 minutes.
+   */
+  constructor(maxBuckets = 10_000, staleMs = 10 * 60 * 1000) {
+    this.#maxBuckets = maxBuckets;
+    this.#staleMs = staleMs;
+  }
 
   get(key: string): BucketState | undefined {
     return this.#buckets.get(key);
@@ -22,6 +37,25 @@ export class InMemoryRateLimitStore implements RateLimitStore {
 
   set(key: string, state: BucketState): void {
     this.#buckets.set(key, state);
+    if(this.#buckets.size <= this.#maxBuckets) return;
+
+    // Over capacity: first evict stale buckets (quiet keys reclaim nothing by
+    // staying), then fall back to oldest-inserted (FIFO) if every bucket is hot.
+    const staleBefore = state.lastRefillMs - this.#staleMs;
+    for(const [k, bucket] of this.#buckets) {
+      if(this.#buckets.size <= this.#maxBuckets) break;
+      if(k !== key && bucket.lastRefillMs < staleBefore) this.#buckets.delete(k);
+    }
+    while(this.#buckets.size > this.#maxBuckets) {
+      const oldest = this.#buckets.keys().next();
+      if(oldest.done) break;
+      this.#buckets.delete(oldest.value);
+    }
+  }
+
+  /** Current bucket count. Exposed for observability and tests. */
+  size(): number {
+    return this.#buckets.size;
   }
 }
 

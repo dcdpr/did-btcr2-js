@@ -11,6 +11,7 @@ import { reviveFromWire, signEnvelope, verifyEnvelope } from '../core/transport/
 import { HttpTransportError } from '../core/transport/http/errors.js';
 import { InboxBuffer } from './inbox-buffer.js';
 import { NonceCache } from './nonce-cache.js';
+import { DEFAULT_MAX_UPDATE_SIZE_BYTES } from './service.js';
 import {
   DEFAULT_CLOCK_SKEW_SEC,
   HTTP_ENVELOPE_VERSION,
@@ -84,8 +85,13 @@ export interface HttpServerTransportConfig {
    * Maximum accepted request-body size for the authenticated POST routes, measured as the
    * body string length. Bounds the work an unauthenticated party can force before the
    * genesis-bootstrap hash check runs, so a large fake genesis cannot be parsed and hashed.
-   * A request larger than this receives 413 before its body is parsed. Default 65536 (64
-   * KiB), well above a real genesis document.
+   * A request larger than this receives 413 before its body is parsed.
+   *
+   * Must exceed the service's update cap by enough to carry the signed-envelope
+   * wrapper: a SUBMIT_UPDATE at the 256 KiB update ceiling otherwise arrives in an
+   * envelope that overflows a smaller body cap and is rejected before the service
+   * ever sees it (audit L17). Defaults to {@link DEFAULT_MAX_UPDATE_SIZE_BYTES}
+   * plus 64 KiB of envelope/JSON headroom (320 KiB).
    */
   maxBodyBytes?: number;
   /**
@@ -134,7 +140,11 @@ const INBOX_PATH_SUFFIX = '/inbox';
 
 const DEFAULT_ADVERT_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_HEARTBEAT_MS  = 20_000;
-const DEFAULT_MAX_BODY_BYTES = 64 * 1024;
+/**
+ * Body cap must clear the largest legitimate payload: a SUBMIT_UPDATE at the
+ * service's update ceiling wrapped in its signed envelope (audit L17).
+ */
+const DEFAULT_MAX_BODY_BYTES = DEFAULT_MAX_UPDATE_SIZE_BYTES + 64 * 1024;
 
 /**
  * Server-side HTTP transport. Sans-I/O - the caller mounts

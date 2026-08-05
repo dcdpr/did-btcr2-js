@@ -26,8 +26,11 @@ describe('HTTP transport nonce cache', () => {
     expect(cache.store('did:btcr2:k.a', 'n2', 1000)).to.be.true;
   });
 
-  it('evicts the oldest entry past maxEntries (FIFO)', () => {
-    const cache = new NonceCache({ maxEntries: 3 });
+  it('evicts the oldest entry past maxEntries (FIFO backstop)', () => {
+    // Pin the clock near the test timestamps so nothing falls outside the
+    // expiry window: this exercises the global oldest-first backstop, which now
+    // runs only after expiry and per-DID eviction find nothing to reclaim.
+    const cache = new NonceCache({ maxEntries: 3, windowSec: 10_000, nowSec: () => 10 });
     cache.store('d', 'a', 1);
     cache.store('d', 'b', 2);
     cache.store('d', 'c', 3);

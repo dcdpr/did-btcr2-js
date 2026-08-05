@@ -148,6 +148,15 @@ export interface AggregationParticipantParams {
    */
   signer: AggregationSigner;
   /**
+   * Cap on cohort states retained at once. Cohort adverts arrive over broadcast
+   * transports from anyone, each minting a state entry; the bound keeps an
+   * advert flood from growing the map without limit (audit M6). New adverts
+   * past the cap are ignored; prune completed cohorts with
+   * {@link AggregationParticipant.leaveCohort}. Defaults to
+   * {@link DEFAULT_MAX_PARTICIPANT_COHORTS}.
+   */
+  maxCohorts?: number;
+  /**
    * The joining identity's genesis DID document. Required for an EXTERNAL (x1) did:btcr2
    * identifier, whose key is not in the DID string: it is attached to every cohort opt-in
    * this participant sends so the service can bootstrap-authenticate the participant from
@@ -159,6 +168,9 @@ export interface AggregationParticipantParams {
    */
   genesisDocument?: Record<string, unknown>;
 }
+
+/** Default cap on cohort states a participant retains (audit M6). */
+export const DEFAULT_MAX_PARTICIPANT_COHORTS = 256;
 
 /**
  * Sans-I/O state machine for an Aggregation Participant.
@@ -179,13 +191,17 @@ export class AggregationParticipant {
   /** EXTERNAL (x1) genesis document attached to opt-ins for bootstrap auth; undefined for k1. */
   readonly #genesisDocument?: Record<string, unknown>;
 
+  /** Cap on retained cohort states (audit M6). */
+  readonly #maxCohorts: number;
+
   /** Per-cohort state, keyed by cohortId. */
   #cohortStates: Map<string, ParticipantCohortState> = new Map();
 
-  constructor({ did, signer, genesisDocument }: AggregationParticipantParams) {
+  constructor({ did, signer, genesisDocument, maxCohorts }: AggregationParticipantParams) {
     this.did = did;
     this.#signer = signer;
     this.#genesisDocument = genesisDocument;
+    this.#maxCohorts = maxCohorts ?? DEFAULT_MAX_PARTICIPANT_COHORTS;
   }
 
   /** The participant's compressed (33-byte) MuSig2 public key. Not secret. */
@@ -250,6 +266,9 @@ export class AggregationParticipant {
     if(!isCohortAdvertMessage(message)) return;
     const { cohortId, network, communicationPk, ...conditions } = message.body;
     if(this.#cohortStates.has(cohortId)) return;  // Already known
+    // Adverts arrive over broadcast from anyone; bound the retained state so an
+    // advert flood cannot grow the map without limit (audit M6).
+    if(this.#cohortStates.size >= this.#maxCohorts) return;
 
     const advert: CohortAdvert = {
       cohortId,
@@ -800,6 +819,20 @@ export class AggregationParticipant {
 
   public getCohortPhase(cohortId: string): ParticipantCohortPhaseType | undefined {
     return this.#cohortStates.get(cohortId)?.phase;
+  }
+
+  /**
+   * Drop a cohort's state and zeroize any retained MuSig2 secret nonce for its
+   * signing session (a session abandoned mid-round still holds its secret nonce
+   * until cleared; audit L16). Use to prune completed or failed cohorts so the
+   * {@link DEFAULT_MAX_PARTICIPANT_COHORTS} bound is not consumed by dead
+   * state. No-op for an unknown cohort.
+   */
+  public leaveCohort(cohortId: string): void {
+    const state = this.#cohortStates.get(cohortId);
+    if(!state) return;
+    state.signingSession?.clearSecrets();
+    this.#cohortStates.delete(cohortId);
   }
 
   /**
