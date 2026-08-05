@@ -677,6 +677,14 @@ export class AggregationService {
     const approved = message.body?.approved;
     if(approved === undefined) return;
 
+    // The ack must commit to the exact signal this service distributed: an ack
+    // naming a different (or no) signal hash is not consent to the current
+    // distribution and is dropped, so a forged or replayed ack cannot drive the
+    // cohort into signing.
+    const signalBytesHex = message.body?.signalBytesHex;
+    const expectedHex = state.cohort.signalBytes ? bytesToHex(state.cohort.signalBytes) : undefined;
+    if(!signalBytesHex || signalBytesHex !== expectedHex) return;
+
     state.cohort.addValidation(message.from, approved);
 
     // Transition to Validated only when all participants approved.

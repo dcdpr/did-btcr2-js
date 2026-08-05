@@ -143,6 +143,12 @@ type ValidationAckMessage = {
   to: string;
   cohortId: string;
   approved: boolean;
+  /**
+   * Hex-encoded signal bytes the participant validated and is (dis)approving.
+   * Binds consent to a specific distribution round: an ack without the current
+   * signal hash is not consent to it.
+   */
+  signalBytesHex: string;
 };
 
 /**
