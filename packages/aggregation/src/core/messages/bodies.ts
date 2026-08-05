@@ -90,6 +90,8 @@ export interface DistributeAggregatedDataBody {
 export interface ValidationAckBody {
   cohortId: string;
   approved: boolean;
+  /** Hex-encoded signal bytes being (dis)approved; binds consent to a distribution round. */
+  signalBytesHex: string;
 }
 
 // ── Signing (Step 4) ──────────────────────────────────────────────────────
@@ -282,7 +284,8 @@ export function isDistributeAggregatedDataMessage(m: BaseMessage): m is Distribu
 export function isValidationAckMessage(m: BaseMessage): m is ValidationAckMessage {
   return m.type === VALIDATION_ACK
     && hasStr(m.body, 'cohortId')
-    && hasBool(m.body, 'approved');
+    && hasBool(m.body, 'approved')
+    && hasStr(m.body, 'signalBytesHex');
 }
 
 export function isAuthorizationRequestMessage(m: BaseMessage): m is AuthorizationRequestMessage {
