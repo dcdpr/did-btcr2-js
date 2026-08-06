@@ -112,9 +112,10 @@ describe('BitcoinConnection', () => {
   describe('end-to-end with custom executor', () => {
     it('routes REST calls through the injected executor', async () => {
       const seen: HttpRequest[] = [];
+      const mockTx = { txid: 'mock-txid', vin: [], vout: [], status: { confirmed: false } };
       const executor: HttpExecutor = async (req) => {
         seen.push(req);
-        return new Response(JSON.stringify({ txid: 'mock-txid' }), {
+        return new Response(JSON.stringify(mockTx), {
           status  : 200,
           headers : { 'Content-Type': 'application/json' },
         });
@@ -123,7 +124,7 @@ describe('BitcoinConnection', () => {
       const txid = 'a'.repeat(64);
       const btc = regtest({ executor });
       const tx = await btc.rest.transaction.get(txid);
-      expect(tx).to.deep.equal({ txid: 'mock-txid' });
+      expect(tx).to.deep.equal(mockTx);
       expect(seen).to.have.length(1);
       expect(seen[0].url).to.include(`/tx/${txid}`);
     });

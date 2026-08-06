@@ -140,7 +140,7 @@ describe('BitcoinApi', () => {
 
   it('getTransaction() sends request to correct URL via injected executor', async () => {
     const txid = 'a'.repeat(64);
-    const { executor, requests } = mockExecutor(200, { txid });
+    const { executor, requests } = mockExecutor(200, { txid, vin: [], vout: [], status: { confirmed: false } });
     const btc = new BitcoinApi({ network: 'regtest', executor });
     await btc.getTransaction(txid);
     expect(requests).to.have.lengthOf(1);

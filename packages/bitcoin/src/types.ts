@@ -96,6 +96,8 @@ export interface EsploraBlock {
 export interface RestConfig {
   host: string;
   headers?: Record<string, string>;
+  /** Maximum accepted response body size in bytes (audit M11). Defaults to 32 MiB. */
+  maxResponseBytes?: number;
 }
 
 export interface RestApiCallParams {
@@ -111,6 +113,8 @@ export type RestResponse = Response;
 export interface RpcConfig {
   headers?: Record<string, string>;
   host?: string;
+  /** Maximum accepted response body size in bytes (audit M11). Defaults to 32 MiB. */
+  maxResponseBytes?: number;
   password?: string;
   username?: string;
   wallet?: string;

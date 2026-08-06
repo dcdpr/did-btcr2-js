@@ -24,6 +24,7 @@ import type {
   WalletTransaction
 } from '../../types.js';
 import type { HttpExecutor } from '../http.js';
+import { checkRpcResult } from '../validate.js';
 import type { BitcoinRpcClient } from './interface.js';
 import { JsonRpcTransport } from './json-rpc.js';
 
@@ -79,6 +80,10 @@ export class BitcoinCoreRpcClient implements BitcoinRpcClient {
 
   /**
    * Executes a typed JSON-RPC command on the bitcoind node.
+   *
+   * Results are structurally validated before being trusted: amounts, UTXO
+   * sets, and confirmation status from the node flow into resolution and
+   * funding decisions (audit M11).
    */
   private async executeRpc<M extends TypedRpcMethod>(
     method: M,
@@ -87,6 +92,10 @@ export class BitcoinCoreRpcClient implements BitcoinRpcClient {
     try {
       const raw = await this.#transport.call(method, parameters as unknown[]);
       const normalized = JSONUtils.isUnprototyped(raw) ? JSONUtils.normalize(raw) : raw;
+      const reason = checkRpcResult(method, normalized);
+      if (reason) {
+        throw new BitcoinRpcError('INVALID_RESPONSE', -1, `Invalid ${method} response: ${reason}`, { method });
+      }
       return normalized as RpcMethodMap[M]['result'];
     } catch (err: unknown) {
       if (err instanceof BitcoinRpcError) throw err;
@@ -272,6 +281,10 @@ export class BitcoinCoreRpcClient implements BitcoinRpcClient {
     );
     return results.map(raw => {
       const normalized = JSONUtils.isUnprototyped(raw) ? JSONUtils.normalize(raw) : raw;
+      const reason = checkRpcResult('getrawtransaction', normalized);
+      if (reason) {
+        throw new BitcoinRpcError('INVALID_RESPONSE', -1, `Invalid getrawtransaction response: ${reason}`, { method: 'getrawtransaction' });
+      }
       switch (v) {
         case 0:  return normalized as RawTransactionV0;
         case 1:  return normalized as RawTransactionV1;
