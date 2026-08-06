@@ -852,6 +852,11 @@ describe('resolveSecretRef and RPC password sources', () => {
     expect(resolveSecretRef('env:MY_RPC_PASS')).to.equal('from-env');
   });
 
+  it('throws a CLIError naming the variable for an env: reference that is not set (audit L15)', () => {
+    expect(() => resolveSecretRef('env:BTCR2_DEFINITELY_UNSET_VAR'))
+      .to.throw(CLIError, /BTCR2_DEFINITELY_UNSET_VAR/);
+  });
+
   it('reads a file: reference and trims a trailing newline', () => {
     const file = join(tempDir, 'pass.txt');
     writeFileSync(file, 'from-file\n');

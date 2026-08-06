@@ -97,7 +97,8 @@ export interface GlobalOptions {
   btcRest?       : string;
   btcRpcUrl?     : string;
   btcRpcUser?    : string;
-  btcRpcPass?    : string;
+  // No btcRpcPass: an RPC password is never accepted as a CLI flag (audit H4);
+  // it reaches the connection via env var, pass file, or secret reference.
   casGateway?    : string;
   casRpcUrl?     : string;
   btcTimeout?    : string;

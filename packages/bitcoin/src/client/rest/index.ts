@@ -6,6 +6,7 @@ import { EsploraProtocol } from './protocol.js';
 import type { RestConfig } from '../../types.js';
 import type { HttpExecutor, HttpRequest} from '../http.js';
 import { defaultHttpExecutor } from '../http.js';
+import { redactUrlCredentials } from '../utils.js';
 
 /**
  * Esplora REST API client for Bitcoin.
@@ -56,19 +57,28 @@ export class BitcoinRestClient {
   private async executeRequest(request: HttpRequest): Promise<any> {
     const response = await this.executor(request);
 
-    const contentType = response.headers.get('Content-Type') ?? '';
-    const data = contentType.includes('text/plain')
-      ? await response.text()
-      : await response.json();
-
+    // Check the status BEFORE parsing: an error page (proxy HTML, empty body) is
+    // often not JSON, and a raw parse throw would mask the HTTP failure
+    // entirely (audit L11). The URL is redacted so embedded userinfo
+    // credentials never land in an error message.
     if (!response.ok) {
+      let data: unknown;
+      try {
+        const errorContentType = response.headers.get('Content-Type') ?? '';
+        data = errorContentType.includes('text/plain') ? await response.text() : await response.json();
+      } catch {
+        data = undefined;
+      }
       throw new MethodError(
-        `Request to ${request.url} failed: ${response.status} - ${response.statusText}`,
+        `Request to ${redactUrlCredentials(request.url)} failed: ${response.status} - ${response.statusText}`,
         'FAILED_HTTP_REQUEST',
         { data }
       );
     }
 
-    return data;
+    const contentType = response.headers.get('Content-Type') ?? '';
+    return contentType.includes('text/plain')
+      ? await response.text()
+      : await response.json();
   }
 }

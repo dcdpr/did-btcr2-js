@@ -1,7 +1,7 @@
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import type { Command } from 'commander';
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DidBtcr2Cli } from '../src/cli.js';
@@ -89,6 +89,29 @@ describe('key commands', () => {
     const list = JSON.parse(out[0]);
     expect(list).to.have.length(1);
     expect(list[0].name).to.equal('a');
+  });
+
+  it('import --secret-file reads a 0600 secret file', async () => {
+    const secretFile = join(dir, 'secret.hex');
+    writeFileSync(secretFile, bytesToHex(SchnorrKeyPair.generate().secretKey.bytes));
+    chmodSync(secretFile, 0o600);
+    await runKey('import', '--secret-file', secretFile, '--name', 'imported');
+    const result = JSON.parse(out[0]);
+    expect(result.keyId).to.match(/^urn:kms:secp256k1:/);
+  });
+
+  it('import --secret-file refuses a group/world-readable secret file (audit L13)', async () => {
+    if (process.platform === 'win32') return; // perms not enforceable there
+    const secretFile = join(dir, 'loose.hex');
+    writeFileSync(secretFile, bytesToHex(SchnorrKeyPair.generate().secretKey.bytes));
+    chmodSync(secretFile, 0o644);
+    let threw = false;
+    await runKey('import', '--secret-file', secretFile).catch((err) => {
+      threw = true;
+      expect(err).to.be.instanceOf(CLIError);
+      expect((err as Error).message).to.match(/permissions/);
+    });
+    expect(threw, 'expected a permission refusal').to.be.true;
   });
 
   it('import --public adds a watch-only key', async () => {
