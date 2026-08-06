@@ -36,7 +36,10 @@ function bitAt(index: bigint, position: number): number {
  */
 export const CACHED_ZERO: readonly Uint8Array[] = (() => {
   const arr: Uint8Array[] = new Array(TREE_DEPTH + 1);
-  let z = new Uint8Array(HASH_BYTE_LENGTH);
+  // Explicit `Uint8Array` annotation: TS 5.9+ would otherwise infer
+  // `Uint8Array<ArrayBuffer>` from the initializer and reject reassignment
+  // from `blockHash` (typed `Uint8Array<ArrayBufferLike>`).
+  let z: Uint8Array = new Uint8Array(HASH_BYTE_LENGTH);
   for (let h = 0; h <= TREE_DEPTH; h++) {
     z = blockHash(z, z);
     arr[h] = z;
@@ -59,51 +62,209 @@ export interface ZeroHashProof {
 }
 
 /**
- * Hash of the subtree spanning `height` levels (whole tree = 256, a leaf = 0).
- * An empty subtree contributes its precomputed zero hash; a single leaf is its
- * own leaf hash; otherwise split on the level's index bit and hash `left||right`.
+ * A compressed-trie branch node. Only divergence points are materialized:
+ * levels where a subtree has a single occupant contribute `CACHED_ZERO`
+ * siblings and are lifted through on demand, so the structure holds at most
+ * `2n - 1` branches for `n` leaves instead of all `256n` path nodes.
  */
-function subtreeHash(leaves: ZeroHashEntry[], height: number): Uint8Array {
-  if (leaves.length === 0) return CACHED_ZERO[height];
-  if (height === 0) return leaves[0]!.leaf;
-  const bit = TREE_DEPTH - height;
-  const left: ZeroHashEntry[] = [];
-  const right: ZeroHashEntry[] = [];
-  for (const e of leaves) (bitAt(e.index, bit) === 0 ? left : right).push(e);
-  return blockHash(subtreeHash(left, height - 1), subtreeHash(right, height - 1));
+interface TrieBranch {
+  /** Subtree height spanned by this branch; it splits on bit `TREE_DEPTH - height`. */
+  height : number;
+  /** Representative leaf index: every leaf in this subtree shares its bits below `TREE_DEPTH - height`. */
+  rep    : bigint;
+  left   : TrieNode;
+  right  : TrieNode;
+  /** Memoized subtree hash at this branch's own height. */
+  hash?  : Uint8Array;
+}
+
+type TrieNode = ZeroHashEntry | TrieBranch;
+
+function isBranch(node: TrieNode): node is TrieBranch {
+  return (node as TrieBranch).left !== undefined;
+}
+
+/**
+ * The lowest bit position at which `a` and `b` differ (the first divergence
+ * in root-to-leaf order, since the root splits on the LSB). Returns
+ * `TREE_DEPTH` when the indices are equal.
+ */
+function lowestDifferingBit(a: bigint, b: bigint): number {
+  let x = a ^ b;
+  let p = 0;
+  while (x !== 0n && (x & 1n) === 0n) { x >>= 1n; p++; }
+  return x === 0n ? TREE_DEPTH : p;
+}
+
+/**
+ * Hash of `node`'s subtree viewed at `slotHeight`, lifting through the empty
+ * sibling chain for any compressed solo levels. Branch hashes are computed
+ * once and memoized; lifts are cheap chains of `blockHash(x, CACHED_ZERO[h])`
+ * with the side determined by the shared prefix bits (audit M12).
+ */
+function nodeHash(node: TrieNode, slotHeight: number): Uint8Array {
+  let acc: Uint8Array;
+  let rep: bigint;
+  let fromHeight: number;
+  if (isBranch(node)) {
+    node.hash ??= blockHash(
+      nodeHash(node.left, node.height - 1),
+      nodeHash(node.right, node.height - 1),
+    );
+    acc = node.hash;
+    rep = node.rep;
+    fromHeight = node.height;
+  } else {
+    acc = node.leaf;
+    rep = node.index;
+    fromHeight = 0;
+  }
+  for (let h = fromHeight + 1; h <= slotHeight; h++) {
+    const bit = TREE_DEPTH - h;
+    acc = bitAt(rep, bit) === 1
+      ? blockHash(CACHED_ZERO[h - 1]!, acc)
+      : blockHash(acc, CACHED_ZERO[h - 1]!);
+  }
+  return acc;
+}
+
+/** Insert `entry` into the subtree rooted at `node`. */
+function insertNode(node: TrieNode | undefined, entry: ZeroHashEntry): TrieNode {
+  if (node === undefined) return entry;
+  const rep = isBranch(node) ? node.rep : node.index;
+  if (entry.index === rep) throw new RangeError('Duplicate leaf index');
+  const nodeHeight = isBranch(node) ? node.height : 0;
+  const p = lowestDifferingBit(entry.index, rep);
+  if (p < TREE_DEPTH - nodeHeight) {
+    // The entry diverges above this node's own split: fork a new branch here.
+    const branch: TrieBranch = {
+      height : TREE_DEPTH - p,
+      rep    : entry.index,
+      left   : bitAt(entry.index, p) === 0 ? entry : node,
+      right  : bitAt(entry.index, p) === 0 ? node : entry,
+    };
+    return branch;
+  }
+  // The entry belongs inside this branch (a leaf with a distinct index always
+  // diverges below TREE_DEPTH and takes the fork path above).
+  const branch = node as TrieBranch;
+  const bit = TREE_DEPTH - branch.height;
+  if (bitAt(entry.index, bit) === 0) {
+    branch.left = insertNode(branch.left, entry);
+  } else {
+    branch.right = insertNode(branch.right, entry);
+  }
+  return branch;
+}
+
+/**
+ * A persistent zero-hash Sparse Merkle Tree (audit M12).
+ *
+ * The naive formulation recomputed the sibling set of every level from
+ * scratch per proof: O(256^2 * n) bit operations plus full subtree rehashing
+ * for each of the 256 levels of each proof. This structure builds a
+ * compressed trie once (O(256 * n) hashes, dominated by the unavoidable
+ * full-depth zero-hash chains) and then answers proofs by a single 256-level
+ * walk with memoized subtree hashes, so generating proofs for every member
+ * of a large cohort is no longer quadratic in the tree depth per proof.
+ *
+ * Construct with {@link ZeroHashTree.fromLeaves}; read {@link root} and call
+ * {@link proof} as needed.
+ */
+export class ZeroHashTree {
+  readonly #rootNode: TrieNode | undefined;
+  readonly #rootHash: Uint8Array;
+
+  private constructor(rootNode: TrieNode | undefined) {
+    this.#rootNode = rootNode;
+    this.#rootHash = rootNode === undefined
+      ? CACHED_ZERO[TREE_DEPTH]!
+      : nodeHash(rootNode, TREE_DEPTH);
+  }
+
+  /** Build a tree from a set of leaves, hashing every subtree once. */
+  static fromLeaves(leaves: readonly ZeroHashEntry[]): ZeroHashTree {
+    let root: TrieNode | undefined;
+    for (const entry of leaves) {
+      root = insertNode(root, entry);
+    }
+    return new ZeroHashTree(root);
+  }
+
+  /** The zero-hash Merkle root. */
+  get root(): Uint8Array {
+    return this.#rootHash;
+  }
+
+  /**
+   * Generate the inclusion (or non-inclusion) proof for `targetIndex` by
+   * walking the compressed trie once: at each level the sibling is the
+   * off-path child of a materialized branch, or `CACHED_ZERO` across
+   * compressed solo levels. `targetIndex` need not be present in the tree.
+   */
+  proof(targetIndex: bigint): ZeroHashProof {
+    // sibling[h] is the sibling hash at level h, or null when the sibling is
+    // empty (the collapsed bit). Collected root-to-leaf, emitted leaf-to-root.
+    const siblings: (Uint8Array | null)[] = new Array(TREE_DEPTH + 1).fill(null);
+    let node = this.#rootNode;
+    let slotHeight = TREE_DEPTH;
+    while (slotHeight > 0 && node !== undefined) {
+      const top = isBranch(node) ? node.height : 0;
+      if (top < slotHeight) {
+        // Compressed solo levels above this node's top: check whether the
+        // target follows the same solo path or forks off inside the gap.
+        const rep = isBranch(node) ? node.rep : node.index;
+        const p = lowestDifferingBit(targetIndex, rep);
+        const matchHeight = TREE_DEPTH - p;
+        const stop = Math.max(top + 1, matchHeight + 1);
+        for (let h = slotHeight; h >= stop; h--) siblings[h] = null;
+        if (matchHeight > top) {
+          // The target diverges from this subtree at matchHeight: the whole
+          // subtree is the sibling there, and everything below is empty.
+          siblings[matchHeight] = nodeHash(node, matchHeight - 1);
+          break;
+        }
+        slotHeight = top;
+        continue;
+      }
+      // A materialized branch at exactly this height: real sibling off-path.
+      const branch = node as TrieBranch;
+      const bit = TREE_DEPTH - branch.height;
+      const goLeft = bitAt(targetIndex, bit) === 0;
+      siblings[branch.height] = nodeHash(goLeft ? branch.right : branch.left, branch.height - 1);
+      node = goLeft ? branch.left : branch.right;
+      slotHeight = branch.height - 1;
+    }
+
+    let collapsed = 0n;
+    const hashes: Uint8Array[] = [];
+    for (let h = 1; h <= TREE_DEPTH; h++) {
+      const sibling = siblings[h];
+      if (sibling == null) {
+        collapsed |= (1n << BigInt(TREE_DEPTH - h));
+      } else {
+        hashes.push(sibling);
+      }
+    }
+    return { collapsed, hashes };
+  }
 }
 
 /** Compute the zero-hash Merkle root for a set of leaves. */
 export function zeroHashRoot(leaves: ZeroHashEntry[]): Uint8Array {
-  return subtreeHash(leaves, TREE_DEPTH);
+  return ZeroHashTree.fromLeaves(leaves).root;
 }
 
 /**
  * Generate the inclusion proof for `targetIndex`. At each level the sibling is
  * the subtree of leaves sharing the target's lower-bit path but diverging at this
  * level; an empty sibling sets the `collapsed` bit, a non-empty one emits a hash.
+ *
+ * Builds a fresh {@link ZeroHashTree} internally; callers generating more
+ * than one proof over the same leaves should hold a `ZeroHashTree` instead.
  */
 export function generateZeroHashProof(leaves: ZeroHashEntry[], targetIndex: bigint): ZeroHashProof {
-  let collapsed = 0n;
-  const hashes: Uint8Array[] = [];
-  for (let height = 1; height <= TREE_DEPTH; height++) {
-    const bit = TREE_DEPTH - height;
-    const siblingLeaves: ZeroHashEntry[] = [];
-    for (const e of leaves) {
-      if (e.index === targetIndex) continue;
-      let sharesLowerPath = true;
-      for (let lower = 0; lower < bit; lower++) {
-        if (bitAt(e.index, lower) !== bitAt(targetIndex, lower)) { sharesLowerPath = false; break; }
-      }
-      if (sharesLowerPath && bitAt(e.index, bit) !== bitAt(targetIndex, bit)) siblingLeaves.push(e);
-    }
-    if (siblingLeaves.length === 0) {
-      collapsed |= (1n << BigInt(bit));
-    } else {
-      hashes.push(subtreeHash(siblingLeaves, height - 1));
-    }
-  }
-  return { collapsed, hashes };
+  return ZeroHashTree.fromLeaves(leaves).proof(targetIndex);
 }
 
 /**
