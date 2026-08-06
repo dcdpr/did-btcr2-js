@@ -1,7 +1,7 @@
 import { didToIndex, inclusionLeafHash, nonInclusionLeafHash } from './btcr2-leaf.js';
 import { serializeProof, type SerializedSMTProof } from './btcr2-proof.js';
 import { blockHash } from './hash.js';
-import { generateZeroHashProof, zeroHashRoot, type ZeroHashEntry } from './zero-hash.js';
+import { ZeroHashTree, type ZeroHashEntry } from './zero-hash.js';
 
 /**
  * A single entry in a {@link BTCR2MerkleTree}.
@@ -30,8 +30,7 @@ export interface TreeEntry {
 export class BTCR2MerkleTree {
   readonly #entries = new Map<bigint, TreeEntry>();
   readonly #indexByDid = new Map<string, bigint>();
-  #leaves: ZeroHashEntry[] | null = null;
-  #root: Uint8Array | null = null;
+  #tree: ZeroHashTree | null = null;
 
   /**
    * @param _allowNonInclusion Retained for API compatibility; non-inclusion
@@ -54,13 +53,14 @@ export class BTCR2MerkleTree {
       this.#entries.set(index, entry);
       this.#indexByDid.set(entry.did, index);
     }
-    this.#leaves = null;
-    this.#root = null;
+    this.#tree = null;
   }
 
   /**
-   * Compute leaf hashes and the zero-hash root.
-   * After this call, {@link rootHash} and {@link proof} become available.
+   * Compute leaf hashes and build the zero-hash tree. The tree structure is
+   * built once here and shared by all subsequent {@link proof} calls
+   * (audit M12). After this call, {@link rootHash} and {@link proof} become
+   * available.
    */
   finalize(): void {
     const leaves: ZeroHashEntry[] = [];
@@ -70,14 +70,13 @@ export class BTCR2MerkleTree {
         : nonInclusionLeafHash(entry.nonce);
       leaves.push({ index, leaf });
     }
-    this.#leaves = leaves;
-    this.#root = zeroHashRoot(leaves);
+    this.#tree = ZeroHashTree.fromLeaves(leaves);
   }
 
   /** Root hash of the finalized tree. Throws if not finalized. */
   get rootHash(): Uint8Array {
-    if (this.#root === null) throw new Error('Tree not finalized: call finalize() first');
-    return this.#root;
+    if (this.#tree === null) throw new Error('Tree not finalized: call finalize() first');
+    return this.#tree.root;
   }
 
   /**
@@ -87,22 +86,21 @@ export class BTCR2MerkleTree {
   proof(did: string): SerializedSMTProof {
     const index = this.#indexByDid.get(did);
     if (index === undefined) throw new RangeError(`DID not in tree: ${did}`);
-    if (this.#leaves === null || this.#root === null) {
+    if (this.#tree === null) {
       throw new Error('Tree not finalized: call finalize() first');
     }
 
     const entry    = this.#entries.get(index)!;
-    const proof    = generateZeroHashProof(this.#leaves, index);
+    const proof    = this.#tree.proof(index);
     const updateId = entry.signedUpdate !== undefined
       ? blockHash(entry.signedUpdate)
       : undefined;
 
-    return serializeProof(this.#root, proof, { nonce: entry.nonce, updateId });
+    return serializeProof(this.#tree.root, proof, { nonce: entry.nonce, updateId });
   }
 
-  /** Clear computed leaves and root, keeping entries. */
+  /** Clear the computed tree, keeping entries. */
   reset(): void {
-    this.#leaves = null;
-    this.#root = null;
+    this.#tree = null;
   }
 }
