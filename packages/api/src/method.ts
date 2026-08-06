@@ -280,6 +280,16 @@ export class DidMethodApi {
       );
     }
 
+    // A deactivated DID accepts no further updates: resolvers reject them, so
+    // signing and broadcasting one only burns the beacon UTXO and fees
+    // (audit N3).
+    if(sourceDocument.deactivated === true) {
+      throw new UpdateError(
+        `DID ${sourceDocument.id} is deactivated and cannot be updated. Deactivation is permanent.`,
+        INVALID_DID_UPDATE, { beaconId }
+      );
+    }
+
     this.#log.debug('Updating DID', sourceDocument.id, { beaconId, verificationMethodId });
 
     // Factory validates and returns a sans-I/O state machine

@@ -262,6 +262,16 @@ export class DidBtcr2Api {
       }
     }
 
+    // A deactivated DID accepts no further updates: resolvers reject them, so
+    // signing and broadcasting one only burns the beacon UTXO and fees
+    // (audit N3). The marker is the `deactivated` property on the document,
+    // which resolution also surfaces as didDocumentMetadata.deactivated.
+    if (doc?.deactivated === true) {
+      throw new Error(
+        `DID ${did} is deactivated and cannot be updated. Deactivation is permanent.`
+      );
+    }
+
     return await this.btcr2.update({
       sourceDocument    : doc,
       patches,

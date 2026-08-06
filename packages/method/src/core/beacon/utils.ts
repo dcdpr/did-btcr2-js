@@ -4,7 +4,7 @@ import type { KeyBytes, Maybe} from '@did-btcr2/common';
 import { DidMethodError, MethodError } from '@did-btcr2/common';
 import { p2pkh, p2tr, p2wpkh } from '@scure/btc-signer';
 import { Appendix } from '../../utils/appendix.js';
-import type { DidDocument } from '../../utils/did-document.js';
+import type { Btcr2DidDocument } from '../../utils/did-document.js';
 import { Identifier } from '../identifier.js';
 import type { BeaconService } from './interfaces.js';
 import { BeaconError } from './error.js';
@@ -53,7 +53,7 @@ export class BeaconUtils {
    * @returns {DidService[]} An array of DidService objects
    * @throws {TypeError} if the didDocument is not provided
    */
-  static getBeaconServices(didDocument: DidDocument): BeaconService[] {
+  static getBeaconServices(didDocument: Btcr2DidDocument): BeaconService[] {
     // Filter for valid beacon service objects.
     return (didDocument.service.filter(this.isBeaconService) ?? []) as BeaconService[];
   }
@@ -196,7 +196,7 @@ export class BeaconUtils {
    * @param {DidDocument} didDocument The DID Document to extract the services from.
    * @returns {string[]} An array of beacon service ids.
    */
-  static getBeaconServiceIds(didDocument: DidDocument): string[] {
+  static getBeaconServiceIds(didDocument: Btcr2DidDocument): string[] {
     return this.getBeaconServices(didDocument).map((beacon) => beacon.id);
   }
 }
