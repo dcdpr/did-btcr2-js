@@ -264,7 +264,12 @@ function loadVectorContext(hash: string): VectorContext {
  */
 function requireBitcoinConnection(net: string): BitcoinConnection {
   try {
-    return connectBitcoin(net, { rpc: { username: 'polaruser', password: 'polarpass' } });
+    // The hardcoded Polar credentials are the local regtest node's defaults
+    // only; attaching them to any other network would send them to that
+    // network's RPC host (audit N6).
+    return net === 'regtest'
+      ? connectBitcoin(net, { rpc: { username: 'polaruser', password: 'polarpass' } })
+      : connectBitcoin(net);
   } catch (err: any) {
     console.error(`Error: Failed to connect to Bitcoin network "${net}".`);
     console.error(`  ${err.message}`);

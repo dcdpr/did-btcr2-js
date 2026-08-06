@@ -32,6 +32,13 @@ export function connectBitcoin(
   if (!host) {
     throw new Error(`No default REST endpoint for network "${network}". Pass options.restHost explicitly.`);
   }
+  // The default RPC host is the local Polar regtest node; it only makes sense
+  // for regtest. For any other network an RPC attachment must name its host
+  // explicitly, so dev credentials are never sent to an unintended host
+  // (audit N6).
+  if (options.rpc && network !== 'regtest' && !options.rpc.host) {
+    throw new Error(`No default RPC endpoint for network "${network}". Pass options.rpc.host explicitly.`);
+  }
   const rpc = options.rpc
     ? { host: REGTEST_RPC_HOST, ...options.rpc } as RpcConfig
     : undefined;

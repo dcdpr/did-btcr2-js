@@ -184,6 +184,17 @@ function assertSafeKey(key: string, path: string): void {
   }
 }
 
+/**
+ * Rejects a profile name that would reach the prototype chain when used as an
+ * object key (`profile add __proto__` would otherwise invoke the __proto__
+ * setter and mutate the profiles object's prototype; audit L12).
+ */
+export function assertSafeProfileName(name: string): void {
+  if (UNSAFE_KEYS.has(name)) {
+    throw new CLIError(`Illegal profile name "${name}".`, 'INVALID_ARGUMENT_ERROR', { name });
+  }
+}
+
 /** Sets the value at a dotted path, creating intermediate objects. */
 export function setConfigPath(config: Record<string, unknown>, path: string, value: unknown): void {
   const keys = path.split('.');
@@ -231,7 +242,7 @@ export type ApiFactory = (network?: NetworkOption, overrides?: ConnectionOverrid
  * | `BTCR2_BTC_REST`      | `--btc-rest`       |
  * | `BTCR2_BTC_RPC_URL`   | `--btc-rpc-url`    |
  * | `BTCR2_BTC_RPC_USER`  | `--btc-rpc-user`   |
- * | `BTCR2_BTC_RPC_PASS`  | `--btc-rpc-pass`   |
+ * | `BTCR2_BTC_RPC_PASS`  | (env only; no flag - audit H4) |
  * | `BTCR2_CAS_GATEWAY`   | `--cas-gateway`    |
  * | `BTCR2_CAS_RPC_URL`   | `--cas-rpc-url`    |
  * | `BTCR2_BTC_TIMEOUT`   | `--btc-timeout`    |
@@ -752,12 +763,26 @@ function readSecretFile(path: string, source: string): string {
  * reads the named environment variable, `file:<path>` reads the file, and any
  * other value is returned as-is. A trailing newline is trimmed from file/env
  * sources so a secret written by `echo` matches an inline value (ADR 077).
+ *
+ * Prefix semantics are exact: any value starting with `env:` or `file:` is
+ * ALWAYS treated as a reference, so a literal password cannot begin with those
+ * prefixes (audit L15). An `env:` reference naming an unset variable throws
+ * rather than silently resolving to undefined, so a typo'd variable name
+ * surfaces here instead of as a downstream RPC auth failure.
  */
 export function resolveSecretRef(value?: string): string | undefined {
   if (value === undefined) return undefined;
   if (value.startsWith('env:')) {
-    const fromEnv = process.env[value.slice(4)];
-    return fromEnv === undefined ? undefined : trimTrailingNewline(fromEnv);
+    const varName = value.slice(4);
+    const fromEnv = process.env[varName];
+    if (fromEnv === undefined) {
+      throw new CLIError(
+        `Secret reference env:${varName} names an environment variable that is not set.`,
+        'CONFIG_READ_ERROR',
+        { variable: varName },
+      );
+    }
+    return trimTrailingNewline(fromEnv);
   }
   if (value.startsWith('file:')) {
     return readSecretFile(value.slice(5), 'file reference');

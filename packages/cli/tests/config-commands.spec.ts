@@ -89,6 +89,34 @@ describe('config and profile commands', () => {
     expect(readCfg().profiles).to.not.have.property('signet');
   });
 
+  it('profile add rejects prototype-chain names (audit L12)', async () => {
+    await run('config', 'init');
+    await run('profile', 'add', '__proto__');
+    expect(err.join(' ')).to.match(/Illegal profile name/);
+    expect(Object.hasOwn(readCfg().profiles, '__proto__')).to.be.false;
+    expect(Object.getPrototypeOf(readCfg().profiles as object)).to.equal(Object.prototype);
+  });
+
+  it('profile use rejects prototype-chain names (audit L12)', async () => {
+    await run('config', 'init');
+    err = [];
+    await run('profile', 'use', 'constructor');
+    expect(err.join(' ')).to.match(/Illegal profile name/);
+  });
+
+  it('config set warns when storing a plaintext RPC password (audit L15)', async () => {
+    await run('config', 'init');
+    await run('config', 'set', 'profiles.regtest.btc.rpcPass', 'hunter2');
+    expect(err.join(' ')).to.match(/plaintext RPC password/);
+    expect(readCfg().profiles.regtest.btc.rpcPass).to.equal('hunter2');
+  });
+
+  it('config set does not warn for env:/file: password references', async () => {
+    await run('config', 'init');
+    await run('config', 'set', 'profiles.regtest.btc.rpcPass', 'env:MY_RPC_PASS');
+    expect(err.join(' ')).to.not.match(/plaintext RPC password/);
+  });
+
   it('config set stores a known scalar path as a string (no JSON coercion)', async () => {
     await run('config', 'init');
     await run('config', 'set', 'profiles.regtest.btc.rpcUrl', '8080');

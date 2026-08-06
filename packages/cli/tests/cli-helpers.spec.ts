@@ -107,7 +107,7 @@ describe('CLI Helpers', () => {
     expect(capturedOverrides?.btcRest).to.equal('http://custom:3000');
   });
 
-  it('passes --btc-rpc-* overrides to factory on resolve', async () => {
+  it('passes --btc-rpc-url/--btc-rpc-user overrides to factory on resolve', async () => {
     let capturedOverrides: ConnectionOverrides | undefined;
     const spy: ApiFactory = (_network, overrides) => {
       capturedOverrides = overrides;
@@ -121,12 +121,24 @@ describe('CLI Helpers', () => {
       'node', 'btcr2',
       '--btc-rpc-url', 'http://node:18443',
       '--btc-rpc-user', 'alice',
-      '--btc-rpc-pass', 'secret',
       'resolve', '-i', validDid,
     ]);
 
     expect(capturedOverrides?.btcRpcUrl).to.equal('http://node:18443');
     expect(capturedOverrides?.btcRpcUser).to.equal('alice');
-    expect(capturedOverrides?.btcRpcPass).to.equal('secret');
+  });
+
+  it('rejects the removed --btc-rpc-pass flag (audit H4)', async () => {
+    const spy: ApiFactory = () => createApi();
+    const cli = new DidBtcr2Cli(spy);
+    cli.program.exitOverride();
+    cli.program.configureOutput({ writeErr: () => {} });
+    console.error = () => {};
+    await cli.run([
+      'node', 'btcr2',
+      '--btc-rpc-pass', 'secret',
+      'resolve', '-i', 'did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47',
+    ]);
+    expect(process.exitCode).to.equal(1);
   });
 });
