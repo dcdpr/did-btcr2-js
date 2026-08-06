@@ -1,5 +1,5 @@
 import type { HashBytes } from '@did-btcr2/common';
-import { canonicalize, decode as decodeHash, encode as encodeHash } from '@did-btcr2/common';
+import { canonicalize, decode as decodeHash, encode as encodeHash, MethodError } from '@did-btcr2/common';
 import { CID } from 'multiformats/cid';
 import * as raw from 'multiformats/codecs/raw';
 import { create as createDigest } from 'multiformats/hashes/digest';
@@ -7,6 +7,65 @@ import { sha256 } from 'multiformats/hashes/sha2';
 
 /** Default IPFS HTTP gateway used for CAS reads when no CAS config is provided. */
 export const DEFAULT_CAS_GATEWAY = 'https://ipfs.io';
+
+/**
+ * Default maximum accepted CAS response body size (1 MiB). Unbounded
+ * `res.arrayBuffer()` on a hostile gateway is a memory-DoS (audit N4); btcr2
+ * CAS artifacts (updates, announcements, genesis documents) are far below
+ * this bound. Configurable via {@link CasConfig.maxResponseBytes}.
+ */
+export const DEFAULT_MAX_CAS_RESPONSE_BYTES = 1024 * 1024;
+
+/**
+ * Read a fetch response body as bytes, rejecting bodies larger than
+ * `maxBytes` (audit N4). Streams when possible so an over-limit body is cut
+ * off before it is fully buffered.
+ *
+ * @throws {Error} If the body exceeds `maxBytes`.
+ */
+async function readBytesWithLimit(res: Response, maxBytes: number): Promise<Uint8Array> {
+  const contentLength = res.headers.get('Content-Length');
+  if (contentLength !== null) {
+    const declared = Number(contentLength);
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      throw new Error(`CAS response exceeds ${maxBytes}-byte limit (declared Content-Length: ${declared})`);
+    }
+  }
+
+  const body = res.body;
+  if (body && typeof body.getReader === 'function') {
+    const reader = body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value?.byteLength ?? 0;
+        if (total > maxBytes) {
+          try { await reader.cancel(); } catch { /* best effort */ }
+          throw new Error(`CAS response exceeds ${maxBytes}-byte limit`);
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return bytes;
+  }
+
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  if (bytes.byteLength > maxBytes) {
+    throw new Error(`CAS response exceeds ${maxBytes}-byte limit`);
+  }
+  return bytes;
+}
 
 /**
  * Executor interface for content-addressed storage.
@@ -109,9 +168,11 @@ export class BlockstoreCasExecutor implements CasExecutor {
  */
 export class IpfsRpcCasExecutor implements CasExecutor {
   readonly #rpcUrl: string;
+  readonly #maxResponseBytes: number;
 
-  constructor(rpcUrl: string) {
+  constructor(rpcUrl: string, maxResponseBytes: number = DEFAULT_MAX_CAS_RESPONSE_BYTES) {
     this.#rpcUrl = rpcUrl.replace(/\/+$/, '');
+    this.#maxResponseBytes = maxResponseBytes;
   }
 
   async retrieve(hash: string): Promise<Uint8Array | null> {
@@ -122,7 +183,9 @@ export class IpfsRpcCasExecutor implements CasExecutor {
         method : 'POST',
       });
       if (!res.ok) return null;
-      return new Uint8Array(await res.arrayBuffer());
+      // Size-capped read: an unbounded buffer on a hostile node is a
+      // memory-DoS; an over-limit block is treated as unusable (audit N4).
+      return await readBytesWithLimit(res, this.#maxResponseBytes);
     } catch {
       return null;
     }
@@ -166,9 +229,11 @@ export class IpfsRpcCasExecutor implements CasExecutor {
 export class HttpGatewayCasExecutor implements CasExecutor {
   readonly canPublish = false;
   readonly #gatewayUrl: string;
+  readonly #maxResponseBytes: number;
 
-  constructor(gatewayUrl: string) {
+  constructor(gatewayUrl: string, maxResponseBytes: number = DEFAULT_MAX_CAS_RESPONSE_BYTES) {
     this.#gatewayUrl = gatewayUrl.replace(/\/+$/, '');
+    this.#maxResponseBytes = maxResponseBytes;
   }
 
   async retrieve(hash: string): Promise<Uint8Array | null> {
@@ -178,7 +243,9 @@ export class HttpGatewayCasExecutor implements CasExecutor {
         headers : { Accept: 'application/vnd.ipld.raw' },
       });
       if (!res.ok) return null;
-      return new Uint8Array(await res.arrayBuffer());
+      // Size-capped read: an unbounded buffer on a hostile gateway is a
+      // memory-DoS; an over-limit block is treated as unusable (audit N4).
+      return await readBytesWithLimit(res, this.#maxResponseBytes);
     } catch {
       return null;
     }
@@ -212,6 +279,11 @@ export type CasConfig = {
   /** IPFS HTTP gateway URL for read-only CAS access (e.g. `'https://ipfs.io'`). */
   gateway?: string;
   /**
+   * Maximum accepted CAS response body size in bytes (audit N4). Applies to
+   * the HTTP-backed executors (`rpcUrl`, `gateway`). Default: 1 MiB.
+   */
+  maxResponseBytes?: number;
+  /**
    * Timeout in milliseconds for CAS operations. Prevents indefinite hangs
    * when a blockstore lookup, RPC call, or gateway request stalls.
    * Default: 30 000 ms. Set to `0` to disable.
@@ -242,9 +314,9 @@ export class CasApi {
     } else if (config.blockstore) {
       this.#executor = new BlockstoreCasExecutor(config.blockstore);
     } else if (config.rpcUrl) {
-      this.#executor = new IpfsRpcCasExecutor(config.rpcUrl);
+      this.#executor = new IpfsRpcCasExecutor(config.rpcUrl, config.maxResponseBytes);
     } else if (config.gateway) {
-      this.#executor = new HttpGatewayCasExecutor(config.gateway);
+      this.#executor = new HttpGatewayCasExecutor(config.gateway, config.maxResponseBytes);
     } else {
       throw new Error(
         'CAS configuration requires an executor, blockstore, RPC URL, or gateway URL. '
@@ -265,13 +337,27 @@ export class CasApi {
 
   /**
    * Retrieve a JSON object from the CAS by its SHA-256 hash bytes.
+   *
+   * The retrieved bytes are verified against the requested hash before
+   * parsing (audit N5): content-addressed storage must return the content
+   * that hashes to the address, and anything else is an integrity failure.
    * @param hashBytes Raw SHA-256 hash bytes of the JCS-canonicalized object.
    * @returns The parsed JSON object, or `null` if not found.
+   * @throws {MethodError} `CAS_INTEGRITY_ERROR` if the retrieved bytes do not
+   *   hash to the requested address.
    */
   async retrieve(hashBytes: HashBytes): Promise<object | null> {
     const hash = encodeHash(hashBytes, 'base64urlnopad');
     const bytes = await this.#withTimeout(this.#executor.retrieve(hash));
     if (!bytes) return null;
+    const actual = await sha256.digest(bytes);
+    if (actual.digest.length !== hashBytes.length || !actual.digest.every((b, i) => b === hashBytes[i])) {
+      throw new MethodError(
+        'CAS integrity check failed: retrieved bytes do not hash to the requested address',
+        'CAS_INTEGRITY_ERROR',
+        { hash }
+      );
+    }
     return JSON.parse(new TextDecoder().decode(bytes)) as object;
   }
 

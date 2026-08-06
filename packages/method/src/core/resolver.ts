@@ -28,6 +28,7 @@ import {
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { DidBtcr2 } from '../did-btcr2.js';
 import { Appendix } from '../utils/appendix.js';
+import type { Btcr2DidDocument } from '../utils/did-document.js';
 import { DidDocument, ID_PLACEHOLDER_VALUE } from '../utils/did-document.js';
 import { BeaconFactory } from './beacon/factory.js';
 import type { BeaconService, BeaconSignal, BlockMetadata } from './beacon/interfaces.js';
@@ -42,7 +43,7 @@ import { equalBytes } from '@noble/curves/utils.js';
  * The response object for DID Resolution.
  */
 export interface DidResolutionResponse {
-  didDocument: DidDocument;
+  didDocument: Btcr2DidDocument;
   metadata: {
     confirmations?: number;
     versionId: string;
@@ -201,7 +202,7 @@ export class Resolver {
    */
   #phase: ResolverPhase;
   #sidecarData: SidecarData;
-  #currentDocument: DidDocument | null;
+  #currentDocument: Btcr2DidDocument | null;
   #providedGenesisDocument: object | null = null;
   #beaconServicesSignals: Map<BeaconService, Array<BeaconSignal>> = new Map();
   #processedServices: Set<string> = new Set();
@@ -246,7 +247,7 @@ export class Resolver {
   constructor(
     didComponents: DidComponents,
     sidecarData: SidecarData,
-    currentDocument: DidDocument | null,
+    currentDocument: Btcr2DidDocument | null,
     options?: { versionId?: string; versionTime?: string; genesisDocument?: object; maxDiscoveryRounds?: number; minConf?: number }
   ) {
     this.#didComponents = didComponents;
@@ -274,10 +275,14 @@ export class Resolver {
 
   /**
    * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#if-genesis_bytes-is-a-secp256k1-public-key | 7.2.d.1 if genesis bytes is a secp256k1 Public Key}.
+   *
+   * Returns a plain JSON object (class prototypes stripped) so every
+   * subsequent patch and hash operates on the full JSON content, identically
+   * to any plain-JSON resolver implementation (audit I7).
    * @param {DidComponents} didComponents The decoded components of the did.
-   * @returns {DidDocument} The resolved DID Document object.
+   * @returns {Btcr2DidDocument} The resolved DID Document object.
    */
-  static deterministic(didComponents: DidComponents): DidDocument {
+  static deterministic(didComponents: DidComponents): Btcr2DidDocument {
     // Deconstruct the bytes from the given components
     const genesisBytes = didComponents.genesisBytes;
 
@@ -295,7 +300,7 @@ export class Resolver {
       beaconType : 'SingletonBeacon'
     });
 
-    return new DidDocument({
+    return JSON.parse(JSON.stringify(new DidDocument({
       id                 : did,
       verificationMethod : [{
         id                 : `${did}#initialKey`,
@@ -304,20 +309,25 @@ export class Resolver {
         publicKeyMultibase : multibase.encoded
       }],
       service
-    });
+    }))) as Btcr2DidDocument;
   }
 
   /**
    * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#if-genesis_bytes-is-a-sha-256-hash | 7.2.d.2 if genesis_bytes is a SHA-256 Hash}.
+   *
+   * Returns the full plain JSON document (not a class instance): a class
+   * wrapper would silently drop any fields outside its known property set,
+   * diverging both the resolved document and every subsequent patch/hash
+   * from a plain-JSON resolver implementation (audit I7).
    * @param {DidComponents} didComponents BTCR2 DID components used to resolve the DID Document
    * @param {object} genesisDocument The genesis document for resolving the DID Document.
-   * @returns {DidDocument} The resolved DID Document object
+   * @returns {Btcr2DidDocument} The resolved DID Document object
    * @throws {ResolveError} InvalidDidDocument if not conformant to DID Core v1.1
    */
   static external(
     didComponents: DidComponents,
     genesisDocument: object,
-  ): DidDocument {
+  ): Btcr2DidDocument {
     // Canonicalize and sha256 hash the genesis document
     const genesisDocumentHash = canonicalHashBytes(genesisDocument);
 
@@ -340,8 +350,10 @@ export class Resolver {
       JSON.stringify(genesisDocument).replaceAll(ID_PLACEHOLDER_VALUE, did)
     );
 
-    // Return a W3C conformant DID Document
-    return new DidDocument(currentDocument);
+    // Validate as a W3C-conformant DID Document (constructor performs the
+    // checks); the returned value stays the full plain JSON object.
+    new DidDocument(currentDocument);
+    return currentDocument as Btcr2DidDocument;
   }
 
   /**
@@ -388,7 +400,7 @@ export class Resolver {
 
   /**
    * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process-updates | 7.2.f Process updates Array}.
-   * @param {DidDocument} currentDocument The current DID Document to apply the updates to.
+   * @param {Btcr2DidDocument} currentDocument The current DID Document to apply the updates to.
    * @param {Array<[SignedBTCR2Update, BlockMetadata]>} unsortedUpdates The unsorted array of BTCR2 Signed Updates and their associated Block Metadata.
    * @param {string} [versionTime] The optional version time to limit updates to.
    * @param {string} [versionId] The optional version id to limit updates to.
@@ -400,7 +412,7 @@ export class Resolver {
    * @returns {DidResolutionResponse} The updated DID Document, number of confirmations, and version id.
    */
   static updates(
-    currentDocument: DidDocument,
+    currentDocument: Btcr2DidDocument,
     unsortedUpdates: Array<[SignedBTCR2Update, BlockMetadata]>,
     versionTime?: string,
     versionId?: string,
@@ -620,9 +632,9 @@ export class Resolver {
    * @throws {ResolveError} If the update is invalid or cannot be applied.
    */
   private static applyUpdate(
-    currentDocument: DidDocument,
+    currentDocument: Btcr2DidDocument,
     update: SignedBTCR2Update
-  ): DidDocument {
+  ): Btcr2DidDocument {
     // Get the capability id from the to update proof.
     const capabilityId = update.proof?.capability;
     // Since this field is optional, check that it exists
@@ -705,7 +717,7 @@ export class Resolver {
     }
 
     // Apply the update.patch to the currentDocument to get the updatedDocument.
-    const updatedDocument = JSONPatch.apply(currentDocument, update.patch) as DidDocument;
+    const updatedDocument = JSONPatch.apply(currentDocument, update.patch) as Btcr2DidDocument;
 
     // Verify that updatedDocument is conformant to DID Core v1.1.
     DidDocument.validate(updatedDocument);
