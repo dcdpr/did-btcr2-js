@@ -332,7 +332,7 @@ describe('BitcoinCoreRpcClient', () => {
           const responses = reqBody.map((item: any) => ({
             jsonrpc : '2.0',
             id      : item.id,
-            result  : { txid: item.params[0], hex: 'ff' },
+            result  : { txid: item.params[0], hex: 'ff', vin: [], vout: [] },
           }));
           return new Response(JSON.stringify(responses), {
             status  : 200,
@@ -358,7 +358,7 @@ describe('BitcoinCoreRpcClient', () => {
           const responses = reqBody.map((item: any) => ({
             jsonrpc : '2.0',
             id      : item.id,
-            result  : { txid: item.params[0] },
+            result  : { txid: item.params[0], vin: [], vout: [] },
           }));
           return new Response(JSON.stringify(responses), {
             status  : 200,

@@ -21,6 +21,76 @@ export async function safeText(res: Response): Promise<string> {
 }
 
 /**
+ * Default maximum accepted response body size (32 MiB). Unbounded
+ * `response.json()` on a hostile endpoint is a memory-DoS (audit M11); both
+ * client transports cap bodies at this size unless configured otherwise via
+ * `maxResponseBytes` on the REST/RPC config.
+ */
+export const DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
+
+/**
+ * Read a response body as text, rejecting bodies larger than `maxBytes`.
+ * Streams the body when possible so an over-limit body is rejected before it
+ * is fully buffered; falls back to a post-hoc length check for Response-like
+ * objects without a readable stream (audit M11).
+ *
+ * @throws {Error} If the body exceeds `maxBytes`.
+ */
+export async function readTextWithLimit(res: Response, maxBytes: number = DEFAULT_MAX_RESPONSE_BYTES): Promise<string> {
+  const contentLength = res.headers.get('Content-Length');
+  if (contentLength !== null) {
+    const declared = Number(contentLength);
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      throw new Error(`Response body exceeds ${maxBytes}-byte limit (declared Content-Length: ${declared})`);
+    }
+  }
+
+  const body = res.body;
+  if (body && typeof body.getReader === 'function') {
+    const reader = body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        total += value?.byteLength ?? 0;
+        if (total > maxBytes) {
+          try { await reader.cancel(); } catch { /* best effort */ }
+          throw new Error(`Response body exceeds ${maxBytes}-byte limit`);
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const bytes = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return new TextDecoder().decode(bytes);
+  }
+
+  const text = await res.text();
+  if (new TextEncoder().encode(text).byteLength > maxBytes) {
+    throw new Error(`Response body exceeds ${maxBytes}-byte limit`);
+  }
+  return text;
+}
+
+/**
+ * Read a response body as JSON, rejecting bodies larger than `maxBytes`
+ * (audit M11).
+ *
+ * @throws {Error} If the body exceeds `maxBytes` or is not valid JSON.
+ */
+export async function readJsonWithLimit(res: Response, maxBytes: number = DEFAULT_MAX_RESPONSE_BYTES): Promise<unknown> {
+  return JSON.parse(await readTextWithLimit(res, maxBytes));
+}
+
+/**
  * Strip any userinfo (credentials) from a URL string so it is safe to log or
  * embed in an error message (audit L11). Handles both parseable URLs (via the
  * URL API) and unparseable ones (defensive regex over the authority segment).

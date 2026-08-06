@@ -4,6 +4,18 @@ import type { HttpRequest } from '../http.js';
 import { isInsecureRemoteHttp, redactUrlCredentials, toBase64 } from '../utils.js';
 
 /**
+ * An {@link HttpRequest} for a JSON-RPC batch call, carrying the request IDs
+ * assigned to each call at build time.  {@link JsonRpcProtocol.parseBatchResponse}
+ * requires these exact IDs so results are matched to calls by the identity
+ * assigned when the batch was built, never by reconstructing IDs from mutable
+ * protocol state at parse time (audit M9).
+ */
+export interface BatchHttpRequest extends HttpRequest {
+  /** The JSON-RPC ID assigned to each call, in call order. */
+  readonly ids: number[];
+}
+
+/**
  * Sans-I/O JSON-RPC protocol for Bitcoin Core.
  *
  * Builds {@link HttpRequest} descriptors for JSON-RPC method calls and
@@ -107,11 +119,17 @@ export class JsonRpcProtocol {
   /**
    * Build an {@link HttpRequest} for a JSON-RPC batch call.
    * Sends all calls in a single HTTP request per the JSON-RPC 2.0 spec.
+   *
+   * The assigned request IDs are captured on the returned descriptor so the
+   * caller can pass them back to {@link parseBatchResponse}: interleaved
+   * `buildRequest`/`buildBatchRequest` calls between build and parse must not
+   * shift the ID mapping (audit M9).
    */
-  buildBatchRequest(calls: Array<{ method: string; params: unknown[] }>): HttpRequest {
-    const body = calls.map(c => ({
+  buildBatchRequest(calls: Array<{ method: string; params: unknown[] }>): BatchHttpRequest {
+    const ids = calls.map(() => ++this._id);
+    const body = calls.map((c, i) => ({
       jsonrpc : '2.0',
-      id      : ++this._id,
+      id      : ids[i],
       method  : c.method,
       params  : c.params,
     }));
@@ -120,6 +138,7 @@ export class JsonRpcProtocol {
       method  : 'POST',
       headers : { ...this._headers },
       body    : JSON.stringify(body),
+      ids,
     };
   }
 
@@ -145,23 +164,32 @@ export class JsonRpcProtocol {
   /**
    * Parse a JSON-RPC batch response payload.
    * Returns results in the same order as the original calls.
+   *
+   * @param payloads The response payloads from the server (may be out of order).
+   * @param calls The original batch calls.
+   * @param ids The IDs captured on the {@link BatchHttpRequest} at build time.
    */
   parseBatchResponse(
     payloads: Array<{ id: number; result?: unknown; error?: { code: number; message: string } }>,
     calls: Array<{ method: string; params: unknown[] }>,
+    ids: readonly number[],
   ): unknown[] {
+    if (ids.length !== calls.length) {
+      throw new BitcoinRpcError(
+        'RPC_ERROR',
+        -1,
+        `Batch id count (${ids.length}) does not match call count (${calls.length})`,
+      );
+    }
     const byId = new Map(payloads.map(p => [p.id, p]));
-    // Batch responses may arrive out of order; re-sort by sequential id.
-    // IDs were assigned as (_id - calls.length + 1) .. _id
-    const startId = this._id - calls.length + 1;
 
     return calls.map((call, i) => {
-      const payload = byId.get(startId + i);
+      const payload = byId.get(ids[i]);
       if (!payload) {
         throw new BitcoinRpcError(
           'RPC_ERROR',
           -1,
-          `Missing response for batch call ${call.method} (id ${startId + i})`,
+          `Missing response for batch call ${call.method} (id ${ids[i]})`,
           { method: call.method }
         );
       }

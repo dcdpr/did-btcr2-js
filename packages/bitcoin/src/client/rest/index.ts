@@ -6,7 +6,7 @@ import { EsploraProtocol } from './protocol.js';
 import type { RestConfig } from '../../types.js';
 import type { HttpExecutor, HttpRequest} from '../http.js';
 import { defaultHttpExecutor } from '../http.js';
-import { redactUrlCredentials } from '../utils.js';
+import { DEFAULT_MAX_RESPONSE_BYTES, readJsonWithLimit, readTextWithLimit, redactUrlCredentials } from '../utils.js';
 
 /**
  * Esplora REST API client for Bitcoin.
@@ -56,6 +56,7 @@ export class BitcoinRestClient {
    */
   private async executeRequest(request: HttpRequest): Promise<any> {
     const response = await this.executor(request);
+    const maxBytes = this._config.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
 
     // Check the status BEFORE parsing: an error page (proxy HTML, empty body) is
     // often not JSON, and a raw parse throw would mask the HTTP failure
@@ -65,7 +66,9 @@ export class BitcoinRestClient {
       let data: unknown;
       try {
         const errorContentType = response.headers.get('Content-Type') ?? '';
-        data = errorContentType.includes('text/plain') ? await response.text() : await response.json();
+        data = errorContentType.includes('text/plain')
+          ? await readTextWithLimit(response, maxBytes)
+          : await readJsonWithLimit(response, maxBytes);
       } catch {
         data = undefined;
       }
@@ -76,9 +79,20 @@ export class BitcoinRestClient {
       );
     }
 
+    // Cap the body size before parsing: unbounded response.json() on a hostile
+    // endpoint is a memory-DoS, and a raw SyntaxError from a non-JSON body
+    // would escape as an untyped error (audit M11).
     const contentType = response.headers.get('Content-Type') ?? '';
-    return contentType.includes('text/plain')
-      ? await response.text()
-      : await response.json();
+    try {
+      return contentType.includes('text/plain')
+        ? await readTextWithLimit(response, maxBytes)
+        : await readJsonWithLimit(response, maxBytes);
+    } catch (error: unknown) {
+      const cause = error instanceof Error ? error.message : String(error);
+      throw new MethodError(
+        `Unreadable response from ${redactUrlCredentials(request.url)}: ${cause}`,
+        'INVALID_RESPONSE_BODY',
+      );
+    }
   }
 }

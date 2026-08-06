@@ -123,6 +123,16 @@ describe('JsonRpcProtocol', () => {
       expect(body[1].params).to.deep.equal([100]);
       expect(body[0].id).to.not.equal(body[1].id);
     });
+
+    it('captures the assigned IDs on the request descriptor', () => {
+      const protocol = new JsonRpcProtocol({ host: 'http://localhost:18443' });
+      const req = protocol.buildBatchRequest([
+        { method: 'getblockcount', params: [] },
+        { method: 'getblockhash', params: [100] },
+      ]);
+      const body = JSON.parse(req.body!);
+      expect(req.ids).to.deep.equal([body[0].id, body[1].id]);
+    });
   });
 
   describe('authentication', () => {
@@ -195,16 +205,39 @@ describe('JsonRpcProtocol', () => {
         { method: 'getblockcount', params: [] as unknown[] },
         { method: 'getblockhash', params: [100] as unknown[] },
       ];
-      // Build batch to assign IDs
-      protocol.buildBatchRequest(calls);
-      // IDs are now (id-1) and (id)
-      const id = (protocol as any)._id;
+      const req = protocol.buildBatchRequest(calls);
+      const [id1, id2] = req.ids;
       const results = protocol.parseBatchResponse(
         [
-          { id: id, result: 'hash100' },
-          { id: id - 1, result: 12345 },
+          { id: id2, result: 'hash100' },
+          { id: id1, result: 12345 },
         ],
         calls,
+        req.ids,
+      );
+      expect(results).to.deep.equal([12345, 'hash100']);
+    });
+
+    it('is not confused by requests interleaved between build and parse (audit M9)', () => {
+      const protocol = new JsonRpcProtocol({});
+      const calls = [
+        { method: 'getblockcount', params: [] as unknown[] },
+        { method: 'getblockhash', params: [100] as unknown[] },
+      ];
+      const req = protocol.buildBatchRequest(calls);
+      // Interleave other request builds before the batch response is parsed:
+      // these advance the protocol's internal counter and previously shifted
+      // the reconstructed startId, mapping every result to the wrong call.
+      protocol.buildRequest('getbalance', []);
+      protocol.buildBatchRequest([{ method: 'getblockcount', params: [] }]);
+      const [id1, id2] = req.ids;
+      const results = protocol.parseBatchResponse(
+        [
+          { id: id2, result: 'hash100' },
+          { id: id1, result: 12345 },
+        ],
+        calls,
+        req.ids,
       );
       expect(results).to.deep.equal([12345, 'hash100']);
     });
@@ -212,13 +245,25 @@ describe('JsonRpcProtocol', () => {
     it('throws on missing response', () => {
       const protocol = new JsonRpcProtocol({});
       const calls = [{ method: 'getblockcount', params: [] as unknown[] }];
-      protocol.buildBatchRequest(calls);
+      const req = protocol.buildBatchRequest(calls);
       try {
-        protocol.parseBatchResponse([], calls);
+        protocol.parseBatchResponse([], calls, req.ids);
         expect.fail('Expected to throw');
       } catch (err: any) {
         expect(err).to.be.instanceOf(BitcoinRpcError);
         expect(err.message).to.include('Missing response');
+      }
+    });
+
+    it('throws when id count does not match call count', () => {
+      const protocol = new JsonRpcProtocol({});
+      const calls = [{ method: 'getblockcount', params: [] as unknown[] }];
+      try {
+        protocol.parseBatchResponse([], calls, []);
+        expect.fail('Expected to throw');
+      } catch (err: any) {
+        expect(err).to.be.instanceOf(BitcoinRpcError);
+        expect(err.message).to.include('does not match call count');
       }
     });
   });

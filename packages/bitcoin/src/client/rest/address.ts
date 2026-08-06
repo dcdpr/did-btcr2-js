@@ -1,6 +1,25 @@
+import { BitcoinRestError } from '../../errors.js';
 import type { AddressInfo, AddressUtxo, RawTransactionRest } from '../../types.js';
 import type { HttpRequest } from '../http.js';
+import { checkAddressInfo, checkAddressUtxo, checkRawTransactionRest } from '../validate.js';
 import type { EsploraProtocol } from './protocol.js';
+
+/**
+ * Validate a list of Esplora transaction objects (audit M11).
+ * @throws {BitcoinRestError} If the response is not an array of transactions.
+ */
+function assertTxList(value: unknown, context: string): Array<RawTransactionRest> {
+  if (!Array.isArray(value)) {
+    throw new BitcoinRestError(`Invalid ${context} response: expected an array of transactions`);
+  }
+  for (const [i, tx] of value.entries()) {
+    const reason = checkRawTransactionRest(tx);
+    if (reason) {
+      throw new BitcoinRestError(`Invalid ${context} response: tx[${i}]: ${reason}`);
+    }
+  }
+  return value as Array<RawTransactionRest>;
+}
 
 /**
  * Address-related Esplora REST API operations.
@@ -22,7 +41,7 @@ export class BitcoinAddress {
    * @returns {Promise<Array<RawTransactionRest>>} Transaction history.
    */
   public async getTxs(addressOrScripthash: string): Promise<Array<RawTransactionRest>> {
-    return await this.exec(this.protocol.getAddressTxs(addressOrScripthash));
+    return assertTxList(await this.exec(this.protocol.getAddressTxs(addressOrScripthash)), 'address txs');
   }
 
   /**
@@ -43,7 +62,7 @@ export class BitcoinAddress {
    * @returns {Promise<Array<RawTransactionRest>>} Unconfirmed transactions.
    */
   public async getTxsMempool(addressOrScripthash: string): Promise<Array<RawTransactionRest>> {
-    return await this.exec(this.protocol.getAddressTxsMempool(addressOrScripthash));
+    return assertTxList(await this.exec(this.protocol.getAddressTxsMempool(addressOrScripthash)), 'address mempool txs');
   }
 
   /**
@@ -52,7 +71,12 @@ export class BitcoinAddress {
    * @returns {Promise<AddressInfo>} Address information.
    */
   public async getInfo(addressOrScripthash: string): Promise<AddressInfo> {
-    return await this.exec(this.protocol.getAddressInfo(addressOrScripthash));
+    const info = await this.exec(this.protocol.getAddressInfo(addressOrScripthash));
+    const reason = checkAddressInfo(info);
+    if (reason) {
+      throw new BitcoinRestError(`Invalid address info response: ${reason}`);
+    }
+    return info as AddressInfo;
   }
 
   /**
@@ -63,7 +87,10 @@ export class BitcoinAddress {
    * @returns {Promise<Array<RawTransactionRest>>} Confirmed transactions.
    */
   public async getConfirmedTxs(addressOrScripthash: string, lastSeenTxId?: string): Promise<Array<RawTransactionRest>> {
-    return await this.exec(this.protocol.getAddressTxsChain(addressOrScripthash, lastSeenTxId));
+    return assertTxList(
+      await this.exec(this.protocol.getAddressTxsChain(addressOrScripthash, lastSeenTxId)),
+      'address confirmed txs'
+    );
   }
 
   /**
@@ -73,6 +100,16 @@ export class BitcoinAddress {
    * @returns {Promise<Array<AddressUtxo>>} Unspent transaction outputs.
    */
   public async getUtxos(addressOrScripthash: string): Promise<Array<AddressUtxo>> {
-    return await this.exec(this.protocol.getAddressUtxos(addressOrScripthash));
+    const utxos = await this.exec(this.protocol.getAddressUtxos(addressOrScripthash));
+    if (!Array.isArray(utxos)) {
+      throw new BitcoinRestError('Invalid address utxo response: expected an array');
+    }
+    for (const [i, utxo] of utxos.entries()) {
+      const reason = checkAddressUtxo(utxo);
+      if (reason) {
+        throw new BitcoinRestError(`Invalid address utxo response: utxo[${i}]: ${reason}`);
+      }
+    }
+    return utxos as Array<AddressUtxo>;
   }
 }

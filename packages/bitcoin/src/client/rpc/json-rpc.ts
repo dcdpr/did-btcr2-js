@@ -2,7 +2,7 @@ import { BitcoinRpcError } from '../../errors.js';
 import type { RpcConfig } from '../../types.js';
 import type { HttpExecutor} from '../http.js';
 import { defaultHttpExecutor } from '../http.js';
-import { safeText } from '../utils.js';
+import { DEFAULT_MAX_RESPONSE_BYTES, readJsonWithLimit, safeText } from '../utils.js';
 import { JsonRpcProtocol } from './protocol.js';
 
 export class JsonRpcTransport {
@@ -13,15 +13,30 @@ export class JsonRpcTransport {
   readonly protocol: JsonRpcProtocol;
 
   private readonly execute: HttpExecutor;
+  private readonly maxResponseBytes: number;
 
   constructor(cfg: RpcConfig, executor?: HttpExecutor) {
     this.protocol = new JsonRpcProtocol(cfg);
     this.execute = executor ?? defaultHttpExecutor;
+    this.maxResponseBytes = cfg.maxResponseBytes ?? DEFAULT_MAX_RESPONSE_BYTES;
   }
 
   /** @internal Expose URL for tests that inspect transport state. */
   get url(): string {
     return this.protocol.url;
+  }
+
+  /**
+   * Read a JSON-RPC response body with a size cap (audit M11), wrapping parse
+   * and size failures in a typed {@link BitcoinRpcError}.
+   */
+  private async readBody<T>(res: Response, context: Record<string, unknown>): Promise<T> {
+    try {
+      return await readJsonWithLimit(res, this.maxResponseBytes) as T;
+    } catch (error: unknown) {
+      const cause = error instanceof Error ? error.message : String(error);
+      throw new BitcoinRpcError('INVALID_RESPONSE', -1, `Unreadable RPC response: ${cause}`, context);
+    }
   }
 
   /**
@@ -41,7 +56,7 @@ export class JsonRpcTransport {
       );
     }
 
-    const payload = await res.json() as { result?: unknown; error?: { code: number; message: string } };
+    const payload = await this.readBody<{ result?: unknown; error?: { code: number; message: string } }>(res, { method });
     return this.protocol.parseResponse(payload, method);
   }
 
@@ -69,7 +84,10 @@ export class JsonRpcTransport {
       );
     }
 
-    const payloads = await res.json() as Array<{ id: number; result?: unknown; error?: { code: number; message: string } }>;
-    return this.protocol.parseBatchResponse(payloads, calls);
+    const payloads = await this.readBody<Array<{ id: number; result?: unknown; error?: { code: number; message: string } }>>(
+      res,
+      { methods: calls.map(c => c.method) }
+    );
+    return this.protocol.parseBatchResponse(payloads, calls, request.ids);
   }
 }

@@ -2,6 +2,7 @@ export type RpcErrorType =
   | 'HTTP_ERROR'
   | 'RPC_ERROR'
   | 'INVALID_PARAMS_GET_BLOCK'
+  | 'INVALID_RESPONSE'
   | 'SIGNING_INCOMPLETE'
   | 'UNKNOWN_ERROR';
 
