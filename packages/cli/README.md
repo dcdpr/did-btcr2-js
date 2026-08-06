@@ -92,8 +92,11 @@ Required flags: `-s/--source-document`, `--source-version-id`, `-p/--patches`, `
 | `-m, --verification-method-id <id>` | DID document verification method ID |
 | `-b, --beacon-id <json>` | Beacon ID as a JSON string |
 | `--publish-to-cas <mode>` | Publish update artifacts to a writable CAS before broadcast: `auto`, `always`, or `never` (default: `never`). See [Publishing updates to CAS](#publishing-updates-to-cas) |
-| `--fee-rate <satsPerVByte>` | Fee rate in sats/vByte for the beacon transaction (default: `5`). Raise it under congestion so the transaction confirms (also `BTCR2_FEE_RATE`, profile `btc.feeRate`) |
+| `--fee-rate <satsPerVByte>` | Fee rate in sats/vByte for the beacon transaction (default: `5`, maximum `1000`). Raise it under congestion so the transaction confirms (also `BTCR2_FEE_RATE`, profile `btc.feeRate`) |
 | `--change-address <address>` | Send transaction change to this address instead of the beacon address, so a DID's announcements are not linked on-chain (profile `btc.changeAddress`) |
+| `-y, --yes` | Confirm the on-chain broadcast without an interactive prompt (required for non-interactive use on public networks) |
+
+On public networks, `update` (and `deactivate`) shows the broadcast plan with the estimated absolute fee and asks for confirmation before spending the beacon UTXO; non-interactive invocations must pass `--yes`. Regtest skips the prompt.
 
 On a network with a block explorer, text-mode `update` (and `deactivate`) also prints a `Watch:` link on stderr for the broadcast txid, suppressed under `--quiet` and `-o json`.
 
@@ -101,7 +104,7 @@ On a network with a block explorer, text-mode `update` (and `deactivate`) also p
 
 Permanently deactivates a DID. This is irreversible. Deactivation applies the `{ "op": "add", "path": "/deactivated", "value": true }` patch and routes through the same signed-update path as `update`, so it also signs via the keystore.
 
-Required flags: `-s/--source-document`, `--source-version-id`, `-m/--verification-method-id`, `-b/--beacon-id`. Optional: `--publish-to-cas <mode>`, `--fee-rate <satsPerVByte>`, `--change-address <address>` (same as `update`).
+Required flags: `-s/--source-document`, `--source-version-id`, `-m/--verification-method-id`, `-b/--beacon-id`. Optional: `--publish-to-cas <mode>`, `--fee-rate <satsPerVByte>`, `--change-address <address>`, `-y/--yes` (same as `update`). The pre-broadcast confirmation warns that deactivation is permanent.
 
 ### init
 

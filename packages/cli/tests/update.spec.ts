@@ -256,7 +256,8 @@ describe('update/deactivate watch hint (ADR 082)', () => {
     const did = didFor('mutinynet');
     const cli = new DidBtcr2Cli(createTestApiFactory(), txidStub('cafe1234'));
     await sub(cli, 'update').parseAsync(
-      ['-s', JSON.stringify({ id: did }), '--source-version-id', '1', '-p', '[]', '-m', '#k0', '-b', '"#beacon-0"'],
+      ['-s', JSON.stringify({ id: did }), '--source-version-id', '1', '-p', '[]', '-m', '#k0', '-b', '"#beacon-0"',
+        '--yes'],
       { from: 'user' },
     );
     expect(err.join(' ')).to.match(/Watch:\s+https:\/\/mutinynet\.com\/tx\/cafe1234/);

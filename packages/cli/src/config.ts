@@ -5,6 +5,7 @@ import type { BroadcastOptions } from '@did-btcr2/method';
 import { readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { CLIError } from './error.js';
+import { MAX_FEE_RATE_SATS_PER_VBYTE } from './confirm.js';
 import { ensureDir, writeFileAtomic } from './keystore/atomic.js';
 import { FileBackedKeyManager } from './keystore/file-backed-key-manager.js';
 import { keystoreProtection, keystoreVerifierId } from './keystore/file-key-store.js';
@@ -835,9 +836,11 @@ export function resolveBroadcastOptions(
 /** Parses a positive sats/vByte fee rate, throwing a {@link CLIError} otherwise. */
 function parseFeeRate(raw: string): number {
   const rate = Number(raw);
-  if (!Number.isFinite(rate) || rate <= 0) {
+  // A sanity ceiling catches fat-fingered rates (audit M8): anything above
+  // MAX_FEE_RATE_SATS_PER_VBYTE is far beyond historical congestion peaks.
+  if (!Number.isFinite(rate) || rate <= 0 || rate > MAX_FEE_RATE_SATS_PER_VBYTE) {
     throw new CLIError(
-      `Invalid --fee-rate "${raw}": expected a positive number of sats per vByte.`,
+      `Invalid fee rate "${raw}": expected a positive number of sats per vByte (maximum ${MAX_FEE_RATE_SATS_PER_VBYTE}).`,
       'INVALID_ARGUMENT_ERROR',
       { value: raw },
     );
