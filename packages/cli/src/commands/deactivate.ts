@@ -1,7 +1,9 @@
 import type { PublishToCasMode } from '@did-btcr2/api';
 import { KeyManagerSigner } from '@did-btcr2/key-manager';
+import { StaticFeeEstimator } from '@did-btcr2/method';
 import type { Command } from 'commander';
 import { assertKeystoreAllowedForNetwork, deriveNetwork, resolveBroadcastOptions, resolveSigningKeyRef, type ApiFactory } from '../config.js';
+import { confirmBroadcast, DEFAULT_FEE_RATE_SATS_PER_VBYTE } from '../confirm.js';
 import { CLIError } from '../error.js';
 import { printWatchHint } from '../hints.js';
 import { resolveKeyRef } from '../keystore/resolve-key-ref.js';
@@ -55,6 +57,11 @@ export function registerDeactivateCommand(
       'Send transaction change to this address instead of the beacon address, '
         + 'so a DID\'s announcements are not linked on-chain (ADR 044).',
     )
+    .option(
+      '-y, --yes',
+      'Confirm the on-chain broadcast without an interactive prompt '
+        + '(required for non-interactive use on public networks).',
+    )
     .action(async (options: {
       sourceDocument       : unknown;
       sourceVersionId      : string;
@@ -63,6 +70,7 @@ export function registerDeactivateCommand(
       publishToCas         : PublishToCasMode;
       feeRate?             : string;
       changeAddress?       : string;
+      yes?                 : boolean;
     }) => {
       if (!/^\d+$/.test(options.sourceVersionId)) {
         throw new CLIError(
@@ -101,6 +109,19 @@ export function registerDeactivateCommand(
         feeRate       : options.feeRate,
         changeAddress : options.changeAddress,
       });
+      // Deactivation is irreversible and spends the beacon UTXO on-chain:
+      // require explicit operator confirmation unless --yes was given.
+      // Skipped on regtest (audit M8).
+      const feeEstimator = broadcastOptions?.feeEstimator;
+      confirmBroadcast({
+        action              : 'deactivate',
+        did,
+        network,
+        beaconId            : String(parsed.beaconId),
+        feeRateSatsPerVByte : feeEstimator instanceof StaticFeeEstimator
+          ? feeEstimator.satsPerVbyte
+          : DEFAULT_FEE_RATE_SATS_PER_VBYTE,
+      }, { yes: options.yes });
       // CAS publication is optional and never required: every beacon update can
       // be completed and shared via sidecar alone. It is opt-in and defaults to
       // 'never'; pass --publish-to-cas auto|always to publish the signed update
