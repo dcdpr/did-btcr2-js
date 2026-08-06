@@ -287,7 +287,6 @@ Override precedence, highest wins: CLI flags, then environment variables, then c
 | `--btc-rest <url>` | Override Bitcoin REST endpoint (Esplora API) |
 | `--btc-rpc-url <url>` | Override Bitcoin Core RPC endpoint |
 | `--btc-rpc-user <user>` | Bitcoin Core RPC username |
-| `--btc-rpc-pass <pass>` | Bitcoin Core RPC password (accepts an `env:<VAR>` or `file:<path>` secret reference) |
 | `--btc-rpc-wallet <name>` | Bitcoin Core wallet name for wallet-scoped RPCs (`/wallet/<name>`) |
 | `--btc-rpc-header <header>` | Extra Bitcoin Core RPC header `"Key: Value"` (repeatable) |
 | `--btc-rest-header <header>` | Extra Bitcoin REST header `"Key: Value"` (repeatable), e.g. an API key |
@@ -306,7 +305,7 @@ Override precedence, highest wins: CLI flags, then environment variables, then c
 | `BTCR2_BTC_REST` | `--btc-rest` |
 | `BTCR2_BTC_RPC_URL` | `--btc-rpc-url` |
 | `BTCR2_BTC_RPC_USER` | `--btc-rpc-user` |
-| `BTCR2_BTC_RPC_PASS` | `--btc-rpc-pass` |
+| `BTCR2_BTC_RPC_PASS` | (env only; no flag - a password on argv is exposed via `ps`/shell history) |
 | `BTCR2_BTC_RPC_PASS_FILE` | file whose contents are the RPC password |
 | `BTCR2_CAS_GATEWAY` | `--cas-gateway` |
 | `BTCR2_CAS_RPC_URL` | `--cas-rpc-url` |

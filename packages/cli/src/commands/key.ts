@@ -2,7 +2,7 @@ import type { KeyManager } from '@did-btcr2/key-manager';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 import type { Command } from 'commander';
-import { closeSync, openSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, openSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import type { ApiFactory } from '../config.js';
 import { CLIError } from '../error.js';
 import { resolveKeyRef } from '../keystore/resolve-key-ref.js';
@@ -162,8 +162,23 @@ function parseHex(hex: string, expectedBytes: number, label: string): Uint8Array
 function readHexFile(path: string, expectedBytes: number, label: string): Uint8Array {
   let content: string;
   try {
+    // The file holds raw secret key material: refuse to read it when group or
+    // other users have any permission bits (0600/0400 only), matching the
+    // keystore's permission policy (audit L13). Not enforceable on Windows.
+    if (process.platform !== 'win32') {
+      const mode = statSync(path).mode & 0o777;
+      if ((mode & 0o077) !== 0) {
+        throw new CLIError(
+          `Refusing to read ${label} at ${path}: permissions 0${mode.toString(8)} are too open; expected 0600. `
+          + `Fix with: chmod 600 ${path}`,
+          'INVALID_ARGUMENT_ERROR',
+          { label, path, mode: `0${mode.toString(8)}` },
+        );
+      }
+    }
     content = readFileSync(path, 'utf-8');
-  } catch {
+  } catch (error) {
+    if (error instanceof CLIError) throw error;
     throw new CLIError(`Cannot read ${label} at ${path}.`, 'INVALID_ARGUMENT_ERROR', { label, path });
   }
   return parseHex(content, expectedBytes, label);

@@ -1,7 +1,7 @@
 import { BitcoinRpcError } from '../../errors.js';
 import type { RpcConfig } from '../../types.js';
 import type { HttpRequest } from '../http.js';
-import { toBase64 } from '../utils.js';
+import { isInsecureRemoteHttp, redactUrlCredentials, toBase64 } from '../utils.js';
 
 /**
  * Sans-I/O JSON-RPC protocol for Bitcoin Core.
@@ -56,7 +56,8 @@ export class JsonRpcProtocol {
           url = u.toString().replace(/\/+$/, '');
         }
       } catch (error: unknown) {
-        console.error(`Invalid URL in Bitcoin RPC config: ${url}`, error);
+        // The raw URL may carry userinfo credentials; log only the redacted form (audit L11).
+        console.error(`Invalid URL in Bitcoin RPC config: ${redactUrlCredentials(url)}`, error);
       }
     }
 
@@ -76,6 +77,18 @@ export class JsonRpcProtocol {
       'Content-Type' : 'application/json',
       ...(authHeader ? { Authorization: authHeader } : {}),
     };
+
+    // Warn when credentials (basic auth or a caller-supplied Authorization
+    // header) will be sent over cleartext HTTP to a non-loopback host: anyone on
+    // the path can read them (audit M7).
+    const sendsCredentials = authHeader !== undefined
+      || Object.keys(cfg.headers ?? {}).some(h => h.toLowerCase() === 'authorization');
+    if (sendsCredentials && isInsecureRemoteHttp(url)) {
+      console.warn(
+        `WARNING: Bitcoin RPC credentials will be sent over cleartext HTTP to ${new URL(url).host}. `
+        + 'Use HTTPS, an SSH tunnel, or a loopback bind instead.',
+      );
+    }
   }
 
   /**

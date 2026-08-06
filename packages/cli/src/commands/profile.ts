@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { defaultConfigPath, readConfigFile, writeConfigFile } from '../config.js';
+import { assertSafeProfileName, defaultConfigPath, readConfigFile, writeConfigFile } from '../config.js';
 import { CLIError } from '../error.js';
 import { formatResult, redactSecrets } from '../output.js';
 import type { CommandResult, GlobalOptions } from '../types.js';
@@ -14,6 +14,7 @@ export function registerProfileCommand(program: Command, globals: () => GlobalOp
     .command('add <name>')
     .description('Add an empty profile.')
     .action((name: string) => {
+      assertSafeProfileName(name);
       writeConfigFile(path(), raw => {
         if (raw.profiles === undefined || raw.profiles === null) raw.profiles = {};
         const profiles = raw.profiles as Record<string, unknown>;
@@ -27,6 +28,7 @@ export function registerProfileCommand(program: Command, globals: () => GlobalOp
     .command('use <name>')
     .description('Set the active profile (writes defaults.profile).')
     .action((name: string) => {
+      assertSafeProfileName(name);
       writeConfigFile(path(), raw => {
         if (raw.defaults === undefined || raw.defaults === null) raw.defaults = {};
         (raw.defaults as Record<string, unknown>).profile = name;
@@ -57,6 +59,7 @@ export function registerProfileCommand(program: Command, globals: () => GlobalOp
     .alias('rm')
     .description('Remove a profile.')
     .action((name: string) => {
+      assertSafeProfileName(name);
       writeConfigFile(path(), raw => {
         const profiles = raw.profiles as Record<string, unknown> | undefined;
         if (!profiles?.[name]) throw new CLIError(`Profile "${name}" not found.`, 'INVALID_ARGUMENT_ERROR', { name });
