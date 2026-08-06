@@ -1,7 +1,7 @@
 import { DidDocumentError, INVALID_DID_DOCUMENT } from '@did-btcr2/common';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
-import type { DidDocument, DidVerificationMethod } from '../utils/did-document.js';
+import type { Btcr2DidDocument, DidVerificationMethod } from '../utils/did-document.js';
 import { Identifier } from './identifier.js';
 import { Resolver } from './resolver.js';
 
@@ -27,7 +27,7 @@ import { Resolver } from './resolver.js';
  *   resolve to a verification method in the document.
  */
 export function getAggregationCommunicationKey(
-  document: DidDocument,
+  document: Btcr2DidDocument,
 ): CompressedSecp256k1PublicKey {
   const invocation = document.capabilityInvocation?.[0];
   if(invocation === undefined) {

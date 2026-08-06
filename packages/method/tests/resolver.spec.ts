@@ -11,7 +11,7 @@ import { p2wpkh } from '@scure/btc-signer';
 import { DidBtcr2 } from '../src/did-btcr2.js';
 import { BeaconUtils } from '../src/core/beacon/utils.js';
 import type { BeaconService, BeaconSignal } from '../src/core/beacon/interfaces.js';
-import type { DidDocument } from '../src/utils/did-document.js';
+import type { Btcr2DidDocument as DidDocument } from '../src/utils/did-document.js';
 import type { SignedBTCR2Update } from '../src/core/btcr2-update.js';
 import { Resolver } from '../src/core/resolver.js';
 import type { DidResolutionResponse, NeedBeaconSignals, NeedCASAnnouncement, NeedGenesisDocument, NeedSMTProof, NeedSignedUpdate } from '../src/core/resolver.js';
