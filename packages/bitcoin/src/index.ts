@@ -6,6 +6,7 @@ export type { HttpRequest, HttpExecutor } from './client/http.js';
 export { defaultHttpExecutor } from './client/http.js';
 export { EsploraProtocol } from './client/rest/protocol.js';
 export { JsonRpcProtocol } from './client/rpc/protocol.js';
+export type { BatchHttpRequest } from './client/rpc/protocol.js';
 
 // Clients (convenience wrappers around the protocol layer)
 export { BitcoinRestClient } from './client/rest/index.js';
@@ -31,6 +32,21 @@ export type { FeeEstimator } from './fee-estimator.js';
 export { getNetwork } from './network.js';
 export type { BTCNetwork } from './network.js';
 export { toBase64, safeText, redactUrlCredentials, isInsecureRemoteHttp } from './client/utils.js';
+export {
+  DEFAULT_MAX_RESPONSE_BYTES,
+  readJsonWithLimit,
+  readTextWithLimit,
+} from './client/utils.js';
+
+// Untrusted-response structural validation (audit M11)
+export {
+  checkAddressInfo,
+  checkAddressUtxo,
+  checkEsploraBlock,
+  checkRawTransactionRest,
+  checkRpcResult,
+  checkTransactionStatus,
+} from './client/validate.js';
 
 // Constants
 export {

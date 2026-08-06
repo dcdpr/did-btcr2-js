@@ -74,16 +74,36 @@ export class BitcoinConnection {
   /**
    * Converts Bitcoin (BTC) to satoshis.
    * Uses string-based arithmetic to avoid floating-point precision errors.
-   * @throws {RangeError} If the value has more than 8 decimal places.
+   * @throws {RangeError} If the value is not finite, is out of range, or has
+   * more than 8 decimal places of precision.
    */
   static btcToSats(btc: number): number {
-    const str = btc.toFixed(8);
+    if (!Number.isFinite(btc)) {
+      throw new RangeError(`BTC value ${btc} is not finite`);
+    }
+    // Number.toFixed switches to exponential notation at |x| >= 1e21, which
+    // would silently corrupt the string parsing below (audit L14).
+    if (Math.abs(btc) >= 1e21) {
+      throw new RangeError(`BTC value ${btc} is out of range`);
+    }
+    // Handle the sign separately: for -1 < btc < 0 the whole part stringifies
+    // to "-0" and Number("-0") === -0, which would drop the sign of the
+    // fractional part (audit L14).
+    const negative = btc < 0;
+    const abs = Math.abs(btc);
+    const str = abs.toFixed(8);
     const [whole, frac] = str.split('.');
-    // Verify no precision beyond 8 decimals was lost
-    if (Math.abs(btc - Number(str)) > Number.EPSILON) {
+    // Verify no precision beyond 8 decimals was lost. The tolerance scales
+    // with magnitude: a double cannot represent 8 exact decimal places at
+    // large values, so a fixed Number.EPSILON threshold would reject
+    // legitimate values whose representation error alone exceeds it
+    // (audit L14).
+    const tolerance = 4 * Number.EPSILON * Math.max(1, abs);
+    if (Math.abs(abs - Number(str)) > tolerance) {
       throw new RangeError(`BTC value ${btc} exceeds 8 decimal places of precision`);
     }
-    return Number(whole) * 1e8 + Number(frac);
+    const sats = Number(whole) * 1e8 + Number(frac);
+    return negative ? -sats : sats;
   }
 
   /**

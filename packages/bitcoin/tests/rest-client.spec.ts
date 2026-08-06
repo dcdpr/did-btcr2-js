@@ -42,16 +42,22 @@ function createMockSubClient() {
     // Return a response that lets us inspect what was requested
     if (req.url.includes('/blocks/tip/height')) return 12345;
     if (req.url.includes('/block-height/')) return VALID_HASH;
-    if (req.url.includes('/block/')) return { hash: VALID_HASH };
+    if (req.url.includes('/block/')) return { id: VALID_HASH, height: 100, tx_count: 1 };
     if (req.url.includes('/tx/') && req.url.endsWith('/hex')) return 'deadbeef';
     if (req.url.includes('/tx/') && req.url.endsWith('/raw')) return new Uint8Array([0xde, 0xad]);
     if (req.url.includes('/tx') && req.method === 'POST') return VALID_TXID;
-    if (req.url.includes('/tx/')) return { txid: VALID_TXID, status: { confirmed: false } };
-    if (req.url.includes('/utxo')) return [{ txid: VALID_TXID, vout: 0, value: 5000 }];
-    if (req.url.includes('/address/') && req.url.endsWith('/txs/chain')) return [{ status: { confirmed: true } }];
+    if (req.url.includes('/tx/')) return { txid: VALID_TXID, vin: [], vout: [], status: { confirmed: false } };
+    if (req.url.includes('/utxo')) {
+      return [{ txid: VALID_TXID, vout: 0, value: 5000, status: { confirmed: true, block_height: 100 } }];
+    }
+    if (req.url.includes('/address/') && req.url.includes('/txs/chain')) {
+      return [{ txid: VALID_TXID, vin: [], vout: [], status: { confirmed: true, block_height: 100 } }];
+    }
     if (req.url.includes('/address/') && req.url.endsWith('/txs/mempool')) return [];
-    if (req.url.includes('/address/') && req.url.endsWith('/txs')) return [{ status: { confirmed: true } }];
-    if (req.url.includes('/address/')) return { address: 'addr1' };
+    if (req.url.includes('/address/') && req.url.endsWith('/txs')) {
+      return [{ txid: VALID_TXID, vin: [], vout: [], status: { confirmed: true, block_height: 100 } }];
+    }
+    if (req.url.includes('/address/')) return { address: 'addr1', chain_stats: {}, mempool_stats: {} };
     return {};
   };
   return { protocol, exec, seen };
@@ -196,7 +202,9 @@ describe('BitcoinRestClient', () => {
     });
 
     it('accepts a custom executor', async () => {
-      const { executor, seen } = mockExecutor({ body: { txid: VALID_TXID, status: { confirmed: false } } });
+      const { executor, seen } = mockExecutor({
+        body : { txid: VALID_TXID, vin: [], vout: [], status: { confirmed: false } },
+      });
       const rest = new BitcoinRestClient({ host: 'https://example.com' }, executor);
 
       const tx = await rest.transaction.get(VALID_TXID);
@@ -208,11 +216,11 @@ describe('BitcoinRestClient', () => {
   });
 
   describe('response handling', () => {
-    it('returns text for text/plain content type', async () => {
+    it('coerces a text/plain tip height to a number', async () => {
       const { executor } = mockExecutor({ body: '12345', contentType: 'text/plain' });
       const rest = new BitcoinRestClient({ host: 'http://example.com' }, executor);
       const height = await rest.block.count();
-      expect(height).to.equal('12345');
+      expect(height).to.equal(12345);
     });
 
     it('throws MethodError on non-OK responses', async () => {
@@ -259,7 +267,7 @@ describe('BitcoinRestClient', () => {
     });
 
     it('merges config headers into requests', async () => {
-      const { executor, seen } = mockExecutor({ body: {} });
+      const { executor, seen } = mockExecutor({ body: '0', contentType: 'text/plain' });
       const rest = new BitcoinRestClient(
         { host: 'http://example.com', headers: { 'X-Api-Key': 'secret' } },
         executor
@@ -318,7 +326,12 @@ describe('BitcoinTransaction', () => {
   });
 
   it('works end-to-end through BitcoinRestClient with executor', async () => {
-    const mockTx = { txid: VALID_TXID, status: { confirmed: true, block_height: 100, block_hash: 'h', block_time: 0 } };
+    const mockTx = {
+      txid   : VALID_TXID,
+      vin    : [],
+      vout   : [],
+      status : { confirmed: true, block_height: 100, block_hash: 'h', block_time: 0 },
+    };
     const { executor } = mockExecutor({ body: mockTx });
     const rest = new BitcoinRestClient({ host: 'http://node' }, executor);
 
@@ -343,7 +356,7 @@ describe('BitcoinBlock', () => {
 
     const result = await block.get({ blockhash: VALID_HASH });
     expect(seen[0].url).to.include(`/block/${VALID_HASH}`);
-    expect(result).to.have.property('hash');
+    expect(result).to.have.property('id');
   });
 
   it('get() by height resolves hash first', async () => {
@@ -367,12 +380,16 @@ describe('BitcoinBlock', () => {
     }
   });
 
-  it('get() returns undefined when getHash returns non-string', async () => {
+  it('get() throws BitcoinRestError when getHash returns a malformed hash', async () => {
     const protocol = new EsploraProtocol({ host: 'https://test.com' });
     const exec = async () => undefined;
     const block = new BitcoinBlock(protocol, exec);
-    const result = await block.get({ height: 999 });
-    expect(result).to.be.undefined;
+    try {
+      await block.get({ height: 999 });
+      expect.fail('Should have thrown');
+    } catch (err) {
+      expect(err).to.be.instanceOf(BitcoinRestError);
+    }
   });
 
   it('getHash() delegates to protocol.getBlockHeight()', async () => {
@@ -446,8 +463,8 @@ describe('BitcoinAddress', () => {
   it('isFundedAddress() returns true when confirmed txs exist', async () => {
     const protocol = new EsploraProtocol({ host: 'https://test.com' });
     const exec = async () => [
-      { status: { confirmed: false } },
-      { status: { confirmed: true } },
+      { txid: VALID_TXID, vin: [], vout: [], status: { confirmed: false } },
+      { txid: VALID_TXID, vin: [], vout: [], status: { confirmed: true, block_height: 100 } },
     ];
     const address = new BitcoinAddress(protocol, exec);
     expect(await address.isFundedAddress('addr1')).to.equal(true);
@@ -455,13 +472,13 @@ describe('BitcoinAddress', () => {
 
   it('isFundedAddress() returns false when no confirmed txs', async () => {
     const protocol = new EsploraProtocol({ host: 'https://test.com' });
-    const exec = async () => [{ status: { confirmed: false } }];
+    const exec = async () => [{ txid: VALID_TXID, vin: [], vout: [], status: { confirmed: false } }];
     const address = new BitcoinAddress(protocol, exec);
     expect(await address.isFundedAddress('addr1')).to.equal(false);
   });
 
   it('works end-to-end through BitcoinRestClient with executor', async () => {
-    const utxos = [{ txid: VALID_TXID, vout: 0, value: 5000, status: { confirmed: true } }];
+    const utxos = [{ txid: VALID_TXID, vout: 0, value: 5000, status: { confirmed: true, block_height: 100 } }];
     const { executor } = mockExecutor({ body: utxos });
     const rest = new BitcoinRestClient({ host: 'http://node' }, executor);
 

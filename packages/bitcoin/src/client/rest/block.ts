@@ -1,6 +1,7 @@
 import { BitcoinRestError } from '../../errors.js';
 import type { EsploraBlock } from '../../types.js';
 import type { HttpRequest } from '../http.js';
+import { checkEsploraBlock } from '../validate.js';
 import type { EsploraProtocol } from './protocol.js';
 
 /**
@@ -21,10 +22,19 @@ export class BitcoinBlock {
 
   /**
    * Returns the blockheight of the most-work fully-validated chain.
+   * Esplora answers with a `text/plain` number; the value is coerced and
+   * validated so a hostile endpoint cannot feed a non-number into the
+   * confirmation arithmetic of downstream callers (audit M11).
    * @returns {Promise<number>} The current block height.
+   * @throws {BitcoinRestError} If the response is not a non-negative integer.
    */
   public async count(): Promise<number> {
-    return await this.exec(this.protocol.getBlockTipHeight());
+    const raw = await this.exec(this.protocol.getBlockTipHeight());
+    const height = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw.trim()) : NaN;
+    if (!Number.isInteger(height) || height < 0) {
+      throw new BitcoinRestError(`Invalid tip height response: ${JSON.stringify(raw)}`);
+    }
+    return height;
   }
 
   /**
@@ -45,7 +55,12 @@ export class BitcoinBlock {
       return undefined;
     }
 
-    return await this.exec(this.protocol.getBlock(blockhash)) as EsploraBlock;
+    const block = await this.exec(this.protocol.getBlock(blockhash));
+    const reason = checkEsploraBlock(block);
+    if (reason) {
+      throw new BitcoinRestError(`Invalid block response for ${blockhash}: ${reason}`, { blockhash });
+    }
+    return block as EsploraBlock;
   }
 
   /**
@@ -53,8 +68,13 @@ export class BitcoinBlock {
    * See {@link https://github.com/blockstream/esplora/blob/master/API.md#get-block-heightheight | Esplora GET /block-height/:height } for details.
    * @param {number} height The block height (required).
    * @returns {Promise<string>} The hash of the block at the given height.
+   * @throws {BitcoinRestError} If the response is not a 64-character hex string (audit M11).
    */
   public async getHash(height: number): Promise<string> {
-    return await this.exec(this.protocol.getBlockHeight(height));
+    const hash = await this.exec(this.protocol.getBlockHeight(height));
+    if (typeof hash !== 'string' || !/^[0-9a-fA-F]{64}$/.test(hash)) {
+      throw new BitcoinRestError(`Invalid block hash response for height ${height}`, { height });
+    }
+    return hash;
   }
 }
