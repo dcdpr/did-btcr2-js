@@ -28,9 +28,9 @@ import {
 /**
  * NostrTransport integration tests over an in-process fake relay: the real
  * transport event handlers run against real (validly signed) Nostr events,
- * with no network. Covers MS-01 (malformed wire content must be dropped, never
- * an unhandled rejection), MS-05 (factory-built transports bootstrap first-advert
- * discovery via an injected sender resolver), and MS-27 (clockSkewSec clamping).
+ * with no network. Covers malformed wire content (must be dropped, never an
+ * unhandled rejection), factory-built transports (bootstrap first-advert
+ * discovery via an injected sender resolver), and clockSkewSec clamping.
  */
 
 interface Identity { keys: SchnorrKeyPair; did: string }
@@ -120,7 +120,7 @@ describe('NostrTransport (fake relay)', () => {
     process.removeListener('unhandledRejection', onRejection);
   });
 
-  describe('malformed wire content (MS-01)', () => {
+  describe('malformed wire content', () => {
     function setupTransport(url: string): { alice: Identity; transport: NostrTransport; delivered: Record<string, unknown>[] } {
       const alice = makeIdentity();
       const transport = new NostrTransport({
@@ -196,7 +196,7 @@ describe('NostrTransport (fake relay)', () => {
     });
   });
 
-  describe('TransportFactory bootstrap (MS-05)', () => {
+  describe('TransportFactory bootstrap', () => {
     it('bootstraps first-advert discovery between factory-built transports with no pre-registration', async () => {
       const url = freshRelayUrl();
       const service = makeIdentity();
@@ -263,7 +263,7 @@ describe('NostrTransport (fake relay)', () => {
     });
   });
 
-  describe('clockSkewSec clamping (MS-27)', () => {
+  describe('clockSkewSec clamping', () => {
     it('rejects zero', () => {
       expect(() => new NostrTransport({ clockSkewSec: 0 }))
         .to.throw(TransportAdapterError).with.property('type', 'INVALID_CLOCK_SKEW');

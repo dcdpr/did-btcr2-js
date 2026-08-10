@@ -153,8 +153,8 @@ export class Identifier {
 
     // 6. Bech32m-decode the id into its hrp and dataBytes. Cap the length first
     //    so an over-long input is rejected with a typed error before any decode
-    //    work (audit I1), and convert the library's raw throw on malformed
-    //    bech32m into a typed error (audit L7). A conformant id is 55-57 chars;
+    //    work, and convert the library's raw throw on malformed
+    //    bech32m into a typed error. A conformant id is 55-57 chars;
     //    96 leaves generous headroom while bounding decode work.
     if (encoded.length > MAX_METHOD_SPECIFIC_ID_LENGTH) {
       throw new IdentifierError(`Method-specific id too long: ${encoded.length} chars`, INVALID_DID, { identifier });

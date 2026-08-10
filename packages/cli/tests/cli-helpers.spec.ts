@@ -128,7 +128,7 @@ describe('CLI Helpers', () => {
     expect(capturedOverrides?.btcRpcUser).to.equal('alice');
   });
 
-  it('rejects the removed --btc-rpc-pass flag (audit H4)', async () => {
+  it('rejects the removed --btc-rpc-pass flag', async () => {
     const spy: ApiFactory = () => createApi();
     const cli = new DidBtcr2Cli(spy);
     cli.program.exitOverride();

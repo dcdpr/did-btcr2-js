@@ -852,7 +852,7 @@ describe('resolveSecretRef and RPC password sources', () => {
     expect(resolveSecretRef('env:MY_RPC_PASS')).to.equal('from-env');
   });
 
-  it('throws a CLIError naming the variable for an env: reference that is not set (audit L15)', () => {
+  it('throws a CLIError naming the variable for an env: reference that is not set', () => {
     expect(() => resolveSecretRef('env:BTCR2_DEFINITELY_UNSET_VAR'))
       .to.throw(CLIError, /BTCR2_DEFINITELY_UNSET_VAR/);
   });

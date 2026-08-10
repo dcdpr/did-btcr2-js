@@ -100,7 +100,7 @@ describe('key commands', () => {
     expect(result.keyId).to.match(/^urn:kms:secp256k1:/);
   });
 
-  it('import --secret-file refuses a group/world-readable secret file (audit L13)', async () => {
+  it('import --secret-file refuses a group/world-readable secret file', async () => {
     if (process.platform === 'win32') return; // perms not enforceable there
     const secretFile = join(dir, 'loose.hex');
     writeFileSync(secretFile, bytesToHex(SchnorrKeyPair.generate().secretKey.bytes));

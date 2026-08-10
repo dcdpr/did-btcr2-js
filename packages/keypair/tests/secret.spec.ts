@@ -160,7 +160,7 @@ describe('Secp256k1SecretKey', () => {
       expect(publicKey.verify(signature, message, { scheme: 'ecdsa' })).to.be.true;
     });
 
-    it('produces ecdsa signatures compatible with the signWithScheme contract (audit M10)', () => {
+    it('produces ecdsa signatures compatible with the signWithScheme contract', () => {
       // A class-level signature must verify under the explicit DER/lowS/prehash:false
       // options that signWithScheme (LocalSigner, LocalKeyManager) uses.
       const signature = secretKey.sign(message, { scheme: 'ecdsa' });
@@ -169,7 +169,7 @@ describe('Secp256k1SecretKey', () => {
       ).to.be.true;
     });
 
-    it('rejects a compact-format ecdsa signature under the class-level verify (audit M10)', () => {
+    it('rejects a compact-format ecdsa signature under the class-level verify', () => {
       const compact = secp256k1.sign(message, bytes, { format: 'compact', prehash: false });
       expect(publicKey.verify(compact, message, { scheme: 'ecdsa' })).to.be.false;
     });

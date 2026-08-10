@@ -218,7 +218,7 @@ describe('JsonRpcProtocol', () => {
       expect(results).to.deep.equal([12345, 'hash100']);
     });
 
-    it('is not confused by requests interleaved between build and parse (audit M9)', () => {
+    it('is not confused by requests interleaved between build and parse', () => {
       const protocol = new JsonRpcProtocol({});
       const calls = [
         { method: 'getblockcount', params: [] as unknown[] },

@@ -8,7 +8,7 @@ import { isInsecureRemoteHttp, redactUrlCredentials, toBase64 } from '../utils.j
  * assigned to each call at build time.  {@link JsonRpcProtocol.parseBatchResponse}
  * requires these exact IDs so results are matched to calls by the identity
  * assigned when the batch was built, never by reconstructing IDs from mutable
- * protocol state at parse time (audit M9).
+ * protocol state at parse time.
  */
 export interface BatchHttpRequest extends HttpRequest {
   /** The JSON-RPC ID assigned to each call, in call order. */
@@ -68,7 +68,7 @@ export class JsonRpcProtocol {
           url = u.toString().replace(/\/+$/, '');
         }
       } catch (error: unknown) {
-        // The raw URL may carry userinfo credentials; log only the redacted form (audit L11).
+        // The raw URL may carry userinfo credentials; log only the redacted form.
         console.error(`Invalid URL in Bitcoin RPC config: ${redactUrlCredentials(url)}`, error);
       }
     }
@@ -92,7 +92,7 @@ export class JsonRpcProtocol {
 
     // Warn when credentials (basic auth or a caller-supplied Authorization
     // header) will be sent over cleartext HTTP to a non-loopback host: anyone on
-    // the path can read them (audit M7).
+    // the path can read them.
     const sendsCredentials = authHeader !== undefined
       || Object.keys(cfg.headers ?? {}).some(h => h.toLowerCase() === 'authorization');
     if (sendsCredentials && isInsecureRemoteHttp(url)) {
@@ -123,7 +123,7 @@ export class JsonRpcProtocol {
    * The assigned request IDs are captured on the returned descriptor so the
    * caller can pass them back to {@link parseBatchResponse}: interleaved
    * `buildRequest`/`buildBatchRequest` calls between build and parse must not
-   * shift the ID mapping (audit M9).
+   * shift the ID mapping.
    */
   buildBatchRequest(calls: Array<{ method: string; params: unknown[] }>): BatchHttpRequest {
     const ids = calls.map(() => ++this._id);

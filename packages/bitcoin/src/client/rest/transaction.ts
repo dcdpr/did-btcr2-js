@@ -19,7 +19,7 @@ export class BitcoinTransaction {
    * See {@link https://github.com/blockstream/esplora/blob/master/API.md#get-txtxid | Esplora GET /tx/:txid } for details.
    * @param {string} txid The transaction id (required).
    * @returns {Promise<RawTransactionRest>} A promise resolving to data about a transaction.
-   * @throws {BitcoinRestError} If the response does not have the expected shape (audit M11).
+   * @throws {BitcoinRestError} If the response does not have the expected shape.
    */
   public async get(txid: string): Promise<RawTransactionRest> {
     const tx = await this.exec(this.protocol.getTx(txid));
@@ -45,7 +45,7 @@ export class BitcoinTransaction {
    * See {@link https://github.com/blockstream/esplora/blob/master/API.md#get-txtxidhex | Esplora GET /tx/:txid/hex } for details.
    * @param {string} txid The transaction id (required).
    * @returns {Promise<string>} A promise resolving to the raw transaction hex.
-   * @throws {BitcoinRestError} If the response is not a hex string (audit M11).
+   * @throws {BitcoinRestError} If the response is not a hex string.
    */
   public async getHex(txid: string): Promise<string> {
     const hex = await this.exec(this.protocol.getTxHex(txid));
@@ -70,7 +70,7 @@ export class BitcoinTransaction {
    * See {@link https://github.com/blockstream/esplora/blob/master/API.md#post-tx | Esplora POST /tx } for details.
    * @param {string} tx The raw transaction in hex format (required).
    * @returns {Promise<string>} The transaction id of the broadcasted transaction.
-   * @throws {BitcoinRestError} If the response is not a non-empty string (audit M11).
+   * @throws {BitcoinRestError} If the response is not a non-empty string.
    */
   public async send(tx: string): Promise<string> {
     const txid = await this.exec(this.protocol.postTx(tx));

@@ -38,7 +38,7 @@ export {
   readTextWithLimit,
 } from './client/utils.js';
 
-// Untrusted-response structural validation (audit M11)
+// Untrusted-response structural validation
 export {
   checkAddressInfo,
   checkAddressUtxo,

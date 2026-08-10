@@ -89,7 +89,7 @@ describe('config and profile commands', () => {
     expect(readCfg().profiles).to.not.have.property('signet');
   });
 
-  it('profile add rejects prototype-chain names (audit L12)', async () => {
+  it('profile add rejects prototype-chain names', async () => {
     await run('config', 'init');
     await run('profile', 'add', '__proto__');
     expect(err.join(' ')).to.match(/Illegal profile name/);
@@ -97,14 +97,14 @@ describe('config and profile commands', () => {
     expect(Object.getPrototypeOf(readCfg().profiles as object)).to.equal(Object.prototype);
   });
 
-  it('profile use rejects prototype-chain names (audit L12)', async () => {
+  it('profile use rejects prototype-chain names', async () => {
     await run('config', 'init');
     err = [];
     await run('profile', 'use', 'constructor');
     expect(err.join(' ')).to.match(/Illegal profile name/);
   });
 
-  it('config set warns when storing a plaintext RPC password (audit L15)', async () => {
+  it('config set warns when storing a plaintext RPC password', async () => {
     await run('config', 'init');
     await run('config', 'set', 'profiles.regtest.btc.rpcPass', 'hunter2');
     expect(err.join(' ')).to.match(/plaintext RPC password/);

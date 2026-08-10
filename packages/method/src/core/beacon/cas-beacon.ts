@@ -113,7 +113,7 @@ export class CASBeacon extends SinglePartyBeacon {
       }
 
       // A malformed announcement entry must surface as a typed error, not a raw
-      // decode throw escaping resolution (audit L7).
+      // decode throw escaping resolution.
       let updateHash: string;
       try {
         updateHash = encode(decode(updateHashEncoded, 'base64urlnopad'), 'hex');

@@ -4,7 +4,7 @@ import type { NetworkOption } from './types.js';
 
 /**
  * Hard ceiling for the `--fee-rate` flag, the `BTCR2_FEE_RATE` env var, and the
- * profile `btc.feeRate` value (audit M8). Far above historical congestion
+ * profile `btc.feeRate` value. Far above historical congestion
  * peaks; anything higher is a fat-finger, not a fee choice.
  */
 export const MAX_FEE_RATE_SATS_PER_VBYTE = 1000;
@@ -47,8 +47,8 @@ export type ConfirmBroadcastOptions = {
 };
 
 /**
- * Requires explicit operator confirmation before an on-chain beacon broadcast
- * (audit M8). Skipped on regtest (a local, disposable network) and when
+ * Requires explicit operator confirmation before an on-chain beacon broadcast.
+ * Skipped on regtest (a local, disposable network) and when
  * `--yes` was passed. Otherwise displays the plan, including the estimated
  * absolute fee, and requires a "yes" answer. Non-interactive invocations
  * without `--yes` fail closed with `CONFIRMATION_REQUIRED_ERROR`.

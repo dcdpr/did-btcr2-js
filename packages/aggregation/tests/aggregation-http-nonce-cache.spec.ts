@@ -30,7 +30,7 @@ describe('HTTP transport nonce cache', () => {
     // Pin the clock near the test timestamps so nothing falls outside the
     // expiry window: at capacity the cache fails closed (refuses the new
     // admission) rather than evicting a live in-window entry and reopening its
-    // replay window (audit MS-10).
+    // replay window.
     const cache = new NonceCache({ maxEntries: 3, windowSec: 10_000, nowSec: () => 10 });
     cache.store('d', 'a', 1);
     cache.store('d', 'b', 2);

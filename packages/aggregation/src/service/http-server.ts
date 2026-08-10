@@ -90,7 +90,7 @@ export interface HttpServerTransportConfig {
    * Must exceed the service's update cap by enough to carry the signed-envelope
    * wrapper: a SUBMIT_UPDATE at the 256 KiB update ceiling otherwise arrives in an
    * envelope that overflows a smaller body cap and is rejected before the service
-   * ever sees it (audit L17). Defaults to {@link DEFAULT_MAX_UPDATE_SIZE_BYTES}
+   * ever sees it. Defaults to {@link DEFAULT_MAX_UPDATE_SIZE_BYTES}
    * plus 64 KiB of envelope/JSON headroom (320 KiB).
    */
   maxBodyBytes?: number;
@@ -142,7 +142,7 @@ const DEFAULT_ADVERT_TTL_MS = 5 * 60 * 1000;
 const DEFAULT_HEARTBEAT_MS  = 20_000;
 /**
  * Body cap must clear the largest legitimate payload: a SUBMIT_UPDATE at the
- * service's update ceiling wrapped in its signed envelope (audit L17).
+ * service's update ceiling wrapped in its signed envelope.
  */
 const DEFAULT_MAX_BODY_BYTES = DEFAULT_MAX_UPDATE_SIZE_BYTES + 64 * 1024;
 
@@ -190,7 +190,7 @@ export class HttpServerTransport implements Transport {
     this.#inboxBufferSize = config.inboxBufferSize ?? 100;
     this.#advertTtlMs     = config.advertTtlMs ?? DEFAULT_ADVERT_TTL_MS;
     this.#heartbeatMs     = config.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_MS;
-    // NOTE (audit MS-08): the rate limiter buckets by verified sender DID (plus
+    // NOTE: the rate limiter buckets by verified sender DID (plus
     // the adapter-supplied remoteAddr hint when present - see #limitKey). A
     // DID-keyed limit alone can be multiplied by minting fresh k1 DIDs, which
     // is free; full Sybil resistance needs connection/IP-keyed limits at the
@@ -413,7 +413,6 @@ export class HttpServerTransport implements Transport {
     }
     // Store the nonce only AFTER the rate-limit gate: a 429'd request must not
     // insert an entry, or flooding past the limit would still grow the cache
-    // (audit MS-10).
     if(!this.#nonceCache.store(envelope.from, envelope.nonce, envelope.timestamp)) {
       return this.#respondJson(409, { error: 'replay' }, req);
     }
@@ -597,7 +596,7 @@ export class HttpServerTransport implements Transport {
   /**
    * Rate-limit bucket key: the verified sender DID, qualified by the adapter's
    * remoteAddr hint when one is supplied, so the same DID from distinct
-   * connections does not share a bucket (audit MS-08). This is only a hint -
+   * connections does not share a bucket. This is only a hint -
    * see the construction-site note on DID-minting multiplication.
    */
   #limitKey(did: string, req: HttpRequestLike): string {

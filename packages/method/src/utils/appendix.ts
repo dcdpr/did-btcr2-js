@@ -167,7 +167,6 @@ export class Appendix {
     //    1. Assert length of components is 4. Split first, then count: the
     //    previous destructuring form always produced exactly four slots, so the
     //    check could never fire and trailing segments were silently ignored
-    //    (audit L9).
     if (components.length !== 4) {
       throw new DidError(DidErrorCode.InvalidDid, `Invalid capabilityId: ${capabilityId}`);
     }

@@ -1,5 +1,5 @@
 /**
- * Structural validation for untrusted Bitcoin endpoint responses (audit M11).
+ * Structural validation for untrusted Bitcoin endpoint responses.
  *
  * Amounts, UTXO sets, and confirmation status returned by an Esplora or
  * Bitcoin Core endpoint flow directly into resolution and funding decisions.

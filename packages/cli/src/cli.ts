@@ -54,7 +54,7 @@ export class DidBtcr2Cli {
       .option('--btc-rpc-url <url>', 'Override Bitcoin Core RPC endpoint')
       .option('--btc-rpc-user <user>', 'Bitcoin Core RPC username')
       // No --btc-rpc-pass flag: a password on argv is visible in ps, /proc/<pid>/cmdline,
-      // shell history, and CI logs (audit H4). Use BTCR2_BTC_RPC_PASS,
+      // shell history, and CI logs. Use BTCR2_BTC_RPC_PASS,
       // BTCR2_BTC_RPC_PASS_FILE, or an `env:`/`file:` secret reference instead.
       .option('--cas-gateway <url>', 'IPFS HTTP gateway for CAS reads (read-only)')
       .option('--cas-rpc-url <url>', 'IPFS HTTP RPC endpoint for a writable CAS (reads + writes; enables --publish-to-cas)')

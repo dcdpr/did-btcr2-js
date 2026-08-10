@@ -24,7 +24,7 @@ export class BitcoinBlock {
    * Returns the blockheight of the most-work fully-validated chain.
    * Esplora answers with a `text/plain` number; the value is coerced and
    * validated so a hostile endpoint cannot feed a non-number into the
-   * confirmation arithmetic of downstream callers (audit M11).
+   * confirmation arithmetic of downstream callers.
    * @returns {Promise<number>} The current block height.
    * @throws {BitcoinRestError} If the response is not a non-negative integer.
    */
@@ -68,7 +68,7 @@ export class BitcoinBlock {
    * See {@link https://github.com/blockstream/esplora/blob/master/API.md#get-block-heightheight | Esplora GET /block-height/:height } for details.
    * @param {number} height The block height (required).
    * @returns {Promise<string>} The hash of the block at the given height.
-   * @throws {BitcoinRestError} If the response is not a 64-character hex string (audit M11).
+   * @throws {BitcoinRestError} If the response is not a 64-character hex string.
    */
   public async getHash(height: number): Promise<string> {
     const hash = await this.exec(this.protocol.getBlockHeight(height));

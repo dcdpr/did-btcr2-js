@@ -154,7 +154,7 @@ function driveToAwaitingSigning(spec: TxSpec, participantOpts?: { maxFeeSats?: b
   return { service, participant, cohortId, serviceDid: serviceId.did, memberDid: member.did, script, value };
 }
 
-describe('Participant beacon-tx validation (audit M5)', () => {
+describe('Participant beacon-tx validation', () => {
 
   it('accepts a well-formed beacon spend (control)', () => {
     const d = driveToAwaitingSigning({ selfChange: 100000n - 500n });
