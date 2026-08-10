@@ -106,7 +106,7 @@ A single `Transport` instance can serve multiple registered actors. In productio
 ```typescript
 import { NostrTransport, SILENT_LOGGER } from '@did-btcr2/method';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
-import { DidBtcr2 } from '@did-btcr2/method';
+import { DidBtcr2, resolveBtcr2SenderPk } from '@did-btcr2/method';
 
 // 1. Generate identity
 const keys = SchnorrKeyPair.generate();
@@ -125,6 +125,10 @@ const transport = new NostrTransport({
   // Some relays don't backfill historical events to late subscribers; this
   // gives them a bounded window of recent events to replay. Default 5 min.
   broadcastLookbackMs : 5 * 60 * 1000,
+  // Recommended: authenticate senders from their DIDs so a first advert or
+  // opt-in from an unregistered peer is accepted; without it, only
+  // pre-registered peers can authenticate and discovery cannot bootstrap.
+  resolveSenderPk     : resolveBtcr2SenderPk,
 });
 
 // 3. Register the actor (DID + keys) with the transport
@@ -146,6 +150,8 @@ That's the entire transport setup. From here on, you only interact with the Runn
 | `relays` | `DEFAULT_NOSTR_RELAYS` (4 public relays) | Array of relay URLs to connect to |
 | `logger` | `CONSOLE_LOGGER` | Injectable `Logger` for transport diagnostics |
 | `broadcastLookbackMs` | 5 min | `since` filter on broadcast (COHORT_ADVERT) subscription. Set to `0` to disable. |
+| `resolveSenderPk` | none (registered peers only) | DID -> communication-public-key resolver for unregistered senders (e.g. `resolveBtcr2SenderPk`). Required for cohort discovery to bootstrap. |
+| `clockSkewSec` | 60s | Envelope timestamp tolerance; messages older than this are dropped. Clamped to 300s max. |
 
 ### Choosing between Nostr and HTTP
 
@@ -165,8 +171,9 @@ Factory invocation for each:
 ```typescript
 // Nostr
 const transport = TransportFactory.establish({
-  type   : 'nostr',
-  relays : ['wss://relay.damus.io', 'wss://nos.lol'],
+  type            : 'nostr',
+  relays          : ['wss://relay.damus.io', 'wss://nos.lol'],
+  resolveSenderPk : resolveBtcr2SenderPk,
 });
 
 // HTTP client (participant side)

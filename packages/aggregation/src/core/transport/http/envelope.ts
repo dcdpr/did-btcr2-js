@@ -185,13 +185,25 @@ export function normalizeForWire(value: unknown): unknown {
  * Recursively convert `{ __bytes: hex }` sentinels back into `Uint8Array`
  * values. Call on `envelope.message` *after* successful verification and
  * before handing the payload to a runner's handler.
+ *
+ * Malformed sentinels (non-hex or odd-length strings) throw a typed
+ * {@link HttpTransportError} rather than the raw `hexToBytes` failure, so
+ * callers can catch and drop the offending payload. A `__bytes` key holding a
+ * non-string value is left untouched (it is not a sentinel).
  */
 export function reviveFromWire(value: unknown): unknown {
   if(value && typeof value === 'object' && !Array.isArray(value)) {
     const rec = value as Record<string, unknown>;
     const keys = Object.keys(rec);
     if(keys.length === 1 && keys[0] === '__bytes' && typeof rec.__bytes === 'string') {
-      return hexToBytes(rec.__bytes);
+      const hex = rec.__bytes;
+      if(hex.length % 2 !== 0 || !/^[0-9a-f]*$/.test(hex)) {
+        throw new HttpTransportError(
+          'Malformed __bytes wire sentinel: expected an even-length lowercase hex string',
+          'WIRE_SENTINEL_INVALID',
+        );
+      }
+      return hexToBytes(hex);
     }
     const out: Record<string, unknown> = {};
     for(const [k, v] of Object.entries(rec)) out[k] = reviveFromWire(v);

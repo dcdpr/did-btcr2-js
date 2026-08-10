@@ -6,6 +6,7 @@ import { HttpClientTransport } from './participant/http-client.js';
 import type { HttpServerTransportConfig } from './service/http-server.js';
 import { HttpServerTransport } from './service/http-server.js';
 import { NostrTransport } from './core/transport/nostr.js';
+import type { NostrTransportConfig } from './core/transport/nostr.js';
 import type { Transport } from './core/transport/transport.js';
 
 /** Discriminated-union config for {@link TransportFactory.establish}. */
@@ -20,6 +21,16 @@ export interface NostrTransportConfigOption {
   relays?: string[];
   logger?: Logger;
   broadcastLookbackMs?: number;
+  /**
+   * Optional DID -> communication-public-key resolver for senders that are not
+   * pre-registered peers (for example `resolveBtcr2SenderPk` from
+   * `@did-btcr2/method`, injected by the caller - this package stays
+   * DID-method-agnostic). Without it, a factory-built transport drops every
+   * message from an unregistered sender, so cohort discovery cannot bootstrap.
+   */
+  resolveSenderPk?: NostrTransportConfig['resolveSenderPk'];
+  /** Envelope timestamp tolerance in seconds; see {@link NostrTransportConfig.clockSkewSec}. */
+  clockSkewSec?: number;
 }
 
 export interface DidCommTransportConfigOption {
@@ -45,6 +56,8 @@ export class TransportFactory {
           relays              : config.relays,
           logger              : config.logger,
           broadcastLookbackMs : config.broadcastLookbackMs,
+          resolveSenderPk     : config.resolveSenderPk,
+          clockSkewSec        : config.clockSkewSec,
         });
       case 'didcomm':
         throw new NotImplementedError('DIDComm transport not implemented yet.');

@@ -205,12 +205,15 @@ import {
   AggregationParticipantRunner,
   DidBtcr2,
   NostrTransport,
+  resolveBtcr2SenderPk,
 } from '@did-btcr2/method';
 
 // --- Service Setup ---
 const serviceKeys = SchnorrKeyPair.generate();
 const serviceDid = DidBtcr2.create(serviceKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
-const transport = new NostrTransport({ relays: ['wss://relay.example'] });
+// resolveSenderPk authenticates senders from their DIDs so cohort discovery
+// bootstraps without out-of-band peer-key registration.
+const transport = new NostrTransport({ relays: ['wss://relay.example'], resolveSenderPk: resolveBtcr2SenderPk });
 
 const service = new AggregationServiceRunner({
   transport,
@@ -236,7 +239,7 @@ const result = await service.run();
 // --- Participant Setup ---
 const aliceKeys = SchnorrKeyPair.generate();
 const aliceDid = DidBtcr2.create(aliceKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
-const aliceTransport = new NostrTransport({ relays: ['wss://relay.example'] });
+const aliceTransport = new NostrTransport({ relays: ['wss://relay.example'], resolveSenderPk: resolveBtcr2SenderPk });
 
 const alice = new AggregationParticipantRunner({
   transport       : aliceTransport,

@@ -89,7 +89,10 @@ export interface AggregationParticipantRunnerOptions {
  *
  * @example
  * ```typescript
- * const transport = new NostrTransport({ relays: [RELAY] });
+ * // Inject a DID-aware sender resolver (e.g. resolveBtcr2SenderPk from
+ * // @did-btcr2/method) so a first advert from an unregistered service still
+ * // authenticates and discovery can bootstrap.
+ * const transport = new NostrTransport({ relays: [RELAY], resolveSenderPk: resolveBtcr2SenderPk });
  * transport.registerActor(myDid, myKeys);
  *
  * const runner = new AggregationParticipantRunner({

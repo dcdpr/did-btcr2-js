@@ -331,8 +331,8 @@ export class HttpClientTransport implements Transport {
       return;
     }
 
-    const revived = reviveFromWire(envelope.message) as Record<string, unknown>;
-    const flat = flattenMessage(revived);
+    const flat = this.#reviveAndBind(envelope);
+    if(!flat) return;
     const messageType = typeof flat.type === 'string' ? flat.type : undefined;
     if(!messageType) return;
 
@@ -361,13 +361,36 @@ export class HttpClientTransport implements Transport {
       return;
     }
 
-    const revived = reviveFromWire(envelope.message) as Record<string, unknown>;
-    const flat = flattenMessage(revived);
+    const flat = this.#reviveAndBind(envelope);
+    if(!flat) return;
     const messageType = typeof flat.type === 'string' ? flat.type : undefined;
     if(!messageType) return;
 
     const handler = entry.handlers.get(messageType);
     if(handler) await handler(flat);
+  }
+
+  /**
+   * Revive a verified envelope's message and bind its `from` to the
+   * authenticated envelope sender, mirroring the Nostr path's
+   * `authenticateEnvelopeContent`: a mismatching inner `from` drops the
+   * message, and a missing one is rebound, so a verified sender can never
+   * dispatch under another DID. Malformed wire content is dropped, not
+   * propagated into the SSE loops.
+   */
+  #reviveAndBind(envelope: SignedEnvelope): Record<string, unknown> | undefined {
+    let flat: Record<string, unknown>;
+    try {
+      flat = flattenMessage(reviveFromWire(envelope.message) as Record<string, unknown>);
+    } catch(err) {
+      this.#logger.debug('Message revival failed:', err);
+      return undefined;
+    }
+    if(flat.from !== undefined && flat.from !== envelope.from) {
+      this.#logger.debug(`Dropping message with spoofed inner from: ${String(flat.from)} !== ${envelope.from}`);
+      return undefined;
+    }
+    return { ...flat, from: envelope.from };
   }
 
   #resolveSenderPk(
