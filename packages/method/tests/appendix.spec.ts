@@ -10,7 +10,7 @@ describe('Appendix.dereferenceZcapId', () => {
     expect(cap.invocationTarget).to.equal('did:btcr2:k1q0rnnwf657vuu8trztlczvlmphjgc6q598h79cm6sp7c4fgqh0fkc0vzd9u');
   });
 
-  it('rejects a capability id with trailing segments (audit L9)', () => {
+  it('rejects a capability id with trailing segments', () => {
     expect(() => Appendix.dereferenceZcapId(`${VALID_CAP_ID}:extra`)).to.throw(/Invalid capabilityId/);
   });
 

@@ -27,7 +27,7 @@ export class JsonRpcTransport {
   }
 
   /**
-   * Read a JSON-RPC response body with a size cap (audit M11), wrapping parse
+   * Read a JSON-RPC response body with a size cap, wrapping parse
    * and size failures in a typed {@link BitcoinRpcError}.
    */
   private async readBody<T>(res: Response, context: Record<string, unknown>): Promise<T> {

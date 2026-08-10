@@ -8,12 +8,12 @@ import deterministicData from './data/deterministic-data.js';
 import externalData from './data/external-data.js';
 
 /**
- * Regression tests for audit I7: the resolver must operate on full plain-JSON
+ * Regression tests: the resolver must operate on full plain-JSON
  * documents. A class wrapper drops any field outside its known property set
  * (both at construction and via its toJSON subset used by the patch deep-clone),
  * which diverged the patched-document hashes from any plain-JSON implementation.
  */
-describe('resolver plain-document handling (audit I7)', () => {
+describe('resolver plain-document handling', () => {
   const fixture = externalData[0]!;
 
   /** A valid EXTERNAL genesis document carrying a field outside the class's known set. */

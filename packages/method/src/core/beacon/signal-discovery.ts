@@ -11,14 +11,44 @@ import type { BeaconService, BeaconSignal } from './interfaces.js';
 import { BeaconUtils } from './utils.js';
 
 /**
- * Parses a scriptPubKey asm string and returns the beacon signal hash if and only
- * if the output is exactly `OP_RETURN OP_PUSHBYTES_32 <32-byte hex>`.
+ * Validates a scriptPubKey hex string and returns the beacon signal hash if and
+ * only if the output is exactly the NULL_DATA byte sequence `6a20<32 bytes>`
+ * (`OP_RETURN` followed by a single minimal 32-byte data push).
  *
- * Beacon signals encode a single 32-byte update or announcement hash in an
- * OP_RETURN data push. Any other shape (a bare `OP_RETURN`, a push of the wrong
- * size, or a non-hex payload) is not a valid signal and returns `null`, so a
- * malformed or adversarial on-chain output cannot be mistaken for a real signal
- * downstream.
+ * Hex validation is dialect-independent: both Esplora (`scriptpubkey`) and
+ * Bitcoin Core (`scriptPubKey.hex`) report the raw script bytes, so this is the
+ * authoritative check for both discovery paths and cannot drift between them
+ * the way asm tokenization can.
+ *
+ * @param {string | undefined} hex The scriptPubKey hex string to validate.
+ * @returns {string | null} The lowercased 32-byte hex hash, or `null` if not a valid signal.
+ */
+export function extractOpReturnSignalFromHex(hex: string | undefined): string | null {
+  if(!hex) {
+    return null;
+  }
+
+  const script = hex.trim().toLowerCase();
+  if(!/^6a20[0-9a-f]{64}$/.test(script)) {
+    return null;
+  }
+
+  return script.slice(4);
+}
+
+/**
+ * Parses a scriptPubKey asm string and returns the beacon signal hash if and
+ * only if the output is a single `OP_RETURN` 32-byte data push.
+ *
+ * Two asm dialects render the same on-the-wire `6a20<32 bytes>` script:
+ * Esplora/rust-bitcoin emits three tokens `OP_RETURN OP_PUSHBYTES_32 <64-hex>`,
+ * while Bitcoin Core's `ScriptToAsmStr` emits two tokens `OP_RETURN <64-hex>`.
+ * Both are accepted. Discovery paths should prefer
+ * {@link extractOpReturnSignalFromHex}, which is dialect-independent.
+ *
+ * Any other shape (a bare `OP_RETURN`, a push of the wrong size, or a non-hex
+ * payload) is not a valid signal and returns `null`, so a malformed or
+ * adversarial on-chain output cannot be mistaken for a real signal downstream.
  *
  * @param {string | undefined} asm The scriptPubKey asm string to parse.
  * @returns {string | null} The lowercased 32-byte hex hash, or `null` if not a valid signal.
@@ -28,20 +58,20 @@ export function extractOpReturnSignal(asm: string | undefined): string | null {
     return null;
   }
 
-  // A standard NULL_DATA beacon output is exactly three asm tokens: the OP_RETURN
-  // opcode, the 32-byte push opcode, and the 64-character hex payload.
   const tokens = asm.trim().split(/\s+/);
-  if(tokens.length !== 3 || tokens[0] !== 'OP_RETURN' || tokens[1] !== 'OP_PUSHBYTES_32') {
+  if(tokens[0] !== 'OP_RETURN') {
     return null;
   }
 
-  // The payload must be exactly 32 bytes of hex (64 hex characters).
-  const signalHash = tokens[2];
-  if(!/^[0-9a-fA-F]{64}$/.test(signalHash)) {
+  const payload =
+    tokens.length === 3 && tokens[1] === 'OP_PUSHBYTES_32' ? tokens[2] :
+      tokens.length === 2 ? tokens[1] :
+        undefined;
+  if(!payload || !/^[0-9a-fA-F]{64}$/.test(payload)) {
     return null;
   }
 
-  return signalHash.toLowerCase();
+  return payload.toLowerCase();
 }
 
 /**
@@ -71,10 +101,9 @@ export class BeaconSignalDiscovery {
     // Iterate over each beacon
     for (const beaconService of beaconServices) {
       beaconServiceSignals.set(beaconService, []);
+      const beaconAddress = BeaconUtils.parseBitcoinAddress(beaconService.serviceEndpoint as string);
       // Get the transactions for the beacon address via REST
-      const beaconSignals = await bitcoin.rest.address.getTxs(
-        BeaconUtils.parseBitcoinAddress(beaconService.serviceEndpoint as string)
-      );
+      const beaconSignals = await bitcoin.rest.address.getTxs(beaconAddress);
 
       // If no signals are found, continue
       if (!beaconSignals || !beaconSignals.length) {
@@ -90,12 +119,22 @@ export class BeaconSignalDiscovery {
           continue;
         }
 
+        // The tx must spend FROM the beacon address, matching the full-node
+        // path's semantics: `/address/:address/txs` returns any tx touching the
+        // address, so a third party paying TO the beacon address with an
+        // OP_RETURN final output would otherwise surface as a phantom signal
+        const spendsFromBeacon = beaconSignal.vin.some(
+          (vin) => vin.prevout?.scriptpubkey_address === beaconAddress
+        );
+        if(!spendsFromBeacon) {
+          continue;
+        }
+
         // Get the last vout in the transaction
         const signalVout = beaconSignal.vout.slice(-1)[0];
 
         /**
-         * Look for OP_RETURN in last vout scriptpubkey_asm
-         * Vout (rest) format:
+         * A beacon signal output is exactly `6a20<32 bytes>` on the wire:
          * {
          *  scriptpubkey: '6a20570f177c65e64fb5cf61180b664cdddf09ab76153c2b192e22006e5b22a3917a',
          *  scriptpubkey_asm: 'OP_RETURN OP_PUSHBYTES_32 570f177c65e64fb5cf61180b664cdddf09ab76153c2b192e22006e5b22a3917a',
@@ -107,10 +146,9 @@ export class BeaconSignalDiscovery {
           continue;
         }
 
-        // A beacon signal output must be exactly `OP_RETURN OP_PUSHBYTES_32 <32-byte hash>`.
-        // Reject any other shape (bare OP_RETURN, wrong push size, non-hex payload) so a
-        // malformed on-chain output cannot masquerade as a phantom signal downstream.
-        const updateHash = extractOpReturnSignal(signalVout.scriptpubkey_asm);
+        // Validate the raw script hex (dialect-independent) rather than the asm
+        // so a malformed on-chain output cannot masquerade as a phantom signal.
+        const updateHash = extractOpReturnSignalFromHex(signalVout.scriptpubkey);
         if(!updateHash) {
           continue;
         }
@@ -227,9 +265,12 @@ export class BeaconSignalDiscovery {
           // The signal is carried by the SPENDING transaction's last output (an
           // OP_RETURN), never by the spent prevout: the prevout is the beacon
           // address's payment script, so reading it here always yielded null and
-          // full-node discovery silently reported zero signals (audit H5).
+          // full-node discovery silently reported zero signals.
+          // Validate the raw script hex: Bitcoin Core renders the push as
+          // two-token asm `OP_RETURN <64-hex>` with no OP_PUSHBYTES_32 token,
+          // so asm parsing under-counts signals against a real full node
           const signalVout = tx.vout.slice(-1)[0];
-          const updateHash = extractOpReturnSignal(signalVout?.scriptPubKey?.asm);
+          const updateHash = extractOpReturnSignalFromHex(signalVout?.scriptPubKey?.hex);
           if(!updateHash) {
             continue;
           }

@@ -513,7 +513,11 @@ describe('DidMethodApi resolve() SMT proof handling', () => {
 
     const smtRootHex = 'ab'.repeat(32);
     const signalTx = {
-      vout   : [{ scriptpubkey_asm: `OP_RETURN OP_PUSHBYTES_32 ${smtRootHex}` }],
+      vin    : [{ prevout: { scriptpubkey_address: beaconAddress } }],
+      vout   : [{
+        scriptpubkey     : `6a20${smtRootHex}`,
+        scriptpubkey_asm : `OP_RETURN OP_PUSHBYTES_32 ${smtRootHex}`
+      }],
       status : { confirmed: true, block_height: 100, block_time: 1700000000 },
     };
     const btcMock = {

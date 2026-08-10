@@ -22,7 +22,7 @@ export async function safeText(res: Response): Promise<string> {
 
 /**
  * Default maximum accepted response body size (32 MiB). Unbounded
- * `response.json()` on a hostile endpoint is a memory-DoS (audit M11); both
+ * `response.json()` on a hostile endpoint is a memory-DoS; both
  * client transports cap bodies at this size unless configured otherwise via
  * `maxResponseBytes` on the REST/RPC config.
  */
@@ -32,7 +32,7 @@ export const DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
  * Read a response body as text, rejecting bodies larger than `maxBytes`.
  * Streams the body when possible so an over-limit body is rejected before it
  * is fully buffered; falls back to a post-hoc length check for Response-like
- * objects without a readable stream (audit M11).
+ * objects without a readable stream.
  *
  * @throws {Error} If the body exceeds `maxBytes`.
  */
@@ -82,7 +82,6 @@ export async function readTextWithLimit(res: Response, maxBytes: number = DEFAUL
 
 /**
  * Read a response body as JSON, rejecting bodies larger than `maxBytes`
- * (audit M11).
  *
  * @throws {Error} If the body exceeds `maxBytes` or is not valid JSON.
  */
@@ -92,7 +91,7 @@ export async function readJsonWithLimit(res: Response, maxBytes: number = DEFAUL
 
 /**
  * Strip any userinfo (credentials) from a URL string so it is safe to log or
- * embed in an error message (audit L11). Handles both parseable URLs (via the
+ * embed in an error message. Handles both parseable URLs (via the
  * URL API) and unparseable ones (defensive regex over the authority segment).
  */
 export function redactUrlCredentials(url: string): string {
@@ -113,7 +112,7 @@ const LOOPBACK_HOSTNAMES = new Set([ 'localhost', '127.0.0.1', '::1', '[::1]' ])
 
 /**
  * True if `url` is cleartext HTTP to a non-loopback host: sending credentials
- * to such an endpoint exposes them on the network (audit M7).
+ * to such an endpoint exposes them on the network.
  */
 export function isInsecureRemoteHttp(url: string): boolean {
   let u: URL;

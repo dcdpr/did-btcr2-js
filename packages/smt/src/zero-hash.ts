@@ -100,7 +100,7 @@ function lowestDifferingBit(a: bigint, b: bigint): number {
  * Hash of `node`'s subtree viewed at `slotHeight`, lifting through the empty
  * sibling chain for any compressed solo levels. Branch hashes are computed
  * once and memoized; lifts are cheap chains of `blockHash(x, CACHED_ZERO[h])`
- * with the side determined by the shared prefix bits (audit M12).
+ * with the side determined by the shared prefix bits.
  */
 function nodeHash(node: TrieNode, slotHeight: number): Uint8Array {
   let acc: Uint8Array;
@@ -158,7 +158,7 @@ function insertNode(node: TrieNode | undefined, entry: ZeroHashEntry): TrieNode 
 }
 
 /**
- * A persistent zero-hash Sparse Merkle Tree (audit M12).
+ * A persistent zero-hash Sparse Merkle Tree.
  *
  * The naive formulation recomputed the sibling set of every level from
  * scratch per proof: O(256^2 * n) bit operations plus full subtree rehashing

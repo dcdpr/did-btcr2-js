@@ -81,13 +81,13 @@ export interface AggregationParticipantRunnerOptions {
 
   /**
    * Cap on cohort states the participant retains at once, forwarded to
-   * {@link AggregationParticipantParams.maxCohorts} (audit MS-08).
+   * {@link AggregationParticipantParams.maxCohorts}.
    */
   maxCohorts?: number;
 
   /**
    * Absolute fee ceiling (satoshis) this member signs for, forwarded to
-   * {@link AggregationParticipantParams.maxFeeSats} (audit MS-08).
+   * {@link AggregationParticipantParams.maxFeeSats}.
    */
   maxFeeSats?: bigint | number;
 }
@@ -293,8 +293,8 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
 
       const join = await this.#shouldJoin(advert);
       if (!join) {
-        // A rejected advert must not permanently consume a cohort-state slot
-        // (audit MS-08): the state machine stores the entry before shouldJoin
+        // A rejected advert must not permanently consume a cohort-state slot:
+        // the state machine stores the entry before shouldJoin
         // runs, so the runner drops it here.
         this.session.leaveCohort(advert.cohortId);
         return;
@@ -383,7 +383,7 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
       } else {
         await this.#sendAll(this.session.rejectValidation(cohortId));
         this.emit('cohort-failed', { cohortId, reason: 'Validation rejected by participant' });
-        // Reclaim the cohort slot; dead state must not count against maxCohorts (MS-08).
+        // Reclaim the cohort slot; dead state must not count against maxCohorts.
         this.session.leaveCohort(cohortId);
       }
     } catch (err) {
@@ -509,7 +509,7 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
       smtProof        : validation?.smtProof,
     });
     // Reclaim the cohort slot once the member's work is done: completed state
-    // must not count against maxCohorts forever (audit MS-08). The retained
+    // must not count against maxCohorts forever. The retained
     // sidecar was handed to the listener in the event above.
     this.session.leaveCohort(cohortId);
   }

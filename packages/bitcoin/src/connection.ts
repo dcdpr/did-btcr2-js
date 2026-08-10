@@ -82,13 +82,13 @@ export class BitcoinConnection {
       throw new RangeError(`BTC value ${btc} is not finite`);
     }
     // Number.toFixed switches to exponential notation at |x| >= 1e21, which
-    // would silently corrupt the string parsing below (audit L14).
+    // would silently corrupt the string parsing below.
     if (Math.abs(btc) >= 1e21) {
       throw new RangeError(`BTC value ${btc} is out of range`);
     }
     // Handle the sign separately: for -1 < btc < 0 the whole part stringifies
     // to "-0" and Number("-0") === -0, which would drop the sign of the
-    // fractional part (audit L14).
+    // fractional part.
     const negative = btc < 0;
     const abs = Math.abs(btc);
     const str = abs.toFixed(8);
@@ -97,7 +97,6 @@ export class BitcoinConnection {
     // with magnitude: a double cannot represent 8 exact decimal places at
     // large values, so a fixed Number.EPSILON threshold would reject
     // legitimate values whose representation error alone exceeds it
-    // (audit L14).
     const tolerance = 4 * Number.EPSILON * Math.max(1, abs);
     if (Math.abs(abs - Number(str)) > tolerance) {
       throw new RangeError(`BTC value ${btc} exceeds 8 decimal places of precision`);

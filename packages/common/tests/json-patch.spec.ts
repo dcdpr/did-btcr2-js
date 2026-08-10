@@ -28,18 +28,18 @@ describe('JSONPatch', () => {
     expect(() => JSONPatch.apply(source, ops)).to.throw(MethodError, 'Invalid JSON Patch operations');
   });
 
-  it('rejects a patch with too many operations (audit L10)', () => {
+  it('rejects a patch with too many operations', () => {
     const ops = Array.from({ length: 1025 }, () => ({ op: 'add', path: '/x', value: 1 }) as any);
     expect(() => JSONPatch.apply({ a: 1 }, ops)).to.throw(MethodError, 'Invalid JSON Patch operations');
     expect(JSONPatch.validateOperations(ops)?.message).to.match(/Too many operations/);
   });
 
-  it('rejects an operation with an over-long path (audit L10)', () => {
+  it('rejects an operation with an over-long path', () => {
     const ops = [{ op: 'add', path: `/${'a'.repeat(2048)}`, value: 1 } as any];
     expect(JSONPatch.validateOperations(ops)?.message).to.match(/path too long/);
   });
 
-  it('rejects an operation with an oversized value (audit L10)', () => {
+  it('rejects an operation with an oversized value', () => {
     const ops = [{ op: 'add', path: '/x', value: 'x'.repeat(300 * 1024) } as any];
     expect(JSONPatch.validateOperations(ops)?.message).to.match(/value too large/);
   });

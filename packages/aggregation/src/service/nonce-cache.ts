@@ -4,7 +4,7 @@ export interface NonceCacheConfig {
   /**
    * Max entries retained per DID. Bounds any single sender's footprint so a
    * flood from one (or a few) DIDs can never evict another DID's live entries
-   * and reopen their replay window (audit L18). Default 512.
+   * and reopen their replay window. Default 512.
    */
   maxPerDid?: number;
   /**
@@ -27,7 +27,7 @@ export interface NonceCacheConfig {
  * is outside the clock-skew window *before* consulting the cache, so entries
  * here are always within the protocol's acceptable window.
  *
- * Capacity policy (audit L18/MS-10): when a DID's bucket reaches `maxPerDid`
+ * Capacity policy: when a DID's bucket reaches `maxPerDid`
  * or the cache reaches `maxEntries`, expired entries are reclaimed first (they
  * are outside the replay window and can never match a legitimate retry). If
  * capacity is still exhausted afterwards, the NEW admission is refused rather
@@ -57,7 +57,7 @@ export class NonceCache {
    * Record a nonce. Returns `true` if it was novel and admitted (caller should
    * accept the request) or `false` if it was a replay - or if admitting it
    * would require evicting a live in-window entry, in which case the caller
-   * must reject the request (fail-closed; audit MS-10).
+   * must reject the request (fail-closed).
    */
   store(did: string, nonce: string, timestampSec: number): boolean {
     let bucket = this.#byDid.get(did);

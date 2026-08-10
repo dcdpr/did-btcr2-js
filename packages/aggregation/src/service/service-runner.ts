@@ -682,7 +682,7 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
       const decision = await this.#onOptInReceived(optIn);
       if(!decision.accepted) {
         // Operator declined: drop the pending entry so the pending-opt-in cap
-        // counts only genuinely-undecided opt-ins (audit MS-08).
+        // counts only genuinely-undecided opt-ins.
         this.session.rejectParticipant(ctx.cohortId, msg.from);
         return;
       }
@@ -690,7 +690,7 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
       // Don't accept past the advertised maxParticipants: acceptParticipant
       // would throw COHORT_FULL and fail the cohort. Silently ignore the surplus
       // opt-in (the cohort is full). An unadvertised ceiling defaults to
-      // DEFAULT_MAX_PARTICIPANTS (audit MS-08).
+      // DEFAULT_MAX_PARTICIPANTS.
       const maxParticipants = ctx.config.maxParticipants ?? DEFAULT_MAX_PARTICIPANTS;
       const cohortNow = this.session.getCohort(ctx.cohortId);
       if(cohortNow && cohortNow.participants.length >= maxParticipants) {
@@ -858,8 +858,8 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
 
       // The state machine flagged a defector past the retry budget (or an
       // unattributable session error): commit to the k-of-n fallback
-      // deliberately rather than letting the optimistic round stall forever
-      // (audit MS-18). triggerFallback latches committedPath synchronously.
+      // deliberately rather than letting the optimistic round stall forever.
+      // triggerFallback latches committedPath synchronously.
       if(this.session.isFallbackRequired(ctx.cohortId)) {
         await this.triggerFallback(ctx.cohortId);
         return;

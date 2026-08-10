@@ -82,7 +82,7 @@ export class SMTBeacon extends SinglePartyBeacon {
       // Hash fields are base64url (no padding) per the SMT Proof spec. A
       // non-inclusion proof (absent updateId) is verified too, not trusted.
       // Malformed base64url fields must surface as a typed error, not a raw
-      // decode throw escaping resolution (audit L7).
+      // decode throw escaping resolution.
       let valid: boolean;
       try {
         const index = didToIndex(did);

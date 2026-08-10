@@ -188,7 +188,7 @@ function assertSafeKey(key: string, path: string): void {
 /**
  * Rejects a profile name that would reach the prototype chain when used as an
  * object key (`profile add __proto__` would otherwise invoke the __proto__
- * setter and mutate the profiles object's prototype; audit L12).
+ * setter and mutate the profiles object's prototype).
  */
 export function assertSafeProfileName(name: string): void {
   if (UNSAFE_KEYS.has(name)) {
@@ -243,7 +243,7 @@ export type ApiFactory = (network?: NetworkOption, overrides?: ConnectionOverrid
  * | `BTCR2_BTC_REST`      | `--btc-rest`       |
  * | `BTCR2_BTC_RPC_URL`   | `--btc-rpc-url`    |
  * | `BTCR2_BTC_RPC_USER`  | `--btc-rpc-user`   |
- * | `BTCR2_BTC_RPC_PASS`  | (env only; no flag - audit H4) |
+ * | `BTCR2_BTC_RPC_PASS`  | (env only; no flag) |
  * | `BTCR2_CAS_GATEWAY`   | `--cas-gateway`    |
  * | `BTCR2_CAS_RPC_URL`   | `--cas-rpc-url`    |
  * | `BTCR2_BTC_TIMEOUT`   | `--btc-timeout`    |
@@ -767,7 +767,7 @@ function readSecretFile(path: string, source: string): string {
  *
  * Prefix semantics are exact: any value starting with `env:` or `file:` is
  * ALWAYS treated as a reference, so a literal password cannot begin with those
- * prefixes (audit L15). An `env:` reference naming an unset variable throws
+ * prefixes. An `env:` reference naming an unset variable throws
  * rather than silently resolving to undefined, so a typo'd variable name
  * surfaces here instead of as a downstream RPC auth failure.
  */
@@ -836,7 +836,7 @@ export function resolveBroadcastOptions(
 /** Parses a positive sats/vByte fee rate, throwing a {@link CLIError} otherwise. */
 function parseFeeRate(raw: string): number {
   const rate = Number(raw);
-  // A sanity ceiling catches fat-fingered rates (audit M8): anything above
+  // A sanity ceiling catches fat-fingered rates: anything above
   // MAX_FEE_RATE_SATS_PER_VBYTE is far beyond historical congestion peaks.
   if (!Number.isFinite(rate) || rate <= 0 || rate > MAX_FEE_RATE_SATS_PER_VBYTE) {
     throw new CLIError(

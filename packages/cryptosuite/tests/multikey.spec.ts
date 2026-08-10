@@ -414,7 +414,7 @@ describe('SchnorrMultikey', () => {
     });
   });
 });
-describe('serialization safety (audit H3)', () => {
+describe('serialization safety', () => {
   const skBytes = new Uint8Array([
     69, 112, 198, 176,  14, 103, 100,  73,
     35, 179, 169,  83,  80, 213, 189, 190,

@@ -19,7 +19,8 @@ export type TransactionStatus = {
 export interface Vin {
   txid: string;
   vout: number;
-  prevout?: TxInPrevout;
+  /** Esplora embeds the spent output as a vout-shaped object (scriptpubkey_* fields). */
+  prevout?: Vout;
   scriptsig: string;
   scriptsig_asm: string;
   witness: string[];
@@ -96,7 +97,7 @@ export interface EsploraBlock {
 export interface RestConfig {
   host: string;
   headers?: Record<string, string>;
-  /** Maximum accepted response body size in bytes (audit M11). Defaults to 32 MiB. */
+  /** Maximum accepted response body size in bytes. Defaults to 32 MiB. */
   maxResponseBytes?: number;
 }
 
@@ -113,7 +114,7 @@ export type RestResponse = Response;
 export interface RpcConfig {
   headers?: Record<string, string>;
   host?: string;
-  /** Maximum accepted response body size in bytes (audit M11). Defaults to 32 MiB. */
+  /** Maximum accepted response body size in bytes. Defaults to 32 MiB. */
   maxResponseBytes?: number;
   password?: string;
   username?: string;

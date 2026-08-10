@@ -264,7 +264,7 @@ describe('HTTP transport envelope', () => {
       expect(Array.from(revived.body.communicationPk)).to.deep.equal(Array.from(pk));
     });
 
-    // MS-01 hardening: malformed sentinels must fail with a typed, catchable
+    // Malformed sentinels must fail with a typed, catchable
     // error before hexToBytes runs, so transport callers can drop the payload.
     it('reviveFromWire throws a typed error on a non-hex __bytes sentinel', () => {
       expect(() => reviveFromWire({ __bytes: 'zz' }))

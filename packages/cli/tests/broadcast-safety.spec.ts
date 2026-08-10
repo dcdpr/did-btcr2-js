@@ -49,7 +49,7 @@ async function withNonTtyStdin<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-describe('broadcast confirmation (audit M8)', () => {
+describe('broadcast confirmation', () => {
   const base = {
     did                 : 'did:btcr2:xxxx',
     network             : 'bitcoin' as const,
@@ -120,7 +120,7 @@ describe('broadcast confirmation (audit M8)', () => {
   });
 });
 
-describe('fee-rate ceiling and command-level confirmation (audit M8)', () => {
+describe('fee-rate ceiling and command-level confirmation', () => {
   let dir: string;
   let keystore: string;
   let did: string;

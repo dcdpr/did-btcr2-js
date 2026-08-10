@@ -278,7 +278,7 @@ export class Resolver {
    *
    * Returns a plain JSON object (class prototypes stripped) so every
    * subsequent patch and hash operates on the full JSON content, identically
-   * to any plain-JSON resolver implementation (audit I7).
+   * to any plain-JSON resolver implementation.
    * @param {DidComponents} didComponents The decoded components of the did.
    * @returns {Btcr2DidDocument} The resolved DID Document object.
    */
@@ -318,7 +318,7 @@ export class Resolver {
    * Returns the full plain JSON document (not a class instance): a class
    * wrapper would silently drop any fields outside its known property set,
    * diverging both the resolved document and every subsequent patch/hash
-   * from a plain-JSON resolver implementation (audit I7).
+   * from a plain-JSON resolver implementation.
    * @param {DidComponents} didComponents BTCR2 DID components used to resolve the DID Document
    * @param {object} genesisDocument The genesis document for resolving the DID Document.
    * @returns {Btcr2DidDocument} The resolved DID Document object
@@ -382,7 +382,7 @@ export class Resolver {
     if(sidecar.smtProofs?.length)
       for(const proof of sidecar.smtProofs) {
         // A malformed proof id must surface as a typed error, not a raw decode
-        // throw escaping resolution (audit L7).
+        // throw escaping resolution.
         let rootHashHex: string;
         try {
           rootHashHex = encodeHash(decodeHash(proof.id, 'base64urlnopad'), 'hex');
@@ -503,7 +503,7 @@ export class Resolver {
       if (update.targetVersionId === currentVersionId + 1) {
         // Check if update.sourceHash !== currentDocumentHash (byte comparison).
         // A malformed sourceHash must surface as a typed error, not a raw decode
-        // throw escaping resolution (audit L7).
+        // throw escaping resolution.
         let sourceHashBytes: HashBytes;
         try {
           sourceHashBytes = decodeHash(update.sourceHash, 'base64urlnopad');
@@ -527,7 +527,7 @@ export class Resolver {
 
         // Resolution metadata reflects APPLIED updates only. A duplicate
         // re-announcement (handled above) must not clobber confirmations/updated
-        // with its own later, shallower block data (audit L8).
+        // with its own later, shallower block data.
         response.metadata.updated = DateUtils.toISOStringNonFractional(blocktime);
         response.metadata.confirmations = block.confirmations;
 
@@ -557,7 +557,7 @@ export class Resolver {
 
       // Check if the current document is deactivated before further processing.
       // Strict boolean: a truthy non-boolean (a string, an object) is not a
-      // deactivation (audit I6).
+      // deactivation.
       if(response.didDocument.deactivated === true) {
         // Set the response deactivated flag to true
         response.metadata.deactivated = true;
@@ -659,7 +659,7 @@ export class Resolver {
 
     // The write path signs capabilityAction 'Write'; the resolve path must
     // enforce it, or a proof carrying any other (or no) action would authorize
-    // a DID update it never intended (audit I4).
+    // a DID update it never intended.
     const capabilityAction = update.proof?.capabilityAction;
     if(capabilityAction !== 'Write') {
       throw new ResolveError(
@@ -736,7 +736,7 @@ export class Resolver {
     const currentDocumentHash = canonicalHashBytes(updatedDocument);
 
     // Prepare the update targetHash for comparison with currentDocumentHash.
-    // Typed error on malformed input, not a raw decode throw (audit L7).
+    // Typed error on malformed input, not a raw decode throw.
     let updateTargetHash: HashBytes;
     try {
       updateTargetHash = decodeHash(update.targetHash);
@@ -923,7 +923,6 @@ export class Resolver {
                 // No updates were applied: the current version is the counter the
                 // resolution actually reached, not the caller's requested
                 // versionId (which may name a version that does not exist)
-                // (audit I2).
                 versionId   : String(this.#currentVersionId),
                 deactivated : this.#currentDocument!.deactivated === true
               }

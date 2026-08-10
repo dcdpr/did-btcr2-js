@@ -21,7 +21,7 @@ function jsonExecutor(body: unknown): HttpExecutor {
   });
 }
 
-describe('client robustness (audit M9, M11, L14)', () => {
+describe('client robustness', () => {
   describe('response size cap (M11)', () => {
     it('REST rejects a body whose declared Content-Length exceeds the cap', async () => {
       const executor: HttpExecutor = async () => new Response('{}', {

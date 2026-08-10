@@ -7,11 +7,11 @@ const { applyPatch, compare, deepClone } = jsonPatch;
 
 export type PatchOpCode = 'add' | 'remove' | 'replace' | 'move' | 'copy' | 'test';
 
-/** Maximum operations in a single JSON Patch (audit L10). */
+/** Maximum operations in a single JSON Patch. */
 export const MAX_PATCH_OPERATIONS = 1024;
-/** Maximum length of an operation's JSON Pointer path (audit L10). */
+/** Maximum length of an operation's JSON Pointer path. */
 export const MAX_PATCH_PATH_LENGTH = 2048;
-/** Maximum JSON-serialized size of an operation's value, in bytes (audit L10). */
+/** Maximum JSON-serialized size of an operation's value, in bytes. */
 export const MAX_PATCH_VALUE_BYTES = 256 * 1024;
 
 /**
@@ -107,7 +107,7 @@ export class JSONPatch {
    *
    * Beyond shape checks, patches carried by untrusted DID updates are bounded
    * in count, path length, and value size so a hostile update cannot force
-   * unbounded patch work (audit L10).
+   * unbounded patch work.
    *
    * @param {PatchOperation[]} operations - The operations to validate.
    * @returns {MethodError | null} A MethodError if validation fails, otherwise null.

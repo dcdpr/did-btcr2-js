@@ -112,7 +112,7 @@ describe('Data Integrity Proof', () => {
     });
   });
 
-  describe('expiry enforcement (audit L3)', () => {
+  describe('expiry enforcement', () => {
     const pristineDocument = { ...unsecuredDocument };
     const pristineConfig = { ...config };
 
@@ -145,7 +145,7 @@ describe('Data Integrity Proof', () => {
     });
   });
 
-  describe('input isolation (audit L4)', () => {
+  describe('input isolation', () => {
     it('addProof mutates neither the caller document nor the caller config', () => {
       const doc = { ...unsecuredDocument };
       const cfg = { ...config };

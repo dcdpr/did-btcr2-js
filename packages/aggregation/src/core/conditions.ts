@@ -26,7 +26,7 @@ export const KNOWN_FUNDING_MODELS = ['operator-funded', 'participant-funded'] as
 
 /**
  * Default ceiling on cohort size applied when a cohort advertises no explicit
- * `maxParticipants` (audit MS-08): without it a default-configured service has
+ * `maxParticipants`: without it a default-configured service has
  * no cohort-size bound at all. MuSig2 key-path signing is n-of-n, so every
  * member must contribute a nonce and a partial signature per round; past ~100
  * members rounds rarely complete and per-cohort coordination/memory cost grows

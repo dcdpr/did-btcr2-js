@@ -336,7 +336,7 @@ describe('LocalKeyManager', () => {
   });
 });
 
-describe('store buffer isolation (audit L1)', () => {
+describe('store buffer isolation', () => {
   it('getPublicKey returns a copy: mutating it does not corrupt the store', () => {
     const kms = new LocalKeyManager();
     const kp = SchnorrKeyPair.generate();

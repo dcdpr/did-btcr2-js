@@ -125,7 +125,7 @@ interface ServiceCohortState {
    * removed on accept ({@link AggregationService.acceptParticipant}) and on
    * operator reject ({@link AggregationService.rejectParticipant}), so the
    * `maxPendingOptIns` cap counts only undecided opt-ins; accepted members'
-   * keys live in `cohort.participantKeys` (audit MS-08).
+   * keys live in `cohort.participantKeys`.
    */
   pendingOptIns: Map<string, PendingOptIn>;
   acceptedParticipants: Set<string>;
@@ -138,8 +138,8 @@ interface ServiceCohortState {
    */
   fallbackSignatures?: Map<string, FallbackSignature>;
   /**
-   * Per-participant count of blamed signing contributions this round (audit
-   * MS-18): past {@link PARTIAL_SIG_BLAME_BUDGET} the participant is treated as
+    * Per-participant count of blamed signing contributions this round: past
+    * {@link PARTIAL_SIG_BLAME_BUDGET} the participant is treated as
    * a defector and the cohort is flagged for the k-of-n fallback. Reset when a
    * new signing session starts.
    */
@@ -162,7 +162,7 @@ export const DEFAULT_MAX_UPDATE_SIZE_BYTES = 256 * 1024;
  * Default cap on pending (not-yet-accepted) opt-ins retained per cohort. Opt-ins
  * arrive over the transport from unauthenticated-then-authenticated senders and
  * sit in memory until the operator accepts them, so without a bound a flood of
- * opt-ins from distinct DIDs grows the map indefinitely (audit M6). Opt-ins past
+ * opt-ins from distinct DIDs grows the map indefinitely. Opt-ins past
  * the cap are dropped with an OPT_IN_OVERFLOW rejection.
  */
 export const DEFAULT_MAX_PENDING_OPT_INS = 1024;
@@ -170,7 +170,7 @@ export const DEFAULT_MAX_PENDING_OPT_INS = 1024;
 /**
  * Per-participant budget of blamed signing contributions before the service
  * stops rewinding the round for that member and flags the cohort for the
- * k-of-n fallback (audit MS-18): without a budget a persistent defector
+ * k-of-n fallback: without a budget a persistent defector
  * resubmits bad partial signatures forever and the blame-and-retry loop never
  * terminates. The default n-1 fallback threshold tolerates exactly one
  * defector.
@@ -231,7 +231,7 @@ export class AggregationService {
    * {@link drainRejections} and emits them as `message-rejected` events, so a
    * malformed or malicious contribution is observable without ever throwing out
    * of {@link receive} (an untrusted-input throw would let any sender fail the
-   * whole cohort; audit H6).
+    * whole cohort).
    */
   #reject(state: ServiceCohortState, from: string, code: RejectionReason, reason: string): void {
     state.rejections.push({ from, code, reason });
@@ -239,7 +239,7 @@ export class AggregationService {
 
   /**
    * Boundary shape validation for inbound messages whose handlers would
-   * otherwise trust attacker-controlled field types (audit MS-02). On failure
+   * otherwise trust attacker-controlled field types. On failure
    * the message is dropped with a recorded rejection (when its cohortId
    * resolves) and the cohort is never touched.
    */
@@ -286,7 +286,7 @@ export class AggregationService {
     switch(type) {
       case COHORT_OPT_IN:
         // Shape-validate at the boundary: a malformed body must degrade to a
-        // recorded rejection, never a throw out of receive() (audit MS-02).
+        // recorded rejection, never a throw out of receive().
         if(!this.#guardShape(message, isCohortOptInMessage, 'OPT_IN_MALFORMED', 'Malformed COHORT_OPT_IN body')) return;
         this.#handleOptIn(message);
         break;
@@ -419,7 +419,7 @@ export class AggregationService {
     // runner auto-accepts opt-ins by default, and acceptParticipant feeds
     // participantPk into cohortKeys, whose setter throws on non-33-byte /
     // off-curve values - a single malformed opt-in would otherwise kill the
-    // cohort via the runner's catch-all (audit MS-02).
+    // cohort via the runner's catch-all.
     if(!this.#isValidCohortKey(participantPk) || !this.#isValidCohortKey(communicationPk)) {
       this.#reject(state, participantDid, 'OPT_IN_MALFORMED',
         'Opt-in keys must be valid 33-byte compressed secp256k1 points');
@@ -436,7 +436,6 @@ export class AggregationService {
     // Bound pending opt-ins: each entry sits in memory until the operator
     // accepts it, and opt-ins arrive from the open network while the cohort is
     // advertised. Past the cap, drop and surface an OPT_IN_OVERFLOW rejection
-    // (audit M6).
     if(state.pendingOptIns.size >= this.maxPendingOptIns) {
       this.#reject(state, participantDid, 'OPT_IN_OVERFLOW',
         `Cohort ${cohortId} already holds ${this.maxPendingOptIns} pending opt-ins`);
@@ -475,7 +474,7 @@ export class AggregationService {
     }
     // Enforce the maxParticipants condition: a cohort cannot grow past its
     // advertised ceiling (closes the unbounded-growth path; see ADR 039). An
-    // unadvertised ceiling defaults to DEFAULT_MAX_PARTICIPANTS (audit MS-08).
+    // unadvertised ceiling defaults to DEFAULT_MAX_PARTICIPANTS.
     const maxParticipants = state.config.maxParticipants ?? DEFAULT_MAX_PARTICIPANTS;
     if(state.acceptedParticipants.size >= maxParticipants) {
       throw new AggregationServiceError(
@@ -489,7 +488,7 @@ export class AggregationService {
     state.cohort.participantKeys.set(participantDid, optIn.participantPk);
     state.cohort.cohortKeys = [...state.cohort.cohortKeys, optIn.participantPk];
     // Accepted members' keys live on cohort.participantKeys; drop the pending
-    // entry so the pending cap counts only genuinely-undecided opt-ins (MS-08).
+    // entry so the pending cap counts only genuinely-undecided opt-ins.
     state.pendingOptIns.delete(participantDid);
 
     return [createCohortOptInAcceptMessage({
@@ -501,7 +500,7 @@ export class AggregationService {
 
   /**
    * Service operator rejects a pending opt-in. Drops the entry so the
-   * pending-opt-in cap counts only genuinely-pending opt-ins (audit MS-08);
+   * pending-opt-in cap counts only genuinely-pending opt-ins;
    * the sender may opt in again later. No-op when nothing is pending.
    */
   rejectParticipant(cohortId: string, participantDid: string): void {
@@ -596,7 +595,7 @@ export class AggregationService {
     // Membership gate before any verification work: only accepted members may
     // submit. A non-member's update is dropped as a rejection, never thrown:
     // addUpdate would otherwise throw UNKNOWN_PARTICIPANT out of receive() and
-    // fail the whole cohort, a DoS any non-member could trigger (audit H6).
+    // fail the whole cohort, a DoS any non-member could trigger.
     // Mirrors #handleSubmitNonInclusion.
     if(!state.cohort.participants.includes(message.from)) {
       this.#reject(state, message.from, 'UNKNOWN_PARTICIPANT', 'Sender is not a member of this cohort');
@@ -632,7 +631,7 @@ export class AggregationService {
     // escape receive(): an opted-in-but-not-accepted sender's update passes the
     // proof check above (their opt-in key verifies), so without this guard any
     // rejected joiner could throw the cohort into failure via the runner's
-    // catch-all (audit H6).
+    // catch-all.
     try {
       state.cohort.addUpdate(message.from, signedUpdate);
     } catch(err) {
@@ -696,7 +695,7 @@ export class AggregationService {
    * participant's accepted cohort key. Returns `false` (and the update is silently
    * dropped) if the proof is missing or malformed, the verificationMethod does
    * not name the sender's DID, the update document carries an `id` naming a DID
-   * other than the sender's (audit L19), the sender has no accepted key on record,
+   * other than the sender's, the sender has no accepted key on record,
    * or the signature fails verification.
    * @param {ServiceCohortState} state - the current state of the cohort to which the update was submitted
    * @param {string} sender - the DID of the participant who submitted the update
@@ -710,7 +709,7 @@ export class AggregationService {
   ): boolean {
     const proof = signedUpdate.proof;
     if(!proof?.verificationMethod || !proof.proofValue) return false;
-    // Defense in depth (audit MS-02): the receive()-boundary guard already
+    // Defense in depth: the receive()-boundary guard already
     // rejects non-string proof fields, but this method must never throw on
     // attacker-controlled JSON regardless of how it is reached.
     if(typeof proof.verificationMethod !== 'string' || typeof proof.proofValue !== 'string') return false;
@@ -723,12 +722,12 @@ export class AggregationService {
     // If the update document carries an `id`, it must be the sender's own DID:
     // a validly-signed update whose document id names a DIFFERENT DID would be
     // aggregated under the sender's key while actually updating someone else's
-    // DID document (audit L19). Updates without an `id` (e.g. patch-only
+    // DID document. Updates without an `id` (e.g. patch-only
     // payloads) are unaffected.
     const docId = (signedUpdate as { id?: unknown }).id;
     if(typeof docId === 'string' && docId !== sender) return false;
 
-    // The sender's key is the one accepted into the cohort (audit MS-08):
+    // The sender's key is the one accepted into the cohort:
     // pending-but-unaccepted opt-ins no longer authenticate submissions.
     const participantPk = state.cohort.participantKeys.get(sender);
     if(!participantPk) return false;
@@ -830,7 +829,7 @@ export class AggregationService {
     // addValidation throws UNKNOWN_PARTICIPANT for a non-member ack. Convert to a
     // recorded rejection: an opted-in-but-not-accepted (or former) sender who
     // learned the signal must not be able to throw the cohort into failure
-    // through the runner's catch-all (audit H6).
+    // through the runner's catch-all.
     try {
       state.cohort.addValidation(message.from, approved);
     } catch(err) {
@@ -875,7 +874,7 @@ export class AggregationService {
       prevOutValues  : txData.prevOutValues,
     });
     state.signingSession = session;
-    // A new signing round resets the defector bookkeeping (audit MS-18).
+    // A new signing round resets the defector bookkeeping.
     state.partialSigBlame.clear();
     state.fallbackRequired = false;
     state.phase = ServiceCohortPhase.SigningStarted;
@@ -923,7 +922,7 @@ export class AggregationService {
     // addNonceContribution throws on an unknown signer, a malformed nonce, or a
     // duplicate. All are reachable from a single (possibly buggy or malicious)
     // member and must degrade to a recorded rejection, never an exception out of
-    // receive() that the runner would turn into a cohort failure (audit H6).
+    // receive() that the runner would turn into a cohort failure.
     try {
       state.signingSession.addNonceContribution(message.from, nonceContribution);
     } catch(err) {
@@ -993,7 +992,7 @@ export class AggregationService {
     }
 
     // As with nonce contributions, a malformed/duplicate/unknown-signer partial
-    // must degrade to a rejection, not a thrown cohort kill (audit H6).
+    // must degrade to a rejection, not a thrown cohort kill.
     try {
       state.signingSession.addPartialSignature(message.from, partialSignature);
     } catch(err) {
@@ -1018,7 +1017,7 @@ export class AggregationService {
       // round, after which the member is treated as a defector and the cohort is
       // flagged for the k-of-n fallback (whose default n-1 threshold tolerates
       // exactly one defector) so a persistent defector cannot hold the round
-      // open indefinitely (audit MS-18).
+      // open indefinitely.
       let signature: Uint8Array;
       try {
         signature = state.signingSession.generateFinalSignature();
@@ -1031,7 +1030,7 @@ export class AggregationService {
         }
         if(err instanceof SigningSessionError) {
           // A session error that is not a blamed partial signature must not
-          // wedge the round in PartialSignaturesReceived (audit MS-18): when a
+          // wedge the round in PartialSignaturesReceived: when a
           // culprit is identifiable, discard their contribution and count it
           // against the same budget so the round can complete on resubmission;
           // otherwise flag the cohort for the fallback path deliberately.
@@ -1062,8 +1061,8 @@ export class AggregationService {
 
 
   /**
-   * Blame a named participant for a failed signing-round contribution (audit
-   * MS-18): discard their partial signature and rewind the session to
+    * Blame a named participant for a failed signing-round contribution:
+    * discard their partial signature and rewind the session to
    * AwaitingPartialSignatures so they can resubmit, up to
    * {@link PARTIAL_SIG_BLAME_BUDGET} blamed contributions per member per round.
    * Past the budget no further rewinds are granted: the member is treated as a
@@ -1091,7 +1090,7 @@ export class AggregationService {
   /**
    * True when the signing round for a cohort can no longer complete
    * optimistically and the runner should drive the k-of-n fallback (via
-   * `triggerFallback`) instead of letting the cohort stall (audit MS-18).
+   * `triggerFallback`) instead of letting the cohort stall.
    * Polled by runners after `receive()`, mirroring {@link drainRejections}.
    */
   isFallbackRequired(cohortId: string): boolean {

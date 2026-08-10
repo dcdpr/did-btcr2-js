@@ -266,7 +266,7 @@ function requireBitcoinConnection(net: string): BitcoinConnection {
   try {
     // The hardcoded Polar credentials are the local regtest node's defaults
     // only; attaching them to any other network would send them to that
-    // network's RPC host (audit N6).
+    // network's RPC host.
     return net === 'regtest'
       ? connectBitcoin(net, { rpc: { username: 'polaruser', password: 'polarpass' } })
       : connectBitcoin(net);

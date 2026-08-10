@@ -60,7 +60,7 @@ export class BitcoinRestClient {
 
     // Check the status BEFORE parsing: an error page (proxy HTML, empty body) is
     // often not JSON, and a raw parse throw would mask the HTTP failure
-    // entirely (audit L11). The URL is redacted so embedded userinfo
+    // entirely. The URL is redacted so embedded userinfo
     // credentials never land in an error message.
     if (!response.ok) {
       let data: unknown;
@@ -81,7 +81,7 @@ export class BitcoinRestClient {
 
     // Cap the body size before parsing: unbounded response.json() on a hostile
     // endpoint is a memory-DoS, and a raw SyntaxError from a non-JSON body
-    // would escape as an untyped error (audit M11).
+    // would escape as an untyped error.
     const contentType = response.headers.get('Content-Type') ?? '';
     try {
       return contentType.includes('text/plain')
