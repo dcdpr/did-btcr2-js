@@ -2,22 +2,31 @@ import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { getNetwork } from '@did-btcr2/bitcoin';
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from '@did-btcr2/method';
-import { DidBtcr2 } from '@did-btcr2/method';
+import { DidBtcr2, resolveBtcr2SenderPk } from '@did-btcr2/method';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { bytesToHex, hexToBytes, randomBytes } from '@noble/hashes/utils';
-import { p2tr, SigHash, Transaction } from '@scure/btc-signer';
+import { p2tr, Script, SigHash, Transaction } from '@scure/btc-signer';
 import { expect } from 'chai';
 
 import {
+  AGGREGATION_WIRE_VERSION,
   AggregationParticipant,
+  AggregationParticipantRunner,
   AggregationService,
+  AggregationServiceRunner,
+  BaseMessage,
   BeaconSigningSession,
+  COHORT_OPT_IN,
   DEFAULT_FUNDING_MODEL,
+  DEFAULT_MAX_PARTICIPANTS,
   HttpServerTransport,
   InMemoryRateLimitStore,
   KeyPairAggregationSigner,
   NonceCache,
+  ParticipantCohortPhase,
   RateLimiter,
+  SILENT_LOGGER,
+  SUBMIT_UPDATE,
   ServiceCohortPhase,
   buildRecoveryLeaves,
   buildRecoverySpend,
@@ -27,7 +36,11 @@ import {
   createSignatureAuthorizationMessage,
   createSubmitUpdateMessage,
   createValidationAckMessage,
+  signEnvelope,
 } from '../src/index.js';
+import { MessageBus, MockTransport } from './helpers/mock-transport.js';
+import { beaconOutputScript } from './helpers/beacon-script.js';
+import type { AggregationCohort, CohortConfig } from '../src/index.js';
 
 const TEST_RECOVERY_KEY = 'a'.repeat(64);
 const TEST_RECOVERY_SEQUENCE = 144;
@@ -167,6 +180,67 @@ function driveToSigningStarted(fx: Fixture): { tx: Transaction; script: Uint8Arr
   return { tx, script, value };
 }
 
+/** A minimal cohort config (CAS, mutinynet) for runner-driven tests. */
+const CAS_CONFIG = (minParticipants = 1): CohortConfig => ({
+  minParticipants,
+  network          : 'mutinynet',
+  beaconType       : 'CASBeacon',
+  recoveryKey      : TEST_RECOVERY_KEY,
+  recoverySequence : TEST_RECOVERY_SEQUENCE,
+});
+
+/** The well-formed beacon spend for a cohort (self-change + OP_RETURN signal). */
+function dummyTxData(cohort: AggregationCohort): { tx: Transaction; prevOutScripts: Uint8Array[]; prevOutValues: bigint[] } {
+  const script = beaconOutputScript(cohort);
+  const prevOutValue = 100000n;
+  const tx = new Transaction({ version: 2, allowUnknownOutputs: true });
+  tx.addInput({ txid: '00'.repeat(32), index: 0, witnessUtxo: { amount: prevOutValue, script } });
+  tx.addOutput({ script, amount: prevOutValue - 500n });
+  if(cohort.signalBytes) tx.addOutput({ script: Script.encode([ 'RETURN', cohort.signalBytes ]), amount: 0n });
+  return { tx, prevOutScripts: [ script ], prevOutValues: [ prevOutValue ] };
+}
+
+/** A service runner over the in-memory bus, driven via advertiseCohort. */
+function makeServiceRunner(
+  bus: MessageBus,
+  opts: Partial<ConstructorParameters<typeof AggregationServiceRunner>[0]> = {},
+): AggregationServiceRunner {
+  const keys = SchnorrKeyPair.generate();
+  const did = DidBtcr2.create(keys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
+  const transport = new MockTransport(bus);
+  transport.registerActor(did, keys);
+  // `runner` is referenced inside onProvideTxData, which only runs mid-protocol
+  // (long after assignment), so the self-reference is safe.
+  const runner: AggregationServiceRunner = new AggregationServiceRunner({
+    transport,
+    did,
+    keys,
+    advertRepeatIntervalMs : 0,
+    onProvideTxData        : async ({ cohortId }) => dummyTxData(runner.session.getCohort(cohortId)!),
+    ...opts,
+  });
+  return runner;
+}
+
+/** A participant runner over the in-memory bus that joins and approves everything by default. */
+function makeParticipantRunner(
+  bus: MessageBus,
+  overrides: Partial<ConstructorParameters<typeof AggregationParticipantRunner>[0]> = {},
+): AggregationParticipantRunner {
+  const keys = SchnorrKeyPair.generate();
+  const did = DidBtcr2.create(keys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
+  const transport = new MockTransport(bus);
+  transport.registerActor(did, keys);
+  return new AggregationParticipantRunner({
+    transport,
+    did,
+    keys,
+    shouldJoin      : async () => true,
+    onProvideUpdate : async () => createSignedUpdate(did, keys),
+    ...overrides,
+  });
+}
+
 describe('Aggregation DoS + liveness hardening', () => {
 
   describe('H6: non-member SUBMIT_UPDATE degrades to a rejection, not a cohort kill', () => {
@@ -216,9 +290,15 @@ describe('Aggregation DoS + liveness hardening', () => {
   describe('H6: bad nonce contributions degrade to rejections', () => {
     it('duplicate nonce from a member records DUPLICATE_NONCE without throwing', () => {
       const fx = driveToCohortSet();
-      driveToSigningStarted(fx);
+      const { tx, script, value } = driveToSigningStarted(fx);
+      const cohort = fx.service.getCohort(fx.cohortId)!;
       const sessionId = fx.service.getSigningSessionId(fx.cohortId)!;
-      const nonce = randomBytes(66);
+      // A cryptographically real nonce: nonce points are validated at ingestion
+      // (audit MS-02), so random bytes no longer reach the duplicate check.
+      const pAlice = new BeaconSigningSession({
+        id : sessionId, cohort, pendingTx : tx, prevOutScripts : [script], prevOutValues : [value],
+      });
+      const nonce = pAlice.generateNonceContribution(fx.alice.keys.publicKey.compressed, fx.alice.keys.secretKey.bytes);
       const mk = (): ReturnType<typeof createNonceContributionMessage> => createNonceContributionMessage({
         from              : fx.alice.did,
         to                : fx.serviceId.did,
@@ -401,6 +481,509 @@ describe('Aggregation DoS + liveness hardening', () => {
     });
   });
 
+  describe('MS-02: single-message cohort-kill vectors degrade to recorded rejections', () => {
+    it('malformed SUBMIT_UPDATE proof (truthy non-string verificationMethod) records UPDATE_MALFORMED', () => {
+      const fx = driveToCohortSet();
+      const attacker = makeIdentity();
+      // The exact Opus-reproduced vector: previously a raw TypeError out of
+      // receive() -> failCohort. The boundary guard must drop it instead.
+      expect(() => fx.service.receive(new BaseMessage({
+        type : SUBMIT_UPDATE,
+        from : attacker.did,
+        to   : fx.serviceId.did,
+        body : {
+          cohortId     : fx.cohortId,
+          signedUpdate : { proof: { verificationMethod: 1, proofValue: 1 } },
+        },
+      }))).to.not.throw();
+      const rejections = fx.service.drainRejections(fx.cohortId);
+      expect(rejections).to.have.lengthOf(1);
+      expect(rejections[0]!.code).to.equal('UPDATE_MALFORMED');
+      expect(rejections[0]!.from).to.equal(attacker.did);
+      expect(fx.service.getCohortPhase(fx.cohortId)).to.equal(ServiceCohortPhase.CohortSet);
+    });
+
+    it('COHORT_OPT_IN with a valid communicationPk but malformed participantPk records OPT_IN_MALFORMED', () => {
+      const serviceId = makeIdentity();
+      const service = new AggregationService({ did: serviceId.did, publicKey: serviceId.keys.publicKey });
+      const cohortId = service.createCohort({
+        minParticipants  : 2,
+        network          : 'mutinynet',
+        beaconType       : 'CASBeacon',
+        recoveryKey      : TEST_RECOVERY_KEY,
+        recoverySequence : TEST_RECOVERY_SEQUENCE,
+      });
+      service.advertise(cohortId);
+      const attacker = makeIdentity();
+      // A non-33-byte participantPk previously reached sortKeys via the
+      // auto-accept path and threw the cohort into failure.
+      expect(() => service.receive(createCohortOptInMessage({
+        from            : attacker.did,
+        to              : serviceId.did,
+        cohortId,
+        participantPk   : new Uint8Array([1, 2, 3]),
+        communicationPk : attacker.keys.publicKey.compressed,
+      }))).to.not.throw();
+      expect(service.pendingOptIns(cohortId).size).to.equal(0);
+      const rejections = service.drainRejections(cohortId);
+      expect(rejections).to.have.lengthOf(1);
+      expect(rejections[0]!.code).to.equal('OPT_IN_MALFORMED');
+      expect(rejections[0]!.from).to.equal(attacker.did);
+      expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.Advertised);
+    });
+
+    it('COHORT_OPT_IN with a 33-byte off-curve participantPk records OPT_IN_MALFORMED', () => {
+      const serviceId = makeIdentity();
+      const service = new AggregationService({ did: serviceId.did, publicKey: serviceId.keys.publicKey });
+      const cohortId = service.createCohort({
+        minParticipants  : 2,
+        network          : 'mutinynet',
+        beaconType       : 'CASBeacon',
+        recoveryKey      : TEST_RECOVERY_KEY,
+        recoverySequence : TEST_RECOVERY_SEQUENCE,
+      });
+      service.advertise(cohortId);
+      const attacker = makeIdentity();
+      expect(() => service.receive(createCohortOptInMessage({
+        from            : attacker.did,
+        to              : serviceId.did,
+        cohortId,
+        participantPk   : new Uint8Array(33).fill(0xff),
+        communicationPk : attacker.keys.publicKey.compressed,
+      }))).to.not.throw();
+      expect(service.pendingOptIns(cohortId).size).to.equal(0);
+      const rejections = service.drainRejections(cohortId);
+      expect(rejections.map(r => r.code)).to.include('OPT_IN_MALFORMED');
+    });
+
+    it('COHORT_OPT_IN with non-byte keys is dropped at the boundary as OPT_IN_MALFORMED', () => {
+      const serviceId = makeIdentity();
+      const service = new AggregationService({ did: serviceId.did, publicKey: serviceId.keys.publicKey });
+      const cohortId = service.createCohort({
+        minParticipants  : 2,
+        network          : 'mutinynet',
+        beaconType       : 'CASBeacon',
+        recoveryKey      : TEST_RECOVERY_KEY,
+        recoverySequence : TEST_RECOVERY_SEQUENCE,
+      });
+      service.advertise(cohortId);
+      const attacker = makeIdentity();
+      expect(() => service.receive(createCohortOptInMessage({
+        from            : attacker.did,
+        to              : serviceId.did,
+        cohortId,
+        participantPk   : 'not-bytes' as unknown as Uint8Array,
+        communicationPk : attacker.keys.publicKey.compressed,
+      }))).to.not.throw();
+      expect(service.pendingOptIns(cohortId).size).to.equal(0);
+      const rejections = service.drainRejections(cohortId);
+      expect(rejections.map(r => r.code)).to.include('OPT_IN_MALFORMED');
+    });
+
+    it('wrong-length partial signature records INVALID_PARTIAL_SIG without throwing', () => {
+      const fx = driveToCohortSet();
+      const { tx, script, value } = driveToSigningStarted(fx);
+      const cohort = fx.service.getCohort(fx.cohortId)!;
+      const sessionId = fx.service.getSigningSessionId(fx.cohortId)!;
+      // Real nonces move the service session to AwaitingPartialSigs.
+      const mkSession = (): BeaconSigningSession => new BeaconSigningSession({
+        id : sessionId, cohort, pendingTx : tx, prevOutScripts : [script], prevOutValues : [value],
+      });
+      const n1 = mkSession().generateNonceContribution(fx.alice.keys.publicKey.compressed, fx.alice.keys.secretKey.bytes);
+      const n2 = mkSession().generateNonceContribution(fx.bob.keys.publicKey.compressed, fx.bob.keys.secretKey.bytes);
+      fx.service.receive(createNonceContributionMessage({ from: fx.alice.did, to: fx.serviceId.did, cohortId: fx.cohortId, sessionId, nonceContribution: n1 }));
+      fx.service.receive(createNonceContributionMessage({ from: fx.bob.did, to: fx.serviceId.did, cohortId: fx.cohortId, sessionId, nonceContribution: n2 }));
+      fx.service.sendAggregatedNonce(fx.cohortId);
+
+      // A 64-byte partial previously escaped musig2 as an untyped throw.
+      expect(() => fx.service.receive(createSignatureAuthorizationMessage({
+        from             : fx.alice.did,
+        to               : fx.serviceId.did,
+        cohortId         : fx.cohortId,
+        sessionId,
+        partialSignature : randomBytes(64),
+      }))).to.not.throw();
+      const rejections = fx.service.drainRejections(fx.cohortId);
+      expect(rejections.map(r => r.code)).to.include('INVALID_PARTIAL_SIG');
+      expect(fx.service.getCohortPhase(fx.cohortId)).to.equal(ServiceCohortPhase.AwaitingPartialSigs);
+    });
+
+    it('a 66-byte nonce that is not valid curve points records INVALID_NONCE without throwing', () => {
+      const fx = driveToCohortSet();
+      driveToSigningStarted(fx);
+      const sessionId = fx.service.getSigningSessionId(fx.cohortId)!;
+      // Passes the 66-byte length check but decodes to non-points: previously
+      // threw raw out of musig2 nonceAggregate at aggregation time.
+      const notPoints = new Uint8Array(66).fill(0xff);
+      expect(() => fx.service.receive(createNonceContributionMessage({
+        from              : fx.alice.did,
+        to                : fx.serviceId.did,
+        cohortId          : fx.cohortId,
+        sessionId,
+        nonceContribution : notPoints,
+      }))).to.not.throw();
+      const rejections = fx.service.drainRejections(fx.cohortId);
+      expect(rejections.map(r => r.code)).to.include('INVALID_NONCE');
+      expect(fx.service.getCohortPhase(fx.cohortId)).to.equal(ServiceCohortPhase.SigningStarted);
+    });
+  });
+
+  describe('MS-02: correctly-signed envelopes carrying malformed bodies (HTTP runner path)', () => {
+    /** A service runner wired to an HTTP server transport with DID-aware sender resolution. */
+    function makeHttpServiceRunner(): {
+      serviceId: { keys: SchnorrKeyPair; did: string };
+      transport: HttpServerTransport;
+      runner: AggregationServiceRunner;
+      } {
+      const serviceId = makeIdentity();
+      const transport = new HttpServerTransport({
+        logger              : SILENT_LOGGER,
+        heartbeatIntervalMs : 0,
+        resolveSenderPk     : resolveBtcr2SenderPk,
+      });
+      transport.registerActor(serviceId.did, serviceId.keys);
+      const runner = new AggregationServiceRunner({
+        transport,
+        did             : serviceId.did,
+        keys            : serviceId.keys,
+        onProvideTxData : async () => { throw new Error('tx data not needed in this test'); },
+      });
+      return { serviceId, transport, runner };
+    }
+
+    /** Post a signed envelope to the transport's messages route. */
+    async function postSigned(
+      transport: HttpServerTransport,
+      sender: { keys: SchnorrKeyPair; did: string },
+      message: Record<string, unknown>,
+      to: string,
+    ): Promise<number> {
+      const envelope = signEnvelope(message as never, { did: sender.did, keys: sender.keys }, { to });
+      const res = await transport.handleRequest({
+        method  : 'POST',
+        url     : '/v1/messages',
+        headers : {},
+        body    : JSON.stringify(envelope),
+      });
+      return res.status;
+    }
+
+    it('malformed SUBMIT_UPDATE body: recorded rejection, cohort survives, runner never fails', async () => {
+      const { serviceId, transport, runner } = makeHttpServiceRunner();
+      const { cohortId, completion } = runner.advertiseCohort({
+        minParticipants  : 2,
+        network          : 'mutinynet',
+        beaconType       : 'CASBeacon',
+        recoveryKey      : TEST_RECOVERY_KEY,
+        recoverySequence : TEST_RECOVERY_SEQUENCE,
+      });
+      let settled = false;
+      void completion.then(() => { settled = true; }, () => { settled = true; });
+
+      // Drive the cohort to CohortSet on the state machine (two honest members).
+      const alice = makeIdentity();
+      const bob = makeIdentity();
+      for(const p of [alice, bob]) {
+        runner.session.receive(createCohortOptInMessage({
+          from            : p.did,
+          to              : serviceId.did,
+          cohortId,
+          participantPk   : p.keys.publicKey.compressed,
+          communicationPk : p.keys.publicKey.compressed,
+        }));
+      }
+      runner.session.acceptParticipant(cohortId, alice.did);
+      runner.session.acceptParticipant(cohortId, bob.did);
+      runner.session.finalizeKeygen(cohortId);
+
+      const errors: Error[] = [];
+      const rejected: Array<{ code: string }> = [];
+      runner.on('error', e => errors.push(e));
+      runner.on('message-rejected', r => rejected.push(r));
+
+      // The attacker's envelope is correctly signed and authenticates (k1 DID);
+      // the carried body is the malformed MS-02 payload.
+      const attacker = makeIdentity();
+      const status = await postSigned(transport, attacker, {
+        type    : SUBMIT_UPDATE,
+        version : AGGREGATION_WIRE_VERSION,
+        from    : attacker.did,
+        to      : serviceId.did,
+        body    : { cohortId, signedUpdate: { proof: { verificationMethod: 1, proofValue: 1 } } },
+      }, serviceId.did);
+
+      expect(status, 'envelope verified and accepted by the transport').to.equal(202);
+      expect(errors, 'runner never surfaced an error').to.have.lengthOf(0);
+      expect(rejected.map(r => r.code)).to.include('UPDATE_MALFORMED');
+      expect(runner.session.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.CohortSet);
+      expect(settled, 'cohort completion never settled').to.be.false;
+      runner.stop();
+      transport.stop();
+    });
+
+    it('malformed COHORT_OPT_IN participantPk: recorded rejection, auto-accept never fires', async () => {
+      const { serviceId, transport, runner } = makeHttpServiceRunner();
+      const { cohortId, completion } = runner.advertiseCohort({
+        minParticipants  : 2,
+        network          : 'mutinynet',
+        beaconType       : 'CASBeacon',
+        recoveryKey      : TEST_RECOVERY_KEY,
+        recoverySequence : TEST_RECOVERY_SEQUENCE,
+      });
+      let settled = false;
+      void completion.then(() => { settled = true; }, () => { settled = true; });
+
+      const errors: Error[] = [];
+      const rejected: Array<{ code: string }> = [];
+      runner.on('error', e => errors.push(e));
+      runner.on('message-rejected', r => rejected.push(r));
+
+      const attacker = makeIdentity();
+      const status = await postSigned(transport, attacker, {
+        type    : COHORT_OPT_IN,
+        version : AGGREGATION_WIRE_VERSION,
+        from    : attacker.did,
+        to      : serviceId.did,
+        body    : {
+          cohortId,
+          participantPk   : new Uint8Array([1, 2, 3]),
+          communicationPk : attacker.keys.publicKey.compressed,
+        },
+      }, serviceId.did);
+
+      expect(status).to.equal(202);
+      expect(errors).to.have.lengthOf(0);
+      expect(rejected.map(r => r.code)).to.include('OPT_IN_MALFORMED');
+      expect(runner.session.pendingOptIns(cohortId).size).to.equal(0);
+      expect(runner.session.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.Advertised);
+      expect(settled).to.be.false;
+      runner.stop();
+      transport.stop();
+    });
+  });
+
+  describe('MS-18: blame budget bounds the retry loop; session errors never wedge', () => {
+    /** CohortSet -> AwaitingPartialSigs with real nonces; returns the participant-side sessions. */
+    function driveToAwaitingPartialSigs(fx: Fixture): {
+      sessionId: string;
+      pAlice: BeaconSigningSession;
+      pBob: BeaconSigningSession;
+    } {
+      const { tx, script, value } = driveToSigningStarted(fx);
+      const cohort = fx.service.getCohort(fx.cohortId)!;
+      const sessionId = fx.service.getSigningSessionId(fx.cohortId)!;
+      const mkSession = (): BeaconSigningSession => new BeaconSigningSession({
+        id : sessionId, cohort, pendingTx : tx, prevOutScripts : [script], prevOutValues : [value],
+      });
+      const pAlice = mkSession();
+      const pBob = mkSession();
+      const nonceAlice = pAlice.generateNonceContribution(fx.alice.keys.publicKey.compressed, fx.alice.keys.secretKey.bytes);
+      const nonceBob = pBob.generateNonceContribution(fx.bob.keys.publicKey.compressed, fx.bob.keys.secretKey.bytes);
+      for(const [p, nonce] of [[fx.alice, nonceAlice], [fx.bob, nonceBob]] as const) {
+        fx.service.receive(createNonceContributionMessage({
+          from              : p.did,
+          to                : fx.serviceId.did,
+          cohortId          : fx.cohortId,
+          sessionId,
+          nonceContribution : nonce,
+        }));
+      }
+      const aggNonceMsgs = fx.service.sendAggregatedNonce(fx.cohortId);
+      const aggregatedNonce = aggNonceMsgs[0]!.body!.aggregatedNonce as Uint8Array;
+      pAlice.aggregatedNonce = aggregatedNonce;
+      pBob.aggregatedNonce = aggregatedNonce;
+      return { sessionId, pAlice, pBob };
+    }
+
+    function partialMsg(
+      fx: Fixture,
+      from: string,
+      sessionId: string,
+      partialSignature: Uint8Array,
+    ): ReturnType<typeof createSignatureAuthorizationMessage> {
+      return createSignatureAuthorizationMessage({
+        from,
+        to       : fx.serviceId.did,
+        cohortId : fx.cohortId,
+        sessionId,
+        partialSignature,
+      });
+    }
+
+    it('a persistent defector exhausts the blame budget and the cohort escalates to fallback', () => {
+      const fx = driveToCohortSet();
+      const { sessionId, pBob } = driveToAwaitingPartialSigs(fx);
+
+      // Bob contributes a genuine partial once; it is retained across rewinds.
+      const bobPartial = pBob.generatePartialSignature(fx.bob.keys.secretKey.bytes);
+      fx.service.receive(partialMsg(fx, fx.bob.did, sessionId, bobPartial));
+
+      // Alice (the defector) resubmits garbage: blamed and rewound twice, then
+      // treated as a defector - no fourth rewind, no unbounded loop (MS-18).
+      const garbage = randomBytes(32);
+      for(let round = 0; round < 3; round++) {
+        expect(() => fx.service.receive(partialMsg(fx, fx.alice.did, sessionId, garbage))).to.not.throw();
+      }
+
+      const rejections = fx.service.drainRejections(fx.cohortId);
+      const blames = rejections.filter(r => r.code === 'BAD_PARTIAL_SIG');
+      expect(blames).to.have.lengthOf(3);
+      expect(blames.every(r => r.from === fx.alice.did)).to.be.true;
+      expect(blames[2]!.reason).to.match(/defector/);
+
+      // The round is flagged for fallback rather than stalling open-ended.
+      expect(fx.service.isFallbackRequired(fx.cohortId)).to.be.true;
+      expect(fx.service.getCohortPhase(fx.cohortId)).to.equal(ServiceCohortPhase.AwaitingPartialSigs);
+      expect(fx.service.getResult(fx.cohortId)).to.be.undefined;
+
+      // The deliberate way out engages and clears the flag.
+      const fallbackMsgs = fx.service.startFallbackSigning(fx.cohortId);
+      expect(fallbackMsgs.length).to.be.greaterThan(0);
+      expect(fx.service.getCohortPhase(fx.cohortId)).to.equal(ServiceCohortPhase.FallbackRequested);
+      expect(fx.service.isFallbackRequired(fx.cohortId)).to.be.false;
+    });
+
+    it('a non-BAD_PARTIAL_SIG session error discards the culprit and never wedges the round', () => {
+      const fx = driveToCohortSet();
+      const { sessionId, pAlice, pBob } = driveToAwaitingPartialSigs(fx);
+      const cohort = fx.service.getCohort(fx.cohortId)!;
+      // Corrupt the cohort view: Bob's accepted key goes missing, so final
+      // aggregation fails with UNKNOWN_PARTICIPANT_KEY (a SigningSessionError
+      // that is not BAD_PARTIAL_SIG) naming Bob.
+      cohort.participantKeys.delete(fx.bob.did);
+
+      const alicePartial = pAlice.generatePartialSignature(fx.alice.keys.secretKey.bytes);
+      const bobPartial = pBob.generatePartialSignature(fx.bob.keys.secretKey.bytes);
+      fx.service.receive(partialMsg(fx, fx.alice.did, sessionId, alicePartial));
+      expect(() => fx.service.receive(partialMsg(fx, fx.bob.did, sessionId, bobPartial))).to.not.throw();
+
+      let rejections = fx.service.drainRejections(fx.cohortId);
+      expect(rejections.map(r => r.code)).to.include('SESSION_ERROR');
+      expect(rejections.find(r => r.code === 'SESSION_ERROR')!.from).to.equal(fx.bob.did);
+      // No wedge: Bob's contribution was discarded and the session rewound.
+      expect(fx.service.getCohortPhase(fx.cohortId)).to.equal(ServiceCohortPhase.AwaitingPartialSigs);
+      expect(fx.service.getResult(fx.cohortId)).to.be.undefined;
+
+      // Proof the session is not stuck in PartialSignaturesReceived: Alice's
+      // resubmission is a typed DUPLICATE (pre-fix it hit INVALID_PHASE).
+      fx.service.receive(partialMsg(fx, fx.alice.did, sessionId, alicePartial));
+      rejections = fx.service.drainRejections(fx.cohortId);
+      expect(rejections.map(r => r.code)).to.include('DUPLICATE_PARTIAL_SIG');
+
+      // Bob's retries keep failing against the same budget and then escalate.
+      fx.service.receive(partialMsg(fx, fx.bob.did, sessionId, bobPartial));
+      fx.service.receive(partialMsg(fx, fx.bob.did, sessionId, bobPartial));
+      expect(fx.service.isFallbackRequired(fx.cohortId)).to.be.true;
+      expect(fx.service.getCohortPhase(fx.cohortId)).to.equal(ServiceCohortPhase.AwaitingPartialSigs);
+    });
+
+    it('the service runner auto-commits to the fallback path once the blame budget is exhausted', async () => {
+      const bus = new MessageBus();
+      const serviceId = makeIdentity();
+      const serviceTransport = new MockTransport(bus);
+      serviceTransport.registerActor(serviceId.did, serviceId.keys);
+      const runner = new AggregationServiceRunner({
+        transport              : serviceTransport,
+        did                    : serviceId.did,
+        keys                   : serviceId.keys,
+        advertRepeatIntervalMs : 0,
+        onProvideTxData        : async () => { throw new Error('tx data not needed in this test'); },
+      });
+      const { cohortId, completion } = runner.advertiseCohort({
+        minParticipants  : 2,
+        network          : 'mutinynet',
+        beaconType       : 'CASBeacon',
+        recoveryKey      : TEST_RECOVERY_KEY,
+        recoverySequence : TEST_RECOVERY_SEQUENCE,
+      });
+      void completion.catch(() => undefined);
+
+      // Drive the runner's state machine to AwaitingPartialSigs directly.
+      const alice = makeIdentity();
+      const bob = makeIdentity();
+      for(const p of [alice, bob]) {
+        runner.session.receive(createCohortOptInMessage({
+          from            : p.did,
+          to              : serviceId.did,
+          cohortId,
+          participantPk   : p.keys.publicKey.compressed,
+          communicationPk : p.keys.publicKey.compressed,
+        }));
+      }
+      runner.session.acceptParticipant(cohortId, alice.did);
+      runner.session.acceptParticipant(cohortId, bob.did);
+      runner.session.finalizeKeygen(cohortId);
+      for(const p of [alice, bob]) {
+        runner.session.receive(createSubmitUpdateMessage({
+          from         : p.did,
+          to           : serviceId.did,
+          cohortId,
+          signedUpdate : createSignedUpdate(p.did, p.keys) as unknown as Record<string, unknown>,
+        }));
+      }
+      runner.session.buildAndDistribute(cohortId);
+      const signalBytesHex = bytesToHex(runner.session.getCohort(cohortId)!.signalBytes!);
+      for(const p of [alice, bob]) {
+        runner.session.receive(createValidationAckMessage({
+          from : p.did, to : serviceId.did, cohortId, approved : true, signalBytesHex,
+        }));
+      }
+      const cohort = runner.session.getCohort(cohortId)!;
+      const script = beaconOutputScript(cohort);
+      const value = 100000n;
+      const tx = new Transaction({ version: 2, allowUnknownOutputs: true });
+      tx.addInput({ txid: '11'.repeat(32), index: 0, witnessUtxo: { amount: value, script } });
+      tx.addOutput({ script, amount: value - 500n });
+      runner.session.startSigning(cohortId, { tx, prevOutScripts: [script], prevOutValues: [value] });
+      const sessionId = runner.session.getSigningSessionId(cohortId)!;
+      const mkSession = (): BeaconSigningSession => new BeaconSigningSession({
+        id : sessionId, cohort, pendingTx : tx, prevOutScripts : [script], prevOutValues : [value],
+      });
+      const pAlice = mkSession();
+      const pBob = mkSession();
+      const nonceAlice = pAlice.generateNonceContribution(alice.keys.publicKey.compressed, alice.keys.secretKey.bytes);
+      const nonceBob = pBob.generateNonceContribution(bob.keys.publicKey.compressed, bob.keys.secretKey.bytes);
+      for(const [p, nonce] of [[alice, nonceAlice], [bob, nonceBob]] as const) {
+        runner.session.receive(createNonceContributionMessage({
+          from : p.did, to : serviceId.did, cohortId, sessionId, nonceContribution : nonce,
+        }));
+      }
+      const aggNonceMsgs = runner.session.sendAggregatedNonce(cohortId);
+      pBob.aggregatedNonce = aggNonceMsgs[0]!.body!.aggregatedNonce as Uint8Array;
+
+      // From here on, partial signatures arrive over the bus so the runner's
+      // handlers - and its auto-fallback wiring - execute.
+      const aliceTransport = new MockTransport(bus);
+      aliceTransport.registerActor(alice.did, alice.keys);
+      const bobTransport = new MockTransport(bus);
+      bobTransport.registerActor(bob.did, bob.keys);
+      const fallbackStarted = new Promise<string>(resolve => {
+        runner.once('fallback-started', ({ cohortId: id }) => resolve(id));
+      });
+
+      const bobPartial = pBob.generatePartialSignature(bob.keys.secretKey.bytes);
+      await bobTransport.sendMessage(
+        createSignatureAuthorizationMessage({ from: bob.did, to: serviceId.did, cohortId, sessionId, partialSignature: bobPartial }),
+        bob.did,
+        serviceId.did,
+      );
+      const garbage = randomBytes(32);
+      for(let round = 0; round < 3; round++) {
+        await aliceTransport.sendMessage(
+          createSignatureAuthorizationMessage({ from: alice.did, to: serviceId.did, cohortId, sessionId, partialSignature: garbage }),
+          alice.did,
+          serviceId.did,
+        );
+      }
+
+      const flaggedCohort = await fallbackStarted;
+      expect(flaggedCohort).to.equal(cohortId);
+      expect(runner.session.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.FallbackRequested);
+      runner.stop();
+    });
+  });
+
+
   describe('M6: pending opt-ins are bounded per cohort', () => {
     it('drops opt-ins past maxPendingOptIns with OPT_IN_OVERFLOW', () => {
       const serviceId = makeIdentity();
@@ -432,6 +1015,80 @@ describe('Aggregation DoS + liveness hardening', () => {
       expect(rejections).to.have.lengthOf(1);
       expect(rejections[0]!.code).to.equal('OPT_IN_OVERFLOW');
     });
+
+    it('accepted and operator-rejected opt-ins free pending capacity (MS-08)', () => {
+      const serviceId = makeIdentity();
+      const service = new AggregationService({
+        did              : serviceId.did,
+        publicKey        : serviceId.keys.publicKey,
+        maxPendingOptIns : 2,
+      });
+      const cohortId = service.createCohort({
+        minParticipants  : 2,
+        network          : 'mutinynet',
+        beaconType       : 'CASBeacon',
+        recoveryKey      : TEST_RECOVERY_KEY,
+        recoverySequence : TEST_RECOVERY_SEQUENCE,
+      });
+      service.advertise(cohortId);
+      const [a, b, c, d, e] = Array.from({ length: 5 }, () => makeIdentity());
+      const optIn = (p: { keys: SchnorrKeyPair; did: string }): void => {
+        service.receive(createCohortOptInMessage({
+          from            : p.did,
+          to              : serviceId.did,
+          cohortId,
+          participantPk   : p.keys.publicKey.compressed,
+          communicationPk : p.keys.publicKey.compressed,
+        }));
+      };
+      optIn(a);
+      optIn(b);                                   // pending: a, b (at cap)
+      service.acceptParticipant(cohortId, a.did); // accept frees a's slot -> pending: b
+      optIn(c);                                   // admitted -> pending: b, c
+      service.rejectParticipant(cohortId, b.did); // operator reject frees b's slot -> pending: c
+      optIn(d);                                   // admitted -> pending: c, d
+      optIn(e);                                   // genuinely at cap -> overflow
+      expect(service.pendingOptIns(cohortId).size).to.equal(2);
+      expect(service.pendingOptIns(cohortId).has(c.did)).to.be.true;
+      expect(service.pendingOptIns(cohortId).has(d.did)).to.be.true;
+      const rejections = service.drainRejections(cohortId);
+      expect(rejections).to.have.lengthOf(1);
+      expect(rejections[0]!.code).to.equal('OPT_IN_OVERFLOW');
+      expect(rejections[0]!.from).to.equal(e.did);
+    });
+
+    it('acceptParticipant enforces the default participant ceiling when none is advertised (MS-08)', () => {
+      const serviceId = makeIdentity();
+      const service = new AggregationService({ did: serviceId.did, publicKey: serviceId.keys.publicKey });
+      const cohortId = service.createCohort({
+        minParticipants  : 2,
+        network          : 'mutinynet',
+        beaconType       : 'CASBeacon',
+        recoveryKey      : TEST_RECOVERY_KEY,
+        recoverySequence : TEST_RECOVERY_SEQUENCE,
+      });
+      service.advertise(cohortId);
+      const optInAndAccept = (p: { keys: SchnorrKeyPair; did: string }): void => {
+        service.receive(createCohortOptInMessage({
+          from            : p.did,
+          to              : serviceId.did,
+          cohortId,
+          participantPk   : p.keys.publicKey.compressed,
+          communicationPk : p.keys.publicKey.compressed,
+        }));
+        service.acceptParticipant(cohortId, p.did);
+      };
+      for(let i = 0; i < DEFAULT_MAX_PARTICIPANTS; i++) optInAndAccept(makeIdentity());
+      const extra = makeIdentity();
+      service.receive(createCohortOptInMessage({
+        from            : extra.did,
+        to              : serviceId.did,
+        cohortId,
+        participantPk   : extra.keys.publicKey.compressed,
+        communicationPk : extra.keys.publicKey.compressed,
+      }));
+      expect(() => service.acceptParticipant(cohortId, extra.did)).to.throw(/full/);
+    });
   });
 
   describe('M6: participant cohort-state map is bounded and prunable', () => {
@@ -447,7 +1104,7 @@ describe('Aggregation DoS + liveness hardening', () => {
       communicationPk  : serviceId.keys.publicKey.compressed,
     });
 
-    it('ignores new adverts past maxCohorts', () => {
+    it('at capacity, evicts the oldest Discovered-phase entry to make room (MS-08)', () => {
       const me = makeIdentity();
       const participant = new AggregationParticipant({
         did        : me.did,
@@ -456,9 +1113,36 @@ describe('Aggregation DoS + liveness hardening', () => {
       });
       participant.receive(mkAdvert('c1'));
       participant.receive(mkAdvert('c2'));
+      // At capacity: c1 (the oldest not-yet-joined entry) is evicted for c3,
+      // so an advert flood cannot permanently starve discovery of new cohorts.
       participant.receive(mkAdvert('c3'));
       expect(participant.discoveredCohorts.size).to.equal(2);
-      expect(participant.discoveredCohorts.has('c3')).to.be.false;
+      expect(participant.discoveredCohorts.has('c1')).to.be.false;
+      expect(participant.discoveredCohorts.has('c2')).to.be.true;
+      expect(participant.discoveredCohorts.has('c3')).to.be.true;
+    });
+
+    it('never evicts a joined cohort; drops the new advert when every retained cohort is joined', () => {
+      const me = makeIdentity();
+      const participant = new AggregationParticipant({
+        did        : me.did,
+        signer     : new KeyPairAggregationSigner(me.keys),
+        maxCohorts : 2,
+      });
+      participant.receive(mkAdvert('c1'));
+      participant.receive(mkAdvert('c2'));
+      participant.joinCohort('c1');
+      // c2 is the only Discovered entry: evicted for c3; the joined c1 survives.
+      participant.receive(mkAdvert('c3'));
+      expect(participant.getCohortPhase('c1')).to.equal(ParticipantCohortPhase.OptedIn);
+      expect(participant.discoveredCohorts.has('c2')).to.be.false;
+      expect(participant.discoveredCohorts.has('c3')).to.be.true;
+      // With every retained cohort joined, a new advert is still dropped.
+      participant.joinCohort('c3');
+      participant.receive(mkAdvert('c4'));
+      expect(participant.getCohortPhase('c4')).to.be.undefined;
+      expect(participant.getCohortPhase('c1')).to.equal(ParticipantCohortPhase.OptedIn);
+      expect(participant.getCohortPhase('c3')).to.equal(ParticipantCohortPhase.OptedIn);
     });
 
     it('leaveCohort frees capacity and is a no-op for unknown cohorts', () => {
@@ -476,6 +1160,100 @@ describe('Aggregation DoS + liveness hardening', () => {
       expect(participant.discoveredCohorts.size).to.equal(2);
       expect(participant.discoveredCohorts.has('c3')).to.be.true;
       expect(participant.discoveredCohorts.has('c1')).to.be.false;
+    });
+  });
+
+  describe('MS-08: participant runner reclaims cohort-state slots', () => {
+    it('drops the cohort state when shouldJoin rejects the advert', async () => {
+      const bus = new MessageBus();
+      const service = makeServiceRunner(bus);
+      const participant = makeParticipantRunner(bus, { shouldJoin: async () => false });
+      await participant.start();
+      const { cohortId, completion } = service.advertiseCohort(CAS_CONFIG());
+      void completion.catch(() => undefined);
+      // Let the advert propagate and the async shouldJoin decision land.
+      await new Promise(resolve => setTimeout(resolve, 25));
+      expect(participant.session.getCohortPhase(cohortId), 'rejected advert leaves no cohort state').to.be.undefined;
+      expect(participant.session.discoveredCohorts.size).to.equal(0);
+      participant.stop();
+      service.stop();
+    });
+
+    it('drops the cohort state once the cohort completes', async () => {
+      const bus = new MessageBus();
+      const service = makeServiceRunner(bus);
+      const participant = makeParticipantRunner(bus);
+      await participant.start();
+      const completed = new Promise<void>(resolve => participant.once('cohort-complete', () => resolve()));
+      const { cohortId } = service.advertiseCohort(CAS_CONFIG());
+      await completed;
+      // leaveCohort runs synchronously after the cohort-complete emission.
+      expect(participant.session.getCohortPhase(cohortId), 'completed cohort state reclaimed').to.be.undefined;
+      participant.stop();
+      service.stop();
+    });
+
+    it('drops the cohort state when the member rejects the aggregated data', async () => {
+      const bus = new MessageBus();
+      const service = makeServiceRunner(bus);
+      const participant = makeParticipantRunner(bus, { onValidateData: async () => ({ approved: false }) });
+      await participant.start();
+      const failed = new Promise<void>(resolve => participant.once('cohort-failed', () => resolve()));
+      const { cohortId, completion } = service.advertiseCohort(CAS_CONFIG());
+      void completion.catch(() => undefined);
+      await failed;
+      // leaveCohort runs synchronously after the cohort-failed emission.
+      expect(participant.session.getCohortPhase(cohortId), 'failed cohort state reclaimed').to.be.undefined;
+      participant.stop();
+      service.stop();
+    });
+  });
+
+  describe('MS-08: participant runner forwards bounds to the state machine', () => {
+    const svc = makeIdentity();
+    const mkAdvert = (cohortId: string): ReturnType<typeof createCohortAdvertMessage> => createCohortAdvertMessage({
+      from             : svc.did,
+      cohortId,
+      network          : 'mutinynet',
+      minParticipants  : 2,
+      beaconType       : 'CASBeacon',
+      recoveryKey      : TEST_RECOVERY_KEY,
+      recoverySequence : TEST_RECOVERY_SEQUENCE,
+      communicationPk  : svc.keys.publicKey.compressed,
+    });
+
+    it('forwards maxCohorts', () => {
+      const me = makeIdentity();
+      const transport = new MockTransport(new MessageBus());
+      transport.registerActor(me.did, me.keys);
+      const runner = new AggregationParticipantRunner({
+        transport,
+        did             : me.did,
+        keys            : me.keys,
+        maxCohorts      : 1,
+        onProvideUpdate : async () => null,
+      });
+      runner.session.receive(mkAdvert('c1'));
+      runner.session.receive(mkAdvert('c2'));
+      expect(runner.session.discoveredCohorts.size).to.equal(1);
+      expect(runner.session.discoveredCohorts.has('c2'), 'oldest Discovered evicted').to.be.true;
+      runner.stop();
+    });
+
+    it('forwards maxFeeSats (the member refuses a fee above the ceiling)', async () => {
+      const bus = new MessageBus();
+      const service = makeServiceRunner(bus, { phaseTimeoutMs: 5_000 });
+      // The dummy tx pays a 500-sat fee; cap the member at 100 sats.
+      const participant = makeParticipantRunner(bus, { maxFeeSats: 100n });
+      await participant.start();
+      const feeError = new Promise<Error>(resolve => participant.on('error', e => {
+        if((e as { type?: string }).type === 'FEE_TOO_HIGH') resolve(e);
+      }));
+      const { completion } = service.advertiseCohort(CAS_CONFIG());
+      void completion.catch(() => undefined);
+      await feeError;
+      participant.stop();
+      service.stop();
     });
   });
 
@@ -506,18 +1284,23 @@ describe('Aggregation DoS + liveness hardening', () => {
   });
 
   describe('L18: nonce cache per-DID buckets + timestamp expiry', () => {
-    it('a flooding DID evicts only its own entries, never another DID\'s live entries', () => {
+    it('a flooding DID is refused past its own bucket; no DID evicts another\'s live entries', () => {
       const cache = new NonceCache({ maxPerDid: 2, maxEntries: 100, nowSec: () => 1000 });
       cache.store('victim', 'v1', 1000);
       cache.store('victim', 'v2', 1000);
-      // Flooder churns well past its per-DID cap.
-      for(let i = 0; i < 10; i++) cache.store('flooder', `f${i}`, 1000);
+      // Flooder churns well past its per-DID cap: the first two admissions
+      // succeed, the rest are refused (fail-closed) rather than evicting live
+      // entries (audit MS-10).
+      const admissions: boolean[] = [];
+      for(let i = 0; i < 10; i++) admissions.push(cache.store('flooder', `f${i}`, 1000));
+      expect(admissions.slice(0, 2)).to.deep.equal([true, true]);
+      expect(admissions.slice(2).every(a => !a), 'past-cap admissions refused').to.be.true;
       // Victim entries survive; their replay protection is intact.
       expect(cache.store('victim', 'v1', 1000)).to.be.false;
       expect(cache.store('victim', 'v2', 1000)).to.be.false;
-      // Flooder retained only its most recent 2.
-      expect(cache.store('flooder', 'f0', 1000), 'oldest flooder entry evicted').to.be.true;
-      expect(cache.store('flooder', 'f9', 1000), 'newest flooder entry retained').to.be.false;
+      // The flooder's own live entries were never evicted either.
+      expect(cache.store('flooder', 'f0', 1000), 'flooder entry retained').to.be.false;
+      expect(cache.store('flooder', 'f1', 1000), 'flooder entry retained').to.be.false;
     });
 
     it('expired entries are purged before any live entry is evicted under global pressure', () => {
@@ -529,16 +1312,18 @@ describe('Aggregation DoS + liveness hardening', () => {
       expect(cache.size()).to.equal(2);
     });
 
-    it('global FIFO backstop still applies when nothing is expired', () => {
+    it('new admissions are rejected at maxEntries when nothing is expired (never evict live entries)', () => {
       const cache = new NonceCache({ maxEntries: 2, windowSec: 10_000, nowSec: () => 1000 });
-      cache.store('a', 'n1', 1000);
-      cache.store('b', 'n2', 1000);
-      cache.store('c', 'n3', 1000);
+      expect(cache.store('a', 'n1', 1000)).to.be.true;
+      expect(cache.store('b', 'n2', 1000)).to.be.true;
+      // Full of live in-window entries: the novel admission is refused
+      // (fail-closed) instead of evicting a victim's entry and reopening its
+      // replay window (audit MS-10).
+      expect(cache.store('c', 'n3', 1000)).to.be.false;
       expect(cache.size()).to.equal(2);
-      // Check retention BEFORE probing the evicted entry: a replay probe
-      // re-inserts and would itself force an eviction.
+      // Both live entries retain their replay protection.
+      expect(cache.store('a', 'n1', 1000), 'oldest entry retained').to.be.false;
       expect(cache.store('b', 'n2', 1000), 'younger entry retained').to.be.false;
-      expect(cache.store('a', 'n1', 1000), 'oldest entry was evicted').to.be.true;
     });
   });
 
