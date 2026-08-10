@@ -1,4 +1,4 @@
-import { DidBtcr2, Resolver, Updater } from '@did-btcr2/method';
+import { DidBtcr2, Resolver, Updater, resolveBtcr2SenderPk } from '@did-btcr2/method';
 /**
  * E2E Check: End-to-end MuSig2 signing over a real Nostr relay, with
  * cryptographic verification of the aggregated signature against the
@@ -50,9 +50,11 @@ const bobKeys = SchnorrKeyPair.generate();
 const bobDid = DidBtcr2.create(bobKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
 
 // ── Transports (one per actor, same relay) ──
-const serviceTransport = new NostrTransport({ relays: [RELAY], logger: SILENT_LOGGER });
-const aliceTransport = new NostrTransport({ relays: [RELAY], logger: SILENT_LOGGER });
-const bobTransport = new NostrTransport({ relays: [RELAY], logger: SILENT_LOGGER });
+// resolveSenderPk lets each transport authenticate senders from their DIDs, so
+// discovery bootstraps without pre-registered peer keys.
+const serviceTransport = new NostrTransport({ relays: [RELAY], logger: SILENT_LOGGER, resolveSenderPk: resolveBtcr2SenderPk });
+const aliceTransport = new NostrTransport({ relays: [RELAY], logger: SILENT_LOGGER, resolveSenderPk: resolveBtcr2SenderPk });
+const bobTransport = new NostrTransport({ relays: [RELAY], logger: SILENT_LOGGER, resolveSenderPk: resolveBtcr2SenderPk });
 
 serviceTransport.registerActor(serviceDid, serviceKeys);
 aliceTransport.registerActor(aliceDid, aliceKeys);

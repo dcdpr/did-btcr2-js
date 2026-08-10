@@ -122,11 +122,15 @@ Aggregation lets multiple DID controllers coordinate a single Bitcoin transactio
 ```typescript
 import { AggregationServiceRunner } from '@did-btcr2/aggregation/service';
 import { TransportFactory } from '@did-btcr2/aggregation';
+import { resolveBtcr2SenderPk } from '@did-btcr2/method';
 
 // Pick a transport. Nostr (relay-based) or HTTP/REST (operator-hosted).
+// resolveSenderPk authenticates senders from their DIDs so cohort discovery
+// bootstraps without out-of-band peer-key registration.
 const transport = TransportFactory.establish({
-  type   : 'nostr',
-  relays : ['wss://relay.damus.io'],
+  type            : 'nostr',
+  relays          : ['wss://relay.damus.io'],
+  resolveSenderPk : resolveBtcr2SenderPk,
 });
 // Or for HTTP: { type: 'http', role: 'server' } on the operator side,
 //              { type: 'http', role: 'client', baseUrl: '...' } on the participant side.

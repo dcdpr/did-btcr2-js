@@ -1,4 +1,4 @@
-import { DidBtcr2, GenesisDocument, Identifier, Resolver, Updater } from '@did-btcr2/method';
+import { DidBtcr2, GenesisDocument, Identifier, Resolver, Updater, resolveBtcr2SenderPk } from '@did-btcr2/method';
 /**
  * E2E Demo: Per-Actor Nostr Transports (Runner API)
  *
@@ -58,9 +58,12 @@ const bobGenesis: Record<string, unknown> = {
 };
 const bobDid = DidBtcr2.create(GenesisDocument.toGenesisBytes(bobGenesis), { idType: 'EXTERNAL', network: 'mutinynet' });
 
-const serviceTransport = new NostrTransport({ relays: [RELAY] });
-const aliceTransport = new NostrTransport({ relays: [RELAY] });
-const bobTransport = new NostrTransport({ relays: [RELAY] });
+// resolveSenderPk lets each transport authenticate senders from their DIDs, so
+// no out-of-band key registration is needed for discovery to bootstrap (the
+// registerPeer calls below still seed the encrypted directed path).
+const serviceTransport = new NostrTransport({ relays: [RELAY], resolveSenderPk: resolveBtcr2SenderPk });
+const aliceTransport = new NostrTransport({ relays: [RELAY], resolveSenderPk: resolveBtcr2SenderPk });
+const bobTransport = new NostrTransport({ relays: [RELAY], resolveSenderPk: resolveBtcr2SenderPk });
 
 serviceTransport.registerActor(serviceDid, serviceKeys);
 aliceTransport.registerActor(aliceDid, aliceKeys);

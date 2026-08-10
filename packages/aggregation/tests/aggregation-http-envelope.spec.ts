@@ -262,5 +262,26 @@ describe('HTTP transport envelope', () => {
       expect(Array.from(revived.body.participantPk)).to.deep.equal(Array.from(pk));
       expect(Array.from(revived.body.communicationPk)).to.deep.equal(Array.from(pk));
     });
+
+    // MS-01 hardening: malformed sentinels must fail with a typed, catchable
+    // error before hexToBytes runs, so transport callers can drop the payload.
+    it('reviveFromWire throws a typed error on a non-hex __bytes sentinel', () => {
+      expect(() => reviveFromWire({ __bytes: 'zz' }))
+        .to.throw(HttpTransportError).with.property('type', 'WIRE_SENTINEL_INVALID');
+    });
+
+    it('reviveFromWire throws a typed error on an odd-length __bytes sentinel', () => {
+      expect(() => reviveFromWire({ __bytes: 'abc' }))
+        .to.throw(HttpTransportError).with.property('type', 'WIRE_SENTINEL_INVALID');
+    });
+
+    it('reviveFromWire throws a typed error on a nested malformed sentinel', () => {
+      expect(() => reviveFromWire({ outer: [{ inner: { __bytes: 'x1' } }] }))
+        .to.throw(HttpTransportError).with.property('type', 'WIRE_SENTINEL_INVALID');
+    });
+
+    it('reviveFromWire leaves a non-string __bytes value untouched (not a sentinel)', () => {
+      expect(reviveFromWire({ __bytes: 7 })).to.deep.equal({ __bytes: 7 });
+    });
   });
 });

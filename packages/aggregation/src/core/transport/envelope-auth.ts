@@ -68,7 +68,15 @@ export function authenticateEnvelopeContent(
     return undefined;
   }
 
-  const flat = flattenMessage(reviveFromWire(envelope.message) as Record<string, unknown>);
+  let flat: Record<string, unknown>;
+  try {
+    flat = flattenMessage(reviveFromWire(envelope.message) as Record<string, unknown>);
+  } catch(err) {
+    // Malformed wire content (e.g. a bad __bytes sentinel) must never escape:
+    // callers invoke this before verification and cannot trust any of it.
+    logger.debug('Message revival failed:', err);
+    return undefined;
+  }
   const genesisDocument = isRecord(flat.genesisDocument) ? flat.genesisDocument : undefined;
   const senderPk = options.resolveSenderPk(envelope.from, genesisDocument ? { genesisDocument } : undefined);
   if(!senderPk) {
