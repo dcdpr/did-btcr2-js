@@ -1,4 +1,4 @@
-import { DidBtcr2, Resolver, Updater } from '@did-btcr2/method';
+import { DidBtcr2, Resolver, Updater, resolveBtcr2SenderPk } from '@did-btcr2/method';
 /**
  * Aggregation Participant - Standalone Process (Runner API)
  *
@@ -36,7 +36,9 @@ if(!SECRET_KEY) {
 const myKeys = SchnorrKeyPair.fromSecret(SECRET_KEY);
 const myDid = DidBtcr2.create(myKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
 
-const transport = new NostrTransport({ relays: [RELAY] });
+// resolveSenderPk authenticates the service's first advert from its DID, so
+// discovery bootstraps without pre-registered peer keys.
+const transport = new NostrTransport({ relays: [RELAY], resolveSenderPk: resolveBtcr2SenderPk });
 transport.registerActor(myDid, myKeys);
 transport.start();
 

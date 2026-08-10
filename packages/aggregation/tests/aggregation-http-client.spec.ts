@@ -325,6 +325,46 @@ describe('HttpClientTransport', () => {
       await new Promise((r) => setTimeout(r, 30));
       expect(delivered).to.be.false;
     });
+
+    // MS-19: the envelope signature authenticates did2, but the inner message
+    // claims a victim sender; the dispatch must drop it (Nostr-path parity).
+    it('drops a broadcast whose inner from differs from the authenticated sender', async () => {
+      client = makeClient();
+      client.registerActor(did1, keys1);
+
+      let delivered = false;
+      client.registerMessageHandler(did1, COHORT_ADVERT, () => { delivered = true; });
+      client.start();
+      await helper.waitForCall(HTTP_ROUTE.ADVERTS);
+
+      const victim = DidBtcr2.create(
+        SchnorrKeyPair.generate().publicKey.compressed,
+        { idType: 'KEY', network: 'mutinynet' },
+      );
+      const spoofed = new BaseMessage({ type: COHORT_ADVERT, from: victim, body: { cohortId: 'c1' } });
+      const envelope = signEnvelope(spoofed, { did: did2, keys: keys2 });
+      helper.pushEvent(HTTP_ROUTE.ADVERTS, SSE_EVENT.ADVERT, JSON.stringify(envelope));
+
+      await new Promise((r) => setTimeout(r, 30));
+      expect(delivered).to.be.false;
+    });
+
+    it('rebinds a missing inner from to the authenticated broadcast sender', async () => {
+      client = makeClient();
+      client.registerActor(did1, keys1);
+
+      const received = new Promise<Record<string, unknown>>((resolve) => {
+        client.registerMessageHandler(did1, COHORT_ADVERT, (msg) => resolve(msg));
+      });
+      client.start();
+      await helper.waitForCall(HTTP_ROUTE.ADVERTS);
+
+      const envelope = signEnvelope({ type: COHORT_ADVERT, body: { cohortId: 'c1' } }, { did: did2, keys: keys2 });
+      helper.pushEvent(HTTP_ROUTE.ADVERTS, SSE_EVENT.ADVERT, JSON.stringify(envelope));
+
+      const delivered = await received;
+      expect(delivered.from).to.equal(did2);
+    });
   });
 
   describe('inbox dispatch', () => {
@@ -370,6 +410,30 @@ describe('HttpClientTransport', () => {
       );
       const msg = new BaseMessage({ type: COHORT_READY, from: did2, to: wrongRecipient, body: { cohortId: 'c1' } });
       const envelope = signEnvelope(msg, { did: did2, keys: keys2 }, { to: wrongRecipient });
+      helper.pushEvent(inboxPath, SSE_EVENT.MESSAGE, JSON.stringify(envelope));
+
+      await new Promise((r) => setTimeout(r, 30));
+      expect(delivered).to.be.false;
+    });
+
+    // MS-19: the envelope signature authenticates did2, but the inner message
+    // claims a victim sender; the dispatch must drop it (Nostr-path parity).
+    it('drops a directed message whose inner from differs from the authenticated sender', async () => {
+      client = makeClient();
+      client.registerActor(did1, keys1);
+
+      let delivered = false;
+      client.registerMessageHandler(did1, COHORT_READY, () => { delivered = true; });
+      client.start();
+      const inboxPath = `/v1/actors/${encodeURIComponent(did1)}/inbox`;
+      await helper.waitForCall(inboxPath);
+
+      const victim = DidBtcr2.create(
+        SchnorrKeyPair.generate().publicKey.compressed,
+        { idType: 'KEY', network: 'mutinynet' },
+      );
+      const spoofed = new BaseMessage({ type: COHORT_READY, from: victim, to: did1, body: { cohortId: 'c1' } });
+      const envelope = signEnvelope(spoofed, { did: did2, keys: keys2 }, { to: did1 });
       helper.pushEvent(inboxPath, SSE_EVENT.MESSAGE, JSON.stringify(envelope));
 
       await new Promise((r) => setTimeout(r, 30));

@@ -1,4 +1,4 @@
-import { DidBtcr2 } from '@did-btcr2/method';
+import { DidBtcr2, resolveBtcr2SenderPk } from '@did-btcr2/method';
 /**
  * Aggregation Service - Standalone Process (Runner API)
  *
@@ -29,7 +29,9 @@ const MIN_PARTICIPANTS = Number(process.env.MIN_PARTICIPANTS ?? '2');
 const serviceKeys = SchnorrKeyPair.fromSecret('cbd42da155c70d5a8806a1f68bfb802097e152f28230990d8e3c979e78e52d1d');
 const serviceDid = DidBtcr2.create(serviceKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
 
-const transport = new NostrTransport({ relays: [RELAY] });
+// resolveSenderPk authenticates opt-in senders from their DIDs, so participants
+// need no out-of-band key registration for discovery to bootstrap.
+const transport = new NostrTransport({ relays: [RELAY], resolveSenderPk: resolveBtcr2SenderPk });
 transport.registerActor(serviceDid, serviceKeys);
 transport.start();
 

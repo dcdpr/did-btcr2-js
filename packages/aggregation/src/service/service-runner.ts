@@ -206,7 +206,10 @@ interface RunContext {
  *
  * @example
  * ```typescript
- * const transport = new NostrTransport({ relays: [RELAY] });
+ * // Inject a DID-aware sender resolver (e.g. resolveBtcr2SenderPk from
+ * // @did-btcr2/method) so opt-ins from unregistered participants still
+ * // authenticate and discovery can bootstrap.
+ * const transport = new NostrTransport({ relays: [RELAY], resolveSenderPk: resolveBtcr2SenderPk });
  * transport.registerActor(serviceDid, serviceKeys);
  *
  * const runner = new AggregationServiceRunner({

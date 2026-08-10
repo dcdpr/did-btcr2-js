@@ -63,13 +63,22 @@ export interface NostrTransportConfig {
    * replay a directed subscription's full event history on reconnect, and the
    * timestamp check rejects ancient replays before they reach the state
    * machines. Defaults to {@link DEFAULT_CLOCK_SKEW_SEC} (60s); raise it if
-   * slow relays deliver legitimately delayed traffic.
+   * slow relays deliver legitimately delayed traffic. Values above
+   * {@link MAX_CLOCK_SKEW_SEC} are clamped; non-positive or non-finite values
+   * are rejected.
+   *
+   * Crash-recovery limitation: directed one-shot messages older than this
+   * window are dropped, so a peer that stays offline longer than the window
+   * can miss directed messages published while it was down.
    */
   clockSkewSec?: number;
 }
 
 /** Default `since` lookback for broadcast (COHORT_ADVERT) subscriptions: 5 minutes. */
 export const DEFAULT_BROADCAST_LOOKBACK_MS = 5 * 60 * 1000;
+
+/** Upper bound for the envelope timestamp tolerance: 5 minutes. */
+export const MAX_CLOCK_SKEW_SEC = 300;
 
 /** Internal registration for a single actor sharing this transport. */
 interface ActorEntry {
@@ -121,7 +130,23 @@ export class NostrTransport implements Transport {
     this.#logger = config?.logger ?? CONSOLE_LOGGER;
     this.#broadcastLookbackMs = config?.broadcastLookbackMs ?? DEFAULT_BROADCAST_LOOKBACK_MS;
     this.#resolveSenderPkFn = config?.resolveSenderPk;
-    this.#clockSkewSec = config?.clockSkewSec ?? DEFAULT_CLOCK_SKEW_SEC;
+    this.#clockSkewSec = NostrTransport.#clampClockSkewSec(config?.clockSkewSec, this.#logger);
+  }
+
+  /** Validate the configured skew: reject non-positive/non-finite, clamp to {@link MAX_CLOCK_SKEW_SEC}. */
+  static #clampClockSkewSec(value: number | undefined, logger: Logger): number {
+    if(value === undefined) return DEFAULT_CLOCK_SKEW_SEC;
+    if(!Number.isFinite(value) || value <= 0) {
+      throw new TransportAdapterError(
+        `Invalid clockSkewSec: ${value} (expected a positive number of seconds)`,
+        'INVALID_CLOCK_SKEW', { adapter: 'nostr', clockSkewSec: value }
+      );
+    }
+    if(value > MAX_CLOCK_SKEW_SEC) {
+      logger.warn(`clockSkewSec ${value}s exceeds the ${MAX_CLOCK_SKEW_SEC}s maximum; clamping`);
+      return MAX_CLOCK_SKEW_SEC;
+    }
+    return value;
   }
 
   /**
@@ -454,42 +479,49 @@ export class NostrTransport implements Transport {
    */
   #makeActorEventHandler(actorDid: string): (event: Event) => Promise<void> {
     return async (event: Event) => {
-      const actor = this.#actors.get(actorDid);
-      if(!actor) return;
-
-      // Relay self-echo: sendMessage() adds the sender's own pubkey to the
-      // event's `p` tags (so recipients can reply). The directed subscription
-      // filter `{'#p': [actor_pk]}` therefore matches every event this actor
-      // publishes. Skip - we don't need to process our own outgoing events,
-      // and attempting to NIP-44-decrypt them fails with "invalid MAC" because
-      // the content was encrypted for the recipient, not self.
-      if(event.pubkey === bytesToHex(actor.keys.publicKey.x)) return;
-
-      let content: string;
-
+      // Fail closed: nostr-tools invokes onevent without awaiting it, so any
+      // throw here becomes an unhandled rejection. Every failure mode must
+      // end with the event dropped, never an escape.
       try {
-        if(event.kind === 1) {
-          content = event.content;
-        } else if(event.kind === 1059) {
-          const conversationKey = nip44.v2.utils.getConversationKey(
-            actor.keys.secretKey.bytes,
-            event.pubkey
-          );
-          content = nip44.v2.decrypt(event.content, conversationKey);
-        } else {
+        const actor = this.#actors.get(actorDid);
+        if(!actor) return;
+
+        // Relay self-echo: sendMessage() adds the sender's own pubkey to the
+        // event's `p` tags (so recipients can reply). The directed subscription
+        // filter `{'#p': [actor_pk]}` therefore matches every event this actor
+        // publishes. Skip - we don't need to process our own outgoing events,
+        // and attempting to NIP-44-decrypt them fails with "invalid MAC" because
+        // the content was encrypted for the recipient, not self.
+        if(event.pubkey === bytesToHex(actor.keys.publicKey.x)) return;
+
+        let content: string;
+
+        try {
+          if(event.kind === 1) {
+            content = event.content;
+          } else if(event.kind === 1059) {
+            const conversationKey = nip44.v2.utils.getConversationKey(
+              actor.keys.secretKey.bytes,
+              event.pubkey
+            );
+            content = nip44.v2.decrypt(event.content, conversationKey);
+          } else {
+            return;
+          }
+        } catch(err) {
+          this.#logger.debug(`Failed to parse event ${event.id} for ${actorDid}:`, err);
           return;
         }
+
+        // Authenticate the envelope; directed messages must also be addressed to
+        // this actor. Unverifiable senders are dropped here, never dispatched.
+        const message = this.#authenticateContent(content, { expectedTo: actorDid });
+        if(!message) return;
+
+        this.#dispatchMessage(message, actor);
       } catch(err) {
-        this.#logger.debug(`Failed to parse event ${event.id} for ${actorDid}:`, err);
-        return;
+        this.#logger.debug(`Dropping directed event ${event.id} for ${actorDid}:`, err);
       }
-
-      // Authenticate the envelope; directed messages must also be addressed to
-      // this actor. Unverifiable senders are dropped here, never dispatched.
-      const message = this.#authenticateContent(content, { expectedTo: actorDid });
-      if(!message) return;
-
-      this.#dispatchMessage(message, actor);
     };
   }
 
@@ -504,18 +536,27 @@ export class NostrTransport implements Transport {
    * @returns
    */
   async #handleBroadcastEvent(event: Event): Promise<void> {
-    if(event.kind !== 1) return;
+    // Fail closed: nostr-tools invokes onevent without awaiting it, so any
+    // throw here becomes an unhandled rejection. Every failure mode must end
+    // with the event dropped, never an escape.
+    try {
+      if(event.kind !== 1) return;
 
-    const message = this.#authenticateContent(event.content);
-    if(!message) return;
+      const message = this.#authenticateContent(event.content);
+      if(!message) return;
 
-    const messageType = message.type as string;
-    if(!messageType || !isAggregationMessageType(messageType)) return;
+      const messageType = message.type as string;
+      if(!messageType || !isAggregationMessageType(messageType)) return;
 
-    // Dispatch to ALL actors that have a handler for this message type
-    for(const actor of this.#actors.values()) {
-      const handler = actor.handlers.get(messageType);
-      if(handler) await handler(message);
+      // Dispatch to ALL actors that have a handler for this message type
+      for(const actor of this.#actors.values()) {
+        const handler = actor.handlers.get(messageType);
+        if(!handler) continue;
+        try { await handler(message); }
+        catch(err) { this.#logger.debug(`Broadcast handler threw for ${messageType}:`, err); }
+      }
+    } catch(err) {
+      this.#logger.debug(`Dropping broadcast event ${event.id}:`, err);
     }
   }
 

@@ -418,8 +418,13 @@ export class HttpServerTransport implements Transport {
       return this.#respondJson(404, { error: 'unknown_recipient' }, req);
     }
 
-    const revived = reviveFromWire(envelope.message) as Record<string, unknown>;
-    const flat = flattenMessage(revived);
+    let flat: Record<string, unknown>;
+    try {
+      flat = flattenMessage(reviveFromWire(envelope.message) as Record<string, unknown>);
+    } catch(err) {
+      this.#logger.debug('POST /v1/messages: malformed wire content:', err);
+      return this.#respondJson(400, { error: 'invalid_message' }, req);
+    }
 
     // Bind the inner message to the authenticated envelope: a sender may only speak as
     // itself. The envelope signature authenticates envelope.from, but the dispatched
@@ -611,7 +616,13 @@ export class HttpServerTransport implements Transport {
 
     // Inspect the still-untrusted message only to derive a candidate key; nothing is
     // trusted until the envelope verifies against that key below.
-    const flat = flattenMessage(reviveFromWire(envelope.message) as Record<string, unknown>);
+    let flat: Record<string, unknown>;
+    try {
+      flat = flattenMessage(reviveFromWire(envelope.message) as Record<string, unknown>);
+    } catch(err) {
+      this.#logger.debug('POST /v1/messages: bootstrap revival failed:', err);
+      return undefined;
+    }
     if(flat.type !== COHORT_OPT_IN) return undefined;
 
     const genesisDocument = flat.genesisDocument;
