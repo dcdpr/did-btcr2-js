@@ -180,9 +180,11 @@ export interface AggregationParticipantParams {
   /**
    * Cap on cohort states retained at once. Cohort adverts arrive over broadcast
    * transports from anyone, each minting a state entry; the bound keeps an
-   * advert flood from growing the map without limit (audit M6). New adverts
-   * past the cap are ignored; prune completed cohorts with
-   * {@link AggregationParticipant.leaveCohort}. Defaults to
+   * advert flood from growing the map without limit (audit M6). At capacity the
+   * oldest not-yet-joined (Discovered) entry is evicted to make room (audit
+   * MS-08); joined cohorts are never auto-evicted, so a flood of adverts while
+   * every retained cohort is joined still drops the new advert. Prune completed
+   * cohorts with {@link AggregationParticipant.leaveCohort}. Defaults to
    * {@link DEFAULT_MAX_PARTICIPANT_COHORTS}.
    */
   maxCohorts?: number;
@@ -309,8 +311,19 @@ export class AggregationParticipant {
     const { cohortId, network, communicationPk, ...conditions } = message.body;
     if(this.#cohortStates.has(cohortId)) return;  // Already known
     // Adverts arrive over broadcast from anyone; bound the retained state so an
-    // advert flood cannot grow the map without limit (audit M6).
-    if(this.#cohortStates.size >= this.#maxCohorts) return;
+    // advert flood cannot grow the map without limit (audit M6). At capacity,
+    // evict the oldest not-yet-joined (Discovered) entry to make room - a flood
+    // of minted cohortIds must not permanently starve discovery of new cohorts
+    // (audit MS-08). Joined cohorts are never auto-evicted: when every retained
+    // cohort is joined the new advert is dropped.
+    if(this.#cohortStates.size >= this.#maxCohorts) {
+      let oldestDiscovered: string | undefined;
+      for(const [id, s] of this.#cohortStates) {
+        if(s.phase === ParticipantCohortPhase.Discovered) { oldestDiscovered = id; break; }
+      }
+      if(oldestDiscovered === undefined) return;
+      this.leaveCohort(oldestDiscovered);
+    }
 
     const advert: CohortAdvert = {
       cohortId,

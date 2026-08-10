@@ -1,4 +1,5 @@
 import type { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { DEFAULT_MAX_PARTICIPANTS } from '../core/conditions.js';
 import { AggregationCohortError, AggregationServiceError } from '../core/errors.js';
 import type { BaseMessage } from '../core/messages/base.js';
 import {
@@ -679,14 +680,20 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
       }
 
       const decision = await this.#onOptInReceived(optIn);
-      if(!decision.accepted) return;
+      if(!decision.accepted) {
+        // Operator declined: drop the pending entry so the pending-opt-in cap
+        // counts only genuinely-undecided opt-ins (audit MS-08).
+        this.session.rejectParticipant(ctx.cohortId, msg.from);
+        return;
+      }
 
       // Don't accept past the advertised maxParticipants: acceptParticipant
       // would throw COHORT_FULL and fail the cohort. Silently ignore the surplus
-      // opt-in (the cohort is full).
-      const maxParticipants = ctx.config.maxParticipants;
+      // opt-in (the cohort is full). An unadvertised ceiling defaults to
+      // DEFAULT_MAX_PARTICIPANTS (audit MS-08).
+      const maxParticipants = ctx.config.maxParticipants ?? DEFAULT_MAX_PARTICIPANTS;
       const cohortNow = this.session.getCohort(ctx.cohortId);
-      if(maxParticipants !== undefined && cohortNow && cohortNow.participants.length >= maxParticipants) {
+      if(cohortNow && cohortNow.participants.length >= maxParticipants) {
         return;
       }
 
@@ -848,6 +855,15 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
       // If the cohort already committed to the fallback path, ignore a late
       // optimistic completion: only one path may finalize the single beacon UTXO.
       if(ctx.committedPath === 'fallback') return;
+
+      // The state machine flagged a defector past the retry budget (or an
+      // unattributable session error): commit to the k-of-n fallback
+      // deliberately rather than letting the optimistic round stall forever
+      // (audit MS-18). triggerFallback latches committedPath synchronously.
+      if(this.session.isFallbackRequired(ctx.cohortId)) {
+        await this.triggerFallback(ctx.cohortId);
+        return;
+      }
 
       // The state machine auto-completes when all partial sigs received.
       const result = this.session.getResult(ctx.cohortId);

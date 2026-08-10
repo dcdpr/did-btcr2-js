@@ -15,6 +15,8 @@ import {
   ServiceCohortPhase,
   SILENT_LOGGER,
   authenticateEnvelopeContent,
+  createAggregatedNonceMessage,
+  createAuthorizationRequestMessage,
   createFallbackAuthorizationRequestMessage,
   createCohortOptInMessage,
   createValidationAckMessage,
@@ -344,6 +346,61 @@ describe('Aggregation transport + message auth hardening', () => {
       expect(ctx.aliceP.getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.ValidationSent);
     });
 
+    it('H7: ignores an AUTHORIZATION_REQUEST from a sender that is not the service', () => {
+      const ctx = setup();
+      const cohortId = driveToOptedIn(ctx);
+      driveToValidation(ctx, cohortId);
+      route(ctx.aliceP.approveValidation(cohortId), { [ctx.svc.did]: ctx.service });
+      expect(ctx.aliceP.getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.ValidationSent);
+
+      const attacker = makeIdentity();
+      ctx.aliceP.receive(createAuthorizationRequestMessage({
+        from             : attacker.did,
+        to               : ctx.alice.did,
+        cohortId,
+        sessionId        : 'attacker-session',
+        pendingTx        : 'aa',
+        prevOutScriptHex : 'bb',
+        prevOutValue     : '1000',
+      }));
+      expect(ctx.aliceP.pendingSigningRequests.has(cohortId)).to.be.false;
+      expect(ctx.aliceP.getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.ValidationSent);
+    });
+
+    it('H7: ignores an AGGREGATED_NONCE from a sender that is not the service', () => {
+      const ctx = setup();
+      const cohortId = driveToOptedIn(ctx);
+      driveToValidation(ctx, cohortId);
+      route(ctx.aliceP.approveValidation(cohortId), { [ctx.svc.did]: ctx.service });
+      route(ctx.bobP.approveValidation(cohortId), { [ctx.svc.did]: ctx.service });
+
+      const cohort = ctx.service.getCohort(cohortId)!;
+      const script = beaconOutputScript(cohort);
+      const tx = buildSignalTx(script, 100000n, cohort.signalBytes!);
+      route(ctx.service.startSigning(cohortId, {
+        tx,
+        prevOutScripts : [script],
+        prevOutValues  : [100000n],
+      }), { [ctx.alice.did]: ctx.aliceP, [ctx.bob.did]: ctx.bobP });
+      route(ctx.aliceP.approveNonce(cohortId), { [ctx.svc.did]: ctx.service });
+      expect(ctx.aliceP.getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.NonceSent);
+
+      const attacker = makeIdentity();
+      ctx.aliceP.receive(createAggregatedNonceMessage({
+        from            : attacker.did,
+        to              : ctx.alice.did,
+        cohortId,
+        sessionId       : ctx.service.getSigningSessionId(cohortId)!,
+        aggregatedNonce : new Uint8Array(66),
+      }));
+      expect(ctx.aliceP.getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.NonceSent);
+
+      // Control: the genuine service aggregated nonce advances the phase
+      route(ctx.bobP.approveNonce(cohortId), { [ctx.svc.did]: ctx.service });
+      route(ctx.service.sendAggregatedNonce(cohortId), { [ctx.alice.did]: ctx.aliceP });
+      expect(ctx.aliceP.getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.AwaitingPartialSig);
+    });
+
     it('L21: ignores a fallback request naming a foreign session id when a session exists', () => {
       const ctx = setup();
       const cohortId = driveToOptedIn(ctx);
@@ -424,6 +481,51 @@ describe('Aggregation transport + message auth hardening', () => {
       expect(service.validationProgress(cohortId).approved.size).to.equal(0);
 
       // Genuine acks commit to the distributed signal and drive the phase forward
+      route(aliceP.approveValidation(cohortId), parties);
+      route(bobP.approveValidation(cohortId), parties);
+      expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.Validated);
+    });
+
+    it('service drops an ack that carries no signalBytesHex', () => {
+      const svc = makeIdentity();
+      const alice = makeIdentity();
+      const bob = makeIdentity();
+      const service = new AggregationService({ did: svc.did, publicKey: svc.keys.publicKey });
+      const aliceP = new AggregationParticipant({ did: alice.did, signer: new KeyPairAggregationSigner(alice.keys) });
+      const bobP = new AggregationParticipant({ did: bob.did, signer: new KeyPairAggregationSigner(bob.keys) });
+      const parties = { [svc.did]: service, [alice.did]: aliceP, [bob.did]: bobP };
+
+      const cohortId = service.createCohort({
+        minParticipants  : 2,
+        network          : 'mutinynet',
+        beaconType       : 'CASBeacon',
+        recoveryKey      : TEST_RECOVERY_KEY,
+        recoverySequence : TEST_RECOVERY_SEQUENCE,
+      });
+      route(service.advertise(cohortId), parties);
+      route(aliceP.joinCohort(cohortId), parties);
+      route(bobP.joinCohort(cohortId), parties);
+      route(service.acceptParticipant(cohortId, alice.did), parties);
+      route(service.acceptParticipant(cohortId, bob.did), parties);
+      route(service.finalizeKeygen(cohortId), parties);
+      route(aliceP.submitUpdate(cohortId, createSignedUpdate(alice.did, alice.keys)), parties);
+      route(bobP.submitUpdate(cohortId, createSignedUpdate(bob.did, bob.keys)), parties);
+      route(service.buildAndDistribute(cohortId), parties);
+      expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.DataDistributed);
+
+      // An ack with the field absent entirely (not merely a wrong hash) is not
+      // consent to the current distribution and must be dropped.
+      service.receive(createValidationAckMessage({
+        from           : alice.did,
+        to             : svc.did,
+        cohortId,
+        approved       : true,
+        signalBytesHex : undefined as unknown as string,
+      }));
+      expect(service.validationProgress(cohortId).approved.size).to.equal(0);
+      expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.DataDistributed);
+
+      // Genuine acks still advance the cohort.
       route(aliceP.approveValidation(cohortId), parties);
       route(bobP.approveValidation(cohortId), parties);
       expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.Validated);

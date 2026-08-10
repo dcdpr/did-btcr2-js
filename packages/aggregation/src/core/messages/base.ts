@@ -7,7 +7,7 @@ import type { CohortConditions } from '../conditions.js';
  * requires coordinated updates across all participants and any intermediate
  * relays that inspect message content.
  */
-export const AGGREGATION_WIRE_VERSION = 1;
+export const AGGREGATION_WIRE_VERSION = 2;
 
 // Cohort conditions (beaconType, minParticipants, maxParticipants, ...) ride on
 // the wire as flat optional body fields, supplied via `Partial<CohortConditions>`

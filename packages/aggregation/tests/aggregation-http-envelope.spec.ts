@@ -2,6 +2,7 @@ import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { expect } from 'chai';
 
 import {
+  AGGREGATION_WIRE_VERSION,
   BaseMessage,
   COHORT_ADVERT,
   COHORT_OPT_IN,
@@ -72,12 +73,12 @@ describe('HTTP transport envelope', () => {
 
       // Plain record, no class-instance methods leaked onto the wire shape.
       expect(env.message).to.not.have.property('toJSON');
-      expect(env.message.version).to.equal(1);
+      expect(env.message.version).to.equal(AGGREGATION_WIRE_VERSION);
     });
 
     it('accepts a plain record as the message payload', () => {
       const env = signEnvelope(
-        { type: COHORT_ADVERT, from: senderDid, version: 1 },
+        { type: COHORT_ADVERT, from: senderDid, version: AGGREGATION_WIRE_VERSION },
         { did: senderDid, keys: senderKeys },
       );
 
