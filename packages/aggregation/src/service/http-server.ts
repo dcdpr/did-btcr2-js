@@ -190,6 +190,12 @@ export class HttpServerTransport implements Transport {
     this.#inboxBufferSize = config.inboxBufferSize ?? 100;
     this.#advertTtlMs     = config.advertTtlMs ?? DEFAULT_ADVERT_TTL_MS;
     this.#heartbeatMs     = config.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_MS;
+    // NOTE (audit MS-08): the rate limiter buckets by verified sender DID (plus
+    // the adapter-supplied remoteAddr hint when present - see #limitKey). A
+    // DID-keyed limit alone can be multiplied by minting fresh k1 DIDs, which
+    // is free; full Sybil resistance needs connection/IP-keyed limits at the
+    // HTTP adapter layer, which owns the socket and is out of this transport's
+    // scope.
     this.#rateLimiter     = config.rateLimiter ?? new RateLimiter();
     this.#nonceCache      = config.nonceCache ?? new NonceCache();
     this.#now             = config.now ?? (() => Date.now());
@@ -402,12 +408,14 @@ export class HttpServerTransport implements Transport {
       if(!bootstrappedPk) return this.#respondJson(401, { error: 'unknown_sender' }, req);
     }
 
+    if(!this.#rateLimiter.consume(this.#limitKey(envelope.from, req), this.#now())) {
+      return this.#respondJson(429, { error: 'rate_limited' }, req);
+    }
+    // Store the nonce only AFTER the rate-limit gate: a 429'd request must not
+    // insert an entry, or flooding past the limit would still grow the cache
+    // (audit MS-10).
     if(!this.#nonceCache.store(envelope.from, envelope.nonce, envelope.timestamp)) {
       return this.#respondJson(409, { error: 'replay' }, req);
-    }
-
-    if(!this.#rateLimiter.consume(envelope.from, this.#now())) {
-      return this.#respondJson(429, { error: 'rate_limited' }, req);
     }
 
     if(!envelope.to) {
@@ -472,11 +480,11 @@ export class HttpServerTransport implements Transport {
       return this.#respondJson(401, { error: 'invalid_envelope' }, req);
     }
 
+    if(!this.#rateLimiter.consume(this.#limitKey(envelope.from, req), this.#now())) {
+      return this.#respondJson(429, { error: 'rate_limited' }, req);
+    }
     if(!this.#nonceCache.store(envelope.from, envelope.nonce, envelope.timestamp)) {
       return this.#respondJson(409, { error: 'replay' }, req);
-    }
-    if(!this.#rateLimiter.consume(envelope.from, this.#now())) {
-      return this.#respondJson(429, { error: 'rate_limited' }, req);
     }
 
     // Only registered actors can publish adverts on this server.
@@ -543,11 +551,11 @@ export class HttpServerTransport implements Transport {
       stream.close();
       return;
     }
-    if(!this.#nonceCache.store(did, parsedNonce, parsedTs)) {
+    if(!this.#rateLimiter.consume(this.#limitKey(did, req), this.#now())) {
       stream.close();
       return;
     }
-    if(!this.#rateLimiter.consume(did, this.#now())) {
+    if(!this.#nonceCache.store(did, parsedNonce, parsedTs)) {
       stream.close();
       return;
     }
@@ -584,6 +592,16 @@ export class HttpServerTransport implements Transport {
       this.#inboxes.set(did, inbox);
     }
     return inbox;
+  }
+
+  /**
+   * Rate-limit bucket key: the verified sender DID, qualified by the adapter's
+   * remoteAddr hint when one is supplied, so the same DID from distinct
+   * connections does not share a bucket (audit MS-08). This is only a hint -
+   * see the construction-site note on DID-minting multiplication.
+   */
+  #limitKey(did: string, req: HttpRequestLike): string {
+    return req.remoteAddr ? `${did}|${req.remoteAddr}` : did;
   }
 
   #resolveSenderPk(

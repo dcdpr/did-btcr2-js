@@ -265,9 +265,22 @@ export function isCohortReadyMessage(m: BaseMessage): m is CohortReadyMessage {
 }
 
 export function isSubmitUpdateMessage(m: BaseMessage): m is SubmitUpdateMessage {
-  return m.type === SUBMIT_UPDATE
-    && hasStr(m.body, 'cohortId')
-    && !!m.body && typeof (m.body as Record<string, unknown>).signedUpdate === 'object';
+  if(m.type !== SUBMIT_UPDATE || !hasStr(m.body, 'cohortId')) return false;
+  const signedUpdate = (m.body as Record<string, unknown>).signedUpdate;
+  if(!signedUpdate || typeof signedUpdate !== 'object') return false;
+  // When a proof is carried it must be an object whose verificationMethod and
+  // proofValue, when present, are strings: a truthy non-string value (e.g.
+  // `verificationMethod: 1`) otherwise crashes downstream parsing with a raw
+  // TypeError (audit MS-02).
+  const proof = (signedUpdate as Record<string, unknown>).proof;
+  if(proof !== undefined) {
+    if(!proof || typeof proof !== 'object') return false;
+    const vm = (proof as Record<string, unknown>).verificationMethod;
+    const pv = (proof as Record<string, unknown>).proofValue;
+    if(vm !== undefined && typeof vm !== 'string') return false;
+    if(pv !== undefined && typeof pv !== 'string') return false;
+  }
+  return true;
 }
 
 export function isSubmitNonIncludedMessage(m: BaseMessage): m is SubmitNonIncludedMessage {

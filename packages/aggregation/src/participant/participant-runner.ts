@@ -78,6 +78,18 @@ export interface AggregationParticipantRunnerOptions {
    * {@link AggregationParticipantParams.genesisDocument}).
    */
   genesisDocument?: Record<string, unknown>;
+
+  /**
+   * Cap on cohort states the participant retains at once, forwarded to
+   * {@link AggregationParticipantParams.maxCohorts} (audit MS-08).
+   */
+  maxCohorts?: number;
+
+  /**
+   * Absolute fee ceiling (satoshis) this member signs for, forwarded to
+   * {@link AggregationParticipantParams.maxFeeSats} (audit MS-08).
+   */
+  maxFeeSats?: bigint | number;
 }
 
 /**
@@ -146,6 +158,8 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
       did             : options.did,
       signer          : new KeyPairAggregationSigner(options.keys),
       genesisDocument : options.genesisDocument,
+      maxCohorts      : options.maxCohorts,
+      maxFeeSats      : options.maxFeeSats,
     });
   }
 
@@ -278,7 +292,13 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
       }
 
       const join = await this.#shouldJoin(advert);
-      if (!join) return;
+      if (!join) {
+        // A rejected advert must not permanently consume a cohort-state slot
+        // (audit MS-08): the state machine stores the entry before shouldJoin
+        // runs, so the runner drops it here.
+        this.session.leaveCohort(advert.cohortId);
+        return;
+      }
 
       await this.#sendAll(this.session.joinCohort(advert.cohortId));
       this.emit('cohort-joined', { cohortId: advert.cohortId });
@@ -363,6 +383,8 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
       } else {
         await this.#sendAll(this.session.rejectValidation(cohortId));
         this.emit('cohort-failed', { cohortId, reason: 'Validation rejected by participant' });
+        // Reclaim the cohort slot; dead state must not count against maxCohorts (MS-08).
+        this.session.leaveCohort(cohortId);
       }
     } catch (err) {
       this.emit('error', err as Error);
@@ -393,6 +415,7 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
       const decision = await this.#onApproveSigning(req);
       if (!decision.approved) {
         this.emit('cohort-failed', { cohortId, reason: 'Signing rejected by participant' });
+        this.session.leaveCohort(cohortId);
         return;
       }
 
@@ -451,6 +474,7 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
       const decision = await this.#onApproveSigning(req);
       if (!decision.approved) {
         this.emit('cohort-failed', { cohortId, reason: 'Fallback signing rejected by participant' });
+        this.session.leaveCohort(cohortId);
         return;
       }
 
@@ -484,6 +508,10 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
       casAnnouncement : validation?.casAnnouncement,
       smtProof        : validation?.smtProof,
     });
+    // Reclaim the cohort slot once the member's work is done: completed state
+    // must not count against maxCohorts forever (audit MS-08). The retained
+    // sidecar was handed to the listener in the event above.
+    this.session.leaveCohort(cohortId);
   }
 
   /**

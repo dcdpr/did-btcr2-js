@@ -25,6 +25,17 @@ export const KNOWN_BEACON_TYPES = ['CASBeacon', 'SMTBeacon'] as const;
 export const KNOWN_FUNDING_MODELS = ['operator-funded', 'participant-funded'] as const;
 
 /**
+ * Default ceiling on cohort size applied when a cohort advertises no explicit
+ * `maxParticipants` (audit MS-08): without it a default-configured service has
+ * no cohort-size bound at all. MuSig2 key-path signing is n-of-n, so every
+ * member must contribute a nonce and a partial signature per round; past ~100
+ * members rounds rarely complete and per-cohort coordination/memory cost grows
+ * linearly, so 100 is a sane default ceiling. Operators may advertise a higher
+ * (or lower) explicit `maxParticipants`.
+ */
+export const DEFAULT_MAX_PARTICIPANTS = 100;
+
+/**
  * An advertised price. `unit` is operator-defined (the spec does not specify a
  * currency); `basis` distinguishes a per-DID from a per-participant charge for
  * "cost per announcement". Advertised only - never settled by the protocol.
@@ -41,7 +52,7 @@ export interface CohortConditions {
   beaconType: string;
   /** 2. Lower bound on cohort size. Enforced (finalize floor). */
   minParticipants: number;
-  /** 2. Upper bound on cohort size. Enforced (accept/finalize ceiling). */
+  /** 2. Upper bound on cohort size. Enforced (accept/finalize ceiling); absent defaults to {@link DEFAULT_MAX_PARTICIPANTS} at enforcement time. */
   maxParticipants?: number;
   /** 3. Lower bound on DIDs a participant may register. Advertised; enforcement staged (AGG-5). */
   minDidsPerParticipant?: number;

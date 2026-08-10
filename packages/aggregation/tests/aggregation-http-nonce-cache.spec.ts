@@ -26,19 +26,19 @@ describe('HTTP transport nonce cache', () => {
     expect(cache.store('did:btcr2:k.a', 'n2', 1000)).to.be.true;
   });
 
-  it('evicts the oldest entry past maxEntries (FIFO backstop)', () => {
+  it('rejects new admissions past maxEntries when nothing is expired (never evicts live entries)', () => {
     // Pin the clock near the test timestamps so nothing falls outside the
-    // expiry window: this exercises the global oldest-first backstop, which now
-    // runs only after expiry and per-DID eviction find nothing to reclaim.
+    // expiry window: at capacity the cache fails closed (refuses the new
+    // admission) rather than evicting a live in-window entry and reopening its
+    // replay window (audit MS-10).
     const cache = new NonceCache({ maxEntries: 3, windowSec: 10_000, nowSec: () => 10 });
     cache.store('d', 'a', 1);
     cache.store('d', 'b', 2);
     cache.store('d', 'c', 3);
-    cache.store('d', 'e', 4); // forces eviction of 'a', cache is now [b, c, e]
+    expect(cache.store('d', 'e', 4), 'novel admission refused at capacity').to.be.false;
     expect(cache.size()).to.equal(3);
-    // 'a' was evicted; replaying it now succeeds (and evicts 'b' as the new oldest).
-    expect(cache.store('d', 'a', 5)).to.be.true;
-    // 'c' is still present, replay rejected.
+    // Every live entry retained its replay protection.
+    expect(cache.store('d', 'a', 5)).to.be.false;
     expect(cache.store('d', 'c', 5)).to.be.false;
   });
 

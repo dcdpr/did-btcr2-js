@@ -1,4 +1,5 @@
 import { wipe } from '@did-btcr2/keypair';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
 import type { Transaction } from '@scure/btc-signer';
 import { SigHash } from '@scure/btc-signer';
 import * as musig2 from '@scure/btc-signer/musig2';
@@ -114,6 +115,16 @@ export class BeaconSigningSession {
         'INVALID_NONCE_LENGTH'
       );
     }
+    // Both 33-byte halves of a BIP-327 pubnonce must decode as valid compressed
+    // secp256k1 points: a nonce that passes the length check but carries
+    // non-points throws deep inside musig2 at aggregation time (audit MS-02).
+    if(!secp256k1.utils.isValidPublicKey(nonceContribution.subarray(0, 33))
+      || !secp256k1.utils.isValidPublicKey(nonceContribution.subarray(33, 66))) {
+      throw new SigningSessionError(
+        'Invalid nonce contribution: not two valid compressed secp256k1 points.',
+        'INVALID_NONCE'
+      );
+    }
     if(this.nonceContributions.has(participantDid)) {
       throw new SigningSessionError(
         `Duplicate nonce contribution from ${participantDid}.`,
@@ -156,6 +167,15 @@ export class BeaconSigningSession {
       throw new SigningSessionError(
         `Duplicate partial signature from ${participantDid}.`,
         'DUPLICATE_PARTIAL_SIG'
+      );
+    }
+    // A BIP-327 partial signature is a 32-byte scalar. Without the length check
+    // a wrong-length contribution throws an untyped error out of musig2
+    // partialSigVerify at aggregation time (audit MS-02).
+    if(partialSig.length !== 32) {
+      throw new SigningSessionError(
+        `Invalid partial signature: expected 32 bytes, got ${partialSig.length}.`,
+        'INVALID_PARTIAL_SIG'
       );
     }
     this.partialSignatures.set(participantDid, partialSig);

@@ -1,19 +1,21 @@
 import { canonicalize } from '@did-btcr2/common';
 import type { SecuredDocument } from '@did-btcr2/cryptosuite';
 import { BIP340Cryptosuite, SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import type { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
+import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import type { Transaction } from '@scure/btc-signer';
 import { getBeaconStrategy } from '../core/beacon-strategy.js';
 import { AggregationCohort } from '../core/cohort.js';
-import { validateCohortConditions, type CohortConditions } from '../core/conditions.js';
+import type { CohortConditions } from '../core/conditions.js';
+import { DEFAULT_MAX_PARTICIPANTS, validateCohortConditions } from '../core/conditions.js';
 import { AggregationCohortError, AggregationServiceError, SigningSessionError } from '../core/errors.js';
 import { buildFallbackSpend, fallbackSighash } from '../core/fallback-spend.js';
 import type { FallbackSignature } from '../core/fallback-spend.js';
 import { buildFallbackLeaf } from '../core/recovery-policy.js';
 import type { BaseMessage } from '../core/messages/base.js';
 import { AGGREGATION_WIRE_VERSION } from '../core/messages/base.js';
+import { isCohortOptInMessage, isSubmitUpdateMessage } from '../core/messages/bodies.js';
 import {
   COHORT_OPT_IN,
   FALLBACK_SIGNATURE,
@@ -94,6 +96,7 @@ export type RejectionReason =
   | 'UPDATE_VERIFICATION_FAILED'
   | 'UPDATE_MALFORMED'
   | 'UNKNOWN_PARTICIPANT'
+  | 'OPT_IN_MALFORMED'
   | 'OPT_IN_OVERFLOW'
   | 'INVALID_NONCE'
   | 'DUPLICATE_NONCE'
@@ -117,6 +120,13 @@ interface ServiceCohortState {
   phase: ServiceCohortPhaseType;
   cohort: AggregationCohort;
   config: CohortConfig;
+  /**
+   * Genuinely-pending opt-ins awaiting an operator decision. Entries are
+   * removed on accept ({@link AggregationService.acceptParticipant}) and on
+   * operator reject ({@link AggregationService.rejectParticipant}), so the
+   * `maxPendingOptIns` cap counts only undecided opt-ins; accepted members'
+   * keys live in `cohort.participantKeys` (audit MS-08).
+   */
   pendingOptIns: Map<string, PendingOptIn>;
   acceptedParticipants: Set<string>;
   signingSession?: BeaconSigningSession;
@@ -127,6 +137,20 @@ interface ServiceCohortState {
    * a verified standalone BIP-340 signature over the fallback script-path sighash.
    */
   fallbackSignatures?: Map<string, FallbackSignature>;
+  /**
+   * Per-participant count of blamed signing contributions this round (audit
+   * MS-18): past {@link PARTIAL_SIG_BLAME_BUDGET} the participant is treated as
+   * a defector and the cohort is flagged for the k-of-n fallback. Reset when a
+   * new signing session starts.
+   */
+  partialSigBlame: Map<string, number>;
+  /**
+   * Set when the signing round can no longer complete optimistically (a
+   * defector exhausted the blame budget, or an unattributable session error
+   * occurred). Read by the runner via {@link AggregationService.isFallbackRequired}
+   * to drive the k-of-n fallback deliberately instead of wedging the cohort.
+   */
+  fallbackRequired: boolean;
   /** Rejections accumulated since last drain. Runner polls via drainRejections(). */
   rejections: Array<Rejection>;
 }
@@ -142,6 +166,16 @@ export const DEFAULT_MAX_UPDATE_SIZE_BYTES = 256 * 1024;
  * the cap are dropped with an OPT_IN_OVERFLOW rejection.
  */
 export const DEFAULT_MAX_PENDING_OPT_INS = 1024;
+
+/**
+ * Per-participant budget of blamed signing contributions before the service
+ * stops rewinding the round for that member and flags the cohort for the
+ * k-of-n fallback (audit MS-18): without a budget a persistent defector
+ * resubmits bad partial signatures forever and the blame-and-retry loop never
+ * terminates. The default n-1 fallback threshold tolerates exactly one
+ * defector.
+ */
+export const PARTIAL_SIG_BLAME_BUDGET = 2;
 
 export interface AggregationServiceParams {
   did: string;
@@ -203,6 +237,35 @@ export class AggregationService {
     state.rejections.push({ from, code, reason });
   }
 
+  /**
+   * Boundary shape validation for inbound messages whose handlers would
+   * otherwise trust attacker-controlled field types (audit MS-02). On failure
+   * the message is dropped with a recorded rejection (when its cohortId
+   * resolves) and the cohort is never touched.
+   */
+  #guardShape(
+    message: BaseMessage,
+    guard: (m: BaseMessage) => boolean,
+    code: RejectionReason,
+    reason: string
+  ): boolean {
+    if(guard(message)) return true;
+    const cohortId = message.body?.cohortId;
+    const state = cohortId ? this.#cohortStates.get(cohortId) : undefined;
+    if(state) this.#reject(state, message.from, code, reason);
+    return false;
+  }
+
+  /** True if `key` is a valid 33-byte compressed secp256k1 point. */
+  #isValidCohortKey(key: Uint8Array): boolean {
+    try {
+      new CompressedSecp256k1PublicKey(key);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
 
   receive(message: BaseMessage): void {
     // Reject messages whose wire version doesn't match what this build speaks.
@@ -222,9 +285,13 @@ export class AggregationService {
     const type = message.type;
     switch(type) {
       case COHORT_OPT_IN:
+        // Shape-validate at the boundary: a malformed body must degrade to a
+        // recorded rejection, never a throw out of receive() (audit MS-02).
+        if(!this.#guardShape(message, isCohortOptInMessage, 'OPT_IN_MALFORMED', 'Malformed COHORT_OPT_IN body')) return;
         this.#handleOptIn(message);
         break;
       case SUBMIT_UPDATE:
+        if(!this.#guardShape(message, isSubmitUpdateMessage, 'UPDATE_MALFORMED', 'Malformed SUBMIT_UPDATE body')) return;
         this.#handleSubmitUpdate(message);
         break;
       case SUBMIT_NONINCLUDED:
@@ -291,6 +358,8 @@ export class AggregationService {
       config,
       pendingOptIns        : new Map(),
       acceptedParticipants : new Set(),
+      partialSigBlame      : new Map(),
+      fallbackRequired     : false,
       rejections           : [],
     });
     return cohort.id;
@@ -331,14 +400,7 @@ export class AggregationService {
   pendingOptIns(cohortId: string): ReadonlyMap<string, PendingOptIn> {
     const state = this.#cohortStates.get(cohortId);
     if(!state) return new Map();
-    // Return only those not yet accepted
-    const map = new Map<string, PendingOptIn>();
-    for(const [did, optIn] of state.pendingOptIns) {
-      if(!state.acceptedParticipants.has(did)) {
-        map.set(did, optIn);
-      }
-    }
-    return map;
+    return new Map(state.pendingOptIns);
   }
 
   #handleOptIn(message: BaseMessage): void {
@@ -352,6 +414,17 @@ export class AggregationService {
     const participantPk = message.body?.participantPk;
     const communicationPk = message.body?.communicationPk;
     if(!participantPk || !communicationPk) return;
+
+    // Cryptographically validate both keys BEFORE the opt-in is stored: the
+    // runner auto-accepts opt-ins by default, and acceptParticipant feeds
+    // participantPk into cohortKeys, whose setter throws on non-33-byte /
+    // off-curve values - a single malformed opt-in would otherwise kill the
+    // cohort via the runner's catch-all (audit MS-02).
+    if(!this.#isValidCohortKey(participantPk) || !this.#isValidCohortKey(communicationPk)) {
+      this.#reject(state, participantDid, 'OPT_IN_MALFORMED',
+        'Opt-in keys must be valid 33-byte compressed secp256k1 points');
+      return;
+    }
 
     // Reject re-opt-in from already-accepted participants. Without this guard a
     // participant could send a second opt-in with a different key, overwriting
@@ -401,9 +474,10 @@ export class AggregationService {
       );
     }
     // Enforce the maxParticipants condition: a cohort cannot grow past its
-    // advertised ceiling (closes the unbounded-growth path; see ADR 039).
-    const maxParticipants = state.config.maxParticipants;
-    if(maxParticipants !== undefined && state.acceptedParticipants.size >= maxParticipants) {
+    // advertised ceiling (closes the unbounded-growth path; see ADR 039). An
+    // unadvertised ceiling defaults to DEFAULT_MAX_PARTICIPANTS (audit MS-08).
+    const maxParticipants = state.config.maxParticipants ?? DEFAULT_MAX_PARTICIPANTS;
+    if(state.acceptedParticipants.size >= maxParticipants) {
       throw new AggregationServiceError(
         `Cohort ${cohortId} is full: ${maxParticipants} participants already accepted.`,
         'COHORT_FULL', { cohortId, maxParticipants }
@@ -414,12 +488,24 @@ export class AggregationService {
     state.cohort.participants.push(participantDid);
     state.cohort.participantKeys.set(participantDid, optIn.participantPk);
     state.cohort.cohortKeys = [...state.cohort.cohortKeys, optIn.participantPk];
+    // Accepted members' keys live on cohort.participantKeys; drop the pending
+    // entry so the pending cap counts only genuinely-undecided opt-ins (MS-08).
+    state.pendingOptIns.delete(participantDid);
 
     return [createCohortOptInAcceptMessage({
       from : this.did,
       to   : participantDid,
       cohortId,
     })];
+  }
+
+  /**
+   * Service operator rejects a pending opt-in. Drops the entry so the
+   * pending-opt-in cap counts only genuinely-pending opt-ins (audit MS-08);
+   * the sender may opt in again later. No-op when nothing is pending.
+   */
+  rejectParticipant(cohortId: string, participantDid: string): void {
+    this.#cohortStates.get(cohortId)?.pendingOptIns.delete(participantDid);
   }
 
   /**
@@ -445,8 +531,8 @@ export class AggregationService {
     }
     // Ceiling defense: acceptParticipant already rejects past max, so reaching
     // here over max means state was mutated out-of-band.
-    const maxParticipants = state.config.maxParticipants;
-    if(maxParticipants !== undefined && state.acceptedParticipants.size > maxParticipants) {
+    const maxParticipants = state.config.maxParticipants ?? DEFAULT_MAX_PARTICIPANTS;
+    if(state.acceptedParticipants.size > maxParticipants) {
       throw new AggregationServiceError(
         `Cohort ${cohortId} has ${state.acceptedParticipants.size} accepted participants, exceeds max ${maxParticipants}.`,
         'TOO_MANY_PARTICIPANTS', { cohortId, maxParticipants }
@@ -504,6 +590,16 @@ export class AggregationService {
     if(canonicalSize > this.maxUpdateSizeBytes) {
       this.#reject(state, message.from, 'UPDATE_TOO_LARGE',
         `Canonicalized update is ${canonicalSize} bytes; max allowed is ${this.maxUpdateSizeBytes}`);
+      return;
+    }
+
+    // Membership gate before any verification work: only accepted members may
+    // submit. A non-member's update is dropped as a rejection, never thrown:
+    // addUpdate would otherwise throw UNKNOWN_PARTICIPANT out of receive() and
+    // fail the whole cohort, a DoS any non-member could trigger (audit H6).
+    // Mirrors #handleSubmitNonInclusion.
+    if(!state.cohort.participants.includes(message.from)) {
+      this.#reject(state, message.from, 'UNKNOWN_PARTICIPANT', 'Sender is not a member of this cohort');
       return;
     }
 
@@ -597,10 +693,10 @@ export class AggregationService {
 
   /**
    * Verify the BIP-340 Schnorr Data Integrity proof on a submitted update using the
-   * participant's public key from their cohort opt-in. Returns `false` (and the
-   * update is silently dropped) if the proof is missing, the verificationMethod does
+   * participant's accepted cohort key. Returns `false` (and the update is silently
+   * dropped) if the proof is missing or malformed, the verificationMethod does
    * not name the sender's DID, the update document carries an `id` naming a DID
-   * other than the sender's (audit L19), the participant has no opt-in on record,
+   * other than the sender's (audit L19), the sender has no accepted key on record,
    * or the signature fails verification.
    * @param {ServiceCohortState} state - the current state of the cohort to which the update was submitted
    * @param {string} sender - the DID of the participant who submitted the update
@@ -614,6 +710,10 @@ export class AggregationService {
   ): boolean {
     const proof = signedUpdate.proof;
     if(!proof?.verificationMethod || !proof.proofValue) return false;
+    // Defense in depth (audit MS-02): the receive()-boundary guard already
+    // rejects non-string proof fields, but this method must never throw on
+    // attacker-controlled JSON regardless of how it is reached.
+    if(typeof proof.verificationMethod !== 'string' || typeof proof.proofValue !== 'string') return false;
 
     // The proof must be signed by the sender's own key. Reject if the
     // verificationMethod references a different DID.
@@ -628,14 +728,16 @@ export class AggregationService {
     const docId = (signedUpdate as { id?: unknown }).id;
     if(typeof docId === 'string' && docId !== sender) return false;
 
-    const optIn = state.pendingOptIns.get(sender);
-    if(!optIn) return false;
+    // The sender's key is the one accepted into the cohort (audit MS-08):
+    // pending-but-unaccepted opt-ins no longer authenticate submissions.
+    const participantPk = state.cohort.participantKeys.get(sender);
+    if(!participantPk) return false;
 
     try {
       const multikey = SchnorrMultikey.fromPublicKey({
         id             : proof.verificationMethod,
         controller     : sender,
-        publicKeyBytes : optIn.participantPk,
+        publicKeyBytes : participantPk,
       }) as SchnorrMultikey;
       const suite = new BIP340Cryptosuite(multikey);
       return suite.verifyProof(signedUpdate).verified === true;
@@ -773,6 +875,9 @@ export class AggregationService {
       prevOutValues  : txData.prevOutValues,
     });
     state.signingSession = session;
+    // A new signing round resets the defector bookkeeping (audit MS-18).
+    state.partialSigBlame.clear();
+    state.fallbackRequired = false;
     state.phase = ServiceCohortPhase.SigningStarted;
 
     const prevOutScript = txData.prevOutScripts[0];
@@ -909,22 +1014,34 @@ export class AggregationService {
       // participantDid): blame-and-exclude instead of failing the cohort. The
       // bad signature is discarded and the session returns to
       // AwaitingPartialSignatures so the blamed member can resubmit a corrected
-      // signature; if they do not, the runner's stall machinery (or an explicit
-      // triggerFallback) routes around them via the k-of-n script path, whose
-      // default n-1 threshold tolerates exactly one defector (audit M3).
+      // signature - but only up to PARTIAL_SIG_BLAME_BUDGET times per member per
+      // round, after which the member is treated as a defector and the cohort is
+      // flagged for the k-of-n fallback (whose default n-1 threshold tolerates
+      // exactly one defector) so a persistent defector cannot hold the round
+      // open indefinitely (audit MS-18).
       let signature: Uint8Array;
       try {
         signature = state.signingSession.generateFinalSignature();
       } catch(err) {
         if(err instanceof SigningSessionError && err.type === 'BAD_PARTIAL_SIG') {
           const blamed = (err.data?.participantDid as string | undefined) ?? 'unknown';
-          state.signingSession.discardPartialSignature(blamed);
-          this.#reject(state, blamed, 'BAD_PARTIAL_SIG',
-            `Partial signature from ${blamed} failed BIP-327 verification; signature discarded, awaiting a corrected resubmission or fallback`);
+          this.#blameSigningContribution(state, blamed, 'BAD_PARTIAL_SIG',
+            `Partial signature from ${blamed} failed BIP-327 verification`);
           return;
         }
         if(err instanceof SigningSessionError) {
-          this.#reject(state, message.from, 'SESSION_ERROR', err.message);
+          // A session error that is not a blamed partial signature must not
+          // wedge the round in PartialSignaturesReceived (audit MS-18): when a
+          // culprit is identifiable, discard their contribution and count it
+          // against the same budget so the round can complete on resubmission;
+          // otherwise flag the cohort for the fallback path deliberately.
+          const culprit = err.data?.participantDid as string | undefined;
+          if(culprit && state.signingSession.partialSignatures.has(culprit)) {
+            this.#blameSigningContribution(state, culprit, 'SESSION_ERROR', err.message);
+          } else {
+            this.#reject(state, message.from, 'SESSION_ERROR', err.message);
+            state.fallbackRequired = true;
+          }
           return;
         }
         throw err;
@@ -941,6 +1058,44 @@ export class AggregationService {
       };
       state.phase = ServiceCohortPhase.Complete;
     }
+  }
+
+
+  /**
+   * Blame a named participant for a failed signing-round contribution (audit
+   * MS-18): discard their partial signature and rewind the session to
+   * AwaitingPartialSignatures so they can resubmit, up to
+   * {@link PARTIAL_SIG_BLAME_BUDGET} blamed contributions per member per round.
+   * Past the budget no further rewinds are granted: the member is treated as a
+   * defector and the cohort is flagged for the k-of-n fallback.
+   */
+  #blameSigningContribution(
+    state: ServiceCohortState,
+    blamed: string,
+    code: 'BAD_PARTIAL_SIG' | 'SESSION_ERROR',
+    detail: string
+  ): void {
+    state.signingSession?.discardPartialSignature(blamed);
+    const count = (state.partialSigBlame.get(blamed) ?? 0) + 1;
+    state.partialSigBlame.set(blamed, count);
+    if(count > PARTIAL_SIG_BLAME_BUDGET) {
+      this.#reject(state, blamed, code,
+        `${detail}; retry budget of ${PARTIAL_SIG_BLAME_BUDGET} exhausted - treating ${blamed} as a defector; the k-of-n fallback is required`);
+      state.fallbackRequired = true;
+      return;
+    }
+    this.#reject(state, blamed, code,
+      `${detail}; contribution discarded, awaiting a corrected resubmission (${count}/${PARTIAL_SIG_BLAME_BUDGET})`);
+  }
+
+  /**
+   * True when the signing round for a cohort can no longer complete
+   * optimistically and the runner should drive the k-of-n fallback (via
+   * `triggerFallback`) instead of letting the cohort stall (audit MS-18).
+   * Polled by runners after `receive()`, mirroring {@link drainRejections}.
+   */
+  isFallbackRequired(cohortId: string): boolean {
+    return this.#cohortStates.get(cohortId)?.fallbackRequired === true;
   }
 
 
@@ -995,6 +1150,7 @@ export class AggregationService {
     });
 
     state.fallbackSignatures = new Map();
+    state.fallbackRequired = false;
     state.phase = ServiceCohortPhase.FallbackRequested;
 
     const messages: BaseMessage[] = [];
