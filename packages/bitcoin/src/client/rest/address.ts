@@ -5,7 +5,7 @@ import { checkAddressInfo, checkAddressUtxo, checkRawTransactionRest } from '../
 import type { EsploraProtocol } from './protocol.js';
 
 /**
- * Validate a list of Esplora transaction objects (audit M11).
+ * Validate a list of Esplora transaction objects.
  * @throws {BitcoinRestError} If the response is not an array of transactions.
  */
 function assertTxList(value: unknown, context: string): Array<RawTransactionRest> {

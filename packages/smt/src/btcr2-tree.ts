@@ -58,8 +58,8 @@ export class BTCR2MerkleTree {
 
   /**
    * Compute leaf hashes and build the zero-hash tree. The tree structure is
-   * built once here and shared by all subsequent {@link proof} calls
-   * (audit M12). After this call, {@link rootHash} and {@link proof} become
+   * built once here and shared by all subsequent {@link proof} calls.
+   * After this call, {@link rootHash} and {@link proof} become
    * available.
    */
   finalize(): void {

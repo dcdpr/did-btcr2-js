@@ -156,7 +156,7 @@ describe('Aggregate beacon fallback protocol (ADR 042)', () => {
     const tx = new Transaction({ version: 2, allowUnknownInputs: true, allowUnknownOutputs: true });
     tx.addInput({ txid: '22'.repeat(32), index: 0, witnessUtxo: { script, amount: value }, tapInternalKey: internalKey });
     // Self-change back to the beacon script: members reject any spend whose
-    // change goes elsewhere (and any spend with no change at all) (audit M5).
+    // change goes elsewhere (and any spend with no change at all).
     tx.addOutput({ script, amount: value - 500n });
     tx.addOutput({ script: Script.encode([ 'RETURN', signal ]), amount: 0n });
     return tx;

@@ -111,7 +111,7 @@ export function registerUpdateCommand(
       });
       // On-chain spends require explicit operator confirmation: show the plan
       // (including the estimated absolute fee) and prompt, unless --yes was
-      // given. Skipped on regtest (audit M8).
+      // given. Skipped on regtest.
       const feeEstimator = broadcastOptions?.feeEstimator;
       confirmBroadcast({
         action              : 'update',

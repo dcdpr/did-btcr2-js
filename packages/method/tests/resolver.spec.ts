@@ -1646,11 +1646,11 @@ describe('Resolver', () => {
   });
 });
 
-describe('Resolver security regressions (audit batch 1)', () => {
+describe('Resolver security regressions', () => {
   const fixture = deterministicData[2]; // regtest k1 DID
   const vmOf = (doc: DidDocument) => doc.verificationMethod![0]!;
 
-  it('H1: rejects an update signed by a key not authorized for capabilityInvocation', () => {
+  it('rejects an update signed by a key not authorized for capabilityInvocation', () => {
     const sourceDocument = resolveDeterministic(fixture.did);
     const signer1 = new LocalSigner(hexToBytes(fixture.secretKey));
 
@@ -1674,7 +1674,7 @@ describe('Resolver security regressions (audit batch 1)', () => {
     expect(() => driveSingleBeacon(fixture.did, [u2, u3])).to.throw(/capabilityInvocation/i);
   });
 
-  it('M1: rejects an update that rebinds the document id to a different DID', () => {
+  it('rejects an update that rebinds the document id to a different DID', () => {
     const sourceDocument = resolveDeterministic(fixture.did);
     const signer1 = new LocalSigner(hexToBytes(fixture.secretKey));
 
@@ -1699,7 +1699,7 @@ describe('Resolver security regressions (audit batch 1)', () => {
     expect(() => driveSingleBeacon(fixture.did, [u2])).to.throw(/does not match the resolved DID/i);
   });
 
-  it('M2: versionId "1" returns the genesis document even when updates exist', () => {
+  it('versionId "1" returns the genesis document even when updates exist', () => {
     const sourceDocument = resolveDeterministic(fixture.did);
     const updates = buildUpdateChain(fixture.did, sourceDocument, fixture.secretKey, [benignPatch(fixture.did), benignPatch(fixture.did)]);
 
@@ -1708,7 +1708,7 @@ describe('Resolver security regressions (audit batch 1)', () => {
     expect(resolved.didDocument.assertionMethod).to.have.lengthOf(sourceDocument.assertionMethod!.length);
   });
 
-  it('M2: versionId "2" returns exactly the v2 document', () => {
+  it('versionId "2" returns exactly the v2 document', () => {
     const sourceDocument = resolveDeterministic(fixture.did);
     const updates = buildUpdateChain(fixture.did, sourceDocument, fixture.secretKey, [benignPatch(fixture.did), benignPatch(fixture.did)]);
 
@@ -1717,7 +1717,7 @@ describe('Resolver security regressions (audit batch 1)', () => {
     expect(resolved.didDocument.assertionMethod).to.have.lengthOf(sourceDocument.assertionMethod!.length + 1);
   });
 
-  it('M3: processes updates announced on a rotated beacon address with the same service id', () => {
+  it('processes updates announced on a rotated beacon address with the same service id', () => {
     const sourceDocument = resolveDeterministic(fixture.did);
     const signer1 = new LocalSigner(hexToBytes(fixture.secretKey));
 
@@ -1746,7 +1746,7 @@ describe('Resolver security regressions (audit batch 1)', () => {
     expect(resolved.didDocument.assertionMethod).to.have.lengthOf(sourceDocument.assertionMethod!.length + 1);
   });
 
-  it('M4: ignores a signal below the default minConf threshold', () => {
+  it('ignores a signal below the default minConf threshold', () => {
     const sourceDocument = resolveDeterministic(fixture.did);
     const updates = buildUpdateChain(fixture.did, sourceDocument, fixture.secretKey, [benignPatch(fixture.did)]);
 
@@ -1755,7 +1755,7 @@ describe('Resolver security regressions (audit batch 1)', () => {
     expect(resolved.didDocument.assertionMethod).to.have.lengthOf(sourceDocument.assertionMethod!.length);
   });
 
-  it('M4: applies a shallow signal when the caller lowers minConf', () => {
+  it('applies a shallow signal when the caller lowers minConf', () => {
     const sourceDocument = resolveDeterministic(fixture.did);
     const updates = buildUpdateChain(fixture.did, sourceDocument, fixture.secretKey, [benignPatch(fixture.did)]);
 
@@ -1769,13 +1769,13 @@ describe('Resolver security regressions (audit: discovery hardening)', () => {
   const fixture = deterministicData[2]; // regtest k1 DID
   const vmOf = (doc: DidDocument) => doc.verificationMethod![0]!;
 
-  it('L7: malformed sidecar SMT proof id throws a typed ResolveError', () => {
+  it('malformed sidecar SMT proof id throws a typed ResolveError', () => {
     expect(() => Resolver.sidecarData({
       smtProofs : [{ id: '!!!not-base64url!!!', collapsed: '', hashes: [] }] as any
     })).to.throw(/Malformed SMT proof id/);
   });
 
-  it('L7: a malformed update.sourceHash throws a typed ResolveError, not a raw decode error', () => {
+  it('a malformed update.sourceHash throws a typed ResolveError, not a raw decode error', () => {
     const sourceDocument = resolveDeterministic(fixture.did);
     const signer1 = new LocalSigner(hexToBytes(fixture.secretKey));
     const u2 = Updater.sign(fixture.did, Updater.construct(sourceDocument, benignPatch(fixture.did), 1), vmOf(sourceDocument), signer1);
@@ -1787,7 +1787,7 @@ describe('Resolver security regressions (audit: discovery hardening)', () => {
     expect(() => driveSingleBeacon(fixture.did, [resigned])).to.throw(/Malformed update\.sourceHash/);
   });
 
-  it('L7: a malformed update.targetHash throws a typed ResolveError, not a raw decode error', () => {
+  it('a malformed update.targetHash throws a typed ResolveError, not a raw decode error', () => {
     const sourceDocument = resolveDeterministic(fixture.did);
     const signer1 = new LocalSigner(hexToBytes(fixture.secretKey));
     const u2 = Updater.sign(fixture.did, Updater.construct(sourceDocument, benignPatch(fixture.did), 1), vmOf(sourceDocument), signer1);
@@ -1799,7 +1799,7 @@ describe('Resolver security regressions (audit: discovery hardening)', () => {
     expect(() => driveSingleBeacon(fixture.did, [resigned])).to.throw(/Malformed update\.targetHash/);
   });
 
-  it('L8: a duplicate re-announcement does not clobber confirmations/updated metadata', () => {
+  it('a duplicate re-announcement does not clobber confirmations/updated metadata', () => {
     const sourceDocument = resolveDeterministic(fixture.did);
     const [u2] = buildUpdateChain(fixture.did, sourceDocument, fixture.secretKey, [benignPatch(fixture.did)]);
 
@@ -1815,7 +1815,7 @@ describe('Resolver security regressions (audit: discovery hardening)', () => {
     expect(resolved.metadata.updated).to.equal('2023-11-14T22:13:20Z');
   });
 
-  it('I2: complete-phase metadata reports the actual version, not the requested versionId', () => {
+  it('complete-phase metadata reports the actual version, not the requested versionId', () => {
     // No updates exist; the caller asks for version 5. The resolved document is
     // version 1 and the metadata must say so.
     const resolver = DidBtcr2.resolve(fixture.did, { versionId: '5' });
@@ -1827,7 +1827,7 @@ describe('Resolver security regressions (audit: discovery hardening)', () => {
     expect(state.result.metadata.versionId).to.equal('1');
   });
 
-  it('I4: rejects an update whose proof capabilityAction is not "Write"', () => {
+  it('rejects an update whose proof capabilityAction is not "Write"', () => {
     const sourceDocument = resolveDeterministic(fixture.did);
     const signer1 = new LocalSigner(hexToBytes(fixture.secretKey));
     const u2 = Updater.sign(fixture.did, Updater.construct(sourceDocument, benignPatch(fixture.did), 1), vmOf(sourceDocument), signer1);
@@ -1839,14 +1839,14 @@ describe('Resolver security regressions (audit: discovery hardening)', () => {
     expect(() => driveSingleBeacon(fixture.did, [tampered])).to.throw(/capabilityAction/);
   });
 
-  it('I6: a truthy non-boolean deactivated value is not treated as deactivated', () => {
+  it('a truthy non-boolean deactivated value is not treated as deactivated', () => {
     const sourceDocument = resolveDeterministic(fixture.did);
     (sourceDocument as any).deactivated = 'yes';
     const response = Resolver.updates(sourceDocument, []);
     expect(response.metadata.deactivated).to.be.false;
   });
 
-  it('I6: a boolean deactivated: true is honored', () => {
+  it('a boolean deactivated: true is honored', () => {
     const sourceDocument = resolveDeterministic(fixture.did);
     (sourceDocument as any).deactivated = true;
     const response = Resolver.updates(sourceDocument, []);

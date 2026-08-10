@@ -13,7 +13,7 @@ function captureWarn(fn: () => void): string[] {
   return messages;
 }
 
-describe('credential hygiene (audit M7, L11)', () => {
+describe('credential hygiene', () => {
 
   describe('JsonRpcProtocol cleartext-credential warning (M7)', () => {
     it('warns when basic auth is sent over cleartext HTTP to a remote host', () => {

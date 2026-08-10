@@ -10,7 +10,7 @@ export const DEFAULT_CAS_GATEWAY = 'https://ipfs.io';
 
 /**
  * Default maximum accepted CAS response body size (1 MiB). Unbounded
- * `res.arrayBuffer()` on a hostile gateway is a memory-DoS (audit N4); btcr2
+ * `res.arrayBuffer()` on a hostile gateway is a memory-DoS; btcr2
  * CAS artifacts (updates, announcements, genesis documents) are far below
  * this bound. Configurable via {@link CasConfig.maxResponseBytes}.
  */
@@ -18,7 +18,7 @@ export const DEFAULT_MAX_CAS_RESPONSE_BYTES = 1024 * 1024;
 
 /**
  * Read a fetch response body as bytes, rejecting bodies larger than
- * `maxBytes` (audit N4). Streams when possible so an over-limit body is cut
+ * `maxBytes`. Streams when possible so an over-limit body is cut
  * off before it is fully buffered.
  *
  * @throws {Error} If the body exceeds `maxBytes`.
@@ -184,7 +184,7 @@ export class IpfsRpcCasExecutor implements CasExecutor {
       });
       if (!res.ok) return null;
       // Size-capped read: an unbounded buffer on a hostile node is a
-      // memory-DoS; an over-limit block is treated as unusable (audit N4).
+      // memory-DoS; an over-limit block is treated as unusable.
       return await readBytesWithLimit(res, this.#maxResponseBytes);
     } catch {
       return null;
@@ -244,7 +244,7 @@ export class HttpGatewayCasExecutor implements CasExecutor {
       });
       if (!res.ok) return null;
       // Size-capped read: an unbounded buffer on a hostile gateway is a
-      // memory-DoS; an over-limit block is treated as unusable (audit N4).
+      // memory-DoS; an over-limit block is treated as unusable.
       return await readBytesWithLimit(res, this.#maxResponseBytes);
     } catch {
       return null;
@@ -279,7 +279,7 @@ export type CasConfig = {
   /** IPFS HTTP gateway URL for read-only CAS access (e.g. `'https://ipfs.io'`). */
   gateway?: string;
   /**
-   * Maximum accepted CAS response body size in bytes (audit N4). Applies to
+   * Maximum accepted CAS response body size in bytes. Applies to
    * the HTTP-backed executors (`rpcUrl`, `gateway`). Default: 1 MiB.
    */
   maxResponseBytes?: number;
@@ -339,7 +339,7 @@ export class CasApi {
    * Retrieve a JSON object from the CAS by its SHA-256 hash bytes.
    *
    * The retrieved bytes are verified against the requested hash before
-   * parsing (audit N5): content-addressed storage must return the content
+   * parsing: content-addressed storage must return the content
    * that hashes to the address, and anything else is an integrity failure.
    * @param hashBytes Raw SHA-256 hash bytes of the JCS-canonicalized object.
    * @returns The parsed JSON object, or `null` if not found.

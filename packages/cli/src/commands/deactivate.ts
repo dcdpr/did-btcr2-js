@@ -111,7 +111,7 @@ export function registerDeactivateCommand(
       });
       // Deactivation is irreversible and spends the beacon UTXO on-chain:
       // require explicit operator confirmation unless --yes was given.
-      // Skipped on regtest (audit M8).
+      // Skipped on regtest.
       const feeEstimator = broadcastOptions?.feeEstimator;
       confirmBroadcast({
         action              : 'deactivate',

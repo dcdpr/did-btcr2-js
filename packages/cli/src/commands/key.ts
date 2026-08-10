@@ -164,7 +164,7 @@ function readHexFile(path: string, expectedBytes: number, label: string): Uint8A
   try {
     // The file holds raw secret key material: refuse to read it when group or
     // other users have any permission bits (0600/0400 only), matching the
-    // keystore's permission policy (audit L13). Not enforceable on Windows.
+    // keystore's permission policy. Not enforceable on Windows.
     if (process.platform !== 'win32') {
       const mode = statSync(path).mode & 0o777;
       if ((mode & 0o077) !== 0) {

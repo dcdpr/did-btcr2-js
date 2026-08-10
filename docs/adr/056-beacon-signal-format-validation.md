@@ -14,7 +14,7 @@ title: "ADR 056: Validate the Beacon Signal Output Format and Document the CAS A
 
 ## Context
 
-Beacon signal discovery is the entry point of the resolver's read path: it scans the Bitcoin transactions at each beacon address and extracts the 32-byte update or announcement hash that each signal commits to. A beacon signal is a single `OP_RETURN` data push, on the wire `0x6a 0x20 <32 bytes>`, whose asm form is exactly `OP_RETURN OP_PUSHBYTES_32 <64-hex>`. The encode side is already pinned (`opReturnScript` produces precisely that 34-byte NULL_DATA script).
+Beacon signal discovery is the entry point of the resolver's read path: it scans the Bitcoin transactions at each beacon address and extracts the 32-byte update or announcement hash that each signal commits to. A beacon signal is a single `OP_RETURN` data push, on the wire `0x6a 0x20 <32 bytes>`. Two asm dialects render that same script: Esplora/rust-bitcoin emits `OP_RETURN OP_PUSHBYTES_32 <64-hex>`, while Bitcoin Core's `ScriptToAsmStr` emits `OP_RETURN <64-hex>` with no push-opcode token. The encode side is already pinned (`opReturnScript` produces precisely that 34-byte NULL_DATA script).
 
 The decode side was lax. Both discovery paths (the Esplora REST `indexer` and the Bitcoin Core `fullnode` traversal) checked only that the output's `scriptpubkey_asm` *contained* the substring `OP_RETURN`, then took the *last* whitespace-delimited asm token as the signal hash, with an empty-string check as the only guard. Two failure modes followed:
 
@@ -28,7 +28,7 @@ Separately, the CAS beacon's resolution path links an on-chain signal to a signe
 
 ### 1. Strictly parse the beacon signal output
 
-A single shared decoder, `extractOpReturnSignal(asm)`, returns the 32-byte hash if and only if the asm is exactly three tokens, `OP_RETURN`, then `OP_PUSHBYTES_32`, then a 64-character hex payload, and returns `null` for everything else (empty input, a bare `OP_RETURN`, a wrong-size push opcode, a payload that is not exactly 32 bytes of hex, a multi-push output, or a script where `OP_RETURN` is not the leading opcode). The payload is lowercased so it matches the hex-keyed sidecar maps. Both the REST and fullnode discovery paths now route through this one function and drop any output it rejects.
+A single shared decoder, `extractOpReturnSignal(asm)`, returns the 32-byte hash if and only if the asm is a leading `OP_RETURN` followed by a 32-byte data push, in either dialect (`OP_RETURN OP_PUSHBYTES_32 <64-hex>` or `OP_RETURN <64-hex>`), and returns `null` for everything else (empty input, a bare `OP_RETURN`, a wrong-size push opcode, a payload that is not exactly 32 bytes of hex, a multi-push output, or a script where `OP_RETURN` is not the leading opcode). The payload is lowercased so it matches the hex-keyed sidecar maps. Because asm tokenization differs between indexers and Bitcoin Core, both discovery paths validate the raw script hex instead (`extractOpReturnSignalFromHex`, the exact byte sequence `6a20<32 bytes>`), which is dialect-independent; the asm decoder remains as a fallback. Both paths drop any output the decoder rejects.
 
 ### 2. Document and regression-test the CAS announcement hash chain
 
@@ -43,6 +43,6 @@ The two-hop chain and its encoding transitions are documented inline on `CASBeac
 
 ## Rejected alternatives
 
-- **Keep the substring check and tolerate odd shapes.** The substring match is what admits phantom signals; "is exactly an `OP_RETURN OP_PUSHBYTES_32 <32-byte>` push" is the real predicate the read path needs, and is what the encode side already produces.
+- **Keep the substring check and tolerate odd shapes.** The substring match is what admits phantom signals; "is exactly the `6a20<32 bytes>` NULL_DATA script" is the real predicate the read path needs, and is what the encode side already produces.
 - **Accept any push length and validate downstream.** The 32-byte size is part of the signal definition; enforcing it at extraction keeps the invalid value out of the sidecar-lookup machinery entirely, consistent with [ADR 055](055-resolver-provide-trust-boundary.md)'s fail-fast-at-the-boundary stance.
 - **Add a runtime re-check of the CAS chain inside `processSignals`.** Redundant: `provide()` already validates supplied data against the need's hash, and pre-loaded maps are keyed by `canonicalHash`, so a mismatched entry simply misses the lookup. The remaining gap was documentation and a regression guard, not another runtime check.

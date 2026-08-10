@@ -119,7 +119,7 @@ function route(msgs: BaseMessage[], parties: Record<string, { receive(m: BaseMes
 
 describe('Aggregation transport + message auth hardening', () => {
 
-  describe('authenticateEnvelopeContent (audit C1)', () => {
+  describe('authenticateEnvelopeContent', () => {
     const service = makeIdentity();
 
     function optInEnvelope(sender: { keys: SchnorrKeyPair; did: string }, opts?: { fromOverride?: string; communicationPk?: Uint8Array }) {
@@ -248,7 +248,7 @@ describe('Aggregation transport + message auth hardening', () => {
     });
   });
 
-  describe('participant service-identity guards (audit H7, L21)', () => {
+  describe('participant service-identity guards', () => {
     function setup() {
       const svc = makeIdentity();
       const alice = makeIdentity();
@@ -292,7 +292,7 @@ describe('Aggregation transport + message auth hardening', () => {
       route(service.buildAndDistribute(cohortId), { [alice.did]: aliceP, [bob.did]: bobP });
     }
 
-    it('H7: ignores a COHORT_READY from a sender that is not the service', () => {
+    it('ignores a COHORT_READY from a sender that is not the service', () => {
       const ctx = setup();
       const cohortId = driveToOptedIn(ctx);
       const readyMsgs = ctx.service.finalizeKeygen(cohortId);
@@ -307,7 +307,7 @@ describe('Aggregation transport + message auth hardening', () => {
       expect(ctx.aliceP.getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.CohortReady);
     });
 
-    it('H7: ignores a DISTRIBUTE_AGGREGATED_DATA from a sender that is not the service', () => {
+    it('ignores a DISTRIBUTE_AGGREGATED_DATA from a sender that is not the service', () => {
       const ctx = setup();
       const cohortId = driveToOptedIn(ctx);
       driveToReady(ctx, cohortId);
@@ -324,7 +324,7 @@ describe('Aggregation transport + message auth hardening', () => {
       expect(ctx.aliceP.pendingValidations.has(cohortId)).to.be.true;
     });
 
-    it('H7: ignores a FALLBACK_AUTHORIZATION_REQUEST from a sender that is not the service', () => {
+    it('ignores a FALLBACK_AUTHORIZATION_REQUEST from a sender that is not the service', () => {
       const ctx = setup();
       const cohortId = driveToOptedIn(ctx);
       driveToValidation(ctx, cohortId);
@@ -346,7 +346,7 @@ describe('Aggregation transport + message auth hardening', () => {
       expect(ctx.aliceP.getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.ValidationSent);
     });
 
-    it('H7: ignores an AUTHORIZATION_REQUEST from a sender that is not the service', () => {
+    it('ignores an AUTHORIZATION_REQUEST from a sender that is not the service', () => {
       const ctx = setup();
       const cohortId = driveToOptedIn(ctx);
       driveToValidation(ctx, cohortId);
@@ -367,7 +367,7 @@ describe('Aggregation transport + message auth hardening', () => {
       expect(ctx.aliceP.getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.ValidationSent);
     });
 
-    it('H7: ignores an AGGREGATED_NONCE from a sender that is not the service', () => {
+    it('ignores an AGGREGATED_NONCE from a sender that is not the service', () => {
       const ctx = setup();
       const cohortId = driveToOptedIn(ctx);
       driveToValidation(ctx, cohortId);
@@ -401,7 +401,7 @@ describe('Aggregation transport + message auth hardening', () => {
       expect(ctx.aliceP.getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.AwaitingPartialSig);
     });
 
-    it('L21: ignores a fallback request naming a foreign session id when a session exists', () => {
+    it('ignores a fallback request naming a foreign session id when a session exists', () => {
       const ctx = setup();
       const cohortId = driveToOptedIn(ctx);
       driveToValidation(ctx, cohortId);
@@ -442,7 +442,7 @@ describe('Aggregation transport + message auth hardening', () => {
     });
   });
 
-  describe('validation ack signal binding (audit H8)', () => {
+  describe('validation ack signal binding', () => {
     it('service drops an ack that does not commit to the distributed signal', () => {
       const svc = makeIdentity();
       const alice = makeIdentity();

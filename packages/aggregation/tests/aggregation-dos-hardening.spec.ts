@@ -243,7 +243,7 @@ function makeParticipantRunner(
 
 describe('Aggregation DoS + liveness hardening', () => {
 
-  describe('H6: non-member SUBMIT_UPDATE degrades to a rejection, not a cohort kill', () => {
+  describe('non-member SUBMIT_UPDATE degrades to a rejection, not a cohort kill', () => {
     it('records UNKNOWN_PARTICIPANT and keeps the cohort alive', () => {
       const outsider = makeIdentity();
       // The outsider opted in (so their proof verifies against a known opt-in
@@ -267,7 +267,7 @@ describe('Aggregation DoS + liveness hardening', () => {
     });
   });
 
-  describe('H6: non-member VALIDATION_ACK degrades to a rejection', () => {
+  describe('non-member VALIDATION_ACK degrades to a rejection', () => {
     it('records UNKNOWN_PARTICIPANT and keeps the cohort alive', () => {
       const outsider = makeIdentity();
       const fx = driveToCohortSet();
@@ -287,14 +287,14 @@ describe('Aggregation DoS + liveness hardening', () => {
     });
   });
 
-  describe('H6: bad nonce contributions degrade to rejections', () => {
+  describe('bad nonce contributions degrade to rejections', () => {
     it('duplicate nonce from a member records DUPLICATE_NONCE without throwing', () => {
       const fx = driveToCohortSet();
       const { tx, script, value } = driveToSigningStarted(fx);
       const cohort = fx.service.getCohort(fx.cohortId)!;
       const sessionId = fx.service.getSigningSessionId(fx.cohortId)!;
-      // A cryptographically real nonce: nonce points are validated at ingestion
-      // (audit MS-02), so random bytes no longer reach the duplicate check.
+      // A cryptographically real nonce: nonce points are validated at ingestion,
+      // so random bytes no longer reach the duplicate check.
       const pAlice = new BeaconSigningSession({
         id : sessionId, cohort, pendingTx : tx, prevOutScripts : [script], prevOutValues : [value],
       });
@@ -360,7 +360,7 @@ describe('Aggregation DoS + liveness hardening', () => {
     });
   });
 
-  describe('M3: bad partial signature triggers blame-and-exclude, then retry completes', () => {
+  describe('bad partial signature triggers blame-and-exclude, then retry completes', () => {
     it('blames the defector, discards their sig, keeps the session open, and completes on resubmission', () => {
       const fx = driveToCohortSet();
       const { tx, script, value } = driveToSigningStarted(fx);
@@ -481,7 +481,7 @@ describe('Aggregation DoS + liveness hardening', () => {
     });
   });
 
-  describe('MS-02: single-message cohort-kill vectors degrade to recorded rejections', () => {
+  describe('single-message cohort-kill vectors degrade to recorded rejections', () => {
     it('malformed SUBMIT_UPDATE proof (truthy non-string verificationMethod) records UPDATE_MALFORMED', () => {
       const fx = driveToCohortSet();
       const attacker = makeIdentity();
@@ -628,7 +628,7 @@ describe('Aggregation DoS + liveness hardening', () => {
     });
   });
 
-  describe('MS-02: correctly-signed envelopes carrying malformed bodies (HTTP runner path)', () => {
+  describe('correctly-signed envelopes carrying malformed bodies (HTTP runner path)', () => {
     /** A service runner wired to an HTTP server transport with DID-aware sender resolution. */
     function makeHttpServiceRunner(): {
       serviceId: { keys: SchnorrKeyPair; did: string };
@@ -702,7 +702,7 @@ describe('Aggregation DoS + liveness hardening', () => {
       runner.on('message-rejected', r => rejected.push(r));
 
       // The attacker's envelope is correctly signed and authenticates (k1 DID);
-      // the carried body is the malformed MS-02 payload.
+      // the carried body is the malformed payload.
       const attacker = makeIdentity();
       const status = await postSigned(transport, attacker, {
         type    : SUBMIT_UPDATE,
@@ -762,7 +762,7 @@ describe('Aggregation DoS + liveness hardening', () => {
     });
   });
 
-  describe('MS-18: blame budget bounds the retry loop; session errors never wedge', () => {
+  describe('blame budget bounds the retry loop; session errors never wedge', () => {
     /** CohortSet -> AwaitingPartialSigs with real nonces; returns the participant-side sessions. */
     function driveToAwaitingPartialSigs(fx: Fixture): {
       sessionId: string;
@@ -819,7 +819,7 @@ describe('Aggregation DoS + liveness hardening', () => {
       fx.service.receive(partialMsg(fx, fx.bob.did, sessionId, bobPartial));
 
       // Alice (the defector) resubmits garbage: blamed and rewound twice, then
-      // treated as a defector - no fourth rewind, no unbounded loop (MS-18).
+      // treated as a defector - no fourth rewind, no unbounded loop.
       const garbage = randomBytes(32);
       for(let round = 0; round < 3; round++) {
         expect(() => fx.service.receive(partialMsg(fx, fx.alice.did, sessionId, garbage))).to.not.throw();
@@ -984,7 +984,7 @@ describe('Aggregation DoS + liveness hardening', () => {
   });
 
 
-  describe('M6: pending opt-ins are bounded per cohort', () => {
+  describe('pending opt-ins are bounded per cohort', () => {
     it('drops opt-ins past maxPendingOptIns with OPT_IN_OVERFLOW', () => {
       const serviceId = makeIdentity();
       const service = new AggregationService({
@@ -1016,7 +1016,7 @@ describe('Aggregation DoS + liveness hardening', () => {
       expect(rejections[0]!.code).to.equal('OPT_IN_OVERFLOW');
     });
 
-    it('accepted and operator-rejected opt-ins free pending capacity (MS-08)', () => {
+    it('accepted and operator-rejected opt-ins free pending capacity', () => {
       const serviceId = makeIdentity();
       const service = new AggregationService({
         did              : serviceId.did,
@@ -1057,7 +1057,7 @@ describe('Aggregation DoS + liveness hardening', () => {
       expect(rejections[0]!.from).to.equal(e.did);
     });
 
-    it('acceptParticipant enforces the default participant ceiling when none is advertised (MS-08)', () => {
+    it('acceptParticipant enforces the default participant ceiling when none is advertised', () => {
       const serviceId = makeIdentity();
       const service = new AggregationService({ did: serviceId.did, publicKey: serviceId.keys.publicKey });
       const cohortId = service.createCohort({
@@ -1091,7 +1091,7 @@ describe('Aggregation DoS + liveness hardening', () => {
     });
   });
 
-  describe('M6: participant cohort-state map is bounded and prunable', () => {
+  describe('participant cohort-state map is bounded and prunable', () => {
     const serviceId = makeIdentity();
     const mkAdvert = (cohortId: string): ReturnType<typeof createCohortAdvertMessage> => createCohortAdvertMessage({
       from             : serviceId.did,
@@ -1104,7 +1104,7 @@ describe('Aggregation DoS + liveness hardening', () => {
       communicationPk  : serviceId.keys.publicKey.compressed,
     });
 
-    it('at capacity, evicts the oldest Discovered-phase entry to make room (MS-08)', () => {
+    it('at capacity, evicts the oldest Discovered-phase entry to make room', () => {
       const me = makeIdentity();
       const participant = new AggregationParticipant({
         did        : me.did,
@@ -1163,7 +1163,7 @@ describe('Aggregation DoS + liveness hardening', () => {
     });
   });
 
-  describe('MS-08: participant runner reclaims cohort-state slots', () => {
+  describe('participant runner reclaims cohort-state slots', () => {
     it('drops the cohort state when shouldJoin rejects the advert', async () => {
       const bus = new MessageBus();
       const service = makeServiceRunner(bus);
@@ -1209,7 +1209,7 @@ describe('Aggregation DoS + liveness hardening', () => {
     });
   });
 
-  describe('MS-08: participant runner forwards bounds to the state machine', () => {
+  describe('participant runner forwards bounds to the state machine', () => {
     const svc = makeIdentity();
     const mkAdvert = (cohortId: string): ReturnType<typeof createCohortAdvertMessage> => createCohortAdvertMessage({
       from             : svc.did,
@@ -1257,7 +1257,7 @@ describe('Aggregation DoS + liveness hardening', () => {
     });
   });
 
-  describe('M6: rate-limiter bucket store is bounded', () => {
+  describe('rate-limiter bucket store is bounded', () => {
     it('evicts stale buckets first when the backstop is hit', () => {
       const store = new InMemoryRateLimitStore(2, 1000);
       const limiter = new RateLimiter({ store, rps: 1, burst: 5 });
@@ -1283,14 +1283,14 @@ describe('Aggregation DoS + liveness hardening', () => {
     });
   });
 
-  describe('L18: nonce cache per-DID buckets + timestamp expiry', () => {
+  describe('nonce cache per-DID buckets + timestamp expiry', () => {
     it('a flooding DID is refused past its own bucket; no DID evicts another\'s live entries', () => {
       const cache = new NonceCache({ maxPerDid: 2, maxEntries: 100, nowSec: () => 1000 });
       cache.store('victim', 'v1', 1000);
       cache.store('victim', 'v2', 1000);
       // Flooder churns well past its per-DID cap: the first two admissions
       // succeed, the rest are refused (fail-closed) rather than evicting live
-      // entries (audit MS-10).
+      // entries.
       const admissions: boolean[] = [];
       for(let i = 0; i < 10; i++) admissions.push(cache.store('flooder', `f${i}`, 1000));
       expect(admissions.slice(0, 2)).to.deep.equal([true, true]);
@@ -1318,7 +1318,7 @@ describe('Aggregation DoS + liveness hardening', () => {
       expect(cache.store('b', 'n2', 1000)).to.be.true;
       // Full of live in-window entries: the novel admission is refused
       // (fail-closed) instead of evicting a victim's entry and reopening its
-      // replay window (audit MS-10).
+      // replay window.
       expect(cache.store('c', 'n3', 1000)).to.be.false;
       expect(cache.size()).to.equal(2);
       // Both live entries retain their replay protection.
@@ -1327,7 +1327,7 @@ describe('Aggregation DoS + liveness hardening', () => {
     });
   });
 
-  describe('L17: HTTP body cap clears the largest legitimate envelope', () => {
+  describe('HTTP body cap clears the largest legitimate envelope', () => {
     it('accepts a body above the old 64 KiB cap for parsing (rejects as invalid JSON, not 413)', async () => {
       const transport = new HttpServerTransport();
       const res = await transport.handleRequest({
@@ -1362,7 +1362,7 @@ describe('Aggregation DoS + liveness hardening', () => {
     });
   });
 
-  describe('L16: buildRecoverySpend zeroizes the consumed recovery secret', () => {
+  describe('buildRecoverySpend zeroizes the consumed recovery secret', () => {
     const kp = SchnorrKeyPair.generate();
     const recoveryKey = schnorr.getPublicKey(kp.secretKey.bytes);
     const spendParams = (secret: Uint8Array): Parameters<typeof buildRecoverySpend>[0] => ({
@@ -1390,7 +1390,7 @@ describe('Aggregation DoS + liveness hardening', () => {
     });
   });
 
-  describe('L19: update document id must match the sender DID', () => {
+  describe('update document id must match the sender DID', () => {
     it('drops a validly-signed update whose document id names a different DID', () => {
       const victim = makeIdentity();
       const fx = driveToCohortSet();

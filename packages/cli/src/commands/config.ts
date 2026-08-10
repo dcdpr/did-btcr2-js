@@ -64,7 +64,7 @@ export function registerConfigCommand(program: Command, globals: () => GlobalOpt
         console.error(`Warning: "${dotted}" is not a known config path; writing it anyway.`);
       }
       // A plaintext RPC password lands on disk in cleartext (file 0600, but at
-      // rest). Nudge toward an env:/file: secret reference instead (audit L15).
+      // rest). Nudge toward an env:/file: secret reference instead.
       if (dotted.endsWith('.btc.rpcPass') && typeof parsed === 'string'
         && !parsed.startsWith('env:') && !parsed.startsWith('file:') && !globals().quiet) {
         console.error(

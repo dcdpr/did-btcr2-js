@@ -83,7 +83,7 @@ export class BitcoinCoreRpcClient implements BitcoinRpcClient {
    *
    * Results are structurally validated before being trusted: amounts, UTXO
    * sets, and confirmation status from the node flow into resolution and
-   * funding decisions (audit M11).
+   * funding decisions.
    */
   private async executeRpc<M extends TypedRpcMethod>(
     method: M,

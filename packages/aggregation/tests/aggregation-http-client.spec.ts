@@ -326,7 +326,7 @@ describe('HttpClientTransport', () => {
       expect(delivered).to.be.false;
     });
 
-    // MS-19: the envelope signature authenticates did2, but the inner message
+    // The envelope signature authenticates did2, but the inner message
     // claims a victim sender; the dispatch must drop it (Nostr-path parity).
     it('drops a broadcast whose inner from differs from the authenticated sender', async () => {
       client = makeClient();
@@ -416,7 +416,7 @@ describe('HttpClientTransport', () => {
       expect(delivered).to.be.false;
     });
 
-    // MS-19: the envelope signature authenticates did2, but the inner message
+    // The envelope signature authenticates did2, but the inner message
     // claims a victim sender; the dispatch must drop it (Nostr-path parity).
     it('drops a directed message whose inner from differs from the authenticated sender', async () => {
       client = makeClient();

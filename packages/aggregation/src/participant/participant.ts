@@ -69,7 +69,7 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
  * The scriptPubKey of the cohort's beacon UTXO, decoded from the beacon address
  * the member independently recomputed and verified at cohort-ready time
  * ({@link AggregationCohort.validateMembership}). Used to check that a
- * service-supplied spend really targets the cohort's beacon output (audit M5).
+ * service-supplied spend really targets the cohort's beacon output.
  */
 function beaconOutputScript(cohort: AggregationCohort): Uint8Array {
   return OutScript.encode(Address(getNetwork(cohort.network)).decode(cohort.beaconAddress));
@@ -180,9 +180,9 @@ export interface AggregationParticipantParams {
   /**
    * Cap on cohort states retained at once. Cohort adverts arrive over broadcast
    * transports from anyone, each minting a state entry; the bound keeps an
-   * advert flood from growing the map without limit (audit M6). At capacity the
-   * oldest not-yet-joined (Discovered) entry is evicted to make room (audit
-   * MS-08); joined cohorts are never auto-evicted, so a flood of adverts while
+   * advert flood from growing the map without limit. At capacity the
+    * oldest not-yet-joined (Discovered) entry is evicted to make room; joined
+    * cohorts are never auto-evicted, so a flood of adverts while
    * every retained cohort is joined still drops the new advert. Prune completed
    * cohorts with {@link AggregationParticipant.leaveCohort}. Defaults to
    * {@link DEFAULT_MAX_PARTICIPANT_COHORTS}.
@@ -192,7 +192,7 @@ export interface AggregationParticipantParams {
    * Absolute fee ceiling (satoshis) applied to every beacon transaction this
    * member is asked to sign, on both the optimistic and fallback paths. The
    * member's signature commits to all outputs, so an uncapped fee lets a
-   * malicious coordinator burn the cohort's beacon UTXO (audit M5). Defaults
+   * malicious coordinator burn the cohort's beacon UTXO. Defaults
    * to {@link DEFAULT_MAX_FEE_SATS}.
    */
   maxFeeSats?: bigint | number;
@@ -209,7 +209,7 @@ export interface AggregationParticipantParams {
   genesisDocument?: Record<string, unknown>;
 }
 
-/** Default cap on cohort states a participant retains (audit M6). */
+/** Default cap on cohort states a participant retains. */
 export const DEFAULT_MAX_PARTICIPANT_COHORTS = 256;
 
 /**
@@ -231,10 +231,10 @@ export class AggregationParticipant {
   /** EXTERNAL (x1) genesis document attached to opt-ins for bootstrap auth; undefined for k1. */
   readonly #genesisDocument?: Record<string, unknown>;
 
-  /** Cap on retained cohort states (audit M6). */
+  /** Cap on retained cohort states. */
   readonly #maxCohorts: number;
 
-  /** Absolute fee ceiling applied to every beacon tx this member signs (audit M5). */
+  /** Absolute fee ceiling applied to every beacon tx this member signs. */
   readonly #maxFeeSats: bigint;
 
   /** Per-cohort state, keyed by cohortId. */
@@ -311,10 +311,10 @@ export class AggregationParticipant {
     const { cohortId, network, communicationPk, ...conditions } = message.body;
     if(this.#cohortStates.has(cohortId)) return;  // Already known
     // Adverts arrive over broadcast from anyone; bound the retained state so an
-    // advert flood cannot grow the map without limit (audit M6). At capacity,
+    // advert flood cannot grow the map without limit. At capacity,
     // evict the oldest not-yet-joined (Discovered) entry to make room - a flood
-    // of minted cohortIds must not permanently starve discovery of new cohorts
-    // (audit MS-08). Joined cohorts are never auto-evicted: when every retained
+    // of minted cohortIds must not permanently starve discovery of new cohorts.
+    // Joined cohorts are never auto-evicted: when every retained
     // cohort is joined the new advert is dropped.
     if(this.#cohortStates.size >= this.#maxCohorts) {
       let oldestDiscovered: string | undefined;
@@ -657,7 +657,7 @@ export class AggregationParticipant {
 
   /**
    * Refuse to sign unless the service-supplied spend is shaped like a genuine
-   * beacon announcement of THIS cohort (audit M5). The member's signature
+   * beacon announcement of THIS cohort. The member's signature
    * (SIGHASH_DEFAULT) commits to every input and output, so a coordinator that
    * controls the tx could otherwise point change at itself or burn the beacon
    * UTXO as fee. Checks, all against the member's own verified cohort state:
@@ -760,7 +760,7 @@ export class AggregationParticipant {
    * signal AND is shaped like a genuine spend of this cohort's beacon UTXO:
    * prevOut script bound to the beacon address, single input, zero-value
    * OP_RETURN, self-change back to the beacon script above dust, and an
-   * absolute fee at or under `maxFeeSats` (audit M5).
+   * absolute fee at or under `maxFeeSats`.
    */
   public approveNonce(cohortId: string): BaseMessage[] {
     const state = this.#cohortStates.get(cohortId);
@@ -795,7 +795,7 @@ export class AggregationParticipant {
 
     // Refuse to sign a spend that is not shaped like a genuine announcement of
     // this cohort's beacon UTXO (prevOut binding, single input, self-change
-    // only, capped fee; audit M5).
+    // only, capped fee).
     this.#assertBeaconTxShape(cohortId, state, tx, prevOutScripts[0], prevOutValues[0]);
 
     const session = new BeaconSigningSession({
@@ -960,7 +960,7 @@ export class AggregationParticipant {
     this.#assertTxAnchorsValidatedSignal(cohortId, state, tx);
 
     // The fallback signs the SAME beacon tx with SIGHASH_DEFAULT, so the full
-    // output/fee sanity check applies identically (audit M5).
+    // output/fee sanity check applies identically.
     this.#assertBeaconTxShape(cohortId, state, tx, prevOutScript, prevOutValue);
 
     // Recompute the fallback leaf from our own cohort keys so a malicious service
@@ -992,7 +992,7 @@ export class AggregationParticipant {
   /**
    * Drop a cohort's state and zeroize any retained MuSig2 secret nonce for its
    * signing session (a session abandoned mid-round still holds its secret nonce
-   * until cleared; audit L16). Use to prune completed or failed cohorts so the
+    * until cleared). Use to prune completed or failed cohorts so the
    * {@link DEFAULT_MAX_PARTICIPANT_COHORTS} bound is not consumed by dead
    * state. No-op for an unknown cohort.
    */

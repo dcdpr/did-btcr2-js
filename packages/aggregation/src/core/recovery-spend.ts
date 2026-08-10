@@ -109,7 +109,7 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
  *
  * Key custody: `recoverySecretKey` is zeroized once it has been consumed by the
  * signing path (and on the key-mismatch throw), so the caller's buffer does not
- * outlive its single use (audit L16). Parameter-validation throws (fee, dust,
+ * outlive its single use. Parameter-validation throws (fee, dust,
  * address mismatch) occur before signing and leave the buffer intact for a
  * corrected retry. Callers that need the key beyond one call must pass a copy.
  *
@@ -134,7 +134,7 @@ export function buildRecoverySpend(params: RecoverySpendParams): Transaction {
   // secret. Fail loudly here rather than producing a transaction that cannot
   // finalize (btc-signer would throw an opaque "No taproot scripts signed").
   // A wrong secret is certainly done being used, so zeroize the caller's buffer
-  // before throwing (audit L16).
+  // before throwing.
   const derivedPub = schnorr.getPublicKey(recoverySecretKey);
   if(!bytesEqual(derivedPub, recoveryKey)) {
     wipe(recoverySecretKey);
@@ -198,7 +198,7 @@ export function buildRecoverySpend(params: RecoverySpendParams): Transaction {
   tx.addOutputAddress(destinationAddress, out, net);
   // Custody transfer: the builder zeroizes the caller's secret-key buffer once
   // the signature is produced (success or failure) so a long-lived caller copy
-  // does not outlive its single use (audit L16). Callers that still need the
+  // does not outlive its single use. Callers that still need the
   // key afterwards must pass a copy. The earlier parameter-validation throws
   // leave the buffer intact so the caller can fix the params and retry.
   try {

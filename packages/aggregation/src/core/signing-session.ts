@@ -117,7 +117,7 @@ export class BeaconSigningSession {
     }
     // Both 33-byte halves of a BIP-327 pubnonce must decode as valid compressed
     // secp256k1 points: a nonce that passes the length check but carries
-    // non-points throws deep inside musig2 at aggregation time (audit MS-02).
+    // non-points throws deep inside musig2 at aggregation time.
     if(!secp256k1.utils.isValidPublicKey(nonceContribution.subarray(0, 33))
       || !secp256k1.utils.isValidPublicKey(nonceContribution.subarray(33, 66))) {
       throw new SigningSessionError(
@@ -171,7 +171,7 @@ export class BeaconSigningSession {
     }
     // A BIP-327 partial signature is a 32-byte scalar. Without the length check
     // a wrong-length contribution throws an untyped error out of musig2
-    // partialSigVerify at aggregation time (audit MS-02).
+    // partialSigVerify at aggregation time.
     if(partialSig.length !== 32) {
       throw new SigningSessionError(
         `Invalid partial signature: expected 32 bytes, got ${partialSig.length}.`,

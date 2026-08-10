@@ -20,8 +20,8 @@ function stubBtcr2Update(api: DidBtcr2Api): { called: boolean } {
   return state;
 }
 
-describe('api hardening (audit N3, N4, N5)', () => {
-  describe('updateDid rejects deactivated DIDs (N3)', () => {
+describe('api hardening', () => {
+  describe('updateDid rejects deactivated DIDs', () => {
     const did = 'did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47';
 
     it('throws when the caller-supplied source document is deactivated', async () => {
@@ -77,7 +77,7 @@ describe('api hardening (audit N3, N4, N5)', () => {
     });
   });
 
-  describe('CAS response size cap (N4)', () => {
+  describe('CAS response size cap', () => {
     const originalFetch = globalThis.fetch;
 
     afterEach(() => {
@@ -129,7 +129,7 @@ describe('api hardening (audit N3, N4, N5)', () => {
     });
   });
 
-  describe('CAS retrieval integrity verification (N5)', () => {
+  describe('CAS retrieval integrity verification', () => {
     const object = { hello: 'world' };
     const hashBytes = canonicalHashBytes(object);
 

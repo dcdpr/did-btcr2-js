@@ -199,7 +199,7 @@ describe('SchnorrKeyPair instantiated', () => {
     });
   });
 });
-describe('secretKey getter isolation (audit L6)', () => {
+describe('secretKey getter isolation', () => {
   it('returns a distinct instance on each access', () => {
     const kp = SchnorrKeyPair.generate();
     expect(kp.secretKey).to.not.equal(kp.secretKey);

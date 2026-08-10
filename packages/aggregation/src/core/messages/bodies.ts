@@ -271,7 +271,7 @@ export function isSubmitUpdateMessage(m: BaseMessage): m is SubmitUpdateMessage 
   // When a proof is carried it must be an object whose verificationMethod and
   // proofValue, when present, are strings: a truthy non-string value (e.g.
   // `verificationMethod: 1`) otherwise crashes downstream parsing with a raw
-  // TypeError (audit MS-02).
+  // TypeError.
   const proof = (signedUpdate as Record<string, unknown>).proof;
   if(proof !== undefined) {
     if(!proof || typeof proof !== 'object') return false;
