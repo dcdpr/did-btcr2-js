@@ -32,6 +32,10 @@ export type BaseBody = Partial<CohortConditions> & {
   /** Hex-encoded scriptPubKey of the UTXO being spent. Required for BIP-341 sighash. */
   prevOutScriptHex?: string;
   prevOutValue?: string;
+  /** Display-order txid of the beacon UTXO the signing tx spends (input 0). */
+  fundingTxid?: string;
+  /** Output index of the beacon UTXO the signing tx spends (input 0). */
+  fundingVout?: number;
   communicationPk?: Uint8Array;
   data?: string;
   /**

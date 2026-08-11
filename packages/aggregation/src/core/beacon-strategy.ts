@@ -1,4 +1,4 @@
-import { canonicalize } from '@did-btcr2/common';
+import { canonicalize, hash } from '@did-btcr2/common';
 import type { SecuredDocument } from '@did-btcr2/cryptosuite';
 import type { SerializedSMTProof } from '@did-btcr2/smt';
 import { base64UrlToHash, blockHash, didToIndex, hashToBase64Url, verifySerializedProof } from '@did-btcr2/smt';
@@ -56,6 +56,17 @@ export interface AggregateBeaconStrategy {
     expectedHash?: string;
     body: BaseBody;
   }): BeaconValidationResult;
+
+  /**
+   * Participant: recompute the signal bytes the validated aggregated content
+   * commits to (CAS: hash of the canonical announcement; SMT: the tree root
+   * the proof's `id` names). The participant compares this against the
+   * coordinator-supplied `signalBytesHex` so an equivocating coordinator
+   * cannot bind the member's consent (and later its signature) to a signal
+   * that does not match the content it validated. Returns undefined when the
+   * validation result carries no signal-bearing sidecar.
+   */
+  expectedSignal(result: BeaconValidationResult): Uint8Array | undefined;
 }
 
 const CAS_STRATEGY: AggregateBeaconStrategy = {
@@ -80,6 +91,11 @@ const CAS_STRATEGY: AggregateBeaconStrategy = {
       matches : casAnnouncement[participantDid] === expectedHash,
       casAnnouncement,
     };
+  },
+
+  expectedSignal(result) {
+    if(!result.casAnnouncement) return undefined;
+    return hash(canonicalize(result.casAnnouncement));
   },
 };
 
@@ -122,6 +138,16 @@ const SMT_STRATEGY: AggregateBeaconStrategy = {
       matches : verifySerializedProof(smtProof, index, candidateHash),
       smtProof,
     };
+  },
+
+  expectedSignal(result) {
+    const rootId = result.smtProof?.id;
+    if(typeof rootId !== 'string') return undefined;
+    try {
+      return base64UrlToHash(rootId);
+    } catch {
+      return undefined;
+    }
   },
 };
 
