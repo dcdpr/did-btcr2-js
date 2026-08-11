@@ -9,10 +9,17 @@ export type PatchOpCode = 'add' | 'remove' | 'replace' | 'move' | 'copy' | 'test
 
 /** Maximum operations in a single JSON Patch. */
 export const MAX_PATCH_OPERATIONS = 1024;
-/** Maximum length of an operation's JSON Pointer path. */
+/** Maximum length of an operation's JSON Pointer path (and of a move/copy `from` pointer). */
 export const MAX_PATCH_PATH_LENGTH = 2048;
-/** Maximum JSON-serialized size of an operation's value, in bytes. */
+/** Maximum JSON-serialized size of an operation's value, in UTF-8 bytes. */
 export const MAX_PATCH_VALUE_BYTES = 256 * 1024;
+/**
+ * Maximum aggregate size of a patch, in UTF-8 bytes: the sum of each operation's
+ * serialized value plus its path and `from` pointer lengths. The per-operation
+ * caps alone (1024 operations x 256 KiB) would allow roughly 256 MiB of patch
+ * work; this budget bounds the whole patch to 1 MiB.
+ */
+export const MAX_PATCH_TOTAL_BYTES = 1024 * 1024;
 
 /**
  * A JSON Patch operation, as defined in {@link https://datatracker.ietf.org/doc/html/rfc6902 | RFC 6902}.
@@ -106,8 +113,9 @@ export class JSONPatch {
    * Validate JSON Patch operations.
    *
    * Beyond shape checks, patches carried by untrusted DID updates are bounded
-   * in count, path length, and value size so a hostile update cannot force
-   * unbounded patch work.
+   * in count, path (and `from`) length, per-value size, and total serialized
+   * size so a hostile update cannot force unbounded patch work. Sizes are
+   * measured in UTF-8 bytes, the on-the-wire unit.
    *
    * @param {PatchOperation[]} operations - The operations to validate.
    * @returns {MethodError | null} A MethodError if validation fails, otherwise null.
@@ -117,6 +125,8 @@ export class JSONPatch {
     if (operations.length > MAX_PATCH_OPERATIONS) {
       return new MethodError(`Too many operations: ${operations.length} > ${MAX_PATCH_OPERATIONS}`, 'JSON_PATCH_VALIDATION_ERROR');
     }
+    const encoder = new TextEncoder();
+    let totalBytes = 0;
     for (const op of operations) {
       if (!op || typeof op !== 'object') return new MethodError('Operation must be an object', 'JSON_PATCH_VALIDATION_ERROR');
       if (typeof op.op !== 'string') return new MethodError('Operation.op must be a string', 'JSON_PATCH_VALIDATION_ERROR');
@@ -124,19 +134,30 @@ export class JSONPatch {
       if (op.path.length > MAX_PATCH_PATH_LENGTH) {
         return new MethodError(`Operation.path too long: ${op.path.length} > ${MAX_PATCH_PATH_LENGTH}`, 'JSON_PATCH_VALIDATION_ERROR');
       }
-      if ((op.op === 'move' || op.op === 'copy') && typeof op.from !== 'string') {
-        return new MethodError(`Operation.from must be a string for op=${op.op}`, 'JSON_PATCH_VALIDATION_ERROR');
+      if (op.op === 'move' || op.op === 'copy') {
+        if (typeof op.from !== 'string') {
+          return new MethodError(`Operation.from must be a string for op=${op.op}`, 'JSON_PATCH_VALIDATION_ERROR');
+        }
+        if (op.from.length > MAX_PATCH_PATH_LENGTH) {
+          return new MethodError(`Operation.from too long: ${op.from.length} > ${MAX_PATCH_PATH_LENGTH}`, 'JSON_PATCH_VALIDATION_ERROR');
+        }
       }
+      totalBytes += encoder.encode(op.path).length
+        + (typeof op.from === 'string' ? encoder.encode(op.from).length : 0);
       if (op.value !== undefined) {
-        let valueSize: number;
+        let valueBytes: number;
         try {
-          valueSize = JSON.stringify(op.value).length;
+          valueBytes = encoder.encode(JSON.stringify(op.value)).length;
         } catch {
           return new MethodError('Operation.value is not JSON-serializable', 'JSON_PATCH_VALIDATION_ERROR');
         }
-        if (valueSize > MAX_PATCH_VALUE_BYTES) {
-          return new MethodError(`Operation.value too large: ${valueSize} > ${MAX_PATCH_VALUE_BYTES} bytes`, 'JSON_PATCH_VALIDATION_ERROR');
+        if (valueBytes > MAX_PATCH_VALUE_BYTES) {
+          return new MethodError(`Operation.value too large: ${valueBytes} > ${MAX_PATCH_VALUE_BYTES} bytes`, 'JSON_PATCH_VALIDATION_ERROR');
         }
+        totalBytes += valueBytes;
+      }
+      if (totalBytes > MAX_PATCH_TOTAL_BYTES) {
+        return new MethodError(`Patch too large: ${totalBytes} > ${MAX_PATCH_TOTAL_BYTES} bytes total`, 'JSON_PATCH_VALIDATION_ERROR');
       }
     }
     return null;

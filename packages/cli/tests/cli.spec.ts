@@ -103,15 +103,17 @@ describe('DidBtcr2Cli', () => {
     it('reads resolution options from a file', async () => {
       const validDid = 'did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47';
       const cli = new DidBtcr2Cli(createTestApiFactory());
+      const messages: string[] = [];
+      console.log = (msg?: any) => { if (msg !== undefined) messages.push(String(msg)); };
       const tempPath = join(tmpdir(), 'btcr2-resolve-test.json');
       await writeFile(tempPath, '{"versionId":"1"}', 'utf-8');
 
       try {
         const resolve = getSubcommand(cli, 'resolve');
-        // Resolving requires a Bitcoin connection, so this will reject
-        await expect(
-          resolve.parseAsync(['-i', validDid, '-p', tempPath], { from: 'user' })
-        ).to.be.rejected;
+        // versionId "1" is terminal at the genesis document: resolution completes
+        // without beacon discovery, so no Bitcoin connection is required.
+        await resolve.parseAsync(['-i', validDid, '-p', tempPath], { from: 'user' });
+        expect(messages.join('\n')).to.include(validDid);
       } finally {
         await rm(tempPath, { force: true });
       }

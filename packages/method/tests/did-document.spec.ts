@@ -148,3 +148,36 @@ describe('DidDocument.isValid verificationMethod array (STD-2: enforce at the do
     expect(() => DidDocument.isValid(doc)).to.throw('Invalid "verificationMethod"');
   });
 });
+
+describe('DidDocument deactivated validation (fail-closed boolean)', () => {
+  it('rejects a non-boolean deactivated at the isValid boundary', () => {
+    const doc = validDocument();
+    doc.deactivated = 'yes';
+    expect(() => DidDocument.isValid(doc)).to.throw('Invalid "deactivated"');
+  });
+
+  it('rejects a non-boolean deactivated through validate', () => {
+    const doc = validDocument();
+    doc.deactivated = 1;
+    expect(() => DidDocument.validate(doc)).to.throw('Invalid "deactivated"');
+  });
+
+  it('rejects a non-boolean deactivated at construction', () => {
+    const doc = validDocument();
+    doc.deactivated = 'true';
+    expect(() => new DidDocument(doc as any)).to.throw('Invalid "deactivated"');
+  });
+
+  it('accepts deactivated true and false', () => {
+    const docTrue = validDocument();
+    docTrue.deactivated = true;
+    expect(DidDocument.isValid(docTrue)).to.equal(true);
+    const docFalse = validDocument();
+    docFalse.deactivated = false;
+    expect(DidDocument.isValid(docFalse)).to.equal(true);
+  });
+
+  it('accepts a document with no deactivated field', () => {
+    expect(DidDocument.isValid(validDocument())).to.equal(true);
+  });
+});

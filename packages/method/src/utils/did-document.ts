@@ -194,11 +194,6 @@ export class DidDocument implements Btcr2DidDocument {
       throw new DidDocumentError('DID Document must have an id', INVALID_DID_DOCUMENT, document);
     }
 
-    // Set the ID and ID type
-    const idType = document.id.includes('k1')
-      ? IdentifierTypes.KEY
-      : IdentifierTypes.EXTERNAL;
-
     // Validate ID and parts for non-intermediate
     const isGenesis = document.id === ID_PLACEHOLDER_VALUE;
 
@@ -217,6 +212,20 @@ export class DidDocument implements Btcr2DidDocument {
         throw new DidDocumentError('Invalid service: ' + service, INVALID_DID_DOCUMENT, document);
       }
     }
+
+    // "deactivated", when present, must be a boolean. A non-boolean value would
+    // survive structural validation yet never trigger deactivation semantics
+    // (the resolver checks strict === true), so reject it here, fail-closed.
+    if (!DidDocument.isValidDeactivated(document.deactivated)) {
+      throw new DidDocumentError('Invalid "deactivated"', INVALID_DID_DOCUMENT, document);
+    }
+
+    // Derive the identifier type from the decoded identifier HRP, not substring
+    // matching: an EXTERNAL id whose data part contains "k1" is not a KEY
+    // identifier. The id was validated above, so decode cannot throw here.
+    const idType = isGenesis
+      ? IdentifierTypes.EXTERNAL
+      : Identifier.decode(id).idType;
 
     // Set core properties
     this.id = document.id;
@@ -346,7 +355,22 @@ export class DidDocument implements Btcr2DidDocument {
     if (!this.isValidVerificationRelationships(didDocument)) {
       throw new DidDocumentError('Invalid verification relationships', INVALID_DID_DOCUMENT, didDocument);
     }
+    if (!this.isValidDeactivated(didDocument?.deactivated)) {
+      throw new DidDocumentError('Invalid "deactivated"', INVALID_DID_DOCUMENT, didDocument);
+    }
     return true;
+  }
+
+  /**
+   * Validates that "deactivated", when present, is a boolean. A non-boolean
+   * value would pass structural checks yet never trigger deactivation (the
+   * resolver checks strict === true), so it is rejected, fail-closed.
+   * @private
+   * @param {unknown} deactivated The deactivated value to validate.
+   * @returns {boolean} True if absent or a boolean.
+   */
+  private static isValidDeactivated(deactivated: unknown): boolean {
+    return deactivated === undefined || typeof deactivated === 'boolean';
   }
 
   /**
@@ -473,7 +497,13 @@ export class DidDocument implements Btcr2DidDocument {
    * @returns {GenesisDocument} The GenesisDocument representation of the DidDocument.
    */
   public toIntermediate(): GenesisDocument {
-    if(this.id.includes('k1')) {
+    // Derive the identifier type from the decoded identifier HRP, not substring
+    // matching. The placeholder id belongs to genesis documents, which are
+    // already intermediate.
+    const idType = this.id === ID_PLACEHOLDER_VALUE
+      ? IdentifierTypes.EXTERNAL
+      : Identifier.decode(this.id).idType;
+    if(idType === IdentifierTypes.KEY) {
       throw new DidDocumentError('Cannot convert a key identifier to an intermediate document', INVALID_DID_DOCUMENT, this);
     }
     return new GenesisDocument(this);

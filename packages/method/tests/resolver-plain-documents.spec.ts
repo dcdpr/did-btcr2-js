@@ -1,5 +1,8 @@
 import { expect } from 'chai';
 import { canonicalHashBytes, IdentifierTypes, JSONPatch } from '@did-btcr2/common';
+import { getNetwork } from '@did-btcr2/bitcoin';
+import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
+import { p2pkh, p2tr, p2wpkh } from '@scure/btc-signer';
 import { DidBtcr2 } from '../src/did-btcr2.js';
 import { Identifier } from '../src/core/identifier.js';
 import { Resolver } from '../src/core/resolver.js';
@@ -66,9 +69,51 @@ describe('resolver plain-document handling', () => {
     }
   });
 
-  it('patching the deterministic() output keeps every field (no toJSON-subset drop)', () => {
-    const doc = Resolver.deterministic(Identifier.decode(deterministicData[0]!.did));
-    const baselineDoc = JSON.parse(JSON.stringify(doc));
+  it('patching the deterministic() output keeps every field (fixed literal baseline)', () => {
+    const fixture = deterministicData[0]!;
+    const didComponents = Identifier.decode(fixture.did);
+    const doc = Resolver.deterministic(didComponents);
+
+    // Fixed literal baseline: the full field inventory a deterministic document
+    // must carry, written out in this test. Identifier-derived values (the
+    // multibase key and the three beacon addresses) are recomputed here from the
+    // decoded genesis bytes, not read from the resolver output, so a field the
+    // resolver drops turns into a deep-equal mismatch.
+    const genesisBytes = didComponents.genesisBytes;
+    const network = getNetwork('bitcoin');
+    const { multibase } = new CompressedSecp256k1PublicKey(genesisBytes);
+    const keyRef = `${fixture.did}#initialKey`;
+    const baselineDoc = {
+      id                 : fixture.did,
+      '@context'         : ['https://www.w3.org/ns/did/v1.1', 'https://btcr2.dev/context/v1'],
+      verificationMethod : [{
+        id                 : keyRef,
+        type               : 'Multikey',
+        controller         : fixture.did,
+        publicKeyMultibase : multibase.encoded,
+      }],
+      authentication       : [keyRef],
+      assertionMethod      : [keyRef],
+      capabilityInvocation : [keyRef],
+      capabilityDelegation : [keyRef],
+      service              : [
+        {
+          id              : `${fixture.did}#initialP2PKH`,
+          type            : 'SingletonBeacon',
+          serviceEndpoint : `bitcoin:${p2pkh(genesisBytes, network).address}`,
+        },
+        {
+          id              : `${fixture.did}#initialP2WPKH`,
+          type            : 'SingletonBeacon',
+          serviceEndpoint : `bitcoin:${p2wpkh(genesisBytes, network).address}`,
+        },
+        {
+          id              : `${fixture.did}#initialP2TR`,
+          type            : 'SingletonBeacon',
+          serviceEndpoint : `bitcoin:${p2tr(genesisBytes.slice(1, 33), undefined, network).address}`,
+        },
+      ],
+    };
     const patch = [{ op: 'add' as const, path: '/alsoKnownAs', value: ['did:web:example.com'] }];
 
     const patched = JSONPatch.apply(doc, patch);
