@@ -113,19 +113,36 @@ describe('Decode Identifier', () => {
       expect(() => Identifier.decode(forge('k', 0x0F, validKeyBytes))).to.throw(/network/i);
     });
 
-    it('accepts custom network_value 12 (returns numeric 1)', () => {
-      const decoded = Identifier.decode(forge('k', 0x0C, validKeyBytes));
-      expect(decoded.network).to.equal(1);
+    it('rejects custom network_value 12 (KEY)', () => {
+      expect(() => Identifier.decode(forge('k', 0x0C, validKeyBytes))).to.throw(/custom networks/i);
     });
 
-    it('accepts custom network_value 13 (returns numeric 2)', () => {
-      const decoded = Identifier.decode(forge('k', 0x0D, validKeyBytes));
-      expect(decoded.network).to.equal(2);
+    it('rejects custom network_value 13 (KEY)', () => {
+      expect(() => Identifier.decode(forge('k', 0x0D, validKeyBytes))).to.throw(/custom networks/i);
     });
 
-    it('accepts custom network_value 14 (returns numeric 3)', () => {
-      const decoded = Identifier.decode(forge('k', 0x0E, validKeyBytes));
-      expect(decoded.network).to.equal(3);
+    it('rejects custom network_value 14 (KEY)', () => {
+      expect(() => Identifier.decode(forge('k', 0x0E, validKeyBytes))).to.throw(/custom networks/i);
+    });
+
+    it('rejects custom network_value 12 (EXTERNAL)', () => {
+      expect(() => Identifier.decode(forge('x', 0x0C, validHashBytes))).to.throw(/custom networks/i);
+    });
+
+    it('rejects custom network_value 13 (EXTERNAL)', () => {
+      expect(() => Identifier.decode(forge('x', 0x0D, validHashBytes))).to.throw(/custom networks/i);
+    });
+
+    it('rejects custom network_value 14 (EXTERNAL)', () => {
+      expect(() => Identifier.decode(forge('x', 0x0E, validHashBytes))).to.throw(/custom networks/i);
+    });
+
+    it('isValid reports custom-network KEY identifiers invalid', () => {
+      expect(Identifier.isValid(forge('k', 0x0C, validKeyBytes))).to.equal(false);
+    });
+
+    it('isValid reports custom-network EXTERNAL identifiers invalid', () => {
+      expect(Identifier.isValid(forge('x', 0x0E, validHashBytes))).to.equal(false);
     });
   });
 

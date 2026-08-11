@@ -193,6 +193,20 @@ The SMT proof verification (spec section SMT Proof Verification) computes the ca
 
 ---
 
+## Compatibility and Migration Notes
+
+### Current-document hash covers the full genesis JSON
+
+During resolution, the current-document hash that every update's `sourceHash` chains from is computed over the **complete** genesis JSON. An earlier implementation hashed the class-serialized subset of the document, which silently dropped unknown fields, dropped `deactivated`, and substituted a defaulted `@context` when one was missing. Those fields are now hashed like any other.
+
+Consequence: an EXTERNAL update chain anchored before this change on a non-standard genesis document (one carrying fields the old subset dropped) fails resolution with `INVALID_DID_UPDATE`, because its anchored `sourceHash` no longer matches the recomputed current-document hash. Remedy: the controller signs a fresh update whose `sourceHash` covers the full current document and announces it on a beacon, re-basing the chain.
+
+### `capabilityAction: "Write"` is required at resolve time
+
+Update proofs must carry `capabilityAction` with the exact value `"Write"`; the resolver rejects any update whose proof omits the field or sets a different value (`INVALID_DID_UPDATE`). The field is optional in the Data Integrity specification, so updates produced by other tooling, or anchored before this enforcement, may lack it. Remedy: re-sign the update with `capabilityAction: "Write"` in the proof (this implementation's write path sets it automatically) and re-announce it.
+
+---
+
 ## Usage Example: Runner Layer (recommended)
 
 The runner layer handles message routing, callback orchestration, and event emission.

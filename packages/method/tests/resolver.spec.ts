@@ -1701,11 +1701,15 @@ describe('Resolver security regressions', () => {
 
   it('versionId "1" returns the genesis document even when updates exist', () => {
     const sourceDocument = resolveDeterministic(fixture.did);
-    const updates = buildUpdateChain(fixture.did, sourceDocument, fixture.secretKey, [benignPatch(fixture.did), benignPatch(fixture.did)]);
+    // Updates exist on-chain, but a versionId "1" request is terminal at genesis:
+    // resolution completes without any beacon discovery.
+    const _updates = buildUpdateChain(fixture.did, sourceDocument, fixture.secretKey, [benignPatch(fixture.did), benignPatch(fixture.did)]);
 
-    const resolved = driveSingleBeacon(fixture.did, updates, { versionId: '1' });
-    expect(resolved.metadata.versionId).to.equal('1');
-    expect(resolved.didDocument.assertionMethod).to.have.lengthOf(sourceDocument.assertionMethod!.length);
+    const resolver = DidBtcr2.resolve(fixture.did, { versionId: '1' });
+    const state = resolver.resolve();
+    if(state.status !== 'resolved') throw new Error('expected immediate resolution at genesis');
+    expect(state.result.metadata.versionId).to.equal('1');
+    expect(state.result.didDocument.assertionMethod).to.have.lengthOf(sourceDocument.assertionMethod!.length);
   });
 
   it('versionId "2" returns exactly the v2 document', () => {
@@ -1804,10 +1808,13 @@ describe('Resolver security regressions (audit: discovery hardening)', () => {
     const [u2] = buildUpdateChain(fixture.did, sourceDocument, fixture.secretKey, [benignPatch(fixture.did)]);
 
     // The same update announced twice: the apply at height 100 (10 confs), the
-    // duplicate at height 105 (5 confs, later time).
+    // duplicate at height 105 (7 confs, later time). The duplicate must clear the
+    // minConf threshold so it genuinely reaches the duplicate-confirmation branch;
+    // a duplicate below minConf would be discarded by the confirmation gate first
+    // and this test would pass without exercising the branch at all.
     const resolved = driveSignalSequence(fixture.did, [u2], [u2, u2], [
       { height: 100, time: 1700000000, confirmations: 10 },
-      { height: 105, time: 1700001000, confirmations: 5 },
+      { height: 105, time: 1700001000, confirmations: 7 },
     ]);
 
     expect(resolved.metadata.versionId).to.equal('2');
@@ -1851,5 +1858,291 @@ describe('Resolver security regressions (audit: discovery hardening)', () => {
     (sourceDocument as any).deactivated = true;
     const response = Resolver.updates(sourceDocument, []);
     expect(response.metadata.deactivated).to.be.true;
+  });
+
+  it('providing an SMT proof with a malformed id throws a typed ResolveError', () => {
+    const { genesisDocument } = externalData[2]; // regtest
+    const smtGenesisDoc = JSON.parse(JSON.stringify(genesisDocument));
+    smtGenesisDoc.service[0].type = 'SMTBeacon';
+    const smtGenesisBytes = hash(canonicalize(smtGenesisDoc));
+    const smtDid = DidBtcr2.create(smtGenesisBytes, { idType: 'EXTERNAL', version: 1, network: 'regtest' });
+
+    const resolver = DidBtcr2.resolve(smtDid, { sidecar: { genesisDocument: smtGenesisDoc } });
+    let state = resolver.resolve();
+    if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+    const beaconNeed = state.needs[0] as NeedBeaconSignals;
+    const smtService = beaconNeed.beaconServices[0] as BeaconService;
+    const fakeRootHash = 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef';
+    const fakeSignals = new Map<BeaconService, Array<BeaconSignal>>();
+    fakeSignals.set(smtService, [{
+      tx            : {} as any,
+      signalBytes   : fakeRootHash,
+      blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+    }]);
+    resolver.provide(beaconNeed, fakeSignals);
+
+    state = resolver.resolve();
+    if(state.status !== 'action-required' || state.needs[0].kind !== 'NeedSMTProof') {
+      throw new Error('expected NeedSMTProof');
+    }
+
+    let thrown: any;
+    try {
+      resolver.provide(state.needs[0] as NeedSMTProof, { id: '!!!not-base64url!!!', collapsed: '', hashes: [] } as any);
+    } catch(error) {
+      thrown = error;
+    }
+    expect(thrown, 'expected a typed error').to.exist;
+    expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+    expect(thrown.message).to.match(/Malformed SMT proof id/);
+  });
+});
+
+describe('Resolver terminal resolution at a requested version', () => {
+  const fixture = deterministicData[2]; // regtest k1 DID
+
+  it('versionId "1" resolves the genesis document immediately, with no beacon discovery', () => {
+    const resolver = DidBtcr2.resolve(fixture.did, { versionId: '1' });
+    const state = resolver.resolve();
+    if(state.status !== 'resolved') throw new Error('expected immediate resolution at genesis');
+    expect(state.result.metadata.versionId).to.equal('1');
+    expect(state.result.didDocument.id).to.equal(fixture.did);
+  });
+
+  it('versionId "2" terminates without discovering beacons the v2 update added', () => {
+    const sourceDocument = resolveDeterministic(fixture.did);
+    // u2 (v1->v2) adds a beacon that carries u3 (v2->v3) in a later round.
+    const { updates, signalByAddress } = buildDiscoveryChain(fixture.did, sourceDocument, fixture.secretKey, 2);
+
+    const resolver = DidBtcr2.resolve(fixture.did, { sidecar: { updates }, versionId: '2' });
+    let state = resolver.resolve();
+    if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+    const need = state.needs[0] as NeedBeaconSignals;
+    const signals = new Map<BeaconService, Array<BeaconSignal>>();
+    for(const service of need.beaconServices) {
+      const updateHashHex = signalByAddress.get(BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string));
+      signals.set(service, updateHashHex
+        ? [{ tx: {} as any, signalBytes: updateHashHex, blockMetadata: { height: 100, time: 1700000000, confirmations: 6 } }]
+        : []);
+    }
+    resolver.provide(need, signals);
+    state = resolver.resolve();
+    // The requested version was reached by applying u2: resolution must terminate
+    // here rather than scan the v2 document for new beacons and emit data needs
+    // for versions after the target.
+    if(state.status !== 'resolved') throw new Error('expected resolution to terminate at version 2');
+    expect(state.result.metadata.versionId).to.equal('2');
+    expect(state.result.didDocument.service).to.have.lengthOf(sourceDocument.service.length + 1);
+  });
+
+  it('versionTime holds across discovery rounds and preserves the last in-window metadata', () => {
+    const sourceDocument = resolveDeterministic(fixture.did);
+    // u2 (in-window, on the genesis beacon) adds a beacon; u3 (mined after the
+    // cutoff) is announced on that added beacon and discovered a round later.
+    const { updates, signalByAddress } = buildDiscoveryChain(fixture.did, sourceDocument, fixture.secretKey, 2);
+
+    const resolver = DidBtcr2.resolve(fixture.did, {
+      sidecar     : { updates },
+      versionTime : '2023-11-14T22:13:30Z'
+    });
+
+    // Round 1: the genesis beacon announces u2, in-window at depth 10.
+    let state = resolver.resolve();
+    if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals (round 1)');
+    {
+      const need = state.needs[0] as NeedBeaconSignals;
+      const signals = new Map<BeaconService, Array<BeaconSignal>>();
+      for(const service of need.beaconServices) {
+        const updateHashHex = signalByAddress.get(BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string));
+        signals.set(service, updateHashHex
+          ? [{ tx: {} as any, signalBytes: updateHashHex, blockMetadata: { height: 100, time: 1700000000, confirmations: 10 } }]
+          : []);
+      }
+      resolver.provide(need, signals);
+    }
+
+    // Round 2: the beacon u2 added announces u3, mined after the cutoff.
+    state = resolver.resolve();
+    if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals (round 2)');
+    {
+      const need = state.needs[0] as NeedBeaconSignals;
+      const signals = new Map<BeaconService, Array<BeaconSignal>>();
+      for(const service of need.beaconServices) {
+        const updateHashHex = signalByAddress.get(BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string));
+        signals.set(service, updateHashHex
+          ? [{ tx: {} as any, signalBytes: updateHashHex, blockMetadata: { height: 101, time: 1700001000, confirmations: 6 } }]
+          : []);
+      }
+      resolver.provide(need, signals);
+    }
+
+    state = resolver.resolve();
+    if(state.status !== 'resolved') throw new Error('expected resolved');
+    // u3 is past the cutoff and never applies, and the truncated round must not
+    // reset the metadata recorded when u2 applied.
+    expect(state.result.metadata.versionId).to.equal('2');
+    expect(state.result.metadata.updated).to.equal('2023-11-14T22:13:20Z');
+    expect(state.result.metadata.confirmations).to.equal(10);
+  });
+
+  it('a discovery round containing only a duplicate preserves previously applied metadata', () => {
+    const source = resolveDeterministic(fixture.did);
+    // u2 (v1->v2) adds a beacon; that beacon re-announces u2 a round later, so the
+    // second round contains only a duplicate and applies nothing.
+    const { updates } = buildDiscoveryChain(fixture.did, source, fixture.secretKey, 1);
+    const [u2] = updates;
+    const u2hash = canonicalHash(u2, { encoding: 'hex' });
+
+    const resolver = DidBtcr2.resolve(fixture.did, { sidecar: { updates } });
+
+    // Round 1: u2 applies at depth 10.
+    let state = resolver.resolve();
+    if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals (round 1)');
+    {
+      const need = state.needs[0] as NeedBeaconSignals;
+      const signals = new Map<BeaconService, Array<BeaconSignal>>();
+      for(const service of need.beaconServices) {
+        signals.set(service, [{ tx: {} as any, signalBytes: u2hash, blockMetadata: { height: 100, time: 1700000000, confirmations: 10 } }]);
+      }
+      resolver.provide(need, signals);
+    }
+
+    // Round 2: the beacon u2 added re-announces u2 (a duplicate) at depth 7.
+    state = resolver.resolve();
+    if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals (round 2)');
+    {
+      const need = state.needs[0] as NeedBeaconSignals;
+      const signals = new Map<BeaconService, Array<BeaconSignal>>();
+      for(const service of need.beaconServices) {
+        signals.set(service, [{ tx: {} as any, signalBytes: u2hash, blockMetadata: { height: 105, time: 1700001000, confirmations: 7 } }]);
+      }
+      resolver.provide(need, signals);
+    }
+
+    state = resolver.resolve();
+    if(state.status !== 'resolved') throw new Error('expected resolved');
+    expect(state.result.metadata.versionId).to.equal('2');
+    expect(state.result.metadata.updated).to.equal('2023-11-14T22:13:20Z');
+    expect(state.result.metadata.confirmations).to.equal(10);
+  });
+});
+
+describe('Resolver beacon-signal intake validation', () => {
+  const fixture = deterministicData[2]; // regtest k1 DID
+
+  /** Fresh resolver parked at the NeedBeaconSignals stage. */
+  function resolverAtSignals() {
+    const resolver = DidBtcr2.resolve(fixture.did);
+    const state = resolver.resolve();
+    if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+    return { resolver, need: state.needs[0] as NeedBeaconSignals };
+  }
+
+  it('rejects malformed beacon-signal block metadata with a typed error', () => {
+    const cases: Array<{ name: string; meta: Record<string, unknown> }> = [
+      { name: 'NaN height', meta: { height: NaN, time: 1700000000, confirmations: 6 } },
+      { name: 'fractional time', meta: { height: 100, time: 1700000000.5, confirmations: 6 } },
+      { name: 'string confirmations', meta: { height: 100, time: 1700000000, confirmations: '6' } },
+      { name: 'negative confirmations', meta: { height: 100, time: 1700000000, confirmations: -1 } },
+      { name: 'missing height', meta: { time: 1700000000, confirmations: 6 } },
+    ];
+    for(const { name, meta } of cases) {
+      const { resolver, need } = resolverAtSignals();
+      const service = need.beaconServices[0] as BeaconService;
+      const signals = new Map([[service, [{ tx: {}, signalBytes: 'ab'.repeat(32), blockMetadata: meta }]]]);
+      let thrown: any;
+      try {
+        resolver.provide(need, signals as any);
+      } catch(error) {
+        thrown = error;
+      }
+      expect(thrown, name).to.exist;
+      expect(thrown.type, name).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message, name).to.match(/blockMetadata/);
+    }
+  });
+
+  it('rejects a non-array signal list for a beacon service', () => {
+    const { resolver, need } = resolverAtSignals();
+    const service = need.beaconServices[0] as BeaconService;
+    const signals = new Map([[service, 'not-an-array']]);
+    expect(() => resolver.provide(need, signals as any)).to.throw(/array of signals/);
+  });
+
+  it('rejects a signal missing signalBytes', () => {
+    const { resolver, need } = resolverAtSignals();
+    const service = need.beaconServices[0] as BeaconService;
+    const signals = new Map([[service, [{ tx: {}, blockMetadata: { height: 100, time: 1700000000, confirmations: 6 } }]]]);
+    expect(() => resolver.provide(need, signals as any)).to.throw(/signalBytes/);
+  });
+
+  it('drops an under-confirmed signal at intake instead of emitting NeedSignedUpdate', () => {
+    const { resolver, need } = resolverAtSignals();
+    const service = need.beaconServices[0] as BeaconService;
+    // An unknown update hash at depth 3 (< minConf 6): gating at apply time would
+    // still emit the retrieval need first; gating at intake drops the signal and
+    // resolution completes at version 1.
+    resolver.provide(need, new Map([[service, [{
+      tx            : {} as any,
+      signalBytes   : 'ab'.repeat(32),
+      blockMetadata : { height: 100, time: 1700000000, confirmations: 3 }
+    }]]]));
+    const state = resolver.resolve();
+    if(state.status !== 'resolved') throw new Error('expected resolved, got action-required');
+    expect(state.result.metadata.versionId).to.equal('1');
+  });
+
+  it('drops an under-confirmed CAS signal at intake instead of emitting NeedCASAnnouncement', () => {
+    const { genesisDocument } = externalData[2]; // regtest
+    const casGenesisDoc = JSON.parse(JSON.stringify(genesisDocument));
+    casGenesisDoc.service[0].type = 'CASBeacon';
+    const casGenesisBytes = hash(canonicalize(casGenesisDoc));
+    const casDid = DidBtcr2.create(casGenesisBytes, { idType: 'EXTERNAL', version: 1, network: 'regtest' });
+
+    const resolver = DidBtcr2.resolve(casDid, { sidecar: { genesisDocument: casGenesisDoc } });
+    let state = resolver.resolve();
+    if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+    const need = state.needs[0] as NeedBeaconSignals;
+    const casService = need.beaconServices[0] as BeaconService;
+    resolver.provide(need, new Map([[casService, [{
+      tx            : {} as any,
+      signalBytes   : 'cd'.repeat(32),
+      blockMetadata : { height: 100, time: 1700000000, confirmations: 3 }
+    }]]]));
+    state = resolver.resolve();
+    if(state.status !== 'resolved') throw new Error('expected resolved, got action-required');
+    expect(state.result.metadata.versionId).to.equal('1');
+  });
+
+  it('still emits retrieval needs for a signal meeting minConf', () => {
+    const { resolver, need } = resolverAtSignals();
+    const service = need.beaconServices[0] as BeaconService;
+    resolver.provide(need, new Map([[service, [{
+      tx            : {} as any,
+      signalBytes   : 'ab'.repeat(32),
+      blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+    }]]]));
+    const state = resolver.resolve();
+    if(state.status !== 'action-required') throw new Error('expected NeedSignedUpdate');
+    expect(state.needs[0].kind).to.equal('NeedSignedUpdate');
+  });
+});
+
+describe('Resolver confirmation gate fails closed', () => {
+  const fixture = deterministicData[2]; // regtest k1 DID
+
+  it('treats missing, NaN, fractional, and string confirmations as unconfirmed', () => {
+    const sourceDocument = resolveDeterministic(fixture.did);
+    const [u2] = buildUpdateChain(fixture.did, sourceDocument, fixture.secretKey, [benignPatch(fixture.did)]);
+    const badValues: Array<any> = [undefined, NaN, 6.5, '7'];
+    for(const confirmations of badValues) {
+      const response = Resolver.updates(
+        sourceDocument,
+        [[u2, { height: 100, time: 1700000000, confirmations }]]
+      );
+      expect(response.metadata.versionId, String(confirmations)).to.equal('1');
+      expect(response.didDocument.assertionMethod, String(confirmations))
+        .to.have.lengthOf(sourceDocument.assertionMethod!.length);
+    }
   });
 });

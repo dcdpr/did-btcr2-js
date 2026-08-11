@@ -80,7 +80,8 @@ export class Identifier {
 
     // network MUST be a known network name. This encoder does not mint custom/numeric networks: the
     // public surface (DidCreateOptions.network) is a string, and a numeric nibble >= 5 would overflow
-    // the 4-bit network field and corrupt the version nibble. Custom networks remain decode-only.
+    // the 4-bit network field and corrupt the version nibble. Custom networks are rejected at decode
+    // for the same reason.
     if (typeof network !== 'string') {
       throw new IdentifierError('Expected "network" to be a known network name', INVALID_DID, { network });
     }
@@ -192,18 +193,22 @@ export class Identifier {
     }
     const version = 1;
 
-    // 11. network_value is the low nibble of the first byte. 0-5 map to named networks; 12-14 are custom
-    //     networks (returned as the numeric values 1-3); 6-11 and 15 are reserved/out-of-range and rejected.
+    // 11. network_value is the low nibble of the first byte. 0-5 map to named networks and are
+    //     accepted. Custom networks (12-14) would decode to a numeric network that the encoder
+    //     refuses and the resolver cannot use, so they are rejected loudly here at decode; 6-11
+    //     and 15 are reserved/out-of-range and likewise rejected.
     const networkValue = dataBytes[0] & 0x0F;
     const networkName = BitcoinNetworkNames[networkValue] as string | undefined;
-    let network: string | number;
-    if (typeof networkName === 'string') {
-      network = networkName;
-    } else if (networkValue >= 12 && networkValue <= 14) {
-      network = networkValue - 11;
-    } else {
+    if (typeof networkName !== 'string') {
+      if (networkValue >= 12 && networkValue <= 14) {
+        throw new IdentifierError(
+          `Custom networks (network_value 12-14) are not supported: ${networkValue}`,
+          INVALID_DID, { identifier }
+        );
+      }
       throw new IdentifierError(`Invalid network: ${networkValue}`, INVALID_DID, { identifier });
     }
+    const network = networkName;
 
     // 12. genesisBytes is everything after the first byte.
     const genesisBytes = dataBytes.slice(1);
@@ -221,7 +226,7 @@ export class Identifier {
     }
 
     // 14. Return idType, hrp, version, network, and genesisBytes.
-    return { idType, hrp, version, network, genesisBytes } as DidComponents;
+    return { idType, hrp, version, network, genesisBytes };
   }
 
   /**

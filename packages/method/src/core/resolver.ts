@@ -159,6 +159,31 @@ function isSMTProof(value: unknown): value is SMTProof {
 }
 
 /**
+ * Validate one provided beacon signal's shape and block metadata. Malformed
+ * entries (non-integer or negative height/time/confirmations, missing signal
+ * bytes) are rejected with a typed error at the provide() boundary rather than
+ * flowing downstream as unchecked values. This runs before confirmation-depth
+ * gating, which is a filter, not a rejection.
+ */
+function assertValidBeaconSignal(signal: unknown, kind: DataNeed['kind']): asserts signal is BeaconSignal {
+  if(!isRecord(signal) || typeof signal.signalBytes !== 'string' || !isRecord(signal.blockMetadata)) {
+    throw new ResolveError(
+      'Provided beacon signal must have signalBytes (string) and blockMetadata (object).',
+      INVALID_DID_UPDATE, { kind }
+    );
+  }
+  const { height, time, confirmations } = signal.blockMetadata;
+  if(!Number.isInteger(height) || (height as number) < 0
+    || !Number.isInteger(time) || (time as number) < 0
+    || !Number.isInteger(confirmations) || (confirmations as number) < 0) {
+    throw new ResolveError(
+      'Provided beacon signal blockMetadata must carry non-negative integer height, time, and confirmations.',
+      INVALID_DID_UPDATE, { kind, blockMetadata: signal.blockMetadata }
+    );
+  }
+}
+
+/**
  * Different possible Resolver states representing phases in the resolution process.
  */
 enum ResolverPhase {
@@ -461,12 +486,13 @@ export class Resolver {
       const blocktime = DateUtils.blocktimeToTimestamp(block.time);
 
       // Spec: a beacon signal is only valid once its transaction is included in a
-      // block with at least minConf confirmations (6 when not provided). Signals
-      // below the threshold are not beacon signals: skip them so they neither
-      // apply, nor confirm duplicates, nor clobber resolution metadata. A later
-      // tuple that chains to a skipped update then correctly surfaces as a
-      // late-publishing error.
-      if(block.confirmations < minConf) continue;
+      // block with at least minConf confirmations (6 when not provided). The check
+      // fails closed: anything that is not an integer meeting minConf (missing,
+      // NaN, fractional, or a non-numeric value) is treated as unconfirmed and
+      // skipped, so it neither applies, nor confirms duplicates, nor clobbers
+      // resolution metadata. A later tuple that chains to a skipped update then
+      // correctly surfaces as a late-publishing error.
+      if(!Number.isInteger(block.confirmations) || block.confirmations < minConf) continue;
 
       // Check update.targetVersionId against currentVersionId.
       // If update.targetVersionId <= currentVersionId, this update re-announces a version
@@ -761,6 +787,18 @@ export class Resolver {
   }
 
   /**
+   * True when an exact versionId was requested and the resolution has reached it.
+   * Reaching the requested version is terminal: the resolver must not scan the
+   * returned document for new beacons or emit data needs for versions after the
+   * target.
+   */
+  #reachedRequestedVersionId(): boolean {
+    if(this.#versionId === undefined) return false;
+    const requested = Number(this.#versionId);
+    return !isNaN(requested) && requested <= this.#currentVersionId;
+  }
+
+  /**
    * Advance the state machine. Returns either:
    * - `{ status: 'action-required', needs }` - caller must provide data via {@link provide}
    * - `{ status: 'resolved', result }` - resolution complete
@@ -796,6 +834,15 @@ export class Resolver {
         // Phase: BeaconDiscovery
         // Extract beacon services, emit NeedBeaconSignals for addresses not yet queried.
         case ResolverPhase.BeaconDiscovery: {
+          // A requested versionId that has already been reached is terminal: return
+          // the current document without querying beacons for later versions. This
+          // also covers versionId '1', which resolves the genesis document without
+          // any beacon discovery at all.
+          if(this.#reachedRequestedVersionId()) {
+            this.#phase = ResolverPhase.Complete;
+            continue;
+          }
+
           const beaconServices = BeaconUtils.getBeaconServices(this.#currentDocument!);
 
           // Filter to services whose addresses haven't been requested yet
@@ -867,6 +914,7 @@ export class Resolver {
             // counter and update-hash history rather than restarting them. Without
             // this carry, a linear history split across discovery rounds would be
             // rejected at round two as late publishing.
+            const previousResponse = this.#resolvedResponse;
             this.#resolvedResponse = Resolver.updates(
               this.#currentDocument!,
               this.#unsortedUpdates,
@@ -875,6 +923,16 @@ export class Resolver {
               { currentVersionId: this.#currentVersionId, updateHashHistory: this.#updateHashHistory },
               this.#minConf
             );
+            // A round that applies nothing (only duplicates, skipped signals, or
+            // updates past the versionTime cutoff) returns fresh default metadata.
+            // Carry forward the last applied updated/confirmations rather than
+            // erasing them.
+            if(previousResponse
+              && this.#resolvedResponse.metadata.updated === ''
+              && previousResponse.metadata.updated) {
+              this.#resolvedResponse.metadata.updated = previousResponse.metadata.updated;
+              this.#resolvedResponse.metadata.confirmations = previousResponse.metadata.confirmations;
+            }
             // updates() reports the version it reached via metadata.versionId; carry
             // it forward so the next round continues the monotonic sequence.
             this.#currentVersionId = Number(this.#resolvedResponse.metadata.versionId);
@@ -968,7 +1026,24 @@ export class Resolver {
           );
         }
         for(const [service, serviceSignals] of data) {
-          this.#beaconServicesSignals.set(service, serviceSignals);
+          if(!Array.isArray(serviceSignals)) {
+            throw new ResolveError(
+              'Provided data for NeedBeaconSignals must map each beacon service to an array of signals.',
+              INVALID_DID_UPDATE, { kind: need.kind }
+            );
+          }
+          // Gate at intake: a signal below the minimum confirmation depth is not
+          // yet a valid beacon signal, so it is dropped here, before it can
+          // generate CAS/SMT/signed-update retrieval needs. The gate in
+          // Resolver.updates() still applies for direct static callers.
+          const confirmed: Array<BeaconSignal> = [];
+          for(const signal of serviceSignals) {
+            assertValidBeaconSignal(signal, need.kind);
+            if(signal.blockMetadata.confirmations >= this.#minConf) {
+              confirmed.push(signal);
+            }
+          }
+          this.#beaconServicesSignals.set(service, confirmed);
         }
         break;
       }
@@ -1021,7 +1096,17 @@ export class Resolver {
           );
         }
         // proof.id is base64url per spec; smtRootHash is the hex on-chain signal.
-        const proofIdHex = encodeHash(decodeHash(data.id, 'base64urlnopad'), 'hex');
+        // A malformed proof id must surface as a typed error, not a raw decode
+        // throw escaping resolution.
+        let proofIdHex: string;
+        try {
+          proofIdHex = encodeHash(decodeHash(data.id, 'base64urlnopad'), 'hex');
+        } catch {
+          throw new ResolveError(
+            'Malformed SMT proof id',
+            INVALID_DID_UPDATE, { kind: need.kind, proofId: data.id }
+          );
+        }
         if(proofIdHex !== need.smtRootHash) {
           throw new ResolveError(
             `SMT proof root hash mismatch: expected ${need.smtRootHash}, got ${proofIdHex}`,

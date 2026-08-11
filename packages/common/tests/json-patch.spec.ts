@@ -44,6 +44,32 @@ describe('JSONPatch', () => {
     expect(JSONPatch.validateOperations(ops)?.message).to.match(/value too large/);
   });
 
+  it('measures value size in UTF-8 bytes, not UTF-16 code units', () => {
+    // 200k three-byte characters: ~200k UTF-16 code units (under the old cap)
+    // but ~600k UTF-8 bytes (over the 256 KiB cap).
+    const ops = [{ op: 'add', path: '/x', value: '\u20AC'.repeat(200 * 1024) } as any];
+    expect(JSONPatch.validateOperations(ops)?.message).to.match(/value too large/);
+  });
+
+  it('rejects a move/copy operation with an over-long from pointer', () => {
+    const from = `/${'a'.repeat(2048)}`;
+    expect(JSONPatch.validateOperations([{ op: 'move', path: '/x', from } as any])?.message)
+      .to.match(/from too long/);
+    expect(JSONPatch.validateOperations([{ op: 'copy', path: '/x', from } as any])?.message)
+      .to.match(/from too long/);
+  });
+
+  it('rejects a patch whose operations individually fit but exceed the total budget', () => {
+    // 5 x 250 KiB values: each under the 256 KiB per-op cap, ~1.25 MiB in total.
+    const ops = Array.from({ length: 5 }, () => ({ op: 'add', path: '/x', value: 'x'.repeat(250 * 1024) }) as any);
+    expect(JSONPatch.validateOperations(ops)?.message).to.match(/Patch too large/);
+  });
+
+  it('accepts a patch within the total budget', () => {
+    const ops = Array.from({ length: 3 }, () => ({ op: 'add', path: '/x', value: 'x'.repeat(250 * 1024) }) as any);
+    expect(JSONPatch.validateOperations(ops)).to.be.null;
+  });
+
   it('accepts a patch within the bounds', () => {
     const ops = [{ op: 'add', path: '/x', value: 'y' } as any];
     expect(JSONPatch.validateOperations(ops)).to.be.null;
