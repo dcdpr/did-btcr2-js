@@ -90,53 +90,26 @@ describe('beacon change output (ADR 044)', () => {
       expect(plan.tx.outputsLength).to.equal(2);
       expect(plan.tx.getOutputAddress(0, network)).to.equal(beaconAddress);
       expect(bytesToHex(plan.tx.getOutput(1).script!)).to.equal(opReturn);
-      // Default change kind is the P2TR beacon address: fee sized for P2TR change.
+      // Change always pays the P2TR beacon address: fee sized for P2TR change.
       expect(plan.feeSats).to.equal(BigInt(FEE_RATE * beaconTxVsize('p2tr', 'p2tr')));
     });
 
-    it('routes change to a supplied address and sizes the fee for that change kind', async () => {
-      const changeAddress = p2wpkh(freshKey(), network).address!;
-      const bitcoin = mockBitcoin(beaconAddress, 100_000);
-      const plan = await buildAggregationBeaconTx({
-        beaconAddress, internalPubkey : internalKey, signalBytes : new Uint8Array(32), bitcoin, network,
-        changeAddress,
-      });
-
-      expect(plan.changeAddress).to.equal(changeAddress);
-      expect(plan.tx.getOutputAddress(0, network)).to.equal(changeAddress);
-      // OP_RETURN stays last even with a rotated change output.
-      expect(bytesToHex(plan.tx.getOutput(1).script!)).to.equal(opReturn);
-      // A P2WPKH change output is cheaper than the default P2TR change: the fee follows.
-      expect(plan.feeSats).to.equal(BigInt(FEE_RATE * beaconTxVsize('p2tr', 'p2wpkh')));
-      expect(Number(plan.feeSats)).to.be.lessThan(FEE_RATE * beaconTxVsize('p2tr', 'p2tr'));
-    });
-
-    it('omits a dust change output, leaving the signal as the sole output', async () => {
-      // Fund just above the fee, so the change after fees is below the dust limit.
+    it('refuses a UTXO whose change after fees would be dust', async () => {
+      // Fund just above the fee, so the change after fees is below the dust floor.
+      // Cohort participants refuse to sign a spend with no self-change output at
+      // or above the floor, so the builder must refuse rather than emit one.
       const feeSats = FEE_RATE * beaconTxVsize('p2tr', 'p2tr');
-      const bitcoin = mockBitcoin(beaconAddress, feeSats + 50); // 50-sat change < 330 dust
-      const plan = await buildAggregationBeaconTx({
-        beaconAddress, internalPubkey : internalKey, signalBytes : new Uint8Array(32), bitcoin, network,
-      });
-
-      // Change is swept into the fee: the only output is the OP_RETURN signal.
-      expect(plan.tx.outputsLength).to.equal(1);
-      expect(bytesToHex(plan.tx.getOutput(0).script!)).to.equal(opReturn);
-    });
-
-    it('rejects an invalid change address before spending the UTXO', async () => {
-      const bitcoin = mockBitcoin(beaconAddress, 100_000);
+      const bitcoin = mockBitcoin(beaconAddress, feeSats + 50); // 50-sat change < 546 dust
       let threw = false;
       try {
         await buildAggregationBeaconTx({
-          beaconAddress, internalPubkey : internalKey, signalBytes    : new Uint8Array(32), bitcoin, network,
-          changeAddress  : 'not-a-bitcoin-address',
+          beaconAddress, internalPubkey : internalKey, signalBytes : new Uint8Array(32), bitcoin, network,
         });
       } catch(err) {
         threw = true;
-        expect((err as Error).message).to.match(/Invalid change address/);
+        expect((err as Error).message).to.match(/dust floor/);
       }
-      expect(threw, 'expected an invalid change address to throw').to.equal(true);
+      expect(threw, 'expected a dust-change UTXO to throw').to.equal(true);
     });
   });
 });

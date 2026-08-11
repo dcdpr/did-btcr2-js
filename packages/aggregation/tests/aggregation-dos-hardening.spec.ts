@@ -55,7 +55,7 @@ function makeIdentity(network = 'mutinynet'): { keys: SchnorrKeyPair; did: strin
 function createSignedUpdate(
   did: string,
   keys: SchnorrKeyPair,
-  opts?: { docId?: string },
+  opts?: { capabilityDid?: string },
 ): SignedBTCR2Update {
   const context = [
     'https://w3id.org/security/v2',
@@ -71,7 +71,6 @@ function createSignedUpdate(
     sourceHash      : `zQmSourceHash${did.slice(-6)}`,
     targetHash      : `zQmTargetHash${did.slice(-6)}`,
     targetVersionId : 2,
-    ...(opts?.docId ? { id: opts.docId } : {}),
   } as UnsignedBTCR2Update;
   const config: Btcr2DataIntegrityConfig = {
     '@context'         : context,
@@ -79,7 +78,7 @@ function createSignedUpdate(
     type               : 'DataIntegrityProof',
     verificationMethod : `${did}#initialKey`,
     proofPurpose       : 'capabilityInvocation',
-    capability         : `urn:zcap:root:${encodeURIComponent(did)}`,
+    capability         : `urn:zcap:root:${encodeURIComponent(opts?.capabilityDid ?? did)}`,
     capabilityAction   : 'Write',
   };
   const multikey = SchnorrMultikey.fromSecretKey(`${did}#initialKey`, did, keys.secretKey.bytes);
@@ -1390,13 +1389,13 @@ describe('Aggregation DoS + liveness hardening', () => {
     });
   });
 
-  describe('update document id must match the sender DID', () => {
-    it('drops a validly-signed update whose document id names a different DID', () => {
+  describe('update proof capability must name the sender DID', () => {
+    it('drops a validly-signed update whose root capability names a different DID', () => {
       const victim = makeIdentity();
       const fx = driveToCohortSet();
-      // Alice signs correctly (her key, her verificationMethod), but the update
-      // document carries the victim's DID as its id.
-      const update = createSignedUpdate(fx.alice.did, fx.alice.keys, { docId: victim.did });
+      // Alice signs correctly (her key, her verificationMethod), but the proof
+      // invokes the root capability of the victim's DID, not her own.
+      const update = createSignedUpdate(fx.alice.did, fx.alice.keys, { capabilityDid: victim.did });
       fx.service.receive(createSubmitUpdateMessage({
         from         : fx.alice.did,
         to           : fx.serviceId.did,
@@ -1408,9 +1407,9 @@ describe('Aggregation DoS + liveness hardening', () => {
       expect(fx.service.collectedUpdates(fx.cohortId).has(fx.alice.did)).to.be.false;
     });
 
-    it('accepts an update whose document id matches the sender DID', () => {
+    it('accepts an update whose root capability names the sender DID', () => {
       const fx = driveToCohortSet();
-      const update = createSignedUpdate(fx.alice.did, fx.alice.keys, { docId: fx.alice.did });
+      const update = createSignedUpdate(fx.alice.did, fx.alice.keys, { capabilityDid: fx.alice.did });
       fx.service.receive(createSubmitUpdateMessage({
         from         : fx.alice.did,
         to           : fx.serviceId.did,

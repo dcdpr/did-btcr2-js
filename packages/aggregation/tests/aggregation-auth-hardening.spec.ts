@@ -340,6 +340,8 @@ describe('Aggregation transport + message auth hardening', () => {
         pendingTx             : 'aa',
         prevOutScriptHex      : 'bb',
         prevOutValue          : '1000',
+        fundingTxid           : '00'.repeat(32),
+        fundingVout           : 0,
         fallbackLeafScriptHex : 'cc',
       }));
       expect(ctx.aliceP.pendingFallbackRequests.has(cohortId)).to.be.false;
@@ -362,6 +364,8 @@ describe('Aggregation transport + message auth hardening', () => {
         pendingTx        : 'aa',
         prevOutScriptHex : 'bb',
         prevOutValue     : '1000',
+        fundingTxid      : '00'.repeat(32),
+        fundingVout      : 0,
       }));
       expect(ctx.aliceP.pendingSigningRequests.has(cohortId)).to.be.false;
       expect(ctx.aliceP.getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.ValidationSent);
@@ -431,10 +435,51 @@ describe('Aggregation transport + message auth hardening', () => {
         pendingTx             : 'aa',
         prevOutScriptHex      : 'bb',
         prevOutValue          : '1000',
+        fundingTxid           : '00'.repeat(32),
+        fundingVout           : 0,
         fallbackLeafScriptHex : 'cc',
       }));
       expect(ctx.aliceP.pendingFallbackRequests.has(cohortId)).to.be.false;
       expect(ctx.aliceP.getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.NonceSent);
+
+      // Control: the service's genuine fallback reuses the session id and is accepted
+      route(ctx.service.startFallbackSigning(cohortId), { [ctx.alice.did]: ctx.aliceP });
+      expect(ctx.aliceP.getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.AwaitingFallbackSig);
+    });
+
+    it('ignores a fallback request naming a foreign session id before nonce approval', () => {
+      const ctx = setup();
+      const cohortId = driveToOptedIn(ctx);
+      driveToValidation(ctx, cohortId);
+      route(ctx.aliceP.approveValidation(cohortId), { [ctx.svc.did]: ctx.service });
+      route(ctx.bobP.approveValidation(cohortId), { [ctx.svc.did]: ctx.service });
+
+      const cohort = ctx.service.getCohort(cohortId)!;
+      const script = beaconOutputScript(cohort);
+      const tx = buildSignalTx(script, 100000n, cohort.signalBytes!);
+      route(ctx.service.startSigning(cohortId, {
+        tx,
+        prevOutScripts : [script],
+        prevOutValues  : [100000n],
+      }), { [ctx.alice.did]: ctx.aliceP, [ctx.bob.did]: ctx.bobP });
+
+      // Alice is AwaitingSigning: no signing session exists yet, only the
+      // authorization request's session id to bind against.
+      expect(ctx.aliceP.getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.AwaitingSigning);
+      ctx.aliceP.receive(createFallbackAuthorizationRequestMessage({
+        from                  : ctx.svc.did,
+        to                    : ctx.alice.did,
+        cohortId,
+        sessionId             : 'foreign-session',
+        pendingTx             : 'aa',
+        prevOutScriptHex      : 'bb',
+        prevOutValue          : '1000',
+        fundingTxid           : '00'.repeat(32),
+        fundingVout           : 0,
+        fallbackLeafScriptHex : 'cc',
+      }));
+      expect(ctx.aliceP.pendingFallbackRequests.has(cohortId)).to.be.false;
+      expect(ctx.aliceP.getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.AwaitingSigning);
 
       // Control: the service's genuine fallback reuses the session id and is accepted
       route(ctx.service.startFallbackSigning(cohortId), { [ctx.alice.did]: ctx.aliceP });
@@ -530,5 +575,60 @@ describe('Aggregation transport + message auth hardening', () => {
       route(bobP.approveValidation(cohortId), parties);
       expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.Validated);
     });
+  });
+
+  describe('participant recomputes the distributed signal', () => {
+    function setupAndDrive(beaconType: string) {
+      const svc = makeIdentity();
+      const alice = makeIdentity();
+      const bob = makeIdentity();
+      const service = new AggregationService({ did: svc.did, publicKey: svc.keys.publicKey });
+      const aliceP = new AggregationParticipant({ did: alice.did, signer: new KeyPairAggregationSigner(alice.keys) });
+      const bobP = new AggregationParticipant({ did: bob.did, signer: new KeyPairAggregationSigner(bob.keys) });
+      const parties = { [svc.did]: service, [alice.did]: aliceP, [bob.did]: bobP };
+
+      const cohortId = service.createCohort({
+        minParticipants  : 2,
+        network          : 'mutinynet',
+        beaconType,
+        recoveryKey      : TEST_RECOVERY_KEY,
+        recoverySequence : TEST_RECOVERY_SEQUENCE,
+      });
+      route(service.advertise(cohortId), parties);
+      route(aliceP.joinCohort(cohortId), parties);
+      route(bobP.joinCohort(cohortId), parties);
+      route(service.acceptParticipant(cohortId, alice.did), parties);
+      route(service.acceptParticipant(cohortId, bob.did), parties);
+      route(service.finalizeKeygen(cohortId), parties);
+      route(aliceP.submitUpdate(cohortId, createSignedUpdate(alice.did, alice.keys)), parties);
+      route(bobP.submitUpdate(cohortId, createSignedUpdate(bob.did, bob.keys)), parties);
+      return { svc, alice, bob, service, aliceP, bobP, parties, cohortId };
+    }
+
+    for(const beaconType of ['CASBeacon', 'SMTBeacon']) {
+      it(`${beaconType}: drops a distribution whose signalBytesHex does not match its content`, () => {
+        const ctx = setupAndDrive(beaconType);
+        const distMsgs = ctx.service.buildAndDistribute(ctx.cohortId);
+        const forAlice = distMsgs.find(m => m.to === ctx.alice.did)!;
+        const forBob = distMsgs.find(m => m.to === ctx.bob.did)!;
+
+        // An equivocating coordinator hands Alice content that does not hash to
+        // the declared signal. The participant recomputes the signal from the
+        // content and must drop the message instead of acking or signing it.
+        const tampered = new BaseMessage({
+          type    : forAlice.type,
+          from    : forAlice.from,
+          to      : forAlice.to,
+          body    : { ...forAlice.body!, cohortId: ctx.cohortId, signalBytesHex: 'ab'.repeat(32) },
+        });
+        ctx.aliceP.receive(tampered);
+        expect(ctx.aliceP.pendingValidations.has(ctx.cohortId)).to.be.false;
+        expect(ctx.aliceP.getCohortPhase(ctx.cohortId)).to.equal(ParticipantCohortPhase.UpdateSubmitted);
+
+        // Control: the genuine distribution surfaces for validation.
+        ctx.bobP.receive(forBob);
+        expect(ctx.bobP.pendingValidations.has(ctx.cohortId)).to.be.true;
+      });
+    }
   });
 });

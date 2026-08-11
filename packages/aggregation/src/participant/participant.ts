@@ -38,27 +38,32 @@ import type { AggregationSigner } from '../core/signer.js';
 import { BeaconSigningSession } from '../core/signing-session.js';
 
 /**
- * True if `tx` has an OP_RETURN output whose payload equals the 32-byte signal
- * `signalHex`. A member binds its fallback signature to the exact signal it
- * validated, so a coordinator that drives the fallback output selection cannot
- * anchor a different announcement (a stale signal, or one whose CAS/SMT root
- * omits the member's update) under the member's signature.
+ * Inspect the OP_RETURN outputs of `tx` against the 32-byte signal `signalHex`.
+ * A genuine beacon announcement carries exactly one OP_RETURN whose payload is
+ * the signal; a coordinator that pads the tx with extra OP_RETURNs (only one of
+ * which matches) or omits the match must fail approval, because a member binds
+ * its signature to the exact signal it validated.
  */
-function txEmbedsSignal(tx: Transaction, signalHex: string): boolean {
+function txSignalAnchor(tx: Transaction, signalHex: string): { opReturnCount: number; anchored: boolean } {
   let expected: Uint8Array;
-  try { expected = hexToBytes(signalHex); } catch { return false; }
-  if(expected.length === 0) return false;
+  try { expected = hexToBytes(signalHex); } catch { expected = new Uint8Array(); }
+  let opReturnCount = 0;
+  let anchored = false;
   for(let i = 0; i < tx.outputsLength; i++) {
     const script = tx.getOutput(i)?.script;
     if(!script) continue;
     let decoded: Array<string | Uint8Array>;
     try { decoded = Script.decode(script) as Array<string | Uint8Array>; } catch { continue; }
-    if(decoded.length === 2 && decoded[0] === 'RETURN' && decoded[1] instanceof Uint8Array) {
+    if(decoded[0] !== 'RETURN') continue;
+    opReturnCount += 1;
+    if(decoded.length === 2 && decoded[1] instanceof Uint8Array) {
       const payload = decoded[1];
-      if(payload.length === expected.length && payload.every((b, j) => b === expected[j])) return true;
+      if(expected.length > 0 && payload.length === expected.length && payload.every((b, j) => b === expected[j])) {
+        anchored = true;
+      }
     }
   }
-  return false;
+  return { opReturnCount, anchored };
 }
 
 function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
@@ -132,6 +137,9 @@ export interface PendingSigningRequest {
   /** Hex-encoded scriptPubKey of the UTXO being spent. Required for BIP-341 sighash. */
   prevOutScriptHex: string;
   prevOutValue: string;
+  /** Display-order txid:vout of the beacon UTXO the pending tx must spend (input 0). */
+  fundingTxid: string;
+  fundingVout: number;
 }
 
 /**
@@ -145,6 +153,9 @@ export interface PendingFallbackRequest {
   pendingTxHex: string;
   prevOutScriptHex: string;
   prevOutValue: string;
+  /** Display-order txid:vout of the beacon UTXO the pending tx must spend (input 0). */
+  fundingTxid: string;
+  fundingVout: number;
   /** Fallback leaf script, hex (advisory; the member recomputes it from its own cohort). */
   fallbackLeafScriptHex: string;
 }
@@ -538,6 +549,15 @@ export class AggregationParticipant {
       body            : message.body!,
     });
 
+    // Never trust the coordinator-supplied signal: recompute it from the
+    // content just validated and drop an equivocated distribution. Otherwise a
+    // coordinator could bind this member's ack (and later its signature) to a
+    // signal whose CAS/SMT content differs from what the member saw.
+    const recomputed = strategy.expectedSignal(result);
+    let distributed: Uint8Array | undefined;
+    try { distributed = hexToBytes(signalBytesHex); } catch { distributed = undefined; }
+    if(!recomputed || !distributed || !bytesEqual(recomputed, distributed)) return;
+
     state.validation = {
       cohortId,
       beaconType,
@@ -619,7 +639,10 @@ export class AggregationParticipant {
     const pendingTxHex = message.body?.pendingTx;
     const prevOutScriptHex = message.body?.prevOutScriptHex;
     const prevOutValue = message.body?.prevOutValue;
+    const fundingTxid = message.body?.fundingTxid;
+    const fundingVout = message.body?.fundingVout;
     if(!sessionId || !pendingTxHex || !prevOutScriptHex || !prevOutValue) return;
+    if(!fundingTxid || !Number.isInteger(fundingVout) || fundingVout! < 0) return;
 
     state.signingRequest = {
       cohortId,
@@ -627,6 +650,8 @@ export class AggregationParticipant {
       pendingTxHex,
       prevOutScriptHex,
       prevOutValue,
+      fundingTxid,
+      fundingVout : fundingVout!,
     };
     state.phase = ParticipantCohortPhase.AwaitingSigning;
   }
@@ -647,10 +672,37 @@ export class AggregationParticipant {
         'MISSING_STATE', { cohortId }
       );
     }
-    if(!txEmbedsSignal(tx, signalHex)) {
+    const { opReturnCount, anchored } = txSignalAnchor(tx, signalHex);
+    if(opReturnCount !== 1) {
+      throw new AggregationParticipantError(
+        `Transaction for cohort ${cohortId} carries ${opReturnCount} OP_RETURN outputs; a beacon announcement must carry exactly one.`,
+        'SIGNAL_MISMATCH', { cohortId, opReturnCount }
+      );
+    }
+    if(!anchored) {
       throw new AggregationParticipantError(
         `Transaction for cohort ${cohortId} does not anchor the validated signal.`,
         'SIGNAL_MISMATCH', { cohortId }
+      );
+    }
+  }
+
+  /**
+   * Refuse to sign unless input 0 of the service-supplied tx spends exactly the
+   * funded outpoint declared on the authorization request. The sighash binds
+   * the prevout script and amount, but not which beacon-address UTXO funds the
+   * spend; without this check the coordinator could silently choose which of
+   * the cohort's UTXOs is consumed.
+   */
+  #assertFundedOutpoint(cohortId: string, tx: Transaction, fundingTxid: string, fundingVout: number): void {
+    const input = tx.getInput(0);
+    const inputTxid = input?.txid === undefined
+      ? undefined
+      : (typeof input.txid === 'string' ? input.txid : bytesToHex(input.txid)).toLowerCase();
+    if(inputTxid !== fundingTxid.toLowerCase() || input?.index !== fundingVout) {
+      throw new AggregationParticipantError(
+        `Transaction for cohort ${cohortId} does not spend the declared funded outpoint ${fundingTxid}:${fundingVout}.`,
+        'FUNDING_OUTPOINT_MISMATCH', { cohortId }
       );
     }
   }
@@ -785,6 +837,10 @@ export class AggregationParticipant {
     // Refuse to sign unless the tx anchors the signal this member validated.
     this.#assertTxAnchorsValidatedSignal(cohortId, state, tx);
 
+    // Refuse to sign unless input 0 spends the funded outpoint the service
+    // declared on the authorization request.
+    this.#assertFundedOutpoint(cohortId, tx, state.signingRequest.fundingTxid, state.signingRequest.fundingVout);
+
     // Derive UTXO metadata for Taproot sighash (BIP-341). Use the script
     // supplied by the service in AUTHORIZATION_REQUEST rather than reading
     // the change output: input and change may use different scripts in future
@@ -913,16 +969,31 @@ export class AggregationParticipant {
     const pendingTxHex = message.body?.pendingTx;
     const prevOutScriptHex = message.body?.prevOutScriptHex;
     const prevOutValue = message.body?.prevOutValue;
+    const fundingTxid = message.body?.fundingTxid;
+    const fundingVout = message.body?.fundingVout;
     const fallbackLeafScriptHex = message.body?.fallbackLeafScriptHex;
     if(!sessionId || !pendingTxHex || !prevOutScriptHex || !prevOutValue || !fallbackLeafScriptHex) return;
+    if(!fundingTxid || !Number.isInteger(fundingVout) || fundingVout! < 0) return;
 
     // The fallback must belong to this member's in-flight signing session (the
-    // service reuses the optimistic session id). When no local session exists yet
-    // (a reordered fallback arriving before the AUTHORIZATION_REQUEST) there is
-    // nothing to compare, so the request is accepted.
-    if(state.signingSession && sessionId !== state.signingSession.id) return;
+    // service reuses the optimistic session id). Before the session exists the
+    // binding falls back to the authorization request's session id, so a
+    // reordered fallback arriving while AwaitingSigning is still checked. Only
+    // when neither exists (a fallback arriving straight after validation) is
+    // there nothing to compare, and the request is accepted.
+    const boundSessionId = state.signingSession?.id ?? state.signingRequest?.sessionId;
+    if(boundSessionId !== undefined && sessionId !== boundSessionId) return;
 
-    state.fallbackRequest = { cohortId, sessionId, pendingTxHex, prevOutScriptHex, prevOutValue, fallbackLeafScriptHex };
+    state.fallbackRequest = {
+      cohortId,
+      sessionId,
+      pendingTxHex,
+      prevOutScriptHex,
+      prevOutValue,
+      fundingTxid,
+      fundingVout : fundingVout!,
+      fallbackLeafScriptHex,
+    };
     // The optimistic path is abandoned; wipe any retained secret nonce for it.
     state.signingSession?.clearSecrets();
     state.phase = ParticipantCohortPhase.AwaitingFallbackSig;
@@ -958,6 +1029,10 @@ export class AggregationParticipant {
     // Refuse to sign unless the fallback tx anchors the signal this member
     // validated (the coordinator drives output selection on the fallback path).
     this.#assertTxAnchorsValidatedSignal(cohortId, state, tx);
+
+    // Refuse to sign unless input 0 spends the funded outpoint the service
+    // declared on the fallback authorization request.
+    this.#assertFundedOutpoint(cohortId, tx, req.fundingTxid, req.fundingVout);
 
     // The fallback signs the SAME beacon tx with SIGHASH_DEFAULT, so the full
     // output/fee sanity check applies identically.

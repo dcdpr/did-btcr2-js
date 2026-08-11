@@ -192,6 +192,10 @@ type AuthorizationRequestMessage = {
   pendingTx: string;
   prevOutScriptHex: string;
   prevOutValue: string;
+  /** Display-order txid of the beacon UTXO the pending tx spends (input 0). */
+  fundingTxid: string;
+  /** Output index of the beacon UTXO the pending tx spends (input 0). */
+  fundingVout: number;
 };
 type NonceContributionMessage = {
   from: string;
@@ -274,6 +278,10 @@ type FallbackAuthorizationRequestMessage = {
   pendingTx: string;
   prevOutScriptHex: string;
   prevOutValue: string;
+  /** Display-order txid of the beacon UTXO the pending tx spends (input 0). */
+  fundingTxid: string;
+  /** Output index of the beacon UTXO the pending tx spends (input 0). */
+  fundingVout: number;
   fallbackLeafScriptHex: string;
 };
 type FallbackSignatureMessage = {

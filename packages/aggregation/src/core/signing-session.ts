@@ -263,8 +263,18 @@ export class BeaconSigningSession {
   /**
    * Generates a fresh MuSig2 nonce contribution for the participant.
    * Stores the secret nonce internally for use in `generatePartialSignature()`.
+   *
+   * Callable once per session: a repeated call would silently overwrite the
+   * retained secret nonce, and a MuSig2 secret nonce must never linger past its
+   * round. A session that needs a new nonce is a new session.
    */
   public generateNonceContribution(participantPublicKey: Uint8Array, participantSecretKey: Uint8Array): Uint8Array {
+    if(this.#secretNonce) {
+      throw new SigningSessionError(
+        'Nonce contribution already generated for this session; create a new session for a new round.',
+        'NONCE_ALREADY_GENERATED'
+      );
+    }
     const aggPublicKey = musig2.keyAggExport(musig2.keyAggregate(this.cohort.cohortKeys));
     const nonces = musig2.nonceGen(participantPublicKey, participantSecretKey, aggPublicKey);
     this.#secretNonce = nonces.secret;

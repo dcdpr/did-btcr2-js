@@ -1,9 +1,8 @@
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from '@did-btcr2/method';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import { getNetwork } from '@did-btcr2/bitcoin';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { schnorr } from '@noble/curves/secp256k1.js';
-import { Script, SigHash, Transaction, p2tr } from '@scure/btc-signer';
+import { Script, SigHash, Transaction } from '@scure/btc-signer';
 import { expect } from 'chai';
 import {
   AggregationParticipant,
@@ -28,8 +27,6 @@ import {
   ServiceCohortPhase,
   SUBMIT_UPDATE,
   VALIDATION_ACK,
-  buildFallbackLeaf,
-  buildRecoveryLeaves,
   createFallbackAuthorizationRequestMessage,
   createFallbackSignatureMessage,
 } from '../src/index.js';
@@ -37,10 +34,10 @@ import { DidBtcr2 } from '@did-btcr2/method';
 import { bytesToHex } from '@noble/hashes/utils';
 import { MessageBus, MockTransport } from './helpers/mock-transport.js';
 import { beaconOutputScript } from './helpers/beacon-script.js';
+import { fallbackLeafScript } from './helpers/fallback-leaf.js';
 
 const TEST_RECOVERY_KEY = 'a'.repeat(64);
 const TEST_RECOVERY_SEQUENCE = 144;
-const NET = getNetwork('mutinynet');
 
 function createSignedUpdate(did: string, keys: SchnorrKeyPair, version = 2): SignedBTCR2Update {
   const context = [
@@ -119,14 +116,7 @@ describe('Aggregate beacon fallback protocol (ADR 042)', () => {
 
   /** The real script-tree beacon output script the cohort's address commits to. */
   function beaconScript(cohortId: string): Uint8Array {
-    const cohort = service.getCohort(cohortId)!;
-    const leaves = buildRecoveryLeaves('operator-funded', {
-      recoveryKey       : cohort.recoveryKey!,
-      recoverySequence  : cohort.recoverySequence!,
-      cohortKeys        : cohort.cohortKeys,
-      fallbackThreshold : cohort.effectiveFallbackThreshold,
-    });
-    return p2tr(cohort.internalKey, leaves, NET, true).script;
+    return beaconOutputScript(service.getCohort(cohortId)!);
   }
 
   async function formAndValidate(beaconType: string): Promise<{ cohortId: string; script: Uint8Array; value: bigint }> {
@@ -183,7 +173,7 @@ describe('Aggregate beacon fallback protocol (ADR 042)', () => {
 
     // The finalized fallback tx carries a verifiable k-of-n script-path witness.
     const witness = result.signedTx.getInput(0).finalScriptWitness!;
-    const leaf = buildFallbackLeaf({ cohortKeys: service.getCohort(cohortId)!.cohortKeys, fallbackThreshold: service.getCohort(cohortId)!.effectiveFallbackThreshold });
+    const leaf = fallbackLeafScript(service.getCohort(cohortId)!.cohortKeys, service.getCohort(cohortId)!.effectiveFallbackThreshold);
     expect(witness[witness.length - 2]).to.deep.equal(leaf);
     const sighash = result.signedTx.preimageWitnessV1(0, [ script ], SigHash.DEFAULT, [ value ], undefined, leaf, 0xc0);
     const sigEntries = witness.slice(0, witness.length - 2).filter(e => e.length === 64);
@@ -250,7 +240,7 @@ describe('Aggregate beacon fallback protocol (ADR 042)', () => {
     // A coordinator hands the member a tx whose OP_RETURN carries a DIFFERENT
     // signal than the one the member validated. The member must refuse to sign.
     const tampered = beaconTx(script, cohort.internalKey, value, new Uint8Array(32).fill(0xbe));
-    const leaf = buildFallbackLeaf({ cohortKeys: cohort.cohortKeys, fallbackThreshold: cohort.effectiveFallbackThreshold });
+    const leaf = fallbackLeafScript(cohort.cohortKeys, cohort.effectiveFallbackThreshold);
     parts[0].receive(createFallbackAuthorizationRequestMessage({
       from                  : serviceDid,
       to                    : dids[0],
@@ -259,6 +249,8 @@ describe('Aggregate beacon fallback protocol (ADR 042)', () => {
       pendingTx             : tampered.hex,
       prevOutScriptHex      : bytesToHex(script),
       prevOutValue          : value.toString(),
+      fundingTxid           : '22'.repeat(32),
+      fundingVout           : 0,
       fallbackLeafScriptHex : bytesToHex(leaf),
     }) as never);
     expect(parts[0].getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.AwaitingFallbackSig);
@@ -273,7 +265,7 @@ describe('Aggregate beacon fallback protocol (ADR 042)', () => {
     expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.Complete);
     const result = service.getResult(cohortId)!;
     const witness = result.signedTx.getInput(0).finalScriptWitness!;
-    const leaf = buildFallbackLeaf({ cohortKeys: service.getCohort(cohortId)!.cohortKeys, fallbackThreshold: service.getCohort(cohortId)!.effectiveFallbackThreshold });
+    const leaf = fallbackLeafScript(service.getCohort(cohortId)!.cohortKeys, service.getCohort(cohortId)!.effectiveFallbackThreshold);
     const sighash = result.signedTx.preimageWitnessV1(0, [ script ], SigHash.DEFAULT, [ value ], undefined, leaf, 0xc0);
     const sigEntries = witness.slice(0, witness.length - 2).filter(e => e.length === 64);
     const xonly = service.getCohort(cohortId)!.cohortKeys.map(k => k.slice(1));
