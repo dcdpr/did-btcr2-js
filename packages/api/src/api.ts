@@ -11,7 +11,7 @@ import { CryptoApi } from './crypto.js';
 import { DidApi } from './did.js';
 import { assertString, NOOP_LOGGER } from './helpers.js';
 import { KeyManagerApi } from './key-manager.js';
-import { DidMethodApi, type DidUpdateResult, type PublishToCasMode } from './method.js';
+import { DidMethodApi, type BuiltBroadcastTx, type DidUpdateResult, type PublishToCasMode } from './method.js';
 import type { ApiConfig, BitcoinApiConfig, Logger, ResolutionResult } from './types.js';
 
 /**
@@ -214,6 +214,7 @@ export class DidBtcr2Api {
     sourceVersionId,
     publishToCas,
     broadcastOptions,
+    confirmBroadcast,
   }: {
     did: string;
     patches: PatchOperation[];
@@ -224,6 +225,7 @@ export class DidBtcr2Api {
     sourceVersionId?: number;
     publishToCas?: PublishToCasMode;
     broadcastOptions?: BroadcastOptions;
+    confirmBroadcast?: (tx: BuiltBroadcastTx) => void | Promise<void>;
   }): Promise<DidUpdateResult> {
     this.#assertNotDisposed();
     assertString(did, 'did');
@@ -281,6 +283,7 @@ export class DidBtcr2Api {
       signer,
       publishToCas,
       broadcastOptions,
+      confirmBroadcast,
     });
   }
 

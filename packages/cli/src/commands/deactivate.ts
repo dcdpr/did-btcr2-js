@@ -3,7 +3,7 @@ import { KeyManagerSigner } from '@did-btcr2/key-manager';
 import { StaticFeeEstimator } from '@did-btcr2/method';
 import type { Command } from 'commander';
 import { assertKeystoreAllowedForNetwork, deriveNetwork, resolveBroadcastOptions, resolveSigningKeyRef, type ApiFactory } from '../config.js';
-import { confirmBroadcast, DEFAULT_FEE_RATE_SATS_PER_VBYTE } from '../confirm.js';
+import { broadcastConfirmer, DEFAULT_FEE_RATE_SATS_PER_VBYTE } from '../confirm.js';
 import { CLIError } from '../error.js';
 import { printWatchHint } from '../hints.js';
 import { resolveKeyRef } from '../keystore/resolve-key-ref.js';
@@ -109,11 +109,12 @@ export function registerDeactivateCommand(
         feeRate       : options.feeRate,
         changeAddress : options.changeAddress,
       });
-      // Deactivation is irreversible and spends the beacon UTXO on-chain:
-      // require explicit operator confirmation unless --yes was given.
-      // Skipped on regtest.
+      // Deactivation is irreversible and spends the beacon UTXO on-chain: the
+      // SDK builds the beacon transaction first, then this callback displays
+      // the exact fee of the built transaction and requires explicit operator
+      // confirmation, unless --yes was given. Skipped on regtest.
       const feeEstimator = broadcastOptions?.feeEstimator;
-      confirmBroadcast({
+      const confirmBroadcast = broadcastConfirmer({
         action              : 'deactivate',
         did,
         network,
@@ -136,6 +137,7 @@ export function registerDeactivateCommand(
         beaconId             : parsed.beaconId,
         signer,
         publishToCas         : options.publishToCas,
+        confirmBroadcast,
         ...(broadcastOptions ? { broadcastOptions } : {}),
       });
       console.log(formatResult({ action: 'deactivate', data }, globals()));

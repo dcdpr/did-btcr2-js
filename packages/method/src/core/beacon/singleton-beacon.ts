@@ -4,7 +4,7 @@ import type { SignedBTCR2Update } from '../btcr2-update.js';
 import type { Signer } from '@did-btcr2/keypair';
 import type { BeaconProcessResult, DataNeed } from '../resolver.js';
 import type { SidecarData } from '../types.js';
-import type { BroadcastOptions, BroadcastResult } from './beacon.js';
+import type { BroadcastOptions, BroadcastResult, PreparedBroadcast } from './beacon.js';
 import { SinglePartyBeacon } from './beacon.js';
 import type { BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js';
 
@@ -64,7 +64,7 @@ export class SingletonBeacon extends SinglePartyBeacon {
    *
    * The signal bytes embedded in OP_RETURN are the SHA-256 canonical hash of the signed update.
    * UTXO selection, PSBT construction, fee estimation, signing, and broadcast are delegated to
-   * {@link SinglePartyBeacon.buildSignAndBroadcast}.
+   * {@link SinglePartyBeacon.prepareSignalTx}.
    *
    * @param {SignedBTCR2Update} signedUpdate The signed BTCR2 update to broadcast.
    * @param {Signer} signer Signer that produces the ECDSA signature for the Bitcoin transaction.
@@ -79,8 +79,29 @@ export class SingletonBeacon extends SinglePartyBeacon {
     bitcoin: BitcoinConnection,
     options?: BroadcastOptions
   ): Promise<BroadcastResult> {
+    const prepared = await this.prepareBroadcast(signedUpdate, signer, bitcoin, options);
+    return prepared.broadcast();
+  }
+
+  /**
+   * Builds the SingletonBeacon signal transaction without signing or
+   * broadcasting it. The signal bytes embedded in OP_RETURN are the SHA-256
+   * canonical hash of the signed update; the returned {@link PreparedBroadcast}
+   * exposes the exact fee of the built transaction for pre-broadcast
+   * confirmation.
+   */
+  async prepareBroadcast(
+    signedUpdate: SignedBTCR2Update,
+    signer: Signer,
+    bitcoin: BitcoinConnection,
+    options?: BroadcastOptions
+  ): Promise<PreparedBroadcast> {
     const signalBytes = hash(canonicalize(signedUpdate));
-    const txid = await this.buildSignAndBroadcast(signalBytes, signer, bitcoin, options);
-    return { signedUpdate, txid };
+    const { plan, broadcastTx } = await this.prepareSignalTx(signalBytes, signer, bitcoin, options);
+    return {
+      feeSats   : plan.feeSats,
+      vsize     : plan.vsize,
+      broadcast : async () => ({ signedUpdate, txid: await broadcastTx() }),
+    };
   }
 }

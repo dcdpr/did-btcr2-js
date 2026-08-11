@@ -5,6 +5,7 @@ import type { KeyEntry } from '@did-btcr2/key-manager';
 import { FileKeyStore } from '../src/keystore/file-key-store.js';
 import type { ArgonParams } from '../src/keystore/envelope.js';
 import { KeyStoreError } from '../src/keystore/error.js';
+import { isSecretFileModeAllowed } from '../src/keystore/atomic.js';
 import { expect } from './helpers.js';
 
 // Low-cost argon2id parameters keep the suite well under the mocha timeout.
@@ -135,8 +136,29 @@ describe('FileKeyStore', () => {
     expect(() => openStore(path)).to.throw(KeyStoreError).with.property('type', 'KEYSTORE_PERMISSION_ERROR');
   });
 
+  it('accepts a group-read-only (0640) keystore file', function () {
+    if (process.platform === 'win32') return this.skip();
+    writeFileSync(path, '{"v":1,"keys":{},"protection":"none"}', { mode: 0o600 });
+    chmodSync(path, 0o640);
+    expect(() => openStore(path)).to.not.throw();
+  });
+
   it('rejects a corrupt keystore file', () => {
     writeFileSync(path, 'not json', { mode: 0o600 });
     expect(() => openStore(path)).to.throw(KeyStoreError).with.property('type', 'KEYSTORE_CORRUPT_ERROR');
+  });
+});
+
+describe('secret-file permission policy', () => {
+  it('accepts owner read/write and read-only variants down to group-read', () => {
+    for (const mode of [0o600, 0o400, 0o440, 0o640]) {
+      expect(isSecretFileModeAllowed(mode), `0${mode.toString(8)}`).to.equal(true);
+    }
+  });
+
+  it('rejects group/world-writable, world-readable, and executable modes', () => {
+    for (const mode of [0o620, 0o660, 0o644, 0o666, 0o700, 0o755]) {
+      expect(isSecretFileModeAllowed(mode), `0${mode.toString(8)}`).to.equal(false);
+    }
   });
 });

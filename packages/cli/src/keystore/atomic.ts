@@ -48,24 +48,40 @@ export function writeFileAtomic(path: string, data: string, mode: number): void 
 }
 
 /**
- * Fails closed if a keystore file is readable or writable by group or other.
- * On Windows, where POSIX mode bits are not enforced, this is a no-op that
- * warns once on standard error.
+ * The single permission policy for every file this CLI reads a secret from:
+ * the keystore, the session file, a `--passphrase-file`, a `key import
+ * --secret-file`, an RPC-password file (`BTCR2_BTC_RPC_PASS_FILE` or a
+ * `file:` secret reference).
+ *
+ * Accepted modes (POSIX): `0600`, `0400`, `0440`, and `0640`. That is, the
+ * owner may read (and, for files this CLI maintains, write); the group may at
+ * most read; others get nothing; and no execute bits anywhere. Anything
+ * group/world-writable, world-readable, or executable is rejected.
  */
-export function assertSecurePerms(path: string): void {
+export function isSecretFileModeAllowed(mode: number): boolean {
+  return (mode & 0o137) === 0;
+}
+
+/**
+ * Enforces the secret-file permission policy ({@link isSecretFileModeAllowed})
+ * on `path`, throwing a {@link KeyStoreError} that names the path and the
+ * observed mode. On Windows, where POSIX mode bits are not enforced, this is a
+ * no-op that warns once on standard error.
+ */
+export function assertSecretFilePerms(path: string, label = 'Secret file'): void {
   if (isWindows) {
     if (!permsWarned) {
       process.stderr.write(
-        'warning: file permissions are not enforced on Windows; protect the keystore directory manually.\n',
+        'warning: file permissions are not enforced on Windows; protect secret files manually.\n',
       );
       permsWarned = true;
     }
     return;
   }
   const mode = statSync(path).mode & 0o777;
-  if ((mode & 0o077) !== 0) {
+  if (!isSecretFileModeAllowed(mode)) {
     throw new KeyStoreError(
-      `Keystore at ${path} has insecure permissions 0${mode.toString(8)}; expected 0600.`,
+      `${label} at ${path} has insecure permissions 0${mode.toString(8)}; expected one of 0600, 0400, 0440, 0640.`,
       'KEYSTORE_PERMISSION_ERROR',
       { path, mode: `0${mode.toString(8)}` },
     );

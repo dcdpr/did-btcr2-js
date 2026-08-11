@@ -48,6 +48,11 @@ Notes on behavior not visible in `--help`:
 - Funding prerequisite: the beacon address must hold at least one spendable UTXO. An unfunded
   address aborts with `Beacon address <addr> is unfunded. Send BTC to this address before
   broadcasting the update.` after signing but before any coins move.
+- Broadcast confirmation: on every network except regtest, the beacon transaction is built first
+  and the operator must confirm it. The prompt shows the DID, network, beacon, the exact fee of
+  the built transaction, and a permanence warning; only `yes` proceeds. Declining, or a
+  non-interactive invocation without `-y/--yes`, aborts before the transaction is signed or
+  broadcast; the beacon UTXO stays unspent.
 - CAS publication (when enabled) happens before the on-chain broadcast, so a CAS failure aborts
   while the beacon UTXO is still intact; content addressing makes a retry idempotent.
 

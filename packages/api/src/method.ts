@@ -30,6 +30,22 @@ import type { Logger } from './types.js';
 export type PublishToCasMode = 'auto' | 'always' | 'never';
 
 /**
+ * The built beacon signal transaction, presented to the `confirmBroadcast`
+ * callback during {@link DidMethodApi.update} after the transaction is built
+ * and before it is signed and broadcast. The fee is the exact amount the built
+ * transaction pays, not an estimate.
+ * @public
+ */
+export interface BuiltBroadcastTx {
+  /** The beacon service id whose address funds the transaction. */
+  beaconId: string;
+  /** The exact fee (sats) the built transaction pays (input value minus outputs). */
+  feeSats: bigint;
+  /** The vsize (vbytes) the fee was computed from; the signed transaction is this or smaller. */
+  vsize: number;
+}
+
+/**
  * Result of {@link DidMethodApi.update}: the signed update plus every broadcast
  * artifact a resolver (or a sidecar distributor) needs afterwards.
  * @public
@@ -236,8 +252,10 @@ export class DidMethodApi {
    *   announcement) to the configured CAS per the `publishToCas` policy,
    *   **before** the on-chain broadcast, so any OP_RETURN update hash is
    *   fetchable from CAS at resolution time without sidecar data.
-   * - Broadcast: establishes a beacon via {@link BeaconFactory} and calls
-   *   `broadcastSignal()` with the bitcoin connection configured on the API.
+   * - Broadcast: establishes a beacon via {@link BeaconFactory}, builds the
+   *   signal transaction, invokes the optional `confirmBroadcast` callback with
+   *   the built transaction's exact fee, then signs and broadcasts with the
+   *   bitcoin connection configured on the API.
    *
    * For multi-party aggregation of SMT/CAS beacons, the caller should drive the
    * Updater directly and delegate `NeedBroadcast` to the aggregation runner
@@ -257,6 +275,7 @@ export class DidMethodApi {
     bitcoin,
     publishToCas = 'never',
     broadcastOptions,
+    confirmBroadcast,
   }: {
     sourceDocument: Btcr2DidDocument;
     patches: PatchOperation[];
@@ -267,6 +286,13 @@ export class DidMethodApi {
     bitcoin?: BitcoinConnection;
     publishToCas?: PublishToCasMode;
     broadcastOptions?: BroadcastOptions;
+    /**
+     * Called once the beacon transaction is built and before it is signed and
+     * broadcast, with the exact fee and size of the built transaction. Throw
+     * (or return a rejected promise) to abort: the beacon UTXO stays unspent.
+     * When omitted, the broadcast proceeds without confirmation.
+     */
+    confirmBroadcast?: (tx: BuiltBroadcastTx) => void | Promise<void>;
   }): Promise<DidUpdateResult> {
     // Bitcoin connection resolution order: per-call `bitcoin` param wins over the
     // BitcoinApi injected at DidBtcr2Api construction time. One of the two must
@@ -359,9 +385,16 @@ export class DidMethodApi {
               'Broadcasting signed update via %s beacon', need.beaconService.type
             );
             const beacon = BeaconFactory.establish(need.beaconService);
-            broadcastResult = await beacon.broadcastSignal(
+            // Build first, then let the caller confirm the exact fee of the
+            // built transaction, then sign and send. A confirmation abort leaves
+            // the beacon UTXO unspent.
+            const prepared = await beacon.prepareBroadcast(
               need.signedUpdate, signer, btcConnection, options
             );
+            if(confirmBroadcast) {
+              await confirmBroadcast({ beaconId, feeSats: prepared.feeSats, vsize: prepared.vsize });
+            }
+            broadcastResult = await prepared.broadcast();
             updater.provide(need);
             break;
           }
@@ -489,6 +522,7 @@ export class UpdateBuilder {
   #bitcoin?: BitcoinConnection;
   #publishToCas?: PublishToCasMode;
   #broadcastOptions?: BroadcastOptions;
+  #confirmBroadcast?: (tx: BuiltBroadcastTx) => void | Promise<void>;
 
   /** @internal */
   constructor(methodApi: DidMethodApi, sourceDocument: Btcr2DidDocument) {
@@ -557,6 +591,15 @@ export class UpdateBuilder {
   }
 
   /**
+   * Set a confirmation callback invoked with the built beacon transaction's
+   * exact fee and size before signing and broadcast. Throw to abort.
+   */
+  confirmBroadcast(callback: (tx: BuiltBroadcastTx) => void | Promise<void>): this {
+    this.#confirmBroadcast = callback;
+    return this;
+  }
+
+  /**
    * Execute the update.
    * @throws {Error} If required fields (version, verificationMethodId, beacon, signer) are missing.
    */
@@ -587,6 +630,7 @@ export class UpdateBuilder {
       bitcoin              : this.#bitcoin,
       publishToCas         : this.#publishToCas,
       broadcastOptions     : this.#broadcastOptions,
+      confirmBroadcast     : this.#confirmBroadcast,
     });
   }
 }

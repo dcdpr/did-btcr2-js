@@ -4,7 +4,7 @@ import type { SignedBTCR2Update } from '../btcr2-update.js';
 import type { Signer } from '@did-btcr2/keypair';
 import type { BeaconProcessResult, DataNeed } from '../resolver.js';
 import type { SidecarData } from '../types.js';
-import type { BroadcastOptions, BroadcastResult } from './beacon.js';
+import type { BroadcastOptions, BroadcastResult, PreparedBroadcast } from './beacon.js';
 import { SinglePartyBeacon } from './beacon.js';
 import { CASBeaconError } from './error.js';
 import type { BeaconService, BeaconSignal, BlockMetadata, CasPublishFn } from './interfaces.js';
@@ -149,7 +149,7 @@ export class CASBeacon extends SinglePartyBeacon {
    * Creates a CAS Announcement mapping the DID to the update hash, optionally publishes the
    * announcement off-chain via the supplied `casPublish` callback, then broadcasts the hash of
    * the announcement via OP_RETURN. UTXO selection, PSBT construction, fee estimation, signing,
-   * and broadcast are delegated to {@link SinglePartyBeacon.buildSignAndBroadcast}.
+   * and broadcast are delegated to {@link SinglePartyBeacon.prepareSignalTx}.
    *
    * The CAS publish happens **before** the transaction broadcast: a publish failure aborts the
    * operation while the beacon UTXO is still unspent, so no on-chain signal ever points at an
@@ -171,6 +171,25 @@ export class CASBeacon extends SinglePartyBeacon {
     bitcoin: BitcoinConnection,
     options?: CASBroadcastOptions
   ): Promise<BroadcastResult> {
+    const prepared = await this.prepareBroadcast(signedUpdate, signer, bitcoin, options);
+    return prepared.broadcast();
+  }
+
+  /**
+   * Builds the CAS Beacon signal transaction without signing or broadcasting it.
+   * Creates the CAS Announcement mapping the DID to its update hash and embeds
+   * the announcement hash in the OP_RETURN output. The optional `casPublish`
+   * callback runs inside the returned continuation, after any caller-side
+   * confirmation and before the spend is signed and sent, so declining the
+   * broadcast publishes nothing and a publish failure still aborts while the
+   * beacon UTXO is unspent.
+   */
+  async prepareBroadcast(
+    signedUpdate: SignedBTCR2Update,
+    signer: Signer,
+    bitcoin: BitcoinConnection,
+    options?: CASBroadcastOptions
+  ): Promise<PreparedBroadcast> {
     // Extract the DID from the beacon service id (strip the #fragment)
     const did = this.service.id.split('#')[0];
 
@@ -183,15 +202,18 @@ export class CASBeacon extends SinglePartyBeacon {
     // Canonicalize and hash the CAS Announcement for the OP_RETURN output
     const announcementHash = hash(canonicalize(casAnnouncement));
 
-    // Publish the announcement to the content-addressed store before spending the
-    // beacon UTXO, so a publish failure aborts pre-spend.
-    if(options?.casPublish) {
-      await options.casPublish(casAnnouncement);
-    }
-
-    // Delegate UTXO selection, PSBT construction, fee estimation, signing, and broadcast
-    const txid = await this.buildSignAndBroadcast(announcementHash, signer, bitcoin, options);
-
-    return { signedUpdate, txid, announcement: casAnnouncement };
+    const { plan, broadcastTx } = await this.prepareSignalTx(announcementHash, signer, bitcoin, options);
+    return {
+      feeSats   : plan.feeSats,
+      vsize     : plan.vsize,
+      broadcast : async () => {
+        // Publish the announcement to the content-addressed store before spending
+        // the beacon UTXO, so a publish failure aborts pre-spend.
+        if(options?.casPublish) {
+          await options.casPublish(casAnnouncement);
+        }
+        return { signedUpdate, txid: await broadcastTx(), announcement: casAnnouncement };
+      },
+    };
   }
 }

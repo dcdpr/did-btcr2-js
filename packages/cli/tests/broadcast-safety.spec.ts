@@ -6,10 +6,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DidBtcr2Cli } from '../src/cli.js';
 import {
+  broadcastConfirmer,
   confirmBroadcast,
   DEFAULT_FEE_RATE_SATS_PER_VBYTE,
-  ESTIMATED_BEACON_TX_VBYTES,
   MAX_FEE_RATE_SATS_PER_VBYTE,
+  ttyPrompt,
+  type TtyPromptIo,
 } from '../src/confirm.js';
 import type { ApiFactory } from '../src/config.js';
 import { CLIError } from '../src/error.js';
@@ -54,6 +56,8 @@ describe('broadcast confirmation', () => {
     did                 : 'did:btcr2:xxxx',
     network             : 'bitcoin' as const,
     beaconId            : '#beacon-0',
+    feeSats             : 1860n,
+    vsize               : 155,
     feeRateSatsPerVByte : 12,
   };
 
@@ -98,7 +102,7 @@ describe('broadcast confirmation', () => {
     });
   });
 
-  it('displays the plan with an estimated absolute fee', () => {
+  it('displays the plan with the exact fee of the built transaction', () => {
     let label = '';
     confirmBroadcast({ ...base, action: 'update' }, {
       prompt : (l) => { label = l; return 'yes'; },
@@ -106,9 +110,27 @@ describe('broadcast confirmation', () => {
     expect(label).to.include(base.did);
     expect(label).to.include('bitcoin');
     expect(label).to.include('#beacon-0');
-    const estimatedSats = Math.ceil(base.feeRateSatsPerVByte * ESTIMATED_BEACON_TX_VBYTES);
-    expect(label).to.include(`~${estimatedSats} sats`);
+    expect(label).to.include('1860 sats');
+    expect(label).to.include('155 vB');
     expect(label).to.include('12 sat/vB');
+    expect(label).to.not.include('~');
+  });
+
+  it('shows the fee the built transaction pays, via the update-flow callback adapter', () => {
+    // The SDK hands the built transaction's exact fee and size to the
+    // confirmation callback; what the operator sees must be those values.
+    let label = '';
+    const confirm = broadcastConfirmer({
+      action              : 'update',
+      did                 : 'did:btcr2:xxxx',
+      network             : 'bitcoin',
+      beaconId            : '#beacon-0',
+      feeRateSatsPerVByte : 12,
+    }, { prompt: (l) => { label = l; return 'yes'; } });
+    confirm({ feeSats: 4321n, vsize: 149 });
+    expect(label).to.include('4321 sats');
+    expect(label).to.include('149 vB');
+    expect(label).to.not.include('1860');
   });
 
   it('warns that deactivation is permanent', () => {
@@ -139,12 +161,23 @@ describe('fee-rate ceiling and command-level confirmation', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
+  // A real keystore-backed KeyManager plus a stubbed update that captures its
+  // params, so the signing wiring is exercised without real Bitcoin I/O. The
+  // stub stands in for the built beacon transaction: it invokes the
+  // confirmation callback with a fixed exact fee and size, and only records
+  // the call as completed after confirmation passes.
   function stubFactory(): ApiFactory {
     return () => {
       const realApi = createKeystoreTestApiFactory(keystore, 'pw')();
       return {
         kms   : realApi.kms,
-        btcr2 : { update: async (params: unknown) => { captured.params = params; return { signed: 'mock' }; } },
+        btcr2 : {
+          update : async (params: any) => {
+            await params.confirmBroadcast?.({ beaconId: '#beacon-0', feeSats: 1860n, vsize: 155 });
+            captured.params = params;
+            return { signed: 'mock' };
+          },
+        },
       } as unknown as DidBtcr2Api;
     };
   }
@@ -239,8 +272,82 @@ describe('fee-rate ceiling and command-level confirmation', () => {
       did                 : 'did:btcr2:xxxx',
       network             : 'signet',
       beaconId            : '#beacon-0',
+      feeSats             : 775n,
+      vsize               : 155,
       feeRateSatsPerVByte : DEFAULT_FEE_RATE_SATS_PER_VBYTE,
     }, { prompt: (l) => { label = l; return 'yes'; } });
     expect(label).to.include(`${DEFAULT_FEE_RATE_SATS_PER_VBYTE} sat/vB`);
+  });
+});
+
+describe('ttyPrompt terminal reads', () => {
+  type ReadFn = NonNullable<TtyPromptIo['read']>;
+
+  /** A readSync stand-in from a script of per-call behaviors. */
+  function fakeRead(script: Array<'EAGAIN' | 'EOF' | 'EIO' | number>): { read: ReadFn } {
+    const queue = [...script];
+    const read = ((_fd: number, buf: Buffer, off: number) => {
+      const next = queue.length ? queue.shift()! : 0x0a;
+      if (next === 'EAGAIN' || next === 'EOF' || next === 'EIO') {
+        const error = new Error(next) as Error & { code: string };
+        error.code = next;
+        throw error;
+      }
+      buf[off] = next;
+      return 1;
+    }) as unknown as ReadFn;
+    return { read };
+  }
+
+  const yesBytes = [...'yes\n'].map(c => c.charCodeAt(0));
+
+  it('retries EAGAIN until input arrives instead of aborting on an idle TTY', () => {
+    const { read } = fakeRead(['EAGAIN', 'EAGAIN', ...yesBytes]);
+    const answer = ttyPrompt('label', { read, write: () => {}, wait: () => {} });
+    expect(answer).to.equal('yes');
+  });
+
+  it('stops waiting at the idle cap and returns the accumulated (empty) answer', () => {
+    const { read } = fakeRead(['EAGAIN']);
+    let waited = 0;
+    const answer = ttyPrompt('label', {
+      read,
+      write     : () => {},
+      wait      : () => { waited += 5; },
+      pollMs    : 5,
+      maxIdleMs : 20,
+    });
+    expect(answer).to.equal('');
+    expect(waited).to.be.at.most(25);
+  });
+
+  it('an empty answer from the idle cap declines the broadcast', () => {
+    const { read } = fakeRead(['EAGAIN']);
+    const prompt = (label: string): string => ttyPrompt(label, {
+      read,
+      write     : () => {},
+      wait      : () => {},
+      pollMs    : 5,
+      maxIdleMs : 10,
+    });
+    expect(() => confirmBroadcast({
+      action              : 'update',
+      did                 : 'did:btcr2:xxxx',
+      network             : 'signet',
+      beaconId            : '#beacon-0',
+      feeSats             : 775n,
+      vsize               : 155,
+      feeRateSatsPerVByte : 5,
+    }, { prompt })).to.throw(CLIError, /not confirmed/);
+  });
+
+  it('treats EOF as end of input, not an error', () => {
+    const { read } = fakeRead([...yesBytes.slice(0, 3), 'EOF']);
+    expect(ttyPrompt('label', { read, write: () => {}, wait: () => {} })).to.equal('yes');
+  });
+
+  it('propagates real read errors instead of converting them to an empty answer', () => {
+    const { read } = fakeRead(['EIO']);
+    expect(() => ttyPrompt('label', { read, write: () => {}, wait: () => {} })).to.throw(/EIO/);
   });
 });
