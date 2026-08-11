@@ -5,7 +5,7 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { utf8ToBytes } from '@noble/hashes/utils.js';
 import { base64urlnopad } from '@scure/base';
 import type { KeystoreProtectionLabel } from '../types.js';
-import { assertSecurePerms, ensureDir, writeFileAtomic } from './atomic.js';
+import { assertSecretFilePerms, ensureDir, writeFileAtomic } from './atomic.js';
 import { DEFAULT_ARGON_PARAMS, decryptSecret, encryptSecret } from './envelope.js';
 import type { ArgonParams, SecretEnvelope } from './envelope.js';
 import { KeyStoreError } from './error.js';
@@ -152,7 +152,7 @@ export class FileKeyStore implements KeyValueStore<KeyIdentifier, KeyEntry> {
 
   #loadFromDisk(): void {
     if (!existsSync(this.#path)) return;
-    assertSecurePerms(this.#path);
+    assertSecretFilePerms(this.#path, 'Keystore');
     let parsed: KeystoreFile;
     try {
       parsed = JSON.parse(readFileSync(this.#path, 'utf-8')) as KeystoreFile;

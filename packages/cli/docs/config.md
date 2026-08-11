@@ -172,6 +172,18 @@ Resolution notes:
 - An RPC password given as a secret reference (`env:<VAR>` or `file:<path>`, via flag,
   environment variable, or profile) is resolved to its literal value; a password taken from the file named by
   `BTCR2_BTC_RPC_PASS_FILE` reports `source: "env"`.
+  - An `env:` reference naming a variable that is not set **throws** (`CONFIG_READ_ERROR`)
+    rather than resolving to nothing, so a networked command (one that resolves an RPC host)
+    fails fast naming the variable instead of surfacing later as an opaque RPC auth failure.
+    Offline commands (create, key management) never resolve a connection and are unaffected.
+  - The `env:` and `file:` prefixes are reserved: a value starting with either is ALWAYS treated
+    as a reference and there is no escape syntax, so a literal password cannot begin with `env:`
+    or `file:`. If a real password starts with one of those prefixes, store it in a file and use
+    a `file:<path>` reference (the file's contents are used verbatim).
+  - A `file:` reference, and the file named by `BTCR2_BTC_RPC_PASS_FILE`, must satisfy the
+    shared secret-file permission policy: mode `0600`, `0400`, `0440`, or `0640` (owner
+    read/write, group read at most, no access for others, no execute bits). Anything
+    group/world-writable or more open is rejected. Not enforceable on Windows.
 - `default`-sourced endpoint values are the SDK per-network defaults: REST
   `https://mempool.space/api` (bitcoin), `https://mempool.space/testnet/api` (testnet3),
   `https://mempool.space/testnet4/api` (testnet4), `https://mempool.space/signet/api` (signet),
@@ -226,7 +238,9 @@ writes or broadcasts. Each probe has a 5000 ms timeout. Checks performed:
   `https://ipfs.io`).
 
 Prints `{ "checks": [ { "endpoint", "target", "ok", "detail"? }, ... ] }` where `detail` carries
-the HTTP status or error message for a failed check. When the active profile declares a network
+the HTTP status or error message for a failed check. Credentials embedded in endpoint URLs
+(`scheme://user:pass@host`) are masked as `********` in both `target` and `detail`, matching the
+redaction `config get`/`list`/`effective` apply. When the active profile declares a network
 different from the one being probed, a `coherence` object
 (`{ "profile", "declared", "encoding" }`) is included. Exit code is 1 when any check fails.
 
@@ -264,8 +278,8 @@ Environment variables consulted:
 | `BTCR2_BTC_REST` | `effective`, `doctor` | Bitcoin REST endpoint override (as `--btc-rest`). |
 | `BTCR2_BTC_RPC_URL` | `effective`, `doctor` | Bitcoin Core RPC endpoint override (as `--btc-rpc-url`). |
 | `BTCR2_BTC_RPC_USER` | `effective`, `doctor` | RPC username (as `--btc-rpc-user`). |
-| `BTCR2_BTC_RPC_PASS` | `effective`, `doctor` | RPC password (as `--btc-rpc-pass`; accepts `env:<VAR>` / `file:<path>` secret references). |
-| `BTCR2_BTC_RPC_PASS_FILE` | `effective`, `doctor` | Path to a file whose contents are the RPC password; consulted only when no layer supplies a password and an RPC config is being built. |
+| `BTCR2_BTC_RPC_PASS` | `effective`, `doctor` | RPC password (as `--btc-rpc-pass`; accepts `env:<VAR>` / `file:<path>` secret references). Ignored (with a stderr warning) when a flag or profile layer supplies the RPC url or user, because credentials resolve as one atomic unit per layer. |
+| `BTCR2_BTC_RPC_PASS_FILE` | `effective`, `doctor` | Path to a file whose contents are the RPC password; consulted only when no layer supplies a password and an RPC config is being built. Subject to the secret-file permission policy (0600/0400/0440/0640). |
 | `BTCR2_CAS_GATEWAY` | `effective`, `doctor` | IPFS HTTP gateway for CAS reads (as `--cas-gateway`). |
 | `BTCR2_CAS_RPC_URL` | `effective`, `doctor` | IPFS HTTP RPC endpoint for a writable CAS (as `--cas-rpc-url`). |
 | `BTCR2_BTC_TIMEOUT` | `effective`, `doctor` | Bitcoin request timeout in ms, >= 1 (as `--btc-timeout`). |

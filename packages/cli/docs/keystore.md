@@ -229,6 +229,12 @@ bound to a different keystore is left in place. A `bitcoin` operation never cons
 that was not unlocked with `--allow-mainnet`. The passphrase-establishing path (a fresh keystore's
 first seal) never consults the session.
 
+Every file a secret is read from (the keystore, the session file, a `--passphrase-file`, a
+`key import --secret-file`, an RPC-password file) must satisfy one shared permission policy:
+mode `0600`, `0400`, `0440`, or `0640` (owner read/write, group read at most, no access for
+others, no execute bits). Anything group/world-writable or more open is rejected (POSIX only;
+mode bits are not enforceable on Windows).
+
 ## Global options
 
 Shared global flags are documented in the [docs README](./README.md#global-options). Globals this command notably

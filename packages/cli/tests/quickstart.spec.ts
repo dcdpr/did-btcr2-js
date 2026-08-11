@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DidBtcr2Cli } from '../src/cli.js';
@@ -28,6 +28,7 @@ describe('quickstart (ADR 083)', () => {
     home = join(dir, 'home');
     passFile = join(dir, 'pass.txt');
     writeFileSync(passFile, 'pw\n');
+    chmodSync(passFile, 0o600);
     out = [];
     err = [];
     console.log = (m?: unknown) => { if (m !== undefined) out.push(String(m)); };

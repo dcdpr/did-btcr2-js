@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { StaticFeeEstimator } from '@did-btcr2/method';
@@ -860,6 +860,7 @@ describe('resolveSecretRef and RPC password sources', () => {
   it('reads a file: reference and trims a trailing newline', () => {
     const file = join(tempDir, 'pass.txt');
     writeFileSync(file, 'from-file\n');
+    chmodSync(file, 0o600);
     expect(resolveSecretRef(`file:${file}`)).to.equal('from-file');
   });
 
@@ -881,6 +882,7 @@ describe('resolveSecretRef and RPC password sources', () => {
   it('reads the RPC password from BTCR2_BTC_RPC_PASS_FILE when the layer supplies none', () => {
     const file = join(tempDir, 'passfile.txt');
     writeFileSync(file, 'file-secret\n');
+    chmodSync(file, 0o600);
     process.env.BTCR2_BTC_RPC_PASS_FILE = file;
     const cfg = join(tempDir, 'nopass.json');
     writeFileSync(cfg, JSON.stringify({
@@ -888,6 +890,100 @@ describe('resolveSecretRef and RPC password sources', () => {
     }));
     const api = defaultApiFactory('regtest', { config: cfg });
     expect(api.btc.connection.rpc?.config.password).to.equal('file-secret');
+  });
+
+  it('accepts a group-read-only (0640) file: reference', function () {
+    if (process.platform === 'win32') this.skip();
+    const file = join(tempDir, 'group-pass.txt');
+    writeFileSync(file, 'group-secret\n');
+    chmodSync(file, 0o640);
+    expect(resolveSecretRef(`file:${file}`)).to.equal('group-secret');
+  });
+
+  it('rejects a world-readable (0644) file: reference', function () {
+    if (process.platform === 'win32') this.skip();
+    const file = join(tempDir, 'loose-pass.txt');
+    writeFileSync(file, 'loose-secret\n');
+    chmodSync(file, 0o644);
+    expect(() => resolveSecretRef(`file:${file}`)).to.throw(CLIError, /permissions/);
+  });
+
+  it('rejects a world-readable (0644) BTCR2_BTC_RPC_PASS_FILE', function () {
+    if (process.platform === 'win32') this.skip();
+    const file = join(tempDir, 'loose-passfile.txt');
+    writeFileSync(file, 'loose-secret\n');
+    chmodSync(file, 0o644);
+    process.env.BTCR2_BTC_RPC_PASS_FILE = file;
+    const cfg = join(tempDir, 'loosepass.json');
+    writeFileSync(cfg, JSON.stringify({
+      profiles : { regtest: { btc: { rpcUrl: 'http://node:18443', rpcUser: 'u' } } },
+    }));
+    expect(() => defaultApiFactory('regtest', { config: cfg })).to.throw(CLIError, /permissions/);
+  });
+});
+
+describe('RPC password layer shadowing warning', () => {
+  const tempDir = join(tmpdir(), 'btcr2-shadow-test');
+  const saved: Record<string, string | undefined> = {};
+
+  before(() => mkdirSync(tempDir, { recursive: true }));
+
+  after(() => rmSync(tempDir, { recursive: true, force: true }));
+
+  beforeEach(() => {
+    for (const k of Object.values(ENV_VARS)) { saved[k] = process.env[k]; delete process.env[k]; }
+  });
+
+  afterEach(() => {
+    for (const k of Object.values(ENV_VARS)) {
+      if (saved[k] !== undefined) process.env[k] = saved[k]; else delete process.env[k];
+    }
+  });
+
+  /** Captures console.error output produced while `fn` runs. */
+  function captureWarnings(fn: () => void): string[] {
+    const warnings: string[] = [];
+    const original = console.error;
+    console.error = (m?: unknown) => { if (m !== undefined) warnings.push(String(m)); };
+    try {
+      fn();
+    } finally {
+      console.error = original;
+    }
+    return warnings;
+  }
+
+  it('warns when a flag RPC url shadows BTCR2_BTC_RPC_PASS', () => {
+    process.env[ENV_VARS.BTC_RPC_PASS] = 'env-secret';
+    const warnings = captureWarnings(() => {
+      const api = defaultApiFactory('regtest', { config: join(tempDir, 'absent.json'), btcRpcUrl: 'http://node-b:18443' });
+      expect(api.btc.connection.rpc?.config.host).to.equal('http://node-b:18443');
+      expect(api.btc.connection.rpc?.config.password).to.be.undefined;
+    });
+    expect(warnings.some(w => w.includes(ENV_VARS.BTC_RPC_PASS))).to.equal(true);
+  });
+
+  it('warns when a profile RPC url shadows BTCR2_BTC_RPC_PASS', () => {
+    process.env[ENV_VARS.BTC_RPC_PASS] = 'env-secret';
+    const cfg = join(tempDir, 'shadow.json');
+    writeFileSync(cfg, JSON.stringify({
+      profiles : { regtest: { btc: { rpcUrl: 'http://node-a:18443', rpcUser: 'alice' } } },
+    }));
+    const warnings = captureWarnings(() => {
+      const api = defaultApiFactory('regtest', { config: cfg });
+      expect(api.btc.connection.rpc?.config.password).to.be.undefined;
+    });
+    expect(warnings.some(w => w.includes(ENV_VARS.BTC_RPC_PASS))).to.equal(true);
+  });
+
+  it('does not warn when the env layer supplies the whole credential unit', () => {
+    process.env[ENV_VARS.BTC_RPC_PASS] = 'env-secret';
+    process.env[ENV_VARS.BTC_RPC_URL] = 'http://env-node:18443';
+    const warnings = captureWarnings(() => {
+      const api = defaultApiFactory('regtest', { config: join(tempDir, 'absent.json') });
+      expect(api.btc.connection.rpc?.config.password).to.equal('env-secret');
+    });
+    expect(warnings.some(w => w.includes(ENV_VARS.BTC_RPC_PASS))).to.equal(false);
   });
 });
 

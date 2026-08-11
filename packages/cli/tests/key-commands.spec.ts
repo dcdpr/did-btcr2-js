@@ -100,6 +100,18 @@ describe('key commands', () => {
     expect(result.keyId).to.match(/^urn:kms:secp256k1:/);
   });
 
+  it('import --secret-file accepts read-only and group-read-only secret files', async function () {
+    if (process.platform === 'win32') return; // perms not enforceable there
+    for (const [i, mode] of [0o400, 0o440, 0o640].entries()) {
+      const secretFile = join(dir, `secret-${i}.hex`);
+      writeFileSync(secretFile, bytesToHex(SchnorrKeyPair.generate().secretKey.bytes));
+      chmodSync(secretFile, mode);
+      out = [];
+      await runKey('import', '--secret-file', secretFile, '--name', `imported-${mode.toString(8)}`);
+      expect(JSON.parse(out[0]).keyId).to.match(/^urn:kms:secp256k1:/);
+    }
+  });
+
   it('import --secret-file refuses a group/world-readable secret file', async () => {
     if (process.platform === 'win32') return; // perms not enforceable there
     const secretFile = join(dir, 'loose.hex');
@@ -112,6 +124,17 @@ describe('key commands', () => {
       expect((err as Error).message).to.match(/permissions/);
     });
     expect(threw, 'expected a permission refusal').to.be.true;
+  });
+
+  it('import --secret-file refuses writable-by-others and executable secret files', async function () {
+    if (process.platform === 'win32') return; // perms not enforceable there
+    for (const mode of [0o620, 0o660, 0o666, 0o700]) {
+      const secretFile = join(dir, `loose-${mode.toString(8)}.hex`);
+      writeFileSync(secretFile, bytesToHex(SchnorrKeyPair.generate().secretKey.bytes));
+      chmodSync(secretFile, mode);
+      await expect(runKey('import', '--secret-file', secretFile))
+        .to.be.rejectedWith(CLIError, /permissions/);
+    }
   });
 
   it('import --public adds a watch-only key', async () => {

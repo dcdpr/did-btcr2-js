@@ -5,6 +5,7 @@ import type { Command } from 'commander';
 import { closeSync, openSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import type { ApiFactory } from '../config.js';
 import { CLIError } from '../error.js';
+import { isSecretFileModeAllowed } from '../keystore/atomic.js';
 import { resolveKeyRef } from '../keystore/resolve-key-ref.js';
 import { formatResult } from '../output.js';
 import type { CommandResult, GlobalOptions } from '../types.js';
@@ -162,15 +163,14 @@ function parseHex(hex: string, expectedBytes: number, label: string): Uint8Array
 function readHexFile(path: string, expectedBytes: number, label: string): Uint8Array {
   let content: string;
   try {
-    // The file holds raw secret key material: refuse to read it when group or
-    // other users have any permission bits (0600/0400 only), matching the
-    // keystore's permission policy. Not enforceable on Windows.
+    // The file holds raw secret key material: enforce the shared secret-file
+    // permission policy (0600/0400/0440/0640). Not enforceable on Windows.
     if (process.platform !== 'win32') {
       const mode = statSync(path).mode & 0o777;
-      if ((mode & 0o077) !== 0) {
+      if (!isSecretFileModeAllowed(mode)) {
         throw new CLIError(
-          `Refusing to read ${label} at ${path}: permissions 0${mode.toString(8)} are too open; expected 0600. `
-          + `Fix with: chmod 600 ${path}`,
+          `Refusing to read ${label} at ${path}: permissions 0${mode.toString(8)} are too open; `
+          + `expected one of 0600, 0400, 0440, 0640. Fix with: chmod 600 ${path}`,
           'INVALID_ARGUMENT_ERROR',
           { label, path, mode: `0${mode.toString(8)}` },
         );

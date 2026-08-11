@@ -218,6 +218,23 @@ describe('config and profile commands', () => {
     expect(parsed.checks.every((c: { ok: boolean }) => c.ok === false)).to.equal(true);
   });
 
+  it('config doctor never prints credentials embedded in endpoint URLs', async function () {
+    this.timeout(15000);
+    out = [];
+    await run(
+      '--btc-rest', 'http://doctor:restsecret@127.0.0.1:1',
+      '--btc-rpc-url', 'http://doctor:rpcsecret@127.0.0.1:1',
+      '--cas-gateway', 'http://doctor:cassecret@127.0.0.1:1',
+      'config', 'doctor', '-n', 'regtest',
+    );
+    const printed = out.join('\n');
+    expect(printed).to.not.contain('restsecret');
+    expect(printed).to.not.contain('rpcsecret');
+    expect(printed).to.not.contain('cassecret');
+    const parsed = JSON.parse(printed);
+    expect(parsed.checks.every((c: { target: string }) => !c.target.includes('@127.0.0.1') || c.target.includes('********'))).to.equal(true);
+  });
+
   it('config get redacts the rpc password by default', async () => {
     await run('config', 'init');
     await run('config', 'set', 'profiles.regtest.btc.rpcPass', 'super-secret');

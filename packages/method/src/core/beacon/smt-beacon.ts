@@ -6,7 +6,7 @@ import { base64UrlToHash, blockHash, BTCR2MerkleTree, didToIndex, hashToHex, ver
 import { randomBytes } from '@noble/hashes/utils';
 import type { BeaconProcessResult, DataNeed } from '../resolver.js';
 import type { SidecarData } from '../types.js';
-import type { BroadcastOptions, BroadcastResult } from './beacon.js';
+import type { BroadcastOptions, BroadcastResult, PreparedBroadcast } from './beacon.js';
 import { SinglePartyBeacon } from './beacon.js';
 import { SMTBeaconError } from './error.js';
 import type { BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js';
@@ -137,7 +137,7 @@ export class SMTBeacon extends SinglePartyBeacon {
    * Builds a single-entry Sparse Merkle Tree from the signed update, then broadcasts the tree's
    * root hash via OP_RETURN. For multi-party aggregation, use the {@link AggregationService}
    * subsystem directly instead of this method. UTXO selection, PSBT construction, fee estimation,
-   * signing, and broadcast are delegated to {@link SinglePartyBeacon.buildSignAndBroadcast}.
+   * signing, and broadcast are delegated to {@link SinglePartyBeacon.prepareSignalTx}.
    *
    * @param {SignedBTCR2Update} signedUpdate The signed BTCR2 update to broadcast.
    * @param {Signer} signer Signer that produces the ECDSA signature for the Bitcoin transaction.
@@ -154,6 +154,23 @@ export class SMTBeacon extends SinglePartyBeacon {
     bitcoin: BitcoinConnection,
     options?: BroadcastOptions
   ): Promise<BroadcastResult> {
+    const prepared = await this.prepareBroadcast(signedUpdate, signer, bitcoin, options);
+    return prepared.broadcast();
+  }
+
+  /**
+   * Builds the SMT Beacon signal transaction without signing or broadcasting it.
+   * Builds the single-entry Sparse Merkle Tree (and the inclusion proof carrying
+   * the leaf nonce) at prepare time so the tree root can ride in the OP_RETURN
+   * output; the returned {@link PreparedBroadcast} exposes the exact fee of the
+   * built transaction for pre-broadcast confirmation.
+   */
+  async prepareBroadcast(
+    signedUpdate: SignedBTCR2Update,
+    signer: Signer,
+    bitcoin: BitcoinConnection,
+    options?: BroadcastOptions
+  ): Promise<PreparedBroadcast> {
     // Extract the DID from the beacon service id (strip the #fragment)
     const did = this.service.id.split('#')[0];
 
@@ -170,8 +187,11 @@ export class SMTBeacon extends SinglePartyBeacon {
     const proof = tree.proof(did);
 
     // Root hash is the signal bytes for the OP_RETURN output
-    const txid = await this.buildSignAndBroadcast(tree.rootHash, signer, bitcoin, options);
-
-    return { signedUpdate, txid, proof };
+    const { plan, broadcastTx } = await this.prepareSignalTx(tree.rootHash, signer, bitcoin, options);
+    return {
+      feeSats   : plan.feeSats,
+      vsize     : plan.vsize,
+      broadcast : async () => ({ signedUpdate, txid: await broadcastTx(), proof }),
+    };
   }
 }
