@@ -64,16 +64,20 @@ export const CHANGE_OUTPUT_VBYTES: Readonly<Record<SingletonScriptKind, number>>
 };
 
 /**
- * Dust threshold (sats) below which a change output is not worth creating, by script
- * kind (the standard Bitcoin Core dust relay thresholds at the default 3 sat/vB dust
- * rate). When the change after fees falls below this, the builders omit the change
+ * Dust threshold (sats) below which a change output is not worth creating. Unified
+ * at 546 (the standard Bitcoin Core P2PKH dust relay threshold at the default 3
+ * sat/vB dust rate, the largest of the per-kind thresholds) so every beacon
+ * builder and the aggregation participant guard agree on one floor. When the
+ * change after fees falls below this, the single-party builders omit the change
  * output and let the remainder fall into the fee rather than emit an unspendable,
- * relay-rejected dust output (ADR 044).
+ * relay-rejected dust output (ADR 044); the aggregation builder refuses outright,
+ * since a cohort's participants reject a beacon spend without a self-change
+ * output at or above this floor.
  */
 export const DUST_LIMIT_SATS: Readonly<Record<SingletonScriptKind, number>> = {
   p2pkh  : 546,
-  p2wpkh : 294,
-  p2tr   : 330,
+  p2wpkh : 546,
+  p2tr   : 546,
 };
 
 /**
@@ -298,11 +302,10 @@ export function opReturnScript(signalBytes: Uint8Array): Uint8Array {
  * be rejected as insufficient; conversely, at a very low fee rate an output near the
  * floor could cover the fee. The floor's job is only to skip trivially small inputs.
  *
- * The value is the standard Bitcoin Core P2PKH dust threshold, the largest of the
- * three singleton beacon script kinds (P2PKH 546, P2TR 330, P2WPKH 294 per
- * {@link DUST_LIMIT_SATS}): a UTXO above it is non-dust under any beacon address kind.
- * Distinct from {@link DUST_LIMIT_SATS}, which sizes the outgoing change output by
- * kind; this bounds the incoming UTXO chosen to fund the transaction.
+ * The value equals {@link DUST_LIMIT_SATS} (the unified 546-sat floor): a UTXO
+ * above it is non-dust under any beacon address kind.
+ * Distinct roles: {@link DUST_LIMIT_SATS} sizes the outgoing change output;
+ * this bounds the incoming UTXO chosen to fund the transaction.
  */
 export const SPENDABLE_DUST_LIMIT_SATS = 546;
 
@@ -403,17 +406,16 @@ export async function buildAggregationBeaconTx(opts: {
   network: BTCNetwork;
   /** Optional fee estimator (defaults to 5 sat/vB). */
   feeEstimator?: FeeEstimator;
-  /**
-   * Address to send change to. Defaults to the beacon (cohort) address. Supply the
-   * funder's address (an operator-funded cohort's funding wallet) to stop reusing the
-   * cohort address for change (ADR 044). Change ownership is the funder's call, which
-   * the cohort-condition model leaves to the caller (ADR 039).
-   */
-  changeAddress?: string;
 }): Promise<BeaconTxPlan> {
   const feeEstimator = opts.feeEstimator ?? DEFAULT_FEE_ESTIMATOR;
   const { utxo, prevTxBytes } = await fetchSpendableUtxo(opts.beaconAddress, opts.bitcoin);
-  const changeAddress = resolveChangeAddress(opts.beaconAddress, opts.network, opts.changeAddress);
+
+  // Change always returns to the beacon address: the cohort's participants
+  // verify the tx they sign and reject any output that pays a foreign script
+  // (and any spend that carries the UTXO forward to no one), so a caller-named
+  // change destination can never be signed. Unlike the single-party builders,
+  // this builder takes no changeAddress option.
+  const changeAddress = opts.beaconAddress;
 
   // The funded beacon output is a Taproot script-tree output: key path is the
   // MuSig2 aggregate, script path is the k-of-n fallback + CSV recovery leaves
@@ -424,16 +426,29 @@ export async function buildAggregationBeaconTx(opts: {
   const witnessScript = OutScript.encode(Address(opts.network).decode(opts.beaconAddress));
 
   // The fee cannot be probe-measured (no secret key until the downstream MuSig2
-  // round), so size it analytically. The input is the cohort's P2TR key path; only
-  // the change output's kind varies, so the vsize follows the change address (ADR 045).
-  const changeKind = changeOutputKind(changeAddress, opts.network);
-  const vsize = beaconTxVsize('p2tr', changeKind);
+  // round), so size it analytically. The input is the cohort's P2TR key path and
+  // the change output is always the same P2TR beacon address, so the vsize is
+  // the fixed P2TR beacon constant (ADR 045), computed without a secret.
+  const vsize = beaconTxVsize('p2tr', 'p2tr');
   const feeSats = await feeEstimator.estimateFee(vsize);
   if(BigInt(utxo.value) <= feeSats) {
     throw new BeaconError(
       `UTXO value (${utxo.value}) insufficient to cover fee (${feeSats}).`,
       'INSUFFICIENT_FUNDS',
       { address: opts.beaconAddress, valueSats: utxo.value, feeSats }
+    );
+  }
+
+  // Change is mandatory on an aggregation spend: participants refuse to sign a
+  // tx with no self-change output at or above the dust floor, so a UTXO whose
+  // change would be dust can never be signed. Refuse here instead of emitting a
+  // tx the cohort's own members will reject.
+  const changeValue = BigInt(utxo.value) - feeSats;
+  if(changeValue < BigInt(DUST_LIMIT_SATS.p2tr)) {
+    throw new BeaconError(
+      `Change after fees (${changeValue} sats) falls below the ${DUST_LIMIT_SATS.p2tr}-sat dust floor; fund the beacon address with a larger UTXO.`,
+      'INSUFFICIENT_FUNDS',
+      { address: opts.beaconAddress, valueSats: utxo.value, feeSats, changeSats: changeValue }
     );
   }
 
@@ -448,12 +463,9 @@ export async function buildAggregationBeaconTx(opts: {
     witnessUtxo    : { amount: BigInt(utxo.value), script: witnessScript },
     tapInternalKey : opts.internalPubkey,
   });
-  // Change first (omitted when it would be dust, sweeping the remainder into the
-  // fee), then the OP_RETURN signal, which the spec requires to be the last output.
-  const changeValue = BigInt(utxo.value) - feeSats;
-  if(changeValue >= BigInt(DUST_LIMIT_SATS[changeKind])) {
-    tx.addOutputAddress(changeAddress, changeValue, opts.network);
-  }
+  // Change first, then the OP_RETURN signal, which the spec requires to be the
+  // last output.
+  tx.addOutputAddress(changeAddress, changeValue, opts.network);
   tx.addOutput({ script: opReturnScript(opts.signalBytes), amount: 0n });
 
   return {

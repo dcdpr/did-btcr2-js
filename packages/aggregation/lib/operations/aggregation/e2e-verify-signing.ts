@@ -25,11 +25,11 @@ import { DidBtcr2, Resolver, Updater, resolveBtcr2SenderPk } from '@did-btcr2/me
  * Exit code: 0 on success, non-zero on any assertion failure.
  */
 import assert from 'node:assert/strict';
+import { getNetwork } from '@did-btcr2/bitcoin';
 import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { bytesToHex } from '@noble/hashes/utils';
-import { p2tr, SigHash, Transaction } from '@scure/btc-signer';
-import * as musig2 from '@scure/btc-signer/musig2';
+import { Address, OutScript, Script, SigHash, Transaction } from '@scure/btc-signer';
 import type { Transport } from '../../../src/index.js';
 import {
   AggregationParticipantRunner,
@@ -40,6 +40,7 @@ import {
 
 const RELAY = process.env.RELAY ?? 'ws://localhost:7777';
 const TIMEOUT_MS = Number(process.env.TIMEOUT_MS ?? 60_000);
+const NETWORK = getNetwork('mutinynet');
 
 // ── Identities ──
 const serviceKeys = SchnorrKeyPair.generate();
@@ -103,24 +104,34 @@ const service = new AggregationServiceRunner({
   config      : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: bytesToHex(serviceKeys.publicKey.compressed.slice(1)), recoverySequence: 144 },
   cohortTtlMs : TIMEOUT_MS,
 
-  onProvideTxData : async ({ cohortId }) => {
+  onProvideTxData : async ({ cohortId, signalBytes }) => {
     const cohort = service.session.getCohort(cohortId)!;
-    const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-    const payment = p2tr(aggPk);
+    // Spend the cohort's script-tree beacon output (the funded address's
+    // scriptPubKey, NOT a tree-less p2tr of the aggregate key), return
+    // self-change to the beacon script, and anchor the signal in a single
+    // zero-value OP_RETURN: participants verify all of this before signing.
+    const script = OutScript.encode(Address(NETWORK).decode(cohort.beaconAddress));
     const prevOutValue = 100_000n;
-    const tx = new Transaction({ version: 2 });
+    const tx = new Transaction({ version: 2, allowUnknownOutputs: true });
     tx.addInput({
-      txid        : '00'.repeat(32),
-      index       : 0,
-      witnessUtxo : { amount: prevOutValue, script: payment.script },
+      txid           : '00'.repeat(32),
+      index          : 0,
+      witnessUtxo    : { amount: prevOutValue, script },
+      tapInternalKey : cohort.internalKey,
     });
-    tx.addOutput({ script: payment.script, amount: prevOutValue - 500n });
+    tx.addOutput({ script, amount: prevOutValue - 500n });
+    tx.addOutput({ script: Script.encode(['RETURN', signalBytes]), amount: 0n });
 
-    capturedTweakedPk = payment.tweakedPubkey;
-    capturedSighash = tx.preimageWitnessV1(0, [payment.script], SigHash.DEFAULT, [prevOutValue]);
+    // The output script of a P2TR address is OP_1 <32-byte tweaked pubkey>:
+    // the tweaked key is read back from the funded script itself so the final
+    // BIP-340 check verifies against the exact key the UTXO commits to.
+    const decoded = OutScript.decode(script);
+    assert.ok(decoded.type === 'tr', 'beacon output is not P2TR');
+    capturedTweakedPk = decoded.pubkey;
+    capturedSighash = tx.preimageWitnessV1(0, [script], SigHash.DEFAULT, [prevOutValue]);
     capturedBeaconAddress = cohort.beaconAddress;
 
-    return { tx, prevOutScripts: [payment.script], prevOutValues: [prevOutValue] };
+    return { tx, prevOutScripts: [script], prevOutValues: [prevOutValue] };
   },
 });
 

@@ -11,10 +11,10 @@ import { DidBtcr2, GenesisDocument, Identifier, Resolver, Updater, resolveBtcr2S
  * Usage:
  *   RELAY=ws://localhost:7777 bun lib/operations/aggregation/e2e-per-actor-transport.ts
  */
+import { getNetwork } from '@did-btcr2/bitcoin';
 import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';
-import { p2tr, Transaction } from '@scure/btc-signer';
-import * as musig2 from '@scure/btc-signer/musig2';
+import { Address, OutScript, Script, Transaction } from '@scure/btc-signer';
 import type {
   Transport} from '../../../src/index.js';
 import {
@@ -24,6 +24,7 @@ import {
 } from '../../../src/index.js';
 
 const RELAY = process.env.RELAY ?? 'ws://localhost:7777';
+const NETWORK = getNetwork('mutinynet');
 
 const serviceKeys = SchnorrKeyPair.generate();
 const serviceDid = DidBtcr2.create(serviceKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
@@ -109,19 +110,24 @@ const service = new AggregationServiceRunner({
   keys      : serviceKeys,
   config    : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: bytesToHex(serviceKeys.publicKey.compressed.slice(1)), recoverySequence: 144 },
 
-  onProvideTxData : async ({ cohortId }) => {
+  onProvideTxData : async ({ cohortId, signalBytes }) => {
     const cohort = service.session.getCohort(cohortId)!;
-    const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-    const payment = p2tr(aggPk);
+    // Spend the cohort's script-tree beacon output (the funded address's
+    // scriptPubKey, NOT a tree-less p2tr of the aggregate key), return
+    // self-change to the beacon script, and anchor the signal in a single
+    // zero-value OP_RETURN: participants verify all of this before signing.
+    const script = OutScript.encode(Address(NETWORK).decode(cohort.beaconAddress));
     const prevOutValue = 100000n;
-    const tx = new Transaction({ version: 2 });
+    const tx = new Transaction({ version: 2, allowUnknownOutputs: true });
     tx.addInput({
-      txid        : '00'.repeat(32),
-      index       : 0,
-      witnessUtxo : { amount: prevOutValue, script: payment.script },
+      txid           : '00'.repeat(32),
+      index          : 0,
+      witnessUtxo    : { amount: prevOutValue, script },
+      tapInternalKey : cohort.internalKey,
     });
-    tx.addOutput({ script: payment.script, amount: prevOutValue - 500n });
-    return { tx, prevOutScripts: [payment.script], prevOutValues: [prevOutValue] };
+    tx.addOutput({ script, amount: prevOutValue - 500n });
+    tx.addOutput({ script: Script.encode(['RETURN', signalBytes]), amount: 0n });
+    return { tx, prevOutScripts: [script], prevOutValues: [prevOutValue] };
   },
 });
 

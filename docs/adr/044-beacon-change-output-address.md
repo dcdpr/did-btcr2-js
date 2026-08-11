@@ -6,6 +6,8 @@ title: "ADR 044: Beacon Change Output - Caller-Supplied Address to End Beacon-Ad
 
 **Status:** Accepted (implementation pending)
 
+**Amendment (2026-08):** Decision 1 is narrowed for the aggregation path: `buildAggregationBeaconTx` no longer accepts a `changeAddress`, and change always returns to the cohort's beacon address. Aggregation participants verify the transaction they sign and reject any output paying a foreign script, any spend without a self-change output, and any self-change below the dust floor, so a caller-named change destination could never be signed; the option is removed rather than shipped as a lever the cohort's own members veto (Decisions 2 and 5 are superseded accordingly). The single-party builders are unchanged and keep the `changeAddress` lever. The change-output dust floor is unified at 546 sats across all script kinds so the builders and the participant guard agree on one value, and the aggregation builder refuses a UTXO whose change after fees would fall below it instead of emitting an unsignable transaction.
+
 **Date:** 2026-06-24
 
 **Branch / PR:** `feat/aggregation-privacy-fees`

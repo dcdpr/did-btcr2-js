@@ -102,6 +102,10 @@ export interface AuthorizationRequestBody {
   pendingTx: string;
   prevOutScriptHex: string;
   prevOutValue: string;
+  /** Display-order txid of the beacon UTXO the pending tx spends (input 0). */
+  fundingTxid: string;
+  /** Output index of the beacon UTXO the pending tx spends (input 0). */
+  fundingVout: number;
 }
 
 export interface NonceContributionBody {
@@ -135,6 +139,10 @@ export interface FallbackAuthorizationRequestBody {
   pendingTx: string;
   prevOutScriptHex: string;
   prevOutValue: string;
+  /** Display-order txid of the beacon UTXO the pending tx spends (input 0). */
+  fundingTxid: string;
+  /** Output index of the beacon UTXO the pending tx spends (input 0). */
+  fundingVout: number;
   fallbackLeafScriptHex: string;
 }
 
@@ -279,6 +287,8 @@ export function isSubmitUpdateMessage(m: BaseMessage): m is SubmitUpdateMessage 
     const pv = (proof as Record<string, unknown>).proofValue;
     if(vm !== undefined && typeof vm !== 'string') return false;
     if(pv !== undefined && typeof pv !== 'string') return false;
+    const cap = (proof as Record<string, unknown>).capability;
+    if(cap !== undefined && typeof cap !== 'string') return false;
   }
   return true;
 }
@@ -307,7 +317,9 @@ export function isAuthorizationRequestMessage(m: BaseMessage): m is Authorizatio
     && hasStr(m.body, 'sessionId')
     && hasStr(m.body, 'pendingTx')
     && hasStr(m.body, 'prevOutScriptHex')
-    && hasStr(m.body, 'prevOutValue');
+    && hasStr(m.body, 'prevOutValue')
+    && hasStr(m.body, 'fundingTxid')
+    && hasIntMin(m.body, 'fundingVout', 0);
 }
 
 export function isNonceContributionMessage(m: BaseMessage): m is NonceContributionMessage {
@@ -338,6 +350,8 @@ export function isFallbackAuthorizationRequestMessage(m: BaseMessage): m is Fall
     && hasStr(m.body, 'pendingTx')
     && hasStr(m.body, 'prevOutScriptHex')
     && hasStr(m.body, 'prevOutValue')
+    && hasStr(m.body, 'fundingTxid')
+    && hasIntMin(m.body, 'fundingVout', 0)
     && hasStr(m.body, 'fallbackLeafScriptHex');
 }
 

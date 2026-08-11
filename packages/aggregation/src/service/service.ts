@@ -39,6 +39,23 @@ import { ServiceCohortPhase } from '../core/phases.js';
 import { BeaconSigningSession } from '../core/signing-session.js';
 
 /**
+ * Extract the funded outpoint (display-order txid + vout) a signing tx spends
+ * at input 0. Carried on the (fallback) authorization request so participants
+ * can verify the tx they sign spends exactly this beacon UTXO.
+ */
+function fundingOutpointOf(tx: Transaction, cohortId: string): { fundingTxid: string; fundingVout: number } {
+  const input = tx.getInput(0);
+  if(!input?.txid || input.index === undefined) {
+    throw new AggregationServiceError(
+      `Cannot start signing for cohort ${cohortId}: the pending tx has no outpoint at input 0.`,
+      'MISSING_FUNDING_OUTPOINT', { cohortId }
+    );
+  }
+  const txid = typeof input.txid === 'string' ? input.txid : bytesToHex(input.txid);
+  return { fundingTxid: txid.toLowerCase(), fundingVout: input.index };
+}
+
+/**
  * Cohort configuration set by the service operator: the advertised cohort
  * {@link CohortConditions} plus the Bitcoin network. `beaconType` and
  * `minParticipants` are required; the other conditions are optional (absent =
@@ -103,6 +120,7 @@ export type RejectionReason =
   | 'INVALID_PARTIAL_SIG'
   | 'DUPLICATE_PARTIAL_SIG'
   | 'BAD_PARTIAL_SIG'
+  | 'SIGNAL_MISMATCH'
   | 'SESSION_ERROR';
 
 /** Record of a silently-dropped inbound message. Drained by the runner to emit events. */
@@ -157,6 +175,9 @@ interface ServiceCohortState {
 
 /** Default maximum canonicalized byte-length of a submitted BTCR2 update. */
 export const DEFAULT_MAX_UPDATE_SIZE_BYTES = 256 * 1024;
+
+/** Prefix of the ZCAP root capability a did:btcr2 update proof invokes (`urn:zcap:root:<url-encoded did>`). */
+const ROOT_CAPABILITY_PREFIX = 'urn:zcap:root:';
 
 /**
  * Default cap on pending (not-yet-accepted) opt-ins retained per cohort. Opt-ins
@@ -694,8 +715,8 @@ export class AggregationService {
    * Verify the BIP-340 Schnorr Data Integrity proof on a submitted update using the
    * participant's accepted cohort key. Returns `false` (and the update is silently
    * dropped) if the proof is missing or malformed, the verificationMethod does
-   * not name the sender's DID, the update document carries an `id` naming a DID
-   * other than the sender's, the sender has no accepted key on record,
+   * not name the sender's DID, the proof's root capability names a DID other
+   * than the sender's, the sender has no accepted key on record,
    * or the signature fails verification.
    * @param {ServiceCohortState} state - the current state of the cohort to which the update was submitted
    * @param {string} sender - the DID of the participant who submitted the update
@@ -719,13 +740,19 @@ export class AggregationService {
     const vmDid = proof.verificationMethod.split('#')[0];
     if(vmDid !== sender) return false;
 
-    // If the update document carries an `id`, it must be the sender's own DID:
-    // a validly-signed update whose document id names a DIFFERENT DID would be
-    // aggregated under the sender's key while actually updating someone else's
-    // DID document. Updates without an `id` (e.g. patch-only
-    // payloads) are unaffected.
-    const docId = (signedUpdate as { id?: unknown }).id;
-    if(typeof docId === 'string' && docId !== sender) return false;
+    // The proof's root capability names the DID being updated
+    // (`urn:zcap:root:<url-encoded did>`); it must be the sender's own DID.
+    // Without this check a member could submit a validly-proved update naming
+    // a DIFFERENT DID and have it aggregated under its own slot.
+    const capability = proof.capability;
+    if(typeof capability !== 'string' || !capability.startsWith(ROOT_CAPABILITY_PREFIX)) return false;
+    let capabilityDid: string;
+    try {
+      capabilityDid = decodeURIComponent(capability.slice(ROOT_CAPABILITY_PREFIX.length));
+    } catch {
+      return false;
+    }
+    if(capabilityDid !== sender) return false;
 
     // The sender's key is the one accepted into the cohort:
     // pending-but-unaccepted opt-ins no longer authenticate submissions.
@@ -824,7 +851,11 @@ export class AggregationService {
     // cohort into signing.
     const signalBytesHex = message.body?.signalBytesHex;
     const expectedHex = state.cohort.signalBytes ? bytesToHex(state.cohort.signalBytes) : undefined;
-    if(!signalBytesHex || signalBytesHex !== expectedHex) return;
+    if(!signalBytesHex || signalBytesHex !== expectedHex) {
+      this.#reject(state, message.from, 'SIGNAL_MISMATCH',
+        'Validation ack does not commit to the distributed signal');
+      return;
+    }
 
     // addValidation throws UNKNOWN_PARTICIPANT for a non-member ack. Convert to a
     // recorded rejection: an opted-in-but-not-accepted (or former) sender who
@@ -887,6 +918,11 @@ export class AggregationService {
       );
     }
 
+    // Declare the funded outpoint the tx spends so each participant can bind
+    // its signature to the exact beacon UTXO, not just the beacon script and
+    // amount committed by the sighash.
+    const { fundingTxid, fundingVout } = fundingOutpointOf(txData.tx, cohortId);
+
     const messages: BaseMessage[] = [];
     for(const participantDid of state.cohort.participants) {
       messages.push(createAuthorizationRequestMessage({
@@ -897,6 +933,8 @@ export class AggregationService {
         pendingTx        : txData.tx.hex,
         prevOutScriptHex : bytesToHex(prevOutScript),
         prevOutValue     : txData.prevOutValues[0]?.toString() ?? '0',
+        fundingTxid,
+        fundingVout,
       }));
     }
     return messages;
@@ -1152,6 +1190,8 @@ export class AggregationService {
     state.fallbackRequired = false;
     state.phase = ServiceCohortPhase.FallbackRequested;
 
+    const { fundingTxid, fundingVout } = fundingOutpointOf(session.pendingTx, cohortId);
+
     const messages: BaseMessage[] = [];
     for(const participantDid of state.cohort.participants) {
       messages.push(createFallbackAuthorizationRequestMessage({
@@ -1162,6 +1202,8 @@ export class AggregationService {
         pendingTx             : session.pendingTx.hex,
         prevOutScriptHex      : bytesToHex(prevOutScript),
         prevOutValue          : prevOutValue.toString(),
+        fundingTxid,
+        fundingVout,
         fallbackLeafScriptHex : bytesToHex(fallbackLeaf),
       }));
     }

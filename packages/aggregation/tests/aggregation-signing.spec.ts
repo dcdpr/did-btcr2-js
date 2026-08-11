@@ -70,6 +70,39 @@ describe('Aggregation signing regressions', () => {
       expect(() => p1.generatePartialSignature(kp1.secretKey.bytes))
         .to.throw(/MISSING_SECRET_NONCE|Secret nonce not available/);
     });
+
+    it('rejects a repeated generateNonceContribution instead of overwriting the secret nonce', () => {
+      const kp1 = SchnorrKeyPair.generate();
+      const kp2 = SchnorrKeyPair.generate();
+      const cohort = new AggregationCohort({
+        minParticipants  : 2,
+        network          : 'bitcoin',
+        recoveryKey      : hexToBytes(TEST_RECOVERY_KEY),
+        recoverySequence : TEST_RECOVERY_SEQUENCE,
+      });
+      cohort.participants.push('did:btcr2:alice', 'did:btcr2:bob');
+      cohort.participantKeys.set('did:btcr2:alice', kp1.publicKey.compressed);
+      cohort.participantKeys.set('did:btcr2:bob', kp2.publicKey.compressed);
+      cohort.cohortKeys = [kp1.publicKey.compressed, kp2.publicKey.compressed];
+      cohort.computeBeaconAddress();
+
+      const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
+      const payment = p2tr(aggPk);
+      const tx = buildDummyTx(payment.script, 100000n);
+
+      const p1 = new BeaconSigningSession({
+        cohort,
+        pendingTx      : tx,
+        prevOutScripts : [payment.script],
+        prevOutValues  : [100000n],
+      });
+      p1.generateNonceContribution(kp1.publicKey.compressed, kp1.secretKey.bytes);
+
+      // A second call would silently overwrite the retained secret nonce; the
+      // session refuses instead of risking a leaked or desynchronized nonce.
+      expect(() => p1.generateNonceContribution(kp1.publicKey.compressed, kp1.secretKey.bytes))
+        .to.throw(/NONCE_ALREADY_GENERATED|already generated/);
+    });
   });
 
   describe('T3.2: partial-sig pre-verification', () => {
