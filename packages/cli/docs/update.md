@@ -50,6 +50,11 @@ go before the `update` keyword.
 - **Funding checkpoint.** Before broadcasting, the beacon address is checked for spendable UTXOs
   via the Bitcoin REST endpoint. An unfunded beacon aborts after signing but before any spend:
   `Beacon address ... is unfunded. Send BTC to this address before broadcasting the update.`
+- **Broadcast confirmation.** On every network except regtest, the beacon transaction is built
+  first and the operator must confirm it: the prompt shows the DID, network, beacon, and the
+  exact fee (in sats and BTC) of the built transaction, and only `yes` proceeds. Declining, or a
+  non-interactive invocation without `-y/--yes`, aborts before the transaction is signed or
+  broadcast; the beacon UTXO stays unspent.
 - **CAS-before-chain ordering.** Under `auto`/`always` with a writable CAS, the signed update
   (and, for CAS beacons, the announcement) is published to CAS before the transaction broadcast,
   so a CAS failure aborts while the beacon UTXO is intact and a retry is idempotent.

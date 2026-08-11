@@ -2,16 +2,17 @@ import { createApi, DEFAULT_BITCOIN_NETWORK_CONFIG, DEFAULT_CAS_GATEWAY, Identif
 import type { KeyManager } from '@did-btcr2/key-manager';
 import { StaticFeeEstimator } from '@did-btcr2/method';
 import type { BroadcastOptions } from '@did-btcr2/method';
-import { readFileSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { CLIError } from './error.js';
 import { MAX_FEE_RATE_SATS_PER_VBYTE } from './confirm.js';
-import { ensureDir, writeFileAtomic } from './keystore/atomic.js';
+import { ensureDir, isSecretFileModeAllowed, writeFileAtomic } from './keystore/atomic.js';
 import { FileBackedKeyManager } from './keystore/file-backed-key-manager.js';
 import { keystoreProtection, keystoreVerifierId } from './keystore/file-key-store.js';
 import { defaultKeystorePath } from './keystore/paths.js';
 import { acquirePassphrase } from './keystore/passphrase.js';
 import { readLiveSessionPassphrase } from './keystore/session.js';
+import { scrubUrlUserinfo, REDACTED } from './output.js';
 import { defaultConfigPath, defaultSessionPath } from './paths.js';
 import { blankToUndef, SUPPORTED_NETWORKS, type KeystoreProtectionLabel, type NetworkOption, type OutputFormat } from './types.js';
 
@@ -643,6 +644,16 @@ export function resolveConnectionConfig(
   const wantsRpc = rpcUnit !== undefined || rpcWallet !== undefined || rpcHeaders !== undefined;
   const hasRpcHost = rpcUnit?.url !== undefined || networkHasDefaultRpc;
   if (wantsRpc && hasRpcHost) {
+    // The credential unit is atomic: when a flag or profile layer supplies the
+    // RPC url (or user), a password from BTCR2_BTC_RPC_PASS is NOT merged across
+    // layers. Say so; a silently dropped password would otherwise surface later
+    // as an opaque RPC auth failure.
+    if (blankToUndef(env.btcRpcPass) !== undefined && rpcUnit !== undefined && rpcUnit.src !== 'env') {
+      console.error(
+        `Warning: ${ENV_VARS.BTC_RPC_PASS} is set, but the RPC credentials were resolved from the `
+        + `${rpcUnit.src} layer; the environment password is ignored.`,
+      );
+    }
     const password = resolveSecretRef(rpcUnit?.pass) ?? readRpcPassFile();
     btc.rpc = {
       ...(rpcUnit?.url  !== undefined ? { host: rpcUnit.url } : {}),
@@ -749,8 +760,23 @@ function trimTrailingNewline(value: string): string {
 /** Reads a secret file, throwing a {@link CLIError} (not a raw Node error) that names the path and source. */
 function readSecretFile(path: string, source: string): string {
   try {
+    // The file holds a cleartext secret: enforce the shared secret-file
+    // permission policy (0600/0400/0440/0640) before reading it. Not
+    // enforceable on Windows.
+    if (process.platform !== 'win32') {
+      const mode = statSync(path).mode & 0o777;
+      if (!isSecretFileModeAllowed(mode)) {
+        throw new CLIError(
+          `Refusing to read the RPC password ${source} at ${path}: permissions 0${mode.toString(8)} are too open; `
+          + `expected one of 0600, 0400, 0440, 0640. Fix with: chmod 600 ${path}`,
+          'CONFIG_READ_ERROR',
+          { path, mode: `0${mode.toString(8)}` },
+        );
+      }
+    }
     return trimTrailingNewline(readFileSync(path, 'utf-8'));
   } catch (error: unknown) {
+    if (error instanceof CLIError) throw error;
     throw new CLIError(
       `Could not read the RPC password ${source} at ${path}: ${(error as Error).message}`,
       'CONFIG_READ_ERROR',
@@ -957,6 +983,15 @@ export interface DoctorReport {
 /** Default per-probe timeout (ms) for `config doctor`. */
 const DOCTOR_PROBE_TIMEOUT_MS = 5000;
 
+/**
+ * Masks `user:pass@` userinfo anywhere in a string. Probe error messages can
+ * echo the full request URL (including embedded credentials), so details are
+ * scrubbed before they reach the doctor report.
+ */
+function scrubUserinfoInText(text: string): string {
+  return text.replace(/([a-z][a-z0-9+.-]*:\/\/[^/@\s:]+):[^/@\s]*@/gi, `$1:${REDACTED}@`);
+}
+
 /** Fetches a URL with a bounded timeout, reporting reachability rather than throwing. */
 async function probeEndpoint(
   endpoint : DoctorCheck['endpoint'],
@@ -974,7 +1009,7 @@ async function probeEndpoint(
       ? { endpoint, target, ok: true }
       : { endpoint, target, ok: false, detail: `HTTP ${res.status}` };
   } catch (error) {
-    return { endpoint, target, ok: false, detail: (error as Error).message };
+    return { endpoint, target, ok: false, detail: scrubUserinfoInText((error as Error).message) };
   }
 }
 
@@ -998,17 +1033,22 @@ export async function runDoctor(network: NetworkOption, overrides?: ConnectionOv
   const api = defaultApiFactory(network, overrides);
   const checks: DoctorCheck[] = [];
 
+  // Targets are printed verbatim in the report, so scrub any userinfo embedded
+  // in the endpoint URLs (the probes themselves still use the full URL).
   const restHost = api.btc.connection.rest.config.host.replace(/\/+$/, '');
-  checks.push(await probeEndpoint('btc-rest', restHost, `${restHost}/blocks/tip/height`, { headers: api.btc.connection.rest.config.headers }));
+  checks.push(await probeEndpoint(
+    'btc-rest', scrubUrlUserinfo(restHost)!, `${restHost}/blocks/tip/height`,
+    { headers: api.btc.connection.rest.config.headers },
+  ));
 
   const rpc = api.btc.connection.rpc;
   if (rpc) {
-    const target = rpc.config.host ?? '(default rpc)';
+    const target = scrubUrlUserinfo(rpc.config.host) ?? '(default rpc)';
     try {
       await withProbeTimeout(rpc.getBlockchainInfo(), DOCTOR_PROBE_TIMEOUT_MS);
       checks.push({ endpoint: 'btc-rpc', target, ok: true });
     } catch (error) {
-      checks.push({ endpoint: 'btc-rpc', target, ok: false, detail: (error as Error).message });
+      checks.push({ endpoint: 'btc-rpc', target, ok: false, detail: scrubUserinfoInText((error as Error).message) });
     }
   }
 
@@ -1018,10 +1058,10 @@ export async function runDoctor(network: NetworkOption, overrides?: ConnectionOv
   const conn = resolveConnectionConfig(network, overrides);
   if (conn.cas?.rpcUrl) {
     const base = conn.cas.rpcUrl.replace(/\/+$/, '');
-    checks.push(await probeEndpoint('cas', conn.cas.rpcUrl, `${base}/api/v0/version`, { method: 'POST' }));
+    checks.push(await probeEndpoint('cas', scrubUrlUserinfo(conn.cas.rpcUrl)!, `${base}/api/v0/version`, { method: 'POST' }));
   } else {
     const gateway = (conn.cas?.gateway ?? DEFAULT_CAS_GATEWAY).replace(/\/+$/, '');
-    checks.push(await probeEndpoint('cas', gateway, gateway));
+    checks.push(await probeEndpoint('cas', scrubUrlUserinfo(gateway)!, gateway));
   }
 
   const mismatch = profileNetworkMismatch(network, overrides);

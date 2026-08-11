@@ -173,7 +173,7 @@ function changeOutputKind(changeAddress: string, network: BTCNetwork): Singleton
 }
 
 /**
- * Options accepted by {@link SinglePartyBeacon.buildSignAndBroadcast} and related helpers.
+ * Options accepted by {@link SinglePartyBeacon.prepareSignalTx} and related helpers.
  */
 export interface BroadcastOptions {
   /** Fee estimator for computing the transaction fee. Defaults to {@link DEFAULT_FEE_ESTIMATOR}. */
@@ -233,10 +233,36 @@ export interface BeaconTxPlan {
   /** The fee (sats) already deducted from the change output. */
   feeSats: bigint;
   /**
+   * The vsize (vbytes) the fee was computed from. An upper bound for the
+   * finalized transaction's true vsize (the constants behind
+   * {@link beaconTxVsize} size the worst-case signature), so the fee rate
+   * actually paid is at least the configured rate.
+   */
+  vsize: number;
+  /**
    * Singleton beacon script kind, when applicable. Drives the signing dispatch
    * in {@link SinglePartyBeacon.signSinglePartyTx}. Aggregation plans set this to `'p2tr'`.
    */
   scriptKind: SingletonScriptKind;
+}
+
+/**
+ * A fully built single-party beacon signal transaction awaiting the caller's
+ * go-ahead. The transaction exists, so its fee is exact rather than an
+ * estimate, but nothing has been signed or broadcast: declining (by never
+ * calling {@link PreparedBroadcast.broadcast}) leaves the beacon UTXO unspent.
+ */
+export interface PreparedBroadcast {
+  /** The exact fee (sats) the built transaction pays (input value minus outputs). */
+  feeSats: bigint;
+  /** The vsize (vbytes) the fee was computed from; the signed transaction is this or smaller. */
+  vsize: number;
+  /**
+   * Publishes any off-chain artifacts (a CAS Announcement, when a `casPublish`
+   * callback was supplied), signs the spending input, and broadcasts the
+   * transaction. Resolves to the broadcast artifacts.
+   */
+  broadcast(): Promise<BroadcastResult>;
 }
 
 /**
@@ -357,7 +383,7 @@ async function fetchSpendableUtxo(
  * Returns the unsigned Transaction + prev-output metadata that an aggregation service's
  * signing session consumes (via {@link SigningTxData}).
  *
- * This is the reusable counterpart to {@link SinglePartyBeacon.buildSignAndBroadcast}'s internal
+ * This is the reusable counterpart to {@link SinglePartyBeacon.prepareSignalTx}'s internal
  * construction step: the aggregation path must produce an unsigned tx because the
  * signature comes from a MuSig2 round, not a local secret key.
  *
@@ -401,7 +427,8 @@ export async function buildAggregationBeaconTx(opts: {
   // round), so size it analytically. The input is the cohort's P2TR key path; only
   // the change output's kind varies, so the vsize follows the change address (ADR 045).
   const changeKind = changeOutputKind(changeAddress, opts.network);
-  const feeSats = await feeEstimator.estimateFee(beaconTxVsize('p2tr', changeKind));
+  const vsize = beaconTxVsize('p2tr', changeKind);
+  const feeSats = await feeEstimator.estimateFee(vsize);
   if(BigInt(utxo.value) <= feeSats) {
     throw new BeaconError(
       `UTXO value (${utxo.value}) insufficient to cover fee (${feeSats}).`,
@@ -437,6 +464,7 @@ export async function buildAggregationBeaconTx(opts: {
     changeAddress,
     utxo,
     feeSats,
+    vsize,
     scriptKind     : 'p2tr',
   };
 }
@@ -583,29 +611,39 @@ export abstract class SinglePartyBeacon {
   ): Promise<BroadcastResult>;
 
   /**
-   * Build + sign + broadcast a singleton beacon signal transaction. The beacon
-   * address's script kind (P2PKH / P2WPKH / P2TR) is detected automatically
-   * and the input is constructed and signed accordingly.
+   * Builds the beacon signal transaction for a signed update without signing or
+   * broadcasting it, so the caller can inspect (and confirm) the exact fee and
+   * size before any spend happens. The returned {@link PreparedBroadcast}
+   * carries the exact fee the built transaction pays; its `broadcast()` signs
+   * the input and sends the transaction.
    *
-   * Composed from the three extracted phases ({@link buildSinglePartyTx},
-   * {@link signSinglePartyTx}, {@link broadcastRawTx}) so each piece can be exercised
-   * in isolation. Aggregation beacons use {@link buildAggregationBeaconTx} instead:
-   * the multi-party path can't share the signing phase, but the tx-construction
-   * plumbing (UTXO fetch + OP_RETURN output + change output) is shared.
-   *
-   * @param signalBytes 32-byte payload to embed in OP_RETURN.
-   * @param signer Signer used to sign the spending input.
-   * @param bitcoin Bitcoin network connection.
-   * @param options Broadcast options (fee estimator, etc.).
-   * @returns The txid of the broadcast transaction.
-   * @throws {BeaconError} if the address is unfunded, no UTXO is available, or fee exceeds value.
+   * @param {SignedBTCR2Update} signedUpdate The signed BTCR2 update to broadcast.
+   * @param {Signer} signer Signer that will produce the signature for the spending input.
+   * @param {BitcoinConnection} bitcoin The Bitcoin network connection.
+   * @param {BroadcastOptions} [options] Optional broadcast configuration (e.g. fee estimator).
+   * @returns {Promise<PreparedBroadcast>} The built transaction's exact fee, size,
+   *   and broadcast continuation.
+   * @throws {BeaconError} if the bitcoin address is invalid, unfunded, or UTXO cannot cover the fee.
    */
-  protected async buildSignAndBroadcast(
+  abstract prepareBroadcast(
+    signedUpdate: SignedBTCR2Update,
+    signer: Signer,
+    bitcoin: BitcoinConnection,
+    options?: BroadcastOptions
+  ): Promise<PreparedBroadcast>;
+
+  /**
+   * Build the unsigned singleton beacon tx for `signalBytes` and return it with
+   * a continuation that signs and broadcasts it. Splitting build from
+   * sign-and-send lets a caller (e.g. an operator confirmation prompt) inspect
+   * the exact fee of the built transaction before anything is signed or spent.
+   */
+  protected async prepareSignalTx(
     signalBytes: Uint8Array,
     signer: Signer,
     bitcoin: BitcoinConnection,
     options?: BroadcastOptions
-  ): Promise<string> {
+  ): Promise<{ plan: BeaconTxPlan; broadcastTx: () => Promise<string> }> {
     const feeEstimator = options?.feeEstimator ?? DEFAULT_FEE_ESTIMATOR;
     const beaconAddress = this.service.serviceEndpoint.replace('bitcoin:', '');
     const { utxo, prevTxBytes } = await fetchSpendableUtxo(beaconAddress, bitcoin);
@@ -613,8 +651,13 @@ export abstract class SinglePartyBeacon {
       signalBytes, beaconAddress, utxo, prevTxBytes, signer, bitcoin, feeEstimator,
       changeAddress : options?.changeAddress,
     });
-    const signedHex = await this.signSinglePartyTx(plan, signer);
-    return this.broadcastRawTx(bitcoin, signedHex);
+    return {
+      plan,
+      broadcastTx : async () => {
+        const signedHex = await this.signSinglePartyTx(plan, signer);
+        return this.broadcastRawTx(bitcoin, signedHex);
+      },
+    };
   }
 
   /**
@@ -653,7 +696,8 @@ export abstract class SinglePartyBeacon {
     }
 
     const changeKind = changeOutputKind(changeAddress, network);
-    const feeSats = await opts.feeEstimator.estimateFee(beaconTxVsize(kind, changeKind));
+    const vsize = beaconTxVsize(kind, changeKind);
+    const feeSats = await opts.feeEstimator.estimateFee(vsize);
     const amount = BigInt(opts.utxo.value);
     if(amount <= feeSats) {
       throw new BeaconError(
@@ -715,6 +759,7 @@ export abstract class SinglePartyBeacon {
       changeAddress,
       utxo           : opts.utxo,
       feeSats,
+      vsize,
       scriptKind     : kind,
     };
   }

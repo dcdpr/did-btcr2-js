@@ -3,7 +3,7 @@ import { KeyManagerSigner } from '@did-btcr2/key-manager';
 import { StaticFeeEstimator } from '@did-btcr2/method';
 import type { Command } from 'commander';
 import { assertKeystoreAllowedForNetwork, deriveNetwork, resolveBroadcastOptions, resolveSigningKeyRef, type ApiFactory } from '../config.js';
-import { confirmBroadcast, DEFAULT_FEE_RATE_SATS_PER_VBYTE } from '../confirm.js';
+import { broadcastConfirmer, DEFAULT_FEE_RATE_SATS_PER_VBYTE } from '../confirm.js';
 import { CLIError } from '../error.js';
 import { printWatchHint } from '../hints.js';
 import { resolveKeyRef } from '../keystore/resolve-key-ref.js';
@@ -109,11 +109,13 @@ export function registerUpdateCommand(
         feeRate       : options.feeRate,
         changeAddress : options.changeAddress,
       });
-      // On-chain spends require explicit operator confirmation: show the plan
-      // (including the estimated absolute fee) and prompt, unless --yes was
-      // given. Skipped on regtest.
+      // On-chain spends require explicit operator confirmation: the SDK builds
+      // the beacon transaction first, then this callback displays the exact fee
+      // of the built transaction and prompts, unless --yes was given. Skipped
+      // on regtest. Declining (or a missing confirmation channel) aborts before
+      // anything is signed or broadcast.
       const feeEstimator = broadcastOptions?.feeEstimator;
-      confirmBroadcast({
+      const confirmBroadcast = broadcastConfirmer({
         action              : 'update',
         did,
         network,
@@ -136,6 +138,7 @@ export function registerUpdateCommand(
         beaconId             : parsed.beaconId,
         signer,
         publishToCas         : options.publishToCas,
+        confirmBroadcast,
         ...(broadcastOptions ? { broadcastOptions } : {}),
       });
       console.log(formatResult({ action: 'update', data }, globals()));

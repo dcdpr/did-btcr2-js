@@ -258,6 +258,15 @@ describe('session unlock agent (ADR 081)', () => {
       expect(readLiveSessionPassphrase(sessionPath, keystorePath, vid)).to.equal(undefined);
       expect(existsSync(sessionPath)).to.equal(false); // a loose-perm plaintext file is removed
     });
+
+    it('serves a group-read-only (0640) session file', function () {
+      if (process.platform === 'win32') return this.skip();
+      establishKeystore();
+      const vid = keystoreVerifierId(keystorePath);
+      writeSession(sessionPath, { keystorePath, verifierId: vid!, passphrase: 'pw', ttlMs: 60_000 });
+      chmodSync(sessionPath, 0o640);
+      expect(readLiveSessionPassphrase(sessionPath, keystorePath, vid)).to.equal('pw');
+    });
   });
 
   describe('keystore helpers', () => {

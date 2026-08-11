@@ -117,6 +117,40 @@ describe('SinglePartyBeacon.broadcastSignal result shape', () => {
     });
   });
 
+  describe('prepareBroadcast', () => {
+    it('builds without broadcasting and exposes the exact fee the built transaction pays', async () => {
+      const { signer, service } = testBeaconSetup('SingletonBeacon');
+      const sent: string[] = [];
+      const bitcoin = mockBitcoin(service.serviceEndpoint.replace('bitcoin:', ''), sent, []);
+      const update = fakeUpdate('singleton-prepare');
+
+      const prepared = await new SingletonBeacon(service).prepareBroadcast(update, signer, bitcoin);
+
+      expect(sent, 'prepare must not broadcast').to.have.length(0);
+      const result = await prepared.broadcast();
+      expect(result.txid).to.equal(TXID);
+      expect(sent).to.have.length(1);
+
+      // The advertised fee is exactly what the broadcast transaction pays:
+      // the input value minus the sum of its outputs.
+      const tx = Transaction.fromRaw(hexToBytes(sent[0]!), { allowUnknownOutputs: true, allowUnknownInputs: true });
+      let outTotal = 0n;
+      for (let i = 0; i < tx.outputsLength; i++) outTotal += tx.getOutput(i).amount!;
+      expect(prepared.feeSats).to.equal(100_000n - outTotal);
+      expect(prepared.vsize).to.be.a('number').and.to.be.greaterThan(0);
+    });
+
+    it('a prepared broadcast that is never sent spends nothing', async () => {
+      const { signer, service } = testBeaconSetup('SingletonBeacon');
+      const sent: string[] = [];
+      const bitcoin = mockBitcoin(service.serviceEndpoint.replace('bitcoin:', ''), sent, []);
+
+      await new SingletonBeacon(service).prepareBroadcast(fakeUpdate('singleton-decline'), signer, bitcoin);
+
+      expect(sent).to.have.length(0);
+    });
+  });
+
   describe('CASBeacon', () => {
     it('returns the announcement mapping the DID to the update hash, plus the txid', async () => {
       const { signer, service } = testBeaconSetup('CASBeacon');

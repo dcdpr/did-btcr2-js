@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { acquirePassphrase, dropLastUtf8Char, ENV_KEYSTORE_PASSPHRASE } from '../src/keystore/passphrase.js';
@@ -23,6 +23,7 @@ describe('acquirePassphrase', () => {
     const dir = mkdtempSync(join(tmpdir(), 'btcr2-pass-'));
     const file = join(dir, 'pass.txt');
     writeFileSync(file, 'file-pass\n');
+    chmodSync(file, 0o600);
     try {
       expect(acquirePassphrase({ passphraseFile: file })).to.equal('file-pass');
     } finally {
@@ -53,11 +54,45 @@ describe('acquirePassphrase', () => {
     const dir = mkdtempSync(join(tmpdir(), 'btcr2-pass-'));
     const file = join(dir, 'empty.txt');
     writeFileSync(file, '\n');
+    chmodSync(file, 0o600);
     try {
       expect(() => acquirePassphrase({ passphraseFile: file }))
         .to.throw(KeyStoreError).with.property('type', 'PASSPHRASE_REQUIRED_ERROR');
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  describe('passphrase file permissions', () => {
+    before(function () {
+      if (process.platform === 'win32') this.skip(); // mode bits unenforced
+    });
+
+    let dir: string;
+
+    beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'btcr2-pass-')); });
+
+    afterEach(() => { rmSync(dir, { recursive: true, force: true }); });
+
+    const readWithMode = (mode: number): string => {
+      delete process.env[ENV_KEYSTORE_PASSPHRASE];
+      const file = join(dir, 'pass.txt');
+      writeFileSync(file, 'file-pass\n');
+      chmodSync(file, mode);
+      return acquirePassphrase({ passphraseFile: file });
+    };
+
+    for (const mode of [0o600, 0o400, 0o440, 0o640]) {
+      it(`accepts a ${mode.toString(8)} passphrase file`, () => {
+        expect(readWithMode(mode)).to.equal('file-pass');
+      });
+    }
+
+    for (const mode of [0o620, 0o660, 0o644, 0o666, 0o700]) {
+      it(`rejects a ${mode.toString(8)} passphrase file`, () => {
+        expect(() => readWithMode(mode))
+          .to.throw(KeyStoreError).with.property('type', 'KEYSTORE_PERMISSION_ERROR');
+      });
     }
   });
 
@@ -91,6 +126,7 @@ describe('acquirePassphrase', () => {
       const dir = mkdtempSync(join(tmpdir(), 'btcr2-pass-'));
       const file = join(dir, 'pass.txt');
       writeFileSync(file, 'file-wins\n');
+      chmodSync(file, 0o600);
       const beforePrompt = (): string => { throw new Error('beforePrompt must not be consulted when a passphrase file is set'); };
       try {
         expect(acquirePassphrase({ passphraseFile: file, beforePrompt })).to.equal('file-wins');

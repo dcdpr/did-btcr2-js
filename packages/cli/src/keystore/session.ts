@@ -2,7 +2,7 @@ import { closeSync, constants, existsSync, fstatSync, openSync, readdirSync, rea
 import { basename, dirname, join, resolve } from 'node:path';
 import { utf8ToBytes } from '@noble/hashes/utils.js';
 import { base64urlnopad } from '@scure/base';
-import { ensureDir, writeFileAtomic } from './atomic.js';
+import { ensureDir, isSecretFileModeAllowed, writeFileAtomic } from './atomic.js';
 
 /**
  * The session unlock agent (ADR 081). `keystore unlock` caches the verified
@@ -246,7 +246,8 @@ function evaluateSession(
 /**
  * Reads and parses the session file with a plaintext secret in mind. On POSIX,
  * opens with `O_NOFOLLOW` (refusing a symlink) and refuses a non-regular file, a
- * file not owned by this user, or one accessible by group or other, best-effort
+ * file not owned by this user, or one more open than the shared secret-file
+ * permission policy (0600/0400/0440/0640), best-effort
  * deleting a rejected file and reading only from the opened descriptor (no TOCTOU
  * re-open). On Windows those POSIX guards are skipped (they would throw), so the
  * file is read normally under the same directory ACL the keystore trusts, keeping
@@ -273,10 +274,10 @@ function secureReadSession(sessionPath: string): SessionFile | undefined {
     try {
       const st = fstatSync(fd);
       const myUid = typeof process.getuid === 'function' ? process.getuid() : undefined;
-      if (!st.isFile() || (myUid !== undefined && st.uid !== myUid) || (st.mode & 0o077) !== 0) {
-        // Not a regular file we own with 0600 perms: it was not written by this
-        // process. Best-effort remove it (it may hold a plaintext passphrase) and
-        // fall back to a prompt.
+      if (!st.isFile() || (myUid !== undefined && st.uid !== myUid) || !isSecretFileModeAllowed(st.mode & 0o777)) {
+        // Not a regular file we own with secret-file permissions: it was not
+        // written by this process. Best-effort remove it (it may hold a
+        // plaintext passphrase) and fall back to a prompt.
         try {
           rmSync(sessionPath, { force: true });
         } catch {

@@ -87,7 +87,10 @@ fails with `Provide exactly one of --secret-file or --public.`
 
 - `--secret-file <path>`: the file's contents (surrounding whitespace ignored) must be the hex
   encoding of a 32-byte secret key (64 hex chars). Unreadable file, invalid hex, or a wrong length
-  each fail with a specific message. The secret is sealed into the keystore, which requires the
+  each fail with a specific message. The file must satisfy the shared secret-file permission
+  policy: mode `0600`, `0400`, `0440`, or `0640` (owner read/write, group read at most, no access
+  for others, no execute bits); anything group/world-writable or more open is rejected (not
+  enforceable on Windows). The secret is sealed into the keystore, which requires the
   passphrase on an encrypted keystore (and establishes it, with confirmation, on a fresh one).
 - `--public <hex>`: a 33-byte compressed secp256k1 public key as 66 hex chars, imported watch-only
   (no secret stored). Watch-only import never prompts for a passphrase.

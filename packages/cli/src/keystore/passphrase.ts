@@ -1,4 +1,5 @@
 import { readFileSync, readSync } from 'node:fs';
+import { assertSecretFilePerms } from './atomic.js';
 import { KeyStoreError } from './error.js';
 
 /** Environment variable that supplies the keystore passphrase for unattended use. */
@@ -47,6 +48,9 @@ export function acquirePassphrase(options: PassphraseOptions = {}): string {
     if (fromEnv) return assertNonEmpty(fromEnv.replace(/\r?\n$/, ''));
 
     if (options.passphraseFile) {
+      // The file holds a secret in cleartext: enforce the shared secret-file
+      // permission policy (0600/0400/0440/0640) before reading it.
+      assertSecretFilePerms(options.passphraseFile, 'Passphrase file');
       return assertNonEmpty(readFileSync(options.passphraseFile, 'utf-8').replace(/\r?\n$/, ''));
     }
 
