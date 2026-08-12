@@ -5,6 +5,7 @@ import { bytesToHex, randomBytes } from '@noble/hashes/utils';
 import { expect } from 'chai';
 import { SinglePartyBeacon } from '../src/core/beacon/beacon.js';
 import { CASBeacon } from '../src/core/beacon/cas-beacon.js';
+import { CASBeaconError, SMTBeaconError } from '../src/core/beacon/error.js';
 import { BeaconFactory } from '../src/core/beacon/factory.js';
 import type { BeaconService, BeaconSignal, BlockMetadata } from '../src/core/beacon/interfaces.js';
 import { SingletonBeacon } from '../src/core/beacon/singleton-beacon.js';
@@ -154,6 +155,20 @@ describe('SinglePartyBeacon.processSignals', () => {
       expect(result.needs[0]!.kind).to.equal('NeedSignedUpdate');
       expect((result.needs[0] as { updateHash: string }).updateHash).to.equal(updateHashHex);
     });
+
+    it('throws a typed error when the announcement entry for the DID is malformed base64url', () => {
+      // The entry for our DID is not valid base64url: the raw decode throw must
+      // not escape resolution as-is.
+      const announcement: CASAnnouncement = { [DID]: 'not!valid!base64url!' };
+      const announcementHashHex = bytesToHex(hash(canonicalize(announcement)));
+
+      const sidecar = emptySidecar();
+      sidecar.casMap.set(announcementHashHex, announcement);
+
+      expect(() => beacon.processSignals([fakeSignal(announcementHashHex)], sidecar))
+        .to.throw(CASBeaconError, 'Malformed update hash in CAS announcement')
+        .with.property('type', 'INVALID_CAS_ANNOUNCEMENT');
+    });
   });
 
   describe('SMTBeacon', () => {
@@ -233,6 +248,26 @@ describe('SinglePartyBeacon.processSignals', () => {
       expect(() => beacon.processSignals([fakeSignal(rootHex)], sidecar)).to.throw(
         'SMT proof missing required nonce field.'
       );
+    });
+
+    it('throws a typed error when proof hash fields are malformed base64url', () => {
+      // The nonce (and updateId) fail base64url decoding: the raw decode throw
+      // must not escape resolution as-is.
+      const rootHex = '1111111111111111111111111111111111111111111111111111111111111111';
+      const badProof: SMTProof = {
+        id        : rootHex,
+        nonce     : '!!!not-base64url!!!',
+        updateId  : 'also!!!not!!!base64url',
+        collapsed : '0',
+        hashes    : [],
+      };
+
+      const sidecar = emptySidecar();
+      sidecar.smtMap.set(rootHex, badProof);
+
+      expect(() => beacon.processSignals([fakeSignal(rootHex)], sidecar))
+        .to.throw(SMTBeaconError, 'Malformed SMT proof fields.')
+        .with.property('type', 'INVALID_SMT_PROOF');
     });
 
     it('throws when Merkle inclusion proof fails verification', () => {

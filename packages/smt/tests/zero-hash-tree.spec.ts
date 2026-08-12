@@ -147,6 +147,21 @@ describe('ZeroHashTree', () => {
           expect(proof.hashes.map(h => Buffer.from(h).toString('hex')))
             .to.deep.equal(expected.hashes.map(h => Buffer.from(h).toString('hex')));
         }
+        // Non-inclusion direction: (a) a target diverging at the lowest bit
+        // forks above the whole tree and takes it as a single sibling; (b) a
+        // target diverging at the pair's fork bit descends into the sibling
+        // branch and forks inside the compressed gap below it.
+        const targets = [
+          a.index ^ 1n,
+          a.index ^ (1n << BigInt(Math.min(sharedBits + 1, 255))),
+        ];
+        for (const target of targets) {
+          const expected = oracle.generateProof(leaves, target);
+          const proof = tree.proof(target);
+          expect(proof.collapsed).to.equal(expected.collapsed);
+          expect(proof.hashes.map(h => Buffer.from(h).toString('hex')))
+            .to.deep.equal(expected.hashes.map(h => Buffer.from(h).toString('hex')));
+        }
       }
     });
 

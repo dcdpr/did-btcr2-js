@@ -32,6 +32,7 @@ There are no subcommands and no positional arguments; the identifier is passed w
 | `-i, --identifier <identifier>` | A `did:btcr2` identifier string: `did:btcr2:` followed by a Bech32m-encoded body whose HRP is `k` (deterministic, 33-byte compressed secp256k1 pubkey) or `x` (external, 32-byte genesis-document hash). The embedded network must decode to one of `bitcoin`, `testnet3`, `testnet4`, `signet`, `mutinynet`, `regtest`. | none (required) | The DID to resolve. Decoded and validated before any I/O: a malformed DID fails immediately (for example `Invalid did: <value>`), and a DID whose network nibble decodes to a custom numeric network (decode-only values `1`-`3`) is rejected with `Unsupported network "<network>" in DID.` (`INVALID_ARGUMENT_ERROR`). |
 | `-r, --resolution-options <json>` | An inline JSON string; see "Resolution options JSON" below for the accepted shape. | none | Resolution options passed straight through to the resolver. Non-JSON input fails with `Invalid resolution options. Must be a valid JSON string.` (`INVALID_ARGUMENT_ERROR`). When both `-r` and `-p` are given, `-r` wins and `-p` is silently ignored. |
 | `-p, --resolution-options-path <path>` | Path to a file containing the same JSON shape as `-r`. | none | File-based alternative to `-r`. An unreadable path or non-JSON file content fails with `Invalid resolution options path. Must be a valid path to a JSON file.` (`INVALID_ARGUMENT_ERROR`). |
+| `--min-conf <n>` | A non-negative integer. | `6` | Minimum confirmations a beacon signal's transaction must have before its update is applied. A discoverability shortcut for the `minConf` resolution option; when both are given, the flag overrides any `minConf` carried in `-r`/`-p`. A non-integer value fails with `Invalid --min-conf value. Must be a non-negative integer.` (`INVALID_ARGUMENT_ERROR`). Lower it (for example `--min-conf 1`) on regtest/signet demos where waiting for 6 confirmations is impractical; leave it at the default on public networks. |
 | `-h, --help` | none | n/a | Print usage for the command and exit. |
 
 Validation order (from source): the identifier is decoded first, then `-r` is parsed, then `-p`.
@@ -49,6 +50,7 @@ an empty object `{}` is equivalent to passing no options.
 | `versionId` | string | ASCII string of the specific DID document version to resolve (versions start at `"1"`). |
 | `versionTime` | string | XML datetime, UTC, no sub-second precision (for example `'2026-07-01T00:00:00Z'`). Resolves the most recent version valid before that time. |
 | `maxDiscoveryRounds` | number | Opt-in upper bound on multi-round beacon-discovery passes. Unset, omitted, or non-positive means unlimited (termination is guaranteed by de-duplicating queried beacon addresses); a positive value is a resource guard, and exceeding it surfaces as an `INTERNAL_ERROR`. |
+| `minConf` | number | Minimum confirmations a beacon signal's transaction must have before its update is applied. Default `6`. Signals with fewer confirmations (or with missing/invalid confirmation metadata) are ignored, so on a freshly confirmed update resolution still returns the earlier document version until the signal reaches `minConf`. The `--min-conf <n>` flag sets the same field. |
 | `sidecar` | object | Off-chain data bundle, see below. |
 
 `sidecar` fields:
@@ -117,7 +119,7 @@ Settings that feed this command:
 | Bitcoin REST endpoint | `--btc-rest <url>` | `BTCR2_BTC_REST` | `profiles.<name>.btc.rest` | per network, see below |
 | Bitcoin Core RPC URL | `--btc-rpc-url <url>` | `BTCR2_BTC_RPC_URL` | `profiles.<name>.btc.rpcUrl` | `http://localhost:18443` (regtest only); none elsewhere |
 | RPC username | `--btc-rpc-user <user>` | `BTCR2_BTC_RPC_USER` | `profiles.<name>.btc.rpcUser` | none |
-| RPC password | `--btc-rpc-pass <pass>` | `BTCR2_BTC_RPC_PASS` | `profiles.<name>.btc.rpcPass` | none |
+| RPC password | none (no flag: a password on argv is visible in `ps` and shell history) | `BTCR2_BTC_RPC_PASS` | `profiles.<name>.btc.rpcPass` (accepts a literal value or an `env:<VAR>` / `file:<path>` secret reference) | none |
 | RPC password file | none | `BTCR2_BTC_RPC_PASS_FILE` | none | none |
 | RPC wallet | `--btc-rpc-wallet <name>` | none | `profiles.<name>.btc.wallet` | none |
 | Extra REST headers | `--btc-rest-header <header>` (repeatable, `'Key: Value'`) | none | `profiles.<name>.btc.headers` | none |
@@ -174,7 +176,7 @@ Behavior details, all confirmed against the source:
 Shared global flags are documented in the [docs README](./README.md#global-options). `resolve` notably interacts
 with: `-o, --output` (text vs json envelope), `--verbose` (full structured error output for
 CLI-typed errors), the connection overrides (`--btc-rest`, `--btc-rpc-url`, `--btc-rpc-user`,
-`--btc-rpc-pass`, `--btc-rpc-wallet`, `--btc-rest-header`, `--btc-rpc-header`, `--btc-timeout`,
+`--btc-rpc-wallet`, `--btc-rest-header`, `--btc-rpc-header`, `--btc-timeout`,
 `--cas-gateway`, `--cas-rpc-url`, `--cas-timeout`), and the state-location flags (`--home`,
 `-c, --config`, `--profile`). `--quiet`, `--keystore`, `--passphrase-file`, and `--signing-key`
 are accepted but have no effect on this command.
@@ -202,6 +204,9 @@ btcr2 resolve -i did:btcr2:x1qh... -p ./resolution-options.json
 
 # Cap multi-round beacon discovery as a resource guard
 btcr2 resolve -i did:btcr2:k1qq... -r '{"maxDiscoveryRounds":3}'
+
+# Accept a freshly confirmed signal on a regtest/signet demo (default is 6 confirmations)
+btcr2 resolve -i did:btcr2:k1qq... --min-conf 1
 
 # Override the Bitcoin REST endpoint and bound request time
 btcr2 --btc-rest 'https://mutinynet.com/api' --btc-timeout 15000 resolve -i did:btcr2:k1qq...

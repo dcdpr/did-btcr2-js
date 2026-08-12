@@ -1,14 +1,21 @@
 name: CI
 
 on:
-  # Vets external pull requests too (audit N2): pull_request runs with a
-  # read-only token on forked repos, and same-repo PRs simply get both a push
-  # and a pull_request run.
+  # Vets external pull requests too: pull_request runs with a read-only token
+  # on forked repos. Same-repo PRs would otherwise double-run (once for push,
+  # once for pull_request); the concurrency group below dedupes the two runs
+  # of the same head commit.
   - push
   - pull_request
 
-# No token permissions by default; jobs opt in to exactly what they need
-# (audit N2).
+# Keyed on the head commit: for a pull_request run that is the PR head SHA,
+# for a push run the pushed SHA, so the push and pull_request runs of the
+# same commit cancel each other instead of running twice.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
+# No token permissions by default; jobs opt in to exactly what they need.
 permissions: {}
 
 jobs:
@@ -16,8 +23,8 @@ jobs:
     runs-on: ubuntu-latest
 
     # The test job executes dependency code (install scripts, build, tests),
-    # so it must not hold a write token (audit N2). All actions are pinned to
-    # full commit SHAs, not mutable major tags (audit N1).
+    # so it must not hold a write token. All actions are pinned to full
+    # commit SHAs, not mutable major tags.
     permissions:
       contents: read
 
@@ -75,7 +82,7 @@ jobs:
     runs-on: ubuntu-latest
 
     # contents: write is needed to force-push the ci-badges branch (ADR 084);
-    # it is scoped to this job only, which runs no dependency code (audit N2).
+    # it is scoped to this job only, which runs no dependency code.
     permissions:
       contents: write
 

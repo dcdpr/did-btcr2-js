@@ -204,7 +204,7 @@ written by a newer CLI (`schemaVersion` above 1) aborts the network-recording wr
 Shared global flags are documented in the [docs README](./README.md#global-options); `quickstart` notably
 interacts with `--home`, `-c/--config`, `--profile`, `--keystore`, `--passphrase-file`,
 `-o/--output`, `--quiet`, `--verbose`, and (through the doctor probe) the endpoint overrides
-(`--btc-rest`, `--btc-rpc-url`, `--btc-rpc-user`, `--btc-rpc-pass`, `--btc-rpc-wallet`,
+(`--btc-rest`, `--btc-rpc-url`, `--btc-rpc-user`, `--btc-rpc-wallet`,
 `--btc-rest-header`, `--btc-rpc-header`, `--btc-timeout`, `--cas-gateway`, `--cas-rpc-url`,
 `--cas-timeout`).
 

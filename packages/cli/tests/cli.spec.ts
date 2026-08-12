@@ -127,6 +127,42 @@ describe('DidBtcr2Cli', () => {
         resolve.parseAsync(['-i', validDid, '-p', '/no/file/here.json'], { from: 'user' })
       ).to.be.rejectedWith(CLIError);
     });
+
+    it('rejects a non-integer --min-conf value', async () => {
+      const validDid = 'did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47';
+      const cli = new DidBtcr2Cli(createTestApiFactory());
+      const resolve = getSubcommand(cli, 'resolve');
+      await expect(
+        resolve.parseAsync(['-i', validDid, '--min-conf', 'soon'], { from: 'user' })
+      ).to.be.rejectedWith(CLIError, /--min-conf/);
+    });
+
+    it('passes --min-conf through to resolution options', async () => {
+      const validDid = 'did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47';
+      let seenOptions: unknown;
+      const factory = (network?: any) => {
+        const api = createTestApiFactory()(network);
+        const original = api.resolveDid.bind(api);
+        api.resolveDid = async (id: string, options?: any) => {
+          seenOptions = options;
+          return original(id, options);
+        };
+        return api;
+      };
+      const cli = new DidBtcr2Cli(factory as any);
+      const messages: string[] = [];
+      console.log = (msg?: any) => { if (msg !== undefined) messages.push(String(msg)); };
+
+      // versionId "1" is terminal at the genesis document: resolution completes
+      // without beacon discovery, so no Bitcoin connection is required.
+      const resolve = getSubcommand(cli, 'resolve');
+      await resolve.parseAsync(
+        ['-i', validDid, '-r', '{"versionId":"1"}', '--min-conf', '1'],
+        { from: 'user' }
+      );
+      expect(seenOptions).to.deep.equal({ versionId: '1', minConf: 1 });
+      expect(messages.join('\n')).to.include(validDid);
+    });
   });
 
   describe('update', () => {
