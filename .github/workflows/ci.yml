@@ -1,18 +1,19 @@
 name: CI
 
 on:
-  # Vets external pull requests too: pull_request runs with a read-only token
-  # on forked repos. Same-repo PRs would otherwise double-run (once for push,
-  # once for pull_request); the concurrency group below dedupes the two runs
-  # of the same head commit.
-  - push
-  - pull_request
+  # Push runs cover every branch: topic branches get CI on push, and main
+  # merges run the push-only badge publish below. Pull request runs are
+  # limited to PRs targeting main: fork PRs still get vetted with a
+  # read-only token before merge, while PRs between topic branches reuse
+  # the head branch's push run instead of doubling.
+  push:
+  pull_request:
+    branches: [main]
 
-# Keyed on the head commit: for a pull_request run that is the PR head SHA,
-# for a push run the pushed SHA, so the push and pull_request runs of the
-# same commit cancel each other instead of running twice.
+# Cancels superseded runs on the same ref or PR only. Push and pull_request
+# runs never share a group, so neither event type can cancel the other.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 # No token permissions by default; jobs opt in to exactly what they need.
