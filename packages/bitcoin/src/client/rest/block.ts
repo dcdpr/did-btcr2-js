@@ -30,7 +30,11 @@ export class BitcoinBlock {
    */
   public async count(): Promise<number> {
     const raw = await this.exec(this.protocol.getBlockTipHeight());
-    const height = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw.trim()) : NaN;
+    const height = typeof raw === 'number'
+      ? raw
+      : typeof raw === 'string' && raw.trim().length > 0
+        ? Number(raw.trim())
+        : NaN;
     if (!Number.isInteger(height) || height < 0) {
       throw new BitcoinRestError(`Invalid tip height response: ${JSON.stringify(raw)}`);
     }
@@ -39,21 +43,27 @@ export class BitcoinBlock {
 
   /**
    * Returns the Esplora block data for a given blockhash or height.
+   *
+   * Contract: this method either resolves with validated block data or
+   * throws; it never resolves to `undefined`. A lookup for a nonexistent
+   * block fails at the HTTP layer (Esplora answers 404, which the client
+   * turns into an error before this method sees a body), and an invalid or
+   * unresolvable height/hash is rejected by {@link getHash}.
+   *
    * @param {object} params The block hash or height.
    * @param {string} [params.blockhash] The blockhash of the block to query.
    * @param {number} [params.height] The block height of the block to query.
-   * @returns {Promise<EsploraBlock | undefined>} The block data.
-   * @throws {BitcoinRestError} If neither blockhash nor height is provided.
+   * @returns {Promise<EsploraBlock>} The block data.
+   * @throws {BitcoinRestError} If neither blockhash nor height is provided,
+   * the height does not resolve to a valid hash, or the block response is
+   * malformed.
    */
-  public async get({ blockhash, height }: { blockhash?: string; height?: number }): Promise<EsploraBlock | undefined> {
+  public async get({ blockhash, height }: { blockhash?: string; height?: number }): Promise<EsploraBlock> {
     if (!blockhash && height === undefined) {
       throw new BitcoinRestError('blockhash or height required', { blockhash, height });
     }
 
     blockhash ??= await this.getHash(height!);
-    if (!blockhash || typeof blockhash !== 'string') {
-      return undefined;
-    }
 
     const block = await this.exec(this.protocol.getBlock(blockhash));
     const reason = checkEsploraBlock(block);

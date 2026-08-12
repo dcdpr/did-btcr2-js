@@ -1,5 +1,6 @@
 import { expect } from 'chai';
 import { BitcoinRestClient } from '../src/client/rest/index.js';
+import { EsploraProtocol } from '../src/client/rest/protocol.js';
 import { JsonRpcProtocol } from '../src/client/rpc/protocol.js';
 import type { HttpExecutor, HttpRequest } from '../src/client/http.js';
 import { isInsecureRemoteHttp, redactUrlCredentials } from '../src/client/utils.js';
@@ -15,7 +16,7 @@ function captureWarn(fn: () => void): string[] {
 
 describe('credential hygiene', () => {
 
-  describe('JsonRpcProtocol cleartext-credential warning (M7)', () => {
+  describe('JsonRpcProtocol cleartext-credential warning', () => {
     it('warns when basic auth is sent over cleartext HTTP to a remote host', () => {
       const warnings = captureWarn(() => {
         new JsonRpcProtocol({ host: 'http://node.example.com:8332', username: 'u', password: 'p' });
@@ -60,7 +61,51 @@ describe('credential hygiene', () => {
     });
   });
 
-  describe('redactUrlCredentials (L11)', () => {
+  describe('EsploraProtocol cleartext-credential warning', () => {
+    it('warns when a configured Authorization header goes to a remote cleartext host', () => {
+      const warnings = captureWarn(() => {
+        new EsploraProtocol({ host: 'http://node.example.com:3000', headers: { Authorization: 'Bearer xyz' } });
+      });
+      expect(warnings).to.have.lengthOf(1);
+      expect(warnings[0]).to.match(/cleartext HTTP/);
+      expect(warnings[0]).to.not.contain('xyz');
+    });
+
+    it('warns when a lowercase authorization header goes to a remote cleartext host', () => {
+      const warnings = captureWarn(() => {
+        new EsploraProtocol({ host: 'http://node.example.com:3000', headers: { authorization: 'Bearer xyz' } });
+      });
+      expect(warnings).to.have.lengthOf(1);
+    });
+
+    it('warns for credentials embedded in the URL userinfo', () => {
+      const warnings = captureWarn(() => {
+        new EsploraProtocol({ host: 'http://user:pass@node.example.com:3000' });
+      });
+      expect(warnings).to.have.lengthOf(1);
+    });
+
+    it('stays quiet for loopback hosts, HTTPS, and credential-free HTTP', () => {
+      for (const config of [
+        { host: 'http://localhost:3000', headers: { Authorization: 'Bearer xyz' } },
+        { host: 'http://127.0.0.1:3000', headers: { Authorization: 'Bearer xyz' } },
+        { host: 'https://node.example.com:3000', headers: { Authorization: 'Bearer xyz' } },
+        { host: 'http://node.example.com:3000' },
+      ]) {
+        const warnings = captureWarn(() => { new EsploraProtocol(config); });
+        expect(warnings, JSON.stringify(config)).to.have.lengthOf(0);
+      }
+    });
+
+    it('warns once when constructed through BitcoinRestClient', () => {
+      const warnings = captureWarn(() => {
+        new BitcoinRestClient({ host: 'http://node.example.com:3000', headers: { Authorization: 'Bearer xyz' } });
+      });
+      expect(warnings).to.have.lengthOf(1);
+    });
+  });
+
+  describe('redactUrlCredentials', () => {
     it('strips userinfo from a parseable URL', () => {
       expect(redactUrlCredentials('http://user:pass@node.example.com:8332/'))
         .to.equal('http://node.example.com:8332/');
@@ -76,7 +121,7 @@ describe('credential hygiene', () => {
     });
   });
 
-  describe('isInsecureRemoteHttp (M7 helper)', () => {
+  describe('isInsecureRemoteHttp', () => {
     it('classifies hosts correctly', () => {
       expect(isInsecureRemoteHttp('http://node.example.com')).to.be.true;
       expect(isInsecureRemoteHttp('http://localhost:8332')).to.be.false;
@@ -85,22 +130,33 @@ describe('credential hygiene', () => {
     });
   });
 
-  describe('invalid RPC URL logging (L11)', () => {
+  describe('invalid RPC URL logging', () => {
     it('logs the redacted URL, never the credentials', () => {
       const original = console.error;
-      const messages: string[] = [];
-      console.error = (...args: unknown[]) => { messages.push(args.map(String).join(' ')); };
+      const argsList: unknown[][] = [];
+      console.error = (...args: unknown[]) => { argsList.push(args); };
       try {
         new JsonRpcProtocol({ host: 'http://user:supersecret@:' });
       } finally {
         console.error = original;
       }
-      expect(messages).to.have.lengthOf(1);
-      expect(messages[0]).to.not.contain('supersecret');
+      expect(argsList).to.have.lengthOf(1);
+      const args = argsList[0];
+      // Inspect the full serialized form of every logged argument, plus any
+      // `input` property an error object might carry: the credential-bearing
+      // URL must not appear under console inspection either.
+      const serialized = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+      expect(serialized).to.not.contain('supersecret');
+      expect(serialized).to.not.contain('user');
+      for (const arg of args) {
+        if (typeof arg === 'object' && arg !== null) {
+          expect(arg).to.not.have.property('input');
+        }
+      }
     });
   });
 
-  describe('BitcoinRestClient error handling (L11)', () => {
+  describe('BitcoinRestClient error handling', () => {
     function mockExecutor(response: { status: number; body: string; contentType?: string }): { executor: HttpExecutor; seen: HttpRequest[] } {
       const seen: HttpRequest[] = [];
       const executor: HttpExecutor = async (req) => {

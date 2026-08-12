@@ -123,3 +123,16 @@ export function isInsecureRemoteHttp(url: string): boolean {
   }
   return u.protocol === 'http:' && !LOOPBACK_HOSTNAMES.has(u.hostname);
 }
+
+/**
+ * Warn once (at client construction) when credentials will be sent over
+ * cleartext HTTP to a non-loopback host: anyone on the path can read them.
+ * Shared by the RPC and REST transports.
+ */
+export function warnIfCleartextCredentials(service: 'RPC' | 'REST', url: string, sendsCredentials: boolean): void {
+  if (!sendsCredentials || !isInsecureRemoteHttp(url)) return;
+  console.warn(
+    `WARNING: Bitcoin ${service} credentials will be sent over cleartext HTTP to ${new URL(url).host}. `
+    + 'Use HTTPS, an SSH tunnel, or a loopback bind instead.',
+  );
+}

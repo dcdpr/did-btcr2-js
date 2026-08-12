@@ -74,8 +74,9 @@ export class BitcoinConnection {
   /**
    * Converts Bitcoin (BTC) to satoshis.
    * Uses string-based arithmetic to avoid floating-point precision errors.
-   * @throws {RangeError} If the value is not finite, is out of range, or has
-   * more than 8 decimal places of precision.
+   * @throws {RangeError} If the value is not finite, is out of range, has
+   * more than 8 decimal places of precision, or converts to a satoshi total
+   * outside the safe-integer range (about 90,071,992.54740991 BTC).
    */
   static btcToSats(btc: number): number {
     if (!Number.isFinite(btc)) {
@@ -101,8 +102,13 @@ export class BitcoinConnection {
     if (Math.abs(abs - Number(str)) > tolerance) {
       throw new RangeError(`BTC value ${btc} exceeds 8 decimal places of precision`);
     }
-    const sats = Number(whole) * 1e8 + Number(frac);
-    return negative ? -sats : sats;
+    const sats = negative ? -(Number(whole) * 1e8 + Number(frac)) : Number(whole) * 1e8 + Number(frac);
+    // Beyond the safe-integer range the double cannot name every satoshi, so
+    // the conversion would silently round to a neighboring value.
+    if (!Number.isSafeInteger(sats)) {
+      throw new RangeError(`BTC value ${btc} exceeds the safe-integer satoshi range`);
+    }
+    return sats;
   }
 
   /**

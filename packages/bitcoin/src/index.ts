@@ -31,7 +31,7 @@ export type { FeeEstimator } from './fee-estimator.js';
 // Helpers
 export { getNetwork } from './network.js';
 export type { BTCNetwork } from './network.js';
-export { toBase64, safeText, redactUrlCredentials, isInsecureRemoteHttp } from './client/utils.js';
+export { toBase64, safeText, redactUrlCredentials, isInsecureRemoteHttp, warnIfCleartextCredentials } from './client/utils.js';
 export {
   DEFAULT_MAX_RESPONSE_BYTES,
   readJsonWithLimit,

@@ -47,7 +47,7 @@ export interface BitcoinRpcClient {
   createRawTransaction(inputs: CreateRawTxInputs[], outputs: CreateRawTxOutputs[], locktime?: number, replacable?: boolean): Promise<string>;
 
   /** Derives addresses from a descriptor. */
-  deriveAddresses(descriptor: string, range?: Array<number>): Promise<Array<DerivedAddresses>>;
+  deriveAddresses(descriptor: string, range?: Array<number>): Promise<DerivedAddresses>;
 
   /** Mines a specified number of blocks to a given address. */
   generateToAddress(nblocks: number, address: string): Promise<string[]>;

@@ -1,7 +1,7 @@
 import { BitcoinRpcError } from '../../errors.js';
 import type { RpcConfig } from '../../types.js';
 import type { HttpRequest } from '../http.js';
-import { isInsecureRemoteHttp, redactUrlCredentials, toBase64 } from '../utils.js';
+import { redactUrlCredentials, toBase64, warnIfCleartextCredentials } from '../utils.js';
 
 /**
  * An {@link HttpRequest} for a JSON-RPC batch call, carrying the request IDs
@@ -68,8 +68,15 @@ export class JsonRpcProtocol {
           url = u.toString().replace(/\/+$/, '');
         }
       } catch (error: unknown) {
-        // The raw URL may carry userinfo credentials; log only the redacted form.
-        console.error(`Invalid URL in Bitcoin RPC config: ${redactUrlCredentials(url)}`, error);
+        // The raw URL may carry userinfo credentials; log only the redacted
+        // URL and sanitized error fields, never the raw error object: its
+        // `input` property holds the original credential-bearing URL.
+        const { name, code, message } = (error ?? {}) as { name?: unknown; code?: unknown; message?: unknown };
+        console.error(`Invalid URL in Bitcoin RPC config: ${redactUrlCredentials(url)}`, {
+          name    : typeof name === 'string' ? name : 'Error',
+          code    : typeof code === 'string' ? code : 'UNKNOWN',
+          message : typeof message === 'string' ? message : String(error),
+        });
       }
     }
 
@@ -91,16 +98,11 @@ export class JsonRpcProtocol {
     };
 
     // Warn when credentials (basic auth or a caller-supplied Authorization
-    // header) will be sent over cleartext HTTP to a non-loopback host: anyone on
-    // the path can read them.
+    // header) will be sent over cleartext HTTP to a non-loopback host: anyone
+    // on the path can read them.
     const sendsCredentials = authHeader !== undefined
       || Object.keys(cfg.headers ?? {}).some(h => h.toLowerCase() === 'authorization');
-    if (sendsCredentials && isInsecureRemoteHttp(url)) {
-      console.warn(
-        `WARNING: Bitcoin RPC credentials will be sent over cleartext HTTP to ${new URL(url).host}. `
-        + 'Use HTTPS, an SSH tunnel, or a loopback bind instead.',
-      );
-    }
+    warnIfCleartextCredentials('RPC', url, sendsCredentials);
   }
 
   /**
@@ -170,7 +172,7 @@ export class JsonRpcProtocol {
    * @param ids The IDs captured on the {@link BatchHttpRequest} at build time.
    */
   parseBatchResponse(
-    payloads: Array<{ id: number; result?: unknown; error?: { code: number; message: string } }>,
+    payloads: unknown,
     calls: Array<{ method: string; params: unknown[] }>,
     ids: readonly number[],
   ): unknown[] {
@@ -181,7 +183,26 @@ export class JsonRpcProtocol {
         `Batch id count (${ids.length}) does not match call count (${calls.length})`,
       );
     }
-    const byId = new Map(payloads.map(p => [p.id, p]));
+    if (!Array.isArray(payloads)) {
+      throw new BitcoinRpcError(
+        'INVALID_RESPONSE',
+        -1,
+        'Batch response is not an array',
+        { methods: calls.map(c => c.method) }
+      );
+    }
+    const byId = new Map<number, { id: number; result?: unknown; error?: { code: number; message: string } }>();
+    for (const entry of payloads) {
+      if (typeof entry !== 'object' || entry === null || typeof (entry as { id?: unknown }).id !== 'number') {
+        throw new BitcoinRpcError(
+          'INVALID_RESPONSE',
+          -1,
+          'Batch response entry is not an object with a numeric id',
+          { methods: calls.map(c => c.method) }
+        );
+      }
+      byId.set(entry.id, entry);
+    }
 
     return calls.map((call, i) => {
       const payload = byId.get(ids[i]);
@@ -198,13 +219,15 @@ export class JsonRpcProtocol {
   }
 
   /**
-   * Return a copy of the headers with the Authorization value redacted.
-   * Use this for logging or debugging.
+   * Return a copy of the headers with the Authorization value redacted
+   * (matched case-insensitively). Use this for logging or debugging.
    */
   redactedHeaders(): Record<string, string> {
     const copy = { ...this._headers };
-    if (copy.Authorization) {
-      copy.Authorization = 'Basic [REDACTED]';
+    for (const key of Object.keys(copy)) {
+      if (key.toLowerCase() === 'authorization') {
+        copy[key] = copy[key].startsWith('Basic') ? 'Basic [REDACTED]' : '[REDACTED]';
+      }
     }
     return copy;
   }

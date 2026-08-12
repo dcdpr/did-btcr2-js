@@ -9,6 +9,7 @@ import type { HttpExecutor, HttpRequest } from '../src/client/http.js';
 
 const VALID_TXID = 'a'.repeat(64);
 const VALID_HASH = 'b'.repeat(64);
+const CONFIRMED_STATUS = { confirmed: true, block_height: 100, block_hash: VALID_HASH, block_time: 1700000000 };
 
 /** Creates a mock executor that records requests and returns configured responses. */
 function mockExecutor(
@@ -48,14 +49,14 @@ function createMockSubClient() {
     if (req.url.includes('/tx') && req.method === 'POST') return VALID_TXID;
     if (req.url.includes('/tx/')) return { txid: VALID_TXID, vin: [], vout: [], status: { confirmed: false } };
     if (req.url.includes('/utxo')) {
-      return [{ txid: VALID_TXID, vout: 0, value: 5000, status: { confirmed: true, block_height: 100 } }];
+      return [{ txid: VALID_TXID, vout: 0, value: 5000, status: CONFIRMED_STATUS }];
     }
     if (req.url.includes('/address/') && req.url.includes('/txs/chain')) {
-      return [{ txid: VALID_TXID, vin: [], vout: [], status: { confirmed: true, block_height: 100 } }];
+      return [{ txid: VALID_TXID, vin: [], vout: [], status: CONFIRMED_STATUS }];
     }
     if (req.url.includes('/address/') && req.url.endsWith('/txs/mempool')) return [];
     if (req.url.includes('/address/') && req.url.endsWith('/txs')) {
-      return [{ txid: VALID_TXID, vin: [], vout: [], status: { confirmed: true, block_height: 100 } }];
+      return [{ txid: VALID_TXID, vin: [], vout: [], status: CONFIRMED_STATUS }];
     }
     if (req.url.includes('/address/')) return { address: 'addr1', chain_stats: {}, mempool_stats: {} };
     return {};
@@ -464,7 +465,7 @@ describe('BitcoinAddress', () => {
     const protocol = new EsploraProtocol({ host: 'https://test.com' });
     const exec = async () => [
       { txid: VALID_TXID, vin: [], vout: [], status: { confirmed: false } },
-      { txid: VALID_TXID, vin: [], vout: [], status: { confirmed: true, block_height: 100 } },
+      { txid: VALID_TXID, vin: [], vout: [], status: CONFIRMED_STATUS },
     ];
     const address = new BitcoinAddress(protocol, exec);
     expect(await address.isFundedAddress('addr1')).to.equal(true);
@@ -478,7 +479,7 @@ describe('BitcoinAddress', () => {
   });
 
   it('works end-to-end through BitcoinRestClient with executor', async () => {
-    const utxos = [{ txid: VALID_TXID, vout: 0, value: 5000, status: { confirmed: true, block_height: 100 } }];
+    const utxos = [{ txid: VALID_TXID, vout: 0, value: 5000, status: CONFIRMED_STATUS }];
     const { executor } = mockExecutor({ body: utxos });
     const rest = new BitcoinRestClient({ host: 'http://node' }, executor);
 

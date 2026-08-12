@@ -2,8 +2,15 @@ import { BitcoinRpcError } from '../../errors.js';
 import type { RpcConfig } from '../../types.js';
 import type { HttpExecutor} from '../http.js';
 import { defaultHttpExecutor } from '../http.js';
-import { DEFAULT_MAX_RESPONSE_BYTES, readJsonWithLimit, safeText } from '../utils.js';
+import { DEFAULT_MAX_RESPONSE_BYTES, readJsonWithLimit, readTextWithLimit } from '../utils.js';
 import { JsonRpcProtocol } from './protocol.js';
+
+/**
+ * Maximum characters of an HTTP error body embedded in a thrown
+ * {@link BitcoinRpcError}: the body is diagnostic, so a large (but
+ * in-cap) error page must not bloat the error message.
+ */
+const MAX_ERROR_BODY_CHARS = 1024;
 
 export class JsonRpcTransport {
   /**
@@ -40,6 +47,24 @@ export class JsonRpcTransport {
   }
 
   /**
+   * Read an HTTP error body through the same size cap as success bodies,
+   * truncated for use as a diagnostic message. A body that exceeds the cap
+   * throws the typed cap-exceeded error instead of being read unbounded.
+   */
+  private async readErrorBody(res: Response, context: Record<string, unknown>): Promise<string> {
+    let text: string;
+    try {
+      text = await readTextWithLimit(res, this.maxResponseBytes);
+    } catch (error: unknown) {
+      const cause = error instanceof Error ? error.message : String(error);
+      throw new BitcoinRpcError('INVALID_RESPONSE', -1, `Unreadable RPC response: ${cause}`, context);
+    }
+    return text.length > MAX_ERROR_BODY_CHARS
+      ? `${text.slice(0, MAX_ERROR_BODY_CHARS)}...`
+      : text;
+  }
+
+  /**
    * Execute a single JSON-RPC call.
    */
   async call(method: string, params: unknown[] = []): Promise<unknown> {
@@ -47,7 +72,7 @@ export class JsonRpcTransport {
     const res = await this.execute(request);
 
     if (!res.ok) {
-      const text = await safeText(res);
+      const text = await this.readErrorBody(res, { method });
       throw new BitcoinRpcError(
         'HTTP_ERROR',
         res.status,
@@ -75,7 +100,7 @@ export class JsonRpcTransport {
     const res = await this.execute(request);
 
     if (!res.ok) {
-      const text = await safeText(res);
+      const text = await this.readErrorBody(res, { methods: calls.map(c => c.method) });
       throw new BitcoinRpcError(
         'HTTP_ERROR',
         res.status,
@@ -84,7 +109,7 @@ export class JsonRpcTransport {
       );
     }
 
-    const payloads = await this.readBody<Array<{ id: number; result?: unknown; error?: { code: number; message: string } }>>(
+    const payloads = await this.readBody<unknown>(
       res,
       { methods: calls.map(c => c.method) }
     );

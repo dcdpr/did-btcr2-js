@@ -29,10 +29,18 @@ function isNonEmptyString(value: unknown): value is string {
 export function checkTransactionStatus(value: unknown): string | null {
   if (!isPlainObject(value)) return 'status is not an object';
   if (typeof value.confirmed !== 'boolean') return 'status.confirmed is not a boolean';
-  // A confirmed tx must report the block it was mined in; confirmation counts
-  // are derived from this height downstream.
-  if (value.confirmed === true && !isNonNegativeInteger(value.block_height)) {
-    return 'status.block_height is not a non-negative integer for a confirmed transaction';
+  // A confirmed tx must report the block it was mined in and when; confirmation
+  // counts and timestamps are derived from these fields downstream.
+  if (value.confirmed === true) {
+    if (!isNonNegativeInteger(value.block_height)) {
+      return 'status.block_height is not a non-negative integer for a confirmed transaction';
+    }
+    if (!isNonEmptyString(value.block_hash)) {
+      return 'status.block_hash is not a non-empty string for a confirmed transaction';
+    }
+    if (!isNonNegativeInteger(value.block_time)) {
+      return 'status.block_time is not a non-negative integer for a confirmed transaction';
+    }
   }
   return null;
 }
@@ -81,11 +89,22 @@ export function checkAddressInfo(value: unknown): string | null {
   return null;
 }
 
+/**
+ * Effective verbosity of a `getblock`/`getrawtransaction` call: the second
+ * positional parameter when it is an integer, otherwise the client's default.
+ */
+function effectiveVerbosity(params: unknown[] | undefined, fallback: number): number {
+  const v = params?.[1];
+  return typeof v === 'number' && Number.isInteger(v) ? v : fallback;
+}
+
 /** Verbose (`getrawtransaction` v1/v2) transaction from Bitcoin Core. */
-function checkRawTransactionRpc(value: unknown): string | null {
+function checkRawTransactionRpc(value: unknown, verbosity: number): string | null {
   // Verbosity 0 returns a bare hex string.
-  if (typeof value === 'string') return value.length > 0 ? null : 'result is an empty string';
-  if (!isPlainObject(value)) return 'transaction is not an object';
+  if (verbosity === 0) {
+    return isNonEmptyString(value) ? null : 'result is not a non-empty hex string (verbosity 0)';
+  }
+  if (!isPlainObject(value)) return `result is not a decoded transaction object (verbosity ${verbosity})`;
   if (!isNonEmptyString(value.txid)) return 'txid is not a non-empty string';
   if (!Array.isArray(value.vin)) return 'vin is not an array';
   if (!Array.isArray(value.vout)) return 'vout is not an array';
@@ -97,12 +116,24 @@ function checkRawTransactionRpc(value: unknown): string | null {
   return null;
 }
 
-/** `getblock` result: hex string at verbosity 0, decoded object otherwise. */
-function checkBlockRpc(value: unknown): string | null {
-  if (typeof value === 'string') return value.length > 0 ? null : 'result is an empty string';
-  if (!isPlainObject(value)) return 'block is not an object';
+/** `getblock` result, checked against the requested verbosity. */
+function checkBlockRpc(value: unknown, verbosity: number): string | null {
+  // Verbosity 0 returns a bare hex string.
+  if (verbosity === 0) {
+    return isNonEmptyString(value) ? null : 'result is not a non-empty hex string (verbosity 0)';
+  }
+  if (!isPlainObject(value)) return `result is not a decoded block object (verbosity ${verbosity})`;
   if (!isNonEmptyString(value.hash)) return 'block.hash is not a non-empty string';
   if (!isNonNegativeInteger(value.height)) return 'block.height is not a non-negative integer';
+  // Verbosity >= 1 carries a tx list: txids at verbosity 1, decoded
+  // transactions at verbosity 2/3. Consumers iterate this array.
+  if (!Array.isArray(value.tx)) return `block.tx is not an array (verbosity ${verbosity})`;
+  for (const [i, entry] of (value.tx as unknown[]).entries()) {
+    const reason = verbosity === 1
+      ? (isNonEmptyString(entry) ? null : 'not a txid string')
+      : checkRawTransactionRpc(entry, verbosity);
+    if (reason) return `block.tx[${i}]: ${reason}`;
+  }
   return null;
 }
 
@@ -126,8 +157,13 @@ function checkStringArray(value: unknown): string | null {
 /**
  * Structural check on a Bitcoin Core RPC result for the given method.
  * Methods without an entry pass through unchecked (`null`).
+ *
+ * `params` are the request parameters actually sent: `getblock` and
+ * `getrawtransaction` responses are validated against the requested
+ * verbosity (defaulting to the client's own defaults of 3 and 2), so a
+ * hex-string or header-only response cannot pass as a decoded payload.
  */
-export function checkRpcResult(method: string, result: unknown): string | null {
+export function checkRpcResult(method: string, result: unknown, params?: unknown[]): string | null {
   switch (method) {
     case 'getblockcount':
       return isNonNegativeInteger(result) ? null : 'result is not a non-negative integer';
@@ -149,9 +185,9 @@ export function checkRpcResult(method: string, result: unknown): string | null {
       if (typeof result.chain !== 'string') return 'result.chain is not a string';
       return null;
     case 'getblock':
-      return checkBlockRpc(result);
+      return checkBlockRpc(result, effectiveVerbosity(params, 3));
     case 'getrawtransaction':
-      return checkRawTransactionRpc(result);
+      return checkRawTransactionRpc(result, effectiveVerbosity(params, 2));
     case 'gettransaction':
       if (!isPlainObject(result)) return 'result is not an object';
       if (!isNonEmptyString(result.txid)) return 'result.txid is not a non-empty string';
