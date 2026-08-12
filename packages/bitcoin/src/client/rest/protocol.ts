@@ -1,6 +1,7 @@
 import { StringUtils } from '@did-btcr2/common';
 import type { RestConfig } from '../../types.js';
 import type { HttpRequest } from '../http.js';
+import { warnIfCleartextCredentials } from '../utils.js';
 
 const HEX64_RE = /^[0-9a-f]{64}$/i;
 
@@ -37,6 +38,15 @@ export class EsploraProtocol {
       'Content-Type' : 'application/json',
       ...config.headers,
     };
+
+    // Warn when configured credentials (an Authorization header or URL
+    // userinfo) will be sent over cleartext HTTP to a non-loopback host.
+    let sendsCredentials = Object.keys(config.headers ?? {}).some(h => h.toLowerCase() === 'authorization');
+    try {
+      const u = new URL(config.host);
+      sendsCredentials ||= Boolean(u.username || u.password);
+    } catch { /* an unparseable host carries no usable credentials */ }
+    warnIfCleartextCredentials('REST', config.host, sendsCredentials);
   }
 
   private static assertHex64(value: string, label: string): void {

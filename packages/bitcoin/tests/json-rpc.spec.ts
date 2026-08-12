@@ -266,6 +266,40 @@ describe('JsonRpcProtocol', () => {
         expect(err.message).to.include('does not match call count');
       }
     });
+
+    it('throws a typed error for a non-array payload (object, string, null)', () => {
+      const protocol = new JsonRpcProtocol({});
+      const calls = [
+        { method: 'getblockcount', params: [] as unknown[] },
+        { method: 'getblockhash', params: [100] as unknown[] },
+      ];
+      const req = protocol.buildBatchRequest(calls);
+      for (const body of [{ id: 1, result: 1 }, 'oops', null]) {
+        try {
+          protocol.parseBatchResponse(body, calls, req.ids);
+          expect.fail(`Expected to throw for ${JSON.stringify(body)}`);
+        } catch (err: any) {
+          expect(err).to.be.instanceOf(BitcoinRpcError);
+          expect(err.type).to.equal('INVALID_RESPONSE');
+          expect(err.message).to.include('not an array');
+        }
+      }
+    });
+
+    it('throws a typed error for an array with a malformed entry', () => {
+      const protocol = new JsonRpcProtocol({});
+      const calls = [{ method: 'getblockcount', params: [] as unknown[] }];
+      const req = protocol.buildBatchRequest(calls);
+      for (const body of [[null], ['oops'], [{ result: 1 }]]) {
+        try {
+          protocol.parseBatchResponse(body, calls, req.ids);
+          expect.fail(`Expected to throw for ${JSON.stringify(body)}`);
+        } catch (err: any) {
+          expect(err).to.be.instanceOf(BitcoinRpcError);
+          expect(err.type).to.equal('INVALID_RESPONSE');
+        }
+      }
+    });
   });
 
   describe('redactedHeaders()', () => {
@@ -274,6 +308,15 @@ describe('JsonRpcProtocol', () => {
       const headers = protocol.redactedHeaders();
       expect(headers.Authorization).to.equal('Basic [REDACTED]');
       expect(headers['Content-Type']).to.equal('application/json');
+    });
+
+    it('redacts authorization headers regardless of name casing', () => {
+      for (const name of ['authorization', 'AUTHORIZATION', 'Authorization']) {
+        const protocol = new JsonRpcProtocol({ host: 'http://node:8332', headers: { [name]: 'Bearer secret-token' } });
+        const headers = protocol.redactedHeaders();
+        expect(headers[name], name).to.equal('[REDACTED]');
+        expect(JSON.stringify(headers)).to.not.contain('secret-token');
+      }
     });
 
     it('returns clean headers when no auth is present', () => {
@@ -443,6 +486,25 @@ describe('JsonRpcTransport', () => {
       const results = await transport.batch([]);
       expect(results).to.deep.equal([]);
       expect(seen).to.have.length(0);
+    });
+
+    it('throws a typed error when a batch response body is not an array', async () => {
+      const executor: HttpExecutor = async () => new Response(JSON.stringify({ result: 'not-a-batch' }), {
+        status  : 200,
+        headers : { 'Content-Type': 'application/json' },
+      });
+      const transport = new JsonRpcTransport({ host: 'http://node:8332' }, executor);
+      try {
+        await transport.batch([
+          { method: 'getblockcount', params: [] },
+          { method: 'getblockhash', params: [100] },
+        ]);
+        expect.fail('Expected to throw');
+      } catch (err: any) {
+        expect(err).to.be.instanceOf(BitcoinRpcError);
+        expect(err.type).to.equal('INVALID_RESPONSE');
+        expect(err.message).to.include('not an array');
+      }
     });
 
     it('falls back to single call for batch of one', async () => {

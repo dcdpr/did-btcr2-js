@@ -50,7 +50,7 @@ export interface RpcMethodMap {
   sendtoaddress:                  { params: [string, number];                                         result: string };
   signmessage:                    { params: [string, string];                                         result: string };
   verifymessage:                  { params: [string, string, string];                                 result: boolean };
-  deriveaddresses:                { params: [string, number[]?];                                      result: DerivedAddresses[] };
+  deriveaddresses:                { params: [string, number[]?];                                      result: DerivedAddresses };
   generatetoaddress:              { params: [number, string];                                         result: string[] };
 }
 
@@ -92,7 +92,7 @@ export class BitcoinCoreRpcClient implements BitcoinRpcClient {
     try {
       const raw = await this.#transport.call(method, parameters as unknown[]);
       const normalized = JSONUtils.isUnprototyped(raw) ? JSONUtils.normalize(raw) : raw;
-      const reason = checkRpcResult(method, normalized);
+      const reason = checkRpcResult(method, normalized, parameters as unknown[]);
       if (reason) {
         throw new BitcoinRpcError('INVALID_RESPONSE', -1, `Invalid ${method} response: ${reason}`, { method });
       }
@@ -207,7 +207,7 @@ export class BitcoinCoreRpcClient implements BitcoinRpcClient {
   }
 
   /** Derives one or more addresses corresponding to an output descriptor. */
-  public async deriveAddresses(descriptor: string, range?: Array<number>): Promise<Array<DerivedAddresses>> {
+  public async deriveAddresses(descriptor: string, range?: Array<number>): Promise<DerivedAddresses> {
     return await this.executeRpc('deriveaddresses', [descriptor, range]);
   }
 
@@ -279,9 +279,9 @@ export class BitcoinCoreRpcClient implements BitcoinRpcClient {
     const results = await this.#transport.batch(
       txids.map(txid => ({ method: 'getrawtransaction', params: [txid, v] as unknown[] }))
     );
-    return results.map(raw => {
+    return results.map((raw, i) => {
       const normalized = JSONUtils.isUnprototyped(raw) ? JSONUtils.normalize(raw) : raw;
-      const reason = checkRpcResult('getrawtransaction', normalized);
+      const reason = checkRpcResult('getrawtransaction', normalized, [txids[i], v]);
       if (reason) {
         throw new BitcoinRpcError('INVALID_RESPONSE', -1, `Invalid getrawtransaction response: ${reason}`, { method: 'getrawtransaction' });
       }
