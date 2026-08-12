@@ -1,5 +1,6 @@
 import type { NetworkName } from '@did-btcr2/bitcoin';
 import type { DocumentBytes, KeyBytes, PatchOperation } from '@did-btcr2/common';
+import { INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/common';
 import type { Signer } from '@did-btcr2/keypair';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import type { KeyIdentifier } from '@did-btcr2/key-manager';
@@ -239,9 +240,9 @@ export class DidBtcr2Api {
         const meta = resolution.didResolutionMetadata;
         const detail = meta?.error ? `: ${meta.error}` : '.';
         const extra = meta?.errorMessage ? ` ${meta.errorMessage}` : '';
-        throw new Error(
+        throw new UpdateError(
           `Failed to resolve DID ${did} for update${detail}${extra}`,
-          { cause: meta }
+          INVALID_DID_UPDATE, { did, resolutionMetadata: meta }
         );
       }
       doc = doc ?? resolution.didDocument as Btcr2DidDocument;
@@ -249,15 +250,17 @@ export class DidBtcr2Api {
       if (versionId === undefined) {
         const rawVersionId = resolution.didDocumentMetadata?.versionId;
         if (rawVersionId === undefined || rawVersionId === null) {
-          throw new Error(
+          throw new UpdateError(
             `Resolution of DID ${did} succeeded but returned no versionId in metadata. `
-            + 'Provide sourceVersionId explicitly.'
+            + 'Provide sourceVersionId explicitly.',
+            INVALID_DID_UPDATE, { did }
           );
         }
         const parsed = Number(rawVersionId);
         if (!Number.isFinite(parsed)) {
-          throw new Error(
-            `Resolution of DID ${did} returned a non-numeric versionId: ${String(rawVersionId)}.`
+          throw new UpdateError(
+            `Resolution of DID ${did} returned a non-numeric versionId: ${String(rawVersionId)}.`,
+            INVALID_DID_UPDATE, { did, versionId: rawVersionId }
           );
         }
         versionId = parsed;
@@ -269,8 +272,9 @@ export class DidBtcr2Api {
     // The marker is the `deactivated` property on the document,
     // which resolution also surfaces as didDocumentMetadata.deactivated.
     if (doc?.deactivated === true) {
-      throw new Error(
-        `DID ${did} is deactivated and cannot be updated. Deactivation is permanent.`
+      throw new UpdateError(
+        `DID ${did} is deactivated and cannot be updated. Deactivation is permanent.`,
+        INVALID_DID_UPDATE, { did }
       );
     }
 

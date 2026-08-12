@@ -257,7 +257,8 @@ export class DataIntegrityProofApi {
    * @param document The document to verify the proof for.
    * @param expectedPurpose The expected proof purpose.
    * @param mediaType The media type of the document.
-   * @param expectedDomain The expected domain for the proof.
+   * @param expectedDomain The expected domain(s) for the proof. Multiple domains
+   *   use AND semantics: every expected domain must be present in the proof.
    * @param expectedChallenge The expected challenge for the proof.
    * @param proof Optional explicit proof instance; defaults to current.
    * @returns The result of verifying the proof.
@@ -266,7 +267,7 @@ export class DataIntegrityProofApi {
     document: string,
     expectedPurpose: string,
     mediaType?: string,
-    expectedDomain?: string,
+    expectedDomain?: string | string[],
     expectedChallenge?: string,
     proof?: BIP340DataIntegrityProof,
   ): VerificationResult {

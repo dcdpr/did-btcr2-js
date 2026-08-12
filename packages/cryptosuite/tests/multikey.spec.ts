@@ -1,4 +1,4 @@
-import { JSONUtils, KeyPairError, MultikeyError } from '@did-btcr2/common';
+import { JSONUtils, MultikeyError } from '@did-btcr2/common';
 import type { Signer } from '@did-btcr2/keypair';
 import { LocalSigner, SchnorrKeyPair, Secp256k1SecretKey, CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { expect } from 'chai';
@@ -136,9 +136,24 @@ describe('SchnorrMultikey', () => {
       expect(multikey.publicKey.equals(publicKey)).to.be.true;
     });
 
-    it('should throw KeyPairError', () => {
+    it('should throw MultikeyError', () => {
       expect(() => multikey.sign(message))
-        .to.throw(KeyPairError, 'Secret key not available');
+        .to.throw(MultikeyError, 'Cannot sign: no secretKey');
+    });
+
+    it('signer getter returns false without throwing', () => {
+      expect(multikey.signer).to.be.false;
+    });
+
+    it('toJSON does not throw, carries no secret material, and reports signer: false', () => {
+      const json = multikey.toJSON();
+      expect(json.signer).to.be.false;
+      expect(json.keyPair).to.not.have.property('secretKey');
+
+      // JSON.stringify path (implicit toJSON) must also be safe
+      const stringified = JSON.stringify(multikey);
+      expect(stringified).to.not.include('secretKey');
+      expect(JSON.parse(stringified).signer).to.be.false;
     });
 
     it('should verify that a valid schnorr signature was produced by the Multikey', () => {
@@ -346,6 +361,13 @@ describe('SchnorrMultikey', () => {
     it('signer getter returns true even with a public-key-only keyPair', () => {
       const multikey = SchnorrMultikey.fromSigner(id, controller, localSigner);
       expect(multikey.signer).to.be.true;
+    });
+
+    it('toJSON reports signer: true and no secret material for a signer-backed public-only multikey', () => {
+      const multikey = SchnorrMultikey.fromSigner(id, controller, localSigner);
+      const json = multikey.toJSON();
+      expect(json.signer).to.be.true;
+      expect(json.keyPair).to.not.have.property('secretKey');
     });
 
     it('produces a verifiable schnorr signature delegating through the signer', () => {

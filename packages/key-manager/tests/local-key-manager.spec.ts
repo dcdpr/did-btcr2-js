@@ -50,6 +50,17 @@ describe('LocalKeyManager', () => {
       expect(kms.listKeys()).to.deep.equal([id]);
     });
 
+    it('copies the caller tags object on import (later mutation does not affect the stored entry)', () => {
+      const kms = new LocalKeyManager();
+      const tags: Record<string, string> = { label: 'original' };
+      const id = kms.importKey(SchnorrKeyPair.generate(), { tags });
+
+      tags.label = 'tampered';
+      tags.injected = 'nope';
+
+      expect(kms.getEntry(id).tags).to.deep.equal({ label: 'original' });
+    });
+
     it('computes publicKey when only secretKey provided', () => {
       const kms = new LocalKeyManager();
       const kp = SchnorrKeyPair.generate();
@@ -260,6 +271,17 @@ describe('LocalKeyManager', () => {
       const kms = new LocalKeyManager();
       const id = kms.generateKey({ tags: { purpose: 'test' } });
       expect(kms.listKeys()).to.deep.equal([id]);
+    });
+
+    it('copies the caller tags object on generate (later mutation does not affect the stored entry)', () => {
+      const kms = new LocalKeyManager();
+      const tags: Record<string, string> = { purpose: 'test' };
+      const id = kms.generateKey({ tags });
+
+      tags.purpose = 'tampered';
+      tags.injected = 'nope';
+
+      expect(kms.getEntry(id).tags).to.deep.equal({ purpose: 'test' });
     });
 
     it('generated key can sign and verify', () => {

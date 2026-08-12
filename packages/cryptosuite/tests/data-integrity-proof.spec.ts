@@ -110,6 +110,17 @@ describe('Data Integrity Proof', () => {
         JSON.stringify(securedDocument), 'attestationMethod', undefined, 'https://example.com'
       )).to.throw(/Domain mismatch/);
     });
+
+    it('throws for an empty expected domain list (fail-closed)', () => {
+      // An empty array would pass the every() check vacuously; it must be
+      // rejected instead of silently verifying.
+      const securedDocument = diProof.addProof(
+        { ...pristineDocument }, { ...pristineConfig, domain: 'https://example.com' }
+      );
+      expect(() => diProof.verifyProof(
+        JSON.stringify(securedDocument), 'attestationMethod', undefined, []
+      )).to.throw(/expectedDomain/);
+    });
   });
 
   describe('expiry enforcement', () => {
@@ -143,6 +154,17 @@ describe('Data Integrity Proof', () => {
         JSON.stringify(securedDocument), 'attestationMethod'
       )).to.throw(/expires/);
     });
+
+    it('verifies an expired proof when the reference time precedes expiry (historical replay)', () => {
+      const securedDocument = diProof.addProof(
+        { ...pristineDocument }, { ...pristineConfig, expires: '2024-01-01T00:00:00Z' }
+      );
+      const result = diProof.verifyProof(
+        JSON.stringify(securedDocument), 'attestationMethod', undefined, undefined, undefined,
+        { referenceTime: new Date('2023-06-01T00:00:00Z') }
+      );
+      expect(result.verified).to.be.true;
+    });
   });
 
   describe('input isolation', () => {
@@ -168,6 +190,36 @@ describe('Data Integrity Proof', () => {
       cfg.domain = 'https://attacker.example';
 
       expect(secured.proof.domain).to.equal('https://example.com');
+    });
+
+    it('post-hoc nested mutation of the caller config does not alter the secured proof', () => {
+      const cfg = { ...config, domain: ['https://a.example'] };
+      const secured = diProof.addProof({ ...unsecuredDocument }, cfg);
+
+      cfg.domain.push('https://attacker.example');
+
+      expect(secured.proof.domain).to.deep.equal(['https://a.example']);
+    });
+
+    it('post-hoc nested mutation of the caller document does not alter the secured document', () => {
+      const doc = {
+        ...unsecuredDocument,
+        credentialSubject : { id: 'did:example:1', alumniOf: { id: 'did:example:2', name: 'Example University' } }
+      } as any;
+      const secured = diProof.addProof(doc, { ...config }) as any;
+
+      doc.credentialSubject.alumniOf.name = 'tampered';
+
+      expect(secured.credentialSubject.alumniOf.name).to.equal('Example University');
+    });
+
+    it('mutating the secured proof does not alter the caller config', () => {
+      const cfg = { ...config, domain: ['https://a.example'] };
+      const secured = diProof.addProof({ ...unsecuredDocument }, cfg);
+
+      (secured.proof.domain as string[]).push('https://attacker.example');
+
+      expect(cfg.domain).to.deep.equal(['https://a.example']);
     });
   });
 });

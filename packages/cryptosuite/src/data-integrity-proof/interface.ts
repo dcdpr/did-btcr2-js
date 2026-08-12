@@ -1,4 +1,4 @@
-import type { Cryptosuite, VerificationResult } from '../cryptosuite/interface.js';
+import type { Cryptosuite, ProofVerificationOptions, VerificationResult } from '../cryptosuite/interface.js';
 
 /**
  * An unsecured document: any JSON object to which a Data Integrity proof can be
@@ -91,15 +91,19 @@ export interface DataIntegrityProof {
    * @param {string} document The stringified secured document to verify.
    * @param {string} expectedPurpose The expected proof purpose.
    * @param {string} mediaType The media type of the document.
-   * @param {string[]} expectedDomain The expected proof domain.
+   * @param {string | string[]} expectedDomain The expected proof domain(s).
+   *   Multiple domains use AND semantics: every expected domain must be present
+   *   in the proof's domain list. An empty array is rejected.
    * @param {string} expectedChallenge The expected proof challenge.
+   * @param {ProofVerificationOptions} [options] Optional verification options (reference time).
    * @returns {VerificationResult} The result of verifying the proof.
    */
   verifyProof(
     document: string,
     expectedPurpose: string,
     mediaType?: string,
-    expectedDomain?: string[],
+    expectedDomain?: string | string[],
     expectedChallenge?: string,
+    options?: ProofVerificationOptions,
   ): VerificationResult;
 }

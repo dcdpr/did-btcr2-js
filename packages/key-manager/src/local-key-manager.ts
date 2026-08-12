@@ -216,14 +216,18 @@ export class LocalKeyManager implements KeyManager {
       throw new KeyManagerError(`Key already exists: ${id}`, 'KEY_FOUND');
     }
 
-    // Build key entry: secret key may not be available for watch-only pairs
+    // Build key entry: secret key may not be available for watch-only pairs.
+    // Tags are copied so later mutation of the caller's object cannot alter the
+    // stored entry.
     const entry: KeyEntry = {
       publicKey : keyPair.publicKey.compressed,
-      ...(options.tags && { tags: options.tags }),
+      ...(options.tags && { tags: { ...options.tags } }),
     };
 
-    if (keyPair.hasSecretKey) {
-      entry.secretKey = keyPair.secretKey.bytes;
+    // Bytes-level access: avoids constructing a Secp256k1SecretKey wrapper per read
+    const secretBytes = keyPair.secretKeyBytes;
+    if (secretBytes) {
+      entry.secretKey = secretBytes;
     }
 
     this.#store.set(id, entry);
@@ -292,9 +296,11 @@ export class LocalKeyManager implements KeyManager {
     const id = this.#generateUrn(kp.publicKey.compressed);
 
     const entry: KeyEntry = {
-      secretKey : kp.secretKey.bytes,
+      // Bytes-level access: a freshly generated pair always carries a secret key
+      secretKey : kp.secretKeyBytes!,
       publicKey : kp.publicKey.compressed,
-      ...(options.tags && { tags: options.tags }),
+      // Copied so later mutation of the caller's object cannot alter the entry
+      ...(options.tags && { tags: { ...options.tags } }),
     };
 
     this.#store.set(id, entry);

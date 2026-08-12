@@ -22,7 +22,7 @@ export type {
   SchnorrKeyPairObject,
   SignatureBytes
 } from '@did-btcr2/common';
-export type { MultikeyObject } from '@did-btcr2/cryptosuite';
+export type { MultikeyObject, PublicMultikeyObject } from '@did-btcr2/cryptosuite';
 export type { DidResolutionResult, DidService, DidVerificationMethod } from '@web5/dids';
 
 // Local modules
