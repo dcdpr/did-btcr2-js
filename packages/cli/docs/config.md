@@ -278,7 +278,7 @@ Environment variables consulted:
 | `BTCR2_BTC_REST` | `effective`, `doctor` | Bitcoin REST endpoint override (as `--btc-rest`). |
 | `BTCR2_BTC_RPC_URL` | `effective`, `doctor` | Bitcoin Core RPC endpoint override (as `--btc-rpc-url`). |
 | `BTCR2_BTC_RPC_USER` | `effective`, `doctor` | RPC username (as `--btc-rpc-user`). |
-| `BTCR2_BTC_RPC_PASS` | `effective`, `doctor` | RPC password (as `--btc-rpc-pass`; accepts `env:<VAR>` / `file:<path>` secret references). Ignored (with a stderr warning) when a flag or profile layer supplies the RPC url or user, because credentials resolve as one atomic unit per layer. |
+| `BTCR2_BTC_RPC_PASS` | `effective`, `doctor` | RPC password (no flag equivalent; the value may itself be an `env:<VAR>` / `file:<path>` secret reference). Ignored (with a stderr warning) when a flag or profile layer supplies the RPC url or user, because credentials resolve as one atomic unit per layer. |
 | `BTCR2_BTC_RPC_PASS_FILE` | `effective`, `doctor` | Path to a file whose contents are the RPC password; consulted only when no layer supplies a password and an RPC config is being built. Subject to the secret-file permission policy (0600/0400/0440/0640). |
 | `BTCR2_CAS_GATEWAY` | `effective`, `doctor` | IPFS HTTP gateway for CAS reads (as `--cas-gateway`). |
 | `BTCR2_CAS_RPC_URL` | `effective`, `doctor` | IPFS HTTP RPC endpoint for a writable CAS (as `--cas-rpc-url`). |
@@ -331,7 +331,7 @@ the active profile for `effective`, `doctor`, and the keystore path in `config p
 `--keystore` overrides the keystore path `config path` reports; `-o/--output` switches text/json;
 `--quiet` suppresses the unknown-path warning from `config set`; `--verbose` prints full error
 objects; and the connection override flags (`--btc-rest`, `--btc-rpc-url`, `--btc-rpc-user`,
-`--btc-rpc-pass`, `--btc-rpc-wallet`, `--btc-rest-header`, `--btc-rpc-header`, `--btc-timeout`,
+`--btc-rpc-wallet`, `--btc-rest-header`, `--btc-rpc-header`, `--btc-timeout`,
 `--cas-gateway`, `--cas-rpc-url`, `--cas-timeout`) feed the `flag` layer of `effective` and
 `doctor`.
 

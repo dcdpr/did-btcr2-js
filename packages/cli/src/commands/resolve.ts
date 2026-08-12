@@ -18,10 +18,16 @@ export function registerResolveCommand(
     .requiredOption('-i, --identifier <identifier>', 'did:btcr2 identifier')
     .option('-r, --resolution-options <json>', 'JSON string containing resolution options')
     .option('-p, --resolution-options-path <path>', 'Path to a JSON file containing resolution options')
+    .option(
+      '--min-conf <n>',
+      'Minimum confirmations a beacon signal must have before its update is applied (default: 6). '
+        + 'Shortcut for the minConf resolution option; useful on regtest/signet demos.',
+    )
     .action(async (options: {
       identifier: string;
       resolutionOptions?: string;
       resolutionOptionsPath?: string;
+      minConf?: string;
     }) => {
       const parsed = await validateResolveOptions(options);
       const network = deriveNetwork(parsed.identifier);
@@ -36,6 +42,7 @@ async function validateResolveOptions(options: {
   identifier: string;
   resolutionOptions?: string;
   resolutionOptionsPath?: string;
+  minConf?: string;
 }): Promise<ResolveCommandOptions> {
   // Validate identifier format early
   Identifier.decode(options.identifier);
@@ -62,6 +69,19 @@ async function validateResolveOptions(options: {
         options
       );
     }
+  }
+
+  // The dedicated flag wins over a minConf carried in the -r/-p JSON: an
+  // explicit flag is the more deliberate signal.
+  if (options.minConf !== undefined) {
+    if (!/^\d+$/.test(options.minConf)) {
+      throw new CLIError(
+        'Invalid --min-conf value. Must be a non-negative integer.',
+        'INVALID_ARGUMENT_ERROR',
+        options
+      );
+    }
+    resolutionOptions = { ...resolutionOptions, minConf: Number(options.minConf) };
   }
   return { identifier: options.identifier, options: resolutionOptions };
 }

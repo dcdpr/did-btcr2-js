@@ -102,12 +102,11 @@ Serialized proofs follow the did:btcr2 [SMT Proof data structure](https://dcdpr.
 
 ## Low-level: zero-hash API
 
-If you need direct control over indexes and leaf hashes (outside the did:btcr2 leaf convention), use the zero-hash functions that `BTCR2MerkleTree` is built on:
+If you need direct control over indexes and leaf hashes (outside the did:btcr2 leaf convention), use the zero-hash tree that `BTCR2MerkleTree` is built on. `ZeroHashTree` builds the tree **once** (a compressed trie with memoized subtree hashes) and then serves any number of proofs by a single trie walk; prefer it over the per-call wrappers whenever you need more than one proof from the same leaf set:
 
 ```typescript
 import {
-  zeroHashRoot,
-  generateZeroHashProof,
+  ZeroHashTree,
   verifyZeroHash,
   serializeProof,
   didToIndex,
@@ -119,14 +118,31 @@ const leaves = [
   { index: didToIndex('did:btcr2:k1qexample2'), leaf: inclusionLeafHash(nonce2, update2) },
 ];
 
-const root  = zeroHashRoot(leaves);                       // Uint8Array(32)
-const proof = generateZeroHashProof(leaves, leaves[0].index); // { collapsed: bigint, hashes: Uint8Array[] }
+const tree  = ZeroHashTree.fromLeaves(leaves); // builds and hashes every subtree once
+tree.root;                                     // Uint8Array(32)
+const proof = tree.proof(leaves[0].index);     // { collapsed: bigint, hashes: Uint8Array[] }
 
-const ok = verifyZeroHash(proof.collapsed, proof.hashes, leaves[0].index, leaves[0].leaf, root);
+// Proofs are served for any 256-bit index, present or not: a proof for an
+// absent index is the non-inclusion direction (its siblings are the subtrees
+// the absent leaf's path passes).
+const absentProof = tree.proof(someOtherIndex);
+
+const ok = verifyZeroHash(proof.collapsed, proof.hashes, leaves[0].index, leaves[0].leaf, tree.root);
 
 // Serialize to the did:btcr2 wire format:
-const wire = serializeProof(root, proof, { nonce: nonce1, updateId });
+const wire = serializeProof(tree.root, proof, { nonce: nonce1, updateId });
 ```
+
+Two per-call convenience wrappers remain for one-shot use; both build a fresh `ZeroHashTree` internally, so they rebuild the whole tree per call:
+
+```typescript
+import { zeroHashRoot, generateZeroHashProof } from '@did-btcr2/smt';
+
+const root  = zeroHashRoot(leaves);                        // same value as tree.root
+const proof = generateZeroHashProof(leaves, leaves[0].index); // same value as tree.proof(...)
+```
+
+Duplicate leaf indexes are rejected with a `RangeError` at tree construction.
 
 ## API
 
@@ -148,8 +164,9 @@ const wire = serializeProof(root, proof, { nonce: nonce1, updateId });
 
 | Export | Description |
 |---|---|
-| `zeroHashRoot(leaves)` | Compute the root over `ZeroHashEntry[]`. |
-| `generateZeroHashProof(leaves, index)` | Inclusion proof `{ collapsed, hashes }` for one index. |
+| `ZeroHashTree` | Persistent zero-hash tree. `ZeroHashTree.fromLeaves(leaves)` builds the compressed trie once; `.root` is the Merkle root; `.proof(index)` serves inclusion or non-inclusion proofs by trie walk. |
+| `zeroHashRoot(leaves)` | One-shot root over `ZeroHashEntry[]` (builds a fresh `ZeroHashTree` internally). |
+| `generateZeroHashProof(leaves, index)` | One-shot proof `{ collapsed, hashes }` for one index (builds a fresh `ZeroHashTree` internally). |
 | `verifyZeroHash(collapsed, hashes, index, candidate, root)` | The spec's verification algorithm (MSB-first walk). |
 | `CACHED_ZERO` | Precomputed empty-subtree hashes by height, indices `[0, 256]`. |
 | `ZeroHashEntry` | `{ index: bigint, leaf: Uint8Array }`. |

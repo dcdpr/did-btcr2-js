@@ -37,8 +37,7 @@ command; each command doc lists which globals it actually consumes. The table be
 | `--profile <name>` | profile name | config `defaults.profile`, else the profile named after the operation's network | Selects the active config profile (see [profile.md](./profile.md)). |
 | `--btc-rest <url>` | URL | per-network SDK default (mempool.space-style endpoints; tabulated in [resolve.md](./resolve.md#environment--configuration)) | Override the Bitcoin REST (Esplora) endpoint. |
 | `--btc-rpc-url <url>` | URL | `http://localhost:18443` on regtest; none on other networks | Override the Bitcoin Core RPC endpoint. |
-| `--btc-rpc-user <user>` | string | none | Bitcoin Core RPC username. |
-| `--btc-rpc-pass <pass>` | string, or a secret reference `env:<VAR>` / `file:<path>` | none | Bitcoin Core RPC password. RPC url, user, and pass resolve as one atomic unit per precedence layer (ADR 074). |
+| `--btc-rpc-user <user>` | string | none | Bitcoin Core RPC username. The RPC password has no flag (a password on argv is visible in `ps` and shell history); supply it via `BTCR2_BTC_RPC_PASS`, `BTCR2_BTC_RPC_PASS_FILE`, or the profile's `btc.rpcPass` (which accepts a literal value or an `env:<VAR>` / `file:<path>` secret reference). RPC url, user, and pass resolve as one atomic unit per precedence layer (ADR 074). |
 | `--cas-gateway <url>` | URL | `https://ipfs.io` | IPFS HTTP gateway for CAS reads (read-only). |
 | `--cas-rpc-url <url>` | URL | none | IPFS HTTP RPC endpoint for a writable CAS (reads + writes). Configuring one is what makes `--publish-to-cas auto`/`always` on `update`/`deactivate` meaningful. |
 | `--btc-timeout <ms>` | finite number >= 1 | unset (unbounded) | Bitcoin REST/RPC request timeout in milliseconds. |
@@ -76,7 +75,7 @@ Every `BTCR2_*` variable the CLI consults, from `src/config.ts`, `src/paths.ts`,
 | `BTCR2_BTC_REST` | `--btc-rest` |
 | `BTCR2_BTC_RPC_URL` | `--btc-rpc-url` |
 | `BTCR2_BTC_RPC_USER` | `--btc-rpc-user` |
-| `BTCR2_BTC_RPC_PASS` | `--btc-rpc-pass` (also accepts `env:<VAR>` / `file:<path>` secret references) |
+| `BTCR2_BTC_RPC_PASS` | RPC password (no flag equivalent). The value may itself be an `env:<VAR>` / `file:<path>` secret reference. |
 | `BTCR2_BTC_RPC_PASS_FILE` | Path to a file whose contents are the RPC password. No flag equivalent; the final fallback when no layer supplies a password, read lazily only when an RPC config is actually built. |
 | `BTCR2_CAS_GATEWAY` | `--cas-gateway` |
 | `BTCR2_CAS_RPC_URL` | `--cas-rpc-url` |

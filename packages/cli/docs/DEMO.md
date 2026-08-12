@@ -269,6 +269,9 @@ btcr2 create --signing-key demo -n signet      # did:btcr2:k1qyp... (signet)
 btcr2 create --signing-key demo -n mutinynet   # did:btcr2:k1q5p... (mutinynet)
 ```
 
+(On Path B the mainnet line is refused: a dev keystore never touches `bitcoin`. Run it on
+Path A, or skip it.)
+
 **Machine-readable output** for scripting and integration. Because this uses a stored
 key, the envelope also echoes the `keyId` and `publicKey` it resolved:
 
@@ -421,6 +424,24 @@ btcr2 -o json --signing-key demo update \
   | jq '.data.signedUpdate' > signed-update.json
 ```
 
+Before anything is signed or broadcast, `update` builds the beacon transaction and asks you
+to confirm the spend, printing the exact fee the built transaction pays:
+
+```
+About to broadcast an on-chain update:
+  DID:      did:btcr2:k1q5p...
+  Network:  mutinynet
+  Beacon:   did:btcr2:k1q5p...#initialP2WPKH
+  Fee:      565 sats (0.00000565 BTC) at 5 sat/vB for a 113 vB transaction (exact fee of the built transaction)
+Type "yes" to broadcast:
+```
+
+Type `yes` to proceed; anything else aborts with the beacon UTXO still unspent. For a
+scripted (non-interactive) run, pass `-y`/`--yes` to pre-confirm: without a terminal and
+without `--yes` the command fails closed with `CONFIRMATION_REQUIRED_ERROR`. (The prompt is
+skipped entirely on regtest.) `deactivate` has the same gate, with an extra permanence
+warning.
+
 `update` signs the change, spends the funded beacon UTXO, and broadcasts a Bitcoin
 transaction whose `OP_RETURN` carries the update hash. The command's `.data` is an
 enriched result (`.data.txid` is the broadcast transaction id, handy for watching the
@@ -428,8 +449,9 @@ signal confirm); `.data.signedUpdate` is the off-chain half you keep, so we extr
 that into `signed-update.json`. In text mode `update` also prints a `Watch:` explorer link
 for the txid to stderr, so you can click straight through to the transaction.
 
-The broadcast itself is tunable: `--fee-rate <sat/vB>` (default 5) raises the fee under
-congestion, and `--change-address` routes the transaction's change somewhere other than the
+The broadcast itself is tunable: `--fee-rate <sat/vB>` (default 5, maximum 1000) raises the
+fee under congestion, and `--change-address` routes the transaction's change somewhere other
+than the
 beacon, so a DID's successive announcements are not linkable on-chain. Where the update
 artifacts go is a policy, too: `--publish-to-cas` defaults to `never` (sidecar-only, the
 privacy default this demo shows); the appendix covers the opt-in publication path.
@@ -445,17 +467,28 @@ privacy default this demo shows); the appendix covers the opt-in publication pat
 Give the update transaction about 1 block (30-60 seconds) to confirm on Mutinynet. You
 can watch it with the `txid` from Step B at `https://mutinynet.com/tx/<txid>`.
 
+> **`minConf`: how confirmed is confirmed enough?** The resolver only applies an update
+> whose beacon signal has at least `minConf` confirmations, and the default is **6**
+> (the same finality the did:btcr2 specification recommends on public networks). On a
+> demo network with 30-second blocks that is a 3-minute wait, so the walkthrough passes
+> `--min-conf 1` to resolve below. Without it, resolving after a single confirmation
+> **silently returns the previous document version**: the too-fresh signal is ignored,
+> which looks exactly like "the update did nothing". On mainnet, leave the default alone.
+
 ### Step D - resolve v2 (the reveal)
 
 Because a Singleton-beacon update lives off-chain, you resolve it by handing the signed
 update back as **sidecar** data:
 
 ```bash
-btcr2 resolve -i "$DID" -r "$(jq -c '{sidecar:{updates:[.]}}' signed-update.json)"
+btcr2 resolve -i "$DID" --min-conf 1 \
+  -r "$(jq -c '{sidecar:{updates:[.]}}' signed-update.json)"
 ```
 
-(For a bulky sidecar, write the resolution options to a JSON file and pass
-`-p options.json` instead of the inline `-r` string. Same shape, read from disk.)
+(`--min-conf 1` is a shortcut for the `minConf` resolution option; the equivalent generic
+form is `-r '{"minConf":1, "sidecar":...}'`. For a bulky sidecar, write the resolution
+options to a JSON file and pass `-p options.json` instead of the inline `-r` string. Same
+shape, read from disk.)
 
 Expected: the same document, now with your patch applied and `versionId: "2"`:
 
@@ -477,9 +510,13 @@ holds the commitment (a 32-byte hash), but the document change is not on-chain, 
 resolution cannot reconstruct v2:
 
 ```bash
-btcr2 resolve -i "$DID" --cas-timeout 1000
+btcr2 resolve -i "$DID" --min-conf 1 --cas-timeout 1000
 # Signed update not found in CAS (hash: ...).
 ```
+
+(The `--min-conf 1` is needed here for the same reason as in Step D: with the default of 6
+the too-fresh signal is ignored and resolution quietly returns v1 instead of reaching the
+CAS lookup that fails.)
 
 The resolver, finding an on-chain update hash but no sidecar, checks the default public
 IPFS gateway (where your never-published update was never put) and then fails. The
@@ -639,8 +676,10 @@ control:
 
 ```bash
 btcr2 resolve -i "$DID" --btc-rest https://esplora.internal/api      # your own Esplora
+export BTCR2_BTC_RPC_PASS='demo'                    # no argv flag: a password on the
+                                                    # command line is visible in ps
 btcr2 --btc-rpc-url http://127.0.0.1:38332 \
-      --btc-rpc-user demo --btc-rpc-pass demo \
+      --btc-rpc-user demo \
       --btc-rpc-wallet btcr2 \
       update ...                                                     # your own Bitcoin Core
 ```
@@ -701,6 +740,9 @@ rm -rf /tmp/btcr2-demo
 |---|---|
 | `... is unfunded. Send BTC ...` | Fund the beacon address from the faucet, then retry. |
 | `No spendable UTXO ... unconfirmed` | The faucet payment has not confirmed yet. Wait one block. |
+| `resolve` returns the old version after an update confirmed | The signal has fewer than `minConf` confirmations (default 6). Wait for more blocks, or pass `--min-conf 1` on demo networks. |
+| `CONFIRMATION_REQUIRED_ERROR` on `update`/`deactivate` | On-chain spends need an explicit confirmation. Run in a terminal and answer `yes`, or pass `--yes` for scripted runs. |
+| `Broadcast aborted: not confirmed.` | The confirmation prompt was answered with something other than `yes`. Nothing was signed or broadcast; re-run and confirm. |
 | Faucet returns a rate-limit or captcha error | A shared room IP is being throttled. Stagger requests, or use a pre-funded beacon (see Step A). |
 | `Signed update not found in CAS` | You resolved a DID that has an on-chain update without providing the sidecar. Pass it back with `-r '{"sidecar":{"updates":[...]}}'` (that is the privacy feature, not a bug). |
 | `resolve` hangs | Check reachability to `https://mutinynet.com/api` (`btcr2 config doctor -n mutinynet`); override with `--btc-rest <url>` if needed. |
@@ -716,9 +758,9 @@ btcr2 keystore init [--dev] [--force] | status | change-passphrase | unlock [--t
 btcr2 key generate --name <n> --set-active
 btcr2 key list|ls | show <ref> | use <ref> | import [--secret-file <path> | --public <hex>] | export [--secret --out <path>] <ref> | delete|rm [--force] <ref>
 btcr2 create [-t k|x] [-n <network>] [-b <hex>] [--signing-key <ref>]
-btcr2 resolve|read -i <did> [-r <json>] [-p <path>]
-btcr2 update -s <doc-json> --source-version-id <n> -p <patches-json> -m <vm-id> -b <beacon-id-json> [--publish-to-cas <mode>] [--fee-rate <n>] [--change-address <addr>]
-btcr2 deactivate|delete -s <doc-json> --source-version-id <n> -m <vm-id> -b <beacon-id-json> [--publish-to-cas <mode>] [--fee-rate <n>] [--change-address <addr>]
+btcr2 resolve|read -i <did> [-r <json>] [-p <path>] [--min-conf <n>]
+btcr2 update -s <doc-json> --source-version-id <n> -p <patches-json> -m <vm-id> -b <beacon-id-json> [--publish-to-cas <mode>] [--fee-rate <n>] [--change-address <addr>] [--yes]
+btcr2 deactivate|delete -s <doc-json> --source-version-id <n> -m <vm-id> -b <beacon-id-json> [--publish-to-cas <mode>] [--fee-rate <n>] [--change-address <addr>] [--yes]
 btcr2 config init | get [path] | set <path> <value> | unset <path> | list|ls | validate | effective | path | doctor
 btcr2 profile add <name> | use <name> | show [name] | remove|rm <name>
 btcr2 completion [bash|zsh|fish]
@@ -726,10 +768,14 @@ btcr2 completion [bash|zsh|fish]
 ```
 Global flags: -o json|text  --verbose  --quiet  --home <dir>  -c <config>  --profile <name>
               --keystore <path>  --passphrase-file <path>  --signing-key <ref>
-              --btc-rest <url>  --btc-rpc-url <url>  --btc-rpc-user <u>  --btc-rpc-pass <p>
+              --btc-rest <url>  --btc-rpc-url <url>  --btc-rpc-user <u>
               --btc-rpc-wallet <name>  --btc-rest-header <h>  --btc-rpc-header <h>
               --cas-gateway <url>  --cas-rpc-url <url>  --btc-timeout <ms>  --cas-timeout <ms>
 ```
+
+The Bitcoin Core RPC password has no flag (a password on argv is visible in `ps`); supply it
+via `BTCR2_BTC_RPC_PASS`, `BTCR2_BTC_RPC_PASS_FILE`, or a profile `btc.rpcPass` entry (which
+accepts an `env:<VAR>` / `file:<path>` secret reference).
 
 See `btcr2 --help` (or the README's Global flags and Environment variables tables) for the
 complete surface.
