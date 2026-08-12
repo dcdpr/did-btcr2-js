@@ -25,6 +25,7 @@ import {
   BIP340DataIntegrityProof,
   SchnorrMultikey
 } from '@did-btcr2/cryptosuite';
+import type { VerificationResult } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { DidBtcr2 } from '../did-btcr2.js';
 import { Appendix } from '../utils/appendix.js';
@@ -549,7 +550,7 @@ export class Resolver {
           );
         }
         // Apply the update to the currentDocument and set it in the response
-        response.didDocument = this.applyUpdate(response.didDocument, update);
+        response.didDocument = this.applyUpdate(response.didDocument, update, blocktime);
 
         // Resolution metadata reflects APPLIED updates only. A duplicate
         // re-announcement (handled above) must not clobber confirmations/updated
@@ -652,14 +653,18 @@ export class Resolver {
 
   /**
    * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#apply-update | 7.2.f.3 Apply Update}.
-   * @param {DidDocument} currentDocument The current DID Document to apply the update to.
+   * @param {Btcr2DidDocument} currentDocument The current DID Document to apply the update to.
    * @param {SignedBTCR2Update} update The BTCR2 Signed Update to apply.
-   * @returns {DidDocument} The updated DID Document after applying the update.
+   * @param {Date} blocktime The anchoring block time; proof expiry is evaluated
+   *   against it (not the wall clock), so a proof that expired only after its
+   *   anchor block still verifies during historical replay.
+   * @returns {Btcr2DidDocument} The updated DID Document after applying the update.
    * @throws {ResolveError} If the update is invalid or cannot be applied.
    */
   private static applyUpdate(
     currentDocument: Btcr2DidDocument,
-    update: SignedBTCR2Update
+    update: SignedBTCR2Update,
+    blocktime: Date
   ): Btcr2DidDocument {
     // Get the capability id from the to update proof.
     const capabilityId = update.proof?.capability;
@@ -731,8 +736,23 @@ export class Resolver {
     // Construct a DataIntegrityProof with the cryptosuite
     const diProof = new BIP340DataIntegrityProof(cryptosuite);
 
-    // Call the verifyProof method
-    const verificationResult = diProof.verifyProof(canonicalUpdate, 'capabilityInvocation');
+    // Call the verifyProof method, evaluating proof expiry against the anchoring
+    // block time rather than the wall clock: a DID whose updates carry expiring
+    // proofs must remain resolvable after the proofs expire.
+    let verificationResult: VerificationResult;
+    try {
+      verificationResult = diProof.verifyProof(
+        canonicalUpdate, 'capabilityInvocation', undefined, undefined, undefined, { referenceTime: blocktime }
+      );
+    } catch (error) {
+      // A thrown proof error (expired proof, malformed expires/created, ...) must
+      // surface as a typed resolution error, not escape resolution raw.
+      const message = error instanceof Error ? error.message : String(error);
+      throw new ResolveError(
+        `Invalid update: proof verification failed: ${message}`,
+        INVALID_DID_UPDATE, { update, proofError: message }
+      );
+    }
 
     // If the result is not verified, throw INVALID_DID_UPDATE error
     if (!verificationResult.verified) {

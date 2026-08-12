@@ -1,6 +1,6 @@
-import { DataIntegrityProofError, DateUtils, PROOF_GENERATION_ERROR, PROOF_VERIFICATION_ERROR } from '@did-btcr2/common';
+import { DataIntegrityProofError, JSONUtils, PROOF_GENERATION_ERROR, PROOF_VERIFICATION_ERROR } from '@did-btcr2/common';
 import type { BIP340Cryptosuite } from '../cryptosuite/index.js';
-import type { VerificationResult } from '../cryptosuite/interface.js';
+import type { ProofVerificationOptions, VerificationResult } from '../cryptosuite/interface.js';
 import type { DataIntegrityProof, DataIntegrityProofOptions, SecuredDocument, UnsecuredDocument } from './interface.js';
 
 /**
@@ -43,8 +43,10 @@ export class BIP340DataIntegrityProof implements DataIntegrityProof {
     // TODO: Adjust the domain check to match the spec (domain as a list of urls)
     // Check if the config has a domain
     if (config.domain) {
-      // Check that it matches the proof domain Check domain from the proof object and check:
-      if(proof.domain !== config.domain)
+      // Check that it matches the proof domain (deep comparison: the proof was
+      // built from a deep copy of the config, so array domains are equal by
+      // value, not by reference)
+      if(!JSONUtils.deepEqual(proof.domain, config.domain))
         throw new DataIntegrityProofError(
           'Domain mismatch: proof.domain !== config.domain',
           PROOF_GENERATION_ERROR, {config, proof}
@@ -61,10 +63,12 @@ export class BIP340DataIntegrityProof implements DataIntegrityProof {
         );
     }
 
-    // Attach the proof to a fresh copy of the document, securing it. The caller's
-    // document is not mutated in place, so a proof object can never be retroactively
-    // swapped onto (or off of) a document the caller still holds.
-    const signedDocument = { ...unsignedDocument, proof } as SecuredDocument<T>;
+    // Attach the proof to a fresh deep copy of the document, securing it. The
+    // caller's document is not mutated in place and no nested value is aliased
+    // into the secured copy, so a proof object can never be retroactively
+    // swapped onto (or off of) a document the caller still holds, and post-hoc
+    // nested mutation of the caller's document cannot alter the secured one.
+    const signedDocument = { ...JSONUtils.clone(unsignedDocument), proof } as SecuredDocument<T>;
 
     // Return the secured document
     return signedDocument;
@@ -75,8 +79,14 @@ export class BIP340DataIntegrityProof implements DataIntegrityProof {
    * @param {string} mediaType The media type of the document.
    * @param {string} document The stringified document to verify.
    * @param {string} expectedPurpose The expected purpose of the proof.
-   * @param {string[]} expectedDomain The expected domain of the proof.
+   * @param {string | string[]} expectedDomain The expected domain(s) of the proof.
+   *   Multiple domains use AND semantics: every expected domain must be present
+   *   in the proof's domain list. An empty array is rejected (it would pass
+   *   vacuously, failing open).
    * @param {string} expectedChallenge The expected challenge of the proof.
+   * @param {ProofVerificationOptions} [options] Optional verification options;
+   *   forwarded to the cryptosuite's temporal checks (`referenceTime` defaults
+   *   to the wall clock).
    * @returns {VerificationResult} The result of verifying the proof.
    */
   verifyProof(
@@ -85,6 +95,7 @@ export class BIP340DataIntegrityProof implements DataIntegrityProof {
     mediaType?: string,
     expectedDomain?: string | string[],
     expectedChallenge?: string,
+    options?: ProofVerificationOptions,
   ): VerificationResult {
     // Parse the document
     const signedDocument = JSON.parse(document) as SecuredDocument;
@@ -125,6 +136,16 @@ export class BIP340DataIntegrityProof implements DataIntegrityProof {
       // Normalize both sides to arrays: proof.domain and expectedDomain may each
       // be a single string or a list of strings.
       const expectedDomains = Array.isArray(expectedDomain) ? expectedDomain : [expectedDomain];
+
+      // An empty expectation list would pass the every() check below vacuously,
+      // failing open; reject it as a caller error instead.
+      if(expectedDomains.length === 0) {
+        throw new DataIntegrityProofError(
+          'Invalid expectedDomain: must contain at least one domain',
+          PROOF_VERIFICATION_ERROR, { expectedDomain }
+        );
+      }
+
       const proofDomains = Array.isArray(proof.domain) ? proof.domain : (proof.domain ? [proof.domain] : []);
 
       // Every expected domain must be present in the proof's domain list.
@@ -136,26 +157,9 @@ export class BIP340DataIntegrityProof implements DataIntegrityProof {
       }
     }
 
-    // Check if the proof carries an expiry
-    if(proof.expires) {
-      // Validate the format
-      if(!DateUtils.isValidXsdDateTime(proof.expires)) {
-        throw new DataIntegrityProofError(
-          'Invalid proof: "expires" must be a valid XMLSchema DateTime string',
-          PROOF_VERIFICATION_ERROR, { proof }
-        );
-      }
-      // A captured proof must not verify past its expiry
-      if(DateUtils.dateStringToTimestamp(proof.expires).getTime() <= Date.now()) {
-        throw new DataIntegrityProofError(
-          'Proof expired: current time is past proof.expires',
-          PROOF_VERIFICATION_ERROR, { proof }
-        );
-      }
-    }
-
-    // Verify the proof
-    const result = this.cryptosuite.verifyProof(signedDocument);
+    // Verify the proof (temporal checks on proof.expires / proof.created run
+    // inside the cryptosuite, evaluated against options.referenceTime)
+    const result = this.cryptosuite.verifyProof(signedDocument, options);
 
     // Add the mediaType to the verification result
     result.mediaType = mediaType;

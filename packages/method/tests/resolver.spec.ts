@@ -3,7 +3,8 @@ import { randomBytes } from 'crypto';
 import { canonicalHash, encode, hash, canonicalize, INTERNAL_ERROR, INVALID_DID_UPDATE, JSONPatch, LATE_PUBLISHING_ERROR } from '@did-btcr2/common';
 import type { PatchOperation } from '@did-btcr2/common';
 import { getNetwork } from '@did-btcr2/bitcoin';
-import { LocalSigner, CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
+import { LocalSigner, CompressedSecp256k1PublicKey, SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { BTCR2MerkleTree, hashToHex } from '@did-btcr2/smt';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { hexToBytes } from '@noble/hashes/utils';
@@ -2144,5 +2145,74 @@ describe('Resolver confirmation gate fails closed', () => {
       expect(response.didDocument.assertionMethod, String(confirmations))
         .to.have.lengthOf(sourceDocument.assertionMethod!.length);
     }
+  });
+});
+
+describe('Resolver proof expiry evaluated against the anchor block time', () => {
+  const fixture = deterministicData[2]; // regtest k1 DID
+
+  /**
+   * Sign an update exactly as Updater.sign does, but with extra proof options
+   * (here: expires) merged into the Data Integrity config.
+   */
+  function signWithProofOptions(
+    did: string,
+    sourceDocument: DidDocument,
+    secretKey: string,
+    extraProofOptions: Record<string, unknown>
+  ): SignedBTCR2Update {
+    const vm = sourceDocument.verificationMethod![0]!;
+    const unsigned = Updater.construct(sourceDocument, benignPatch(did), 1);
+    const keyPair = new SchnorrKeyPair({ secretKey: hexToBytes(secretKey) });
+    const hashIdx = vm.id.indexOf('#');
+    const multikey = new SchnorrMultikey({ id: vm.id.slice(hashIdx), controller: vm.controller, keyPair });
+    const config = {
+      '@context' : [
+        'https://w3id.org/security/v2',
+        'https://w3id.org/zcap/v1',
+        'https://w3id.org/json-ld-patch/v1',
+        'https://btcr2.dev/context/v1'
+      ],
+      cryptosuite        : 'bip340-jcs-2025',
+      type               : 'DataIntegrityProof' as const,
+      verificationMethod : vm.id,
+      proofPurpose       : 'capabilityInvocation',
+      capability         : `urn:zcap:root:${encodeURIComponent(did)}`,
+      capabilityAction   : 'Write',
+      ...extraProofOptions,
+    };
+    return multikey.toCryptosuite().toDataIntegrityProof().addProof(unsigned, config);
+  }
+
+  it('resolves an update whose proof expired after its anchor block (historical replay)', () => {
+    const sourceDocument = resolveDeterministic(fixture.did);
+    // expires is in the past relative to the wall clock, but after the anchor
+    // block time delivered by driveSingleBeacon (1700000000 = 2023-11-14T22:13:20Z).
+    const update = signWithProofOptions(fixture.did, sourceDocument, fixture.secretKey, {
+      expires : '2024-01-01T00:00:00Z'
+    });
+
+    const resolved = driveSingleBeacon(fixture.did, [update]);
+    expect(resolved.metadata.versionId).to.equal('2');
+    expect(resolved.didDocument.assertionMethod).to.have.lengthOf(sourceDocument.assertionMethod!.length + 1);
+  });
+
+  it('rejects an update whose proof expired before its anchor block with a typed error', () => {
+    const sourceDocument = resolveDeterministic(fixture.did);
+    // expires before the anchor block time (1700000000 = 2023-11-14): the proof
+    // was already invalid when the update was anchored.
+    const update = signWithProofOptions(fixture.did, sourceDocument, fixture.secretKey, {
+      expires : '2023-01-01T00:00:00Z'
+    });
+
+    let thrown: any;
+    try {
+      driveSingleBeacon(fixture.did, [update]);
+    } catch(error) {
+      thrown = error;
+    }
+    expect(thrown, 'expected a typed error').to.exist;
+    expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+    expect(thrown.message).to.match(/expired/);
   });
 });

@@ -18,6 +18,27 @@ export interface VerificationResult {
 }
 
 /**
+ * Clock-skew tolerance applied when bounding a proof's `created` timestamp
+ * against the verification reference time: a proof whose `created` is no more
+ * than this far ahead of the reference time is accepted. Five minutes covers
+ * ordinary clock skew between signer and verifier.
+ */
+export const MAX_PROOF_CLOCK_SKEW_MS = 5 * 60 * 1000;
+
+/**
+ * Options for proof verification.
+ */
+export interface ProofVerificationOptions {
+  /**
+   * The time against which `proof.expires` and `proof.created` are evaluated.
+   * Defaults to the wall clock (`new Date()`). Verifiers replaying anchored
+   * history (for example a DID resolver) should pass the anchoring block time
+   * so a proof that expired only after its anchor still verifies.
+   */
+  referenceTime?: Date;
+}
+
+/**
  * Interface representing a {@link https://www.w3.org/TR/vc-data-integrity/#cryptographic-suites | Cryptographic Suite}
  * from the {@link https://www.w3.org/TR/vc-data-integrity/ | Verifiable Credential Data Integrity 1.0 spec}.
  * @interface Cryptosuite
@@ -48,11 +69,14 @@ export interface Cryptosuite {
   createProof(insecureDocument: UnsecuredDocument, config: DataIntegrityProofOptions): DataIntegrityProofObject;
 
   /**
-   * Verify a proof for a secured document.
+   * Verify a proof for a secured document. Temporal checks (`proof.expires`,
+   * `proof.created`) are enforced here so every caller shares them.
    * @param {SecuredDocument} secureDocument The secured document to verify.
+   * @param {ProofVerificationOptions} [options] Optional verification options (reference time).
    * @returns {VerificationResult} The result of the verification.
+   * @throws {CryptosuiteError} if the proof is expired, malformed, or created too far in the future.
    */
-  verifyProof(secureDocument: SecuredDocument): VerificationResult;
+  verifyProof(secureDocument: SecuredDocument, options?: ProofVerificationOptions): VerificationResult;
 
   /**
    * Transform a document (secured or unsecured) into canonical form.

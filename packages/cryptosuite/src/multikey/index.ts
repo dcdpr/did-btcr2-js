@@ -11,7 +11,8 @@ import type {
   DidParams,
   FromPublicKey,
   Multikey,
-  MultikeyObject
+  MultikeyObject,
+  PublicMultikeyObject
 } from './interface.js';
 
 interface MultikeyParams extends DidParams {
@@ -164,7 +165,9 @@ export class SchnorrMultikey implements Multikey {
       throw new MultikeyError('Cannot sign: no secretKey', 'SIGN_ERROR');
     }
 
-    const secretBytes = this.secretKey.bytes;
+    // Bytes-level access: avoids constructing a Secp256k1SecretKey wrapper (and
+    // its eager multibase encoding) per signing call. Wiped in finally below.
+    const secretBytes = this.#keyPair.secretKeyBytes!;
     try {
       return schnorr.sign(data, secretBytes, randomBytes(32));
     } finally {
@@ -208,22 +211,21 @@ export class SchnorrMultikey implements Multikey {
 
   /**
    * @readonly
-   * Get signing ability of the Multikey: true if a local Secp256k1SecretKey
-   * is present (note: the SchnorrKeyPair.secretKey getter throws when absent;
-   * that throw is the historical error contract - see multikey tests) or if
-   * an external signer is available.
+   * Get signing ability of the Multikey: true if a local Secp256k1SecretKey is
+   * present or an external signer is available. Never throws: a public-key-only
+   * pair with no external signer simply reports false.
    */
   get signer(): boolean {
-    return !!this.#externalSigner || !!this.#keyPair.secretKey;
+    return !!this.#externalSigner || this.#keyPair.hasSecretKey;
   }
 
   /**
    * Safe JSON representation. Only includes public material: the embedded keyPair
    * serializes public-key-only. Called implicitly by JSON.stringify().
    * Use {@link exportJSON} for full serialization including the secret key.
-   * @returns {MultikeyObject} The multikey as a JSON object (public material only).
+   * @returns {PublicMultikeyObject} The multikey as a JSON object (public material only).
    */
-  public toJSON(): MultikeyObject {
+  public toJSON(): PublicMultikeyObject {
     return {
       id                 : this.id,
       controller         : this.controller,
@@ -237,7 +239,7 @@ export class SchnorrMultikey implements Multikey {
   /**
    * Exports the full multikey as a JSON object. Contains secret key material:
    * the result must never appear in logs, error payloads, or telemetry.
-   * @returns {MultikeyObject} The multikey as a JSON object including the secret key.
+   * @returns {MultikeyObject} The full multikey serialization including the secret key.
    * @throws {KeyPairError} If the keyPair carries no secret key.
    */
   public exportJSON(): MultikeyObject {

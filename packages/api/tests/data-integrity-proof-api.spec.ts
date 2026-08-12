@@ -77,6 +77,30 @@ describe('DataIntegrityProofApi', () => {
     expect(result).to.have.property('verified');
   });
 
+  it('verifyProof() accepts an array of expected domains (AND semantics)', () => {
+    const kp = kpApi.generate();
+    const mk = mkApi.create('#key-1', 'did:btcr2:test', kp);
+    const cs = csApi.create(mk);
+    const proofInst = dipApi.create(cs);
+    const signed = dipApi.addProof(
+      makeDocument() as any,
+      { ...makeConfig(), domain: ['did:btcr2:test', 'did:btcr2:other'] },
+      proofInst
+    );
+    const serialized = JSON.stringify(signed);
+
+    const ok = dipApi.verifyProof(
+      serialized, 'assertionMethod', 'application/json',
+      ['did:btcr2:test', 'did:btcr2:other'], undefined, proofInst
+    );
+    expect(ok.verified).to.be.true;
+
+    expect(() => dipApi.verifyProof(
+      serialized, 'assertionMethod', 'application/json',
+      ['did:btcr2:test', 'did:btcr2:missing'], undefined, proofInst
+    )).to.throw(/Domain mismatch/);
+  });
+
   // --- stateful ---
 
   it('use() sets the current proof instance', () => {

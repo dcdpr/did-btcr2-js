@@ -5,6 +5,7 @@ import type {
 import {
   BIP340Cryptosuite,
   BIP340DataIntegrityProof,
+  MAX_PROOF_CLOCK_SKEW_MS,
   SchnorrMultikey
 } from '../src/index.js';
 
@@ -78,6 +79,61 @@ describe('Cryptosuite', () => {
     it('should return canonicalized document string', () => {
       const canonicalDocument = cryptosuite.transformDocument(unsecuredDocument, config);
       expect(canonicalDocument).to.be.a.string;
+    });
+  });
+
+  describe('Verify Proof temporal validation', () => {
+    const securedWith = (proofOptions: Partial<DataIntegrityProofOptions>) => {
+      const proof = cryptosuite.createProof(unsecuredDocument, { ...config, ...proofOptions });
+      return { ...unsecuredDocument, proof };
+    };
+
+    it('verifies a proof whose expires is after the reference time but in the past relative to now', () => {
+      const secured = securedWith({ expires: '2024-01-01T00:00:00Z' });
+      const result = cryptosuite.verifyProof(secured, { referenceTime: new Date('2023-06-01T00:00:00Z') });
+      expect(result.verified).to.be.true;
+    });
+
+    it('rejects a proof whose expires equals the reference time exactly', () => {
+      const secured = securedWith({ expires: '2030-06-01T00:00:00Z' });
+      expect(() => cryptosuite.verifyProof(secured, { referenceTime: new Date('2030-06-01T00:00:00Z') }))
+        .to.throw(/expired/);
+    });
+
+    it('rejects a proof whose expires is malformed', () => {
+      const secured = securedWith({ expires: '2030-06-01T00:00:00Z' });
+      secured.proof.expires = 'not-a-date';
+      expect(() => cryptosuite.verifyProof(secured, { referenceTime: new Date('2023-06-01T00:00:00Z') }))
+        .to.throw(/expires/);
+    });
+
+    it('rejects a proof created beyond the clock-skew tolerance', () => {
+      const referenceTime = new Date('2030-06-01T00:00:00Z');
+      const created = new Date(referenceTime.getTime() + MAX_PROOF_CLOCK_SKEW_MS + 60_000);
+      const secured = securedWith({ created: created.toISOString() });
+      expect(() => cryptosuite.verifyProof(secured, { referenceTime }))
+        .to.throw(/created/);
+    });
+
+    it('accepts a proof created within the clock-skew tolerance', () => {
+      const referenceTime = new Date('2030-06-01T00:00:00Z');
+      const created = new Date(referenceTime.getTime() + MAX_PROOF_CLOCK_SKEW_MS - 60_000);
+      const secured = securedWith({ created: created.toISOString() });
+      const result = cryptosuite.verifyProof(secured, { referenceTime });
+      expect(result.verified).to.be.true;
+    });
+
+    it('rejects a proof whose created is malformed', () => {
+      const secured = securedWith({ created: '2030-06-01T00:00:00Z' });
+      secured.proof.created = 'not-a-date';
+      expect(() => cryptosuite.verifyProof(secured, { referenceTime: new Date('2030-06-01T00:00:00Z') }))
+        .to.throw(/created/);
+    });
+
+    it('defaults the reference time to the wall clock', () => {
+      const secured = securedWith({ expires: '2999-01-01T00:00:00Z' });
+      const result = cryptosuite.verifyProof(secured);
+      expect(result.verified).to.be.true;
     });
   });
 });

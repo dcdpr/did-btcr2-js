@@ -82,8 +82,16 @@ export class SchnorrKeyPair implements KeyPair {
   }
 
   /**
-   * Get the Secp256k1SecretKey.
-   * @returns {Secp256k1SecretKey} The Secp256k1SecretKey object
+   * Get a copy of the Secp256k1SecretKey.
+   *
+   * Copy/custody contract: each read constructs a fresh Secp256k1SecretKey, so
+   * a caller cannot destroy() or otherwise affect the keypair's stored secret
+   * through the getter; the returned instance is caller-owned. Note the wrapper
+   * eagerly encodes the secret into an immutable multibase string, which cannot
+   * be wiped. Call sites that only need the raw bytes should use
+   * {@link secretKeyBytes} instead: it avoids constructing the wrapper object
+   * and its eager multibase encoding.
+   * @returns {Secp256k1SecretKey} A copy of the Secp256k1SecretKey object
    * @throws {KeyPairError} If the secret key is not available
    */
   get secretKey(): Secp256k1SecretKey {
@@ -98,6 +106,21 @@ export class SchnorrKeyPair implements KeyPair {
     // Return a copy of the secret key so a caller cannot destroy() or otherwise
     // affect the keypair's stored secret through the getter.
     return new Secp256k1SecretKey(this.#secretKey.bytes);
+  }
+
+  /**
+   * Get a copy of the secret key bytes without constructing a
+   * {@link Secp256k1SecretKey} wrapper (no eager multibase encoding, no extra
+   * object). Prefer this over `secretKey.bytes` at call sites that only need
+   * the bytes.
+   *
+   * Custody: the caller owns the returned copy and should wipe it (see `wipe`
+   * in `./utils.js`) as soon as the operation that needed it completes.
+   * @returns {KeyBytes | undefined} A copy of the secret key bytes, or undefined when no secret key is present.
+   */
+  get secretKeyBytes(): KeyBytes | undefined {
+    // The Secp256k1SecretKey bytes getter already returns a fresh copy
+    return this.#secretKey?.bytes;
   }
 
   /**

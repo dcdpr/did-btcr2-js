@@ -3,9 +3,10 @@ import type { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey }
 import type { DidVerificationMethod } from '@web5/dids';
 
 /**
- * JSON shape of a SchnorrMultikey. `keyPair` is public-key-only when produced by
- * `SchnorrMultikey.toJSON()` (the safe, implicit serialization) and carries the
- * full secret material only when produced by the explicit `exportJSON()`.
+ * JSON shape of a SchnorrMultikey's full serialization, as produced by the
+ * explicit `SchnorrMultikey.exportJSON()`: `keyPair` carries the secret
+ * material. For the safe, public-only shape produced by `toJSON()` /
+ * JSON.stringify(), see {@link PublicMultikeyObject}.
  */
 export type MultikeyObject = {
   id: string;
@@ -13,6 +14,20 @@ export type MultikeyObject = {
   fullId: string;
   signer: boolean;
   keyPair: SchnorrKeyPairObject | { publicKey: PublicKeyObject };
+  verificationMethod: DidVerificationMethod;
+}
+
+/**
+ * JSON shape of a SchnorrMultikey's public-only serialization, as produced by
+ * `SchnorrMultikey.toJSON()` (and implicitly by JSON.stringify()): `keyPair`
+ * carries public material only, so this shape is always safe to log or return.
+ */
+export type PublicMultikeyObject = {
+  id: string;
+  controller: string;
+  fullId: string;
+  signer: boolean;
+  keyPair: { publicKey: PublicKeyObject };
   verificationMethod: DidVerificationMethod;
 }
 export interface DidParams {

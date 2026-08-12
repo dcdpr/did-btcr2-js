@@ -148,6 +148,25 @@ describe('SchnorrKeyPair instantiated', () => {
     });
   });
 
+  describe('secretKeyBytes accessor', () => {
+    it('should return the secret bytes for full key pairs', () => {
+      const kp = new SchnorrKeyPair({ secretKey: bytes.secretKey });
+      expect(kp.secretKeyBytes).to.deep.equal(bytes.secretKey);
+    });
+
+    it('should return a caller-owned copy (mutation does not affect the keypair)', () => {
+      const kp = new SchnorrKeyPair({ secretKey: bytes.secretKey });
+      const copy = kp.secretKeyBytes!;
+      copy.fill(0);
+      expect(kp.secretKeyBytes).to.deep.equal(bytes.secretKey);
+    });
+
+    it('should return undefined for public-key-only pairs (never throws)', () => {
+      const kp = new SchnorrKeyPair({ publicKey: bytes.publicKey });
+      expect(kp.secretKeyBytes).to.be.undefined;
+    });
+  });
+
   describe('public-key-only getters', () => {
     const kp = new SchnorrKeyPair({ publicKey: bytes.publicKey });
 

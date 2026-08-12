@@ -7,6 +7,7 @@ import {
   canonicalize,
   CryptosuiteError,
   DateUtils,
+  JSONUtils,
   MethodError,
   PROOF_GENERATION_ERROR,
   PROOF_SERIALIZATION_ERROR,
@@ -18,7 +19,8 @@ import { base58btc } from 'multiformats/bases/base58';
 import { BIP340DataIntegrityProof } from '../data-integrity-proof/index.js';
 import type { DataIntegrityProofObject, DataIntegrityProofOptions, SecuredDocument, UnsecuredDocument } from '../data-integrity-proof/interface.js';
 import type { SchnorrMultikey } from '../multikey/index.js';
-import type { Cryptosuite, VerificationResult } from './interface.js';
+import type { Cryptosuite, ProofVerificationOptions, VerificationResult } from './interface.js';
+import { MAX_PROOF_CLOCK_SKEW_MS } from './interface.js';
 
 /**
  * An implementation of a {@link Cryptosuite} using BIP340 Schnorr signatures and JCS canonicalization.
@@ -71,13 +73,15 @@ export class BIP340Cryptosuite implements Cryptosuite {
     document: UnsecuredDocument,
     config: DataIntegrityProofOptions
   ): DataIntegrityProofObject {
-    // Build the proof as a fresh object: the caller's config is neither mutated
-    // nor aliased into the returned proof, so post-hoc mutation of the caller's
+    // Build the proof as a fresh deep copy: the caller's config is neither
+    // mutated nor aliased into the returned proof (nested values such as a
+    // domain array are cloned too), so post-hoc mutation of the caller's
     // config cannot alter the secured document (and vice versa).
+    const clonedConfig = JSONUtils.clone(config);
     const proof: DataIntegrityProofObject = {
-      ...config,
+      ...clonedConfig,
       // Set the context using the document context or the existing config context
-      '@context' : (document['@context'] as string | string[] | undefined) ?? config['@context'],
+      '@context' : JSONUtils.clone((document['@context'] as string | string[] | undefined) ?? clonedConfig['@context']),
     } as DataIntegrityProofObject;
 
     // Create a canonical form of the proof configuration
@@ -106,13 +110,64 @@ export class BIP340Cryptosuite implements Cryptosuite {
   }
 
   /**
-   * Verify a proof for a secure document.
+   * Verify a proof for a secure document. Temporal checks run here, at the
+   * shared verification chokepoint, so every caller (Data Integrity wrapper,
+   * resolver replay, aggregation intake, api facade) enforces them:
+   * `proof.expires` must be a valid XMLSchema DateTime strictly after the
+   * reference time, and `proof.created` must be a valid XMLSchema DateTime no
+   * more than {@link MAX_PROOF_CLOCK_SKEW_MS} ahead of the reference time.
    * @param {SecuredDocument} secureDocument The secured document to verify.
+   * @param {ProofVerificationOptions} [options] Optional verification options.
+   *   `referenceTime` defaults to the wall clock; pass an anchoring block time
+   *   when replaying anchored history.
    * @returns {VerificationResult} The result of the verification.
+   * @throws {CryptosuiteError} if the proof is expired, has a malformed
+   *   expires/created, or was created too far in the future of the reference time.
    */
-  verifyProof(secureDocument: SecuredDocument): VerificationResult {
+  verifyProof(secureDocument: SecuredDocument, options?: ProofVerificationOptions): VerificationResult {
     // Destructure the proof from the secure document and create an unsecured document without the proof
     const { proof, ...unsecureDocument } = secureDocument;
+
+    // The reference time defaults to the wall clock; historical replays pass
+    // the anchoring block time so proofs expired only after their anchor verify.
+    const referenceTime = options?.referenceTime ?? new Date();
+
+    // Check if the proof carries an expiry
+    if(proof.expires) {
+      // Validate the format
+      if(!DateUtils.isValidXsdDateTime(proof.expires)) {
+        throw new CryptosuiteError(
+          'Invalid proof: "expires" must be a valid XMLSchema DateTime string',
+          PROOF_VERIFICATION_ERROR, { proof }
+        );
+      }
+      // A proof must not verify at or past its expiry, relative to the reference time
+      if(DateUtils.dateStringToTimestamp(proof.expires).getTime() <= referenceTime.getTime()) {
+        throw new CryptosuiteError(
+          'Proof expired: reference time is at or past proof.expires',
+          PROOF_VERIFICATION_ERROR, { proof }
+        );
+      }
+    }
+
+    // Check if the proof carries a creation timestamp
+    if(proof.created) {
+      // Validate the format
+      if(!DateUtils.isValidXsdDateTime(proof.created)) {
+        throw new CryptosuiteError(
+          'Invalid proof: "created" must be a valid XMLSchema DateTime string',
+          PROOF_VERIFICATION_ERROR, { proof }
+        );
+      }
+      // A proof created too far ahead of the reference time is rejected; the
+      // tolerance covers ordinary clock skew between signer and verifier.
+      if(DateUtils.dateStringToTimestamp(proof.created).getTime() > referenceTime.getTime() + MAX_PROOF_CLOCK_SKEW_MS) {
+        throw new CryptosuiteError(
+          'Invalid proof: "created" is too far in the future of the reference time',
+          PROOF_VERIFICATION_ERROR, { proof }
+        );
+      }
+    }
 
     // Destructure the proofValue from the proof and create a config without the proofValue
     const { proofValue, ...config } = proof;
