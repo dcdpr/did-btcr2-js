@@ -12,6 +12,8 @@ Out of the box, `btcr2 resolve` works with zero configuration. The Bitcoin netwo
 
 Signing operations (`update`, `deactivate`, and generated `create` keys) read secret keys from an encrypted on-disk keystore. Choose a key with `--signing-key <ref>` or set an active key with `btcr2 key use <ref>`.
 
+Full reference documentation lives in [`docs/`](./docs/README.md): a page per command, the global options and configuration precedence, and a guided end-to-end walkthrough on Mutinynet in [`docs/DEMO.md`](./docs/DEMO.md).
+
 ## Install
 
 ```bash

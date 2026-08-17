@@ -2,11 +2,11 @@
 
 A code-first walkthrough of the entire did:btcr2 lifecycle through the `@did-btcr2/api` SDK: create an identifier offline, resolve it live from Bitcoin, update it on-chain, prove the update is private, and deactivate it. It runs on **Mutinynet** (a public Bitcoin signet with 30-second blocks and a free faucet), so nothing here costs real money.
 
-This is the developer-facing companion to the CLI walkthrough at [`../cli/DEMO.md`](../cli/DEMO.md): same narrative arc, but every step is a few lines of TypeScript instead of a shell command. The lifecycle code blocks in Parts 0-5 are lifted from the runnable script [`lib/e2e-full-lifecycle.ts`](./lib/e2e-full-lifecycle.ts), which executes the whole lifecycle end-to-end (see the Appendix). All output shown is illustrative: your identifiers, addresses, and txids will differ.
+This is the developer-facing companion to the CLI walkthrough at [`../cli/docs/DEMO.md`](../cli/docs/DEMO.md): same narrative arc, but every step is a few lines of TypeScript instead of a shell command. The lifecycle code blocks in Parts 0-5 mirror the runnable script [`lib/e2e-full-lifecycle.ts`](./lib/e2e-full-lifecycle.ts), which executes the whole lifecycle end-to-end (see the Appendix; the script factors its pauses and polling into helpers, so a few doc blocks inline what those helpers do). All output shown is illustrative: your identifiers, addresses, and txids will differ.
 
-**How to follow along.** Three options, from least to most hands-on: (1) just read; (2) run the companion script, which pauses while you fund the beacon from the faucet; (3) paste the blocks into a `npx tsx` REPL top-to-bottom (top-level `await` works, and variables persist between blocks).
+**How to follow along.** Three options, from least to most hands-on: (1) just read; (2) run the companion script, which pauses while you fund the beacon from the faucet and again while each broadcast confirms; (3) paste the blocks into a `npx tsx` REPL top-to-bottom (top-level `await` works, and variables persist between blocks).
 
-Targets `@did-btcr2/api` **v0.17.0**.
+Targets `@did-btcr2/api` **v0.18.0**.
 
 ---
 
@@ -33,7 +33,7 @@ npm install @did-btcr2/api @did-btcr2/key-manager tsx
 
 ### Construct the api
 
-One facade object drives everything. Sub-facades (`api.kms`, `api.btc`, `api.cas`, `api.btcr2`) hang off it.
+One facade object drives everything. Sub-facades (`api.kms`, `api.did`, `api.crypto`, `api.btc`, `api.cas`, `api.btcr2`) hang off it.
 
 ```typescript
 import { createApi, DEFAULT_CAS_GATEWAY } from '@did-btcr2/api';
@@ -86,7 +86,7 @@ That string **is** the identifier. It was produced in milliseconds, with no fee 
 >
 > Shortcut: `api.generateDid({ network: 'mutinynet' })` does Parts 1 and 2 in one call and returns `{ did, keyId }`. Note its default network is `regtest`, not mainnet.
 
-There are two identifier flavors: `k` (deterministic, encodes the public key itself) and `x` (external, encodes the hash of a full genesis document for multi-key or service-rich starts). This demo uses `k`; an `x` DID additionally needs its genesis document in the sidecar at resolution time.
+There are two identifier flavors: `k` (deterministic, encodes the public key itself) and `x` (external, encodes the hash of a full genesis document for multi-key or service-rich starts). This demo uses `k`; an `x` DID additionally needs its genesis document at resolution time, supplied in the sidecar or fetched from a configured CAS.
 
 ---
 
@@ -161,7 +161,7 @@ Open the faucet URL from Part 3, paste the beacon address, and request ~100,000 
 
 ```typescript
 let utxos = await api.btc.getUtxos(beaconAddress);
-while (!utxos.some((u) => u.status?.confirmed)) {
+while (!utxos.some((u) => u.status.confirmed)) {
   await new Promise((r) => setTimeout(r, 5_000));
   utxos = await api.btc.getUtxos(beaconAddress);
 }
@@ -240,7 +240,7 @@ The resolver found the on-chain update hash, looked for the update bytes in the 
 
 > **Deactivation is permanent and irreversible.** It retires the DID through the same on-chain write path as an update. Do not run this against a DID you want to keep.
 
-Deactivation **is** an update: a patch that sets `/deactivated` on the document. (The `api.btcr2.deactivate()` method is an unimplemented stub that throws; the patch below is the supported path, and it is exactly what the CLI's `deactivate` command does.)
+Deactivation **is** an update: a patch that sets `/deactivated` on the document. (The `api.btcr2.deactivate()` method is an unimplemented stub that rejects with `NotImplementedError`; the patch below is the supported path, and it is exactly what the CLI's `deactivate` command does.)
 
 No second faucet trip is needed: the update transaction in Part 4 returned its change to the beacon address, so the beacon still holds a confirmed UTXO.
 
@@ -296,14 +296,15 @@ The resolver applies both updates in block-height order, sees the document deact
 ```bash
 # Run from the monorepo root.
 
-# Against Mutinynet: pauses while you fund the beacon from the faucet.
+# Against Mutinynet: pauses for the faucet trip and each broadcast confirmation.
 BITCOIN_NETWORK=mutinynet npx tsx packages/api/lib/e2e-full-lifecycle.ts
 
-# Against a local regtest node (Polar defaults): fully automatic, no faucet.
+# Against a local regtest node: fully automatic, no faucet, no pauses. Needs
+# bitcoind RPC (Polar defaults) plus an Esplora REST endpoint on localhost:3000.
 npx tsx packages/api/lib/e2e-full-lifecycle.ts
 ```
 
-Rough Mutinynet wall-clock: 3-5 minutes, dominated by two block confirmations and the faucet trip. On public networks the script persists the generated secret key to `lib/.e2e-keys/` (gitignored, mode 0600) so funds at the beacon address are recoverable.
+Rough Mutinynet wall-clock: 3-5 minutes, dominated by three block confirmations (funding, update, deactivation) and the faucet trip. On public networks the script persists the generated secret key to `lib/.e2e-keys/` (gitignored, mode 0600) so funds at the beacon address are recoverable.
 
 ### The fluent builder alternative
 
@@ -342,7 +343,7 @@ Modes: `'never'` (default: maximum privacy, sidecar-only), `'auto'` (best-effort
 | `api.btc` throws `Bitcoin not configured` | Pass a `btc` config to `createApi()`, e.g. `createApi({ btc: { network: 'mutinynet' } })`. |
 | `Beacon address ... is unfunded. Send BTC to this address before broadcasting the update.` | The faucet step was skipped or the funding tx has not landed. Fund the beacon and wait for it to be indexed. |
 | `No spendable UTXO at beacon address: all N UTXO(s) are unconfirmed.` | Deliberate reorg/RBF safety. Wait one block (~30s on Mutinynet) and retry. |
-| `Failed to resolve DID ...` with cause `Signed update not found in CAS (hash: ...)` | You resolved a DID that has an on-chain update without providing the sidecar. Pass `{ sidecar: { updates: [...] } }`: that is the privacy feature, not a bug. |
+| `Failed to resolve DID: ...` with cause `Signed update not found in CAS (hash: ...)` | You resolved a DID that has an on-chain update without providing the sidecar. Pass `{ sidecar: { updates: [...] } }`: that is the privacy feature, not a bug. |
 | Resolve hangs | Check reachability to `https://mutinynet.com/api`; override with `btc: { rest: { host: '<url>' } }`. Slow CAS lookups are bounded by `cas.timeoutMs`. |
 | Updates broadcast but resolve never sees them | Network mismatch: the DID's encoded network and `createApi`'s `btc.network` must agree. Decode with `api.did.decode(did)` to check. |
-| `api.btcr2.deactivate()` throws `NotImplementedError` | Expected: deactivation is expressed as an update with an `add /deactivated true` patch (Part 5). |
+| `api.btcr2.deactivate()` rejects with `NotImplementedError` | Expected: deactivation is expressed as an update with an `add /deactivated true` patch (Part 5). |

@@ -10,7 +10,7 @@ commands reuse shell variables set by earlier ones, so keep the same session ope
 output block is **illustrative** - your keys, DID strings, and Bitcoin addresses will be
 unique to you, but the shape will match.
 
-Targets `@did-btcr2/cli` **v0.18.0**.
+Targets `@did-btcr2/cli` **v0.18.1**.
 
 ---
 
@@ -66,7 +66,7 @@ btcr2 --version
 ```
 
 ```
-btcr2 0.18.0
+btcr2 0.18.1
 ```
 
 ### Set up in one command
@@ -120,12 +120,15 @@ endpoint probe result (text mode shows just the data; on Path B the `protection`
 `{"action": ..., "data": ...}` envelope instead.)
 
 > `quickstart` is idempotent: run it again and it leaves existing files untouched (it never
-> overwrites a keystore, and it will not clobber a network you set earlier; `--force`
-> re-creates the config, never the keystore). Mainnet setup demands an explicit
-> `--allow-mainnet`, and never with `--dev`. The endpoint
+> overwrites a keystore, and it will not clobber a network you set earlier). `--force`
+> re-scaffolds the config from scratch, discarding custom profiles, defaults, and any
+> previously recorded network (pass `-n` to re-record one); it never touches the keystore.
+> Mainnet setup demands an explicit `--allow-mainnet`, and never with `--dev`. The endpoint
 > probe is **advisory** - if an endpoint is briefly unreachable it warns but still succeeds;
 > re-run `btcr2 config doctor -n mutinynet` any time for an authoritative check. Pass
-> `--no-doctor` to skip the probe. `-n mutinynet` is the default, so you can drop it.
+> `--no-doctor` to skip the probe. On a fresh home you can drop `-n mutinynet`: quickstart
+> falls back to mutinynet when no network is recorded yet (a recorded `defaults.network`
+> wins otherwise).
 >
 > Prefer to do it step by step? `btcr2 init -n mutinynet` scaffolds the home and records
 > the network, `btcr2 keystore unlock --ttl 2h` caches the session, and `btcr2 config
@@ -151,7 +154,7 @@ Commands:
   keystore      Establish, inspect, re-key, and unlock the keystore.
   config        Read and write CLI configuration.
   profile       Manage configuration profiles.
-  completion    Print a shell completion script (bash, zsh, or fish).
+  completion    Print a shell completion script (bash, zsh, or fish) to stdout.
 ```
 
 ---
@@ -609,9 +612,10 @@ btcr2 profile use client-demo
 
 `config validate` checks a file, `config effective` shows resolved connection values with
 their provenance (`flag`/`env`/`file`/`default`), and `config doctor` probes endpoint
-reachability. Secret values (Bitcoin RPC passwords, authenticated headers) are **redacted**
-in `config get`/`list`/`effective` and `profile show` output; add `--show-secrets` to see
-them in plaintext deliberately, never accidentally.
+reachability. Bitcoin RPC passwords are **redacted** in `config get`/`list`/`effective` and
+`profile show` output, and authenticated headers in `config get`/`list`/`profile show`
+(`config effective` omits headers entirely); add `--show-secrets` to see them in plaintext
+deliberately, never accidentally.
 
 ### Publish updates to a CAS (opt-in)
 
