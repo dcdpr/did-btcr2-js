@@ -4,6 +4,8 @@ Multi-party coordination for aggregated BTCR2 updates, implementing the [Aggrega
 
 This guide is a step-by-step walkthrough. If you've never used the aggregation subsystem before, read it top to bottom. If you already know what you're doing, jump to the [Service Step-by-Step](#service-step-by-step) or [Participant Step-by-Step](#participant-step-by-step) sections.
 
+> **Which package exports what.** Aggregation lives in the standalone `@did-btcr2/aggregation` package: every runner, state machine, transport, message type, and beacon strategy in this guide is imported from there, not from `@did-btcr2/method`. `@did-btcr2/method` has no dependency on it and exports no aggregation symbols; what method contributes is the did:btcr2 side of the examples (`DidBtcr2`, `Identifier`, `Resolver`, `Updater`) plus `resolveBtcr2SenderPk`, the DID-to-key decode the transports take as `resolveSenderPk`. The examples below import the whole aggregation surface from the umbrella entry `@did-btcr2/aggregation`; applications that want to keep client code out of a server bundle (or the reverse) can import the same symbols from the role entries `@did-btcr2/aggregation/core`, `/participant`, and `/service`.
+
 ---
 
 ## Table of Contents
@@ -104,9 +106,9 @@ This section walks through the Nostr setup. For the HTTP walkthrough (wire proto
 A single `Transport` instance can serve multiple registered actors. In production each process typically registers exactly one actor (its own identity); in tests one transport often serves several actors at once for easy in-process round-trips.
 
 ```typescript
-import { NostrTransport, SILENT_LOGGER } from '@did-btcr2/method';
+import { NostrTransport, SILENT_LOGGER } from '@did-btcr2/aggregation';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
-import { DidBtcr2 } from '@did-btcr2/method';
+import { DidBtcr2, resolveBtcr2SenderPk } from '@did-btcr2/method';
 
 // 1. Generate identity
 const keys = SchnorrKeyPair.generate();
@@ -125,6 +127,10 @@ const transport = new NostrTransport({
   // Some relays don't backfill historical events to late subscribers; this
   // gives them a bounded window of recent events to replay. Default 5 min.
   broadcastLookbackMs : 5 * 60 * 1000,
+  // Authenticates inbound senders: binds each message's declared `from` DID to
+  // the key that signed the event carrying it. Without it the transport accepts
+  // messages only from peers already registered via registerPeer().
+  resolveSenderPk     : resolveBtcr2SenderPk,
 });
 
 // 3. Register the actor (DID + keys) with the transport
@@ -146,6 +152,7 @@ That's the entire transport setup. From here on, you only interact with the Runn
 | `relays` | `DEFAULT_NOSTR_RELAYS` (4 public relays) | Array of relay URLs to connect to |
 | `logger` | `CONSOLE_LOGGER` | Injectable `Logger` for transport diagnostics |
 | `broadcastLookbackMs` | 5 min | `since` filter on broadcast (COHORT_ADVERT) subscription. Set to `0` to disable. |
+| `resolveSenderPk` | none | DID-to-key decode used to authenticate inbound senders. Without it, only already-registered peers are accepted. See [Sender authentication](#sender-authentication). |
 
 ### Choosing between Nostr and HTTP
 
@@ -163,23 +170,29 @@ Both transports carry identical protocol semantics. Differences that matter at d
 Factory invocation for each:
 
 ```typescript
+import { TransportFactory } from '@did-btcr2/aggregation';
+import { resolveBtcr2SenderPk } from '@did-btcr2/method';
+
 // Nostr
 const transport = TransportFactory.establish({
-  type   : 'nostr',
-  relays : ['wss://relay.damus.io', 'wss://nos.lol'],
+  type            : 'nostr',
+  relays          : ['wss://relay.damus.io', 'wss://nos.lol'],
+  resolveSenderPk : resolveBtcr2SenderPk,
 });
 
 // HTTP client (participant side)
 const transport = TransportFactory.establish({
-  type    : 'http',
-  role    : 'client',
-  baseUrl : 'https://aggregator.example.com/',
+  type            : 'http',
+  role            : 'client',
+  baseUrl         : 'https://aggregator.example.com/',
+  resolveSenderPk : resolveBtcr2SenderPk,
 });
 
 // HTTP server (operator side): mount handleRequest + handleSse in a web framework
 const transport = TransportFactory.establish({
-  type : 'http',
-  role : 'server',
+  type            : 'http',
+  role            : 'server',
+  resolveSenderPk : resolveBtcr2SenderPk,
 });
 ```
 
@@ -203,7 +216,7 @@ The service is the coordinator. It creates a cohort, advertises it, accepts part
 ### Step 1: Construct the runner
 
 ```typescript
-import { AggregationServiceRunner } from '@did-btcr2/method';
+import { AggregationServiceRunner } from '@did-btcr2/aggregation';
 
 const runner = new AggregationServiceRunner({
   transport,                     // from previous section
@@ -314,7 +327,9 @@ The participant joins cohorts advertised by services, submits its own DID update
 ### Step 1: Construct the runner
 
 ```typescript
-import { AggregationParticipantRunner, Resolver, Update } from '@did-btcr2/method';
+import { AggregationParticipantRunner } from '@did-btcr2/aggregation';
+import { LocalSigner } from '@did-btcr2/keypair';
+import { Resolver, Updater } from '@did-btcr2/method';
 
 const runner = new AggregationParticipantRunner({
   transport,                    // from the transport setup section
@@ -336,7 +351,7 @@ const runner = new AggregationParticipantRunner({
       network      : 'mutinynet',
     });
 
-    const unsigned = Update.construct(doc, [{
+    const unsigned = Updater.construct(doc, [{
       op    : 'add',
       path  : '/service/-',
       value : {
@@ -346,7 +361,9 @@ const runner = new AggregationParticipantRunner({
       }
     }], 1);
 
-    return Update.sign(myDid, unsigned, doc.verificationMethod![0], myKeys.raw.secret!);
+    // Updater.sign takes a Signer, not raw key bytes. LocalSigner is the
+    // in-process one; a KMS/HSM-backed key uses KeyManagerSigner instead.
+    return Updater.sign(myDid, unsigned, doc.verificationMethod![0], new LocalSigner(myKeys.raw.secret!));
   },
 });
 ```
@@ -478,7 +495,7 @@ console.log(`Joined cohort ${result.cohortId}, beacon: ${result.beaconAddress}`)
 | `nonce-received` | `{ participantDid }` | A participant's MuSig2 nonce arrives |
 | `signing-complete` | `AggregationResult` | Final signature computed (also resolves `run()`) |
 | `cohort-failed` | `{ cohortId, reason }` | Cohort entered a terminal failure state (validation rejection, TTL/phase timeout). Also rejects `run()`. |
-| `message-rejected` | `Rejection & { cohortId }` | The state machine silently dropped an incoming message. `code` distinguishes `WRONG_VERSION`, `UPDATE_TOO_LARGE`, `UPDATE_MALFORMED`, `UPDATE_VERIFICATION_FAILED`. |
+| `message-rejected` | `Rejection & { cohortId }` | The state machine dropped an incoming message. `code` distinguishes `WRONG_VERSION`, `UPDATE_TOO_LARGE`, `UPDATE_MALFORMED`, `UPDATE_VERIFICATION_FAILED`, `NOT_A_MEMBER`, `DUPLICATE_RESPONSE`, `INVALID_NONCE`, `INVALID_PARTIAL_SIG`, `INVALID_PARTICIPANT_KEY`. |
 | `error` | `Error` | Protocol or transport error (rejects `run()` for fatal errors) |
 
 ### `AggregationParticipantRunner` events
@@ -540,9 +557,12 @@ For tests, custom transports, or fine-grained control, drop down to the sans-I/O
 ### Service state machine
 
 ```typescript
-import { AggregationService } from '@did-btcr2/method';
+import { AggregationService } from '@did-btcr2/aggregation';
 
-const session = new AggregationService({ did: serviceDid, keys: serviceKeys });
+// The coordinator never signs: it aggregates public nonces and partial signatures,
+// so the state machine takes only the public half of the operator's keypair (ADR 038).
+// The full keypair stays the operator's transport/communication identity.
+const session = new AggregationService({ did: serviceDid, publicKey: serviceKeys.publicKey });
 
 // Step 1: Cohort Formation
 const cohortId = session.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
@@ -577,9 +597,13 @@ const result = session.getResult(cohortId);
 ### Participant state machine
 
 ```typescript
-import { AggregationParticipant } from '@did-btcr2/method';
+import { AggregationParticipant, KeyPairAggregationSigner } from '@did-btcr2/aggregation';
 
-const session = new AggregationParticipant({ did: myDid, keys: myKeys });
+// The participant does sign, so it takes an AggregationSigner rather than a raw
+// keypair. KeyPairAggregationSigner backs one with an in-memory keypair and
+// materializes the secret only for a single nonce/partial-sign step (ADR 038).
+// An x1 participant also passes its genesisDocument here.
+const session = new AggregationParticipant({ did: myDid, signer: new KeyPairAggregationSigner(myKeys) });
 
 // Receive an advert
 session.receive(cohortAdvertMessage);
@@ -631,7 +655,7 @@ await runner.run();
 
 ## Running the E2E Demos
 
-Four runnable scripts in `lib/operations/aggregation/` demonstrate the runner API in different deployment configurations:
+Five runnable scripts in `packages/aggregation/lib/operations/aggregation/` demonstrate the runner API in different deployment configurations. The commands below are run from `packages/aggregation`:
 
 | Script | Description |
 |---|---|
@@ -709,6 +733,34 @@ Both are unset by default: enable them in any production deployment.
 
 `AggregationService` enforces `maxUpdateSizeBytes` (default 256 KiB) on the canonicalized size of each `SUBMIT_UPDATE` body, before the expensive BIP-340 proof verification. Oversized payloads are dropped silently at the state-machine level and surfaced as `message-rejected` events with code `UPDATE_TOO_LARGE`. This protects against cheap bandwidth/CPU exhaustion from a hostile participant. Tune downward if your DID documents are typically smaller.
 
+### Inbound messages never fail a cohort
+
+`AggregationService.receive()` does not throw on anything a sender controls. Every receive-path handler checks membership, round/session duplication, and cryptographic validity itself, and records a `Rejection` for what it drops rather than letting a cohort or signing-session invariant throw. This matters because `AggregationServiceRunner` treats an escaping error as a cohort failure (`removeCohort` + rejected completion), so a single throw on that path would be a cohort-kill available to anyone who can reach the service: a non-member ack, a never-accepted opt-in's submission, a duplicated nonce from a transport retry, or one malformed nonce.
+
+This covers cohort formation as well. `COHORT_OPT_IN` carries the sender's own `participantPk` and `communicationPk`, and the wire guard asks only that they be bytes: a three-byte or off-curve key is checked on arrival and dropped as `INVALID_PARTICIPANT_KEY`. A stored one would not be refused until the operator accepted the sender, at which point sorting the cohort keys (or aggregating them at keygen) throws inside an operator action the runner is driving, i.e. the cohort dies for a message anyone could have sent. `AggregationCohort.isValidCohortKey()` is the shared check, and the `cohortKeys` setter applies it to every key it stores, so no inbound path can carry a malformed key as far as key aggregation.
+
+Two consequences worth designing around:
+
+- A contribution that is rejected is not stored, so the sender can simply send a correct one. A member blamed for a bad partial signature (`INVALID_PARTIAL_SIG`) can retry within the same round.
+- A round whose members never send valid contributions now stalls rather than failing fast, exactly as it would for a silent member. Set `phaseTimeoutMs` / `cohortTtlMs` (and `autoFallbackOnStall` for the k-of-n script path) so stalls terminate in bounded time.
+
+The operator-facing action methods (`acceptParticipant`, `finalizeKeygen`, `startSigning`, ...) still throw: those are programming errors in the caller, not untrusted input.
+
+Rejections are retained per cohort until drained, capped at `MAX_RETAINED_REJECTIONS` (256, oldest dropped first). The runner drains after every message, so the cap only applies to callers driving the state machine directly.
+
+### Sender authentication
+
+Every protocol message declares its own sender in `from`, and the protocol acts on that claim: a participant records the service DID an advert names and encrypts to the key it declares; a service seats the DID an opt-in names and verifies that member's updates against the key it declares. Each transport separately authenticates a *key*: Nostr by the event signature (`event.pubkey`), HTTP by the signed envelope (`envelope.from`). The two must be bound, or anyone able to reach the wire can speak as any DID.
+
+Both transports enforce that bind on every receive path, and it is what `resolveSenderPk` is for:
+
+- **`resolveSenderPk` is required for inbound traffic from anyone who is not already a registered peer.** It maps a DID to its communication key without the transport knowing anything about did:btcr2; `@did-btcr2/method` exports `resolveBtcr2SenderPk` as that decode. A message whose `from` resolves to no key is dropped, not trusted. Pass it to `NostrTransport`, `HttpClientTransport` and `HttpServerTransport` alike.
+- A message whose declared `from` did not sign the event or envelope carrying it is dropped (HTTP answers `401 sender_mismatch` on the POST routes).
+- A message that advertises a `communicationPk` (a cohort advert, an opt-in) must advertise the key it just authenticated with, so a sender cannot authenticate as itself while having the cohort encrypt to, or attribute keys to, a different key.
+- An EXTERNAL (`x1`) sender is authenticated from the self-verifying genesis document it carries in-band on its opt-in, on both transports (ADR 066).
+
+`AggregationParticipant` then holds every service-originated message (`COHORT_READY`, `DISTRIBUTE_AGGREGATED_DATA`, `AUTHORIZATION_REQUEST`, `AGGREGATED_NONCE`, `FALLBACK_AUTHORIZATION_REQUEST`) to `from === serviceDid` for the cohort it names, and the nonce and fallback messages to the active signing session's id, so a stranger cannot drive a member's cohort even on a transport that does not authenticate at all. `InMemoryTransport` is exactly that transport: it is an in-process test harness and performs no inbound authentication.
+
 ### Injectable logger
 
 `NostrTransport` takes an optional `logger: Logger` in its config. `CONSOLE_LOGGER` is the default; `SILENT_LOGGER` is provided for tests and environments that want to suppress transport diagnostics. Implement the `Logger` interface (`debug`/`info`/`warn`/`error`) to route to pino, winston, Sentry, or a structured-logging pipeline.
@@ -770,8 +822,8 @@ Every `BaseMessage` carries a `version: number` field. The current version is ex
 New beacon types can be added without touching the service or participant state machines. Implement `AggregateBeaconStrategy` and call `registerBeaconStrategy(strategy)`.
 
 ```typescript
-import type { AggregateBeaconStrategy } from '@did-btcr2/method';
-import { registerBeaconStrategy } from '@did-btcr2/method';
+import type { AggregateBeaconStrategy } from '@did-btcr2/aggregation';
+import { registerBeaconStrategy } from '@did-btcr2/aggregation';
 
 const MyBeaconStrategy: AggregateBeaconStrategy = {
   type : 'MyBeacon',
@@ -790,6 +842,16 @@ const MyBeaconStrategy: AggregateBeaconStrategy = {
   validateParticipantView({ participantDid, submittedUpdate, expectedHash, body }) {
     return { matches: /* boolean */ };
   },
+
+  // Participant-side: recompute the 32-byte signal from the data just
+  // validated, the same way buildAggregatedData derives cohort.signalBytes.
+  // The participant refuses to sign unless the coordinator's announced signal
+  // is this value, so a strategy that cannot derive one (returns undefined)
+  // never gets a signature. Do not read the announced signal back out of
+  // `body`: that would bind the data to itself and authorize anything.
+  deriveSignal(result) {
+    return /* Uint8Array | undefined */;
+  },
 };
 
 registerBeaconStrategy(MyBeaconStrategy);
@@ -799,15 +861,15 @@ Once registered, passing `beaconType: 'MyBeacon'` in `CohortConfig` routes throu
 
 ### Discriminated message types
 
-For consumers writing custom transports or middleware, every message type has a narrow body interface and a type guard exported from `@did-btcr2/method`:
+For consumers writing custom transports or middleware, every message type has a narrow body interface and a type guard exported from `@did-btcr2/aggregation`:
 
 ```typescript
-import type { AggregationMessage, CohortOptInBody } from '@did-btcr2/method';
+import type { AggregationMessage, BaseMessage, CohortOptInBody } from '@did-btcr2/aggregation';
 import {
   isCohortOptInMessage,
   isSubmitUpdateMessage,
   isAuthorizationRequestMessage,
-} from '@did-btcr2/method';
+} from '@did-btcr2/aggregation';
 
 function route(msg: BaseMessage) {
   if(isCohortOptInMessage(msg)) {

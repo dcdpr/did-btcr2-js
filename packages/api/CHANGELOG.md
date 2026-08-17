@@ -1,5 +1,23 @@
 # @did-btcr2/api
 
+## 0.19.0
+
+### Minor Changes
+
+- Choose where beacon signals are read from on the Bitcoin connection.
+
+  - Added `BitcoinApiConfig.signalDiscovery` (`'indexer' | 'fullnode'`, default `'indexer'`) and the `SignalDiscoveryMode` type, surfaced as the readonly `BitcoinApi.signalDiscovery`. `fullnode` scans every block from genesis over Bitcoin Core RPC instead of reading an Esplora index; it requires an `rpc` config (rejected at construction without one), a node with `-txindex=1`, and Bitcoin Core 25 or later for `getblock` verbosity 3, and the linear scan makes it practical only on regtest. Resolution reads the mode off the connection, not off the DID: which path reads the chain is a property of how this SDK talks to Bitcoin.
+  - **BREAKING:** resolution inherits the `capabilityInvocation` authorization check from `@did-btcr2/method`, so a DID whose updates were signed by a key outside that relationship now resolves as an error rather than a document (ADR 088).
+  - **BREAKING:** the re-exported `MultikeyObject` narrows with `@did-btcr2/cryptosuite`: its `keyPair` field carries public key material only.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/bitcoin@0.10.0
+  - @did-btcr2/common@9.3.0
+  - @did-btcr2/cryptosuite@10.0.0
+  - @did-btcr2/method@0.56.0
+
 ## 0.18.0
 
 ### Minor Changes

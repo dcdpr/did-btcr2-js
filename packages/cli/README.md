@@ -287,10 +287,10 @@ Override precedence, highest wins: CLI flags, then environment variables, then c
 | `--btc-rest <url>` | Override Bitcoin REST endpoint (Esplora API) |
 | `--btc-rpc-url <url>` | Override Bitcoin Core RPC endpoint |
 | `--btc-rpc-user <user>` | Bitcoin Core RPC username |
-| `--btc-rpc-pass <pass>` | Bitcoin Core RPC password (accepts an `env:<VAR>` or `file:<path>` secret reference) |
 | `--btc-rpc-wallet <name>` | Bitcoin Core wallet name for wallet-scoped RPCs (`/wallet/<name>`) |
-| `--btc-rpc-header <header>` | Extra Bitcoin Core RPC header `"Key: Value"` (repeatable) |
-| `--btc-rest-header <header>` | Extra Bitcoin REST header `"Key: Value"` (repeatable), e.g. an API key |
+| `--btc-rpc-header <header>` | Extra Bitcoin Core RPC header `"Key: Value"` (repeatable). A credential passed here is on argv: prefer `btc.rpcHeaders` in a profile |
+| `--btc-signal-discovery <mode>` | Where beacon signals are read from `<indexer\|fullnode>` (default: `indexer`; `fullnode` scans blocks over Bitcoin Core RPC) |
+| `--btc-rest-header <header>` | Extra Bitcoin REST header `"Key: Value"` (repeatable). A credential passed here (an API key, a bearer token) is on argv and readable through `ps`: prefer `btc.headers` in a profile |
 | `--btc-timeout <ms>` | Bitcoin REST/RPC request timeout in milliseconds (default: unbounded) |
 | `--cas-gateway <url>` | IPFS HTTP gateway for CAS reads (read-only) |
 | `--cas-rpc-url <url>` | IPFS HTTP RPC endpoint for a writable CAS (reads + writes; enables `--publish-to-cas`) |
@@ -306,10 +306,11 @@ Override precedence, highest wins: CLI flags, then environment variables, then c
 | `BTCR2_BTC_REST` | `--btc-rest` |
 | `BTCR2_BTC_RPC_URL` | `--btc-rpc-url` |
 | `BTCR2_BTC_RPC_USER` | `--btc-rpc-user` |
-| `BTCR2_BTC_RPC_PASS` | `--btc-rpc-pass` |
+| `BTCR2_BTC_RPC_PASS` | no flag: a password on argv is readable through `ps` and shell history |
 | `BTCR2_BTC_RPC_PASS_FILE` | file whose contents are the RPC password |
 | `BTCR2_CAS_GATEWAY` | `--cas-gateway` |
 | `BTCR2_CAS_RPC_URL` | `--cas-rpc-url` |
+| `BTCR2_BTC_SIGNAL_DISCOVERY` | `--btc-signal-discovery` |
 | `BTCR2_BTC_TIMEOUT` | `--btc-timeout` |
 | `BTCR2_CAS_TIMEOUT` | `--cas-timeout` |
 | `BTCR2_FEE_RATE` | `--fee-rate` |
@@ -365,7 +366,8 @@ Profiles are matched by network name when `--profile` is not specified. For exam
 Field notes:
 
 - **`defaults`**: `profile` selects the active profile; `network` fixes the network `create` encodes when `-n` is absent; `output` sets the default output format. `schemaVersion` is stamped on every write; a file written by a newer CLI is refused.
-- **`btc`**: `rest`/`rpcUrl`/`rpcUser`/`rpcPass` are endpoints and credentials; `wallet` targets a Bitcoin Core wallet (`/wallet/<name>`); `headers`/`rpcHeaders` add REST/RPC headers; `feeRate` (sats/vByte), `changeAddress`, and `timeoutMs` set broadcast and request behavior. The RPC url, user, and pass are resolved as one atomic unit, so a URL from a higher-precedence layer never inherits credentials from a lower one.
+- **`btc`**: `rest`/`rpcUrl`/`rpcUser`/`rpcPass` are endpoints and credentials; `wallet` targets a Bitcoin Core wallet (`/wallet/<name>`); `headers`/`rpcHeaders` add REST/RPC headers; `feeRate` (sats/vByte), `changeAddress`, and `timeoutMs` set broadcast and request behavior;
+`signalDiscovery` (`"indexer"` or `"fullnode"`) picks where beacon signals are read from. The RPC url, user, and pass are resolved as one atomic unit, so a URL from a higher-precedence layer never inherits credentials from a lower one.
 - **`cas`**: `gateway` is a read-only IPFS HTTP gateway; `cas.rpcUrl` is a writable IPFS HTTP RPC endpoint (enables `--publish-to-cas`; `rpcUrl` wins over `gateway`); `timeoutMs` bounds CAS operations (`0` disables).
 - **`identity`**: `keystore` points the profile at its own keystore file, and `default` is the profile's default signing key. Both fall **below** the corresponding `--keystore` / `--signing-key` flags.
 

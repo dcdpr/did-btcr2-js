@@ -10,6 +10,22 @@ type CloneOptions = {
 };
 
 /**
+ * Copy a key onto a freshly built result as an own, enumerable data property.
+ *
+ * A plain `result[key] = value` assignment routes the key `__proto__` through the inherited
+ * `Object.prototype` setter, which discards the key and swaps the result's prototype for the
+ * attacker-supplied value. `JSON.parse` produces `__proto__` as an own enumerable key, so any
+ * document that survives a walk here would lose it. Defining the property instead bypasses
+ * inherited accessors while matching what assignment does for every other key.
+ * @param {any} target - The result object receiving the property.
+ * @param {string} key - The property key, taken from the source object's own keys.
+ * @param {any} value - The property value.
+ */
+function defineOwn(target: any, key: string, value: any): void {
+  Object.defineProperty(target, key, { value, writable: true, enumerable: true, configurable: true });
+}
+
+/**
  * Utilities for working with JSON data.
  * @name JSONUtils
  * @class JSONUtils
@@ -211,7 +227,7 @@ export class JSONUtils {
         const result: any = {};
         for (const key of Object.keys(candidate)) {
           if (keySet.has(key)) continue;
-          result[key] = walk(candidate[key]);
+          defineOwn(result, key, walk(candidate[key]));
         }
         return result;
       }
@@ -238,7 +254,7 @@ export class JSONUtils {
         for (const [key, val] of Object.entries(candidate)) {
           const sanitized = walk(val);
           if (sanitized !== undefined) {
-            result[key] = sanitized;
+            defineOwn(result, key, sanitized);
           }
         }
         return result;
@@ -301,7 +317,7 @@ export class JSONUtils {
     seen.set(value as object, result);
 
     for (const key of Object.keys(value as object)) {
-      result[key] = this.cloneInternal((value as any)[key], options, seen, depth + 1);
+      defineOwn(result, key, this.cloneInternal((value as any)[key], options, seen, depth + 1));
     }
 
     return result;

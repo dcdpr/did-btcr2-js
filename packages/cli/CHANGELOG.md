@@ -1,5 +1,24 @@
 # @did-btcr2/cli
 
+## 0.19.0
+
+### Minor Changes
+
+- Keep the Bitcoin RPC password off argv, and expose the beacon signal-discovery mode (ADR 087).
+
+  - **BREAKING:** the `--btc-rpc-pass` flag and `GlobalOptions.btcRpcPass` are removed; passing the flag now fails parsing with `commander.unknownOption` and the command never runs. A password on argv is readable by any local user through `ps` and `/proc/<pid>/cmdline` while the process runs, and outlives it in shell history and CI logs. Supply it through `BTCR2_BTC_RPC_PASS`, a file named by `BTCR2_BTC_RPC_PASS_FILE`, or a profile `btc.rpcPass` holding a literal value or an `env:<VAR>` or `file:<path>` secret reference, matching the keystore passphrase, which is likewise never taken from a flag (ADR 077). Because the atomic credential unit binds url, user, and pass to one layer (ADR 074), a command-line `--btc-rpc-url` now takes its password from `BTCR2_BTC_RPC_PASS_FILE` and not from `BTCR2_BTC_RPC_PASS`.
+  - **BREAKING:** `resolve` fails for a DID whose update proofs name a key outside the document's `capabilityInvocation`, following the read-path authorization check in `@did-btcr2/method` (ADR 088).
+  - Added `--btc-signal-discovery <indexer|fullnode>`, `BTCR2_BTC_SIGNAL_DISCOVERY`, and `profiles.<name>.btc.signalDiscovery`: where beacon signals are read from. `fullnode` scans blocks over Bitcoin Core RPC and requires an RPC-capable connection. A bad value is rejected at the CLI with the same named-flag message from any precedence layer, rather than passed to the SDK.
+  - `btcr2 config effective` reports the resolved `signalDiscovery` value, so a setting that changes resolution behaviour is visible to config introspection (ADRs 075, 078).
+  - The command reference no longer suggests passing an `Authorization` header value on the command line: `--btc-rpc-header` and `--btc-rest-header` place whatever they carry on argv, with the same exposure as the removed password flag.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/api@0.19.0
+  - @did-btcr2/common@9.3.0
+  - @did-btcr2/method@0.56.0
+
 ## 0.18.1
 
 ### Patch Changes

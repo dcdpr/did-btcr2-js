@@ -2,7 +2,7 @@ import { canonicalHash } from '@did-btcr2/common';
 import type { SecuredDocument } from '@did-btcr2/cryptosuite';
 import type { SerializedSMTProof} from '@did-btcr2/smt';
 import { schnorr } from '@noble/curves/secp256k1.js';
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
+import { bytesToHex, concatBytes, hexToBytes } from '@noble/hashes/utils';
 import { Script, Transaction } from '@scure/btc-signer';
 import { getBeaconStrategy } from '../core/beacon-strategy.js';
 import { AggregationCohort } from '../core/cohort.js';
@@ -36,28 +36,45 @@ import { ParticipantCohortPhase } from '../core/phases.js';
 import type { AggregationSigner } from '../core/signer.js';
 import { BeaconSigningSession } from '../core/signing-session.js';
 
+/** Length of a beacon signal: SHA-256 of the CAS announcement, or the SMT root. */
+const SIGNAL_BYTE_LENGTH = 32;
+
 /**
- * True if `tx` has an OP_RETURN output whose payload equals the 32-byte signal
- * `signalHex`. A member binds its fallback signature to the exact signal it
- * validated, so a coordinator that drives the fallback output selection cannot
- * anchor a different announcement (a stale signal, or one whose CAS/SMT root
- * omits the member's update) under the member's signature.
+ * The exact scriptPubKey a did:btcr2 resolver reads a signal out of:
+ * `OP_RETURN OP_PUSHBYTES_32 <signal>`, i.e. the bytes `6a20 || signal`.
+ * Resolution parses the serialized script of the transaction's LAST output
+ * against that shape, so this is the only encoding that announces anything.
  */
-function txEmbedsSignal(tx: Transaction, signalHex: string): boolean {
-  let expected: Uint8Array;
-  try { expected = hexToBytes(signalHex); } catch { return false; }
-  if(expected.length === 0) return false;
-  for(let i = 0; i < tx.outputsLength; i++) {
-    const script = tx.getOutput(i)?.script;
-    if(!script) continue;
-    let decoded: Array<string | Uint8Array>;
-    try { decoded = Script.decode(script) as Array<string | Uint8Array>; } catch { continue; }
-    if(decoded.length === 2 && decoded[0] === 'RETURN' && decoded[1] instanceof Uint8Array) {
-      const payload = decoded[1];
-      if(payload.length === expected.length && payload.every((b, j) => b === expected[j])) return true;
-    }
+function signalScript(signal: Uint8Array): Uint8Array {
+  return concatBytes(new Uint8Array([ 0x6a, 0x20 ]), signal);
+}
+
+/** True if `script` is any OP_RETURN (data) output, whatever it carries. */
+function isOpReturn(script: Uint8Array | undefined): boolean {
+  if(!script) return false;
+  try {
+    return Script.decode(script)[0] === 'RETURN';
+  } catch {
+    return script.length > 0 && script[0] === 0x6a;
   }
-  return false;
+}
+
+/** Number of OP_RETURN outputs in `tx`. */
+function opReturnOutputCount(tx: Transaction): number {
+  let count = 0;
+  for(let i = 0; i < tx.outputsLength; i++) {
+    if(isOpReturn(tx.getOutput(i)?.script)) count++;
+  }
+  return count;
+}
+
+/** Sum of every output amount in `tx` (absent amounts count as zero). */
+function totalOutputValue(tx: Transaction): bigint {
+  let total = 0n;
+  for(let i = 0; i < tx.outputsLength; i++) {
+    total += tx.getOutput(i)?.amount ?? 0n;
+  }
+  return total;
 }
 
 /**
@@ -89,6 +106,12 @@ export interface PendingValidation {
   smtProof?: SerializedSMTProof;
   /** Canonical hash of this participant's update; empty for a decliner. */
   expectedHash: string;
+  /**
+   * True when the member's own slot is correct in the distributed data AND
+   * `signalBytesHex` is the signal that data derives to. Both halves are
+   * required: a slot that validates against data the coordinator does not
+   * intend to anchor authorizes nothing the member wanted.
+   */
   matches: boolean;
   /** True if this participant submitted an update; false if it declined (non-inclusion). */
   included: boolean;
@@ -244,6 +267,34 @@ export class AggregationParticipant {
     return map;
   }
 
+  /**
+   * Resolve the cohort a service-originated message names, and require the message to
+   * come from that cohort's service.
+   *
+   * Every message below the advert is sent by the coordinator, and each one steers this
+   * member: COHORT_READY pins the cohort keys and beacon address, DISTRIBUTE_AGGREGATED_DATA
+   * decides what the member validates, AUTHORIZATION_REQUEST and FALLBACK_AUTHORIZATION_REQUEST
+   * decide what it signs. `from` is a self-declared field, so a transport that does not bind
+   * it to the sender's key (or a caller driving this state machine by hand) would otherwise
+   * let any party drive a member's cohort from the outside. Transport authentication is the
+   * first line; this is the state machine refusing to act on a stranger's say-so regardless.
+   *
+   * COHORT_ADVERT is deliberately not routed through here: the advert is what *establishes*
+   * the service DID, so there is nothing yet to compare it against. Its authenticity is a
+   * transport property (the signed Nostr event / the signed HTTP envelope).
+   * @param {BaseMessage} message The inbound message.
+   * @returns {ParticipantCohortState | undefined} The cohort state, or undefined when the
+   * cohort is unknown or the sender is not its service.
+   */
+  #serviceCohortState(message: BaseMessage): ParticipantCohortState | undefined {
+    const cohortId = message.body?.cohortId;
+    if(!cohortId) return undefined;
+    const state = this.#cohortStates.get(cohortId);
+    if(!state) return undefined;
+    if(message.from !== state.serviceDid) return undefined;
+    return state;
+  }
+
   #handleCohortAdvert(message: BaseMessage): void {
     // Validate the wire shape (incl. minParticipants range) before trusting it,
     // rather than reading fields with `?? 0` fallbacks (see ADR 039).
@@ -313,7 +364,9 @@ export class AggregationParticipant {
   }
 
   #handleOptInAccept(message: BaseMessage): void {
-    // Acknowledgment from service, no state change needed
+    // Acknowledgment from service, no state change needed. Nothing to bind to the
+    // cohort's service DID here for the same reason: this handler reads and writes no
+    // state. Route it through #serviceCohortState if it ever grows a body.
     void message;
   }
 
@@ -335,9 +388,7 @@ export class AggregationParticipant {
   }
 
   #handleCohortReady(message: BaseMessage): void {
-    const cohortId = message.body?.cohortId;
-    if(!cohortId) return;
-    const state = this.#cohortStates.get(cohortId);
+    const state = this.#serviceCohortState(message);
     if(!state || !state.cohort) return;
     if(state.phase !== ParticipantCohortPhase.OptedIn) return;
 
@@ -432,12 +483,11 @@ export class AggregationParticipant {
   }
 
   #handleDistributeAggregatedData(message: BaseMessage): void {
-    const cohortId = message.body?.cohortId;
-    if(!cohortId) return;
-    const state = this.#cohortStates.get(cohortId);
+    const state = this.#serviceCohortState(message);
     // A submitter is in UpdateSubmitted; a decliner (cooperative non-inclusion)
     // is in NonIncluded. Both validate their own slot in the distributed data.
     if(!state || (state.phase !== ParticipantCohortPhase.UpdateSubmitted && state.phase !== ParticipantCohortPhase.NonIncluded)) return;
+    const cohortId = state.cohortId;
 
     const declined = state.included === false;
     // A submitter must have its update stored; a decliner has none by design.
@@ -460,12 +510,22 @@ export class AggregationParticipant {
       body            : message.body!,
     });
 
+    // Bind the announced signal to the data just validated. Validating a slot
+    // says "this data is right"; it says nothing about the 32 bytes the
+    // coordinator intends to anchor. Recompute the signal from the validated
+    // data and require the announcement to be it, or the member would approve a
+    // CAS map/SMT proof containing its update while the chain records a
+    // different aggregation that omits it.
+    const derivedSignal = strategy.deriveSignal(result);
+    const signalBound = derivedSignal !== undefined
+      && bytesToHex(derivedSignal) === signalBytesHex.toLowerCase();
+
     state.validation = {
       cohortId,
       beaconType,
       signalBytesHex,
       expectedHash,
-      matches         : result.matches,
+      matches         : result.matches && signalBound,
       casAnnouncement : result.casAnnouncement,
       smtProof        : result.smtProof,
       included        : !declined,
@@ -526,11 +586,10 @@ export class AggregationParticipant {
   }
 
   #handleAuthorizationRequest(message: BaseMessage): void {
-    const cohortId = message.body?.cohortId;
-    if(!cohortId) return;
-    const state = this.#cohortStates.get(cohortId);
+    const state = this.#serviceCohortState(message);
     if(!state || !state.cohort) return;
     if(state.phase !== ParticipantCohortPhase.ValidationSent) return;
+    const cohortId = state.cohortId;
 
     const sessionId = message.body?.sessionId;
     const pendingTxHex = message.body?.pendingTx;
@@ -549,25 +608,151 @@ export class AggregationParticipant {
   }
 
   /**
-   * Bind a signing approval to the announcement the member validated: a beacon
-   * transaction MUST carry an OP_RETURN with the exact 32-byte signal stored when
-   * the aggregated data was distributed. Both the optimistic nonce approval and
-   * the fallback approval sign with SIGHASH_DEFAULT (committing to every output)
-   * while the coordinator drives output selection, so without this check a
-   * coordinator could anchor a different signal under the member's signature.
+   * Parse and range-check the spent output's value as supplied by the
+   * coordinator. It is the only figure the member has for the input side, so a
+   * malformed one must fail loudly rather than reach `BigInt` unguarded.
    */
-  #assertTxAnchorsValidatedSignal(cohortId: string, state: ParticipantCohortState, tx: Transaction): void {
-    const signalHex = state.validation?.signalBytesHex;
-    if(!signalHex) {
+  #prevOutValue(cohortId: string, raw: string): bigint {
+    let value: bigint;
+    try {
+      value = BigInt(raw);
+    } catch {
+      throw new AggregationParticipantError(
+        `Cohort ${cohortId} signing request carries a malformed prevOutValue.`,
+        'INVALID_PREVOUT_VALUE', { cohortId, prevOutValue: raw }
+      );
+    }
+    if(value < 0n) {
+      throw new AggregationParticipantError(
+        `Cohort ${cohortId} signing request carries a negative prevOutValue.`,
+        'INVALID_PREVOUT_VALUE', { cohortId, prevOutValue: raw }
+      );
+    }
+    return value;
+  }
+
+  /**
+   * Gate every signature the member produces on the transaction it was shown.
+   *
+   * Both the optimistic nonce approval and the fallback approval sign with
+   * SIGHASH_DEFAULT, which commits to the entire transaction, while the
+   * coordinator alone chooses its inputs and outputs. The member therefore
+   * checks the properties its announcement depends on before signing:
+   *
+   * - it validated the distributed data, and the announced signal is derived
+   *   from that data (see {@link PendingValidation.matches});
+   * - the LAST output is exactly `OP_RETURN OP_PUSHBYTES_32 <validated signal>`.
+   *   Resolution reads the signal from the last output only, so a transaction
+   *   carrying the member's signal anywhere else announces someone else's
+   *   aggregation, whatever else it contains;
+   * - that signal output burns nothing, and it is the transaction's only data
+   *   output (a second OP_RETURN is ambiguous and non-standard);
+   * - the transaction spends exactly one input. The protocol conveys a single
+   *   prevout script/value, which is all a BIP-341 sighash over more inputs
+   *   would need, so a multi-input transaction is one the member cannot check
+   *   or correctly sign;
+   * - the outputs do not spend more than the input holds, so the transaction is
+   *   at least capable of confirming and the fee it implies is a real number.
+   *
+   * Deliberately NOT checked: where the change goes and how large the fee is.
+   * The change destination is a caller-chosen privacy lever (ADR 044) and under
+   * the only implemented funding model (`operator-funded`) the value at stake is
+   * the coordinator's own, so a member cannot tell a legitimate change address
+   * from a "drain" and has nothing of its own to lose either way.
+   */
+  #assertSignableBeaconTx(
+    cohortId: string,
+    state: ParticipantCohortState,
+    tx: Transaction,
+    prevOutValue: bigint,
+  ): void {
+    const validation = state.validation;
+    if(!validation?.signalBytesHex) {
       throw new AggregationParticipantError(
         `Cohort ${cohortId} has no validated signal to bind the signature to.`,
         'MISSING_STATE', { cohortId }
       );
     }
-    if(!txEmbedsSignal(tx, signalHex)) {
+    if(!validation.matches) {
       throw new AggregationParticipantError(
-        `Transaction for cohort ${cohortId} does not anchor the validated signal.`,
+        `Cohort ${cohortId} aggregated data did not validate; refusing to sign.`,
+        'UNVALIDATED_DATA', { cohortId }
+      );
+    }
+
+    let signal: Uint8Array;
+    try {
+      signal = hexToBytes(validation.signalBytesHex);
+    } catch {
+      throw new AggregationParticipantError(
+        `Cohort ${cohortId} validated signal is not hex.`,
         'SIGNAL_MISMATCH', { cohortId }
+      );
+    }
+    if(signal.length !== SIGNAL_BYTE_LENGTH) {
+      throw new AggregationParticipantError(
+        `Cohort ${cohortId} validated signal is ${signal.length} bytes, expected ${SIGNAL_BYTE_LENGTH}.`,
+        'SIGNAL_MISMATCH', { cohortId }
+      );
+    }
+
+    if(tx.inputsLength !== 1) {
+      throw new AggregationParticipantError(
+        `Transaction for cohort ${cohortId} spends ${tx.inputsLength} inputs; exactly one is signable.`,
+        'INVALID_TX_STRUCTURE', { cohortId, inputs: tx.inputsLength }
+      );
+    }
+
+    const lastOutput = tx.outputsLength > 0 ? tx.getOutput(tx.outputsLength - 1) : undefined;
+    const expectedScript = signalScript(signal);
+    const lastScript = lastOutput?.script;
+    const anchored = !!lastScript
+      && lastScript.length === expectedScript.length
+      && lastScript.every((b, i) => b === expectedScript[i]);
+    if(!anchored) {
+      throw new AggregationParticipantError(
+        `Transaction for cohort ${cohortId} does not anchor the validated signal in its last output.`,
+        'SIGNAL_MISMATCH', { cohortId }
+      );
+    }
+    if((lastOutput?.amount ?? 0n) !== 0n) {
+      throw new AggregationParticipantError(
+        `Transaction for cohort ${cohortId} burns value in the signal output.`,
+        'INVALID_TX_STRUCTURE', { cohortId, amount: lastOutput?.amount?.toString() }
+      );
+    }
+    const dataOutputs = opReturnOutputCount(tx);
+    if(dataOutputs !== 1) {
+      throw new AggregationParticipantError(
+        `Transaction for cohort ${cohortId} carries ${dataOutputs} OP_RETURN outputs; exactly one is allowed.`,
+        'INVALID_TX_STRUCTURE', { cohortId, dataOutputs }
+      );
+    }
+
+    const outputValue = totalOutputValue(tx);
+    if(outputValue > prevOutValue) {
+      throw new AggregationParticipantError(
+        `Transaction for cohort ${cohortId} spends ${outputValue} from an input of ${prevOutValue}.`,
+        'INVALID_TX_STRUCTURE', { cohortId, outputValue: outputValue.toString(), prevOutValue: prevOutValue.toString() }
+      );
+    }
+  }
+
+  /**
+   * A fallback signature MUST cover the same transaction as the optimistic
+   * round. The two paths spend one UTXO through different witnesses, so signing
+   * a fallback over a different transaction hands the coordinator two competing
+   * spends (a key-path signature for one, a k-of-n script path for the other)
+   * and lets it choose which to broadcast. Members that never saw an
+   * authorization request have nothing to compare against and authorize one
+   * transaction only, so they are not held to this.
+   */
+  #assertMatchesOptimisticTx(cohortId: string, state: ParticipantCohortState, pendingTxHex: string): void {
+    const optimisticTxHex = state.signingRequest?.pendingTxHex;
+    if(optimisticTxHex && optimisticTxHex.toLowerCase() !== pendingTxHex.toLowerCase()) {
+      throw new AggregationParticipantError(
+        `Fallback transaction for cohort ${cohortId} differs from the transaction of the optimistic round.`,
+        'TX_MISMATCH', { cohortId }
       );
     }
   }
@@ -594,9 +779,11 @@ export class AggregationParticipant {
     // output, which scure does not classify as a known (spendable) output type;
     // re-parsing the raw tx would otherwise throw.
     const tx = Transaction.fromRaw(hexToBytes(state.signingRequest.pendingTxHex), { allowUnknownOutputs: true });
+    const prevOutValue = this.#prevOutValue(cohortId, state.signingRequest.prevOutValue);
 
-    // Refuse to sign unless the tx anchors the signal this member validated.
-    this.#assertTxAnchorsValidatedSignal(cohortId, state, tx);
+    // Refuse to sign unless the tx announces the signal this member validated
+    // and is otherwise a beacon transaction the member can account for.
+    this.#assertSignableBeaconTx(cohortId, state, tx, prevOutValue);
 
     // Derive UTXO metadata for Taproot sighash (BIP-341). Use the script
     // supplied by the service in AUTHORIZATION_REQUEST rather than reading
@@ -604,7 +791,7 @@ export class AggregationParticipant {
     // beacon designs, and the prevOutScript must be the UTXO script, not the
     // change script.
     const prevOutScripts = [hexToBytes(state.signingRequest.prevOutScriptHex)];
-    const prevOutValues = [BigInt(state.signingRequest.prevOutValue)];
+    const prevOutValues = [prevOutValue];
 
     const session = new BeaconSigningSession({
       id        : state.signingRequest.sessionId,
@@ -631,11 +818,15 @@ export class AggregationParticipant {
   }
 
   #handleAggregatedNonce(message: BaseMessage): void {
-    const cohortId = message.body?.cohortId;
-    if(!cohortId) return;
-    const state = this.#cohortStates.get(cohortId);
+    const state = this.#serviceCohortState(message);
     if(!state || !state.signingSession) return;
     if(state.phase !== ParticipantCohortPhase.NonceSent) return;
+
+    // The nonce must belong to the round this member is in. The service applies the
+    // same check to every contribution it receives; without the mirror image, a stale
+    // or replayed message from an earlier round installs its aggregated nonce here and
+    // the partial signature computed from it is worthless.
+    if(message.body?.sessionId !== state.signingSession.id) return;
 
     const aggregatedNonce = message.body?.aggregatedNonce;
     if(!aggregatedNonce) return;
@@ -692,10 +883,9 @@ export class AggregationParticipant {
   }
 
   #handleFallbackAuthorizationRequest(message: BaseMessage): void {
-    const cohortId = message.body?.cohortId;
-    if(!cohortId) return;
-    const state = this.#cohortStates.get(cohortId);
+    const state = this.#serviceCohortState(message);
     if(!state || !state.cohort) return;
+    const cohortId = state.cohortId;
     // The service can fall back at any point after the member validated. This
     // includes the local Complete phase a member reaches the moment it sends its
     // optimistic partial signature: the cohort has NOT finalized (the service
@@ -719,6 +909,17 @@ export class AggregationParticipant {
     const prevOutValue = message.body?.prevOutValue;
     const fallbackLeafScriptHex = message.body?.fallbackLeafScriptHex;
     if(!sessionId || !pendingTxHex || !prevOutScriptHex || !prevOutValue || !fallbackLeafScriptHex) return;
+
+    // Drop a request that does not carry the optimistic round's transaction or its
+    // session, BEFORE the secret-nonce wipe below: accepting one would both authorize a
+    // competing spend and, on its own, kill an in-flight optimistic round for
+    // the price of a single unsolicited message. The fallback runs on the service's
+    // existing signing session, so its id is the one already on record; a member still
+    // in ValidationSent has no session to compare against and is held to neither check.
+    const optimisticRequest = state.signingRequest;
+    if(optimisticRequest && optimisticRequest.sessionId !== sessionId) return;
+    const optimisticTxHex = optimisticRequest?.pendingTxHex;
+    if(optimisticTxHex && optimisticTxHex.toLowerCase() !== pendingTxHex.toLowerCase()) return;
 
     state.fallbackRequest = { cohortId, sessionId, pendingTxHex, prevOutScriptHex, prevOutValue, fallbackLeafScriptHex };
     // The optimistic path is abandoned; wipe any retained secret nonce for it.
@@ -751,11 +952,13 @@ export class AggregationParticipant {
     const req = state.fallbackRequest;
     const tx = Transaction.fromRaw(hexToBytes(req.pendingTxHex), { allowUnknownOutputs: true });
     const prevOutScript = hexToBytes(req.prevOutScriptHex);
-    const prevOutValue = BigInt(req.prevOutValue);
+    const prevOutValue = this.#prevOutValue(cohortId, req.prevOutValue);
 
-    // Refuse to sign unless the fallback tx anchors the signal this member
-    // validated (the coordinator drives output selection on the fallback path).
-    this.#assertTxAnchorsValidatedSignal(cohortId, state, tx);
+    // The coordinator drives output selection on the fallback path too, so the
+    // same transaction checks apply, plus: it must be the optimistic round's
+    // transaction, not a second one competing with it.
+    this.#assertSignableBeaconTx(cohortId, state, tx, prevOutValue);
+    this.#assertMatchesOptimisticTx(cohortId, state, req.pendingTxHex);
 
     // Recompute the fallback leaf from our own cohort keys so a malicious service
     // cannot induce a signature over a different leaf than the one the funded

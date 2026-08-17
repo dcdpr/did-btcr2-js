@@ -127,6 +127,28 @@ export class BeaconSigningSession {
     }
   }
 
+  /**
+   * True when `nonceContribution` is a well-formed MuSig2 public nonce: 66 bytes
+   * carrying two valid, non-infinity secp256k1 points.
+   *
+   * {@link generateAggregatedNonce} throws on anything else, and it runs long
+   * after the contribution arrived, so a receive path that stores an unchecked
+   * nonce turns one inbound message into a cohort-wide failure. Callers driving
+   * the session from untrusted input validate here first and drop the message
+   * instead.
+   */
+  public static isValidNonceContribution(nonceContribution: Uint8Array): boolean {
+    try {
+      // Aggregating the single contribution is the validity check itself: it
+      // decodes both points and rejects infinity, exactly as the real
+      // aggregation will.
+      musig2.nonceAggregate([nonceContribution]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   public generateAggregatedNonce(): Uint8Array {
     if(this.phase !== SigningSessionPhase.NonceContributionsReceived) {
       throw new SigningSessionError(
@@ -175,33 +197,14 @@ export class BeaconSigningSession {
     if(!this.aggregatedNonce) {
       throw new SigningSessionError('Aggregated nonce missing.', 'MISSING_AGGREGATED_NONCE');
     }
-    const session = new musig2.Session(
-      this.aggregatedNonce,
-      this.cohort.cohortKeys,
-      this.sigHash,
-      [this.cohort.tapTweak],
-      [true]
-    );
+    const session = this.#musig2Session(this.aggregatedNonce);
 
     // Pre-verify each partial signature against the signer's public key before
     // aggregating (BIP-327 §2.3.5). Delegating verification to partialSigAgg
     // alone makes it impossible to attribute a bad contribution; pinpointing
     // the offending participant lets the service blame and retry without the
     // whole cohort.
-    //
-    // partialSigVerify(partialSig, pubNonces, i) needs pubNonces ordered to
-    // match cohort.cohortKeys, and `i` is the signer's position in that array.
-    const pubNoncesByIndex: Uint8Array[] = new Array(this.cohort.cohortKeys.length);
-    for(const [did, nonce] of this.nonceContributions) {
-      const idx = this.cohort.indexOfParticipant(did);
-      if(idx < 0) {
-        throw new SigningSessionError(
-          `Cannot verify nonce from ${did}: participant key missing from cohort.`,
-          'UNKNOWN_PARTICIPANT_KEY', { participantDid: did }
-        );
-      }
-      pubNoncesByIndex[idx] = nonce;
-    }
+    const pubNoncesByIndex = this.#pubNoncesByIndex();
 
     for(const [did, partialSig] of this.partialSignatures) {
       const idx = this.cohort.indexOfParticipant(did);
@@ -223,6 +226,68 @@ export class BeaconSigningSession {
     this.signature = session.partialSigAgg([...this.partialSignatures.values()]);
     this.phase = SigningSessionPhase.Complete;
     return this.signature;
+  }
+
+  /**
+   * True when `partialSig` is a valid MuSig2 partial signature from
+   * `participantDid` for this session's aggregated nonce and sighash.
+   *
+   * The same check {@link generateFinalSignature} runs before aggregating, hoisted
+   * so a caller can apply it when the contribution arrives rather than when the
+   * round completes: a bad partial signature stored now is a `BAD_PARTIAL_SIG`
+   * throw later, by which point one member's message has failed the whole cohort.
+   * Never throws - an unknown signer, a missing nonce, or malformed bytes are all
+   * `false`.
+   *
+   * Cost is one key aggregation over the cohort keys plus one verification, so it
+   * is linear in cohort size per call; cap the cohort with the `maxParticipants`
+   * condition if inbound signature messages are unmetered.
+   */
+  public verifyPartialSignature(participantDid: string, partialSig: Uint8Array): boolean {
+    try {
+      if(!this.aggregatedNonce) return false;
+      const index = this.cohort.indexOfParticipant(participantDid);
+      if(index < 0) return false;
+      return this.#musig2Session(this.aggregatedNonce)
+        .partialSigVerify(partialSig, this.#pubNoncesByIndex(), index);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Build the MuSig2 session for this round. Deliberately rebuilt per call: the
+   * sighash is recomputed from the live transaction every time, so a session is
+   * never verified or aggregated against a stale message.
+   */
+  #musig2Session(aggregatedNonce: Uint8Array): musig2.Session {
+    return new musig2.Session(
+      aggregatedNonce,
+      this.cohort.cohortKeys,
+      this.sigHash,
+      [this.cohort.tapTweak],
+      [true]
+    );
+  }
+
+  /**
+   * Public nonces ordered to match `cohort.cohortKeys`, the layout
+   * `partialSigVerify(partialSig, pubNonces, i)` indexes with the signer's
+   * position `i`.
+   */
+  #pubNoncesByIndex(): Uint8Array[] {
+    const pubNoncesByIndex: Uint8Array[] = new Array(this.cohort.cohortKeys.length);
+    for(const [did, nonce] of this.nonceContributions) {
+      const idx = this.cohort.indexOfParticipant(did);
+      if(idx < 0) {
+        throw new SigningSessionError(
+          `Cannot verify nonce from ${did}: participant key missing from cohort.`,
+          'UNKNOWN_PARTICIPANT_KEY', { participantDid: did }
+        );
+      }
+      pubNoncesByIndex[idx] = nonce;
+    }
+    return pubNoncesByIndex;
   }
 
   /**
@@ -253,13 +318,7 @@ export class BeaconSigningSession {
     if(!this.#secretNonce) {
       throw new SigningSessionError('Secret nonce not available - generateNonceContribution() must be called first.', 'MISSING_SECRET_NONCE');
     }
-    const session = new musig2.Session(
-      this.aggregatedNonce,
-      this.cohort.cohortKeys,
-      this.sigHash,
-      [this.cohort.tapTweak],
-      [true]
-    );
+    const session = this.#musig2Session(this.aggregatedNonce);
     try {
       return session.sign(this.#secretNonce, participantSecretKey);
     } finally {

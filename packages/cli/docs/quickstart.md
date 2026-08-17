@@ -165,7 +165,7 @@ Environment variables this command consults:
 | `BTCR2_KEYSTORE_PASSPHRASE` | Keystore passphrase for unattended use; consulted before `--passphrase-file` and the prompt, both at establishment and for `--unlock` verification. |
 | `BTCR2_KEYSTORE_TTL` | Default session TTL when `--ttl` is absent (same value domain as the flag). |
 | `BTCR2_OUTPUT` | Output format (`json` or `text`) when `-o/--output` is absent. |
-| `BTCR2_BTC_REST`, `BTCR2_BTC_RPC_URL`, `BTCR2_BTC_RPC_USER`, `BTCR2_BTC_RPC_PASS`, `BTCR2_BTC_RPC_PASS_FILE`, `BTCR2_CAS_GATEWAY`, `BTCR2_CAS_RPC_URL`, `BTCR2_BTC_TIMEOUT`, `BTCR2_CAS_TIMEOUT` | Endpoint overrides consulted only by the doctor probe (they shape which endpoints get probed). |
+| `BTCR2_BTC_REST`, `BTCR2_BTC_RPC_URL`, `BTCR2_BTC_RPC_USER`, `BTCR2_BTC_RPC_PASS`, `BTCR2_BTC_RPC_PASS_FILE`, `BTCR2_CAS_GATEWAY`, `BTCR2_CAS_RPC_URL`, `BTCR2_BTC_SIGNAL_DISCOVERY`, `BTCR2_BTC_TIMEOUT`, `BTCR2_CAS_TIMEOUT` | Endpoint overrides consulted only by the doctor probe (they shape which endpoints get probed). |
 
 Config-file keys that feed the command (in `<home>/config.json`, or the file named by
 `-c/--config`):
@@ -177,7 +177,7 @@ Config-file keys that feed the command (in `<home>/config.json`, or the file nam
 | `defaults.profile` | Selects the active profile when `--profile` is absent (affects the keystore path and the doctor probe). |
 | `profiles.<name>.identity.keystore` | Keystore path for the active profile; overridden by `--keystore`, falls back to `<home>/keystore.json`. |
 | `profiles.<name>.network` | The network a profile declares; a mismatch with the network being recorded surfaces as the doctor report's `coherence` warning. |
-| `profiles.<name>.btc.*` (`rest`, `rpcUrl`, `rpcUser`, `rpcPass`, `timeoutMs`, `headers`, `wallet`, `rpcHeaders`) and `profiles.<name>.cas.*` (`gateway`, `rpcUrl`, `timeoutMs`) | Endpoint configuration consulted by the doctor probe. |
+| `profiles.<name>.btc.*` (`rest`, `rpcUrl`, `rpcUser`, `rpcPass`, `timeoutMs`, `headers`, `wallet`, `rpcHeaders`, `signalDiscovery`) and `profiles.<name>.cas.*` (`gateway`, `rpcUrl`, `timeoutMs`) | Endpoint configuration consulted by the doctor probe. |
 
 A freshly scaffolded config contains `schemaVersion: 1`, `defaults.output: "text"`, and one empty
 profile per supported network; `defaults.network` is added by the network-recording step.
@@ -204,9 +204,9 @@ written by a newer CLI (`schemaVersion` above 1) aborts the network-recording wr
 Shared global flags are documented in the [docs README](./README.md#global-options); `quickstart` notably
 interacts with `--home`, `-c/--config`, `--profile`, `--keystore`, `--passphrase-file`,
 `-o/--output`, `--quiet`, `--verbose`, and (through the doctor probe) the endpoint overrides
-(`--btc-rest`, `--btc-rpc-url`, `--btc-rpc-user`, `--btc-rpc-pass`, `--btc-rpc-wallet`,
-`--btc-rest-header`, `--btc-rpc-header`, `--btc-timeout`, `--cas-gateway`, `--cas-rpc-url`,
-`--cas-timeout`).
+(`--btc-rest`, `--btc-rpc-url`, `--btc-rpc-user`, `--btc-rpc-wallet`,
+`--btc-rest-header`, `--btc-rpc-header`, `--btc-signal-discovery`, `--btc-timeout`,
+`--cas-gateway`, `--cas-rpc-url`, `--cas-timeout`).
 
 ## Examples
 

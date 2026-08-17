@@ -69,6 +69,7 @@ children:
   - ./066-x1-transport-authentication.md
   - ./067-resolver-duplicate-confirmation.md
   - ./068-resolver-versiontime-duplicate-order.md
+  - ./086-beacon-signal-recognition.md
 ---
 
 # Architecture Decision Records
@@ -162,3 +163,8 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 083 | 2026-07-14 | [A btcr2 quickstart Command that Composes Onboarding into One Step](083-cli-quickstart.md) |
 | 084 | 2026-07-16 | [Publish the Coverage Badge from CI to a Dedicated Branch](084-ci-published-coverage-badge.md) |
 | 085 | 2026-07-17 | [Typed Errors Across Core Packages, Enforced by Lint](085-typed-error-policy.md) |
+| 086 | 2026-08-19 | [Beacon Signal Recognition - Decode the Serialized Script and Require a Beacon Spend](086-beacon-signal-recognition.md) |
+| 087 | 2026-08-19 | [The Bitcoin RPC Password Has No Command-Line Flag](087-bitcoin-rpc-password-channels.md) |
+| 088 | 2026-08-19 | [Enforce capabilityInvocation Membership When Resolution Applies an Update](088-read-path-update-authorization.md) |
+| 089 | 2026-08-19 | [Aggregation Signing Preconditions for Cohort Members](089-aggregation-signing-preconditions.md) |
+| 090 | 2026-08-19 | [Bind a Message's Claimed Sender to Its Authenticated Key on Every Aggregation Receive Path](090-aggregation-transport-sender-authentication.md) |

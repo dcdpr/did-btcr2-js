@@ -1,5 +1,6 @@
 import type { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
+import { equalBytes } from '@noble/curves/utils.js';
 
 import type { Logger } from '../core/logger.js';
 import { CONSOLE_LOGGER } from '../core/logger.js';
@@ -333,6 +334,26 @@ export class HttpClientTransport implements Transport {
 
     const revived = reviveFromWire(envelope.message) as Record<string, unknown>;
     const flat = flattenMessage(revived);
+
+    // Bind the inner message to the authenticated envelope. The envelope signature
+    // authenticates envelope.from; the advert inside it names the service DID the
+    // participant will join and the key it will encrypt to. Unbound, any sender the
+    // server relays for can advertise a cohort in a reputable service's name, and a
+    // participant whose join filter trusts that DID encrypts its updates to the sender.
+    if(flat.from !== envelope.from) {
+      this.#logger.debug(`Broadcast inner sender ${String(flat.from)} does not match envelope sender ${envelope.from}`);
+      return;
+    }
+
+    // The key a sender advertises to the cohort must be the key it authenticated with,
+    // the same cross-check the server applies to a bootstrap opt-in (ADR 066).
+    const communicationPk = flat.communicationPk;
+    if(communicationPk !== undefined
+      && (!(communicationPk instanceof Uint8Array) || !equalBytes(communicationPk, senderPk.compressed))) {
+      this.#logger.debug(`Broadcast from ${envelope.from} advertises a key it did not authenticate with`);
+      return;
+    }
+
     const messageType = typeof flat.type === 'string' ? flat.type : undefined;
     if(!messageType) return;
 
@@ -363,6 +384,16 @@ export class HttpClientTransport implements Transport {
 
     const revived = reviveFromWire(envelope.message) as Record<string, unknown>;
     const flat = flattenMessage(revived);
+
+    // Bind the inner message to the authenticated envelope: the participant state machine
+    // acts on the inner `from` (it holds every service-originated message to the cohort's
+    // service DID), so a sender authenticated as itself must not be able to speak as the
+    // service by relabelling the message it carries.
+    if(flat.from !== envelope.from) {
+      this.#logger.debug(`Inbox inner sender ${String(flat.from)} does not match envelope sender ${envelope.from}`);
+      return;
+    }
+
     const messageType = typeof flat.type === 'string' ? flat.type : undefined;
     if(!messageType) return;
 

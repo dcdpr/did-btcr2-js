@@ -19,7 +19,12 @@ export type TransactionStatus = {
 export interface Vin {
   txid: string;
   vout: number;
-  prevout?: TxInPrevout;
+  /**
+   * The output being spent, as embedded by Esplora in an address/transaction
+   * listing. It carries the same shape as a {@link Vout} and is `null` for a
+   * coinbase input; a backend that does not embed it omits the field entirely.
+   */
+  prevout?: Vout | null;
   scriptsig: string;
   scriptsig_asm: string;
   witness: string[];

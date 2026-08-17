@@ -88,24 +88,27 @@ export type CommandResult =
   | { action: 'profile-remove'; data: { profile: string } };
 
 export interface GlobalOptions {
-  output         : OutputFormat;
-  verbose        : boolean;
-  quiet          : boolean;
-  home?          : string;
-  config?        : string;
-  profile?       : string;
-  btcRest?       : string;
-  btcRpcUrl?     : string;
-  btcRpcUser?    : string;
-  btcRpcPass?    : string;
-  casGateway?    : string;
-  casRpcUrl?     : string;
-  btcTimeout?    : string;
-  casTimeout?    : string;
-  btcRestHeader? : string[];
-  btcRpcWallet?  : string;
-  btcRpcHeader?  : string[];
-  keystore?      : string;
-  passphraseFile?: string;
-  signingKey?    : string;
+  output              : OutputFormat;
+  verbose             : boolean;
+  quiet               : boolean;
+  home?               : string;
+  config?             : string;
+  profile?            : string;
+  btcRest?            : string;
+  btcRpcUrl?          : string;
+  btcRpcUser?         : string;
+  // No btcRpcPass: the RPC password is never accepted as a flag, so it cannot be
+  // parsed off argv. It reaches the connection from the environment, a pass file,
+  // or a profile secret reference instead (see the flag list in `cli.ts`).
+  casGateway?         : string;
+  casRpcUrl?          : string;
+  btcTimeout?         : string;
+  casTimeout?         : string;
+  btcRestHeader?      : string[];
+  btcRpcWallet?       : string;
+  btcRpcHeader?       : string[];
+  btcSignalDiscovery? : string;
+  keystore?           : string;
+  passphraseFile?     : string;
+  signingKey?         : string;
 }

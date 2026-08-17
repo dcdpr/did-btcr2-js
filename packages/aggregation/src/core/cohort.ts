@@ -3,7 +3,7 @@ import { canonicalHash, canonicalize, hash } from '@did-btcr2/common';
 import type { SecuredDocument } from '@did-btcr2/cryptosuite';
 import type { SerializedSMTProof, TreeEntry } from '@did-btcr2/smt';
 import { BTCR2MerkleTree } from '@did-btcr2/smt';
-import { schnorr } from '@noble/curves/secp256k1.js';
+import { schnorr, secp256k1 } from '@noble/curves/secp256k1.js';
 import { concatBytes, hexToBytes, randomBytes } from '@noble/hashes/utils';
 import { p2tr } from '@scure/btc-signer';
 import { keyAggExport, keyAggregate, sortKeys } from '@scure/btc-signer/musig2';
@@ -152,12 +152,48 @@ export class AggregationCohort {
     this.fallbackThreshold = fallbackThreshold;
   }
 
+  /**
+   * True when `key` is a member key this cohort can carry: exactly 33 bytes and
+   * an actual secp256k1 curve point in compressed form.
+   *
+   * The MuSig2 primitives are strict but late. `sortKeys` insists on 33 bytes
+   * and raises a bare length error; a 33-byte value that is not a point clears
+   * sorting and is only caught by `keyAggregate` when the beacon address is
+   * computed, further still from the message that introduced the key. Callers
+   * taking a key from an untrusted sender check here when it arrives and drop
+   * the message instead.
+   */
+  public static isValidCohortKey(key: unknown): key is Uint8Array {
+    return key instanceof Uint8Array
+      && key.length === 33
+      && secp256k1.utils.isValidPublicKey(key);
+  }
+
   /** Sorted cohort keys (sorted on assignment per BIP-327). */
   get cohortKeys(): Array<Uint8Array> {
     return this.#cohortKeys;
   }
 
+  /**
+   * Sorts and stores the cohort keys, refusing any that is not a compressed
+   * secp256k1 point. This is the single choke point every key reaches before
+   * key aggregation, so validating here keeps a malformed key from turning into
+   * a library error deep inside address computation or signing. The assignment
+   * is all-or-nothing: a refused array leaves the previous keys in place.
+   *
+   * Cost is one point decode per key per assignment, so building a cohort one
+   * member at a time is quadratic in cohort size; bound the cohort with the
+   * `maxParticipants` condition when opt-ins are unmetered.
+   */
   set cohortKeys(keys: Array<Uint8Array>) {
+    keys.forEach((key, index) => {
+      if(!AggregationCohort.isValidCohortKey(key)) {
+        throw new AggregationCohortError(
+          `Cohort key at index ${index} is not a 33-byte compressed secp256k1 public key.`,
+          'INVALID_COHORT_KEY', { cohortId: this.id, index }
+        );
+      }
+    });
     this.#cohortKeys = sortKeys(keys);
   }
 

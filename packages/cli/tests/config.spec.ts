@@ -80,6 +80,11 @@ describe('readEnvOverrides', () => {
     expect(overrides.casRpcUrl).to.equal('http://127.0.0.1:5001');
   });
 
+  it('reads BTCR2_BTC_SIGNAL_DISCOVERY', () => {
+    process.env[ENV_VARS.BTC_SIGNAL_DISCOVERY] = 'fullnode';
+    expect(readEnvOverrides().btcSignalDiscovery).to.equal('fullnode');
+  });
+
   it('treats empty string as undefined', () => {
     process.env[ENV_VARS.BTC_REST] = '';
     const overrides = readEnvOverrides();
@@ -638,6 +643,25 @@ describe('connection resolution (non-vacuous precedence)', () => {
     const api = defaultApiFactory('regtest', { config: cfg });
     expect(api.btc.connection.rpc?.config.wallet).to.equal('primary');
   });
+
+  it('a profile signalDiscovery reaches the resolved BitcoinApi', () => {
+    const cfg = writeCfg('signal-discovery.json', {
+      profiles : { regtest: { btc: { signalDiscovery: 'fullnode' } } },
+    });
+    // regtest carries a default RPC host, so fullnode needs no explicit rpc config.
+    expect(defaultApiFactory('regtest', { config: cfg }).btc.signalDiscovery).to.equal('fullnode');
+  });
+
+  it('defaults to indexer discovery when nothing configures it', () => {
+    const cfg = writeCfg('signal-discovery-default.json', {});
+    expect(defaultApiFactory('regtest', { config: cfg }).btc.signalDiscovery).to.equal('indexer');
+  });
+
+  it('rejects fullnode discovery on a network with no RPC client', () => {
+    const cfg = writeCfg('signal-discovery-no-rpc.json', {});
+    expect(() => defaultApiFactory('bitcoin', { config: cfg, btcSignalDiscovery: 'fullnode' }).btc)
+      .to.throw(/no rpc config was resolved/);
+  });
 });
 
 describe('parseHeaderList', () => {
@@ -740,6 +764,47 @@ describe('resolveConnectionConfig (I/O knobs)', () => {
     }));
     const { btc } = resolveConnectionConfig('regtest', { config: cfg, btcRestHeader: [ 'X-Api-Key: flag' ] });
     expect(btc?.rest?.headers).to.deep.equal({ 'X-Api-Key': 'flag', 'X-Env': 'prod' });
+  });
+
+  it('defaults signalDiscovery to unset so the api applies indexer', () => {
+    const { btc } = resolveConnectionConfig('regtest', { config: cfgPath });
+    expect(btc?.signalDiscovery).to.be.undefined;
+  });
+
+  it('maps --btc-signal-discovery into BitcoinApiConfig', () => {
+    const { btc } = resolveConnectionConfig('regtest', { config: cfgPath, btcSignalDiscovery: 'fullnode' });
+    expect(btc?.signalDiscovery).to.equal('fullnode');
+  });
+
+  it('reads btc.signalDiscovery from the config-file profile', () => {
+    const cfg = join(tempDir, 'signal-discovery.json');
+    writeFileSync(cfg, JSON.stringify({
+      profiles : { regtest: { btc: { signalDiscovery: 'fullnode' } } },
+    }));
+    expect(resolveConnectionConfig('regtest', { config: cfg }).btc?.signalDiscovery).to.equal('fullnode');
+  });
+
+  it('lets --btc-signal-discovery override the profile', () => {
+    const cfg = join(tempDir, 'signal-discovery-override.json');
+    writeFileSync(cfg, JSON.stringify({
+      profiles : { regtest: { btc: { signalDiscovery: 'fullnode' } } },
+    }));
+    const { btc } = resolveConnectionConfig('regtest', { config: cfg, btcSignalDiscovery: 'indexer' });
+    expect(btc?.signalDiscovery).to.equal('indexer');
+  });
+
+  it('rejects an unknown --btc-signal-discovery mode', () => {
+    expect(() => resolveConnectionConfig('regtest', { config: cfgPath, btcSignalDiscovery: 'esplora' }))
+      .to.throw(CLIError, /Invalid --btc-signal-discovery value "esplora"/);
+  });
+
+  it('rejects an unknown signalDiscovery in the config-file profile', () => {
+    const cfg = join(tempDir, 'signal-discovery-bad.json');
+    writeFileSync(cfg, JSON.stringify({
+      profiles : { regtest: { btc: { signalDiscovery: 'nope' } } },
+    }));
+    expect(() => resolveConnectionConfig('regtest', { config: cfg }))
+      .to.throw(CLIError, /Invalid --btc-signal-discovery value "nope"/);
   });
 
   it('maps --btc-rpc-wallet and --btc-rpc-header into RpcConfig alongside the url', () => {
@@ -882,6 +947,23 @@ describe('resolveSecretRef and RPC password sources', () => {
       profiles : { regtest: { btc: { rpcUrl: 'http://node:18443', rpcUser: 'u' } } },
     }));
     const api = defaultApiFactory('regtest', { config: cfg });
+    expect(api.btc.connection.rpc?.config.password).to.equal('file-secret');
+  });
+
+  it('supplies the password for a flag-given RPC url from BTCR2_BTC_RPC_PASS_FILE', () => {
+    // The pass file is the layer-independent password channel, so it still
+    // reaches an RPC url given on the command line. BTCR2_BTC_RPC_PASS does not:
+    // the atomic credential unit binds url and credentials to one layer, and the
+    // url came from the flag layer.
+    const file = join(tempDir, 'flag-passfile.txt');
+    writeFileSync(file, 'file-secret\n');
+    process.env.BTCR2_BTC_RPC_PASS_FILE = file;
+    process.env[ENV_VARS.BTC_RPC_PASS] = 'env-secret';
+    const api = defaultApiFactory('regtest', {
+      config     : join(tempDir, 'no-such-config.json'),
+      btcRpcUrl  : 'http://node-b:18443',
+      btcRpcUser : 'bob',
+    });
     expect(api.btc.connection.rpc?.config.password).to.equal('file-secret');
   });
 });

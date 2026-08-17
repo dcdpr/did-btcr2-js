@@ -4,6 +4,29 @@ import type { HttpRequest } from '../http.js';
 import { toBase64 } from '../utils.js';
 
 /**
+ * An {@link HttpRequest} for a single JSON-RPC call, carrying the `id` that was
+ * assigned when the request was built.  Pass it back to
+ * {@link JsonRpcProtocol.parseResponse} so the response is bound to the request
+ * that asked for it.
+ */
+export interface JsonRpcHttpRequest extends HttpRequest {
+  /** The JSON-RPC id sent in the body of this request. */
+  readonly id: number;
+}
+
+/**
+ * An {@link HttpRequest} for a JSON-RPC batch, carrying the `id`s that were
+ * assigned when the request was built, in call order.  Pass them back to
+ * {@link JsonRpcProtocol.parseBatchResponse}: ids must never be recomputed from
+ * the protocol's counter, which any other call on the same instance advances
+ * while this request is in flight.
+ */
+export interface JsonRpcBatchHttpRequest extends HttpRequest {
+  /** The JSON-RPC ids sent in the body of this request, in call order. */
+  readonly ids: readonly number[];
+}
+
+/**
  * Sans-I/O JSON-RPC protocol for Bitcoin Core.
  *
  * Builds {@link HttpRequest} descriptors for JSON-RPC method calls and
@@ -29,7 +52,7 @@ import { toBase64 } from '../utils.js';
  * const json = await res.json();
  *
  * // Parse the JSON-RPC response (throws on errors)
- * const blockCount = protocol.parseResponse(json, 'getblockcount', []);
+ * const blockCount = protocol.parseResponse(json, 'getblockcount', req.id);
  * ```
  */
 export class JsonRpcProtocol {
@@ -80,10 +103,13 @@ export class JsonRpcProtocol {
 
   /**
    * Build an {@link HttpRequest} for a JSON-RPC method call.
+   * The assigned id is returned on the descriptor for {@link parseResponse}.
    */
-  buildRequest(method: string, params: unknown[]): HttpRequest {
-    const body = { jsonrpc: '2.0', id: ++this._id, method, params };
+  buildRequest(method: string, params: unknown[]): JsonRpcHttpRequest {
+    const id = ++this._id;
+    const body = { jsonrpc: '2.0', id, method, params };
     return {
+      id,
       url     : this.url,
       method  : 'POST',
       headers : { ...this._headers },
@@ -94,15 +120,19 @@ export class JsonRpcProtocol {
   /**
    * Build an {@link HttpRequest} for a JSON-RPC batch call.
    * Sends all calls in a single HTTP request per the JSON-RPC 2.0 spec.
+   * The assigned ids are returned on the descriptor for
+   * {@link parseBatchResponse}.
    */
-  buildBatchRequest(calls: Array<{ method: string; params: unknown[] }>): HttpRequest {
-    const body = calls.map(c => ({
+  buildBatchRequest(calls: Array<{ method: string; params: unknown[] }>): JsonRpcBatchHttpRequest {
+    const ids = calls.map(() => ++this._id);
+    const body = calls.map((c, i) => ({
       jsonrpc : '2.0',
-      id      : ++this._id,
+      id      : ids[i],
       method  : c.method,
       params  : c.params,
     }));
     return {
+      ids,
       url     : this.url,
       method  : 'POST',
       headers : { ...this._headers },
@@ -113,10 +143,18 @@ export class JsonRpcProtocol {
   /**
    * Parse a JSON-RPC response payload, throwing {@link BitcoinRpcError}
    * if the response contains an error.
+   *
+   * Pass `expectedId` (from {@link buildRequest}) to bind the response to the
+   * request that asked for it.  A payload carrying no `id`, or a null one
+   * (which Bitcoin Core sends when it could not parse the request), is
+   * accepted: an endpoint able to fabricate ids can fabricate `result` just as
+   * easily, so the check guards against responses crossed in transit rather
+   * than against a dishonest node.
    */
   parseResponse(
-    payload: { result?: unknown; error?: { code: number; message: string } },
+    payload: { id?: unknown; result?: unknown; error?: { code: number; message: string } },
     method: string,
+    expectedId?: number,
   ): unknown {
     if (payload.error) {
       throw new BitcoinRpcError(
@@ -126,33 +164,55 @@ export class JsonRpcProtocol {
         { method }
       );
     }
+    if (expectedId !== undefined && typeof payload.id === 'number' && payload.id !== expectedId) {
+      throw new BitcoinRpcError(
+        'RPC_ERROR',
+        -1,
+        `Response id ${payload.id} does not match request id ${expectedId} for ${method}`,
+        { method }
+      );
+    }
     return payload.result;
   }
 
   /**
    * Parse a JSON-RPC batch response payload.
    * Returns results in the same order as the original calls.
+   *
+   * `ids` must be the ids {@link buildBatchRequest} assigned to this batch.
+   * They cannot be derived from the protocol's counter at parse time: it is
+   * shared and mutable, so any call built while this batch is in flight shifts
+   * it and each response is then matched to the wrong call.
    */
   parseBatchResponse(
     payloads: Array<{ id: number; result?: unknown; error?: { code: number; message: string } }>,
     calls: Array<{ method: string; params: unknown[] }>,
+    ids: readonly number[],
   ): unknown[] {
+    if (ids.length !== calls.length) {
+      throw new BitcoinRpcError(
+        'RPC_ERROR',
+        -1,
+        `Batch id count (${ids.length}) does not match call count (${calls.length})`,
+        { methods: calls.map(c => c.method) }
+      );
+    }
+
+    // Batch responses may arrive out of order, so each call is matched to the
+    // response carrying the id assigned to that call at build time.
     const byId = new Map(payloads.map(p => [p.id, p]));
-    // Batch responses may arrive out of order; re-sort by sequential id.
-    // IDs were assigned as (_id - calls.length + 1) .. _id
-    const startId = this._id - calls.length + 1;
 
     return calls.map((call, i) => {
-      const payload = byId.get(startId + i);
+      const payload = byId.get(ids[i]);
       if (!payload) {
         throw new BitcoinRpcError(
           'RPC_ERROR',
           -1,
-          `Missing response for batch call ${call.method} (id ${startId + i})`,
+          `Missing response for batch call ${call.method} (id ${ids[i]})`,
           { method: call.method }
         );
       }
-      return this.parseResponse(payload, call.method);
+      return this.parseResponse(payload, call.method, ids[i]);
     });
   }
 

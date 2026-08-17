@@ -1,4 +1,4 @@
-import { canonicalize } from '@did-btcr2/common';
+import { canonicalize, hash } from '@did-btcr2/common';
 import type { SecuredDocument } from '@did-btcr2/cryptosuite';
 import type { SerializedSMTProof } from '@did-btcr2/smt';
 import { base64UrlToHash, blockHash, didToIndex, hashToBase64Url, verifySerializedProof } from '@did-btcr2/smt';
@@ -56,6 +56,20 @@ export interface AggregateBeaconStrategy {
     expectedHash?: string;
     body: BaseBody;
   }): BeaconValidationResult;
+
+  /**
+   * Participant: recompute the 32-byte beacon signal from the data just
+   * validated, exactly as the service derives it on the cohort. The caller
+   * requires the announced `signalBytesHex` to equal this value before the
+   * member approves, so a coordinator cannot distribute data that validates
+   * while anchoring a signal derived from different data (for instance a CAS
+   * map that omits the member, or another SMT root).
+   *
+   * Returns undefined when the validated result carries nothing to derive from;
+   * the caller treats that as a validation failure, so a strategy that cannot
+   * bind its signal fails closed rather than signing unbound.
+   */
+  deriveSignal(result: BeaconValidationResult): Uint8Array | undefined;
 }
 
 const CAS_STRATEGY: AggregateBeaconStrategy = {
@@ -80,6 +94,13 @@ const CAS_STRATEGY: AggregateBeaconStrategy = {
       matches : casAnnouncement[participantDid] === expectedHash,
       casAnnouncement,
     };
+  },
+
+  // Same derivation the cohort uses to set signalBytes (see
+  // AggregationCohort.buildCASAnnouncement): SHA-256 of the canonicalized map.
+  deriveSignal({ casAnnouncement }) {
+    if(!casAnnouncement) return undefined;
+    return hash(canonicalize(casAnnouncement));
   },
 };
 
@@ -122,6 +143,18 @@ const SMT_STRATEGY: AggregateBeaconStrategy = {
       matches : verifySerializedProof(smtProof, index, candidateHash),
       smtProof,
     };
+  },
+
+  // The signal is the SMT root, which is the very root `verifySerializedProof`
+  // checked the member's leaf against (the proof's `id`). Binding to it makes
+  // "my proof is valid" and "my root is what gets anchored" one statement.
+  deriveSignal({ smtProof }) {
+    if(!smtProof?.id) return undefined;
+    try {
+      return base64UrlToHash(smtProof.id);
+    } catch {
+      return undefined;
+    }
   },
 };
 

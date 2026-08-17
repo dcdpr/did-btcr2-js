@@ -6,6 +6,7 @@ export type { HttpRequest, HttpExecutor } from './client/http.js';
 export { defaultHttpExecutor } from './client/http.js';
 export { EsploraProtocol } from './client/rest/protocol.js';
 export { JsonRpcProtocol } from './client/rpc/protocol.js';
+export type { JsonRpcHttpRequest, JsonRpcBatchHttpRequest } from './client/rpc/protocol.js';
 
 // Clients (convenience wrappers around the protocol layer)
 export { BitcoinRestClient } from './client/rest/index.js';

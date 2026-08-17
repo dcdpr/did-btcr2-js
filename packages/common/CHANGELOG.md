@@ -1,5 +1,15 @@
 # @did-btcr2/common
 
+## 9.3.0
+
+### Minor Changes
+
+- Keep prototype machinery out of JSON Patch pointers and out of JSON walks.
+
+  - `JSONPatch.validateOperations` rejects any `path` or `from` whose RFC 6901 segments, unescaped, include `__proto__`, `constructor`, or `prototype`, at any position. `fast-json-patch` bans `__proto__` and a trailing `constructor/prototype` pair, but it still traverses an intermediate `constructor` segment, at which point the cursor is the global `Object` or `Array` function and the operation writes a static member process-wide. Patches carried by untrusted DID updates reach this validator, so the segments are refused before any application.
+  - **Semantic change:** a document key literally named `constructor`, `prototype`, or `__proto__` is no longer addressable by patch. No DID Core or btcr2 vocabulary defines such a property, and patching every other key of such a document still works.
+  - `JSONUtils.clone`, `deleteKeys`, and `sanitize` define copied keys as own enumerable data properties instead of assigning them. A plain `result[key] = value` routes the key `__proto__` through the inherited `Object.prototype` setter, which discards the key and swaps the copy's prototype for the supplied value. `JSON.parse` produces `__proto__` as an own enumerable key, so a document carrying one previously lost it on every walk while the copy inherited attacker-supplied properties. Canonicalization and `canonicalHash` are byte-identical to before for every input without such a key.
+
 ## 9.2.0
 
 ### Minor Changes

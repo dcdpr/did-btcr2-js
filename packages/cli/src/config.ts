@@ -1,4 +1,4 @@
-import { createApi, DEFAULT_BITCOIN_NETWORK_CONFIG, DEFAULT_CAS_GATEWAY, Identifier, type BitcoinApiConfig, type CasConfig, type DidBtcr2Api } from '@did-btcr2/api';
+import { createApi, DEFAULT_BITCOIN_NETWORK_CONFIG, DEFAULT_CAS_GATEWAY, Identifier, type BitcoinApiConfig, type CasConfig, type DidBtcr2Api, type SignalDiscoveryMode } from '@did-btcr2/api';
 import type { KeyManager } from '@did-btcr2/key-manager';
 import { StaticFeeEstimator } from '@did-btcr2/method';
 import type { BroadcastOptions } from '@did-btcr2/method';
@@ -43,6 +43,8 @@ export type ConnectionOverrides = {
   btcRpcWallet?   : string;
   /** Extra Bitcoin Core RPC headers as raw `Key: Value` flag values (repeatable). */
   btcRpcHeader?   : string[];
+  /** Where beacon signals are read from (raw flag/env/profile string). */
+  btcSignalDiscovery? : string;
   /** CLI home root from `--home`. Colocates config.json + keystore.json (ADR 079). */
   home?           : string;
   config?         : string;
@@ -112,6 +114,12 @@ export type ConfigFile = {
       wallet?        : string;
       /** Extra headers sent on Bitcoin Core RPC requests. */
       rpcHeaders?    : Record<string, string>;
+      /**
+       * Where beacon signals are read from: `indexer` (Esplora, the default) or
+       * `fullnode` (scan blocks over Bitcoin Core RPC). `fullnode` needs an
+       * RPC-capable connection.
+       */
+      signalDiscovery? : SignalDiscoveryMode;
     };
     cas?: {
       /** IPFS HTTP gateway for CAS reads (read-only). */
@@ -231,23 +239,25 @@ export type ApiFactory = (network?: NetworkOption, overrides?: ConnectionOverrid
  * | `BTCR2_BTC_REST`      | `--btc-rest`       |
  * | `BTCR2_BTC_RPC_URL`   | `--btc-rpc-url`    |
  * | `BTCR2_BTC_RPC_USER`  | `--btc-rpc-user`   |
- * | `BTCR2_BTC_RPC_PASS`  | `--btc-rpc-pass`   |
+ * | `BTCR2_BTC_RPC_PASS`  | (no flag: never argv) |
  * | `BTCR2_CAS_GATEWAY`   | `--cas-gateway`    |
  * | `BTCR2_CAS_RPC_URL`   | `--cas-rpc-url`    |
  * | `BTCR2_BTC_TIMEOUT`   | `--btc-timeout`    |
  * | `BTCR2_CAS_TIMEOUT`   | `--cas-timeout`    |
  * | `BTCR2_FEE_RATE`      | `--fee-rate`       |
+ * | `BTCR2_BTC_SIGNAL_DISCOVERY` | `--btc-signal-discovery` |
  */
 export const ENV_VARS = {
-  BTC_REST     : 'BTCR2_BTC_REST',
-  BTC_RPC_URL  : 'BTCR2_BTC_RPC_URL',
-  BTC_RPC_USER : 'BTCR2_BTC_RPC_USER',
-  BTC_RPC_PASS : 'BTCR2_BTC_RPC_PASS',
-  CAS_GATEWAY  : 'BTCR2_CAS_GATEWAY',
-  CAS_RPC_URL  : 'BTCR2_CAS_RPC_URL',
-  BTC_TIMEOUT  : 'BTCR2_BTC_TIMEOUT',
-  CAS_TIMEOUT  : 'BTCR2_CAS_TIMEOUT',
-  FEE_RATE     : 'BTCR2_FEE_RATE',
+  BTC_REST             : 'BTCR2_BTC_REST',
+  BTC_RPC_URL          : 'BTCR2_BTC_RPC_URL',
+  BTC_RPC_USER         : 'BTCR2_BTC_RPC_USER',
+  BTC_RPC_PASS         : 'BTCR2_BTC_RPC_PASS',
+  CAS_GATEWAY          : 'BTCR2_CAS_GATEWAY',
+  CAS_RPC_URL          : 'BTCR2_CAS_RPC_URL',
+  BTC_TIMEOUT          : 'BTCR2_BTC_TIMEOUT',
+  CAS_TIMEOUT          : 'BTCR2_CAS_TIMEOUT',
+  FEE_RATE             : 'BTCR2_FEE_RATE',
+  BTC_SIGNAL_DISCOVERY : 'BTCR2_BTC_SIGNAL_DISCOVERY',
 } as const;
 
 /**
@@ -257,12 +267,13 @@ export const ENV_VARS = {
 export function readEnvOverrides(): ConnectionOverrides {
   const env = (key: string): string | undefined => process.env[key] || undefined;
   return {
-    btcRest    : env(ENV_VARS.BTC_REST),
-    btcRpcUrl  : env(ENV_VARS.BTC_RPC_URL),
-    btcRpcUser : env(ENV_VARS.BTC_RPC_USER),
-    btcRpcPass : env(ENV_VARS.BTC_RPC_PASS),
-    casGateway : env(ENV_VARS.CAS_GATEWAY),
-    casRpcUrl  : env(ENV_VARS.CAS_RPC_URL),
+    btcRest            : env(ENV_VARS.BTC_REST),
+    btcRpcUrl          : env(ENV_VARS.BTC_RPC_URL),
+    btcRpcUser         : env(ENV_VARS.BTC_RPC_USER),
+    btcRpcPass         : env(ENV_VARS.BTC_RPC_PASS),
+    casGateway         : env(ENV_VARS.CAS_GATEWAY),
+    casRpcUrl          : env(ENV_VARS.CAS_RPC_URL),
+    btcSignalDiscovery : env(ENV_VARS.BTC_SIGNAL_DISCOVERY),
   };
 }
 
@@ -343,12 +354,13 @@ export function profileToOverrides(
   const profile = config.profiles?.[profileName];
   if (!profile) return {};
   return {
-    btcRest    : profile.btc?.rest,
-    btcRpcUrl  : profile.btc?.rpcUrl,
-    btcRpcUser : profile.btc?.rpcUser,
-    btcRpcPass : profile.btc?.rpcPass,
-    casGateway : profile.cas?.gateway,
-    casRpcUrl  : profile.cas?.rpcUrl,
+    btcRest            : profile.btc?.rest,
+    btcRpcUrl          : profile.btc?.rpcUrl,
+    btcRpcUser         : profile.btc?.rpcUser,
+    btcRpcPass         : profile.btc?.rpcPass,
+    casGateway         : profile.cas?.gateway,
+    casRpcUrl          : profile.cas?.rpcUrl,
+    btcSignalDiscovery : profile.btc?.signalDiscovery,
   };
 }
 
@@ -563,6 +575,27 @@ function resolveRpcUnit(
   return undefined;
 }
 
+/** The accepted `--btc-signal-discovery` values, in help/error order. */
+const SIGNAL_DISCOVERY_MODES: readonly SignalDiscoveryMode[] = ['indexer', 'fullnode'];
+
+/**
+ * Validates a beacon signal-discovery mode drawn from any precedence layer.
+ * A bad value is rejected here rather than passed to the SDK, so a typo in an
+ * env var or a profile fails with the same named-flag message as a bad flag.
+ */
+function resolveSignalDiscovery(value?: string): SignalDiscoveryMode | undefined {
+  const mode = blankToUndef(value);
+  if (mode === undefined) return undefined;
+  if (!SIGNAL_DISCOVERY_MODES.includes(mode as SignalDiscoveryMode)) {
+    throw new CLIError(
+      `Invalid --btc-signal-discovery value "${mode}". Expected ${SIGNAL_DISCOVERY_MODES.join(' or ')}.`,
+      'INVALID_ARGUMENT_ERROR',
+      { value: mode },
+    );
+  }
+  return mode as SignalDiscoveryMode;
+}
+
 /**
  * Resolves the Bitcoin and CAS connection config for a network by merging,
  * in precedence order, CLI flags, environment variables, and the config-file
@@ -640,6 +673,14 @@ export function resolveConnectionConfig(
       ...(rpcHeaders ? { headers: rpcHeaders } : {}),
     };
   }
+
+  // Where beacon signals are read from. `fullnode` scans blocks over Bitcoin
+  // Core RPC and is rejected by BitcoinApi when the resolved connection has no
+  // RPC client, which includes the networks that carry no default RPC host.
+  const signalDiscovery = resolveSignalDiscovery(
+    pick(overrides?.btcSignalDiscovery, env.btcSignalDiscovery, fileOverrides.btcSignalDiscovery),
+  );
+  if (signalDiscovery) btc.signalDiscovery = signalDiscovery;
 
   // Bitcoin request timeout. No default: honored only when explicitly set, so
   // callers that rely on unbounded waits are unaffected (ADR 076).
@@ -839,12 +880,13 @@ export interface EffectiveConfig {
   network : NetworkOption;
   profile : string | undefined;
   btc : {
-    rest      : EffectiveEntry;
-    rpcUrl    : EffectiveEntry;
-    rpcUser   : EffectiveEntry;
-    rpcPass   : EffectiveEntry;
-    rpcWallet : EffectiveEntry;
-    timeoutMs : EffectiveEntry;
+    rest            : EffectiveEntry;
+    rpcUrl          : EffectiveEntry;
+    rpcUser         : EffectiveEntry;
+    rpcPass         : EffectiveEntry;
+    rpcWallet       : EffectiveEntry;
+    signalDiscovery : EffectiveEntry;
+    timeoutMs       : EffectiveEntry;
   };
   cas : {
     gateway   : EffectiveEntry;
@@ -897,12 +939,16 @@ export function resolveEffectiveConfig(network: NetworkOption, overrides?: Conne
     network,
     profile : activeProfile,
     btc     : {
-      rest      : { value: restCfg.host,     source: src(overrides?.btcRest, env.btcRest, fileOv.btcRest) },
-      rpcUrl    : { value: rpcCfg?.host,      source: rpcUnit?.url  !== undefined ? rpcSrc : 'default' },
-      rpcUser   : { value: rpcCfg?.username,  source: rpcUnit?.user !== undefined ? rpcSrc : 'default' },
-      rpcPass   : { value: rpcCfg?.password,  source: rpcUnit?.pass !== undefined ? rpcSrc : (passFromFile ? 'env' : 'default') },
-      rpcWallet : { value: rpcCfg?.wallet,    source: src(overrides?.btcRpcWallet, undefined, profileBtc?.wallet) },
-      timeoutMs : { value: conn.btc?.timeoutMs, source: src(overrides?.btcTimeout, process.env[ENV_VARS.BTC_TIMEOUT], profileBtc?.timeoutMs) },
+      rest            : { value: restCfg.host,     source: src(overrides?.btcRest, env.btcRest, fileOv.btcRest) },
+      rpcUrl          : { value: rpcCfg?.host,      source: rpcUnit?.url  !== undefined ? rpcSrc : 'default' },
+      rpcUser         : { value: rpcCfg?.username,  source: rpcUnit?.user !== undefined ? rpcSrc : 'default' },
+      rpcPass         : { value: rpcCfg?.password,  source: rpcUnit?.pass !== undefined ? rpcSrc : (passFromFile ? 'env' : 'default') },
+      rpcWallet       : { value: rpcCfg?.wallet,    source: src(overrides?.btcRpcWallet, undefined, profileBtc?.wallet) },
+      // Read back from the constructed api, like the endpoints above, so the
+      // reported value is the mode a live command would actually resolve with
+      // (the SDK's `indexer` default included) rather than only an explicit setting.
+      signalDiscovery : { value: api.btc.signalDiscovery, source: src(overrides?.btcSignalDiscovery, env.btcSignalDiscovery, fileOv.btcSignalDiscovery) },
+      timeoutMs       : { value: conn.btc?.timeoutMs, source: src(overrides?.btcTimeout, process.env[ENV_VARS.BTC_TIMEOUT], profileBtc?.timeoutMs) },
     },
     cas : {
       gateway   : { value: casGatewayVal,       source: src(overrides?.casGateway, env.casGateway,                    fileOv.casGateway) },

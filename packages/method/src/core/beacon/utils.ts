@@ -173,19 +173,6 @@ export class BeaconUtils {
   }
 
   /**
-   * Create a map of address => beaconService with address field.
-   * @param {Array<BeaconService>} beacons The list of beacon services.
-   * @returns {Map<string, BeaconService>} A map of address => beaconService.
-   */
-  static getBeaconServicesMap(beacons: Array<BeaconService>): Map<string, BeaconService> {
-    return new Map<string, BeaconService>(
-      beacons
-        .map(this.parseBeaconServiceEndpoint)
-        .map((beacon) => ([beacon.serviceEndpoint as string, beacon]))
-    );
-  }
-
-  /**
    * Get the beacon service ids from a list of beacon services.
    * @param {DidDocument} didDocument The DID Document to extract the services from.
    * @returns {string[]} An array of beacon service ids.

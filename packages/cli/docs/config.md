@@ -156,7 +156,7 @@ where `source` is one of `flag`, `env`, `file`, or `default`; an unresolved valu
 (json output drops undefined) and reports `source: "default"`.
 
 Shape: top-level `network` and `profile` (the active profile name; omitted when no profile is
-active), `btc.{rest,rpcUrl,rpcUser,rpcPass,rpcWallet,timeoutMs}`, and
+active), `btc.{rest,rpcUrl,rpcUser,rpcPass,rpcWallet,signalDiscovery,timeoutMs}`, and
 `cas.{gateway,rpcUrl,timeoutMs}`.
 
 Network selection: `-n/--network` when given (validated against the supported list), else the
@@ -179,6 +179,10 @@ Resolution notes:
   `http://localhost:18443` (regtest only, no default credentials); CAS gateway `https://ipfs.io`.
 - Timeouts have no defaults; `btc.timeoutMs` must be >= 1 ms and `cas.timeoutMs` >= 0 ms (`0`
   disables the CAS timeout). An invalid `--btc-timeout`/`--cas-timeout` value aborts.
+- `btc.signalDiscovery` is read back from the constructed API, so it always carries a value:
+  `indexer` with `source: "default"` when no layer sets it. `fullnode` is only resolvable on a
+  network that ends up with an RPC client; asking for it without one aborts the subcommand at
+  API construction rather than reporting an unusable mode.
 
 By default the resolved RPC password prints as `********` and any `user:pass@` userinfo embedded
 in the REST, RPC, or CAS endpoint URLs is masked; provenance still shows where each value came
@@ -264,10 +268,11 @@ Environment variables consulted:
 | `BTCR2_BTC_REST` | `effective`, `doctor` | Bitcoin REST endpoint override (as `--btc-rest`). |
 | `BTCR2_BTC_RPC_URL` | `effective`, `doctor` | Bitcoin Core RPC endpoint override (as `--btc-rpc-url`). |
 | `BTCR2_BTC_RPC_USER` | `effective`, `doctor` | RPC username (as `--btc-rpc-user`). |
-| `BTCR2_BTC_RPC_PASS` | `effective`, `doctor` | RPC password (as `--btc-rpc-pass`; accepts `env:<VAR>` / `file:<path>` secret references). |
+| `BTCR2_BTC_RPC_PASS` | `effective`, `doctor` | RPC password (accepts `env:<VAR>` / `file:<path>` secret references). No flag equivalent: a password on argv is readable through `ps` and shell history. |
 | `BTCR2_BTC_RPC_PASS_FILE` | `effective`, `doctor` | Path to a file whose contents are the RPC password; consulted only when no layer supplies a password and an RPC config is being built. |
 | `BTCR2_CAS_GATEWAY` | `effective`, `doctor` | IPFS HTTP gateway for CAS reads (as `--cas-gateway`). |
 | `BTCR2_CAS_RPC_URL` | `effective`, `doctor` | IPFS HTTP RPC endpoint for a writable CAS (as `--cas-rpc-url`). |
+| `BTCR2_BTC_SIGNAL_DISCOVERY` | `effective`, `doctor` | Where beacon signals are read from, `indexer` or `fullnode` (as `--btc-signal-discovery`). A value outside that pair aborts. |
 | `BTCR2_BTC_TIMEOUT` | `effective`, `doctor` | Bitcoin request timeout in ms, >= 1 (as `--btc-timeout`). |
 | `BTCR2_CAS_TIMEOUT` | `effective`, `doctor` | CAS request timeout in ms, >= 0; `0` disables (as `--cas-timeout`). |
 
@@ -290,6 +295,7 @@ Known config-file keys (the schema `config set` validates against and `config va
 | `profiles.<name>.btc.headers` | object | Extra REST headers, e.g. an API key. Secret-named header keys are redacted in output. |
 | `profiles.<name>.btc.wallet` | string | Bitcoin Core wallet name for wallet-scoped RPCs. |
 | `profiles.<name>.btc.rpcHeaders` | object | Extra Bitcoin Core RPC headers. |
+| `profiles.<name>.btc.signalDiscovery` | `"indexer"` \| `"fullnode"` | Where beacon signals are read from; `fullnode` scans blocks over Bitcoin Core RPC. |
 | `profiles.<name>.cas.gateway` | string | IPFS HTTP gateway (read-only CAS). |
 | `profiles.<name>.cas.rpcUrl` | string | IPFS HTTP RPC endpoint (writable CAS); takes precedence over the gateway. |
 | `profiles.<name>.cas.timeoutMs` | number | CAS timeout; api default 30000 ms; `0` disables. |
@@ -317,9 +323,9 @@ the active profile for `effective`, `doctor`, and the keystore path in `config p
 `--keystore` overrides the keystore path `config path` reports; `-o/--output` switches text/json;
 `--quiet` suppresses the unknown-path warning from `config set`; `--verbose` prints full error
 objects; and the connection override flags (`--btc-rest`, `--btc-rpc-url`, `--btc-rpc-user`,
-`--btc-rpc-pass`, `--btc-rpc-wallet`, `--btc-rest-header`, `--btc-rpc-header`, `--btc-timeout`,
-`--cas-gateway`, `--cas-rpc-url`, `--cas-timeout`) feed the `flag` layer of `effective` and
-`doctor`.
+`--btc-rpc-wallet`, `--btc-rest-header`, `--btc-rpc-header`, `--btc-signal-discovery`,
+`--btc-timeout`, `--cas-gateway`, `--cas-rpc-url`, `--cas-timeout`) feed the `flag` layer of
+`effective` and `doctor`.
 
 ## Examples
 

@@ -84,7 +84,7 @@ Environment variables consulted by `update`:
 | `BTCR2_BTC_REST` | `--btc-rest` |
 | `BTCR2_BTC_RPC_URL` | `--btc-rpc-url` |
 | `BTCR2_BTC_RPC_USER` | `--btc-rpc-user` |
-| `BTCR2_BTC_RPC_PASS` | `--btc-rpc-pass` (supports `env:<VAR>` and `file:<path>` secret refs) |
+| `BTCR2_BTC_RPC_PASS` | no flag (a password on argv is readable through `ps` and shell history); supports `env:<VAR>` and `file:<path>` secret refs |
 | `BTCR2_BTC_RPC_PASS_FILE` | Path to a file holding the RPC password (fallback when no layer supplies one) |
 | `BTCR2_CAS_GATEWAY` | `--cas-gateway` |
 | `BTCR2_CAS_RPC_URL` | `--cas-rpc-url` (a writable CAS; enables `--publish-to-cas auto|always`) |
@@ -143,7 +143,7 @@ A dev (plaintext) keystore needs no passphrase but is refused for mainnet operat
 See the [docs README](./README.md#global-options) for the shared global flags. Globals this command notably interacts
 with: `--signing-key`, `--keystore`, `--passphrase-file`, `--profile`, `--home`, `-c/--config`,
 `-o/--output`, `--quiet` (suppresses the stderr `Watch:` hint), `--verbose`, the Bitcoin endpoint
-overrides (`--btc-rest`, `--btc-rpc-url`, `--btc-rpc-user`, `--btc-rpc-pass`, `--btc-rpc-wallet`,
+overrides (`--btc-rest`, `--btc-rpc-url`, `--btc-rpc-user`, `--btc-rpc-wallet`,
 `--btc-rest-header`, `--btc-rpc-header`, `--btc-timeout`), and the CAS overrides (`--cas-gateway`,
 `--cas-rpc-url`, `--cas-timeout`, which gate `--publish-to-cas`).
 

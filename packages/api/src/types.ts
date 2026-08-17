@@ -64,6 +64,22 @@ export type ResolutionResult =
   | { ok: false; error: string; errorMessage?: string; raw: DidResolutionResult };
 
 /**
+ * How beacon signals are discovered when resolving a DID.
+ *
+ * - `indexer` reads the transaction listing for each beacon address from an
+ *   Esplora-compatible REST backend. This is the default: it is the only option that
+ *   scales past a local chain.
+ * - `fullnode` scans every block from genesis over Bitcoin Core RPC, requiring no
+ *   third-party index. It needs an `rpc` config, a node with `-txindex=1` (prevouts are
+ *   resolved with `getrawtransaction`), and Bitcoin Core >= 25 (`getblock` verbosity 3).
+ *   The scan is linear in chain length, so it is only practical on regtest.
+ *
+ * Both paths discover the same signals from the same chain; they differ only in where
+ * the data is read from.
+ */
+export type SignalDiscoveryMode = 'indexer' | 'fullnode';
+
+/**
  * Bitcoin API configuration options.
  * The `network` field is required and determines default REST/RPC endpoints.
  * Optional `rest` and `rpc` fields override individual endpoints on top of
@@ -79,6 +95,9 @@ export type ResolutionResult =
  *
  * // Use regtest with custom RPC credentials, default REST
  * { network: 'regtest', rpc: { host: 'http://mynode:18443', username: 'u', password: 'p' } }
+ *
+ * // Read beacon signals straight from a local node instead of an indexer
+ * { network: 'regtest', rpc: { ... }, signalDiscovery: 'fullnode' }
  * ```
  */
 export type BitcoinApiConfig = {
@@ -88,6 +107,12 @@ export type BitcoinApiConfig = {
   rest?: Partial<RestConfig>;
   /** Override RPC client settings on top of network defaults. */
   rpc?: RpcConfig;
+  /**
+   * Where beacon signals are read from. Defaults to `indexer`.
+   * `fullnode` requires an RPC-capable connection and is rejected at construction
+   * without one.
+   */
+  signalDiscovery?: SignalDiscoveryMode;
   /**
    * Optional HTTP executor for sans-I/O usage. Defaults to global `fetch`.
    * Inject a custom executor to intercept requests in tests or route through
