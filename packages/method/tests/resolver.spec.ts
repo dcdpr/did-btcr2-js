@@ -3,7 +3,7 @@ import { randomBytes } from 'crypto';
 import { canonicalHash, encode, hash, canonicalize, INTERNAL_ERROR, INVALID_DID_UPDATE, JSONPatch, LATE_PUBLISHING_ERROR } from '@did-btcr2/common';
 import type { PatchOperation } from '@did-btcr2/common';
 import { getNetwork } from '@did-btcr2/bitcoin';
-import { LocalSigner } from '@did-btcr2/keypair';
+import { CompressedSecp256k1PublicKey, LocalSigner } from '@did-btcr2/keypair';
 import { BTCR2MerkleTree, hashToHex } from '@did-btcr2/smt';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { hexToBytes } from '@noble/hashes/utils';
@@ -12,6 +12,7 @@ import { DidBtcr2 } from '../src/did-btcr2.js';
 import { BeaconUtils } from '../src/core/beacon/utils.js';
 import type { BeaconService, BeaconSignal } from '../src/core/beacon/interfaces.js';
 import type { DidDocument } from '../src/utils/did-document.js';
+import { DidVerificationMethod } from '../src/utils/did-document.js';
 import type { SignedBTCR2Update } from '../src/core/btcr2-update.js';
 import { Resolver } from '../src/core/resolver.js';
 import type { DidResolutionResponse, NeedBeaconSignals, NeedCASAnnouncement, NeedGenesisDocument, NeedSMTProof, NeedSignedUpdate } from '../src/core/resolver.js';
@@ -1641,6 +1642,207 @@ describe('Resolver', () => {
       const updateNeed = state.needs[0] as NeedSignedUpdate;
       expect(updateNeed.updateHash).to.equal(craftedHashHex);
       expect(() => resolver.provide(updateNeed, crafted as any)).to.throw(/not a signed BTCR2 update/i);
+    });
+  });
+
+  describe('capabilityInvocation authorization on the read path', () => {
+    // The spec's "Check update.proof" step requires current_document.capabilityInvocation
+    // to contain update.proof.verificationMethod. The read path used to locate the method
+    // anywhere in verificationMethod[] and verify only its signature, so a key the
+    // controller published for authentication only (or for no relationship at all) could
+    // authorize a DID update: full takeover with a key deliberately excluded from update
+    // authority. The write path (DidBtcr2.update) has always enforced membership.
+    const fixture = deterministicData[2]; // regtest - has a known secretKey
+
+    /**
+     * A distinct, valid secp256k1 key that is not the DID's identity key, paired with
+     * the verification method that publishes it under the given fragment.
+     */
+    function otherKey(seed: number, fragment: string): { signer: LocalSigner; vm: DidVerificationMethod } {
+      const secret = new Uint8Array(32);
+      secret[31] = seed;
+      const publicKeyMultibase = new CompressedSecp256k1PublicKey(
+        secp256k1.getPublicKey(secret, true)
+      ).multibase.encoded;
+      return {
+        signer : new LocalSigner(secret),
+        vm     : new DidVerificationMethod({
+          id         : `${fixture.did}#${fragment}`,
+          type       : 'Multikey',
+          controller : fixture.did,
+          publicKeyMultibase
+        })
+      };
+    }
+
+    /** Sign one version hop with an explicit verification method and signer. */
+    function signHop(
+      document: DidDocument,
+      patches: PatchOperation[],
+      sourceVersionId: number,
+      vm: DidVerificationMethod,
+      signer: LocalSigner
+    ): SignedBTCR2Update {
+      return Updater.sign(fixture.did, Updater.construct(document, patches, sourceVersionId), vm, signer);
+    }
+
+    /** Resolve the fixture DID, then apply `patches` as a legitimate v1->v2 update. */
+    function v2(patches: PatchOperation[]): {
+      source: DidDocument; document: DidDocument; update: SignedBTCR2Update; vm: DidVerificationMethod;
+    } {
+      const source = resolveDeterministic(fixture.did);
+      const vm = source.verificationMethod![0]!;
+      const signer = new LocalSigner(hexToBytes(fixture.secretKey));
+      return {
+        source,
+        vm,
+        update   : signHop(source, patches, 1, vm, signer),
+        document : JSONPatch.apply(source, patches) as DidDocument
+      };
+    }
+
+    /** Drive resolution and return whatever it threw, or undefined if it resolved. */
+    function thrownBy(updates: Array<SignedBTCR2Update>): any {
+      try {
+        driveSignalSequence(fixture.did, updates, updates);
+        return undefined;
+      } catch(error) {
+        return error;
+      }
+    }
+
+    /** Publish `vm` under verificationMethod plus the named relationships only. */
+    function publishKey(vm: DidVerificationMethod, relationships: Array<string>): PatchOperation[] {
+      return [
+        { op: 'add' as const, path: '/verificationMethod/-', value: { ...vm } },
+        ...relationships.map(relationship => ({
+          op    : 'add' as const,
+          path  : `/${relationship}/-`,
+          value : vm.id
+        }))
+      ];
+    }
+
+    it('rejects an update signed by an authentication-only verification method', () => {
+      const weak = otherKey(7, 'device');
+      // v1->v2 (legitimate): the controller publishes a weaker device key for
+      // authentication only, deliberately keeping it out of capabilityInvocation.
+      const { document, update: u2 } = v2(publishKey(weak.vm, [ 'authentication' ]));
+      // v2->v3 (attack): whoever holds the device key seizes capabilityInvocation.
+      const u3 = signHop(
+        document, [{ op: 'add', path: '/capabilityInvocation/-', value: weak.vm.id }], 2, weak.vm, weak.signer
+      );
+
+      const thrown = thrownBy([ u2, u3 ]);
+      expect(thrown, 'expected the unauthorized update to be rejected').to.exist;
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.match(/not authorized for capabilityInvocation/i);
+    });
+
+    it('rejects an update signed by a method in no verification relationship at all', () => {
+      const loose = otherKey(9, 'loose');
+      // Published under verificationMethod[] only: locatable, but authorized for nothing.
+      const { document, update: u2 } = v2(publishKey(loose.vm, []));
+      const u3 = signHop(document, benignPatch(fixture.did), 2, loose.vm, loose.signer);
+
+      const thrown = thrownBy([ u2, u3 ]);
+      expect(thrown, 'expected the unauthorized update to be rejected').to.exist;
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.match(/not authorized for capabilityInvocation/i);
+    });
+
+    it('rejects every update once capabilityInvocation is removed from the document', () => {
+      // No capabilityInvocation means no method is authorized, including the identity key.
+      const { document, update: u2, vm } = v2([{ op: 'remove', path: '/capabilityInvocation' }]);
+      const signer = new LocalSigner(hexToBytes(fixture.secretKey));
+      const u3 = signHop(document, benignPatch(fixture.did), 2, vm, signer);
+
+      const thrown = thrownBy([ u2, u3 ]);
+      expect(thrown, 'expected the update to be rejected').to.exist;
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.match(/not authorized for capabilityInvocation/i);
+    });
+
+    it('rejects a capabilityInvocation entry that names the same fragment on a different DID', () => {
+      // A bare fragment resolves against the document that carries it, so an entry naming
+      // another DID must not authorize this document's method of the same name.
+      const foreignId = `${deterministicData[0].did}#initialKey`;
+      const { document, update: u2, vm } = v2([
+        { op: 'replace', path: '/capabilityInvocation/0', value: foreignId }
+      ]);
+      const signer = new LocalSigner(hexToBytes(fixture.secretKey));
+      const u3 = signHop(document, benignPatch(fixture.did), 2, vm, signer);
+
+      const thrown = thrownBy([ u2, u3 ]);
+      expect(thrown, 'expected the foreign capabilityInvocation entry to authorize nothing').to.exist;
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.match(/not authorized for capabilityInvocation/i);
+    });
+
+    it('rejects an update whose proof.verificationMethod is not a string', () => {
+      // A non-string id names no method, so it authorizes nothing. Before the membership
+      // check it reached getSigningMethod, whose fragment extraction returns undefined for
+      // a non-string and silently fell back to selecting assertionMethod[0].
+      const source = resolveDeterministic(fixture.did);
+      const vm = source.verificationMethod![0]!;
+      const signer = new LocalSigner(hexToBytes(fixture.secretKey));
+      const u2 = signHop(source, benignPatch(fixture.did), 1, vm, signer);
+      const crafted = { ...u2, proof: { ...u2.proof, verificationMethod: 12345 as any } };
+
+      const thrown = thrownBy([ crafted ]);
+      expect(thrown, 'expected the malformed verificationMethod to be rejected').to.exist;
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.match(/not authorized for capabilityInvocation/i);
+    });
+
+    it('applies an update signed by the authorized identity key (the check is not over-broad)', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2, u3 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        benignPatch(fixture.did), benignPatch(fixture.did)
+      ]);
+      const { metadata, didDocument } = driveSignalSequence(fixture.did, [ u2, u3 ], [ u2, u3 ]);
+      expect(metadata.versionId).to.equal('3');
+      expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 2);
+    });
+
+    it('accepts a key the previous update added to capabilityInvocation (membership is per-version)', () => {
+      const second = otherKey(11, 'second');
+      // v1->v2 grants the new key capabilityInvocation; v2->v3 exercises that grant, so the
+      // check must read the document as of the version being updated, not the genesis one.
+      const { document, update: u2 } = v2(publishKey(second.vm, [ 'capabilityInvocation' ]));
+      const u3 = signHop(document, benignPatch(fixture.did), 2, second.vm, second.signer);
+
+      const { metadata } = driveSignalSequence(fixture.did, [ u2, u3 ], [ u2, u3 ]);
+      expect(metadata.versionId).to.equal('3');
+    });
+
+    it('accepts a bare-fragment capabilityInvocation reference to the signing method', () => {
+      // DID Core lets a document reference its own methods by bare fragment; an x1 genesis
+      // document written that way keeps the relative form after placeholder substitution,
+      // while its verificationMethod[] ids and the proof carry the absolute DID URL.
+      const { document, update: u2, vm } = v2([
+        { op: 'replace', path: '/capabilityInvocation/0', value: '#initialKey' }
+      ]);
+      const signer = new LocalSigner(hexToBytes(fixture.secretKey));
+      const u3 = signHop(document, benignPatch(fixture.did), 2, vm, signer);
+
+      const { metadata, didDocument } = driveSignalSequence(fixture.did, [ u2, u3 ], [ u2, u3 ]);
+      expect(metadata.versionId).to.equal('3');
+      expect(didDocument.capabilityInvocation![0]).to.equal('#initialKey');
+    });
+
+    it('accepts an embedded verification method object in capabilityInvocation', () => {
+      // A relationship entry may embed the method rather than reference it.
+      const source = resolveDeterministic(fixture.did);
+      const embedded = { ...source.verificationMethod![0]! };
+      const { document, update: u2, vm } = v2([
+        { op: 'replace', path: '/capabilityInvocation/0', value: embedded }
+      ]);
+      const signer = new LocalSigner(hexToBytes(fixture.secretKey));
+      const u3 = signHop(document, benignPatch(fixture.did), 2, vm, signer);
+
+      const { metadata } = driveSignalSequence(fixture.did, [ u2, u3 ], [ u2, u3 ]);
+      expect(metadata.versionId).to.equal('3');
     });
   });
 });

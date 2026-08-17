@@ -19,16 +19,17 @@ const CONFIG_SCHEMA: SchemaNode = {
     '*' : {
       network : 'enum:network',
       btc     : {
-        rest          : 'string',
-        rpcUrl        : 'string',
-        rpcUser       : 'string',
-        rpcPass       : 'string',
-        feeRate       : 'number',
-        changeAddress : 'string',
-        timeoutMs     : 'number',
-        headers       : 'object',
-        wallet        : 'string',
-        rpcHeaders    : 'object',
+        rest            : 'string',
+        rpcUrl          : 'string',
+        rpcUser         : 'string',
+        rpcPass         : 'string',
+        feeRate         : 'number',
+        changeAddress   : 'string',
+        timeoutMs       : 'number',
+        headers         : 'object',
+        wallet          : 'string',
+        rpcHeaders      : 'object',
+        signalDiscovery : 'enum:signalDiscovery',
       },
       cas : {
         gateway   : 'string',
@@ -96,6 +97,13 @@ function assertLeafValue(kind: SchemaLeaf, dotted: string, value: unknown): void
   if (kind === 'enum:output' && value !== 'json' && value !== 'text') {
     throw new CLIError(
       `Invalid value for ${dotted}: "${String(value)}". Expected "json" or "text".`,
+      'INVALID_ARGUMENT_ERROR',
+      { path: dotted, value },
+    );
+  }
+  if (kind === 'enum:signalDiscovery' && value !== 'indexer' && value !== 'fullnode') {
+    throw new CLIError(
+      `Invalid value for ${dotted}: "${String(value)}". Expected "indexer" or "fullnode".`,
       'INVALID_ARGUMENT_ERROR',
       { path: dotted, value },
     );

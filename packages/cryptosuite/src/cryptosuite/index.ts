@@ -21,6 +21,16 @@ import type { SchnorrMultikey } from '../multikey/index.js';
 import type { Cryptosuite, VerificationResult } from './interface.js';
 
 /**
+ * Non-sensitive description of a cryptosuite, attached to error `data` in place
+ * of the suite instance itself (which reaches the multikey and its secret key).
+ */
+type SuiteContext = {
+  type: string;
+  cryptosuite: string;
+  verificationMethod: string;
+};
+
+/**
  * An implementation of a {@link Cryptosuite} using BIP340 Schnorr signatures and JCS canonicalization.
  * @implements {Cryptosuite}
  * @class BIP340Cryptosuite
@@ -59,6 +69,21 @@ export class BIP340Cryptosuite implements Cryptosuite {
    */
   toDataIntegrityProof(): BIP340DataIntegrityProof {
     return new BIP340DataIntegrityProof(this);
+  }
+
+  /**
+   * Describe this suite for an error `data` payload. Errors are routinely logged
+   * and shipped to telemetry, and this suite holds a multikey which may hold a
+   * secret key, so the suite itself must never be attached to one. This carries
+   * only what a caller needs to see what the suite expected.
+   * @returns {SuiteContext} The suite's type, name and verification method id.
+   */
+  #suiteContext(): SuiteContext {
+    return {
+      type               : this.type,
+      cryptosuite        : this.cryptosuite,
+      verificationMethod : this.multikey.fullId()
+    };
   }
 
   /**
@@ -145,7 +170,7 @@ export class BIP340Cryptosuite implements Cryptosuite {
     if (config.type !== this.type) {
       throw new MethodError(
         'Type mismatch: config.type !== this.type',
-        PROOF_VERIFICATION_ERROR, {config, this: this}
+        PROOF_VERIFICATION_ERROR, {config, suite: this.#suiteContext()}
       );
     }
 
@@ -153,7 +178,7 @@ export class BIP340Cryptosuite implements Cryptosuite {
     if (config.cryptosuite !== this.cryptosuite) {
       throw new MethodError(
         'Cryptosuite mismatch: config.cryptosuite !== this.cryptosuite',
-        PROOF_VERIFICATION_ERROR, {config, this: this}
+        PROOF_VERIFICATION_ERROR, {config, suite: this.#suiteContext()}
       );
     }
 
@@ -192,7 +217,7 @@ export class BIP340Cryptosuite implements Cryptosuite {
     if (config.type !== this.type) {
       throw new CryptosuiteError(
         'Type mismatch: config.type !== this.type',
-        PROOF_GENERATION_ERROR, {config, this: this}
+        PROOF_GENERATION_ERROR, {config, suite: this.#suiteContext()}
       );
     }
 
@@ -200,7 +225,7 @@ export class BIP340Cryptosuite implements Cryptosuite {
     if (config.cryptosuite !== this.cryptosuite) {
       throw new CryptosuiteError(
         'Cryptosuite mismatch: config.cryptosuite !== this.cryptosuite',
-        PROOF_GENERATION_ERROR, {config, this: this},
+        PROOF_GENERATION_ERROR, {config, suite: this.#suiteContext()},
       );
     }
 
@@ -230,7 +255,7 @@ export class BIP340Cryptosuite implements Cryptosuite {
       // Throw CryptosuiteError
       throw new CryptosuiteError(
         'Id mismatch: config.verificationMethod !== this.multikey.fullId()',
-        PROOF_SERIALIZATION_ERROR, {config, this: this}
+        PROOF_SERIALIZATION_ERROR, {config, suite: this.#suiteContext()}
       );
     }
 
@@ -255,7 +280,7 @@ export class BIP340Cryptosuite implements Cryptosuite {
     if (config.verificationMethod !== this.multikey.fullId()) {
       throw new CryptosuiteError(
         `Id mismatch: config.verificationMethod !== this.multikey.fullId()`,
-        PROOF_VERIFICATION_ERROR, {config, this: this}
+        PROOF_VERIFICATION_ERROR, {config, suite: this.#suiteContext()}
       );
     }
 

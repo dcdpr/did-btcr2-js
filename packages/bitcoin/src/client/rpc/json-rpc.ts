@@ -41,8 +41,8 @@ export class JsonRpcTransport {
       );
     }
 
-    const payload = await res.json() as { result?: unknown; error?: { code: number; message: string } };
-    return this.protocol.parseResponse(payload, method);
+    const payload = await res.json() as { id?: unknown; result?: unknown; error?: { code: number; message: string } };
+    return this.protocol.parseResponse(payload, method, request.id);
   }
 
   /**
@@ -70,6 +70,6 @@ export class JsonRpcTransport {
     }
 
     const payloads = await res.json() as Array<{ id: number; result?: unknown; error?: { code: number; message: string } }>;
-    return this.protocol.parseBatchResponse(payloads, calls);
+    return this.protocol.parseBatchResponse(payloads, calls, request.ids);
   }
 }

@@ -212,16 +212,32 @@ export class SchnorrMultikey implements Multikey {
   }
 
   /**
-   * Convert the multikey to a JSON object.
+   * Convert the multikey to a JSON object. Public material only: the keyPair is
+   * serialized with {@link SchnorrKeyPair.toJSON}, which omits the secret key.
+   * Called implicitly by JSON.stringify(), so anything that logs, posts or
+   * otherwise serializes a multikey (or an object holding one) gets the public
+   * view. To serialize secret material deliberately, call
+   * `multikey.keyPair.exportJSON()`.
    * @returns {MultikeyObject} The multikey as a JSON object.
    */
   public toJSON(): MultikeyObject {
+    // The `signer` getter throws for a public-key-only keyPair with no external
+    // signer: SchnorrKeyPair.secretKey throws when absent, which is the error
+    // contract sign() relies on. Serialization must not inherit that throw, so
+    // report "cannot sign" instead.
+    let canSign: boolean;
+    try {
+      canSign = this.signer;
+    } catch {
+      canSign = false;
+    }
+
     return {
       id                 : this.id,
       controller         : this.controller,
       fullId             : this.fullId(),
-      signer             : this.signer,
-      keyPair            : this.keyPair.exportJSON(),
+      signer             : canSign,
+      keyPair            : this.keyPair.toJSON(),
       verificationMethod : this.toVerificationMethod()
     };
   }

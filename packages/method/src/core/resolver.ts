@@ -149,6 +149,32 @@ function isSMTProof(value: unknown): value is SMTProof {
     && Array.isArray(value.hashes);
 }
 
+// ─── verification relationship membership ────────────────────────────────────
+
+/**
+ * Resolves a verification relationship entry to the absolute DID URL of the
+ * method it names, or `undefined` when the entry names no method.
+ *
+ * An entry is either a reference (a bare fragment such as `#key-0`, or an
+ * absolute DID URL) or an embedded verification method object. A bare fragment
+ * is relative to the document that carries it, so it is resolved against
+ * `documentId` before comparison; every other string is returned unchanged, so
+ * a reference naming a different DID can never collapse onto this document's.
+ *
+ * Malformed entries yield `undefined` rather than a placeholder string, so two
+ * unusable values never compare equal to each other.
+ *
+ * @param {string} documentId The `id` of the DID document carrying the entry.
+ * @param {unknown} entry The relationship entry: a reference or an embedded method.
+ * @returns {string | undefined} The absolute DID URL, or undefined if unusable.
+ */
+function relationshipMethodId(documentId: string, entry: unknown): string | undefined {
+  // An embedded method names itself with its `id`; a reference is the id itself.
+  const id = isRecord(entry) ? entry.id : entry;
+  if(typeof id !== 'string' || id.length === 0) return undefined;
+  return id.startsWith('#') ? `${documentId}${id}` : id;
+}
+
 /**
  * Different possible Resolver states representing phases in the resolution process.
  */
@@ -599,6 +625,29 @@ export class Resolver {
     if(!verificationMethodId) {
       // If it does not exist, throw INVALID_DID_UPDATE error
       throw new ResolveError('No verificationMethod found in update', INVALID_DID_UPDATE, update);
+    }
+
+    // Spec "Check update.proof": raise INVALID_DID_UPDATE if
+    // currentDocument.capabilityInvocation does not contain
+    // update.proof.verificationMethod. Locating the method in verificationMethod[] and
+    // verifying its signature is not sufficient on its own: a key the controller
+    // published only for authentication (or for no relationship at all) must not be
+    // able to authorize a DID update. The write path enforces this in DidBtcr2.update();
+    // without it here the read path applies an update signed by any key in the document.
+    // Checked before the method is located so an unauthorized method always fails with
+    // this typed error, whether or not it also appears in verificationMethod[].
+    const authorizedMethodId = relationshipMethodId(currentDocument.id, verificationMethodId);
+    const authorized = authorizedMethodId !== undefined && currentDocument.capabilityInvocation?.some(
+      entry => relationshipMethodId(currentDocument.id, entry) === authorizedMethodId
+    );
+    if(!authorized) {
+      throw new ResolveError(
+        'Invalid update: verificationMethod is not authorized for capabilityInvocation',
+        INVALID_DID_UPDATE, {
+          verificationMethodId,
+          capabilityInvocation : currentDocument.capabilityInvocation
+        }
+      );
     }
 
     // Get the verificationMethod from the DID Document using the verificationMethodId.

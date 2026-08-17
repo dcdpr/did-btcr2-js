@@ -413,4 +413,74 @@ describe('SchnorrMultikey', () => {
       expect(multikey.verify(sig, message)).to.be.true;
     });
   });
+
+  /**
+   * Serialization must never carry secret key material. toJSON() is called
+   * implicitly by JSON.stringify(), so a log line, an HTTP response body or a
+   * telemetry payload holding a multikey anywhere in its object graph would
+   * otherwise emit the secret key.
+   */
+  describe('toJSON (secret material)', () => {
+    const secretHex = Buffer.from(skBytes).toString('hex');
+    const secretSeed = BigInt(`0x${secretHex}`).toString();
+    const secretBytes = JSON.stringify(Array.from(skBytes));
+    const secretMultibase = keyPair.secretKey.multibase;
+    const multikey = new SchnorrMultikey({ id, controller, keyPair });
+
+    it('does not leak the secret key through JSON.stringify', () => {
+      const serialized = JSON.stringify(multikey);
+      expect(serialized).to.not.include(secretHex);
+      expect(serialized).to.not.include(secretHex.toUpperCase());
+      expect(serialized).to.not.include(secretSeed);
+      expect(serialized).to.not.include(secretBytes);
+      expect(serialized).to.not.include(secretMultibase);
+    });
+
+    it('does not leak the secret key when nested inside another object', () => {
+      // The realistic shape: something serializing an object graph that happens
+      // to hold a multikey, rather than the multikey directly.
+      const serialized = JSON.stringify({ ctx: { note: 'sign failed', multikey } });
+      expect(serialized).to.not.include(secretHex);
+      expect(serialized).to.not.include(secretSeed);
+      expect(serialized).to.not.include(secretBytes);
+    });
+
+    it('serializes the keyPair as public material only', () => {
+      const json = multikey.toJSON();
+      expect(json.keyPair).to.have.property('publicKey');
+      expect(json.keyPair).to.not.have.property('secretKey');
+      expect(json.keyPair.publicKey.hex).to.equal(publicKey.hex);
+      expect(json.keyPair.publicKey.multibase.encoded).to.equal(publicKeyMultibase);
+    });
+
+    it('keeps every non-secret field', () => {
+      const json = multikey.toJSON();
+      expect(json.id).to.equal(id);
+      expect(json.controller).to.equal(controller);
+      expect(json.fullId).to.equal(fullId);
+      expect(json.signer).to.be.true;
+      expect(JSONUtils.deepEqual(json.verificationMethod, verificationMethod)).to.equal(true);
+    });
+
+    it('serializes a public-key-only multikey instead of throwing', () => {
+      // The `signer` getter throws when there is no secret key and no external
+      // signer; serialization must not inherit that throw.
+      const pubOnly = new SchnorrMultikey({ id, controller, keyPair: new SchnorrKeyPair({ publicKey }) });
+      expect(() => JSON.stringify(pubOnly)).to.not.throw();
+      expect(pubOnly.toJSON().signer).to.be.false;
+      expect(pubOnly.toJSON().keyPair.publicKey.hex).to.equal(publicKey.hex);
+    });
+
+    it('reports signer true for an external-signer multikey, without leaking', () => {
+      const external = SchnorrMultikey.fromSigner(id, controller, new LocalSigner(skBytes));
+      expect(external.toJSON().signer).to.be.true;
+      expect(JSON.stringify(external)).to.not.include(secretHex);
+    });
+
+    it('still allows deliberate secret export through the keyPair', () => {
+      // Only the accidental path is removed, not the explicit one.
+      const exported = multikey.keyPair.exportJSON();
+      expect(exported.secretKey.hex).to.equal(secretHex);
+    });
+  });
 });

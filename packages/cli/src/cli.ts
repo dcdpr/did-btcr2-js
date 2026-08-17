@@ -53,7 +53,12 @@ export class DidBtcr2Cli {
       .option('--btc-rest <url>', 'Override Bitcoin REST endpoint (Esplora API)')
       .option('--btc-rpc-url <url>', 'Override Bitcoin Core RPC endpoint')
       .option('--btc-rpc-user <user>', 'Bitcoin Core RPC username')
-      .option('--btc-rpc-pass <pass>', 'Bitcoin Core RPC password')
+      // There is deliberately no --btc-rpc-pass flag. A password in argv is
+      // readable by any local user through `ps` and /proc/<pid>/cmdline while the
+      // process runs, and outlives it in shell history and CI logs. The password
+      // reaches the CLI through BTCR2_BTC_RPC_PASS, BTCR2_BTC_RPC_PASS_FILE, or a
+      // profile `rpcPass` holding an `env:`/`file:` secret reference, matching the
+      // keystore passphrase, which is likewise never taken from a flag (ADR 077).
       .option('--cas-gateway <url>', 'IPFS HTTP gateway for CAS reads (read-only)')
       .option('--cas-rpc-url <url>', 'IPFS HTTP RPC endpoint for a writable CAS (reads + writes; enables --publish-to-cas)')
       .option('--btc-timeout <ms>', 'Bitcoin REST/RPC request timeout in milliseconds (default: unbounded)')
@@ -61,6 +66,7 @@ export class DidBtcr2Cli {
       .option('--btc-rest-header <header>', 'Extra Bitcoin REST header "Key: Value" (repeatable)', collectHeader, [])
       .option('--btc-rpc-wallet <name>', 'Bitcoin Core wallet name for wallet-scoped RPCs')
       .option('--btc-rpc-header <header>', 'Extra Bitcoin Core RPC header "Key: Value" (repeatable)', collectHeader, [])
+      .option('--btc-signal-discovery <mode>', 'Where beacon signals are read from <indexer|fullnode> (default: indexer; fullnode scans blocks over Bitcoin Core RPC)')
       .option('--keystore <path>', 'Path to the keystore file (default: <home>/keystore.json)')
       .option('--passphrase-file <path>', 'Read the keystore passphrase from a file (unattended use)')
       .option('--signing-key <ref>', 'Key for create/update/deactivate signing: a URN, fingerprint prefix, or name');

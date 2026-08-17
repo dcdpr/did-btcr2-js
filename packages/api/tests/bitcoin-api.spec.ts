@@ -57,6 +57,34 @@ describe('BitcoinApi', () => {
     expect(btc.rpc).to.exist;
   });
 
+  // --- Signal discovery mode ---
+  //
+  // Which discovery path reads the chain is a property of the connection, not of an
+  // individual DID, so it is fixed at construction. `fullnode` scans blocks over
+  // Bitcoin Core RPC and is unusable without one, which is worth catching here rather
+  // than mid-resolution.
+
+  it('defaults signalDiscovery to indexer', () => {
+    const btc = new BitcoinApi({ network: 'regtest' });
+    expect(btc.signalDiscovery).to.equal('indexer');
+  });
+
+  it('accepts signalDiscovery: fullnode when RPC is configured', () => {
+    const btc = new BitcoinApi({
+      network         : 'regtest',
+      rpc             : { host: 'http://localhost:18443', username: 'u', password: 'p' },
+      signalDiscovery : 'fullnode'
+    });
+    expect(btc.signalDiscovery).to.equal('fullnode');
+  });
+
+  it('rejects signalDiscovery: fullnode on a network with no RPC config', () => {
+    // mempool.space-backed networks resolve no rpc by default, so this would otherwise
+    // fail only once a resolution reached the scan.
+    expect(() => new BitcoinApi({ network: 'bitcoin', signalDiscovery: 'fullnode' }))
+      .to.throw('no rpc config was resolved');
+  });
+
   it('btcToSats() converts correctly', () => {
     expect(BitcoinApi.btcToSats(1)).to.equal(100_000_000);
     expect(BitcoinApi.btcToSats(0.5)).to.equal(50_000_000);

@@ -196,15 +196,15 @@ describe('JsonRpcProtocol', () => {
         { method: 'getblockhash', params: [100] as unknown[] },
       ];
       // Build batch to assign IDs
-      protocol.buildBatchRequest(calls);
-      // IDs are now (id-1) and (id)
-      const id = (protocol as any)._id;
+      const req = protocol.buildBatchRequest(calls);
+      const [first, second] = req.ids;
       const results = protocol.parseBatchResponse(
         [
-          { id: id, result: 'hash100' },
-          { id: id - 1, result: 12345 },
+          { id: second, result: 'hash100' },
+          { id: first, result: 12345 },
         ],
         calls,
+        req.ids,
       );
       expect(results).to.deep.equal([12345, 'hash100']);
     });
@@ -212,13 +212,131 @@ describe('JsonRpcProtocol', () => {
     it('throws on missing response', () => {
       const protocol = new JsonRpcProtocol({});
       const calls = [{ method: 'getblockcount', params: [] as unknown[] }];
-      protocol.buildBatchRequest(calls);
+      const req = protocol.buildBatchRequest(calls);
       try {
-        protocol.parseBatchResponse([], calls);
+        protocol.parseBatchResponse([], calls, req.ids);
         expect.fail('Expected to throw');
       } catch (err: any) {
         expect(err).to.be.instanceOf(BitcoinRpcError);
         expect(err.message).to.include('Missing response');
+      }
+    });
+  });
+
+  describe('request id binding', () => {
+    /** A batch of `getrawtransaction` calls, one per txid. */
+    const txCalls = (...txids: string[]) =>
+      txids.map(txid => ({ method: 'getrawtransaction', params: [txid] as unknown[] }));
+
+    /** What a conformant node returns: the ids it was sent, results in call order. */
+    const echo = (ids: readonly number[], txids: string[]) =>
+      ids.map((id, i) => ({ id, result: `RESULT-FOR-${txids[i]}` }));
+
+    it('reports the id it assigned to a single request', () => {
+      const protocol = new JsonRpcProtocol({});
+      const req = protocol.buildRequest('getblockcount', []);
+      expect(req.id).to.equal(JSON.parse(req.body!).id);
+    });
+
+    it('reports the ids it assigned to a batch, in call order', () => {
+      const protocol = new JsonRpcProtocol({});
+      const req = protocol.buildBatchRequest(txCalls('txA', 'txB', 'txC'));
+      expect(req.ids).to.deep.equal(JSON.parse(req.body!).map((c: any) => c.id));
+      expect(new Set(req.ids).size, 'ids must be distinct').to.equal(3);
+    });
+
+    it('matches a batch response after a single call advanced the counter', () => {
+      const protocol = new JsonRpcProtocol({});
+      const calls = txCalls('txA', 'txB');
+      const batch = protocol.buildBatchRequest(calls);
+      // A concurrent caller builds a request while the batch is in flight.
+      protocol.buildRequest('getblockcount', []);
+
+      const results = protocol.parseBatchResponse(echo(batch.ids, ['txA', 'txB']), calls, batch.ids);
+      expect(results).to.deep.equal(['RESULT-FOR-txA', 'RESULT-FOR-txB']);
+    });
+
+    it('does not read another in-flight batch\'s results out of a wide payload', () => {
+      const protocol = new JsonRpcProtocol({});
+      const calls = txCalls('txA', 'txB');
+      const first = protocol.buildBatchRequest(calls);
+      const second = protocol.buildBatchRequest(txCalls('txC', 'txD'));
+
+      // A payload covering both id windows: matching by anything other than the
+      // ids this batch was built with can silently pick up the other batch's data.
+      const wire = [
+        ...echo(first.ids, ['txA', 'txB']),
+        ...echo(second.ids, ['txC', 'txD']),
+      ];
+      expect(protocol.parseBatchResponse(wire, calls, first.ids))
+        .to.deep.equal(['RESULT-FOR-txA', 'RESULT-FOR-txB']);
+      expect(protocol.parseBatchResponse(wire, calls, second.ids))
+        .to.deep.equal(['RESULT-FOR-txC', 'RESULT-FOR-txD']);
+    });
+
+    it('names the id it was actually sent when a response is missing', () => {
+      const protocol = new JsonRpcProtocol({});
+      const calls = txCalls('txA', 'txB');
+      const batch = protocol.buildBatchRequest(calls);
+      protocol.buildRequest('getblockcount', []);
+      try {
+        protocol.parseBatchResponse([{ id: batch.ids[0], result: 'RESULT-FOR-txA' }], calls, batch.ids);
+        expect.fail('Expected to throw');
+      } catch (err: any) {
+        expect(err).to.be.instanceOf(BitcoinRpcError);
+        expect(err.message).to.include(`id ${batch.ids[1]}`);
+      }
+    });
+
+    it('throws when the id count does not match the call count', () => {
+      const protocol = new JsonRpcProtocol({});
+      const calls = txCalls('txA', 'txB');
+      try {
+        protocol.parseBatchResponse([], calls, [1]);
+        expect.fail('Expected to throw');
+      } catch (err: any) {
+        expect(err).to.be.instanceOf(BitcoinRpcError);
+        expect(err.message).to.include('does not match call count');
+      }
+    });
+
+    it('rejects a single response carrying a different id', () => {
+      const protocol = new JsonRpcProtocol({});
+      const req = protocol.buildRequest('getrawtransaction', ['txA']);
+      try {
+        protocol.parseResponse({ id: req.id + 1, result: 'RESULT-FOR-txB' }, 'getrawtransaction', req.id);
+        expect.fail('Expected to throw');
+      } catch (err: any) {
+        expect(err).to.be.instanceOf(BitcoinRpcError);
+        expect(err.message).to.include('does not match request id');
+        expect(err.data.method).to.equal('getrawtransaction');
+      }
+    });
+
+    it('accepts a single response carrying the id it was sent', () => {
+      const protocol = new JsonRpcProtocol({});
+      const req = protocol.buildRequest('getrawtransaction', ['txA']);
+      expect(protocol.parseResponse({ id: req.id, result: 'RESULT-FOR-txA' }, 'getrawtransaction', req.id))
+        .to.equal('RESULT-FOR-txA');
+    });
+
+    it('accepts a response with no id, or a null id, when one is expected', () => {
+      const protocol = new JsonRpcProtocol({});
+      const req = protocol.buildRequest('getblockcount', []);
+      expect(protocol.parseResponse({ result: 42 }, 'getblockcount', req.id)).to.equal(42);
+      expect(protocol.parseResponse({ id: null, result: 42 }, 'getblockcount', req.id)).to.equal(42);
+    });
+
+    it('surfaces an RPC error ahead of any id mismatch', () => {
+      const protocol = new JsonRpcProtocol({});
+      const req = protocol.buildRequest('getblock', ['nope']);
+      try {
+        // Bitcoin Core answers a request it could not parse with id: null.
+        protocol.parseResponse({ id: null, error: { code: -5, message: 'Block not found' } }, 'getblock', req.id);
+        expect.fail('Expected to throw');
+      } catch (err: any) {
+        expect(err.code).to.equal(-5);
+        expect(err.message).to.equal('Block not found');
       }
     });
   });
@@ -408,6 +526,85 @@ describe('JsonRpcTransport', () => {
       // Single call sends a plain object, not an array
       const body = JSON.parse(seen[0].body!);
       expect(body).to.not.be.an('array');
+    });
+  });
+
+  describe('concurrent requests on one transport', () => {
+    /**
+     * A conformant node: echoes the ids it was sent and answers each
+     * `getrawtransaction` with the txid it was asked for.  `delays` holds the
+     * response delay per txid, so responses can be made to arrive out of the
+     * order the requests were built in.
+     */
+    function createConcurrentTransport(delays: Record<string, number> = {}) {
+      const executor: HttpExecutor = async (req) => {
+        const body = JSON.parse(req.body!);
+        const calls = Array.isArray(body) ? body : [body];
+        const wait = Math.max(...calls.map((c: any) => delays[c.params?.[0]] ?? 0));
+        await new Promise(resolve => setTimeout(resolve, wait));
+        const responses = calls.map((c: any) => ({
+          jsonrpc : '2.0',
+          id      : c.id,
+          result  : `RESULT-FOR-${c.params?.[0] ?? c.method}`,
+        }));
+        return new Response(JSON.stringify(Array.isArray(body) ? responses : responses[0]), {
+          status  : 200,
+          headers : { 'Content-Type': 'application/json' },
+        });
+      };
+      return new JsonRpcTransport({ host: 'http://node:8332' }, executor);
+    }
+
+    it('gives each of two overlapping batches its own results', async () => {
+      const transport = createConcurrentTransport({ txA: 40, txB: 40 });
+      const first = transport.batch([
+        { method: 'getrawtransaction', params: ['txA'] },
+        { method: 'getrawtransaction', params: ['txB'] },
+      ]);
+      // Built while the first batch is still in flight, so it advances the
+      // protocol's id counter before the first response is parsed.
+      const second = transport.batch([
+        { method: 'getrawtransaction', params: ['txC'] },
+        { method: 'getrawtransaction', params: ['txD'] },
+      ]);
+
+      expect(await first).to.deep.equal(['RESULT-FOR-txA', 'RESULT-FOR-txB']);
+      expect(await second).to.deep.equal(['RESULT-FOR-txC', 'RESULT-FOR-txD']);
+    });
+
+    it('gives a batch its own results when a single call overlaps it', async () => {
+      const transport = createConcurrentTransport({ txA: 40, txB: 40 });
+      const batch = transport.batch([
+        { method: 'getrawtransaction', params: ['txA'] },
+        { method: 'getrawtransaction', params: ['txB'] },
+      ]);
+      const single = transport.call('getblockcount', []);
+
+      expect(await batch).to.deep.equal(['RESULT-FOR-txA', 'RESULT-FOR-txB']);
+      expect(await single).to.equal('RESULT-FOR-getblockcount');
+    });
+
+    it('gives each of many overlapping batches its own results', async () => {
+      const transport = createConcurrentTransport({ txA0: 30, txB0: 20, txC0: 10 });
+      const batches = ['A', 'B', 'C'].map(tag => transport.batch([
+        { method: 'getrawtransaction', params: [`tx${tag}0`] },
+        { method: 'getrawtransaction', params: [`tx${tag}1`] },
+      ]));
+
+      expect(await Promise.all(batches)).to.deep.equal([
+        ['RESULT-FOR-txA0', 'RESULT-FOR-txA1'],
+        ['RESULT-FOR-txB0', 'RESULT-FOR-txB1'],
+        ['RESULT-FOR-txC0', 'RESULT-FOR-txC1'],
+      ]);
+    });
+
+    it('gives each of two overlapping single calls its own result', async () => {
+      const transport = createConcurrentTransport({ txA: 40 });
+      const first = transport.call('getrawtransaction', ['txA']);
+      const second = transport.call('getrawtransaction', ['txB']);
+
+      expect(await first).to.equal('RESULT-FOR-txA');
+      expect(await second).to.equal('RESULT-FOR-txB');
     });
   });
 

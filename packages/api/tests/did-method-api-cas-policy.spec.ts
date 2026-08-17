@@ -512,8 +512,21 @@ describe('DidMethodApi resolve() SMT proof handling', () => {
     const did = methodApi.createExternal(canonicalHashBytes(genesisDocument), { network: 'regtest' });
 
     const smtRootHex = 'ab'.repeat(32);
+    // A signal is a transaction that spends from the beacon address, so the input side
+    // has to look like one: discovery ignores transactions that merely pay the beacon.
     const signalTx = {
-      vout   : [{ scriptpubkey_asm: `OP_RETURN OP_PUSHBYTES_32 ${smtRootHex}` }],
+      vin    : [{
+        txid        : 'f'.repeat(64),
+        vout        : 0,
+        prevout     : { scriptpubkey_address: beaconAddress },
+        is_coinbase : false,
+      }],
+      // Discovery decodes the serialized script, which Esplora returns alongside the asm
+      // rendering; the asm is here only to document what those bytes mean.
+      vout   : [{
+        scriptpubkey     : `6a20${smtRootHex}`,
+        scriptpubkey_asm : `OP_RETURN OP_PUSHBYTES_32 ${smtRootHex}`,
+      }],
       status : { block_height: 100, block_time: 1700000000 },
     };
     const btcMock = {

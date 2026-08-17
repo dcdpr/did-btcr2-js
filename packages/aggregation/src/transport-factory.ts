@@ -1,10 +1,10 @@
 import { NotImplementedError } from '@did-btcr2/common';
-import type { Logger } from './core/logger.js';
 import { TransportError } from './core/transport/error.js';
 import type { HttpClientTransportConfig } from './participant/http-client.js';
 import { HttpClientTransport } from './participant/http-client.js';
 import type { HttpServerTransportConfig } from './service/http-server.js';
 import { HttpServerTransport } from './service/http-server.js';
+import type { NostrTransportConfig } from './core/transport/nostr.js';
 import { NostrTransport } from './core/transport/nostr.js';
 import type { Transport } from './core/transport/transport.js';
 
@@ -15,11 +15,8 @@ export type TransportConfig =
   | HttpClientTransportConfigOption
   | HttpServerTransportConfigOption;
 
-export interface NostrTransportConfigOption {
+export interface NostrTransportConfigOption extends NostrTransportConfig {
   type: 'nostr';
-  relays?: string[];
-  logger?: Logger;
-  broadcastLookbackMs?: number;
 }
 
 export interface DidCommTransportConfigOption {
@@ -45,6 +42,7 @@ export class TransportFactory {
           relays              : config.relays,
           logger              : config.logger,
           broadcastLookbackMs : config.broadcastLookbackMs,
+          resolveSenderPk     : config.resolveSenderPk,
         });
       case 'didcomm':
         throw new NotImplementedError('DIDComm transport not implemented yet.');

@@ -244,7 +244,9 @@ describe('Aggregate beacon fallback protocol (ADR 042)', () => {
     const sessionId = service.getSigningSessionId(cohortId)!;
 
     // A coordinator hands the member a tx whose OP_RETURN carries a DIFFERENT
-    // signal than the one the member validated. The member must refuse to sign.
+    // signal than the one the member validated. It is not the transaction of
+    // the optimistic round this member is already in, so the request is dropped
+    // outright and the member never reaches a position to sign it.
     const tampered = beaconTx(script, cohort.internalKey, value, new Uint8Array(32).fill(0xbe));
     const leaf = buildFallbackLeaf({ cohortKeys: cohort.cohortKeys, fallbackThreshold: cohort.effectiveFallbackThreshold });
     parts[0].receive(createFallbackAuthorizationRequestMessage({
@@ -257,8 +259,9 @@ describe('Aggregate beacon fallback protocol (ADR 042)', () => {
       prevOutValue          : value.toString(),
       fallbackLeafScriptHex : bytesToHex(leaf),
     }) as never);
-    expect(parts[0].getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.AwaitingFallbackSig);
-    expect(() => parts[0].approveFallback(cohortId)).to.throw(/SIGNAL_MISMATCH|does not anchor/);
+    expect(parts[0].getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.AwaitingSigning);
+    expect(parts[0].pendingFallbackRequests.get(cohortId)).to.be.undefined;
+    expect(() => parts[0].approveFallback(cohortId)).to.throw(/not in AwaitingFallbackSig phase/);
   });
 
   it('SMT: fallback completes and the witness verifies', async () => {

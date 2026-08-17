@@ -117,11 +117,12 @@ Settings that feed this command:
 | Bitcoin REST endpoint | `--btc-rest <url>` | `BTCR2_BTC_REST` | `profiles.<name>.btc.rest` | per network, see below |
 | Bitcoin Core RPC URL | `--btc-rpc-url <url>` | `BTCR2_BTC_RPC_URL` | `profiles.<name>.btc.rpcUrl` | `http://localhost:18443` (regtest only); none elsewhere |
 | RPC username | `--btc-rpc-user <user>` | `BTCR2_BTC_RPC_USER` | `profiles.<name>.btc.rpcUser` | none |
-| RPC password | `--btc-rpc-pass <pass>` | `BTCR2_BTC_RPC_PASS` | `profiles.<name>.btc.rpcPass` | none |
+| RPC password | none (never argv) | `BTCR2_BTC_RPC_PASS` | `profiles.<name>.btc.rpcPass` | none |
 | RPC password file | none | `BTCR2_BTC_RPC_PASS_FILE` | none | none |
 | RPC wallet | `--btc-rpc-wallet <name>` | none | `profiles.<name>.btc.wallet` | none |
 | Extra REST headers | `--btc-rest-header <header>` (repeatable, `'Key: Value'`) | none | `profiles.<name>.btc.headers` | none |
 | Extra RPC headers | `--btc-rpc-header <header>` (repeatable, `'Key: Value'`) | none | `profiles.<name>.btc.rpcHeaders` | none |
+| Beacon signal discovery | `--btc-signal-discovery <mode>` (`indexer` \| `fullnode`) | `BTCR2_BTC_SIGNAL_DISCOVERY` | `profiles.<name>.btc.signalDiscovery` | `indexer` |
 | Bitcoin timeout (ms) | `--btc-timeout <ms>` (finite number >= 1) | `BTCR2_BTC_TIMEOUT` | `profiles.<name>.btc.timeoutMs` | unbounded |
 | CAS gateway (read-only) | `--cas-gateway <url>` | `BTCR2_CAS_GATEWAY` | `profiles.<name>.cas.gateway` | `https://ipfs.io` |
 | CAS RPC endpoint (writable) | `--cas-rpc-url <url>` | `BTCR2_CAS_RPC_URL` | `profiles.<name>.cas.rpcUrl` | none |
@@ -174,8 +175,8 @@ Behavior details, all confirmed against the source:
 Shared global flags are documented in the [docs README](./README.md#global-options). `resolve` notably interacts
 with: `-o, --output` (text vs json envelope), `--verbose` (full structured error output for
 CLI-typed errors), the connection overrides (`--btc-rest`, `--btc-rpc-url`, `--btc-rpc-user`,
-`--btc-rpc-pass`, `--btc-rpc-wallet`, `--btc-rest-header`, `--btc-rpc-header`, `--btc-timeout`,
-`--cas-gateway`, `--cas-rpc-url`, `--cas-timeout`), and the state-location flags (`--home`,
+`--btc-rpc-wallet`, `--btc-rest-header`, `--btc-rpc-header`, `--btc-signal-discovery`,
+`--btc-timeout`, `--cas-gateway`, `--cas-rpc-url`, `--cas-timeout`), and the state-location flags (`--home`,
 `-c, --config`, `--profile`). `--quiet`, `--keystore`, `--passphrase-file`, and `--signing-key`
 are accepted but have no effect on this command.
 

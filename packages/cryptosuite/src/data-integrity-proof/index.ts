@@ -4,6 +4,18 @@ import type { VerificationResult } from '../cryptosuite/interface.js';
 import type { DataIntegrityProof, DataIntegrityProofOptions, SecuredDocument, UnsecuredDocument } from './interface.js';
 
 /**
+ * Normalize a `domain` value to a list of urls. A domain is one or more urls, expressed either as a
+ * single string or as an array of strings; an absent domain is an empty list. Normalizing before
+ * comparison keeps a string domain from being treated as an array (where `length` is the character
+ * count and `includes` is a substring test).
+ * @param {string | string[] | undefined} domain The domain value to normalize.
+ * @returns {string[]} The domain as a list of urls.
+ */
+function toDomainList(domain?: string | string[]): string[] {
+  return domain === undefined ? [] : Array.isArray(domain) ? domain : [domain];
+}
+
+/**
  * Implements section {@link https://dcdpr.github.io/data-integrity-schnorr-secp256k1/#dataintegrityproof | 2.2.1 DataIntegrityProof}
  * of the {@link https://dcdpr.github.io/data-integrity-schnorr-secp256k1 | Data Integrity BIP-340 Cryptosuite} spec
  * @implements {DataIntegrityProof}
@@ -123,29 +135,25 @@ export class BIP340DataIntegrityProof implements DataIntegrityProof {
 
     // Check if the expectedDomain is defined
     if(expectedDomain) {
-      // Check if expectedDomain is an array with at least one entry
-      if(Array.isArray(expectedDomain) && expectedDomain.length) {
-        // Check that the domain arrays match in length
-        if(expectedDomain.length !== proof.domain?.length) {
-          // Else throw DataIntegrityProofError
-          throw new DataIntegrityProofError(
-            'Domain mismatch: expectedDomain length does not match proof.domain length',
-            PROOF_VERIFICATION_ERROR, { proof, expectedDomain }
-          );
-        }
-        // Check that each entry in expectedDomain can be found in proof.domain
-        else if(expectedDomain.every(url => proof.domain?.includes(url))) {
-          // Else throw DataIntegrityProofError
-          throw new DataIntegrityProofError(
-            'Domain mismatch: expectedDomain and proof.domain do not match',
-            PROOF_VERIFICATION_ERROR, { proof, expectedDomain }
-          );
-        }
-      }
-      // Else expectedDomain is a string, check that it matches proof.domain
-      else if(proof.domain !== expectedDomain) {
+      // Normalize both sides to arrays: a domain is one or more urls (string | string[])
+      const expectedDomains = toDomainList(expectedDomain);
+      const proofDomains = toDomainList(proof.domain);
+
+      // Check that the domain lists match in length
+      if(expectedDomains.length !== proofDomains.length) {
+        // Else throw DataIntegrityProofError
         throw new DataIntegrityProofError(
-          'Domain mismatch: proof.domain !== expectedDomain',
+          'Domain mismatch: expectedDomain length does not match proof.domain length',
+          PROOF_VERIFICATION_ERROR, { proof, expectedDomain }
+        );
+      }
+
+      // Check that the two lists contain the same urls, in either order
+      if(!expectedDomains.every(url => proofDomains.includes(url))
+        || !proofDomains.every(url => expectedDomains.includes(url))) {
+        // Else throw DataIntegrityProofError
+        throw new DataIntegrityProofError(
+          'Domain mismatch: expectedDomain and proof.domain do not match',
           PROOF_VERIFICATION_ERROR, { proof, expectedDomain }
         );
       }

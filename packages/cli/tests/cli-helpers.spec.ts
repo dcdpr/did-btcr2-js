@@ -1,4 +1,5 @@
 import { createApi } from '@did-btcr2/api';
+import { CommanderError, type Command } from 'commander';
 import { DidBtcr2Cli } from '../src/cli.js';
 import type { ApiFactory, ConnectionOverrides } from '../src/config.js';
 import { createTestApiFactory, expect, originalConsoleError, originalConsoleLog } from './helpers.js';
@@ -107,7 +108,7 @@ describe('CLI Helpers', () => {
     expect(capturedOverrides?.btcRest).to.equal('http://custom:3000');
   });
 
-  it('passes --btc-rpc-* overrides to factory on resolve', async () => {
+  it('passes --btc-rpc-url and --btc-rpc-user overrides to factory on resolve', async () => {
     let capturedOverrides: ConnectionOverrides | undefined;
     const spy: ApiFactory = (_network, overrides) => {
       capturedOverrides = overrides;
@@ -121,12 +122,60 @@ describe('CLI Helpers', () => {
       'node', 'btcr2',
       '--btc-rpc-url', 'http://node:18443',
       '--btc-rpc-user', 'alice',
-      '--btc-rpc-pass', 'secret',
       'resolve', '-i', validDid,
     ]);
 
     expect(capturedOverrides?.btcRpcUrl).to.equal('http://node:18443');
     expect(capturedOverrides?.btcRpcUser).to.equal('alice');
-    expect(capturedOverrides?.btcRpcPass).to.equal('secret');
+    expect(capturedOverrides?.btcRpcPass).to.be.undefined;
+  });
+
+  it('rejects an RPC password on argv instead of accepting it as a flag', async () => {
+    let factoryCalled = false;
+    const spy: ApiFactory = () => {
+      factoryCalled = true;
+      return createApi();
+    };
+    const cli = new DidBtcr2Cli(spy);
+    cli.program.exitOverride();
+    cli.program.configureOutput({ writeErr: () => {} });
+
+    const errors: any[] = [];
+    console.error = (...args: any[]) => errors.push(args[0]);
+
+    const validDid = 'did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47';
+    await cli.run([
+      'node', 'btcr2',
+      '--btc-rpc-pass', 'secret',
+      'resolve', '-i', validDid,
+    ]);
+
+    // Parsing must fail on the unknown option, so the command never runs and the
+    // password never reaches the connection config.
+    expect(errors[0]).to.be.instanceOf(CommanderError);
+    expect(errors[0].code).to.equal('commander.unknownOption');
+    expect(factoryCalled).to.be.false;
+    expect(process.exitCode).to.equal(1);
+  });
+
+  it('registers no option whose value is itself a secret', () => {
+    // A secret on argv is readable through `ps` and /proc/<pid>/cmdline while the
+    // process runs, and persists in shell history and CI logs. Options naming a
+    // secret without carrying one are fine: a path (--passphrase-file,
+    // --secret-file) or a boolean (--secret, --show-secrets) leaks nothing.
+    const SECRET_VALUE_NAMES = ['pass', 'password', 'passphrase', 'secret', 'token', 'credential'];
+    const offenders: string[] = [];
+    const walk = (command: Command): void => {
+      for (const option of command.options) {
+        const takesValue = option.required || option.optional;
+        const leaf = (option.long ?? option.short ?? '').split('-').pop() ?? '';
+        if (takesValue && SECRET_VALUE_NAMES.includes(leaf)) offenders.push(option.flags);
+      }
+      command.commands.forEach(walk);
+    };
+
+    walk(new DidBtcr2Cli(createTestApiFactory()).program);
+
+    expect(offenders).to.deep.equal([]);
   });
 });

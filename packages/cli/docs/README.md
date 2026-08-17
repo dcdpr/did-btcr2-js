@@ -38,14 +38,14 @@ command; each command doc lists which globals it actually consumes. The table be
 | `--btc-rest <url>` | URL | per-network SDK default (mempool.space-style endpoints; tabulated in [resolve.md](./resolve.md#environment--configuration)) | Override the Bitcoin REST (Esplora) endpoint. |
 | `--btc-rpc-url <url>` | URL | `http://localhost:18443` on regtest; none on other networks | Override the Bitcoin Core RPC endpoint. |
 | `--btc-rpc-user <user>` | string | none | Bitcoin Core RPC username. |
-| `--btc-rpc-pass <pass>` | string, or a secret reference `env:<VAR>` / `file:<path>` | none | Bitcoin Core RPC password. RPC url, user, and pass resolve as one atomic unit per precedence layer (ADR 074). |
 | `--cas-gateway <url>` | URL | `https://ipfs.io` | IPFS HTTP gateway for CAS reads (read-only). |
 | `--cas-rpc-url <url>` | URL | none | IPFS HTTP RPC endpoint for a writable CAS (reads + writes). Configuring one is what makes `--publish-to-cas auto`/`always` on `update`/`deactivate` meaningful. |
 | `--btc-timeout <ms>` | finite number >= 1 | unset (unbounded) | Bitcoin REST/RPC request timeout in milliseconds. |
 | `--cas-timeout <ms>` | finite number >= 0; `0` disables | unset; the api layer then applies 30000 ms | CAS request timeout in milliseconds. |
-| `--btc-rest-header <header>` | `'Key: Value'`, repeatable | `[]` | Extra Bitcoin REST header. Merges over the profile's `btc.headers`, flag winning per key. A value without a `Key: Value` colon is rejected. |
+| `--btc-rest-header <header>` | `'Key: Value'`, repeatable | `[]` | Extra Bitcoin REST header. Merges over the profile's `btc.headers`, flag winning per key. A value without a `Key: Value` colon is rejected. A header value given here is on argv, so a credential in it (an API key, a bearer token) is readable by any local user through `ps` and persists in shell history and CI logs: put credential headers in the profile's `btc.headers`, which `profile show` redacts. |
 | `--btc-rpc-wallet <name>` | string | none | Bitcoin Core wallet name for wallet-scoped RPCs. |
-| `--btc-rpc-header <header>` | `'Key: Value'`, repeatable | `[]` | Extra Bitcoin Core RPC header. Merges over the profile's `btc.rpcHeaders`. |
+| `--btc-rpc-header <header>` | `'Key: Value'`, repeatable | `[]` | Extra Bitcoin Core RPC header. Merges over the profile's `btc.rpcHeaders`. Same argv exposure as `--btc-rest-header`: keep credential headers in the profile. |
+| `--btc-signal-discovery <mode>` | `indexer` \| `fullnode` | `indexer` | Where beacon signals are read from. `fullnode` scans blocks over Bitcoin Core RPC instead of querying the Esplora indexer, and fails at connection setup on a network with no RPC client (only regtest has a default RPC host). |
 | `--keystore <path>` | file path | active profile's `identity.keystore`, else `<home>/keystore.json` | Path to the keystore file. The flag short-circuits before any config read. |
 | `--passphrase-file <path>` | file path | none | Read the keystore passphrase from a file (unattended use). Note: `BTCR2_KEYSTORE_PASSPHRASE` is consulted BEFORE this file. |
 | `--signing-key <ref>` | key URN (`urn:kms:secp256k1:<32 hex>`), unique `name` tag, or unique fingerprint prefix | active profile's `identity.default`, else the keystore's active key | Key for `create`/`update`/`deactivate` signing. |
@@ -76,10 +76,11 @@ Every `BTCR2_*` variable the CLI consults, from `src/config.ts`, `src/paths.ts`,
 | `BTCR2_BTC_REST` | `--btc-rest` |
 | `BTCR2_BTC_RPC_URL` | `--btc-rpc-url` |
 | `BTCR2_BTC_RPC_USER` | `--btc-rpc-user` |
-| `BTCR2_BTC_RPC_PASS` | `--btc-rpc-pass` (also accepts `env:<VAR>` / `file:<path>` secret references) |
+| `BTCR2_BTC_RPC_PASS` | Bitcoin Core RPC password (also accepts `env:<VAR>` / `file:<path>` secret references). No flag equivalent: a password on argv is readable through `ps` and `/proc/<pid>/cmdline` and persists in shell history and CI logs. RPC url, user, and pass resolve as one atomic unit per precedence layer (ADR 074), so a flag-supplied url takes its password from `BTCR2_BTC_RPC_PASS_FILE` rather than from this variable. |
 | `BTCR2_BTC_RPC_PASS_FILE` | Path to a file whose contents are the RPC password. No flag equivalent; the final fallback when no layer supplies a password, read lazily only when an RPC config is actually built. |
 | `BTCR2_CAS_GATEWAY` | `--cas-gateway` |
 | `BTCR2_CAS_RPC_URL` | `--cas-rpc-url` |
+| `BTCR2_BTC_SIGNAL_DISCOVERY` | `--btc-signal-discovery` |
 | `BTCR2_BTC_TIMEOUT` | `--btc-timeout` |
 | `BTCR2_CAS_TIMEOUT` | `--cas-timeout` |
 | `BTCR2_FEE_RATE` | `--fee-rate` (a per-command flag on `update`/`deactivate`) |

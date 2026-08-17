@@ -639,16 +639,28 @@ control:
 
 ```bash
 btcr2 resolve -i "$DID" --btc-rest https://esplora.internal/api      # your own Esplora
+export BTCR2_BTC_RPC_PASS_FILE=~/.bitcoin/rpcpass                    # never on argv
 btcr2 --btc-rpc-url http://127.0.0.1:38332 \
-      --btc-rpc-user demo --btc-rpc-pass demo \
+      --btc-rpc-user demo \
       --btc-rpc-wallet btcr2 \
       update ...                                                     # your own Bitcoin Core
 ```
 
-`--btc-rest-header` / `--btc-rpc-header` attach authentication headers (for example
-`'Authorization: Bearer ...'`) for gated endpoints, `--btc-timeout` bounds slow ones, and
-all of it can live in a per-network config profile instead of on the command line. The
-self-sovereignty story goes end to end: your keys, your node, your resolution.
+There is no `--btc-rpc-pass` flag: a password in argv is readable by any local user
+through `ps` and `/proc/<pid>/cmdline`, and it persists in shell history and CI logs.
+`BTCR2_BTC_RPC_PASS_FILE` is the channel to pair with a url given on the command line, as
+above. `BTCR2_BTC_RPC_PASS` and a profile `rpcPass` (which may hold an `env:<VAR>` /
+`file:<path>` reference) supply the password alongside a url from their own layer, since
+url, user, and pass resolve as one atomic unit per layer.
+
+`--btc-rest-header` / `--btc-rpc-header` attach authentication headers to gated endpoints
+(a hosted Esplora, an authenticating proxy), and `--btc-timeout` bounds slow ones. The same
+argv caveat applies to a header that carries a credential: a bearer token or API key passed
+as a flag value is just as readable through `ps` as a password would be. Put credential
+headers in the profile's `btc.headers` / `btc.rpcHeaders` instead, where `profile show`
+redacts them, and keep the flags for headers that are not secret. All of it can live in a
+per-network config profile instead of on the command line. The self-sovereignty story goes
+end to end: your keys, your node, your resolution.
 
 ### Shell completion
 
@@ -726,7 +738,7 @@ btcr2 completion [bash|zsh|fish]
 ```
 Global flags: -o json|text  --verbose  --quiet  --home <dir>  -c <config>  --profile <name>
               --keystore <path>  --passphrase-file <path>  --signing-key <ref>
-              --btc-rest <url>  --btc-rpc-url <url>  --btc-rpc-user <u>  --btc-rpc-pass <p>
+              --btc-rest <url>  --btc-rpc-url <url>  --btc-rpc-user <u>
               --btc-rpc-wallet <name>  --btc-rest-header <h>  --btc-rpc-header <h>
               --cas-gateway <url>  --cas-rpc-url <url>  --btc-timeout <ms>  --cas-timeout <ms>
 ```

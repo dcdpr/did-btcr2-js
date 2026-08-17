@@ -39,6 +39,16 @@ describe('config-schema', () => {
     it('rejects an invalid output enum value', () => {
       expect(() => validateConfigSet('defaults.output', 'yaml')).to.throw(CLIError, /"json" or "text"/);
     });
+
+    it('rejects an invalid signalDiscovery enum value', () => {
+      expect(() => validateConfigSet('profiles.regtest.btc.signalDiscovery', 'esplora'))
+        .to.throw(CLIError, /"indexer" or "fullnode"/);
+    });
+
+    it('accepts a valid signalDiscovery enum value', () => {
+      expect(validateConfigSet('profiles.regtest.btc.signalDiscovery', 'fullnode'))
+        .to.deep.equal({ unknownPath: false });
+    });
   });
 
   describe('findConfigIssues', () => {

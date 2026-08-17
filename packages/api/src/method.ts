@@ -126,12 +126,16 @@ export class DidMethodApi {
                 );
               }
               this.#log.debug(
-                'Fetching beacon signals for %d service(s)',
-                need.beaconServices.length
+                'Fetching beacon signals for %d service(s) via %s',
+                need.beaconServices.length,
+                this.#btc.signalDiscovery
               );
-              const signals = await BeaconSignalDiscovery.indexer(
-                [...need.beaconServices], this.#btc.connection
-              );
+              // Which path reads the chain is fixed by the connection, not by the DID:
+              // see BitcoinApiConfig.signalDiscovery.
+              const discover = this.#btc.signalDiscovery === 'fullnode'
+                ? BeaconSignalDiscovery.fullnode
+                : BeaconSignalDiscovery.indexer;
+              const signals = await discover([...need.beaconServices], this.#btc.connection);
               resolver.provide(need, signals);
               break;
             }

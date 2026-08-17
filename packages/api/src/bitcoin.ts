@@ -9,7 +9,7 @@ import {
   type RawTransactionRest
 } from '@did-btcr2/bitcoin';
 import { assertString } from './helpers.js';
-import type { BitcoinApiConfig } from './types.js';
+import type { BitcoinApiConfig, SignalDiscoveryMode } from './types.js';
 
 /**
  * Default per-network service endpoints the SDK applies when the caller supplies
@@ -91,6 +91,13 @@ export class BitcoinApi {
   /** The underlying BitcoinConnection used for all operations. */
   readonly connection: BitcoinConnection;
 
+  /**
+   * Where beacon signals are read from during resolution. Set once at construction
+   * because it is a property of how this connection talks to Bitcoin, not of any
+   * individual DID being resolved.
+   */
+  readonly signalDiscovery: SignalDiscoveryMode;
+
   /** REST client for the active network. */
   get rest(): BitcoinRestClient {
     return this.connection.rest;
@@ -145,6 +152,16 @@ export class BitcoinApi {
       });
     }
     this.connection = new BitcoinConnection(resolveConnectionOptions(cfg, executor));
+
+    this.signalDiscovery = cfg.signalDiscovery ?? 'indexer';
+    if (this.signalDiscovery === 'fullnode' && !this.connection.rpc) {
+      throw new Error(
+        'signalDiscovery: \'fullnode\' scans blocks over Bitcoin Core RPC, but no rpc config was '
+        + `resolved for network '${cfg.network}'. Pass one, e.g.: `
+        + '{ network: \'regtest\', rpc: { host: \'http://localhost:18443\', username: \'u\', '
+        + 'password: \'p\' }, signalDiscovery: \'fullnode\' }'
+      );
+    }
   }
 
   /**

@@ -175,6 +175,35 @@ describe('config and profile commands', () => {
     expect(parsed.btc.rest.source).to.equal('file');
   });
 
+  it('config effective reports the default signal-discovery mode', async () => {
+    await run('config', 'init');
+    out = [];
+    await run('config', 'effective', '-n', 'regtest');
+    const parsed = JSON.parse(out.join('\n'));
+    expect(parsed.btc.signalDiscovery.value).to.equal('indexer');
+    expect(parsed.btc.signalDiscovery.source).to.equal('default');
+  });
+
+  it('config effective reports a profile signal-discovery mode with provenance', async () => {
+    await run('config', 'init');
+    await run('config', 'set', 'profiles.regtest.btc.signalDiscovery', 'fullnode');
+    out = [];
+    await run('config', 'effective', '-n', 'regtest');
+    const parsed = JSON.parse(out.join('\n'));
+    expect(parsed.btc.signalDiscovery.value).to.equal('fullnode');
+    expect(parsed.btc.signalDiscovery.source).to.equal('file');
+  });
+
+  it('config effective reports a flag signal-discovery mode as flag-sourced', async () => {
+    await run('config', 'init');
+    await run('config', 'set', 'profiles.regtest.btc.signalDiscovery', 'fullnode');
+    out = [];
+    await run('--btc-signal-discovery', 'indexer', 'config', 'effective', '-n', 'regtest');
+    const parsed = JSON.parse(out.join('\n'));
+    expect(parsed.btc.signalDiscovery.value).to.equal('indexer');
+    expect(parsed.btc.signalDiscovery.source).to.equal('flag');
+  });
+
   it('config doctor reports unreachable endpoints', async function () {
     this.timeout(15000);
     out = [];

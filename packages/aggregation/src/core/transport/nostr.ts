@@ -1,6 +1,7 @@
 import type { Did } from '@did-btcr2/common';
 import type { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
+import { equalBytes } from '@noble/curves/utils.js';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import type { SubCloser } from 'nostr-tools/abstract-pool';
 import type { Event, EventTemplate} from 'nostr-tools';
@@ -42,6 +43,22 @@ export interface NostrTransportConfig {
    * {@link DEFAULT_BROADCAST_LOOKBACK_MS} (5 minutes).
    */
   broadcastLookbackMs?: number;
+  /**
+   * Resolve a sender's communication public key from its DID when the sender is not a
+   * registered peer. Lets the transport stay DID-method-agnostic: the caller supplies
+   * the decode (for example, a did:btcr2 KEY identifier yields its genesis key). The
+   * optional `genesisDocument` lets an EXTERNAL (`x1`) sender be authenticated from the
+   * self-verifying genesis it carries on a bootstrap opt-in, and is the same signature
+   * the HTTP transports take, so one injected resolver serves all three.
+   *
+   * Inbound authentication depends on it: a message whose `from` resolves to no key is
+   * dropped (see {@link NostrTransport}), so a transport constructed without it receives
+   * only messages from already-registered peers.
+   */
+  resolveSenderPk?: (
+    did: string,
+    opts?: { genesisDocument?: object },
+  ) => CompressedSecp256k1PublicKey | undefined;
 }
 
 /** Default `since` lookback for broadcast (COHORT_ADVERT) subscriptions: 5 minutes. */
@@ -68,6 +85,13 @@ interface ActorEntry {
  * - Update messages (SUBMIT_UPDATE, DISTRIBUTE_AGGREGATED_DATA, VALIDATION_ACK) to kind 1059 (NIP-44 encrypted)
  * - Sign messages to kind 1059 (NIP-44 encrypted)
  *
+ * Inbound authentication: every event delivered by the relay pool carries a BIP-340
+ * signature over its content, verified by `nostr-tools` before it reaches a handler here,
+ * so `event.pubkey` is an authenticated identity. The aggregation message inside it
+ * declares its own `from` DID, which the protocol acts on. The transport binds the two
+ * ({@link #authenticateSender}) and drops any event where they disagree or where the
+ * claimed DID cannot be resolved to a key at all.
+ *
  * @class NostrTransport
  * @implements {Transport}
  */
@@ -81,11 +105,16 @@ export class NostrTransport implements Transport {
   #started = false;
   #logger: Logger;
   #broadcastLookbackMs: number;
+  readonly #resolveSenderPkFn?: (
+    did: string,
+    opts?: { genesisDocument?: object },
+  ) => CompressedSecp256k1PublicKey | undefined;
 
   constructor(config?: NostrTransportConfig) {
     this.#relays = config?.relays ?? DEFAULT_NOSTR_RELAYS;
     this.#logger = config?.logger ?? CONSOLE_LOGGER;
     this.#broadcastLookbackMs = config?.broadcastLookbackMs ?? DEFAULT_BROADCAST_LOOKBACK_MS;
+    this.#resolveSenderPkFn = config?.resolveSenderPk;
   }
 
   /**
@@ -443,7 +472,10 @@ export class NostrTransport implements Transport {
         return;
       }
 
-      this.#dispatchMessage(message, actor);
+      const flat = this.#flattenAndAuthenticate(message, event);
+      if(!flat) return;
+
+      this.#dispatchMessage(flat, actor);
     };
   }
 
@@ -460,17 +492,16 @@ export class NostrTransport implements Transport {
   async #handleBroadcastEvent(event: Event): Promise<void> {
     if(event.kind !== 1) return;
 
-    let message: Record<string, unknown>;
+    let parsed: Record<string, unknown>;
     try {
-      message = JSON.parse(event.content, NostrTransport.#jsonReviver);
+      parsed = JSON.parse(event.content, NostrTransport.#jsonReviver);
     } catch(err) {
       this.#logger.debug(`Failed to parse broadcast event ${event.id}:`, err);
       return;
     }
 
-    if(message.body && typeof message.body === 'object') {
-      message = { ...message, ...(message.body as Record<string, unknown>) };
-    }
+    const message = this.#flattenAndAuthenticate(parsed, event);
+    if(!message) return;
 
     const messageType = message.type as string;
     if(!messageType || !isAggregationMessageType(messageType)) return;
@@ -483,22 +514,112 @@ export class NostrTransport implements Transport {
   }
 
   /**
-   * Dispatches a parsed message to the appropriate handler of a registered actor based on message type.
-   * The message is expected to have already been parsed from the Nostr event content and validated as
-   * an aggregation message. If the message has a body, its properties are merged into the top-level
-   * message object for easier handler access. The message is then dispatched to the handler registered
-   * for its type, if one exists.
-   * @param {Record<string, unknown>} message - The message object parsed from a Nostr event, expected to
+   * Flatten a parsed event payload and bind its self-declared sender to the event's
+   * signing key. Returns the flattened message when it authenticates, `undefined` when
+   * the caller must drop it.
+   *
+   * Flattening happens first because the fields the binding consults (`communicationPk`,
+   * `genesisDocument`) ride in `body`, and the handlers downstream read the flat shape.
+   * @param {Record<string, unknown>} message The parsed (unflattened) event payload.
+   * @param {Event} event The Nostr event that carried it.
+   * @returns {Record<string, unknown> | undefined} The authenticated flat message, or undefined.
+   */
+  #flattenAndAuthenticate(message: Record<string, unknown>, event: Event): Record<string, unknown> | undefined {
+    const flat = (message.body && typeof message.body === 'object')
+      ? { ...message, ...(message.body as Record<string, unknown>) }
+      : message;
+    return this.#authenticateSender(flat, event) ? flat : undefined;
+  }
+
+  /**
+   * Bind a message's self-declared `from` DID to the key that signed the Nostr event
+   * carrying it.
+   *
+   * `nostr-tools` verifies the event signature before delivery, so `event.pubkey` is an
+   * authenticated key; `message.from` is an unauthenticated claim that the protocol acts
+   * on (the participant records the service DID an advert names and encrypts to the key
+   * it declares; the service seats the DID an opt-in names). Without this bind anyone can
+   * publish an event claiming to be any DID.
+   *
+   * Fails closed: a DID this transport cannot resolve to a key is dropped rather than
+   * dispatched, matching {@link HttpClientTransport}'s existing posture for a broadcast
+   * from an unresolvable DID. Registered peers resolve from the peer registry; everyone
+   * else needs the injected {@link NostrTransportConfig.resolveSenderPk}.
+   *
+   * When the message advertises a `communicationPk` (a cohort advert or an opt-in), it
+   * must be the key that just authenticated. Otherwise a sender could authenticate as
+   * itself and have the cohort encrypt to, and attribute keys to, a different key
+   * (the same cross-check the HTTP server applies when bootstrapping an `x1` opt-in).
+   * @param {Record<string, unknown>} message The flattened message claiming a sender.
+   * @param {Event} event The Nostr event that carried it.
+   * @returns {boolean} True when the claim is bound to the event's signing key.
+   */
+  #authenticateSender(message: Record<string, unknown>, event: Event): boolean {
+    const from = message.from;
+    if(typeof from !== 'string' || from.length === 0) {
+      this.#logger.debug(`Dropping event ${event.id}: message declares no sender DID`);
+      return false;
+    }
+
+    const genesisDocument = message.genesisDocument;
+    const senderPk = this.#resolveSenderPk(
+      from,
+      genesisDocument && typeof genesisDocument === 'object'
+        ? { genesisDocument: genesisDocument as object }
+        : undefined,
+    );
+    if(!senderPk) {
+      this.#logger.debug(`Dropping event ${event.id}: cannot resolve a key for sender ${from}`);
+      return false;
+    }
+
+    if(bytesToHex(senderPk.x) !== event.pubkey.toLowerCase()) {
+      this.#logger.debug(`Dropping event ${event.id}: ${from} did not sign it`);
+      return false;
+    }
+
+    const communicationPk = message.communicationPk;
+    if(communicationPk !== undefined) {
+      if(!(communicationPk instanceof Uint8Array) || !equalBytes(communicationPk, senderPk.compressed)) {
+        this.#logger.debug(`Dropping event ${event.id}: ${from} advertises a key it did not authenticate with`);
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Resolve a sender's communication public key: a registered peer's key first, then the
+   * injected DID resolver. Mirrors the HTTP transports' resolution order.
+   * @param {string} did The sender's DID.
+   * @param {object} [opts] Optional resolution inputs (an `x1` sender's genesis document).
+   * @returns {CompressedSecp256k1PublicKey | undefined} The key, or undefined if unresolvable.
+   */
+  #resolveSenderPk(
+    did: string,
+    opts?: { genesisDocument?: object },
+  ): CompressedSecp256k1PublicKey | undefined {
+    const peerBytes = this.#peerRegistry.get(did);
+    if(peerBytes) {
+      try { return new CompressedSecp256k1PublicKey(peerBytes); }
+      catch { /* fall through to the injected resolver */ }
+    }
+    return this.#resolveSenderPkFn?.(did, opts);
+  }
+
+  /**
+   * Dispatches a message to the appropriate handler of a registered actor based on message type.
+   * The message is expected to have already been parsed from the Nostr event content, flattened,
+   * and authenticated against the event's signing key by {@link #flattenAndAuthenticate}. The
+   * message is then dispatched to the handler registered for its type, if one exists.
+   * @param {Record<string, unknown>} message - The flattened, authenticated message.
    * @param {ActorEntry} actor - The registered actor entry containing keys and handlers to dispatch the message to.
    * @returns {void}
    * @throws {TransportAdapterError} If the message type is unsupported or if no handler is registered
    * for the message type.
    */
   #dispatchMessage(message: Record<string, unknown>, actor: ActorEntry): void {
-    if(message.body && typeof message.body === 'object') {
-      message = { ...message, ...(message.body as Record<string, unknown>) };
-    }
-
     const messageType = message.type as string;
     if(!messageType || !isAggregationMessageType(messageType)) return;
 

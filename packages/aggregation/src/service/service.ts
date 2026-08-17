@@ -33,7 +33,7 @@ import {
   createFallbackAuthorizationRequestMessage,
 } from '../core/messages/factories.js';
 import type { ServiceCohortPhaseType } from '../core/phases.js';
-import { ServiceCohortPhase } from '../core/phases.js';
+import { ServiceCohortPhase, SigningSessionPhase } from '../core/phases.js';
 import { BeaconSigningSession } from '../core/signing-session.js';
 
 /**
@@ -92,7 +92,17 @@ export type RejectionReason =
   | 'WRONG_VERSION'
   | 'UPDATE_TOO_LARGE'
   | 'UPDATE_VERIFICATION_FAILED'
-  | 'UPDATE_MALFORMED';
+  | 'UPDATE_MALFORMED'
+  /** The sender is not a member of the cohort the message names. */
+  | 'NOT_A_MEMBER'
+  /** The sender already answered this round or signing step; the first answer stands. */
+  | 'DUPLICATE_RESPONSE'
+  /** The nonce contribution is not a well-formed MuSig2 public nonce. */
+  | 'INVALID_NONCE'
+  /** The partial signature does not verify against the sender's key. */
+  | 'INVALID_PARTIAL_SIG'
+  /** An opt-in key is not a 33-byte compressed secp256k1 public key. */
+  | 'INVALID_PARTICIPANT_KEY';
 
 /** Record of a silently-dropped inbound message. Drained by the runner to emit events. */
 export interface Rejection {
@@ -125,6 +135,19 @@ interface ServiceCohortState {
 
 /** Default maximum canonicalized byte-length of a submitted BTCR2 update. */
 export const DEFAULT_MAX_UPDATE_SIZE_BYTES = 256 * 1024;
+
+/**
+ * Maximum rejections retained per cohort between drains; the oldest is dropped
+ * once the log is full.
+ *
+ * The receive path records a rejection for every message it drops, including
+ * messages from senders who are not cohort members, so the log is written by
+ * anyone who can reach the service. A runner drains after each `receive()` and
+ * never accumulates; this bound is for callers driving the state machine
+ * directly, so an undrained log cannot grow without limit. It never refuses
+ * protocol traffic: only diagnostics are dropped.
+ */
+export const MAX_RETAINED_REJECTIONS = 256;
 
 export interface AggregationServiceParams {
   did: string;
@@ -169,6 +192,18 @@ export class AggregationService {
   }
 
 
+  /**
+   * Sans-I/O entry point for every inbound message.
+   *
+   * Contract: a message from an untrusted sender never throws out of here. Each
+   * handler validates what the message claims before touching cohort or signing
+   * state, and records a {@link Rejection} instead of letting the underlying
+   * `AggregationCohort` / {@link BeaconSigningSession} invariant throw. A runner
+   * turns any escaping error into a cohort failure, so a single throw on the
+   * receive path is a cohort-kill anyone able to reach the service could
+   * trigger. The action methods (`acceptParticipant`, `startSigning`, ...) still
+   * throw: those are operator calls, not attacker input.
+   */
   receive(message: BaseMessage): void {
     // Reject messages whose wire version doesn't match what this build speaks.
     // Missing version, treat as legacy and drop: bumping the protocol must be
@@ -178,11 +213,8 @@ export class AggregationService {
       const cohortId = message.body?.cohortId;
       const state = cohortId ? this.#cohortStates.get(cohortId) : undefined;
       if(state) {
-        state.rejections.push({
-          from   : message.from,
-          code   : 'WRONG_VERSION',
-          reason : `Expected wire version ${AGGREGATION_WIRE_VERSION}, got ${String(version)}`,
-        });
+        this.#reject(state, message.from, 'WRONG_VERSION',
+          `Expected wire version ${AGGREGATION_WIRE_VERSION}, got ${String(version)}`);
       }
       return;
     }
@@ -213,6 +245,18 @@ export class AggregationService {
       default:
         // Unknown message type - silently ignore
         break;
+    }
+  }
+
+  /**
+   * Record a dropped message. The log is bounded by
+   * {@link MAX_RETAINED_REJECTIONS}; the oldest entry is discarded once it is
+   * full.
+   */
+  #reject(state: ServiceCohortState, from: string, code: RejectionReason, reason: string): void {
+    state.rejections.push({ from, code, reason });
+    if(state.rejections.length > MAX_RETAINED_REJECTIONS) {
+      state.rejections.shift();
     }
   }
 
@@ -321,6 +365,27 @@ export class AggregationService {
     const communicationPk = message.body?.communicationPk;
     if(!participantPk || !communicationPk) return;
 
+    // Validate both keys on arrival. The wire guard only asks for bytes, so a
+    // three-byte or off-curve key reaches this handler intact, and a stored one
+    // is not refused until the operator accepts the sender, inside an operator
+    // action the runner is driving. The failure would then belong to the cohort
+    // rather than to the sender, and a runner turns it into removeCohort: one
+    // opt-in from any stranger destroys an in-flight cohort, and opting in is
+    // open to everyone while a cohort is advertised. Rejected here, nothing is
+    // stored and the sender can send a well-formed opt-in instead.
+    if(!AggregationCohort.isValidCohortKey(participantPk)) {
+      this.#reject(state, participantDid, 'INVALID_PARTICIPANT_KEY',
+        'Opt-in participantPk is not a 33-byte compressed secp256k1 public key');
+      return;
+    }
+    // communicationPk never joins the MuSig2 key set, but a runner hands it
+    // straight to transport.registerPeer, which refuses a key it cannot decode.
+    if(!AggregationCohort.isValidCohortKey(communicationPk)) {
+      this.#reject(state, participantDid, 'INVALID_PARTICIPANT_KEY',
+        'Opt-in communicationPk is not a 33-byte compressed secp256k1 public key');
+      return;
+    }
+
     // Reject re-opt-in from already-accepted participants. Without this guard a
     // participant could send a second opt-in with a different key, overwriting
     // pendingOptIns[did] while cohortKeys still holds the original key - opening
@@ -368,10 +433,26 @@ export class AggregationService {
       );
     }
 
+    // Refuse a key the cohort cannot carry before touching any state. The
+    // receive path already refuses one at opt-in; a caller driving the state
+    // machine with its own opt-in record (a resumed or externally persisted
+    // cohort) still reaches here.
+    if(!AggregationCohort.isValidCohortKey(optIn.participantPk)) {
+      throw new AggregationServiceError(
+        `Cannot accept ${participantDid} into cohort ${cohortId}: participant key is not a 33-byte compressed secp256k1 public key.`,
+        'INVALID_PARTICIPANT_KEY', { cohortId, participantDid }
+      );
+    }
+
+    // Assign the cohort keys first: it is the only step that can refuse, and
+    // the membership bookkeeping below cannot. Growing `participants` ahead of
+    // it would leave a refused DID a member with no key in the aggregate, and a
+    // cohort with more members than keys can never finish a round - every round
+    // waits for one contribution per participant.
+    state.cohort.cohortKeys = [...state.cohort.cohortKeys, optIn.participantPk];
     state.acceptedParticipants.add(participantDid);
     state.cohort.participants.push(participantDid);
     state.cohort.participantKeys.set(participantDid, optIn.participantPk);
-    state.cohort.cohortKeys = [...state.cohort.cohortKeys, optIn.participantPk];
 
     return [createCohortOptInAcceptMessage({
       from : this.did,
@@ -451,24 +532,35 @@ export class AggregationService {
 
     const signedUpdate = message.body?.signedUpdate as SecuredDocument | undefined;
     if(!signedUpdate) {
-      state.rejections.push({
-        from   : message.from,
-        code   : 'UPDATE_MALFORMED',
-        reason : 'SUBMIT_UPDATE missing signedUpdate body',
-      });
+      this.#reject(state, message.from, 'UPDATE_MALFORMED', 'SUBMIT_UPDATE missing signedUpdate body');
+      return;
+    }
+
+    // Membership first, and before any canonicalization or signature work: a
+    // pending opt-in that was never accepted still has a pendingOptIns entry, so
+    // it passes #verifySubmittedUpdate and would reach addUpdate, which throws
+    // UNKNOWN_PARTICIPANT out of receive() and fails the whole cohort. Mirrors
+    // the guard in #handleSubmitNonInclusion.
+    if(!state.cohort.participants.includes(message.from)) {
+      this.#reject(state, message.from, 'NOT_A_MEMBER', 'Sender is not a member of this cohort');
       return;
     }
 
     // Cap the canonicalized update size before doing any heavier verification
     // work. Without this guard, a participant could submit multi-MB payloads
     // that the service would canonicalize, hash, and aggregate - cheap DoS.
-    const canonicalSize = canonicalize(signedUpdate as unknown as Record<string, unknown>).length;
+    let canonicalSize: number;
+    try {
+      canonicalSize = canonicalize(signedUpdate as unknown as Record<string, unknown>).length;
+    } catch {
+      // Canonicalization is the first thing that touches the body, so anything
+      // JCS cannot serialize is dropped here rather than thrown at the caller.
+      this.#reject(state, message.from, 'UPDATE_MALFORMED', 'Update could not be canonicalized');
+      return;
+    }
     if(canonicalSize > this.maxUpdateSizeBytes) {
-      state.rejections.push({
-        from   : message.from,
-        code   : 'UPDATE_TOO_LARGE',
-        reason : `Canonicalized update is ${canonicalSize} bytes; max allowed is ${this.maxUpdateSizeBytes}`,
-      });
+      this.#reject(state, message.from, 'UPDATE_TOO_LARGE',
+        `Canonicalized update is ${canonicalSize} bytes; max allowed is ${this.maxUpdateSizeBytes}`);
       return;
     }
 
@@ -477,11 +569,8 @@ export class AggregationService {
     // service would aggregate into the CAS announcement / SMT root and ultimately
     // anchor on-chain with the cohort's MuSig2 signature.
     if(!this.#verifySubmittedUpdate(state, message.from, signedUpdate)) {
-      state.rejections.push({
-        from   : message.from,
-        code   : 'UPDATE_VERIFICATION_FAILED',
-        reason : 'BIP-340 Data Integrity proof verification failed',
-      });
+      this.#reject(state, message.from, 'UPDATE_VERIFICATION_FAILED',
+        'BIP-340 Data Integrity proof verification failed');
       return;
     }
 
@@ -490,19 +579,13 @@ export class AggregationService {
     // would corrupt the aggregated data the member already validated against).
     // Both are dropped as rejections, symmetric with #handleSubmitNonInclusion.
     if(state.cohort.nonIncluded.has(message.from)) {
-      state.rejections.push({
-        from   : message.from,
-        code   : 'UPDATE_MALFORMED',
-        reason : 'Participant already declined this round; cannot also submit an update',
-      });
+      this.#reject(state, message.from, 'DUPLICATE_RESPONSE',
+        'Participant already declined this round; cannot also submit an update');
       return;
     }
     if(state.cohort.pendingUpdates.has(message.from)) {
-      state.rejections.push({
-        from   : message.from,
-        code   : 'UPDATE_MALFORMED',
-        reason : 'Participant already submitted an update this round; cannot resubmit',
-      });
+      this.#reject(state, message.from, 'DUPLICATE_RESPONSE',
+        'Participant already submitted an update this round; cannot resubmit');
       return;
     }
 
@@ -535,22 +618,14 @@ export class AggregationService {
     // UNKNOWN_PARTICIPANT out of receive() and fail the whole cohort, a DoS any
     // non-member could trigger. Mirrors the SUBMIT_UPDATE verification path.
     if(!state.cohort.participants.includes(message.from)) {
-      state.rejections.push({
-        from   : message.from,
-        code   : 'UPDATE_MALFORMED',
-        reason : 'Sender is not a member of this cohort',
-      });
+      this.#reject(state, message.from, 'NOT_A_MEMBER', 'Sender is not a member of this cohort');
       return;
     }
 
     // One response per round: already submitted or already declined. Surface the
     // conflict as a rejection, symmetric with the double-submit guard above.
     if(state.cohort.pendingUpdates.has(message.from) || state.cohort.nonIncluded.has(message.from)) {
-      state.rejections.push({
-        from   : message.from,
-        code   : 'UPDATE_MALFORMED',
-        reason : 'Participant already responded this round',
-      });
+      this.#reject(state, message.from, 'DUPLICATE_RESPONSE', 'Participant already responded this round');
       return;
     }
 
@@ -582,6 +657,10 @@ export class AggregationService {
   ): boolean {
     const proof = signedUpdate.proof;
     if(!proof?.verificationMethod || !proof.proofValue) return false;
+    // The body is attacker-shaped until proven otherwise: a non-string
+    // verificationMethod would make the split() below throw a raw TypeError out
+    // of receive() and fail the cohort.
+    if(typeof proof.verificationMethod !== 'string') return false;
 
     // The proof must be signed by the sender's own key. Reject if the
     // verificationMethod references a different DID.
@@ -677,6 +756,21 @@ export class AggregationService {
     const approved = message.body?.approved;
     if(approved === undefined) return;
 
+    // A non-member ack would throw UNKNOWN_PARTICIPANT out of addValidation and
+    // fail the cohort: one message, from anyone who can reach the service.
+    if(!state.cohort.participants.includes(message.from)) {
+      this.#reject(state, message.from, 'NOT_A_MEMBER', 'Sender is not a member of this cohort');
+      return;
+    }
+
+    // One vote per member. A repeat (an innocent transport retry, or a member
+    // flipping its answer) would be counted twice by hasAllValidationResponses,
+    // which can settle the round while another member is still pending.
+    if(state.cohort.validationAcks.has(message.from) || state.cohort.validationRejections.has(message.from)) {
+      this.#reject(state, message.from, 'DUPLICATE_RESPONSE', 'Participant already validated this round');
+      return;
+    }
+
     state.cohort.addValidation(message.from, approved);
 
     // Transition to Validated only when all participants approved.
@@ -751,9 +845,34 @@ export class AggregationService {
     const nonceContribution = message.body?.nonceContribution;
     if(!nonceContribution) return;
 
-    state.signingSession.addNonceContribution(message.from, nonceContribution);
+    const session = state.signingSession;
+    // The cohort phase gate above tracks the session phase, but the session is
+    // the authority on what it will accept: read it rather than let it throw.
+    if(session.phase !== SigningSessionPhase.AwaitingNonceContributions) return;
+    if(!state.cohort.participants.includes(message.from)) {
+      this.#reject(state, message.from, 'NOT_A_MEMBER', 'Sender is not a member of this cohort');
+      return;
+    }
+    // One contribution per member. Dropping the repeat (rather than throwing
+    // DUPLICATE_NONCE) keeps an innocent transport retry from failing the round;
+    // the first contribution stands, since the members' nonces are what the
+    // aggregated nonce they will sign against is built from.
+    if(session.nonceContributions.has(message.from)) {
+      this.#reject(state, message.from, 'DUPLICATE_RESPONSE', 'Participant already contributed a nonce to this session');
+      return;
+    }
+    // Validate before storing. A malformed contribution is accepted by
+    // addNonceContribution (it only checks the length) and detonates later
+    // inside sendAggregatedNonce, where the failure is the cohort's, not the
+    // sender's. Rejected here, the member can simply resend a valid one.
+    if(!BeaconSigningSession.isValidNonceContribution(nonceContribution)) {
+      this.#reject(state, message.from, 'INVALID_NONCE', 'Nonce contribution is not a valid MuSig2 public nonce');
+      return;
+    }
 
-    if(state.signingSession.nonceContributions.size === state.cohort.participants.length) {
+    session.addNonceContribution(message.from, nonceContribution);
+
+    if(session.nonceContributions.size === state.cohort.participants.length) {
       state.phase = ServiceCohortPhase.NoncesCollected;
     }
   }
@@ -803,19 +922,41 @@ export class AggregationService {
     const partialSignature = message.body?.partialSignature;
     if(!partialSignature) return;
 
-    state.signingSession.addPartialSignature(message.from, partialSignature);
+    const session = state.signingSession;
+    if(session.phase !== SigningSessionPhase.AwaitingPartialSignatures) return;
+    if(!state.cohort.participants.includes(message.from)) {
+      this.#reject(state, message.from, 'NOT_A_MEMBER', 'Sender is not a member of this cohort');
+      return;
+    }
+    if(session.partialSignatures.has(message.from)) {
+      this.#reject(state, message.from, 'DUPLICATE_RESPONSE', 'Participant already contributed a partial signature to this session');
+      return;
+    }
+    // Verify on arrival, not at aggregation. A stored bad signature surfaces as
+    // BAD_PARTIAL_SIG inside generateFinalSignature, where the whole round dies
+    // for one member's contribution; rejecting it here blames the sender and
+    // leaves the round open for it to send a correct one (BIP-327 §2.3.5).
+    if(!session.verifyPartialSignature(message.from, partialSignature)) {
+      this.#reject(state, message.from, 'INVALID_PARTIAL_SIG', 'Partial signature failed verification');
+      return;
+    }
 
-    if(state.signingSession.partialSignatures.size === state.cohort.participants.length) {
-      // All partial sigs received - generate final signature
-      const signature = state.signingSession.generateFinalSignature();
+    session.addPartialSignature(message.from, partialSignature);
+
+    if(session.partialSignatures.size === state.cohort.participants.length) {
+      // All partial sigs received - generate final signature. Every stored
+      // contribution was verified on arrival, so this cannot fail on one
+      // member's input; an error here is the service's own state and belongs to
+      // the caller.
+      const signature = session.generateFinalSignature();
 
       // Set Taproot key-path witness (finalScriptWitness injects the aggregated MuSig2 sig)
-      state.signingSession.pendingTx.updateInput(0, { finalScriptWitness: [signature] });
+      session.pendingTx.updateInput(0, { finalScriptWitness: [signature] });
 
       state.result = {
         cohortId,
         signature,
-        signedTx : state.signingSession.pendingTx,
+        signedTx : session.pendingTx,
         path     : 'key-path',
       };
       state.phase = ServiceCohortPhase.Complete;
@@ -923,12 +1064,12 @@ export class AggregationService {
     // rejection, never thrown, so one bad contribution cannot stall the fallback.
     const memberKey = state.cohort.participantKeys.get(message.from);
     if(!memberKey) {
-      state.rejections.push({ from: message.from, code: 'UPDATE_MALFORMED', reason: 'Fallback signature from a non-member' });
+      this.#reject(state, message.from, 'NOT_A_MEMBER', 'Fallback signature from a non-member');
       return;
     }
     const memberXOnly = memberKey.slice(1);
     if(signerPk.length !== 32 || !memberXOnly.every((b, i) => b === signerPk[i])) {
-      state.rejections.push({ from: message.from, code: 'UPDATE_MALFORMED', reason: 'Fallback signerPk does not match the sender cohort key' });
+      this.#reject(state, message.from, 'UPDATE_MALFORMED', 'Fallback signerPk does not match the sender cohort key');
       return;
     }
 
@@ -940,7 +1081,7 @@ export class AggregationService {
     let valid = false;
     try { valid = fallbackSignature.length === 64 && schnorr.verify(fallbackSignature, sighash, signerPk); } catch { valid = false; }
     if(!valid) {
-      state.rejections.push({ from: message.from, code: 'UPDATE_VERIFICATION_FAILED', reason: 'Fallback signature failed verification' });
+      this.#reject(state, message.from, 'UPDATE_VERIFICATION_FAILED', 'Fallback signature failed verification');
       return;
     }
 

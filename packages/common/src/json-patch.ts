@@ -5,6 +5,27 @@ import type { JSONObject } from './types.js';
 
 const { applyPatch, compare, deepClone } = jsonPatch;
 
+/**
+ * JSON Pointer segments that resolve to inherited prototype machinery instead of document data.
+ * `fast-json-patch` bans `__proto__` and a trailing `constructor/prototype` pair, but it still
+ * traverses an intermediate `constructor` segment, at which point the cursor becomes the global
+ * `Object` or `Array` function and the operation writes a static member process-wide.
+ */
+const UNSAFE_POINTER_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
+
+/**
+ * Find the first JSON Pointer segment that traverses into prototype machinery. Segments are
+ * unescaped per RFC 6901 first, matching how `fast-json-patch` resolves them.
+ * @param {string} pointer - The JSON Pointer to inspect.
+ * @returns {string | undefined} The offending segment, or undefined if the pointer is safe.
+ */
+function findUnsafeSegment(pointer: string): string | undefined {
+  return pointer
+    .split('/')
+    .map(segment => segment.replace(/~1/g, '/').replace(/~0/g, '~'))
+    .find(segment => UNSAFE_POINTER_SEGMENTS.has(segment));
+}
+
 export type PatchOpCode = 'add' | 'remove' | 'replace' | 'move' | 'copy' | 'test';
 /**
  * A JSON Patch operation, as defined in {@link https://datatracker.ietf.org/doc/html/rfc6902 | RFC 6902}.
@@ -105,8 +126,22 @@ export class JSONPatch {
       if (!op || typeof op !== 'object') return new MethodError('Operation must be an object', 'JSON_PATCH_VALIDATION_ERROR');
       if (typeof op.op !== 'string') return new MethodError('Operation.op must be a string', 'JSON_PATCH_VALIDATION_ERROR');
       if (typeof op.path !== 'string') return new MethodError('Operation.path must be a string', 'JSON_PATCH_VALIDATION_ERROR');
+      const unsafePathSegment = findUnsafeSegment(op.path);
+      if (unsafePathSegment) {
+        return new MethodError(
+          `Operation.path traverses prototype machinery: ${unsafePathSegment}`, 'JSON_PATCH_VALIDATION_ERROR'
+        );
+      }
       if ((op.op === 'move' || op.op === 'copy') && typeof op.from !== 'string') {
         return new MethodError(`Operation.from must be a string for op=${op.op}`, 'JSON_PATCH_VALIDATION_ERROR');
+      }
+      if (typeof op.from === 'string') {
+        const unsafeFromSegment = findUnsafeSegment(op.from);
+        if (unsafeFromSegment) {
+          return new MethodError(
+            `Operation.from traverses prototype machinery: ${unsafeFromSegment}`, 'JSON_PATCH_VALIDATION_ERROR'
+          );
+        }
       }
     }
     return null;

@@ -244,6 +244,18 @@ export function isCohortAdvertMessage(m: BaseMessage): m is CohortAdvertMessage 
     && hasBytes(m.body, 'communicationPk');
 }
 
+/**
+ * Wire shape only: the keys are checked for being bytes, not for being
+ * secp256k1 points. Curve validity is deliberately not a guard's business, in
+ * line with {@link isNonceContributionMessage} (a nonce's points are checked by
+ * `BeaconSigningSession.isValidNonceContribution` at the receive path). A guard
+ * that folded the two together would leave a caller unable to tell "not an
+ * opt-in" from "an opt-in carrying an unusable key", which is exactly the
+ * distinction the handler needs to blame the sender; it would also put curve
+ * arithmetic behind a narrowing check callers reasonably assume is cheap.
+ * `AggregationService` validates the keys on arrival, and
+ * `AggregationCohort.isValidCohortKey` is the shared check.
+ */
 export function isCohortOptInMessage(m: BaseMessage): m is CohortOptInMessage {
   return m.type === COHORT_OPT_IN
     && hasStr(m.body, 'cohortId')

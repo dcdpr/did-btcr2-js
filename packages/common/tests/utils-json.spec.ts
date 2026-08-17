@@ -144,4 +144,56 @@ describe('utils/json', () => {
     const sanitizeB = JSONUtils.sanitize(['b', undefined, 2, { d: undefined, e: 5 }]);
     expect(sanitizeB).to.deep.equal(['b', 2, { e: 5 }]);
   });
+
+  describe('own __proto__ keys', () => {
+    // JSON.parse produces `__proto__` as an own enumerable key, unlike an object literal.
+    const parse = (): any => JSON.parse('{"id":"did:btcr2:x","__proto__":{"admin":true}}');
+
+    const walkers: Array<{ name: string; walk: (value: any) => any }> = [
+      { name: 'normalize', walk: (value) => JSONUtils.normalize(value) },
+      { name: 'deleteKeys', walk: (value) => JSONUtils.deleteKeys(value, ['unrelated']) },
+      { name: 'sanitize', walk: (value) => JSONUtils.sanitize(value) },
+      { name: 'cloneReplace', walk: (value) => JSONUtils.cloneReplace(value, /nomatch/, 'x') }
+    ];
+
+    for (const { name, walk } of walkers) {
+      it(`${name} keeps __proto__ as data instead of swapping the prototype`, () => {
+        const source = parse();
+        expect(Object.prototype.hasOwnProperty.call(source, '__proto__')).to.be.true;
+
+        const result = walk(source);
+
+        expect(Object.prototype.hasOwnProperty.call(result, '__proto__')).to.be.true;
+        expect(Object.getPrototypeOf(result)).to.equal(Object.prototype);
+        expect(Object.keys(result)).to.deep.equal(['id', '__proto__']);
+        expect((result as any).admin).to.be.undefined;
+      });
+
+      it(`${name} does not lose a nested __proto__ key`, () => {
+        const source = JSON.parse('{"a":{"__proto__":{"admin":true}}}');
+        const nested = walk(source).a;
+
+        expect(Object.prototype.hasOwnProperty.call(nested, '__proto__')).to.be.true;
+        expect(Object.getPrototypeOf(nested)).to.equal(Object.prototype);
+        expect(nested.admin).to.be.undefined;
+      });
+    }
+
+    it('normalize round-trips a document byte-for-byte, so hashes cannot diverge', () => {
+      const source = parse();
+      expect(JSON.stringify(JSONUtils.normalize(source))).to.equal(JSON.stringify(source));
+    });
+
+    it('leaves Object.prototype itself untouched', () => {
+      JSONUtils.normalize(parse());
+      JSONUtils.sanitize(parse());
+      expect(({} as any).admin).to.be.undefined;
+    });
+
+    it('deleteKeys still removes __proto__ when it is named', () => {
+      const result: any = JSONUtils.deleteKeys(parse(), ['__proto__']);
+      expect(Object.keys(result)).to.deep.equal(['id']);
+      expect(Object.getPrototypeOf(result)).to.equal(Object.prototype);
+    });
+  });
 });

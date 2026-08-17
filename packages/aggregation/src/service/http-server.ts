@@ -469,6 +469,15 @@ export class HttpServerTransport implements Transport {
       return this.#respondJson(403, { error: 'not_an_actor' }, req);
     }
 
+    // Bind the inner message to the authenticated envelope, exactly as POST /v1/messages
+    // does. The advert is relayed verbatim to every broadcast subscriber, and a
+    // participant reads the service DID it will join from the inner `from`, so an
+    // unbound advert lets one actor advertise a cohort in another DID's name.
+    const flat = flattenMessage(reviveFromWire(envelope.message) as Record<string, unknown>);
+    if(flat.from !== envelope.from) {
+      return this.#respondJson(401, { error: 'sender_mismatch' }, req);
+    }
+
     const id = String(++this.#advertSeq);
     this.#currentAdvert = {
       dataJson    : JSON.stringify(envelope),

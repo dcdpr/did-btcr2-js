@@ -1,6 +1,6 @@
 # HTTP/REST Transport
 
-The `@did-btcr2/method` package ships an additive HTTP/REST transport alongside the Nostr transport for aggregation. Both implement the same `Transport` interface, so runners, state machines, and message factories don't change when you swap transports.
+The `@did-btcr2/aggregation` package ships an additive HTTP/REST transport alongside the Nostr transport. Both implement the same `Transport` interface, so runners, state machines, and message factories don't change when you swap transports. Every symbol imported below comes from `@did-btcr2/aggregation` (or its role entries `@did-btcr2/aggregation/core`, `/participant`, `/service`), not from `@did-btcr2/method`, which owns no aggregation code.
 
 This document walks through the wire protocol, shows a minimal Hono server, and demonstrates a browser-compatible client.
 
@@ -79,9 +79,9 @@ The server is sans-I/O. Mount `handleRequest` and `handleSse` into any framework
 import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { streamSSE } from 'hono/streaming';
-import { TransportFactory, AggregationServiceRunner } from '@did-btcr2/method';
+import { TransportFactory, AggregationServiceRunner } from '@did-btcr2/aggregation';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
-import type { SseStream } from '@did-btcr2/method';
+import type { SseStream } from '@did-btcr2/aggregation';
 
 const serviceKeys = SchnorrKeyPair.generate();
 const serviceDid  = /* did:btcr2:k… derived from serviceKeys */;
@@ -132,7 +132,7 @@ The `toReq` / `toSseStream` adapters are thin (~20 lines) glue that turn Hono's 
 ## Participant-side (browser or Node)
 
 ```ts
-import { TransportFactory, AggregationParticipantRunner } from '@did-btcr2/method';
+import { TransportFactory, AggregationParticipantRunner } from '@did-btcr2/aggregation';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 
 const participantKeys = /* loaded from browser key storage */;

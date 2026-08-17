@@ -84,7 +84,7 @@ built-in default. Exceptions are called out below.
 | `BTCR2_BTC_REST` | Bitcoin REST (Esplora) endpoint | `--btc-rest` |
 | `BTCR2_BTC_RPC_URL` | Bitcoin Core RPC endpoint | `--btc-rpc-url` |
 | `BTCR2_BTC_RPC_USER` | Bitcoin Core RPC username | `--btc-rpc-user` |
-| `BTCR2_BTC_RPC_PASS` | Bitcoin Core RPC password (supports `env:<VAR>` / `file:<path>` refs) | `--btc-rpc-pass` |
+| `BTCR2_BTC_RPC_PASS` | Bitcoin Core RPC password (supports `env:<VAR>` / `file:<path>` refs) | none (a password on argv is readable through `ps` and shell history) |
 | `BTCR2_BTC_RPC_PASS_FILE` | Path to a file holding the RPC password (fallback when no layer supplies one) | none |
 | `BTCR2_BTC_TIMEOUT` | Bitcoin REST/RPC timeout in ms (>= 1) | `--btc-timeout` |
 | `BTCR2_CAS_GATEWAY` | Read-only IPFS gateway for CAS reads | `--cas-gateway` |
@@ -144,7 +144,7 @@ Dev (plaintext) keystores need no passphrase but are refused outright for mainne
 See the [docs README](./README.md#global-options) for the shared global flags. Globals this command notably interacts
 with: `--signing-key`, `--keystore`, `--passphrase-file`, `--home`, `-c/--config`, `--profile`,
 `-o/--output`, `--quiet`, `--verbose`, the Bitcoin connection overrides (`--btc-rest`,
-`--btc-rpc-url`, `--btc-rpc-user`, `--btc-rpc-pass`, `--btc-rpc-wallet`, `--btc-rest-header`,
+`--btc-rpc-url`, `--btc-rpc-user`, `--btc-rpc-wallet`, `--btc-rest-header`,
 `--btc-rpc-header`, `--btc-timeout`), and the CAS overrides (`--cas-gateway`, `--cas-rpc-url`,
 `--cas-timeout`; a writable `--cas-rpc-url` is what makes `--publish-to-cas auto|always`
 meaningful).
