@@ -88,6 +88,7 @@ Environment variables consulted by `update`:
 | `BTCR2_BTC_RPC_PASS_FILE` | Path to a file holding the RPC password (fallback when no layer supplies one) |
 | `BTCR2_CAS_GATEWAY` | `--cas-gateway` |
 | `BTCR2_CAS_RPC_URL` | `--cas-rpc-url` (a writable CAS; enables `--publish-to-cas auto|always`) |
+| `BTCR2_BTC_SIGNAL_DISCOVERY` | `--btc-signal-discovery` (where beacon signals are read from: `indexer` or `fullnode`; an invalid value, or `fullnode` without an RPC-capable connection, aborts the command) |
 | `BTCR2_BTC_TIMEOUT` | `--btc-timeout` |
 | `BTCR2_CAS_TIMEOUT` | `--cas-timeout` |
 | `BTCR2_FEE_RATE` | `--fee-rate` |
@@ -104,6 +105,7 @@ Config file keys that feed this command (under the active profile unless noted):
 | `profiles.<name>.btc.rpcUrl` / `rpcUser` / `rpcPass` | Bitcoin Core RPC endpoint and credentials. Resolved as one atomic unit: url, user, and pass always come from the same precedence layer, so a host from one layer never receives another layer's credentials (ADR 074). |
 | `profiles.<name>.btc.wallet` | Bitcoin Core wallet name (`--btc-rpc-wallet`). |
 | `profiles.<name>.btc.headers` / `rpcHeaders` | Extra REST / RPC headers, merged with the repeatable `--btc-rest-header` / `--btc-rpc-header` flags (flags win per key). |
+| `profiles.<name>.btc.signalDiscovery` | Where beacon signals are read from: `"indexer"` (default) or `"fullnode"`; below `--btc-signal-discovery` and `BTCR2_BTC_SIGNAL_DISCOVERY`. `fullnode` needs an RPC-capable connection; without one the connection setup fails, aborting the update. |
 | `profiles.<name>.btc.timeoutMs` | Bitcoin request timeout (`--btc-timeout`; unset means unbounded). |
 | `profiles.<name>.btc.feeRate` | Fee rate in sats/vByte, below `--fee-rate` and `BTCR2_FEE_RATE`. |
 | `profiles.<name>.btc.changeAddress` | Change address, below `--change-address` (no env layer). |
@@ -144,7 +146,7 @@ See the [docs README](./README.md#global-options) for the shared global flags. G
 with: `--signing-key`, `--keystore`, `--passphrase-file`, `--profile`, `--home`, `-c/--config`,
 `-o/--output`, `--quiet` (suppresses the stderr `Watch:` hint), `--verbose`, the Bitcoin endpoint
 overrides (`--btc-rest`, `--btc-rpc-url`, `--btc-rpc-user`, `--btc-rpc-wallet`,
-`--btc-rest-header`, `--btc-rpc-header`, `--btc-timeout`), and the CAS overrides (`--cas-gateway`,
+`--btc-rest-header`, `--btc-rpc-header`, `--btc-signal-discovery`, `--btc-timeout`), and the CAS overrides (`--cas-gateway`,
 `--cas-rpc-url`, `--cas-timeout`, which gate `--publish-to-cas`).
 
 ## Examples

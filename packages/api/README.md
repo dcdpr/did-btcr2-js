@@ -10,12 +10,12 @@ The lower-level packages (`@did-btcr2/method`, `@did-btcr2/cryptosuite`, `@did-b
 
 If you're integrating did:btcr2 into an app, start here. If you're customizing the protocol, drop down to `@did-btcr2/method` directly.
 
-- **`DidBtcr2Api`** is the main facade. Lazy sub-facades for crypto, did, key manager, bitcoin, CAS, and the DID method itself.
+- **`DidBtcr2Api`** is the main facade. Sub-facades for crypto, did, key manager, bitcoin, CAS, and the DID method itself; the bitcoin, CAS, and DID method facades initialize lazily on first access.
 - **`createApi(config?)`** is the factory. Pass `btc`, `cas`, `kms`, and `logger` overrides.
 - **`UpdateBuilder`** is a fluent chain over `DidMethodApi.update()` for callers who prefer named steps over a positional argument bag.
 - **`tryResolveDid(did)`** returns a discriminated `{ ok, document } | { ok, error, errorMessage }` instead of throwing, for cases where resolution failure is an expected outcome.
 
-The api wires the configured `BitcoinApi` into the sans-I/O Resolver and Updater state machines, fulfilling `NeedBeaconSignals`, `NeedFunding`, `NeedBroadcast`, and CAS-related needs (`NeedGenesisDocument`, `NeedCASAnnouncement`, `NeedSignedUpdate`) automatically. `NeedSMTProof` is not auto-fulfilled by the facade: SMT proofs are nonce-blinded (there is no content address to fetch them by), so they must be provided upfront via `options.sidecar.smtProofs`; resolution fails fast with that pointer otherwise. Multi-party aggregation is out of scope here; drive the Updater directly and hand `NeedBroadcast` to the aggregation runner from `@did-btcr2/aggregation`.
+The api wires the configured `BitcoinApi` into the sans-I/O Resolver and Updater state machines, fulfilling `NeedBeaconSignals`, `NeedFunding`, `NeedBroadcast`, and CAS-related needs (`NeedGenesisDocument`, `NeedCASAnnouncement`, `NeedSignedUpdate`) automatically. How `NeedBeaconSignals` is fulfilled follows the connection's `btc.signalDiscovery` mode: `'indexer'` (the default) reads beacon-address transaction listings from the Esplora-compatible REST backend, while `'fullnode'` scans every block from genesis over Bitcoin Core RPC and needs an `rpc` config (rejected at construction without one), a node with `-txindex=1`, and Bitcoin Core >= 25; the linear scan makes it practical only on regtest. `NeedSMTProof` is not auto-fulfilled by the facade: SMT proofs are nonce-blinded (there is no content address to fetch them by), so they must be provided upfront via `options.sidecar.smtProofs`; resolution fails fast with that pointer otherwise. Multi-party aggregation is out of scope here; drive the Updater directly and hand `NeedBroadcast` to the aggregation runner from `@did-btcr2/aggregation`.
 
 On the write path, `publishToCas` (`'never'` | `'auto'` | `'always'`, default `'never'`) controls whether update artifacts are published to the configured CAS **before** the on-chain broadcast. CAS publication is optional and never required: every update, for every beacon type, completes and is distributable via sidecar regardless. Publishing is opt-in: pass `'auto'` (best-effort - publishes when a writable CAS is configured, otherwise skips silently and never blocks the update) or `'always'` (requires a writable CAS and throws up-front when none is available). When publication happens, the canonical signed update (all beacon types) plus the CAS Announcement (CAS beacons) reach the CAS, so resolvers can fetch every OP_RETURN update hash from the CAS with no sidecar. Update calls return a `DidUpdateResult` carrying the signal `txid` and the per-beacon-type sidecar artifacts (announcement, SMT proof).
 
@@ -40,7 +40,7 @@ pnpm add @did-btcr2/api
 | Main facade | `DidBtcr2Api`, `createApi(config?)` |
 | Sub-facades | `BitcoinApi`, `CasApi`, `CryptoApi`, `DidApi`, `KeyManagerApi`, `DidMethodApi` |
 | Fluent update | `UpdateBuilder` (from `api.btcr2.buildUpdate(...)`) |
-| Config types | `ApiConfig`, `BitcoinApiConfig`, `CasConfig`, `Logger` |
+| Config types | `ApiConfig`, `BitcoinApiConfig`, `SignalDiscoveryMode`, `CasConfig`, `Logger` |
 | Resolution result | `ResolutionResult` (`tryResolveDid` return type) |
 | Re-exports from method/common | `DidDocument`, `DidDocumentBuilder`, `Identifier`, `IdentifierTypes` |
 
@@ -135,15 +135,15 @@ await api.updateDid({
 ## Architecture Principles
 
 - **Lazy sub-facades.** `api.btc` / `api.cas` / `api.btcr2` instantiate on first access. Creating an api without a Bitcoin config and never touching the chain costs nothing.
-- **Layered config.** Constructor config is applied first, then per-call overrides win. Bitcoin endpoint defaults come from `@did-btcr2/bitcoin`'s `DEFAULT_BITCOIN_NETWORK_CONFIG`.
+- **Layered config.** Constructor config is applied first, then per-call overrides win. Bitcoin endpoint defaults come from this package's `DEFAULT_BITCOIN_NETWORK_CONFIG` (the sans-I/O `@did-btcr2/bitcoin` transport holds no service URLs).
 - **CAS has a sensible default.** If no `cas` config is passed, `api.cas` defaults to a read-only HTTP gateway against `https://ipfs.io`. Configure `cas.rpcUrl`, `cas.blockstore`, or a custom `cas.executor` for write capability; `api.cas.writable` reports whether the configured backend accepts publishes (executors declare it via `CasExecutor.canPublish`; undefined means writable).
-- **Driver injection.** `api.btcr2.resolve(did, options)` accepts an optional override; the api passes its own `BitcoinConnection` automatically when none is provided.
+- **Driver injection.** `api.btcr2.update(...)` (and `UpdateBuilder.bitcoin(...)`) accept a per-call `BitcoinConnection` override; the api uses its own connection automatically when none is provided. Resolution always reads the chain through the configured `BitcoinApi`.
 
 ## Build & Test
 
 ```bash
 # From packages/api/
-pnpm build              # Compile ESM + browser bundle + type declarations
+pnpm build              # Compile ESM + CJS + browser bundle + type declarations
 pnpm build:tests        # Compile tests to tests/compiled/
 pnpm test               # Run the test suite with coverage
 pnpm lint               # ESLint (zero warnings tolerated)

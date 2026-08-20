@@ -12,6 +12,8 @@ Out of the box, `btcr2 resolve` works with zero configuration. The Bitcoin netwo
 
 Signing operations (`update`, `deactivate`, and generated `create` keys) read secret keys from an encrypted on-disk keystore. Choose a key with `--signing-key <ref>` or set an active key with `btcr2 key use <ref>`.
 
+Full reference documentation lives in [`docs/`](./docs/README.md): a page per command, the global options and configuration precedence, and a guided end-to-end walkthrough on Mutinynet in [`docs/DEMO.md`](./docs/DEMO.md).
+
 ## Install
 
 ```bash
@@ -70,7 +72,7 @@ On a testnet with a public faucet, text-mode `create` (for a `-t k` identifier) 
 
 ### resolve (alias: read)
 
-Required flag: `-i/--identifier`. At most one of `-r` or `-p` may be given.
+Required flag: `-i/--identifier`. If both `-r` and `-p` are given, `-r` wins and `-p` is silently ignored.
 
 | Flag | Description |
 |---|---|
@@ -178,7 +180,7 @@ Read and write CLI configuration.
 |---|---|---|
 | `config init` | - | Create a default config file with one profile per network. `--force` overwrites |
 | `config get [path]` | - | Print a value at a dotted path, or the whole config. Secret values are redacted; `--show-secrets` reveals them |
-| `config set <path> <value>` | - | Set a value at a dotted path (value parsed as JSON when valid, else a string). An invalid enum for a known key is rejected; an unknown path warns but writes |
+| `config set <path> <value>` | - | Set a value at a dotted path (value parsed as JSON when valid, else a string; known endpoint/credential/name paths are always stored as strings). An invalid enum for a known key is rejected; an unknown path warns but writes |
 | `config unset <path>` | - | Delete a value at a dotted path |
 | `config list` | `ls` | Print the entire config file. Secret values are redacted; `--show-secrets` reveals them |
 | `config validate` | - | Report unknown keys, invalid enum values, and an unsupported schema version |
@@ -194,7 +196,7 @@ Manage configuration profiles.
 |---|---|---|
 | `profile add <name>` | - | Add an empty profile |
 | `profile use <name>` | - | Set the active profile (writes `defaults.profile`) |
-| `profile show [name]` | - | Show a profile (defaults to the active profile) |
+| `profile show [name]` | - | Show a profile (defaults to the active profile). Secret values are redacted; `--show-secrets` reveals them |
 | `profile remove <name>` | `rm` | Remove a profile |
 
 ### completion
@@ -327,7 +329,7 @@ The CLI keeps its config and keystore side by side in one home directory, resolv
 
 Default location: `<home>/config.json`. A malformed config file fails loudly (the CLI never silently falls back to public endpoints, and never overwrites an unparseable file).
 
-Profiles are matched by network name when `--profile` is not specified. For example, resolving a regtest DID automatically selects the `"regtest"` profile. A profile that is not named after a network can declare its network with a `network` field.
+Profiles are matched by network name when neither `--profile` nor the config's `defaults.profile` selects one. For example, with no active profile set, resolving a regtest DID automatically selects the `"regtest"` profile. A profile that is not named after a network can declare its network with a `network` field.
 
 ```json
 {
@@ -375,7 +377,7 @@ Use `config validate` to check a file, and `config effective` to see the resolve
 
 ### RPC password and secrets
 
-`config get` and `config list` redact secret-looking values (RPC password and any `pass`/`secret`/`token` key) by default; pass `--show-secrets` to reveal them.
+`config get`, `config list`, and `profile show` redact secret-looking values (the RPC password and any key matching `pass`/`secret`/`token`/`auth`/`api-key`/`credential`/`bearer`, e.g. an `Authorization` header) by default; pass `--show-secrets` to reveal them.
 
 An `rpcPass` written directly into `config.json` is stored in cleartext (the file is mode 0600 but not encrypted). For anything sensitive, keep the secret out of the file with a reference or an RPC-URL-embedded credential:
 

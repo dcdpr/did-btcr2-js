@@ -114,6 +114,7 @@ next-step hints on stderr:
 
 ```
 $ btcr2 quickstart --dev --no-doctor
+warning: establishing an UNENCRYPTED dev keystore. Keys are stored in plaintext. Use it only for disposable testnet material; mainnet operations will be refused.
 {
   "home": "/home/user/.btcr2",
   "config": "/home/user/.btcr2/config.json",
@@ -194,10 +195,22 @@ Precedence, highest wins:
 - Home: `--home` flag, then `BTCR2_HOME`, then `~/.btcr2` (`%LOCALAPPDATA%\btcr2` on Windows).
 - Blank values at any layer defer to the next layer instead of masking it.
 
-Failure modes tied to configuration: an existing config file that is unreadable, not valid JSON, or
-written by a newer CLI (`schemaVersion` above 1) aborts the network-recording write with
-`CONFIG_READ_ERROR`, `CONFIG_PARSE_ERROR`, or `CONFIG_SCHEMA_VERSION_ERROR`; the pre-write read of
-`defaults.network` deliberately stays quiet and treats such a file as having no recorded network.
+Failure modes tied to configuration. The first thing every run does is quietly read the recorded
+`defaults.network` from the raw config, in two deliberately forgiving ways: an unreadable or
+unparseable file is treated as having no recorded network, while a file written by a newer CLI
+(`schemaVersion` above 1) still parses raw, so its recorded `defaults.network` drives the
+effective network and the mainnet guard before any config error can surface (a recorded
+`bitcoin` without `--allow-mainnet` aborts with `MAINNET_QUICKSTART_REFUSED_ERROR` even though
+the file would later be rejected). Past that guard, the config is consulted while resolving the
+keystore path, and an unreadable, invalid, or newer-schema file aborts there with
+`CONFIG_READ_ERROR`, `CONFIG_PARSE_ERROR`, or `CONFIG_SCHEMA_VERSION_ERROR` before anything is
+scaffolded: the home directory is not created, no keystore is established, and no passphrase
+prompt appears. Only an explicit `--keystore` bypasses that read; an unreadable or unparseable
+file's error then surfaces at the network-recording write, while `CONFIG_SCHEMA_VERSION_ERROR`
+surfaces only when the recording step actually writes (an explicit `-n` differing from the
+recorded value, or no valid network recorded yet), else at the doctor probe, or not at all with
+`--no-doctor`. `--keystore` plus `--force` re-scaffolds the config wholesale before the
+recording step, clearing the error rather than reporting it.
 
 ## Global options
 

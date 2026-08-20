@@ -85,7 +85,8 @@ Write-time validation against the known schema:
 
 - Enum leaves are hard-rejected on an invalid value: `defaults.network` and
   `profiles.<name>.network` must be one of `bitcoin`, `testnet3`, `testnet4`, `signet`,
-  `mutinynet`, `regtest`; `defaults.output` must be `json` or `text`.
+  `mutinynet`, `regtest`; `defaults.output` must be `json` or `text`;
+  `profiles.<name>.btc.signalDiscovery` must be `indexer` or `fullnode`.
 - Number leaves (`schemaVersion`, `profiles.<name>.btc.feeRate`, `profiles.<name>.btc.timeoutMs`,
   `profiles.<name>.cas.timeoutMs`) must parse as JSON numbers; a non-numeric value is rejected.
 - Object leaves (`profiles.<name>.btc.headers`, `profiles.<name>.btc.rpcHeaders`) must be JSON
@@ -135,7 +136,8 @@ Checks the config file against the known schema and prints
 
 - `unknown key` for any key outside the known schema (the walk does not descend into an unknown
   subtree, so one unknown parent yields one finding),
-- invalid enum values (`defaults.network`, `defaults.output`, `profiles.<name>.network`),
+- invalid enum values (`defaults.network`, `defaults.output`, `profiles.<name>.network`,
+  `profiles.<name>.btc.signalDiscovery`),
 - non-number values at number leaves and non-object values at object leaves,
 - a `schemaVersion` newer than this CLI supports (reported as a finding, not an abort: `validate`
   reads the raw file, bypassing the schema-version ceiling that the reading subcommands enforce).
@@ -169,8 +171,8 @@ Resolution notes:
 - The RPC endpoint is resolved as one atomic credential unit: `rpcUrl`, `rpcUser`, and `rpcPass`
   are taken together from the highest-precedence layer that supplies a URL (else the highest that
   supplies a credential), so a host from one layer is never paired with another layer's password.
-- An RPC password given as a secret reference (`env:<VAR>` or `file:<path>`, via flag,
-  environment variable, or profile) is resolved to its literal value; a password taken from the file named by
+- An RPC password given as a secret reference (`env:<VAR>` or `file:<path>`, via environment
+  variable or profile) is resolved to its literal value; a password taken from the file named by
   `BTCR2_BTC_RPC_PASS_FILE` reports `source: "env"`.
 - `default`-sourced endpoint values are the SDK per-network defaults: REST
   `https://mempool.space/api` (bitcoin), `https://mempool.space/testnet/api` (testnet3),

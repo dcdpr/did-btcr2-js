@@ -226,8 +226,8 @@ pruned on read. Because `key` subcommands pass no network, a session unlocked wi
 DID operations, not to key management. Establishing a fresh keystore's passphrase never consults the
 session and always confirms an interactive entry twice.
 
-On a fresh home, the first mutating `key` command creates `<home>` with mode `0700` and writes
-`keystore.json` with mode `0600`.
+On a fresh home, any `key` subcommand (even the read-only ones) creates `<home>` with mode `0700`;
+the first mutating command additionally writes `keystore.json` with mode `0600`.
 
 **Output modes**
 

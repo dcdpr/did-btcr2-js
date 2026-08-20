@@ -87,6 +87,7 @@ built-in default. Exceptions are called out below.
 | `BTCR2_BTC_RPC_PASS` | Bitcoin Core RPC password (supports `env:<VAR>` / `file:<path>` refs) | none (a password on argv is readable through `ps` and shell history) |
 | `BTCR2_BTC_RPC_PASS_FILE` | Path to a file holding the RPC password (fallback when no layer supplies one) | none |
 | `BTCR2_BTC_TIMEOUT` | Bitcoin REST/RPC timeout in ms (>= 1) | `--btc-timeout` |
+| `BTCR2_BTC_SIGNAL_DISCOVERY` | Where beacon signals are read from (`indexer` \| `fullnode`); an invalid value, or `fullnode` without an RPC-capable connection, aborts the command | `--btc-signal-discovery` |
 | `BTCR2_CAS_GATEWAY` | Read-only IPFS gateway for CAS reads | `--cas-gateway` |
 | `BTCR2_CAS_RPC_URL` | Writable IPFS RPC endpoint (enables `--publish-to-cas auto|always`) | `--cas-rpc-url` |
 | `BTCR2_CAS_TIMEOUT` | CAS timeout in ms (`0` disables) | `--cas-timeout` |
@@ -107,6 +108,7 @@ the DID's network name is used for connection resolution (e.g. a mutinynet DID r
 | `profiles.<name>.btc.feeRate` | Fee rate (number, sats/vByte) |
 | `profiles.<name>.btc.changeAddress` | Change address (no env var for this one: flag > profile only) |
 | `profiles.<name>.btc.timeoutMs`, `.headers`, `.wallet`, `.rpcHeaders` | Timeout, extra REST headers, RPC wallet, extra RPC headers |
+| `profiles.<name>.btc.signalDiscovery` | Where beacon signals are read from (`"indexer"` \| `"fullnode"`) |
 | `profiles.<name>.cas.gateway`, `.rpcUrl`, `.timeoutMs` | CAS endpoints and timeout |
 | `profiles.<name>.identity.keystore` | Keystore path (below the `--keystore` flag, above `<home>/keystore.json`) |
 | `profiles.<name>.identity.default` | Default signing-key reference (below the `--signing-key` flag, above the KMS active key) |
@@ -145,7 +147,7 @@ See the [docs README](./README.md#global-options) for the shared global flags. G
 with: `--signing-key`, `--keystore`, `--passphrase-file`, `--home`, `-c/--config`, `--profile`,
 `-o/--output`, `--quiet`, `--verbose`, the Bitcoin connection overrides (`--btc-rest`,
 `--btc-rpc-url`, `--btc-rpc-user`, `--btc-rpc-wallet`, `--btc-rest-header`,
-`--btc-rpc-header`, `--btc-timeout`), and the CAS overrides (`--cas-gateway`, `--cas-rpc-url`,
+`--btc-rpc-header`, `--btc-signal-discovery`, `--btc-timeout`), and the CAS overrides (`--cas-gateway`, `--cas-rpc-url`,
 `--cas-timeout`; a writable `--cas-rpc-url` is what makes `--publish-to-cas auto|always`
 meaningful).
 
