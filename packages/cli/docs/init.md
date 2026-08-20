@@ -89,8 +89,9 @@ Environment variables consulted:
 | `BTCR2_KEYSTORE_PASSPHRASE` | Passphrase for establishing a fresh encrypted keystore. Consulted BEFORE `--passphrase-file` (for the passphrase specifically, the env var outranks the flag-named file). |
 | `BTCR2_OUTPUT` | Output format (`json` or `text`) when `-o/--output` is absent. |
 
-The Bitcoin/CAS endpoint variables (`BTCR2_BTC_REST`, `BTCR2_BTC_RPC_*`, `BTCR2_CAS_*`,
-`BTCR2_FEE_RATE`) are not consulted: `init` performs no network I/O.
+The Bitcoin/CAS connection variables (`BTCR2_BTC_REST`, `BTCR2_BTC_RPC_*`, `BTCR2_BTC_TIMEOUT`,
+`BTCR2_BTC_SIGNAL_DISCOVERY`, `BTCR2_CAS_*`, `BTCR2_FEE_RATE`) are not consulted: `init` performs
+no network I/O.
 
 Config-file keys read (from an existing config, if any):
 

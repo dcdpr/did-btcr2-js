@@ -7,7 +7,8 @@ identifier itself (it is encoded in the DID), so `resolve` works with zero confi
 the public per-network defaults (mempool.space-style Esplora REST endpoints, and the public
 `https://ipfs.io` IPFS gateway for CAS reads). Under the hood the CLI drives the sans-I/O
 `Resolver` state machine through `@did-btcr2/api`: beacon signals are fetched from the Bitcoin
-REST endpoint, and any genesis document, CAS announcement, or signed update not supplied via
+REST endpoint (or, with `--btc-signal-discovery fullnode`, by scanning blocks over Bitcoin Core
+RPC), and any genesis document, CAS announcement, or signed update not supplied via
 sidecar is fetched from the configured CAS by hash. Use `-r`/`-p` to pass resolution options
 (version pinning, sidecar data, discovery limits).
 
@@ -63,7 +64,9 @@ an empty object `{}` is equivalent to passing no options.
 
 How data needs are satisfied (behavior of the `@did-btcr2/api` layer the CLI calls):
 
-- Beacon signals are always fetched from the Bitcoin REST endpoint for the DID's network.
+- Beacon signals are fetched from the Bitcoin endpoint selected by the signal-discovery mode:
+  `indexer` (the default) reads them from the REST endpoint for the DID's network; `fullnode`
+  scans blocks over Bitcoin Core RPC.
 - A genesis document, CAS announcement, or signed update is taken from `sidecar` when present;
   otherwise it is fetched from the configured CAS by its hex hash. If the CAS lookup returns
   nothing, resolution fails (for example `Signed update not found in CAS (hash: ...)`).
@@ -150,7 +153,9 @@ Behavior details, all confirmed against the source:
 - **An RPC client is only wired when a host exists**: some layer supplies `--btc-rpc-url` (or its
   env/profile equivalent), or the network is `regtest` (which has a default RPC host). RPC
   credentials, wallet, or headers alone on a public network configure nothing. For most `resolve`
-  runs no RPC is involved at all; beacon-signal discovery uses the REST endpoint.
+  runs no RPC is involved at all; beacon-signal discovery uses the REST endpoint in the default
+  `indexer` mode (`fullnode` mode instead reads signals over the RPC client, and therefore
+  requires one).
 - **Header flags merge over profile headers** per key, with the flag winning. Headers apply even
   without a host override, so an authenticated Esplora/mempool endpoint works with the default
   host. A header value missing a `Key: Value` colon fails with `INVALID_ARGUMENT_ERROR`.
@@ -164,6 +169,13 @@ Behavior details, all confirmed against the source:
 - **Timeout validation**: `--btc-timeout` must be a finite number >= 1 (`0` would abort every
   request); `--cas-timeout` must be >= 0 (`0` disables the timeout). Violations fail with
   `INVALID_ARGUMENT_ERROR`.
+- **Signal-discovery validation**: a `--btc-signal-discovery` value other than `indexer` or
+  `fullnode` (from any layer, including a typo in `BTCR2_BTC_SIGNAL_DISCOVERY` or a profile)
+  fails with `Invalid --btc-signal-discovery value "<value>". Expected indexer or fullnode.`
+  (`INVALID_ARGUMENT_ERROR`). `fullnode` needs an RPC-capable connection: without one (any public
+  network with no RPC configured) resolution fails with `signalDiscovery: 'fullnode' scans blocks
+  over Bitcoin Core RPC, but no rpc config was resolved for network '<network>' ...`, a plain
+  `Error` printed with its stack.
 - **No keystore, passphrase, or session interaction.** `resolve` uses the keystore-free API
   factory: `--keystore`, `--passphrase-file`, and `--signing-key` are accepted globally but have
   no effect here, `<home>/session.json` is never read, and no prompt can occur. The profile's

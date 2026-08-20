@@ -7,24 +7,24 @@ deactivating `did:btcr2` identifiers.
 
 | Command | Purpose |
 |---------|---------|
-| [`btcr2 init`](./init.md) | Set up the btcr2 home: create the directory, a default config, and establish the keystore. |
-| [`btcr2 quickstart`](./quickstart.md) | One-command onboarding: home + config + keystore, record the network, optionally cache a session and probe endpoints. |
-| [`btcr2 create`](./create.md) | Create an identifier and initial DID document (offline). |
-| [`btcr2 resolve`](./resolve.md) | Resolve the DID document of an identifier (alias: `read`). |
-| [`btcr2 update`](./update.md) | Update a did:btcr2 document: sign a JSON Patch and broadcast a beacon signal. |
-| [`btcr2 deactivate`](./deactivate.md) | Permanently deactivate an identifier (alias: `delete`; irreversible). |
-| [`btcr2 key`](./key.md) | Manage keypairs in the encrypted keystore. |
-| [`btcr2 keystore`](./keystore.md) | Establish, inspect, re-key, and unlock the keystore. |
-| [`btcr2 config`](./config.md) | Read and write CLI configuration. |
-| [`btcr2 profile`](./profile.md) | Manage configuration profiles. |
-| [`btcr2 completion`](./completion.md) | Print a shell completion script (bash, zsh, or fish). |
+| [`init`](./init.md) | Set up the btcr2 home: create the directory, a default config, and establish the keystore. |
+| [`quickstart`](./quickstart.md) | One-command onboarding: home + config + keystore, record the network, optionally cache a session and probe endpoints. |
+| [`create`](./create.md) | Create an identifier and initial DID document (offline). |
+| [`resolve`](./resolve.md) | Resolve the DID document of an identifier (alias: `read`). |
+| [`update`](./update.md) | Update a did:btcr2 document: sign a JSON Patch and broadcast a beacon signal. |
+| [`deactivate`](./deactivate.md) | Permanently deactivate an identifier (alias: `delete`; irreversible). |
+| [`key`](./key.md) | Manage keypairs in the encrypted keystore. |
+| [`keystore`](./keystore.md) | Establish, inspect, re-key, and unlock the keystore. |
+| [`config`](./config.md) | Read and write CLI configuration. |
+| [`profile`](./profile.md) | Manage configuration profiles. |
+| [`completion`](./completion.md) | Print a shell completion script (bash, zsh, or fish). |
 | [DEMO.md](./DEMO.md) | Guided end-to-end walkthrough: create, fund, resolve, update, deactivate on mutinynet. |
 
 ## Global options
 
 Global flags are declared on the root program (before the command word) and are shared by every
 command; each command doc lists which globals it actually consumes. The table below matches
-`btcr2 --help` (v0.18.1) and the option declarations in `src/cli.ts`.
+`btcr2 --help` (v0.19.0) and the option declarations in `src/cli.ts`.
 
 | Flag | Value | Default | Description |
 |------|-------|---------|-------------|

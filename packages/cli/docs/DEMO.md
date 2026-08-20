@@ -10,7 +10,7 @@ commands reuse shell variables set by earlier ones, so keep the same session ope
 output block is **illustrative** - your keys, DID strings, and Bitcoin addresses will be
 unique to you, but the shape will match.
 
-Targets `@did-btcr2/cli` **v0.18.0**.
+Targets `@did-btcr2/cli` **v0.19.0**.
 
 ---
 
@@ -35,7 +35,7 @@ Three things make it different, and this demo shows all three:
 Before the first command, confirm you have:
 
 - **Node.js >= 22** (the CLI runtime).
-- **`jq`** (used to pull values out of JSON in Parts 3 and 4).
+- **`jq`** (used to pull values out of JSON in Part 4).
 - **A POSIX shell**: bash or zsh on Linux/macOS. On Windows, use **WSL** or **Git Bash**;
   the copy-paste flow here relies on `alias`, `$(...)`, `2>/dev/null`, and single-quoted
   JSON, which PowerShell and cmd do not handle the same way.
@@ -66,7 +66,7 @@ btcr2 --version
 ```
 
 ```
-btcr2 0.18.0
+btcr2 0.19.0
 ```
 
 ### Set up in one command
@@ -112,7 +112,7 @@ endpoint probe result (text mode shows just the data; on Path B the `protection`
   "protection": "encrypted",
   "unlocked": true,
   "session": { "expiresAt": 1760000000000, "ttlSeconds": 7200 },
-  "doctor": { "checks": [ { "endpoint": "btc-rest", "target": "https://mutinynet.com/api", "ok": true } ] }
+  "doctor": { "checks": [ { "endpoint": "btc-rest", "target": "https://mutinynet.com/api", "ok": true }, { "endpoint": "cas", "target": "https://ipfs.io", "ok": true } ] }
 }
 ```
 
@@ -120,12 +120,15 @@ endpoint probe result (text mode shows just the data; on Path B the `protection`
 `{"action": ..., "data": ...}` envelope instead.)
 
 > `quickstart` is idempotent: run it again and it leaves existing files untouched (it never
-> overwrites a keystore, and it will not clobber a network you set earlier; `--force`
-> re-creates the config, never the keystore). Mainnet setup demands an explicit
-> `--allow-mainnet`, and never with `--dev`. The endpoint
+> overwrites a keystore, and it will not clobber a network you set earlier). `--force`
+> re-scaffolds the config from scratch, discarding custom profiles, defaults, and any
+> previously recorded network (pass `-n` to re-record one); it never touches the keystore.
+> Mainnet setup demands an explicit `--allow-mainnet`, and never with `--dev`. The endpoint
 > probe is **advisory** - if an endpoint is briefly unreachable it warns but still succeeds;
 > re-run `btcr2 config doctor -n mutinynet` any time for an authoritative check. Pass
-> `--no-doctor` to skip the probe. `-n mutinynet` is the default, so you can drop it.
+> `--no-doctor` to skip the probe. On a fresh home you can drop `-n mutinynet`: quickstart
+> falls back to mutinynet when no network is recorded yet (a recorded `defaults.network`
+> wins otherwise).
 >
 > Prefer to do it step by step? `btcr2 init -n mutinynet` scaffolds the home and records
 > the network, `btcr2 keystore unlock --ttl 2h` caches the session, and `btcr2 config
@@ -151,7 +154,7 @@ Commands:
   keystore      Establish, inspect, re-key, and unlock the keystore.
   config        Read and write CLI configuration.
   profile       Manage configuration profiles.
-  completion    Print a shell completion script (bash, zsh, or fish).
+  completion    Print a shell completion script (bash, zsh, or fish) to stdout.
 ```
 
 ---
@@ -609,9 +612,10 @@ btcr2 profile use client-demo
 
 `config validate` checks a file, `config effective` shows resolved connection values with
 their provenance (`flag`/`env`/`file`/`default`), and `config doctor` probes endpoint
-reachability. Secret values (Bitcoin RPC passwords, authenticated headers) are **redacted**
-in `config get`/`list`/`effective` and `profile show` output; add `--show-secrets` to see
-them in plaintext deliberately, never accidentally.
+reachability. Bitcoin RPC passwords are **redacted** in `config get`/`list`/`effective` and
+`profile show` output, and authenticated headers in `config get`/`list`/`profile show`
+(`config effective` omits headers entirely); add `--show-secrets` to see them in plaintext
+deliberately, never accidentally.
 
 ### Publish updates to a CAS (opt-in)
 
@@ -659,8 +663,14 @@ argv caveat applies to a header that carries a credential: a bearer token or API
 as a flag value is just as readable through `ps` as a password would be. Put credential
 headers in the profile's `btc.headers` / `btc.rpcHeaders` instead, where `profile show`
 redacts them, and keep the flags for headers that are not secret. All of it can live in a
-per-network config profile instead of on the command line. The self-sovereignty story goes
-end to end: your keys, your node, your resolution.
+per-network config profile instead of on the command line.
+
+With an RPC-capable connection you can also take beacon-signal discovery off the indexer:
+`--btc-signal-discovery fullnode` (or `BTCR2_BTC_SIGNAL_DISCOVERY`, or a profile
+`btc.signalDiscovery`) reads signals by scanning blocks over your own Bitcoin Core instead
+of querying the Esplora indexer (`indexer` is the default; `config effective` reports
+which mode is live). The self-sovereignty story goes end to end: your keys, your node,
+your resolution.
 
 ### Shell completion
 
@@ -723,8 +733,9 @@ rm -rf /tmp/btcr2-demo
 ### Command reference (quick)
 
 ```
-btcr2 init [--dev] [--force]
-btcr2 keystore init [--dev] [--force] | status | change-passphrase | unlock [--ttl <dur>] [--allow-mainnet] | lock
+btcr2 init [-n <network>] [--dev] [--force]
+btcr2 quickstart [-n <network>] [--dev] [--unlock] [--ttl <dur>] [--no-doctor] [--allow-mainnet] [--force]
+btcr2 keystore init [--dev] [--force] | status | change-passphrase|passwd | unlock [--ttl <dur>] [--allow-mainnet] | lock
 btcr2 key generate --name <n> --set-active
 btcr2 key list|ls | show <ref> | use <ref> | import [--secret-file <path> | --public <hex>] | export [--secret --out <path>] <ref> | delete|rm [--force] <ref>
 btcr2 create [-t k|x] [-n <network>] [-b <hex>] [--signing-key <ref>]
@@ -740,6 +751,7 @@ Global flags: -o json|text  --verbose  --quiet  --home <dir>  -c <config>  --pro
               --keystore <path>  --passphrase-file <path>  --signing-key <ref>
               --btc-rest <url>  --btc-rpc-url <url>  --btc-rpc-user <u>
               --btc-rpc-wallet <name>  --btc-rest-header <h>  --btc-rpc-header <h>
+              --btc-signal-discovery <indexer|fullnode>
               --cas-gateway <url>  --cas-rpc-url <url>  --btc-timeout <ms>  --cas-timeout <ms>
 ```
 

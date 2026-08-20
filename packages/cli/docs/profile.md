@@ -37,8 +37,9 @@ existing file preserved). If `profiles.<name>` already exists, the command fails
 
 `<name>` is an arbitrary string; the CLI does not validate it. In particular an empty name is not
 rejected: `btcr2 profile add ''` succeeds and creates a profile keyed by the empty string, which
-`profile show ''` then cannot target because an empty positional is treated as omitted (it falls
-back to `defaults.profile` or errors with `No profile specified and no active profile is set.`).
+`profile show ''` then cannot target: an empty positional bypasses the `defaults.profile` fallback
+yet still fails the empty check, so it always errors with `No profile specified and no active
+profile is set.`, even when an active profile is set.
 Two naming conventions carry extra meaning elsewhere in the CLI:
 
 - A profile named after a supported network (`bitcoin`, `testnet3`, `testnet4`, `signet`,
@@ -154,8 +155,8 @@ Environment variables consulted:
 
 The `profile` group consults none of the Bitcoin or CAS connection variables (`BTCR2_BTC_REST`,
 `BTCR2_BTC_RPC_URL`, `BTCR2_BTC_RPC_USER`, `BTCR2_BTC_RPC_PASS`, `BTCR2_BTC_RPC_PASS_FILE`,
-`BTCR2_CAS_GATEWAY`, `BTCR2_CAS_RPC_URL`, `BTCR2_BTC_TIMEOUT`, `BTCR2_CAS_TIMEOUT`,
-`BTCR2_FEE_RATE`); it manages the profiles those settings later merge with. It has no keystore,
+`BTCR2_BTC_SIGNAL_DISCOVERY`, `BTCR2_CAS_GATEWAY`, `BTCR2_CAS_RPC_URL`, `BTCR2_BTC_TIMEOUT`,
+`BTCR2_CAS_TIMEOUT`, `BTCR2_FEE_RATE`); it manages the profiles those settings later merge with. It has no keystore,
 passphrase, or session interaction, and prints no network hints (faucet or explorer URLs).
 
 Keys a profile can hold (validated by `btcr2 config set` and `btcr2 config validate`; `profile
@@ -167,6 +168,7 @@ show` prints whatever is stored):
 | `btc.rest`, `btc.rpcUrl`, `btc.rpcUser`, `btc.rpcPass`, `btc.changeAddress`, `btc.wallet` | string |
 | `btc.feeRate` (sats/vByte), `btc.timeoutMs` | number |
 | `btc.headers`, `btc.rpcHeaders` | object (header map) |
+| `btc.signalDiscovery` | `"indexer"` or `"fullnode"` (where beacon signals are read from; `fullnode` scans blocks over Bitcoin Core RPC) |
 | `cas.gateway`, `cas.rpcUrl` | string |
 | `cas.timeoutMs` | number (`0` disables) |
 | `identity.keystore`, `identity.default` | string (keystore path; signing-key reference) |

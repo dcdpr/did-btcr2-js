@@ -120,8 +120,9 @@ Environment variables consulted:
 | `BTCR2_KEYSTORE_PASSPHRASE` | Keystore passphrase for unattended use. Generate mode only; the highest-precedence passphrase source. At most one trailing newline is trimmed. |
 
 The Bitcoin/CAS endpoint variables (`BTCR2_BTC_REST`, `BTCR2_BTC_RPC_*`, `BTCR2_CAS_*`,
-`BTCR2_BTC_TIMEOUT`, `BTCR2_CAS_TIMEOUT`, `BTCR2_FEE_RATE`) are read only by commands that open a
-connection; `create` builds its API without a network, so they have no effect here. The same goes
+`BTCR2_BTC_TIMEOUT`, `BTCR2_CAS_TIMEOUT`, `BTCR2_FEE_RATE`, `BTCR2_BTC_SIGNAL_DISCOVERY`) are read
+only by commands that open a connection; `create` builds its API without a network, so they have no
+effect here. The same goes
 for the corresponding global endpoint flags.
 
 Config-file keys (`<home>/config.json`, or the file named by `-c/--config`) that feed `create`:
