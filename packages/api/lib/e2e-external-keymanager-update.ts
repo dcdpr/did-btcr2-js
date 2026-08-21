@@ -218,7 +218,7 @@ console.log(`    DI proof verifies (external-signed) ✓`);
 // ─── Step 6: Broadcast ──────────────────────────────────────────────────────
 
 console.log(`\n[6] Broadcasting ...`);
-await Updater.announce(beaconService, signed, signer, bitcoin);
+await Updater.announce(beaconService, did, signed, signer, bitcoin);
 await confirmBroadcast({ bitcoin, network: NETWORK, minerAddr, watchAddress: beaconAddress });
 console.log(`    accepted + confirmed`);
 

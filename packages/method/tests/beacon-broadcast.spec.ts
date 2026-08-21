@@ -105,7 +105,7 @@ describe('SinglePartyBeacon.broadcastSignal result shape', () => {
       const bitcoin = mockBitcoin(service.serviceEndpoint.replace('bitcoin:', ''), sent, []);
       const update = fakeUpdate('singleton-result');
 
-      const result = await new SingletonBeacon(service).broadcastSignal(update, signer, bitcoin);
+      const result = await new SingletonBeacon(service, DID).broadcastSignal(update, signer, bitcoin);
 
       expect(result.signedUpdate).to.equal(update);
       expect(result.txid).to.equal(TXID);
@@ -124,7 +124,7 @@ describe('SinglePartyBeacon.broadcastSignal result shape', () => {
       const bitcoin = mockBitcoin(service.serviceEndpoint.replace('bitcoin:', ''), sent, []);
       const update = fakeUpdate('cas-result');
 
-      const result = await new CASBeacon(service).broadcastSignal(update, signer, bitcoin);
+      const result = await new CASBeacon(service, DID).broadcastSignal(update, signer, bitcoin);
 
       expect(result.signedUpdate).to.equal(update);
       expect(result.txid).to.equal(TXID);
@@ -140,7 +140,7 @@ describe('SinglePartyBeacon.broadcastSignal result shape', () => {
       const bitcoin = mockBitcoin(service.serviceEndpoint.replace('bitcoin:', ''), [], order);
       let published: CASAnnouncement | undefined;
 
-      await new CASBeacon(service).broadcastSignal(fakeUpdate('cas-order'), signer, bitcoin, {
+      await new CASBeacon(service, DID).broadcastSignal(fakeUpdate('cas-order'), signer, bitcoin, {
         casPublish : async (announcement) => { order.push('cas-publish'); published = announcement; },
       });
 
@@ -155,7 +155,7 @@ describe('SinglePartyBeacon.broadcastSignal result shape', () => {
 
       let threw = false;
       try {
-        await new CASBeacon(service).broadcastSignal(fakeUpdate('cas-fail'), signer, bitcoin, {
+        await new CASBeacon(service, DID).broadcastSignal(fakeUpdate('cas-fail'), signer, bitcoin, {
           casPublish : async () => { throw new Error('cas unavailable'); },
         });
       } catch(err) {
@@ -168,7 +168,7 @@ describe('SinglePartyBeacon.broadcastSignal result shape', () => {
 
     it('round-trips: broadcast artifacts fed back as sidecar resolve the update with no needs', async () => {
       const { signer, service } = testBeaconSetup('CASBeacon');
-      const beacon = new CASBeacon(service);
+      const beacon = new CASBeacon(service, DID);
       const bitcoin = mockBitcoin(service.serviceEndpoint.replace('bitcoin:', ''), [], []);
       const update = fakeUpdate('cas-roundtrip');
 
@@ -193,7 +193,7 @@ describe('SinglePartyBeacon.broadcastSignal result shape', () => {
       const bitcoin = mockBitcoin(service.serviceEndpoint.replace('bitcoin:', ''), sent, []);
       const update = fakeUpdate('smt-result');
 
-      const result = await new SMTBeacon(service).broadcastSignal(update, signer, bitcoin);
+      const result = await new SMTBeacon(service, DID).broadcastSignal(update, signer, bitcoin);
 
       expect(result.signedUpdate).to.equal(update);
       expect(result.txid).to.equal(TXID);
@@ -207,7 +207,7 @@ describe('SinglePartyBeacon.broadcastSignal result shape', () => {
 
     it('round-trips: the returned proof makes the on-chain signal resolvable', async () => {
       const { signer, service } = testBeaconSetup('SMTBeacon');
-      const beacon = new SMTBeacon(service);
+      const beacon = new SMTBeacon(service, DID);
       const bitcoin = mockBitcoin(service.serviceEndpoint.replace('bitcoin:', ''), [], []);
       const update = fakeUpdate('smt-roundtrip');
 
@@ -232,7 +232,7 @@ describe('SinglePartyBeacon.broadcastSignal result shape', () => {
       const bitcoin = mockBitcoin(service.serviceEndpoint.replace('bitcoin:', ''), [], order);
       const update = fakeUpdate('announce-options');
 
-      const result = await Updater.announce(service, update, signer, bitcoin, {
+      const result = await Updater.announce(service, DID, update, signer, bitcoin, {
         casPublish : async () => { order.push('cas-publish'); },
       });
 

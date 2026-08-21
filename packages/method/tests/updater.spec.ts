@@ -256,6 +256,7 @@ describe('Updater', () => {
         kind          : 'NeedBroadcast',
         beaconService : sourceDocument.service![0]! as BeaconService,
         signedUpdate  : {} as never,
+        did           : sourceDocument.id,
       };
       expect(() => updater.provide(bogusBroadcast)).to.throw(/phase/i);
     });

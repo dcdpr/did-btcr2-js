@@ -544,8 +544,19 @@ export abstract class SinglePartyBeacon {
    */
   readonly service: BeaconService;
 
-  constructor(service: BeaconService) {
+  /**
+   * The absolute did:btcr2 identifier this beacon instance serves.
+   *
+   * Injected by the caller rather than recovered from {@link service}. A beacon
+   * service `id` is permitted to be a relative DID URL (`#beacon-1`), which
+   * carries no DID to strip a fragment from, so deriving the subject from it is
+   * only correct for the absolute spelling.
+   */
+  readonly did: string;
+
+  constructor(service: BeaconService, did: string) {
     this.service = service;
+    this.did = did;
   }
 
   /**

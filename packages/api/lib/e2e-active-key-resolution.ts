@@ -102,7 +102,7 @@ assert.equal(
 );
 
 console.log(`\n[3] Broadcasting update signed by active key A ...`);
-await Updater.announce(beaconService, signed, signer, bitcoin);
+await Updater.announce(beaconService, didA, signed, signer, bitcoin);
 await confirmBroadcast({ bitcoin, network: NETWORK, minerAddr, watchAddress: beaconAddress });
 const hashA = canonicalHash(signed, { encoding: 'hex' });
 

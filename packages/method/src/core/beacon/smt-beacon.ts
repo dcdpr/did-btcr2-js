@@ -27,9 +27,10 @@ export class SMTBeacon extends SinglePartyBeacon {
   /**
    * Creates an instance of SMTBeacon.
    * @param {BeaconService} service The Beacon service.
+   * @param {string} did The absolute did:btcr2 identifier this beacon serves.
    */
-  constructor(service: BeaconService) {
-    super({ ...service, type: 'SMTBeacon' });
+  constructor(service: BeaconService, did: string) {
+    super({ ...service, type: 'SMTBeacon' }, did);
   }
 
   /**
@@ -52,8 +53,8 @@ export class SMTBeacon extends SinglePartyBeacon {
     const updates = new Array<[SignedBTCR2Update, BlockMetadata]>();
     const needs = new Array<DataNeed>();
 
-    // Extract the DID from the beacon service id (strip the #fragment)
-    const did = this.service.id.split('#')[0];
+    // The DID under resolution keys this beacon's leaf index.
+    const did = this.did;
 
     for(const signal of signals) {
       // Signal bytes are the hex-encoded SMT root hash; smtMap is keyed by proof.id (also hex)
@@ -144,8 +145,8 @@ export class SMTBeacon extends SinglePartyBeacon {
     bitcoin: BitcoinConnection,
     options?: BroadcastOptions
   ): Promise<BroadcastResult> {
-    // Extract the DID from the beacon service id (strip the #fragment)
-    const did = this.service.id.split('#')[0];
+    // The DID keys this beacon's leaf index in the tree.
+    const did = this.did;
 
     // Build a single-entry SMT from the signed update
     const canonicalBytes = new TextEncoder().encode(canonicalize(signedUpdate));

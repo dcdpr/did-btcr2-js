@@ -18,14 +18,21 @@ import type { RootCapability } from '../core/interfaces.js';
  */
 export class Appendix {
   /**
-   * Extracts a DID fragment from a given input
-   * @param {unknown} input The input to extract the DID fragment from
-   * @returns {string | undefined} The extracted DID fragment or undefined if not found
+   * Resolves a DID URL that may be written as a relative reference against the
+   * DID it appears under. DID Core permits the `id` of a verification method or
+   * service, and the entries of a verification relationship, to be a relative
+   * DID URL such as `#initialKey`; it denotes that fragment of `did`. Absolute
+   * DID URLs are returned unchanged, so both spellings of the same reference
+   * compare equal without discarding the DID being compared.
+   *
+   * @param {unknown} input The DID URL to resolve. Non-strings yield `undefined`.
+   * @param {string} did The DID the relative reference is resolved against.
+   * @returns {string | undefined} The absolute DID URL, or `undefined` if `input` is not a usable string.
    */
-  public static extractDidFragment(input: unknown): string | undefined {
+  public static absoluteDidUrl(input: unknown, did: string): string | undefined {
     if (typeof input !== 'string') return undefined;
     if (input.length === 0) return undefined;
-    return input;
+    return input.startsWith('#') ? `${did}${input}` : input;
   }
 
   /**
