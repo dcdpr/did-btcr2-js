@@ -168,3 +168,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 088 | 2026-08-19 | [Enforce capabilityInvocation Membership When Resolution Applies an Update](088-read-path-update-authorization.md) |
 | 089 | 2026-08-19 | [Aggregation Signing Preconditions for Cohort Members](089-aggregation-signing-preconditions.md) |
 | 090 | 2026-08-19 | [Bind a Message's Claimed Sender to Its Authenticated Key on Every Aggregation Receive Path](090-aggregation-transport-sender-authentication.md) |
+| 091 | 2026-08-21 | [Inject the DID into Beacons, and Resolve Relative DID URLs to Absolute Before Comparing](091-inject-did-into-beacons-and-relative-did-urls.md) |

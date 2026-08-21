@@ -250,10 +250,13 @@ export class DidBtcr2 implements DidMethod {
     }
 
     // Attempt to find a verification method that matches the given method ID, or if not given,
-    // find the first verification method intended for signing claims.
+    // find the first verification method intended for signing claims. Both sides are resolved
+    // to absolute DID URLs first: a document may spell either the verification method `id` or
+    // the reference to it as a relative DID URL (`#initialKey`), and the two must still match.
+    const targetId = Appendix.absoluteDidUrl(methodId, didDocument.id)
+      ?? Appendix.absoluteDidUrl(didDocument.assertionMethod?.[0], didDocument.id);
     const verificationMethod = didDocument.verificationMethod?.find(
-      (vm: DidVerificationMethod) => Appendix.extractDidFragment(vm.id) === (Appendix.extractDidFragment(methodId)
-        ?? Appendix.extractDidFragment(didDocument.assertionMethod?.[0]))
+      (vm: DidVerificationMethod) => Appendix.absoluteDidUrl(vm.id, didDocument.id) === targetId
     );
 
     // If no verification method is found, throw an error

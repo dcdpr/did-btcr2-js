@@ -107,7 +107,7 @@ assert.equal(
 const hashA = canonicalHash(signedA, { encoding: 'hex' });
 
 console.log(`\n[5] Broadcasting LocalSigner update ...`);
-await Updater.announce(beaconService, signedA, localSigner, bitcoin);
+await Updater.announce(beaconService, did, signedA, localSigner, bitcoin);
 await confirmBroadcast({ bitcoin, network: NETWORK, minerAddr, watchAddress: beaconAddress });
 console.log(`    LocalSigner broadcast accepted (hash ${hashA.slice(0, 16)}...)`);
 
@@ -131,7 +131,7 @@ const hashB = canonicalHash(signedB, { encoding: 'hex' });
 assert.notEqual(hashA, hashB, 'distinct payloads have distinct hashes');
 
 console.log(`\n[6] Broadcasting KeyManagerSigner update ...`);
-await Updater.announce(beaconService, signedB, kmsSigner, bitcoin);
+await Updater.announce(beaconService, did, signedB, kmsSigner, bitcoin);
 await confirmBroadcast({ bitcoin, network: NETWORK, minerAddr, watchAddress: beaconAddress });
 console.log(`    KeyManagerSigner broadcast accepted (hash ${hashB.slice(0, 16)}...)`);
 

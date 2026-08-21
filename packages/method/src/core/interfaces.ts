@@ -46,6 +46,7 @@ export interface ResolutionOptions extends DidResolutionOptions {
    * document is well-formed, the resolver simply stopped at the caller's limit.
    */
   maxDiscoveryRounds?: number;
+
 }
 
 /**

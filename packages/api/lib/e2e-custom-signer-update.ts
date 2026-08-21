@@ -106,7 +106,7 @@ console.log(`    DI proof verified ✓`);
 // ─── Step 6: Broadcast via Updater.announce ─────────────────────────────────
 
 console.log(`\n[6] Broadcasting beacon signal ...`);
-await Updater.announce(beaconService, signed, customSigner, bitcoin);
+await Updater.announce(beaconService, did, signed, customSigner, bitcoin);
 await confirmBroadcast({ bitcoin, network: NETWORK, minerAddr, watchAddress: beaconAddress });
 console.log(`    broadcast confirmed`);
 

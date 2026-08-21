@@ -1,5 +1,44 @@
 # @did-btcr2/method
 
+## 0.57.0
+
+### Minor Changes
+
+- Accept relative DID URLs everywhere in a DID document, and take the DID a beacon serves by injection (ADR 091).
+
+  DID Core permits a verification method or service `id`, and the entries of a verification
+  relationship, to be a relative DID URL (`#initialKey`). This implementation only ever produced
+  the absolute spelling and in three places required it, so a conformant document using the
+  relative form did not resolve.
+
+  - `SMTBeacon` and `CASBeacon` recovered the DID by slicing their own `service.id` on `#`, which
+    yields the empty string for a relative id. The SMT beacon then indexed the tree at
+    `didToIndex('')` and failed proof verification; the CAS beacon looked up `announcement['']`
+    and **silently skipped the update**, completing resolution against a stale document.
+    `SMTBeacon.broadcastSignal` had the same slice on the write path.
+  - `DidBtcr2.getSigningMethod` compared verification method ids as raw strings, so an absolute
+    `proof.verificationMethod` never matched a relative `verificationMethod[].id`.
+
+  Beacons now take the DID they serve as a required constructor argument.
+  `BeaconFactory.establish(service, did)` threads it, the `Resolver` supplies
+  `currentDocument.id`, `Updater.announce(beaconService, did, ...)` takes it as a parameter, and
+  `NeedBroadcast` carries a `did` field. Verification method lookup resolves both sides to
+  absolute DID URLs first, via the new `Appendix.absoluteDidUrl`, which the read path's
+  `capabilityInvocation` check now shares. Comparison is on the resolved URL rather than the
+  fragment, so a reference naming a different DID still cannot match. The unused and misnamed
+  `Appendix.extractDidFragment`, which returned its input unchanged, is removed.
+
+  Breaking: the beacon constructors, `BeaconFactory.establish`, and `Updater.announce` each take
+  one more required argument.
+
+  `AggregationService` also rejected a relative `proof.verificationMethod` on the opt-in path
+  when checking that a submission is signed by its sender's own key. That failed closed, so it
+  was never a trust gap, but it turned away a legal spelling; the signing key is pinned by the
+  opt-in record regardless, so the relative form now resolves to the sender.
+
+  Together these let the danubetech `uni-resolver-driver-did-btcr2` examples 11a-b and 12a-b, two
+  aggregate SMT cohorts on mutinynet, resolve to version 2.
+
 ## 0.56.0
 
 ### Minor Changes

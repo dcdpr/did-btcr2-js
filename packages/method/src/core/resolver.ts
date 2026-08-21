@@ -170,9 +170,10 @@ function isSMTProof(value: unknown): value is SMTProof {
  */
 function relationshipMethodId(documentId: string, entry: unknown): string | undefined {
   // An embedded method names itself with its `id`; a reference is the id itself.
+  // Resolving the reference is shared with the verification-method lookup in
+  // DidBtcr2.getSigningMethod, so both admit the same spellings.
   const id = isRecord(entry) ? entry.id : entry;
-  if(typeof id !== 'string' || id.length === 0) return undefined;
-  return id.startsWith('#') ? `${documentId}${id}` : id;
+  return Appendix.absoluteDidUrl(id, documentId);
 }
 
 /**
@@ -251,6 +252,7 @@ export class Resolver {
   /** Count of beacon-discovery passes driven by updates adding new beacon services. */
   #discoveryRounds = 0;
 
+
   /**
    * @internal Use {@link DidBtcr2.resolve} to create instances.
    */
@@ -258,7 +260,12 @@ export class Resolver {
     didComponents: DidComponents,
     sidecarData: SidecarData,
     currentDocument: DidDocument | null,
-    options?: { versionId?: string; versionTime?: string; genesisDocument?: object; maxDiscoveryRounds?: number }
+    options?: {
+      versionId?: string;
+      versionTime?: string;
+      genesisDocument?: object;
+      maxDiscoveryRounds?: number;
+    }
   ) {
     this.#didComponents = didComponents;
     this.#sidecarData = sidecarData;
@@ -773,7 +780,9 @@ export class Resolver {
             if(this.#processedServices.has(service.id) || !signals.length) continue;
 
             // Establish a typed beacon and process its signals
-            const beacon = BeaconFactory.establish(service);
+            // The beacon is bound to the DID under resolution: a beacon service
+            // `id` may be a relative DID URL, so it cannot supply the subject.
+            const beacon = BeaconFactory.establish(service, this.#currentDocument!.id);
             const result = beacon.processSignals(signals, this.#sidecarData);
 
             if(result.needs.length > 0) {

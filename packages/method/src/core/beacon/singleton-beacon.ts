@@ -20,8 +20,8 @@ export class SingletonBeacon extends SinglePartyBeacon {
    * Creates an instance of SingletonBeacon.
    * @param {BeaconService} service The BeaconService object representing the funded beacon to announce the update to.
    */
-  constructor(service: BeaconService) {
-    super({ ...service, type: 'SingletonBeacon' });
+  constructor(service: BeaconService, did: string) {
+    super({ ...service, type: 'SingletonBeacon' }, did);
   }
 
   /**

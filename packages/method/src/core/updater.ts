@@ -58,7 +58,7 @@ export interface FundingProof {
  * The updater needs the caller to broadcast the signed update via the beacon.
  *
  * The caller decides how: for single-party beacons, call
- * `Updater.announce(beaconService, signedUpdate, signer, bitcoin, options?)` or
+ * `Updater.announce(beaconService, did, signedUpdate, signer, bitcoin, options?)` or
  * `BeaconFactory.establish(beaconService).broadcastSignal(...)`. For multi-party
  * aggregate beacons, hand off to the aggregation protocol.
  *
@@ -76,6 +76,11 @@ export interface NeedBroadcast {
   readonly beaconService: BeaconService;
   /** The signed update ready for broadcast. */
   readonly signedUpdate: SignedBTCR2Update;
+  /**
+   * The DID being updated. Supplied because a beacon service `id` may be a
+   * relative DID URL and so cannot be used to recover the subject.
+   */
+  readonly did: string;
 }
 
 /** Discriminated union of all data needs the updater may request from the caller. */
@@ -148,7 +153,7 @@ export interface UpdaterParams {
  *         // Capture the BroadcastResult: broadcast.txid, plus broadcast.announcement
  *         // (CAS beacons) and broadcast.proof (SMT beacons; must be retained, the
  *         // proof's nonce exists nowhere else).
- *         const broadcast = await Updater.announce(need.beaconService, need.signedUpdate, signer, bitcoin);
+ *         const broadcast = await Updater.announce(need.beaconService, need.did, need.signedUpdate, signer, bitcoin);
  *         updater.provide(need);
  *         break;
  *       }
@@ -323,6 +328,8 @@ export class Updater {
    * Announces a signed update to the Bitcoin blockchain via the specified beacon.
    *
    * @param {BeaconService} beaconService The beacon service to broadcast through.
+   * @param {string} did The DID being updated. Required because a beacon service
+   *   `id` may be a relative DID URL and so cannot supply the subject.
    * @param {SignedBTCR2Update} update The signed update to announce.
    * @param {Signer} signer Signer that produces the ECDSA signature for the Bitcoin transaction.
    * @param {BitcoinConnection} bitcoin The Bitcoin network connection.
@@ -334,12 +341,13 @@ export class Updater {
    */
   static async announce(
     beaconService: BeaconService,
+    did: string,
     update: SignedBTCR2Update,
     signer: Signer,
     bitcoin: BitcoinConnection,
     options?: CASBroadcastOptions
   ): Promise<BroadcastResult> {
-    const beacon = BeaconFactory.establish(beaconService);
+    const beacon = BeaconFactory.establish(beaconService, did);
     return beacon.broadcastSignal(update, signer, bitcoin, options);
   }
 
@@ -406,6 +414,7 @@ export class Updater {
               kind          : 'NeedBroadcast',
               beaconService : this.#beaconService,
               signedUpdate  : this.#state.signedUpdate,
+              did           : this.#sourceDocument.id,
             }],
           };
         }

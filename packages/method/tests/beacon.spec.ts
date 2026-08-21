@@ -50,7 +50,7 @@ describe('SinglePartyBeacon.processSignals', () => {
       type            : 'SingletonBeacon',
       serviceEndpoint : 'bitcoin:bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
     };
-    const beacon = new SingletonBeacon(service);
+    const beacon = new SingletonBeacon(service, DID);
 
     it('returns update when signal bytes match a sidecar entry', () => {
       const update = fakeUpdate('singleton-happy');
@@ -87,7 +87,7 @@ describe('SinglePartyBeacon.processSignals', () => {
       type            : 'CASBeacon',
       serviceEndpoint : 'bitcoin:bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
     };
-    const beacon = new CASBeacon(service);
+    const beacon = new CASBeacon(service, DID);
 
     it('returns update when CAS announcement and signed update are in sidecar', () => {
       const update = fakeUpdate('cas-happy');
@@ -162,7 +162,7 @@ describe('SinglePartyBeacon.processSignals', () => {
       type            : 'SMTBeacon',
       serviceEndpoint : 'bitcoin:bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
     };
-    const beacon = new SMTBeacon(service);
+    const beacon = new SMTBeacon(service, DID);
 
     it('returns update when SMT proof and signed update are in sidecar', () => {
       const update = fakeUpdate('smt-happy');
@@ -290,13 +290,13 @@ describe('BeaconFactory.establish', () => {
   const endpoint = 'bitcoin:bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4';
 
   it('returns the typed subclass for each beacon type, all extending SinglePartyBeacon', () => {
-    const cases: Array<[BeaconService['type'], new (s: BeaconService) => SinglePartyBeacon]> = [
+    const cases: Array<[BeaconService['type'], new (s: BeaconService, d: string) => SinglePartyBeacon]> = [
       ['SingletonBeacon', SingletonBeacon],
       ['CASBeacon', CASBeacon],
       ['SMTBeacon', SMTBeacon],
     ];
     for(const [type, ctor] of cases) {
-      const beacon = BeaconFactory.establish({ id: base, type, serviceEndpoint: endpoint });
+      const beacon = BeaconFactory.establish({ id: base, type, serviceEndpoint: endpoint }, DID);
       expect(beacon instanceof ctor, `${type} instance`).to.equal(true);
       expect(beacon instanceof SinglePartyBeacon, `${type} extends SinglePartyBeacon`).to.equal(true);
       expect(beacon.service.type).to.equal(type);
@@ -305,7 +305,7 @@ describe('BeaconFactory.establish', () => {
 
   it('throws on an unknown beacon type', () => {
     const service = { id: base, type: 'BogusBeacon', serviceEndpoint: endpoint } as unknown as BeaconService;
-    expect(() => BeaconFactory.establish(service)).to.throw('Invalid Beacon Type');
+    expect(() => BeaconFactory.establish(service, DID)).to.throw('Invalid Beacon Type');
   });
 });
 
@@ -319,7 +319,7 @@ describe('CAS announcement hash chain (regression)', () => {
     type            : 'CASBeacon',
     serviceEndpoint : 'bitcoin:bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
   };
-  const beacon = new CASBeacon(service);
+  const beacon = new CASBeacon(service, DID);
 
   it('signal hop: on-chain signalBytes (hex) equals the casMap key canonicalHash(announcement, hex)', () => {
     const update = fakeUpdate('cas-chain-signal');

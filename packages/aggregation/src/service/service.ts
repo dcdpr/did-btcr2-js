@@ -663,8 +663,14 @@ export class AggregationService {
     if(typeof proof.verificationMethod !== 'string') return false;
 
     // The proof must be signed by the sender's own key. Reject if the
-    // verificationMethod references a different DID.
-    const vmDid = proof.verificationMethod.split('#')[0];
+    // verificationMethod references a different DID. A relative DID URL
+    // ('#initialKey') denotes a fragment of the document it appears in, so it
+    // resolves to the sender by construction; the signing key is pinned by the
+    // opt-in record below either way, so accepting the relative spelling grants
+    // no additional trust.
+    const vmDid = proof.verificationMethod.startsWith('#')
+      ? sender
+      : proof.verificationMethod.split('#')[0];
     if(vmDid !== sender) return false;
 
     const optIn = state.pendingOptIns.get(sender);

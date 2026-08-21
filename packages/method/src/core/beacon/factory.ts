@@ -14,16 +14,18 @@ export class BeaconFactory {
   /**
    * Establish a Beacon instance based on the provided service and optional sidecar data.
    * @param {BeaconService} service The beacon service configuration.
+   * @param {string} did The absolute did:btcr2 identifier the beacon serves. Supplied
+   *   by the caller because a beacon service `id` may be a relative DID URL.
    * @returns {SinglePartyBeacon} The established Beacon instance.
    */
-  static establish(service: BeaconService): SinglePartyBeacon {
+  static establish(service: BeaconService, did: string): SinglePartyBeacon {
     switch (service.type) {
       case 'SingletonBeacon':
-        return new SingletonBeacon(service);
+        return new SingletonBeacon(service, did);
       case 'CASBeacon':
-        return new CASBeacon(service);
+        return new CASBeacon(service, did);
       case 'SMTBeacon':
-        return new SMTBeacon(service);
+        return new SMTBeacon(service, did);
       default:
         throw new MethodError('Invalid Beacon Type', 'INVALID_BEACON_ERROR', service);
     }

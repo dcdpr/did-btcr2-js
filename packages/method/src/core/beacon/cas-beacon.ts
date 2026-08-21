@@ -57,9 +57,10 @@ export class CASBeacon extends SinglePartyBeacon {
   /**
    * Creates an instance of CASBeacon.
    * @param {BeaconService} service The service of the Beacon.
+   * @param {string} did The absolute did:btcr2 identifier this beacon serves.
    */
-  constructor(service: BeaconService) {
-    super({ ...service, type: 'CASBeacon' });
+  constructor(service: BeaconService, did: string) {
+    super({ ...service, type: 'CASBeacon' }, did);
   }
 
   /**
@@ -82,8 +83,8 @@ export class CASBeacon extends SinglePartyBeacon {
     const updates = new Array<[SignedBTCR2Update, BlockMetadata]>();
     const needs = new Array<DataNeed>();
 
-    // Extract the DID from the beacon service id (strip the #fragment)
-    const did = this.service.id.split('#')[0];
+    // The DID under resolution keys this beacon's announcement entry.
+    const did = this.did;
 
     for(const signal of signals) {
       // Signal bytes are hex, matches hex-keyed sidecar maps directly
@@ -160,8 +161,8 @@ export class CASBeacon extends SinglePartyBeacon {
     bitcoin: BitcoinConnection,
     options?: CASBroadcastOptions
   ): Promise<BroadcastResult> {
-    // Extract the DID from the beacon service id (strip the #fragment)
-    const did = this.service.id.split('#')[0];
+    // The DID this beacon serves keys its announcement entry.
+    const did = this.did;
 
     // Hash the signed update (base64urlnopad for the CAS Announcement entry per spec)
     const updateHash = canonicalHash(signedUpdate);
