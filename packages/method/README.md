@@ -78,12 +78,16 @@ import { BitcoinConnection } from '@did-btcr2/bitcoin';
 const signer = new LocalSigner(secretKeyBytes);
 const bitcoin = new BitcoinConnection({ network: 'mutinynet' });
 
+// Ids are resolved against the source document before matching, so either the
+// absolute DID URL (`${did}#initialKey`) or the relative one (`#initialKey`)
+// works, whichever the document itself uses. Documents this package generates
+// write the absolute spelling.
 const updater = DidBtcr2.update({
   sourceDocument,
   patches              : [{ op: 'add', path: '/service/-', value: newService }],
   sourceVersionId      : 1,
-  verificationMethodId : '#initialKey',
-  beaconId             : '#beacon-0',
+  verificationMethodId : `${sourceDocument.id}#initialKey`,
+  beaconId             : sourceDocument.service[0].id,
 });
 
 let state = updater.advance();
@@ -101,7 +105,9 @@ while (state.status === 'action-required') {
         // Capture the BroadcastResult: broadcast.txid, plus broadcast.announcement
         // (CAS beacons) and broadcast.proof (SMT beacons; must be retained, the
         // proof's nonce exists nowhere else).
-        const broadcast = await Updater.announce(need.beaconService, need.signedUpdate, signer, bitcoin);
+        const broadcast = await Updater.announce(
+          need.beaconService, need.did, need.signedUpdate, signer, bitcoin
+        );
         updater.provide(need);
         break;
       }
@@ -173,7 +179,7 @@ Tests run from compiled JS, so run `pnpm build:tests` before `pnpm test` after a
 - **[`docs/beacon-system-overview.md`](./docs/beacon-system-overview.md)** Beacon architecture, Singleton / CAS / SMT behavior, signal discovery
 - **[`docs/aggregation.md`](./docs/aggregation.md)** Multi-party aggregation protocol, Runner and state machine APIs, e2e examples (the runnable APIs live in `@did-btcr2/aggregation`)
 - **[`docs/http-transport.md`](./docs/http-transport.md)** HTTP/REST transport: wire protocol, signed envelopes, SSE subscriptions, Hono/Node framework mount example, permissive CORS (shipped by `@did-btcr2/aggregation`)
-- **[`docs/test-vectors.md`](./docs/test-vectors.md)** CLI tool for generating did:btcr2 test vectors via a stepped workflow
+- **[`docs/test-vectors.md`](./docs/test-vectors.md)** CLI tool for generating did:btcr2 test vectors via a stepped workflow, plus the cross-implementation harness that resolves another implementation's vectors through ours
 - **Source reference** See JSDoc comments on public classes; the most important entry points are `DidBtcr2` (facade), `Resolver` (read path), and `Updater` (write path).
 
 ## License

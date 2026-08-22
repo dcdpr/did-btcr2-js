@@ -36,6 +36,31 @@ export class Appendix {
   }
 
   /**
+   * Resolves a verification relationship entry to the absolute DID URL of the method it
+   * names. A relationship entry is either a reference to a method defined elsewhere in the
+   * document, or a method embedded inline, which names itself with its own `id`; either
+   * spelling may be a relative DID URL.
+   *
+   * Every comparison of a relationship entry against a method id goes through this helper,
+   * on both the read path and the write path, so the two admit exactly the same spellings.
+   *
+   * Malformed entries yield `undefined` rather than a placeholder string, so two unusable
+   * values never compare equal to each other. Callers comparing a resolved entry must still
+   * reject an `undefined` target before comparing, or an unusable target matches an
+   * unusable entry.
+   *
+   * @param {unknown} entry The relationship entry: a reference, or an embedded method.
+   * @param {string} did The DID the relative reference is resolved against.
+   * @returns {string | undefined} The absolute DID URL, or `undefined` if unusable.
+   */
+  public static relationshipMethodId(entry: unknown, did: string): string | undefined {
+    const id = (typeof entry === 'object' && entry !== null && !Array.isArray(entry))
+      ? (entry as { id?: unknown }).id
+      : entry;
+    return Appendix.absoluteDidUrl(id, did);
+  }
+
+  /**
    * Validates that the given object is a DidVerificationMethod
    * @param {unknown} obj The object to validate
    * @returns {boolean} A boolean indicating whether the object is a DidVerificationMethod

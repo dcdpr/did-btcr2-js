@@ -66,8 +66,8 @@ console.log(resolution.didDocument?.id);
 ```typescript
 import { LocalSigner } from '@did-btcr2/keypair';
 
-// Ids are matched exactly against the document: use full DID URLs
-// (e.g. `${did}#initialKey`), not bare fragments.
+// Ids are resolved against the document before matching, so a full DID URL
+// (`${did}#initialKey`) and a bare fragment (`#initialKey`) both work.
 const { signedUpdate, txid, announcement, publishedToCas } = await api.btcr2
   .buildUpdate(currentDoc)
   .patch({ op: 'add', path: '/service/-', value: newService })

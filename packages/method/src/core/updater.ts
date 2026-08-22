@@ -59,7 +59,7 @@ export interface FundingProof {
  *
  * The caller decides how: for single-party beacons, call
  * `Updater.announce(beaconService, did, signedUpdate, signer, bitcoin, options?)` or
- * `BeaconFactory.establish(beaconService).broadcastSignal(...)`. For multi-party
+ * `BeaconFactory.establish(beaconService, did).broadcastSignal(...)`. For multi-party
  * aggregate beacons, hand off to the aggregation protocol.
  *
  * Both single-party paths return a `BroadcastResult`; capture it. Beyond the txid,
@@ -283,6 +283,12 @@ export class Updater {
     const id = verificationMethod.id.slice(hashIdx);
     const multikey = SchnorrMultikey.fromSigner(id, controller, signer);
 
+    // The absolute spelling of the method id, for the proof to name it by. `hashIdx === 0`
+    // means the document writes this method's own id as a relative DID URL, which per DID
+    // Core denotes that fragment of the document's `id`: the same rule as
+    // Appendix.absoluteDidUrl, whose `undefined` case the fragment check above excludes.
+    const absoluteMethodId = hashIdx === 0 ? `${did}${id}` : verificationMethod.id;
+
     // Fail fast if the signer's public key is not the key published in the named
     // verification method. Signing with the wrong key yields a Data Integrity
     // proof that cannot verify against the method, so the resulting on-chain
@@ -313,7 +319,12 @@ export class Updater {
       ],
       cryptosuite        : 'bip340-jcs-2025',
       type               : 'DataIntegrityProof',
-      verificationMethod : verificationMethod.id,
+      // The proof names the signing method by absolute DID URL, even when the document
+      // spells that method's own id relatively: a proof travels apart from the document
+      // that defines the method, so a bare `#initialKey` in it resolves against nothing.
+      // For a document that already spells its ids absolutely this is the id unchanged,
+      // so proofs over such documents are byte-identical to before.
+      verificationMethod : absoluteMethodId,
       proofPurpose       : 'capabilityInvocation',
       capability         : `urn:zcap:root:${encodeURIComponent(did)}`,
       capabilityAction   : 'Write',

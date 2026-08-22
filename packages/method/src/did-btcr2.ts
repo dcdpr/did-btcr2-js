@@ -171,8 +171,16 @@ export class DidBtcr2 implements DidMethod {
     verificationMethodId: string;
     beaconId: string;
   }): Updater {
-    // Validate that the verificationMethodId is authorized for capabilityInvocation
-    if(!sourceDocument.capabilityInvocation?.some(vr => vr === verificationMethodId)) {
+    // Validate that the verificationMethodId is authorized for capabilityInvocation.
+    // Both sides are resolved to absolute DID URLs first, so the caller's spelling of the
+    // reference and the document's spelling of the entry may differ: either is legal per
+    // DID Core. This is the same rule the read path applies to an update's proof, so an
+    // update this factory authorizes is one the resolver will also accept.
+    const authorizedMethodId = Appendix.relationshipMethodId(verificationMethodId, sourceDocument.id);
+    const authorized = authorizedMethodId !== undefined && sourceDocument.capabilityInvocation?.some(
+      entry => Appendix.relationshipMethodId(entry, sourceDocument.id) === authorizedMethodId
+    );
+    if(!authorized) {
       throw new UpdateError(
         'Invalid verificationMethodId: not authorized for capabilityInvocation',
         INVALID_DID_DOCUMENT, sourceDocument
@@ -206,9 +214,14 @@ export class DidBtcr2 implements DidMethod {
       );
     }
 
-    // Find the beacon service matching the given beaconId
+    // Find the beacon service matching the given beaconId. A service `id` may be a relative
+    // DID URL, so both sides are resolved against the document before comparison; an
+    // unusable beaconId matches nothing rather than matching an unusable service id.
+    const targetBeaconId = Appendix.absoluteDidUrl(beaconId, sourceDocument.id);
     const beaconService = sourceDocument.service
-      .filter((service: BeaconService) => service.id === beaconId)
+      .filter((service: BeaconService) =>
+        targetBeaconId !== undefined
+        && Appendix.absoluteDidUrl(service.id, sourceDocument.id) === targetBeaconId)
       .filter((service: BeaconService): service is BeaconService => !!service)
       .shift();
 
@@ -254,8 +267,12 @@ export class DidBtcr2 implements DidMethod {
     // to absolute DID URLs first: a document may spell either the verification method `id` or
     // the reference to it as a relative DID URL (`#initialKey`), and the two must still match.
     const targetId = Appendix.absoluteDidUrl(methodId, didDocument.id)
-      ?? Appendix.absoluteDidUrl(didDocument.assertionMethod?.[0], didDocument.id);
-    const verificationMethod = didDocument.verificationMethod?.find(
+      ?? Appendix.relationshipMethodId(didDocument.assertionMethod?.[0], didDocument.id);
+
+    // An unusable target matches nothing: without this guard it compares equal to every
+    // method whose own id is unusable, and the document's first malformed method is
+    // returned as the signing method.
+    const verificationMethod = targetId === undefined ? undefined : didDocument.verificationMethod?.find(
       (vm: DidVerificationMethod) => Appendix.absoluteDidUrl(vm.id, didDocument.id) === targetId
     );
 

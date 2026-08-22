@@ -1,6 +1,7 @@
 import { DidDocumentError, INVALID_DID_DOCUMENT } from '@did-btcr2/common';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
+import { Appendix } from '../utils/appendix.js';
 import type { DidDocument, DidVerificationMethod } from '../utils/did-document.js';
 import { Identifier } from './identifier.js';
 import { Resolver } from './resolver.js';
@@ -40,9 +41,16 @@ export function getAggregationCommunicationKey(
   // Resolve capabilityInvocation[0] to a verification method: a string reference is
   // dereferenced by id against verificationMethod; an embedded method is used directly.
   // A local id lookup is used rather than getSigningMethod, which defaults to #initialKey
-  // and does not resolve embedded methods.
+  // and does not resolve embedded methods. Reference and method id are each resolved to an
+  // absolute DID URL first, because either may be spelled as a relative DID URL; an
+  // unusable reference resolves to nothing rather than to the first unusable method id.
+  const invocationId = Appendix.absoluteDidUrl(invocation, document.id);
   const vm: DidVerificationMethod | undefined = typeof invocation === 'string'
-    ? document.verificationMethod?.find(method => method.id === invocation)
+    ? (invocationId === undefined
+      ? undefined
+      : document.verificationMethod?.find(
+        method => Appendix.absoluteDidUrl(method.id, document.id) === invocationId
+      ))
     : invocation;
 
   if(!vm) {

@@ -1,5 +1,44 @@
 # @did-btcr2/method
 
+## 0.58.0
+
+### Minor Changes
+
+- Apply the relative DID URL rule to the write path and to proof references (ADR 092).
+
+  [ADR 091](https://github.com/dcdpr/did-btcr2-js/blob/main/docs/adr/091-inject-did-into-beacons-and-relative-did-urls.md)
+  decided that both spellings of a DID URL resolve to the absolute form before being compared, and
+  applied it to the read path. Four sites were left comparing raw strings, so a document written in
+  the relative spelling resolved but could not be updated.
+
+  - `DidBtcr2.update` compared `capabilityInvocation` membership and the `beaconId` service lookup
+    as raw strings, one line before delegating to `getSigningMethod`, which resolves both sides.
+    A caller holding a relative-spelling document could not name its own key or its own beacon in
+    any spelling the factory accepted. Both comparisons now resolve each side against the document.
+  - `Updater.sign` put the document's spelling of the method id into the proof's
+    `verificationMethod`. For a relative document that is a bare `#initialKey`, which resolves
+    against nothing once the proof leaves the document, and the cryptosuite refused to serialize
+    it, so such a document could not be signed for at all. The proof now names the method by
+    absolute DID URL. A document that already spells its ids absolutely produces a byte-identical
+    proof, so no existing test vector changes.
+  - `getAggregationCommunicationKey` dereferenced `capabilityInvocation[0]` against
+    `verificationMethod[].id` by raw comparison, so an EXTERNAL sender whose genesis document mixes
+    spellings derived no communication key and could not be authenticated on either transport.
+  - `getSigningMethod` compared its resolved target without first rejecting an unusable one, so a
+    lookup with an empty method id returned the document's first malformed verification method.
+    Every comparison now rejects an unusable target before comparing.
+
+  Adds `Appendix.relationshipMethodId(entry, did)`, which resolves a verification relationship
+  entry (a reference, or a method embedded inline that names itself with its own `id`) to an
+  absolute DID URL. The read path's membership check, the write path's membership check, and the
+  `assertionMethod` fallback in the method lookup now share it, so all three admit exactly the same
+  spellings.
+
+  Comparison remains on the resolved absolute URL rather than the bare fragment, so a reference
+  naming a different DID still cannot match. A verification method whose `controller` is some DID
+  other than the document subject still fails, and still fails at signing time rather than at
+  resolution.
+
 ## 0.57.0
 
 ### Minor Changes
