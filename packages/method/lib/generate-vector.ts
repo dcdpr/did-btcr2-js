@@ -942,7 +942,7 @@ async function announceUpdate(
   console.log(`  endpoint: ${beaconService.serviceEndpoint}`);
 
   const signer = new LocalSigner(hex.decode(signingMaterial));
-  const { txid } = await Updater.announce(beaconService, signedUpdate, signer, bitcoin);
+  const { txid } = await Updater.announce(beaconService, did, signedUpdate, signer, bitcoin);
 
   console.log(`Update announced to Bitcoin (${network})`);
   console.log(`  txid: ${txid}`);

@@ -69,9 +69,9 @@ This means the `method` package can be tested against the Bitcoin protocols with
 
 ### 4. Three beacon types, one Beacon abstraction
 
-All three beacon types: `SingletonBeacon`, `CASBeacon`, `SMTBeacon`: extend a single abstract `Beacon` class with a `processSignals()` method. They differ only in how they interpret signals and what data they need from the caller. The `Resolver` doesn't know which beacon type it's processing: it just calls `beacon.processSignals(signals)` and the beacon returns either applied updates or new `DataNeed` requests.
+All three beacon types: `SingletonBeacon`, `CASBeacon`, `SMTBeacon`: extend a single abstract `SinglePartyBeacon` class with a `processSignals()` method. They differ only in how they interpret signals and what data they need from the caller. The `Resolver` doesn't know which beacon type it's processing: it just calls `beacon.processSignals(signals)` and the beacon returns either applied updates or new `DataNeed` requests.
 
-The `BeaconFactory.establish(service)` factory takes a `BeaconService` from a DID document and returns the correct typed beacon, parsed from a BIP21 Bitcoin URI (`bitcoin:<address>`).
+The `BeaconFactory.establish(service, did)` factory takes a `BeaconService` from a DID document and returns the correct typed beacon, parsed from a BIP21 Bitcoin URI (`bitcoin:<address>`). The DID is supplied by the caller rather than sliced out of the service id, because a beacon service id is a reference within a document and may be written as a relative DID URL (`#beacon-1`), which names no DID at all ([ADR 091](../adr/091-inject-did-into-beacons-and-relative-did-urls.md)).
 
 ### 5. Aggregation as a separate concern
 

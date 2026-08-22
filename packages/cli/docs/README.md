@@ -24,7 +24,7 @@ deactivating `did:btcr2` identifiers.
 
 Global flags are declared on the root program (before the command word) and are shared by every
 command; each command doc lists which globals it actually consumes. The table below matches
-`btcr2 --help` (v0.19.0) and the option declarations in `src/cli.ts`.
+`btcr2 --help` (v0.19.2) and the option declarations in `src/cli.ts`.
 
 | Flag | Value | Default | Description |
 |------|-------|---------|-------------|

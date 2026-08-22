@@ -149,33 +149,6 @@ function isSMTProof(value: unknown): value is SMTProof {
     && Array.isArray(value.hashes);
 }
 
-// ─── verification relationship membership ────────────────────────────────────
-
-/**
- * Resolves a verification relationship entry to the absolute DID URL of the
- * method it names, or `undefined` when the entry names no method.
- *
- * An entry is either a reference (a bare fragment such as `#key-0`, or an
- * absolute DID URL) or an embedded verification method object. A bare fragment
- * is relative to the document that carries it, so it is resolved against
- * `documentId` before comparison; every other string is returned unchanged, so
- * a reference naming a different DID can never collapse onto this document's.
- *
- * Malformed entries yield `undefined` rather than a placeholder string, so two
- * unusable values never compare equal to each other.
- *
- * @param {string} documentId The `id` of the DID document carrying the entry.
- * @param {unknown} entry The relationship entry: a reference or an embedded method.
- * @returns {string | undefined} The absolute DID URL, or undefined if unusable.
- */
-function relationshipMethodId(documentId: string, entry: unknown): string | undefined {
-  // An embedded method names itself with its `id`; a reference is the id itself.
-  // Resolving the reference is shared with the verification-method lookup in
-  // DidBtcr2.getSigningMethod, so both admit the same spellings.
-  const id = isRecord(entry) ? entry.id : entry;
-  return Appendix.absoluteDidUrl(id, documentId);
-}
-
 /**
  * Different possible Resolver states representing phases in the resolution process.
  */
@@ -643,9 +616,9 @@ export class Resolver {
     // without it here the read path applies an update signed by any key in the document.
     // Checked before the method is located so an unauthorized method always fails with
     // this typed error, whether or not it also appears in verificationMethod[].
-    const authorizedMethodId = relationshipMethodId(currentDocument.id, verificationMethodId);
+    const authorizedMethodId = Appendix.relationshipMethodId(verificationMethodId, currentDocument.id);
     const authorized = authorizedMethodId !== undefined && currentDocument.capabilityInvocation?.some(
-      entry => relationshipMethodId(currentDocument.id, entry) === authorizedMethodId
+      entry => Appendix.relationshipMethodId(entry, currentDocument.id) === authorizedMethodId
     );
     if(!authorized) {
       throw new ResolveError(

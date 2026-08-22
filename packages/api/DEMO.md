@@ -6,7 +6,7 @@ This is the developer-facing companion to the CLI walkthrough at [`../cli/docs/D
 
 **How to follow along.** Three options, from least to most hands-on: (1) just read; (2) run the companion script, which pauses while you fund the beacon from the faucet and again while each broadcast confirms; (3) paste the blocks into a `npx tsx` REPL top-to-bottom (top-level `await` works, and variables persist between blocks).
 
-Targets `@did-btcr2/api` **v0.19.0**.
+Targets `@did-btcr2/api` **v0.19.2**.
 
 ---
 

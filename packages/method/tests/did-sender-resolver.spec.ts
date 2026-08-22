@@ -94,6 +94,47 @@ describe('getAggregationCommunicationKey', () => {
     const doc = { id: controller, verificationMethod: [], capabilityInvocation: [vmId] } as unknown as DidDocument;
     expect(() => getAggregationCommunicationKey(doc)).to.throw(/verification method/);
   });
+
+  // Either the reference or the method id may be a relative DID URL (ADR 092): both are
+  // resolved against the document before comparison, so all four pairings resolve.
+  it('resolves either spelling of the reference against either spelling of the method id', () => {
+    const relativeVm = { ...vm, id: '#key-0' };
+    const pairings: Array<[typeof vm, string]> = [
+      [vm, vmId],
+      [vm, '#key-0'],
+      [relativeVm, vmId],
+      [relativeVm, '#key-0'],
+    ];
+    for(const [method, reference] of pairings) {
+      const doc = {
+        id                   : controller,
+        verificationMethod   : [method],
+        capabilityInvocation : [reference],
+      } as unknown as DidDocument;
+      expect(
+        hex.encode(getAggregationCommunicationKey(doc).compressed),
+        `method ${method.id} / reference ${reference}`
+      ).to.equal(expectedPkHex);
+    }
+  });
+
+  it('does not resolve a reference naming a different subject', () => {
+    const doc = {
+      id                   : controller,
+      verificationMethod   : [{ ...vm, id: '#key-0' }],
+      capabilityInvocation : ['did:btcr2:x1other#key-0'],
+    } as unknown as DidDocument;
+    expect(() => getAggregationCommunicationKey(doc)).to.throw(/verification method/);
+  });
+
+  it('does not match an unusable reference against an unusable method id', () => {
+    const doc = {
+      id                   : controller,
+      verificationMethod   : [{ ...vm, id: '' }],
+      capabilityInvocation : [''],
+    } as unknown as DidDocument;
+    expect(() => getAggregationCommunicationKey(doc)).to.throw(/verification method/);
+  });
 });
 
 describe('x1 genesis hash commitment (round-trip)', () => {

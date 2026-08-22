@@ -10,7 +10,7 @@ commands reuse shell variables set by earlier ones, so keep the same session ope
 output block is **illustrative** - your keys, DID strings, and Bitcoin addresses will be
 unique to you, but the shape will match.
 
-Targets `@did-btcr2/cli` **v0.19.0**.
+Targets `@did-btcr2/cli` **v0.19.2**.
 
 ---
 
@@ -66,7 +66,7 @@ btcr2 --version
 ```
 
 ```
-btcr2 0.19.0
+btcr2 0.19.2
 ```
 
 ### Set up in one command

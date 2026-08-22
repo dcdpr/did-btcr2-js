@@ -261,3 +261,45 @@ lib/data/{network}/{type}/{hash}/
     output.json    # (live mode only)
   other.json
 ```
+
+## Cross-Implementation Vectors
+
+The vectors above are ours. A second harness, in `lib/debug/`, resolves another
+implementation's vectors through our CLI, which is how the relative DID URL gap in
+[ADR 091](../../../docs/adr/091-inject-did-into-beacons-and-relative-did-urls.md) was found:
+a document shape we never generate, and therefore never tested, was one no vector of ours
+could have covered.
+
+`danubetech-vectors.json` is a committed snapshot of the 16 example DIDs published by the
+[danubetech `uni-resolver-driver-did-btcr2`](https://github.com/danubetech/uni-resolver-driver-did-btcr2),
+6 resolved bare (`GET`) and 10 with sidecar resolution options (`POST`). The `description`,
+`notes`, `knownFault`, and `knownFailReason` fields on each entry are ours, not upstream's.
+
+```bash
+# From packages/method/lib/debug/
+
+# Resolve all 16 through whatever `btcr2` is on PATH (the published binary)
+./danubetech-run.sh
+
+# Resolve a local build instead: the usual reason to run this
+BTCR2_BIN="node $(git rev-parse --show-toplevel)/packages/cli/dist/esm/bin/btcr2.js" ./danubetech-run.sh
+
+# A subset, a longer per-vector timeout, a custom report path
+./danubetech-run.sh 04 07 12a
+TIMEOUT=120 ./danubetech-run.sh
+./danubetech-run.sh --out /tmp/report.md
+
+# Refresh the snapshot from upstream (clones to a temp dir, or pass a checkout path)
+./danubetech-sync.sh
+./danubetech-sync.sh /path/to/uni-resolver-driver-did-btcr2
+```
+
+Each vector is wrapped in `timeout` so one hang does not block the run. Terminal output is a
+progress log; the full report, including the captured stdout and stderr per vector, is written
+to `results.md` beside the script (gitignored). Statuses are `PASS`, `FAIL`, `XFAIL` (a vector
+carrying a `knownFault` annotation), and `TIMEOUT`; the script exits non-zero only on `FAIL` or
+`TIMEOUT`, so an expected failure does not break a run.
+
+A failure here is not automatically ours. Attributing one is a three-question exercise: what
+does the specification require, which implementation departs from it, and does a vector exist
+that would have caught it. Requires `jq`, GNU `timeout`, and a `btcr2` CLI.
