@@ -125,4 +125,65 @@ describe('KeyManagerApi', () => {
     const kmsApi = new KeyManagerApi(fakeKms);
     expect(() => kmsApi.export('key-1')).to.throw('Key export is not supported');
   });
+
+  // --- signer() and activeKeyId ---
+
+  it('signer(id) returns a Signer whose public key matches the entry', () => {
+    const kmsApi = new KeyManagerApi();
+    const id = kmsApi.generateKey();
+    const signer = kmsApi.signer(id);
+    expect(signer.publicKey).to.deep.equal(kmsApi.getPublicKey(id));
+  });
+
+  it('signer() with no id resolves the active key, not the newest key', () => {
+    const kmsApi = new KeyManagerApi();
+    const active = kmsApi.generateKey({ setActive: true });
+    kmsApi.generateKey();
+    expect(kmsApi.signer().publicKey).to.deep.equal(kmsApi.getPublicKey(active));
+  });
+
+  it('signer() binds its key at creation; a later setActive does not float it', () => {
+    const kmsApi = new KeyManagerApi();
+    const a = kmsApi.generateKey({ setActive: true });
+    const signer = kmsApi.signer();
+    const b = kmsApi.generateKey({ setActive: true });
+    const digest = kmsApi.digest(new Uint8Array([9]));
+    const sig = signer.sign(digest, 'bip340');
+    expect(kmsApi.verify(sig, digest, a)).to.equal(true);
+    expect(signer.publicKey).to.deep.equal(kmsApi.getPublicKey(a));
+    expect(kmsApi.activeKeyId).to.equal(b);
+  });
+
+  it('signer() with no id and no active key fails fast', () => {
+    const kmsApi = new KeyManagerApi();
+    expect(() => kmsApi.signer()).to.throw('No key id given and no active key set');
+  });
+
+  it('signer(id) fails fast on an unknown key id', () => {
+    const kmsApi = new KeyManagerApi();
+    kmsApi.generateKey();
+    expect(() => kmsApi.signer('urn:kms:secp256k1:doesnotexist'))
+      .to.throw('Key not found');
+  });
+
+  it('signer(id).sign() produces a signature the kms verifies', () => {
+    const kmsApi = new KeyManagerApi();
+    const id = kmsApi.generateKey();
+    const digest = kmsApi.digest(new Uint8Array([1, 2, 3]));
+    const sig = kmsApi.signer(id).sign(digest, 'bip340');
+    expect(kmsApi.verify(sig, digest, id)).to.equal(true);
+  });
+
+  it('activeKeyId is undefined on a fresh manager', () => {
+    expect(new KeyManagerApi().activeKeyId).to.equal(undefined);
+  });
+
+  it('activeKeyId tracks generateKey({ setActive }) and setActive()', () => {
+    const kmsApi = new KeyManagerApi();
+    const a = kmsApi.generateKey({ setActive: true });
+    expect(kmsApi.activeKeyId).to.equal(a);
+    const b = kmsApi.generateKey();
+    kmsApi.setActive(b);
+    expect(kmsApi.activeKeyId).to.equal(b);
+  });
 });

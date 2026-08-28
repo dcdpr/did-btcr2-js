@@ -1,6 +1,6 @@
 import type { AddressUtxo, BitcoinConnection } from '@did-btcr2/bitcoin';
 import { getNetwork } from '@did-btcr2/bitcoin';
-import { canonicalHash, canonicalHashBytes, encode, hash } from '@did-btcr2/common';
+import { canonicalHash, canonicalHashBytes, encode, hash, INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/common';
 import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import type { Btcr2DidDocument, NeedBeaconSignals } from '@did-btcr2/method';
 import { DidBtcr2, ID_PLACEHOLDER_VALUE } from '@did-btcr2/method';
@@ -63,12 +63,16 @@ class FlakyCasExecutor extends MemCasExecutor {
 
 /**
  * Minimal BitcoinConnection that funds `beaconAddress` with one confirmed UTXO
- * and records broadcasts into `order` / UTXO lookups into `counters`.
+ * and records broadcasts into `order` / UTXO lookups into `counters`. `utxosAt`
+ * replaces the UTXO list of an address. It receives the confirmed UTXO and the
+ * address. A test can return the UTXO altered, with others, not at all, or at
+ * one address only.
  */
 function mockBitcoin(
   beaconAddress: string,
   order: string[],
   counters: { utxoCalls: number; sent: string[] },
+  utxosAt: (funded: AddressUtxo, address: string) => AddressUtxo[] = funded => [funded],
 ): BitcoinConnection {
   const beaconScript = OutScript.encode(Address(network).decode(beaconAddress));
   const prevTx = new Transaction({ allowUnknownOutputs: true });
@@ -79,7 +83,7 @@ function mockBitcoin(
   return {
     data : network,
     rest : {
-      address     : { getUtxos: async () => { counters.utxoCalls += 1; return [utxo]; } },
+      address     : { getUtxos: async (address: string) => { counters.utxoCalls += 1; return utxosAt(utxo, address); } },
       transaction : {
         getHex : async () => bytesToHex(prevTxBytes),
         send   : async (hex: string) => { counters.sent.push(hex); order.push('tx-broadcast'); return TXID; },
@@ -132,7 +136,12 @@ function updateFixture(beaconType: 'SingletonBeacon' | 'CASBeacon' | 'SMTBeacon'
 }
 
 /** Common update() args for a fixture, wired to fresh recorders. */
-function updateArgs(fixture: ReturnType<typeof updateFixture>, order: string[], counters: { utxoCalls: number; sent: string[] }) {
+function updateArgs(
+  fixture: ReturnType<typeof updateFixture>,
+  order: string[],
+  counters: { utxoCalls: number; sent: string[] },
+  utxosAt?: (funded: AddressUtxo, address: string) => AddressUtxo[],
+) {
   return {
     sourceDocument       : fixture.sourceDocument,
     patches              : [],
@@ -140,7 +149,7 @@ function updateArgs(fixture: ReturnType<typeof updateFixture>, order: string[], 
     verificationMethodId : fixture.verificationMethodId,
     beaconId             : fixture.beaconId,
     signer               : fixture.signer,
-    bitcoin              : mockBitcoin(fixture.beaconAddress, order, counters),
+    bitcoin              : mockBitcoin(fixture.beaconAddress, order, counters, utxosAt),
   };
 }
 
@@ -408,6 +417,197 @@ describe('DidMethodApi update() CAS publication policy', () => {
     });
   });
 
+  describe('NeedFunding spendability guard', () => {
+    const unconfirmed = (funded: AddressUtxo): AddressUtxo[] =>
+      [{ ...funded, status: { confirmed: false } as never }];
+
+    it('unconfirmed-only address: refuses before any CAS publication, even under always', async () => {
+      const fixture = updateFixture('CASBeacon');
+      const { order, counters } = recorders();
+      const executor = new MemCasExecutor(order);
+      const methodApi = new DidMethodApi(undefined, new CasApi({ executor }));
+
+      // The beacon spends only a confirmed UTXO. The guard applies that rule at
+      // NeedFunding, so the refusal lands before the signed update or the
+      // announcement reaches the CAS, and before the beacon UTXO is spent.
+      const err: unknown = await methodApi.update({
+        ...updateArgs(fixture, order, counters, unconfirmed),
+        publishToCas : 'always',
+      }).catch((e: unknown) => e);
+
+      expect(err).to.be.instanceOf(UpdateError);
+      expect((err as UpdateError).message).to.include('are unconfirmed');
+      expect((err as UpdateError).type).to.equal(INVALID_DID_UPDATE);
+      expect((err as UpdateError).data).to.deep.equal({ beaconAddress: fixture.beaconAddress, utxos: 1 });
+      expect(counters.utxoCalls, 'the guard read the address').to.equal(1);
+      expect(order, 'no publish label, no tx broadcast').to.deep.equal([]);
+      expect(executor.store.size, 'nothing may reach the CAS').to.equal(0);
+      expect(counters.sent).to.have.length(0);
+    });
+
+    it('dust-only address: refuses and names the dust limit', async () => {
+      const fixture = updateFixture('SingletonBeacon');
+      const { order, counters } = recorders();
+      const methodApi = new DidMethodApi();
+
+      // 546 sats is the boundary: a UTXO at or below it is not spendable.
+      await expect(methodApi.update(
+        updateArgs(fixture, order, counters, funded => [{ ...funded, value: 546 }])
+      )).to.be.rejectedWith(UpdateError, '546-sat dust limit');
+      expect(order).to.deep.equal([]);
+      expect(counters.sent).to.have.length(0);
+    });
+
+    it('unfunded address: keeps the unfunded message', async () => {
+      const fixture = updateFixture('SingletonBeacon');
+      const { order, counters } = recorders();
+      const methodApi = new DidMethodApi();
+
+      await expect(methodApi.update(
+        updateArgs(fixture, order, counters, () => [])
+      )).to.be.rejectedWith(UpdateError, 'is unfunded');
+      expect(order).to.deep.equal([]);
+    });
+
+    it('one confirmed UTXO among unconfirmed ones: proceeds to broadcast', async () => {
+      const fixture = updateFixture('SingletonBeacon');
+      const { order, counters } = recorders();
+      const methodApi = new DidMethodApi();
+
+      // The listing order must not matter: the unconfirmed UTXO comes first.
+      const result = await methodApi.update(updateArgs(fixture, order, counters, funded => [
+        { ...funded, txid: 'f'.repeat(64), status: { confirmed: false } as never },
+        funded,
+      ]));
+
+      expect(result.txid).to.equal(TXID);
+      expect(order).to.deep.equal(['tx-broadcast']);
+    });
+  });
+
+  describe('derived verificationMethodId and beaconId', () => {
+    /** This helper adds a second Singleton beacon at an address that the fixture's signer cannot spend. */
+    function withSecondBeacon(fixture: ReturnType<typeof updateFixture>): { id: string; address: string } {
+      const address = p2wpkh(SchnorrKeyPair.generate().publicKey.compressed, network).address!;
+      const id = `${fixture.did}#beacon-other`;
+      fixture.sourceDocument.service.push({ id, type: 'SingletonBeacon', serviceEndpoint: `bitcoin:${address}` });
+      return { id, address };
+    }
+
+    it('derives the verification method that publishes the signer\'s key', async () => {
+      const fixture = updateFixture('SingletonBeacon');
+      const { order, counters } = recorders();
+      const methodApi = new DidMethodApi();
+
+      const result = await methodApi.update({
+        ...updateArgs(fixture, order, counters),
+        verificationMethodId : undefined,
+      });
+
+      // The proof names the method that signed the update.
+      expect(result.signedUpdate.proof.verificationMethod).to.equal(`${fixture.did}#initialKey`);
+      expect(result.txid).to.equal(TXID);
+    });
+
+    it('uses the only beacon without a chain read', async () => {
+      const fixture = updateFixture('SingletonBeacon');
+      const { order, counters } = recorders();
+      const methodApi = new DidMethodApi();
+
+      const result = await methodApi.update({
+        ...updateArgs(fixture, order, counters),
+        beaconId : undefined,
+      });
+
+      expect(result.txid).to.equal(TXID);
+      // The funding guard made one read, and the broadcast made one. The
+      // derivation made none.
+      expect(counters.utxoCalls).to.equal(2);
+    });
+
+    it('derives the one beacon among several that holds a spendable UTXO', async () => {
+      const fixture = updateFixture('SingletonBeacon');
+      const other = withSecondBeacon(fixture);
+      const { order, counters } = recorders();
+      const methodApi = new DidMethodApi();
+
+      // The other beacon holds an unconfirmed UTXO. It is not spendable, so it
+      // is not a candidate.
+      const result = await methodApi.update({
+        ...updateArgs(fixture, order, counters, (funded, address) => address === other.address
+          ? [{ ...funded, status: { confirmed: false } as never }]
+          : [funded]),
+        verificationMethodId : undefined,
+        beaconId             : undefined,
+      });
+
+      expect(result.txid).to.equal(TXID);
+      expect(order).to.deep.equal(['tx-broadcast']);
+      // The derivation made two reads. The funding guard and the broadcast
+      // made one each.
+      expect(counters.utxoCalls).to.equal(4);
+    });
+
+    it('refuses if no beacon holds a spendable UTXO, and names every address', async () => {
+      const fixture = updateFixture('SingletonBeacon');
+      const other = withSecondBeacon(fixture);
+      const { order, counters } = recorders();
+      const methodApi = new DidMethodApi();
+
+      const err: unknown = await methodApi.update({
+        ...updateArgs(fixture, order, counters, () => []),
+        beaconId : undefined,
+      }).catch((e: unknown) => e);
+
+      expect(err).to.be.instanceOf(UpdateError);
+      expect((err as UpdateError).message).to.include('cannot derive beaconId');
+      expect((err as UpdateError).message).to.include(`${fixture.beaconId} (${fixture.beaconAddress})`);
+      expect((err as UpdateError).message).to.include(`${other.id} (${other.address})`);
+      expect((err as UpdateError).type).to.equal(INVALID_DID_UPDATE);
+      expect((err as UpdateError).data).to.deep.equal({
+        did     : fixture.did,
+        beacons : [
+          { id: fixture.beaconId, type: 'SingletonBeacon', address: fixture.beaconAddress },
+          { id: other.id, type: 'SingletonBeacon', address: other.address },
+        ],
+      });
+      expect(order).to.deep.equal([]);
+      expect(counters.sent).to.have.length(0);
+    });
+
+    it('refuses if several beacons hold a spendable UTXO', async () => {
+      const fixture = updateFixture('SingletonBeacon');
+      const other = withSecondBeacon(fixture);
+      const { order, counters } = recorders();
+      const methodApi = new DidMethodApi();
+
+      // The default UTXO list holds the confirmed UTXO at every address.
+      const err: unknown = await methodApi.update({
+        ...updateArgs(fixture, order, counters),
+        beaconId : undefined,
+      }).catch((e: unknown) => e);
+
+      expect(err).to.be.instanceOf(UpdateError);
+      expect((err as UpdateError).message).to.include('Pass beaconId to choose which one spends');
+      expect((err as UpdateError).data).to.deep.equal({ did: fixture.did, funded: [fixture.beaconId, other.id] });
+      expect(order).to.deep.equal([]);
+      expect(counters.sent).to.have.length(0);
+    });
+
+    it('refuses a document with no beacon service', async () => {
+      const fixture = updateFixture('SingletonBeacon');
+      fixture.sourceDocument.service = [];
+      const { order, counters } = recorders();
+      const methodApi = new DidMethodApi();
+
+      await expect(methodApi.update({
+        ...updateArgs(fixture, order, counters),
+        beaconId : undefined,
+      })).to.be.rejectedWith(UpdateError, 'has no beacon service');
+      expect(counters.utxoCalls).to.equal(0);
+    });
+  });
+
   describe('broadcastOptions passthrough', () => {
     it('forwards a custom fee estimator to the beacon transaction', async () => {
       const fixture = updateFixture('SingletonBeacon');
@@ -471,7 +671,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
         verificationMethodId : '#k',
         beaconId             : '#b',
         signer               : {} as never,
-        sourceDocument       : {} as never,
+        sourceDocument       : { id: 'did:btcr2:k1qtest' } as never,
         sourceVersionId      : 1,
         publishToCas         : 'never',
         broadcastOptions     : { feeEstimator },

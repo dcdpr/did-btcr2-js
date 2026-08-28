@@ -1,5 +1,46 @@
 # @did-btcr2/api
 
+## 0.20.0
+
+### Minor Changes
+
+- Complete the CRUD cycle on the api facade alone (ADRs 093 to 104).
+
+  A caller now creates a DID, funds its beacon, updates the DID, deactivates it, and resolves it with this package only. Before this release, a caller needed the method and keypair packages for a `Signer` and for the beacon address, and `deactivateDid` threw `NotImplementedError`.
+
+  Create:
+
+  - `createDid`, `generateDid`, `DidMethodApi.createDeterministic`, and `DidMethodApi.createExternal` mint the DID for the network of the configured Bitcoin connection if the caller names no network. Without a connection, they mint for regtest (`DidMethodApi.FALLBACK_NETWORK`). They never mint for mainnet by omission. `BitcoinApi.network` and `DidMethodApi.defaultNetwork` expose the network in use.
+  - `DidMethodApi.getInitialDocument(did, genesisDocument?)` derives the initial DID document offline. `DidMethodApi.getBeacons(document)` lists each beacon service with its Bitcoin address (new type `BeaconInfo`). A caller can fund a beacon before the first update with no connection.
+
+  Read:
+
+  - `resolveDid`, `tryResolveDid`, and `DidMethodApi.resolve` report the root cause of a failure. `resolveDid` and `DidMethodApi.resolve` throw `Failed to resolve DID <did>: <root cause>`. `tryResolveDid` sets `errorMessage` to the root cause, and the `ok: false` variant of `ResolutionResult` gains `cause`, the original thrown value. The new helper `rootCauseMessage(err)` follows a cause chain and reads the first sub-error of an `AggregateError`.
+  - `resolveDid` and `DidMethodApi.resolve` refuse a DID whose network differs from the network of the Bitcoin connection (`ResolveError`). `tryResolveDid` returns `ok: false`, and the `ResolveError` is reachable through `cause`.
+
+  Update and deactivate:
+
+  - `deactivateDid` and `DidMethodApi.deactivate` are real operations. A deactivation is an update that carries `DidMethodApi.DEACTIVATION_PATCH`. The facade refuses a document that is already deactivated.
+  - `updateDid` and `deactivateDid` accept `resolutionOptions`. The facade uses them if it resolves the source state itself. Supply sidecar data there if no CAS holds the prior updates.
+  - `verificationMethodId` and `beaconId` are optional on `updateDid`, `deactivateDid`, `DidMethodApi.update`, and `DidMethodApi.deactivate`. The facade derives the verification method that publishes the signer's key. The facade derives the only beacon, else the one beacon that holds a spendable UTXO. If none or several candidates match, the facade throws an `UpdateError` of type `INVALID_DID_UPDATE` that names them.
+  - Four new refusals, each an `UpdateError` of type `INVALID_DID_UPDATE`, each before any CAS publication and before the broadcast:
+    - a source pair with only `sourceDocument` or only `sourceVersionId`, or a `sourceDocument.id` that is not the DID;
+    - a deactivated source document;
+    - a DID whose network differs from the network of the Bitcoin connection;
+    - a beacon whose UTXOs are all unconfirmed, or all at or below the 546-sat dust limit. The funding guard applies `selectSpendableUtxo`, the rule of the beacon itself.
+
+  Signers and exports:
+
+  - `KeyManagerApi.signer(id?)` returns a `Signer` bound to the given key, else to the active key. `KeyManagerApi.activeKeyId` exposes the active key.
+  - The package re-exports the write path and the signer types, so a CRUD cycle needs no second package: `LocalSigner`, `SchnorrKeyPair`, `KeyManagerSigner`, `LocalKeyManager`, `BitcoinConnection`, `DidBtcr2`, `Resolver`, `Updater`, `BeaconFactory`, `BeaconUtils`, and the types `Signer`, `SigningScheme`, `SignOptions`, `KmsSignOptions`, `KeyManager`, `KeyIdentifier`, `GenerateKeyOptions`, `ImportKeyOptions`, `VerifyOptions`, `BeaconService`, `BroadcastOptions`, `BroadcastResult`, `Btcr2DidDocument`, `CASAnnouncement`, `DidCreateOptions`, `IdentifierComponents`, `ResolutionOptions`, `Sidecar`, `SignedBTCR2Update`, `SMTProof`.
+
+  Breaking:
+
+  - The facade no longer mints a DID for mainnet if the caller names no network. `generateDid` with a Bitcoin connection mints for the network of the connection, not for regtest. Name the network to keep the old result.
+  - In the four cases above, `updateDid` and `deactivateDid` throw where 0.19.x continued. `updateDid` no longer resolves the DID to complete a half-supplied source pair.
+  - `DidMethodApi.deactivate` takes the update parameters and returns a `DidUpdateResult`. It threw `NotImplementedError` before.
+  - The text of a resolution failure changed. The cli prints the new text on a `resolve` failure without `--verbose`.
+
 ## 0.19.2
 
 ### Patch Changes

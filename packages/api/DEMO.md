@@ -6,7 +6,7 @@ This is the developer-facing companion to the CLI walkthrough at [`../cli/docs/D
 
 **How to follow along.** Three options, from least to most hands-on: (1) just read; (2) run the companion script, which pauses while you fund the beacon from the faucet and again while each broadcast confirms; (3) paste the blocks into a `npx tsx` REPL top-to-bottom (top-level `await` works, and variables persist between blocks).
 
-Targets `@did-btcr2/api` **v0.19.2**.
+Targets `@did-btcr2/api` **v0.20.0**.
 
 ---
 
@@ -28,7 +28,7 @@ Node >= 22. The package is ESM-first; `tsx` is the easiest way to run TypeScript
 
 ```bash
 node --version   # should print >= 22, not "command not found"
-npm install @did-btcr2/api @did-btcr2/key-manager tsx
+npm install @did-btcr2/api tsx
 ```
 
 ### Construct the api
@@ -75,18 +75,40 @@ const backup = api.kms.export(keyId);
 A deterministic (`k`) DID is pure local computation over the compressed public key. No I/O happens on this line.
 
 ```typescript
-const did = api.createDid('deterministic', api.kms.getPublicKey(keyId), { network: 'mutinynet' });
+const did = api.createDid('deterministic', api.kms.getPublicKey(keyId));
 console.log(did);
 // did:btcr2:k1q5p8rn...qy2kh3v
 ```
 
 That string **is** the identifier. It was produced in milliseconds, with no fee and no server. (Every version-1 mutinynet `k` DID starts `did:btcr2:k1q5`: the network is encoded right there in the string.)
 
-> **The network rides inside the identifier.** Pass `network: 'mutinynet'` here, or you mint a **mainnet** DID (`createDid`'s default network is `bitcoin`) and later resolve against the wrong chain. The `createApi` `btc.network` and the DID's network must agree.
+> **The network is part of the identifier.** `createDid` mints the DID for the network of the `btc` connection: mutinynet here. With no `btc` config the api mints a `regtest` DID, never a mainnet one. Pass `{ network }` as the third argument to override. The DID and the connection must agree: `resolveDid` and `updateDid` refuse a mismatch before any chain read.
 >
-> Shortcut: `api.generateDid({ network: 'mutinynet' })` does Parts 1 and 2 in one call and returns `{ did, keyId }`. Note its default network is `regtest`, not mainnet.
+> Shortcut: `api.generateDid()` does Parts 1 and 2 in one call and returns `{ did, keyId }`. It uses the same network default.
 
 There are two identifier flavors: `k` (deterministic, encodes the public key itself) and `x` (external, encodes the hash of a full genesis document for multi-key or service-rich starts). This demo uses `k`; an `x` DID additionally needs its genesis document at resolution time, supplied in the sidecar or fetched from a configured CAS.
+
+### Know the beacon address before the DID touches the chain
+
+The initial document of a `k` DID is a pure function of the key. The api derives it with no I/O and lists the beacon services with their bare Bitcoin addresses. Grab the beacon we fund in Part 4, and let the per-network presets (the same ones behind the CLI's funding hint) print the links:
+
+```typescript
+import { explorerAddressUrl, faucetUrl } from '@did-btcr2/api';
+
+const beacons = api.btcr2.getBeacons(api.btcr2.getInitialDocument(did));
+const beacon = beacons.find((b) => b.id.endsWith('#initialP2WPKH'));
+if (!beacon) throw new Error('missing #initialP2WPKH beacon');
+const beaconAddress = beacon.address;
+
+console.log(`Beacon:   ${beaconAddress}`);
+console.log(`Faucet:   ${faucetUrl('mutinynet')}`);
+console.log(`Explorer: ${explorerAddressUrl('mutinynet', beaconAddress)}`);
+// Beacon:   tb1qme9lfnkgcqcfu2v43k9w0fy0zj43z8gdgp2ank
+// Faucet:   https://faucet.mutinynet.com/
+// Explorer: https://mutinynet.com/address/tb1qme9lfnkgcqcfu2v43k9w0fy0zj43z8gdgp2ank
+```
+
+> The preset helpers return `undefined` on networks without a public faucet or explorer (regtest, and mainnet has no faucet), so guard the log lines if you parameterize the network.
 
 ---
 
@@ -125,27 +147,8 @@ Illustrative document (trimmed):
 What to point at:
 
 - **No server in the middle.** The api talked to a Bitcoin Esplora endpoint, not a DID registry. (That is the default `btc.signalDiscovery: 'indexer'`; a `'fullnode'` mode scans blocks over Bitcoin Core RPC instead, needing an `rpc` config plus `-txindex=1`, and is practical only on regtest.)
-- **Three beacon services exist the moment the DID does.** A beacon is a Bitcoin address whose transactions announce updates for this DID.
+- **Three beacon services exist the moment the DID does.** They are the three beacons `getBeacons` listed in Part 2, now read back from the chain. A beacon is a Bitcoin address whose transactions announce updates for this DID.
 - `versionId: '1'`: this document has never been updated.
-
-Grab the beacon we will fund in Part 4, and let the per-network presets (the same ones behind the CLI's funding hint) print the links:
-
-```typescript
-import { explorerAddressUrl, faucetUrl } from '@did-btcr2/api';
-
-const beaconService = v1.document.service?.find((s) => s.id.endsWith('#initialP2WPKH'));
-if (!beaconService) throw new Error('missing #initialP2WPKH beacon');
-const beaconAddress = String(beaconService.serviceEndpoint).replace('bitcoin:', '');
-
-console.log(`Beacon:   ${beaconAddress}`);
-console.log(`Faucet:   ${faucetUrl('mutinynet')}`);
-console.log(`Explorer: ${explorerAddressUrl('mutinynet', beaconAddress)}`);
-// Beacon:   tb1qme9lfnkgcqcfu2v43k9w0fy0zj43z8gdgp2ank
-// Faucet:   https://faucet.mutinynet.com/
-// Explorer: https://mutinynet.com/address/tb1qme9lfnkgcqcfu2v43k9w0fy0zj43z8gdgp2ank
-```
-
-> The preset helpers return `undefined` on networks without a public faucet or explorer (regtest, and mainnet has no faucet), so guard the log lines if you parameterize the network.
 
 ---
 
@@ -168,23 +171,20 @@ while (!utxos.some((u) => u.status.confirmed)) {
 console.log('beacon funded and confirmed');
 ```
 
-> **Why wait for a confirmation?** The broadcast path deliberately refuses to spend an unconfirmed beacon UTXO (an unconfirmed input can be reorged or replaced, which would un-anchor your update). Update too early and you get `No spendable UTXO at beacon address: all 1 UTXO(s) are unconfirmed.` Wait one block and retry.
+> **Why wait for a confirmation?** The api spends only a confirmed beacon UTXO above the dust limit. An unconfirmed input can be replaced or reorged, which would un-anchor your update. If you update too early, the api refuses before it publishes or broadcasts anything: `Beacon address tb1q... cannot fund this update. No spendable UTXO at beacon address: all 1 UTXO(s) are unconfirmed. Wait for a confirmation, or fund the address above the dust limit, before you broadcast the update.` Wait one block and retry.
 
 ### Step B - broadcast the update
 
-Wire a `Signer` to the key from Part 1 and apply a JSON Patch. `updateDid` constructs the signed update, checks the beacon funding, builds and signs the Bitcoin transaction, and broadcasts it.
+Get a `Signer` for the key from Part 1 and apply a JSON Patch. `updateDid` resolves the current document, constructs the signed update, checks the beacon funding, builds and signs the Bitcoin transaction, and broadcasts it.
 
 ```typescript
-import { KeyManagerSigner } from '@did-btcr2/key-manager';
 import { explorerTxUrl } from '@did-btcr2/api';
 
-const signer = new KeyManagerSigner(api.kms.kms, keyId);
+const signer = api.kms.signer(keyId);
 
 const update1 = await api.updateDid({
   did,
-  patches              : [{ op: 'add', path: '/alsoKnownAs', value: ['https://example.com/demo'] }],
-  verificationMethodId : `${did}#initialKey`,
-  beaconId             : beaconService.id,
+  patches : [{ op: 'add', path: '/alsoKnownAs', value: ['https://example.com/demo'] }],
   signer,
 });
 
@@ -195,6 +195,8 @@ console.log(`Watch: ${explorerTxUrl('mutinynet', update1.txid)}`);
 const signedUpdate = update1.signedUpdate;
 ```
 
+- `verificationMethodId` and `beaconId` were omitted: the api derives them. The verification method is the one that publishes the signer's key. The beacon is the one whose address holds a spendable UTXO: `#initialP2WPKH`, the one you funded. Pass both ids to choose explicitly.
+- `signer` came from `api.kms.signer(keyId)`. The same call works with an external `KeyManager` passed to `createApi({ kms })`.
 - `sourceDocument` and `sourceVersionId` were omitted: `updateDid` resolves them itself, which works here because a fresh `k` DID resolves deterministically with no sidecar.
 - `publishToCas` defaults to `'never'`: nothing about this update leaves your machine except the 32-byte hash in the transaction. That default is the privacy story of Step D.
 - Prefer fluent chains? The same call is available as `api.btcr2.buildUpdate(...)`: see the Appendix.
@@ -224,15 +226,13 @@ try {
   await api.resolveDid(did);
 } catch (err) {
   console.log((err as Error).message);
-  // Failed to resolve DID: did:btcr2:k1q5p8rn...qy2kh3v
-  console.log(((err as Error).cause as Error)?.message);
-  // Signed update not found in CAS (hash: ...)
+  // Failed to resolve DID did:btcr2:k1q5p8rn...qy2kh3v: Signed update not found in CAS (hash: ...)
   // ...or, if the gateway stalls past the timeout instead of answering:
-  // CAS operation timed out after 5000ms
+  // Failed to resolve DID did:btcr2:k1q5p8rn...qy2kh3v: CAS operation timed out after 5000ms
 }
 ```
 
-The resolver found the on-chain update hash, looked for the update bytes in the sidecar (absent) and then in the configured CAS gateway (where your never-published update was never put), and failed. Either cause message is the same CAS miss. Bitcoin holds the commitment; you hold the contents. Only the parties you share the sidecar with can see what changed.
+The resolver found the on-chain update hash, looked for the update bytes in the sidecar (absent) and then in the configured CAS gateway (where your never-published update was never put), and failed. Either cause message is the same CAS miss. Bitcoin holds the commitment; you hold the contents. Only the parties you share the sidecar with can see what changed. The message carries the root cause. The original error stays on `err.cause`. `tryResolveDid` returns the same root cause in `errorMessage` and the original error in `cause`.
 
 ---
 
@@ -240,24 +240,20 @@ The resolver found the on-chain update hash, looked for the update bytes in the 
 
 > **Deactivation is permanent and irreversible.** It retires the DID through the same on-chain write path as an update. Do not run this against a DID you want to keep.
 
-Deactivation **is** an update: a patch that sets `/deactivated` on the document. (The `api.btcr2.deactivate()` method is an unimplemented stub that rejects with `NotImplementedError`; the patch below is the supported path, and it is exactly what the CLI's `deactivate` command does.)
+Deactivation **is** an update: `deactivateDid` broadcasts an update that carries the deactivation patch, `DidMethodApi.DEACTIVATION_PATCH` (`add /deactivated true`). It follows the same sign, publish, and broadcast path as `updateDid`.
 
 No second faucet trip is needed: the update transaction in Part 4 returned its change to the beacon address, so the beacon still holds a confirmed UTXO.
 
 ```typescript
-const update2 = await api.updateDid({
+const update2 = await api.deactivateDid({
   did,
-  patches              : [{ op: 'add', path: '/deactivated', value: true }],
-  sourceDocument       : v2.document,
-  sourceVersionId      : Number(v2.metadata?.versionId),
-  verificationMethodId : `${did}#initialKey`,
-  beaconId             : beaconService.id,
   signer,
+  resolutionOptions : { sidecar: { updates: [signedUpdate] } },
 });
 console.log(update2.txid);
 ```
 
-This time `sourceDocument` and `sourceVersionId` are explicit: auto-resolution cannot see version 2 without the sidecar (and `updateDid` takes none), but you are holding the v2 state from Step D. You are the source of truth for your own history: that is the model.
+This time the auto-resolution needs the sidecar: without it the api cannot see version 2. `resolutionOptions` hands the sidecar to that resolution. You hold the history, so you are the source of truth for it: that is the model. As an alternative, pass `sourceDocument` and `sourceVersionId` together to skip the resolution. The api refuses one without the other.
 
 Wait one block, then resolve with the **full** update history in the sidecar:
 
@@ -269,11 +265,21 @@ if (final.ok) {
   console.log(final.metadata?.versionId);     // '3'
   console.log(final.metadata?.deactivated);   // true
 }
-
-api.dispose();
 ```
 
 The resolver applies both updates in block-height order, sees the document deactivate at version 3, and reports it in the metadata. The DID is retired, verifiably and forever.
+
+The DID takes no further update. The api refuses one before any signature:
+
+```typescript
+if (final.ok) {
+  await api.updateDid({ did, patches: [], signer, sourceDocument: final.document, sourceVersionId: 3 })
+    .catch((err) => console.log((err as Error).message));
+  // DID document did:btcr2:k1q5p8rn...qy2kh3v is deactivated and cannot be updated. Deactivation is irreversible: ...
+}
+
+api.dispose();
+```
 
 ---
 
@@ -308,7 +314,7 @@ Rough Mutinynet wall-clock: 3-5 minutes, dominated by three block confirmations 
 
 ### The fluent builder alternative
 
-`UpdateBuilder` is the chainable form of `updateDid`. Unlike `updateDid`, it does not auto-resolve: version, verification method, beacon, and signer are explicit.
+`UpdateBuilder` is the chainable form of `updateDid`. Unlike `updateDid`, it does not auto-resolve and does not derive ids: version, verification method, beacon, and signer are explicit.
 
 ```typescript
 const { signedUpdate, txid } = await api.btcr2
@@ -342,9 +348,14 @@ Modes: `'never'` (default: maximum privacy, sidecar-only), `'auto'` (best-effort
 |---|---|
 | `api.btc` throws `Bitcoin not configured` | Pass a `btc` config to `createApi()`, e.g. `createApi({ btc: { network: 'mutinynet' } })`. |
 | `Beacon address ... is unfunded. Send BTC to this address before broadcasting the update.` | The faucet step was skipped or the funding tx has not landed. Fund the beacon and wait for it to be indexed. |
-| `No spendable UTXO at beacon address: all N UTXO(s) are unconfirmed.` | Deliberate reorg/RBF safety. Wait one block (~30s on Mutinynet) and retry. |
-| `Failed to resolve DID: ...` with cause `Signed update not found in CAS (hash: ...)` | You resolved a DID that has an on-chain update without providing the sidecar. Pass `{ sidecar: { updates: [...] } }`: that is the privacy feature, not a bug. |
-| `Failed to resolve DID: ...` with cause `Invalid update: verificationMethod is not authorized for capabilityInvocation` | New in v0.19.0: resolution only applies updates signed by a key the document lists under `capabilityInvocation`. Sign with an authorized verification method; `#initialKey` is authorized by default, so this demo never hits it. |
+| `Beacon address ... cannot fund this update. No spendable UTXO at beacon address: all N UTXO(s) are unconfirmed. ...` | The api spends only a confirmed UTXO, for reorg and RBF safety. It refuses before it publishes or broadcasts. Wait one block (~30s on Mutinynet) and retry. The same wrapper reports a UTXO at or below the 546-sat dust limit. |
+| `No beacon of DID ... holds a spendable UTXO. The api cannot derive beaconId.` | You omitted `beaconId`, and no beacon address holds a confirmed UTXO above the dust limit. Fund one (Part 4, Step A), or pass `beaconId`. |
+| `N beacons of DID ... hold a spendable UTXO: ... Pass beaconId to choose which one spends.` | You funded more than one beacon address. Pass `beaconId`. The api never picks one for you. |
+| `No verification method on DID ... publishes the signer's key.` | The signer's key is not on the document. Sign with the key from Part 1, or pass `verificationMethodId`. |
+| `No key id given and no active key set.` | `api.kms.signer()` with no id needs an active key. Part 1 sets one with `setActive: true`. Or pass the key id. |
+| `Provide both sourceDocument and sourceVersionId for DID ..., or neither.` | You passed one half of the source pair. Pass both, or omit both and pass `resolutionOptions` with the sidecar. |
+| `Failed to resolve DID <did>: Signed update not found in CAS (hash: ...)` | You resolved a DID that has an on-chain update without the sidecar. Pass `{ sidecar: { updates: [...] } }`: that is the privacy feature, not a bug. `tryResolveDid` returns the same text in `errorMessage`. |
+| `Failed to resolve DID <did>: Invalid update: verificationMethod is not authorized for capabilityInvocation` | New in v0.19.0: resolution only applies updates signed by a key the document lists under `capabilityInvocation`. Sign with an authorized verification method; `#initialKey` is authorized by default, so this demo never hits it. |
 | Resolve hangs | Check reachability to `https://mutinynet.com/api`; override with `btc: { rest: { host: '<url>' } }`. Slow CAS lookups are bounded by `cas.timeoutMs`. |
-| Updates broadcast but resolve never sees them | Network mismatch: the DID's encoded network and `createApi`'s `btc.network` must agree. Decode with `api.did.decode(did)` to check. |
-| `api.btcr2.deactivate()` rejects with `NotImplementedError` | Expected: deactivation is expressed as an update with an `add /deactivated true` patch (Part 5). |
+| `The DID names the network "X", but the Bitcoin connection targets "Y".` | The DID and the `btc.network` of `createApi` disagree. The api refuses before any chain read, on resolve and on update (the update form starts with `DID ... names the network`). Create the api with the network of the DID. `api.did.decode(did).network` shows it. |
+| `DID document ... is deactivated and cannot be updated.` | Expected after Part 5. Deactivation is permanent. A second `deactivateDid` is refused with `is already deactivated`. |
