@@ -170,3 +170,15 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 090 | 2026-08-19 | [Bind a Message's Claimed Sender to Its Authenticated Key on Every Aggregation Receive Path](090-aggregation-transport-sender-authentication.md) |
 | 091 | 2026-08-21 | [Inject the DID into Beacons, and Resolve Relative DID URLs to Absolute Before Comparing](091-inject-did-into-beacons-and-relative-did-urls.md) |
 | 092 | 2026-08-22 | [Apply the Relative DID URL Rule to the Write Path and to Proof References](092-relative-did-urls-on-the-write-path.md) |
+| 093 | 2026-08-27 | [A New DID Inherits the Network of the Configured Bitcoin Connection](093-did-network-inherits-the-configured-connection.md) |
+| 094 | 2026-08-28 | [Deactivation Is an Ordinary Update Carrying the Deactivation Patch](094-deactivation-is-an-ordinary-update.md) |
+| 095 | 2026-08-28 | [Derive the Initial Document and Beacon Addresses Offline at the Facade](095-offline-initial-document-and-beacon-addresses.md) |
+| 096 | 2026-08-28 | [The Facade Produces Signers, and the Write Path Is Importable from the API Alone](096-facade-signer-factory-and-write-path-re-exports.md) |
+| 097 | 2026-08-28 | [Resolution Failures Carry Their Root Cause](097-resolution-failures-carry-their-root-cause.md) |
+| 098 | 2026-08-31 | [Update Source Resolution Accepts the Caller's Resolution Options](098-update-source-resolution-accepts-resolution-options.md) |
+| 099 | 2026-09-02 | [A Facade with No Bitcoin Connection Mints Regtest Identifiers](099-offline-facade-mints-regtest-identifiers.md) |
+| 100 | 2026-09-02 | [The Update Path Refuses a Deactivated Source Document](100-update-path-refuses-a-deactivated-source.md) |
+| 101 | 2026-09-03 | [A Write's Source Pair Is Accepted Whole or Not at All](101-update-source-pair-accepted-whole-or-not-at-all.md) |
+| 102 | 2026-09-03 | [The Funding Guard Applies the Beacon's Spendability Rule](102-funding-guard-applies-the-beacon-spendability-rule.md) |
+| 103 | 2026-09-03 | [A DID and Its Bitcoin Connection Must Name the Same Network](103-did-and-connection-must-name-the-same-network.md) |
+| 104 | 2026-09-03 | [The Update Path Derives an Omitted Verification Method and Beacon](104-update-path-derives-omitted-verification-method-and-beacon.md) |

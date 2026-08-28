@@ -6,15 +6,18 @@
  *
  * Drives, in order:
  *   1. createApi with a live Bitcoin connection (+ read-only CAS gateway)
- *   2. api.kms.generateKey - key custody stays in the bundled LocalKeyManager
- *   3. api.createDid - offline, deterministic (KEY / k-HRP)
- *   4. api.tryResolveDid - initial document, versionId 1, beacon services
+ *   2. api.kms.generateKey + api.kms.signer - key custody stays in the KMS
+ *   3. api.createDid - offline, deterministic (KEY / k-HRP); the DID inherits
+ *      the network of the connection; getInitialDocument + getBeacons give
+ *      the beacon address offline
+ *   4. api.tryResolveDid - initial document, versionId 1, the same beacon
  *   5. fund the #initialP2WPKH beacon (regtest: automatic; public: faucet)
- *   6. api.updateDid - JSON Patch broadcast via the singleton beacon
+ *   6. api.updateDid - JSON Patch broadcast; the api derives the verification
+ *      method and the beacon
  *   7. resolve v2 WITH the sidecar, then WITHOUT it (the expected CAS miss)
- *   8. deactivate: updateDid with an add-/deactivated patch, spending the
+ *   8. api.deactivateDid with the sidecar in resolutionOptions, spending the
  *      change output the first update returned to the beacon address
- *   9. final resolve: deactivated true, versionId 3
+ *   9. final resolve: deactivated true, versionId 3; a later update is refused
  *
  * Env:
  *   BITCOIN_NETWORK   default: regtest (set mutinynet for the DEMO.md path)
@@ -30,7 +33,6 @@
  */
 import assert from 'node:assert/strict';
 import { createApi, DEFAULT_CAS_GATEWAY, explorerTxUrl } from '@did-btcr2/api';
-import { KeyManagerSigner } from '@did-btcr2/key-manager';
 import { confirmBroadcast, fundBeacon, parseNetworkEnv, persistKey, utxoTimeoutMs, waitForUtxo } from './_e2e-helpers.js';
 
 const NETWORK = parseNetworkEnv();
@@ -52,24 +54,35 @@ console.log(`[1] api initialized, height: ${await api.btc.rest.block.count()}`);
 // ─── Step 2: Generate a key in the KMS ───────────────────────────────────────
 
 const keyId = api.kms.generateKey({ setActive: true });
-const signer = new KeyManagerSigner(api.kms.kms, keyId);
+const signer = api.kms.signer(keyId);
 console.log(`[2] Key: ${keyId}`);
 
 // ─── Step 3: Create the DID (offline, instant, free) ────────────────────────
 
-const did = api.createDid('deterministic', api.kms.getPublicKey(keyId), { network: NETWORK });
-console.log(`[3] DID: ${did}`);
+// No network option: the DID inherits the network of the connection.
+const did = api.createDid('deterministic', api.kms.getPublicKey(keyId));
+assert.equal(api.did.decode(did).network, NETWORK, 'the DID must inherit the network of the connection');
 
-// ─── Step 4: Resolve v1 + locate the beacon ──────────────────────────────────
+// The beacon address is known before the DID touches the chain.
+const beacon = api.btcr2.getBeacons(api.btcr2.getInitialDocument(did))
+  .find((b) => b.id.endsWith('#initialP2WPKH'));
+assert.ok(beacon, 'the initial document must carry the #initialP2WPKH beacon service');
+const beaconAddress = beacon.address;
+console.log(`[3] DID: ${did}`);
+console.log(`    beacon (offline): ${beaconAddress}`);
+
+// ─── Step 4: Resolve v1 + confirm the beacon ─────────────────────────────────
 
 const v1 = await api.tryResolveDid(did);
 if (!v1.ok) throw new Error(`Initial resolve failed: ${v1.errorMessage ?? v1.error}`);
 assert.equal(v1.metadata?.versionId, '1', 'fresh DID should resolve at version 1');
 
-const beaconService = v1.document.service?.find((s) => s.id.endsWith('#initialP2WPKH'));
-assert.ok(beaconService, 'initial document should carry the #initialP2WPKH beacon service');
-const beaconAddress = String(beaconService.serviceEndpoint).replace('bitcoin:', '');
-console.log(`[4] Resolved v1; beacon address: ${beaconAddress}`);
+const resolvedBeacon = v1.document.service?.find((s) => s.id === beacon.id);
+assert.equal(
+  String(resolvedBeacon?.serviceEndpoint), `bitcoin:${beaconAddress}`,
+  'the resolved document must carry the beacon derived offline'
+);
+console.log(`[4] Resolved v1; the chain agrees on the beacon: ${beaconAddress}`);
 
 persistKey({
   network        : NETWORK,
@@ -90,19 +103,19 @@ console.log('    funded + confirmed + indexed');
 
 // sourceDocument/sourceVersionId omitted: updateDid resolves them itself, which
 // works here because a fresh KEY DID resolves deterministically (no sidecar).
+// verificationMethodId/beaconId omitted: the api derives the method from the
+// signer's key and the beacon from the one funded address.
 console.log('\n[6] Broadcasting update v1 -> v2 ...');
 const update1 = await api.updateDid({
   did,
-  patches              : [{ op: 'add', path: '/alsoKnownAs', value: ['https://example.com/demo'] }],
-  verificationMethodId : `${did}#initialKey`,
-  beaconId             : beaconService.id,
+  patches : [{ op: 'add', path: '/alsoKnownAs', value: ['https://example.com/demo'] }],
   signer,
 });
 console.log(`    broadcast (targetVersionId: ${update1.signedUpdate.targetVersionId}, txid: ${update1.txid})`);
 const watch = explorerTxUrl(NETWORK, update1.txid);
 if (watch) console.log(`    watch: ${watch}`);
 
-await confirmBroadcast({ bitcoin: api.btc.connection, network: NETWORK, minerAddr, watchAddress: beaconAddress });
+await confirmBroadcast({ bitcoin: api.btc.connection, network: NETWORK, minerAddr, watchAddress: beaconAddress, txid: update1.txid });
 
 // ─── Step 7: Resolve v2 - with the sidecar, then without ─────────────────────
 
@@ -121,10 +134,10 @@ try {
   sidecarlessError = err as Error;
 }
 assert.ok(sidecarlessError, 'sidecar-less resolve should fail: the update was never published');
-const cause = sidecarlessError.cause as Error | undefined;
-console.log(`    without it: "${(cause ?? sidecarlessError).message}" ✓`);
+assert.ok(sidecarlessError.cause, 'the original error must stay on cause');
+console.log(`    without it: "${sidecarlessError.message}" ✓`);
 
-// ─── Step 8: Deactivate (an update whose patch sets /deactivated) ────────────
+// ─── Step 8: Deactivate (an update that carries the deactivation patch) ──────
 
 // The update tx returned its change to the beacon address, so the beacon is
 // still funded; we only need that change output confirmed and indexed.
@@ -133,19 +146,17 @@ await waitForUtxo(beaconAddress, api.btc.connection, {
   timeoutMs        : utxoTimeoutMs(NETWORK),
 });
 
+// The auto-resolution needs the sidecar to see version 2. resolutionOptions
+// hands it over. The api derives the verification method and the beacon again.
 console.log('\n[8] Broadcasting deactivation v2 -> v3 ...');
-const update2 = await api.updateDid({
+const update2 = await api.deactivateDid({
   did,
-  patches              : [{ op: 'add', path: '/deactivated', value: true }],
-  sourceDocument       : v2.document,
-  sourceVersionId      : Number(v2.metadata?.versionId),
-  verificationMethodId : `${did}#initialKey`,
-  beaconId             : beaconService.id,
   signer,
+  resolutionOptions : { sidecar: { updates: [update1.signedUpdate] } },
 });
 console.log(`    broadcast (targetVersionId: ${update2.signedUpdate.targetVersionId}, txid: ${update2.txid})`);
 
-await confirmBroadcast({ bitcoin: api.btc.connection, network: NETWORK, minerAddr, watchAddress: beaconAddress });
+await confirmBroadcast({ bitcoin: api.btc.connection, network: NETWORK, minerAddr, watchAddress: beaconAddress, txid: update2.txid });
 
 // ─── Step 9: Final resolve - both updates in the sidecar ─────────────────────
 
@@ -156,6 +167,14 @@ if (!final.ok) throw new Error(`Final resolve failed: ${final.errorMessage ?? fi
 assert.equal(final.metadata?.versionId, '3', 'deactivation should land as version 3');
 assert.equal(final.metadata?.deactivated, true, 'metadata should report the DID deactivated');
 console.log('\n[9] Resolved v3: deactivated ✓');
+
+// A deactivated DID takes no further update. The api refuses before any
+// signature or broadcast: no UTXO is spent.
+await assert.rejects(
+  api.updateDid({ did, patches: [], signer, sourceDocument: final.document, sourceVersionId: 3 }),
+  /is deactivated and cannot be updated/,
+);
+console.log('    a later update is refused ✓');
 
 api.dispose();
 

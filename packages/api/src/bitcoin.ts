@@ -98,6 +98,15 @@ export class BitcoinApi {
    */
   readonly signalDiscovery: SignalDiscoveryMode;
 
+  /**
+   * The Bitcoin network this connection targets. Exposed so callers (and the
+   * DID method facade) can mint identifiers for the same network the
+   * connection reads, instead of restating it at every call site.
+   */
+  get network(): NetworkName {
+    return this.connection.name;
+  }
+
   /** REST client for the active network. */
   get rest(): BitcoinRestClient {
     return this.connection.rest;

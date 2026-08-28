@@ -180,11 +180,59 @@ export async function fundBeacon(args: {
 }
 
 /**
+ * Poll Esplora until the indexer reports `txid` as confirmed. The indexer
+ * answers 404 for a transaction it has not seen yet; that counts as "not yet".
+ */
+export async function waitForTxConfirmed(
+  txid: string,
+  bitcoin: BitcoinConnection,
+  opts: { timeoutMs?: number; pollMs?: number } = {},
+): Promise<void> {
+  const timeoutMs = opts.timeoutMs ?? 30_000;
+  const pollMs = opts.pollMs ?? 500;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const confirmed = await bitcoin.rest.transaction.isConfirmed(txid).catch(() => false);
+    if (confirmed) return;
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+  throw new Error(`waitForTxConfirmed: ${txid} not confirmed in the indexer within ${timeoutMs}ms`);
+}
+
+/**
+ * Poll Esplora until the indexer tip reaches `height`. Use this after regtest
+ * mining when no txid is at hand.
+ */
+export async function waitForIndexerTip(
+  height: number,
+  bitcoin: BitcoinConnection,
+  opts: { timeoutMs?: number; pollMs?: number } = {},
+): Promise<void> {
+  const timeoutMs = opts.timeoutMs ?? 30_000;
+  const pollMs = opts.pollMs ?? 500;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const tip = await bitcoin.rest.block.count().catch(() => -1);
+    if (tip >= height) return;
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+  throw new Error(`waitForIndexerTip: indexer tip did not reach ${height} within ${timeoutMs}ms`);
+}
+
+/**
  * Ensure a broadcast tx is confirmed before downstream verification steps
  * (e.g. BeaconSignalDiscovery.indexer expects confirmed signals).
  *
- * - regtest: mine 1 block to `minerAddr`.
- * - all others: prompt the operator to wait for the broadcast to confirm.
+ * - regtest: mine 6 blocks to `minerAddr`, then wait for the Esplora indexer.
+ *   `generateToAddress` returns as soon as bitcoind has the blocks. The
+ *   indexer lags by seconds. A resolve inside that window reads the broadcast
+ *   tx as unconfirmed, with no block time, and fails.
+ * - all others: prompt the operator to wait for the broadcast to confirm, then
+ *   wait for the indexer in the same way.
+ *
+ * Pass `txid` to wait until the indexer reports that transaction confirmed.
+ * Without it, the regtest path waits until the indexer tip reaches the
+ * bitcoind tip.
  */
 export async function confirmBroadcast(args: {
   bitcoin: BitcoinConnection;
@@ -193,12 +241,20 @@ export async function confirmBroadcast(args: {
   minerAddr?: string;
   /** Optional: address whose UTXOs should reflect the broadcast (for operator URL hints). */
   watchAddress?: string;
+  /** Optional: the broadcast txid. If given, wait until the indexer reports it confirmed. */
+  txid?: string;
 }): Promise<void> {
-  const { bitcoin, network, minerAddr, watchAddress } = args;
+  const { bitcoin, network, minerAddr, watchAddress, txid } = args;
+  const timeoutMs = utxoTimeoutMs(network);
   if (network === 'regtest') {
     if (!bitcoin.rpc) throw new Error('regtest confirmBroadcast requires bitcoin.rpc');
     if (!minerAddr) throw new Error('regtest confirmBroadcast requires minerAddr');
     await bitcoin.rpc.generateToAddress(6, minerAddr);
+    if (txid) {
+      await waitForTxConfirmed(txid, bitcoin, { timeoutMs });
+    } else {
+      await waitForIndexerTip(await bitcoin.rpc.getBlockCount(), bitcoin, { timeoutMs });
+    }
     return;
   }
   console.log(`\n  ──> Wait for the broadcast to confirm on ${network}.`);
@@ -207,6 +263,9 @@ export async function confirmBroadcast(args: {
   }
   console.log(`      Block times: ${blockTimeHint(network)}`);
   await promptYes('      Broadcast confirmed (1+ block)? [Y/n] ');
+  if (txid) {
+    await waitForTxConfirmed(txid, bitcoin, { timeoutMs });
+  }
 }
 
 /**

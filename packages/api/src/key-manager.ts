@@ -1,10 +1,11 @@
 import type { Bytes, HashBytes, SignatureBytes } from '@did-btcr2/common';
-import type { SchnorrKeyPair } from '@did-btcr2/keypair';
+import type { SchnorrKeyPair, Signer } from '@did-btcr2/keypair';
 import {
   type KeyIdentifier,
   type KeyManager,
   type GenerateKeyOptions,
   type ImportKeyOptions,
+  KeyManagerSigner,
   LocalKeyManager,
   type SignOptions,
   type VerifyOptions,
@@ -41,6 +42,16 @@ export class KeyManagerApi {
   /** Set the active key by its identifier. */
   setActive(id: KeyIdentifier): void {
     this.kms.setActiveKey(id);
+  }
+
+  /**
+   * The key id the backing KeyManager treats as active: the default for
+   * sign/verify/getPublicKey calls that name no key, and for {@link signer}.
+   * Undefined until a key is generated or imported with `setActive`, or
+   * {@link setActive} is called.
+   */
+  get activeKeyId(): KeyIdentifier | undefined {
+    return this.kms.activeKeyId;
   }
 
   /** Get the public key bytes for a key identifier. */
@@ -96,6 +107,31 @@ export class KeyManagerApi {
   sign(data: Bytes, id?: KeyIdentifier, options?: SignOptions): SignatureBytes {
     assertBytes(data, 'data');
     return this.kms.sign(data, id, options);
+  }
+
+  /**
+   * A {@link Signer} backed by this key manager, accepted by every write on
+   * the facade (`updateDid`, `deactivateDid`, `UpdateBuilder.signer`).
+   * Completes the `generateDid` chain: the returned `keyId` is the only
+   * handle needed to sign that DID's updates.
+   *
+   * The signer is bound to one concrete key at creation: the given id, or
+   * the key active right now. A later `setActive` (or a `generateDid`, which
+   * activates the new key) does not re-point an existing signer, so a held
+   * signer cannot drift onto a different key than the one its `publicKey`
+   * reports. An unknown id, or no id while no key is active, fails here
+   * rather than at sign time; a watch-only id still fails only when signing,
+   * since binding resolves a public key. Secret bytes never leave the
+   * manager.
+   */
+  signer(id?: KeyIdentifier): Signer {
+    const keyId = id ?? this.kms.activeKeyId;
+    if (!keyId) {
+      throw new Error(
+        'No key id given and no active key set. Generate or import a key first, or pass an explicit id.'
+      );
+    }
+    return new KeyManagerSigner(this.kms, keyId);
   }
 
   /** Verify a signature via the KMS. Defaults: `scheme: 'bip340'`. */

@@ -49,6 +49,10 @@ export type TxId = string & { readonly __brand: 'TxId' };
  * {@link DidResolutionResult} with a discriminated `ok` flag for ergonomic
  * pattern matching without exception handling.
  *
+ * On failure, `errorMessage` is the root cause message (the deepest cause in
+ * the chain) and `cause` is the original thrown value, preserved for callers
+ * that need the full chain or a typed error.
+ *
  * @example
  * ```ts
  * const result = await api.tryResolveDid(did);
@@ -61,7 +65,7 @@ export type TxId = string & { readonly __brand: 'TxId' };
  */
 export type ResolutionResult =
   | { ok: true;  document: Btcr2DidDocument; metadata: DidResolutionResult['didDocumentMetadata']; raw: DidResolutionResult }
-  | { ok: false; error: string; errorMessage?: string; raw: DidResolutionResult };
+  | { ok: false; error: string; errorMessage?: string; cause?: unknown; raw: DidResolutionResult };
 
 /**
  * How beacon signals are discovered when resolving a DID.

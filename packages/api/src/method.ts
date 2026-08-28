@@ -1,13 +1,14 @@
-import type { BitcoinConnection } from '@did-btcr2/bitcoin';
+import type { BitcoinConnection, NetworkName } from '@did-btcr2/bitcoin';
 import type { DocumentBytes, KeyBytes, PatchOperation } from '@did-btcr2/common';
-import { decode as decodeHash, IdentifierTypes, INVALID_DID_UPDATE, NotImplementedError, UpdateError } from '@did-btcr2/common';
+import { decode as decodeHash, IdentifierHrp, IdentifierTypes, INVALID_DID_UPDATE, ResolveError, UpdateError } from '@did-btcr2/common';
 import type { Signer } from '@did-btcr2/keypair';
-import type { BroadcastOptions, BroadcastResult, Btcr2DidDocument, CASAnnouncement, CASBroadcastOptions, DidCreateOptions, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, ResolutionOptions, SignedBTCR2Update, SMTProof } from '@did-btcr2/method';
-import { BeaconFactory, BeaconSignalDiscovery, DidBtcr2 } from '@did-btcr2/method';
+import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
+import type { BeaconService, BroadcastOptions, BroadcastResult, Btcr2DidDocument, CASAnnouncement, CASBroadcastOptions, DidCreateOptions, DidDocument, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, ResolutionOptions, SignedBTCR2Update, SMTProof } from '@did-btcr2/method';
+import { BeaconError, BeaconFactory, BeaconSignalDiscovery, BeaconUtils, DidBtcr2, Identifier, Resolver, selectSpendableUtxo } from '@did-btcr2/method';
 import type { DidResolutionResult, DidVerificationMethod } from '@web5/dids';
 import type { BitcoinApi } from './bitcoin.js';
 import type { CasApi } from './cas.js';
-import { assertBytes, assertCompressedPubkey, assertString, NOOP_LOGGER } from './helpers.js';
+import { assertBytes, assertCompressedPubkey, assertString, NOOP_LOGGER, rootCauseMessage } from './helpers.js';
 import type { Logger } from './types.js';
 
 /**
@@ -59,6 +60,20 @@ export interface DidUpdateResult {
 }
 
 /**
+ * A beacon service on a DID document, reduced to what a caller funding the
+ * beacon needs: the service id, the beacon type, and the bare Bitcoin address.
+ * @public
+ */
+export interface BeaconInfo {
+  /** The beacon service id, as spelled in the DID document. */
+  id: string;
+  /** Beacon type: `SingletonBeacon`, `CASBeacon`, or `SMTBeacon`. */
+  type: string;
+  /** The Bitcoin address to fund, with the `bitcoin:` URI scheme removed. */
+  address: string;
+}
+
+/**
  * DID method operations sub-facade: create, resolve, update, deactivate.
  *
  * Lazily initialized by {@link DidBtcr2Api} because it depends on
@@ -66,6 +81,27 @@ export interface DidUpdateResult {
  * @public
  */
 export class DidMethodApi {
+  /**
+   * The JSON Patch operation that deactivates a DID document: it sets the
+   * `deactivated` flag that resolvers halt on. Deactivation is not a separate
+   * primitive in did:btcr2; it is an ordinary update carrying exactly this
+   * patch, which is what {@link DidMethodApi.deactivate} broadcasts.
+   */
+  static readonly DEACTIVATION_PATCH: Readonly<PatchOperation> = Object.freeze({
+    op    : 'add',
+    path  : '/deactivated',
+    value : true,
+  });
+
+  /**
+   * The network an identifier is minted for when the caller names none and no
+   * Bitcoin connection is configured to inherit one from. Regtest, so that an
+   * offline facade can never hand out a mainnet beacon address by omission.
+   * Every creation path on the api, {@link DidBtcr2Api.generateDid} included,
+   * falls back to this one value.
+   */
+  static readonly FALLBACK_NETWORK: NetworkName = 'regtest';
+
   #btc?: BitcoinApi;
   #cas?: CasApi;
   #log: Logger;
@@ -77,33 +113,124 @@ export class DidMethodApi {
   }
 
   /**
+   * The network new DIDs are minted on when the caller names none: the network
+   * of the configured Bitcoin connection, else
+   * {@link DidMethodApi.FALLBACK_NETWORK}. Never `undefined`: an offline
+   * facade mints regtest identifiers, not mainnet ones.
+   */
+  get defaultNetwork(): NetworkName {
+    return this.#btc?.network ?? DidMethodApi.FALLBACK_NETWORK;
+  }
+
+  /**
    * Create a deterministic (k1) DID from a public key.
    * Sets idType to KEY automatically.
+   *
+   * When `options.network` is omitted, the DID is minted for the network of the
+   * configured Bitcoin connection, so it targets the same chain this facade
+   * reads. With no Bitcoin connection configured it is minted for
+   * {@link DidMethodApi.FALLBACK_NETWORK} (regtest), never mainnet.
    * @param genesisBytes The compressed public key bytes (33 bytes).
    * @param options Creation options (idType is set for you).
    * @returns The created DID identifier string.
    */
   createDeterministic(genesisBytes: KeyBytes, options: Omit<DidCreateOptions, 'idType'> = {}): string {
     assertCompressedPubkey(genesisBytes, 'genesisBytes');
-    return DidBtcr2.create(genesisBytes, { ...options, idType: IdentifierTypes.KEY });
+    return DidBtcr2.create(genesisBytes, {
+      ...options,
+      ...this.#networkOption(options.network),
+      idType : IdentifierTypes.KEY,
+    });
   }
 
   /**
    * Create a non-deterministic (x1) DID from external genesis document bytes.
    * Sets idType to EXTERNAL automatically.
+   *
+   * When `options.network` is omitted, the DID is minted for the network of the
+   * configured Bitcoin connection. With no Bitcoin connection configured it is
+   * minted for {@link DidMethodApi.FALLBACK_NETWORK} (regtest), never mainnet.
    * @param genesisBytes The genesis document bytes.
    * @param options Creation options (idType is set for you).
    * @returns The created DID identifier string.
    */
   createExternal(genesisBytes: DocumentBytes, options: Omit<DidCreateOptions, 'idType'> = {}): string {
     assertBytes(genesisBytes, 'genesisBytes');
-    return DidBtcr2.create(genesisBytes, { ...options, idType: IdentifierTypes.EXTERNAL });
+    return DidBtcr2.create(genesisBytes, {
+      ...options,
+      ...this.#networkOption(options.network),
+      idType : IdentifierTypes.EXTERNAL,
+    });
+  }
+
+  /**
+   * The `network` slice of a create-options object: the caller's choice when
+   * they made one, else {@link DidMethodApi.defaultNetwork} (the configured
+   * connection's network, else the regtest fallback).
+   *
+   * Always a named network, never `undefined`. `DidBtcr2.create` destructures
+   * with `network = 'bitcoin'`, so letting an `undefined` through, a caller
+   * passing `{ network: undefined }` included, would mint a mainnet identifier:
+   * the very default this indirection exists to stop reaching by omission.
+   * Spread after the caller's options, this slice overrides such a value.
+   */
+  #networkOption(requested?: string): { network: string } {
+    return { network: requested ?? this.defaultNetwork };
+  }
+
+  /**
+   * The DID document a DID resolves to before any update has been announced,
+   * computed with zero I/O: no Bitcoin connection, no CAS, no network at all.
+   *
+   * For KEY (`k`) identifiers the whole document, beacon services included, is
+   * a pure function of the public key inside the identifier. That matters for
+   * bootstrapping: the beacon address a caller must fund before their first
+   * update is knowable offline, so it need not be fetched from a chain the DID
+   * has not touched yet. For EXTERNAL (`x`) identifiers the genesis document is
+   * the caller's own input and must be supplied; it is validated against the
+   * hash inside the identifier.
+   * @param did The DID whose initial document to derive.
+   * @param genesisDocument The genesis document (EXTERNAL DIDs only).
+   * @returns The initial DID document.
+   */
+  getInitialDocument(did: string, genesisDocument?: object): Btcr2DidDocument {
+    assertString(did, 'did');
+    const components = Identifier.decode(did);
+    if(components.hrp === IdentifierHrp.k) {
+      return Resolver.deterministic(components);
+    }
+    if(!genesisDocument) {
+      throw new Error(
+        `Cannot derive the initial document for EXTERNAL DID ${did} without its genesis document. `
+        + 'Pass the genesis document as the second argument, or use resolve() with a CAS configured.'
+      );
+    }
+    return Resolver.external(components, genesisDocument);
+  }
+
+  /**
+   * The beacon services of a DID document, each paired with the Bitcoin address
+   * that must hold a confirmed UTXO before that beacon can broadcast a signal.
+   * Combine with {@link DidMethodApi.getInitialDocument} to learn the address
+   * to fund without any chain round-trip.
+   * @param document The DID document to read beacon services from.
+   * @returns One {@link BeaconInfo} per beacon service on the document.
+   */
+  getBeacons(document: Btcr2DidDocument): BeaconInfo[] {
+    return BeaconUtils.getBeaconServices(document as DidDocument)
+      .map((service: BeaconService) => ({
+        id      : service.id,
+        type    : service.type,
+        address : BeaconUtils.parseBitcoinAddress(String(service.serviceEndpoint)),
+      }));
   }
 
   /**
    * Resolve a DID by driving the sans-I/O `Resolver` state machine (from @did-btcr2/method).
    * If a Bitcoin connection is configured on the API, it is used automatically
    * to fetch beacon signals. Sidecar data flows through `options.sidecar`.
+   * If the DID names a network other than the connection's, resolution is
+   * refused before any chain read.
    * @param did The DID to resolve.
    * @param options Resolution options.
    * @returns The resolution result.
@@ -113,6 +240,16 @@ export class DidMethodApi {
     this.#log.debug('Resolving DID', did);
     try {
       const resolver = DidBtcr2.resolve(did, options);
+      const mismatch = this.#networkMismatch(did, this.#btc?.network);
+      if(mismatch) {
+        throw new ResolveError(
+          `The DID names the network "${mismatch.didNetwork}", but the Bitcoin connection `
+          + `targets "${mismatch.connectionNetwork}". Resolution through this connection reads `
+          + 'the wrong chain and cannot find the updates of this DID. '
+          + 'Use a Bitcoin connection for the network of the DID.',
+          'ResolveError', { did, ...mismatch }
+        );
+      }
       let state = resolver.resolve();
 
       while(state.status === 'action-required') {
@@ -226,7 +363,7 @@ export class DidMethodApi {
     } catch (err) {
       this.#log.error('DID resolution failed', did, err);
       throw new Error(
-        `Failed to resolve DID: ${did}`,
+        `Failed to resolve DID ${did}: ${rootCauseMessage(err)}`,
         { cause: err }
       );
     }
@@ -236,12 +373,35 @@ export class DidMethodApi {
    * Update an existing DID document by driving the sans-I/O {@link Updater} state
    * machine (from @did-btcr2/method). This method handles the I/O side:
    * - Signing: supplies the {@link Signer} to `NeedSigningKey`.
+   * - Funding: reads the UTXOs at the beacon address and refuses the update if
+   *   none is spendable. A spendable UTXO is confirmed and above the dust
+   *   limit. The beacon applies the same rule at broadcast.
    * - CAS publication: publishes the signed update (and, for CAS beacons, the
    *   announcement) to the configured CAS per the `publishToCas` policy,
    *   **before** the on-chain broadcast, so any OP_RETURN update hash is
    *   fetchable from CAS at resolution time without sidecar data.
    * - Broadcast: establishes a beacon via {@link BeaconFactory} and calls
    *   `broadcastSignal()` with the bitcoin connection configured on the API.
+   * - Network check: refuses the update if the DID names a network other
+   *   than the connection's, before any I/O.
+   *
+   * A deactivated source document is refused before anything else runs.
+   * Resolution halts at the deactivation, so an update signed on top of it
+   * would spend a beacon UTXO on an announcement no resolver ever reads.
+   * Every write path (`updateDid`, `UpdateBuilder.execute`, `deactivate`)
+   * passes through here, so the refusal holds for all of them.
+   *
+   * The caller can omit `verificationMethodId` and `beaconId`. The api then
+   * derives them, after the guards above and before any signature. The
+   * verification method is the one method on the source document that
+   * publishes the signer's key. The Updater refuses every other method, so
+   * the signer's key identifies the method.
+   *
+   * The beacon is the only beacon service, with no chain read. If the
+   * document has several beacon services, the beacon is the one whose
+   * address holds a spendable UTXO. If no method or no beacon matches, the
+   * api refuses the update. If several match, the api refuses the update and
+   * names the candidates.
    *
    * For multi-party aggregation of SMT/CAS beacons, the caller should drive the
    * Updater directly and delegate `NeedBroadcast` to the aggregation runner
@@ -265,13 +425,27 @@ export class DidMethodApi {
     sourceDocument: Btcr2DidDocument;
     patches: PatchOperation[];
     sourceVersionId: number;
-    verificationMethodId: string;
-    beaconId: string;
+    verificationMethodId?: string;
+    beaconId?: string;
     signer: Signer;
     bitcoin?: BitcoinConnection;
     publishToCas?: PublishToCasMode;
     broadcastOptions?: BroadcastOptions;
   }): Promise<DidUpdateResult> {
+    // A deactivated document takes no further update: resolution halts at the
+    // deactivation, so anything signed and broadcast on top of it spends a
+    // beacon UTXO on an announcement no resolver will ever read. Refused here,
+    // at the single chokepoint every write path (updateDid, the builder,
+    // deactivate) passes through, before any connection is touched.
+    if(sourceDocument?.deactivated) {
+      throw new UpdateError(
+        `DID document ${sourceDocument.id} is deactivated and cannot be updated. `
+        + 'Deactivation is irreversible: resolution halts at the deactivation, so '
+        + 'no later update is ever applied.',
+        INVALID_DID_UPDATE, { did: sourceDocument.id }
+      );
+    }
+
     // Bitcoin connection resolution order: per-call `bitcoin` param wins over the
     // BitcoinApi injected at DidBtcr2Api construction time. One of the two must
     // be present; this can't be encoded in the type system, so it's a runtime check.
@@ -283,6 +457,28 @@ export class DidMethodApi {
         INVALID_DID_UPDATE, { beaconId }
       );
     }
+
+    // A DID and its connection must name the same network. An update through a
+    // connection on another chain announces where no resolver of this DID
+    // reads, and spends the beacon UTXO for nothing. Refused before any I/O.
+    const mismatch = this.#networkMismatch(sourceDocument.id, btcConnection.name);
+    if(mismatch) {
+      throw new UpdateError(
+        `DID ${sourceDocument.id} names the network "${mismatch.didNetwork}", but the Bitcoin `
+        + `connection targets "${mismatch.connectionNetwork}". An update through this connection `
+        + 'announces on the wrong chain, where no resolver of this DID reads it. '
+        + 'Use a Bitcoin connection for the network of the DID.',
+        INVALID_DID_UPDATE, { did: sourceDocument.id, ...mismatch }
+      );
+    }
+
+    // The caller can omit two ids. The Updater refuses a method whose key
+    // differs from the signer's key, so the signer's key identifies the
+    // signing method. The beacon is the one beacon that holds a spendable
+    // UTXO. The api never picks one of several silently. The derivation runs
+    // after the guards above, so a refused update reads nothing.
+    verificationMethodId ??= this.#deriveVerificationMethodId(sourceDocument, signer);
+    beaconId ??= await this.#deriveBeaconId(sourceDocument, btcConnection);
 
     this.#log.debug('Updating DID', sourceDocument.id, { beaconId, verificationMethodId });
 
@@ -325,7 +521,22 @@ export class DidMethodApi {
                 INVALID_DID_UPDATE, { beaconAddress: need.beaconAddress }
               );
             }
-            this.#log.debug('Beacon address funded (%d UTXOs)', utxos.length);
+            // The beacon spends only a confirmed UTXO above the dust limit. The
+            // guard applies that rule through the beacon's own selector, so an
+            // address that is funded but not spendable fails here, before any
+            // CAS publication, with the reason the beacon gives at broadcast.
+            try {
+              selectSpendableUtxo(utxos, need.beaconAddress);
+            } catch (err) {
+              if(!(err instanceof BeaconError)) throw err;
+              throw new UpdateError(
+                `Beacon address ${need.beaconAddress} cannot fund this update. ${err.message} `
+                + 'Wait for a confirmation, or fund the address above the dust limit, '
+                + 'before you broadcast the update.',
+                INVALID_DID_UPDATE, { beaconAddress: need.beaconAddress, utxos: utxos.length }
+              );
+            }
+            this.#log.debug('Beacon address funded with a spendable UTXO (%d UTXOs)', utxos.length);
             updater.provide(need);
             break;
           }
@@ -427,6 +638,108 @@ export class DidMethodApi {
   }
 
   /**
+   * The networks a DID and a Bitcoin connection name, if they differ.
+   * Returns null when they agree, when there is no connection network, when
+   * the DID does not decode (the calling path reports that itself), and when
+   * the DID names a custom network, which decodes to a number and has no name
+   * to compare.
+   */
+  #networkMismatch(
+    did: string,
+    connectionNetwork: NetworkName | undefined,
+  ): { didNetwork: string; connectionNetwork: NetworkName } | null {
+    if(!connectionNetwork) return null;
+    let didNetwork: string | number;
+    try {
+      didNetwork = Identifier.decode(did).network;
+    } catch {
+      return null;
+    }
+    if(typeof didNetwork !== 'string' || didNetwork === connectionNetwork) return null;
+    return { didNetwork, connectionNetwork };
+  }
+
+  /**
+   * This helper returns the id of the one verification method on `document`
+   * that publishes the signer's key. The Updater refuses a signer whose key
+   * differs from the `publicKeyMultibase` of the method, so the signer's key
+   * identifies the method. The api refuses zero matches and several matches.
+   * It never picks a method silently.
+   */
+  #deriveVerificationMethodId(document: Btcr2DidDocument, signer: Signer): string {
+    const signerKey = new CompressedSecp256k1PublicKey(signer.publicKey).multibase.encoded;
+    const matches = (document.verificationMethod ?? [])
+      .filter((method: DidVerificationMethod) => method.publicKeyMultibase === signerKey);
+    if(matches.length === 1) return matches[0]!.id;
+    if(matches.length === 0) {
+      throw new UpdateError(
+        `No verification method on DID ${document.id} publishes the signer's key. `
+        + 'The api cannot derive verificationMethodId. Sign with a key that the document lists. '
+        + 'As an alternative, pass verificationMethodId.',
+        INVALID_DID_UPDATE, { did: document.id, signerKey }
+      );
+    }
+    const ids = matches.map((method: DidVerificationMethod) => method.id);
+    throw new UpdateError(
+      `${matches.length} verification methods on DID ${document.id} publish the signer's key: `
+      + `${ids.join(', ')}. Pass verificationMethodId to choose one.`,
+      INVALID_DID_UPDATE, { did: document.id, signerKey, verificationMethodIds: ids }
+    );
+  }
+
+  /**
+   * This helper returns the id of the beacon that the update announces
+   * through, if the caller names none. One beacon service is the only
+   * choice, so the helper uses it with no chain read. The funding guard
+   * reports the state of that beacon.
+   *
+   * If the document has several beacon services, the helper uses the one
+   * whose address holds a spendable UTXO (confirmed, above the dust limit).
+   * If no beacon holds one, the helper refuses and names every address. If
+   * several beacons hold one, the helper refuses and names them. The api
+   * never decides which UTXO to spend.
+   */
+  async #deriveBeaconId(document: Btcr2DidDocument, bitcoin: BitcoinConnection): Promise<string> {
+    const beacons = this.getBeacons(document);
+    if(beacons.length === 1) return beacons[0]!.id;
+    if(beacons.length === 0) {
+      throw new UpdateError(
+        `DID document ${document.id} has no beacon service. The api cannot derive beaconId.`,
+        INVALID_DID_UPDATE, { did: document.id }
+      );
+    }
+    const funded: BeaconInfo[] = [];
+    for(const beacon of beacons) {
+      const utxos = await bitcoin.rest.address.getUtxos(beacon.address);
+      try {
+        selectSpendableUtxo(utxos, beacon.address);
+        funded.push(beacon);
+      } catch (err) {
+        // This address is unfunded, unconfirmed, or dust, so it is not a
+        // candidate. A different error is a fault of the UTXO list itself.
+        // The api throws that error again.
+        if(!(err instanceof BeaconError)) throw err;
+      }
+    }
+    if(funded.length === 1) return funded[0]!.id;
+    if(funded.length === 0) {
+      const list = beacons.map(beacon => `${beacon.id} (${beacon.address})`).join(', ');
+      throw new UpdateError(
+        `No beacon of DID ${document.id} holds a spendable UTXO. The api cannot derive beaconId. `
+        + 'A spendable UTXO is confirmed and above the dust limit. '
+        + `Fund one of: ${list}.`,
+        INVALID_DID_UPDATE, { did: document.id, beacons }
+      );
+    }
+    const ids = funded.map(beacon => beacon.id);
+    throw new UpdateError(
+      `${funded.length} beacons of DID ${document.id} hold a spendable UTXO: ${ids.join(', ')}. `
+      + 'Pass beaconId to choose which one spends.',
+      INVALID_DID_UPDATE, { did: document.id, funded: ids }
+    );
+  }
+
+  /**
    * Get the signing method from a DID document by method ID.
    * @param didDocument The DID document.
    * @param methodId The method ID (if omitted, the first signing method is returned).
@@ -457,12 +770,47 @@ export class DidMethodApi {
     return new UpdateBuilder(this, sourceDocument);
   }
 
-  /** Deactivate a DID (not yet implemented in the core method). */
-  async deactivate(): Promise<SignedBTCR2Update> {
-    throw new NotImplementedError(
-      'DidMethodApi.deactivate is not implemented yet.',
-      'DID_API_METHOD_NOT_IMPLEMENTED'
-    );
+  /**
+   * Deactivate a DID by broadcasting an update that sets the `deactivated`
+   * flag ({@link DidMethodApi.DEACTIVATION_PATCH}). Deactivation is an
+   * ordinary update in did:btcr2: it rides the same sign / CAS-publication /
+   * beacon-broadcast path as {@link DidMethodApi.update}, and resolvers halt
+   * at the flag.
+   *
+   * Deactivation is irreversible. An already-deactivated source document is
+   * refused up-front: a second deactivation would sign and broadcast a
+   * well-formed update that no resolver can ever read back, because
+   * resolution stops at the first deactivation.
+   *
+   * The caller can omit `verificationMethodId` and `beaconId`.
+   * {@link DidMethodApi.update} derives them.
+   *
+   * @param params The update parameters minus `patches` (the deactivation
+   *   patch is supplied for you).
+   * @returns The broadcast artifacts, exactly as {@link DidMethodApi.update}.
+   */
+  async deactivate(params: {
+    sourceDocument: Btcr2DidDocument;
+    sourceVersionId: number;
+    verificationMethodId?: string;
+    beaconId?: string;
+    signer: Signer;
+    bitcoin?: BitcoinConnection;
+    publishToCas?: PublishToCasMode;
+    broadcastOptions?: BroadcastOptions;
+  }): Promise<DidUpdateResult> {
+    if(params.sourceDocument?.deactivated) {
+      throw new UpdateError(
+        `DID document ${params.sourceDocument.id} is already deactivated. `
+        + 'Deactivation is irreversible: a further deactivation update could '
+        + 'never be read back, because resolution halts at the first.',
+        INVALID_DID_UPDATE, { did: params.sourceDocument.id }
+      );
+    }
+    return this.update({
+      ...params,
+      patches : [{ ...DidMethodApi.DEACTIVATION_PATCH }],
+    });
   }
 }
 
