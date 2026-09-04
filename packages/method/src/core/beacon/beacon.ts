@@ -1,4 +1,4 @@
-import type { AddressUtxo, BitcoinConnection, BTCNetwork } from '@did-btcr2/bitcoin';
+import type { AddressUtxo, BitcoinConnection, BTCNetwork, TransactionStatus } from '@did-btcr2/bitcoin';
 import type { KeyBytes } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '../btcr2-update.js';
 import type { Signer } from '@did-btcr2/keypair';
@@ -280,13 +280,24 @@ export function opReturnScript(signalBytes: Uint8Array): Uint8Array {
  */
 export const SPENDABLE_DUST_LIMIT_SATS = 546;
 
+/** A UTXO whose status carries the block fields: the confirmed arm of {@link TransactionStatus}. */
+type ConfirmedUtxo = AddressUtxo & { status: Extract<TransactionStatus, { confirmed: true }> };
+
+/**
+ * True if the UTXO is confirmed. Narrows the status to the confirmed arm, so the
+ * block height reads as a number. An absent flag counts as unconfirmed.
+ */
+function isConfirmedUtxo(utxo: AddressUtxo): utxo is ConfirmedUtxo {
+  return utxo.status.confirmed === true;
+}
+
 /**
  * Deterministic ordering for spendable UTXO selection: deepest first (ascending
  * block height, so the most-confirmed UTXO sorts first), tie-broken by `txid` then
  * `vout`. The tie-break makes the winner independent of the order the REST API
  * returns UTXOs in, so retries and independent resolvers converge on the same input.
  */
-function byDepthThenId(a: AddressUtxo, b: AddressUtxo): number {
+function byDepthThenId(a: ConfirmedUtxo, b: ConfirmedUtxo): number {
   if(a.status.block_height !== b.status.block_height) {
     return a.status.block_height - b.status.block_height;
   }
@@ -321,7 +332,7 @@ export function selectSpendableUtxo(utxos: Array<AddressUtxo>, address?: string)
       'UNFUNDED_BEACON_ADDRESS', { address }
     );
   }
-  const confirmed = utxos.filter(utxo => utxo.status.confirmed === true);
+  const confirmed = utxos.filter(isConfirmedUtxo);
   const spendable = confirmed.filter(utxo => utxo.value > SPENDABLE_DUST_LIMIT_SATS);
   if(!spendable.length) {
     const reason = confirmed.length === 0

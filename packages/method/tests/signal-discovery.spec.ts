@@ -180,6 +180,14 @@ describe('BeaconSignalDiscovery.indexer', () => {
   }
 
   /**
+   * Helper: a mempool Esplora transaction. Esplora reports it as `{ confirmed: false }`
+   * with no block fields, so it carries no block height and no block time.
+   */
+  function unconfirmed(txid: string, vin: Array<Vin>, vout: Array<Vout>): RawTransactionRest {
+    return { ...transaction(txid, vin, vout), status: { confirmed: false } };
+  }
+
+  /**
    * Minimal BitcoinConnection over a fixed address transaction listing. Every
    * `transaction.get` txid is recorded in `fetched` so a test can assert whether the
    * prevout fallback was taken, and is answered from `funding`.
@@ -346,6 +354,82 @@ describe('BeaconSignalDiscovery.indexer', () => {
       [input('d'.repeat(64), 0, payment(BEACON, 100_000))],
       [signalOutput(HASH), payment(OUTSIDER, 90_000)],
     );
+
+    expect(await discover(mockBitcoin([tx]))).to.have.lengthOf(0);
+  });
+
+  // The address listing includes mempool transactions. The specification says that a
+  // resolver must not process an unconfirmed transaction, and a mempool transaction has
+  // no block height and no block time to report. Discovery skips it before any parse.
+
+  it('skips a mempool transaction that spends the beacon and carries a well-formed signal', async () => {
+    const tx = unconfirmed(
+      'c'.repeat(64),
+      [input('d'.repeat(64), 0, payment(BEACON, 100_000))],
+      [payment(BEACON, 90_000), signalOutput(HASH)],
+    );
+
+    expect(await discover(mockBitcoin([tx]))).to.have.lengthOf(0);
+  });
+
+  it('yields no signals for a listing of only mempool transactions', async () => {
+    const first = unconfirmed(
+      'c'.repeat(64),
+      [input('d'.repeat(64), 0, payment(BEACON, 100_000))],
+      [payment(BEACON, 90_000), signalOutput(HASH)],
+    );
+    const second = unconfirmed(
+      'e'.repeat(64),
+      [input('c'.repeat(64), 0, payment(BEACON, 90_000))],
+      [payment(BEACON, 80_000), signalOutput(OTHER_HASH)],
+    );
+
+    expect(await discover(mockBitcoin([first, second]))).to.have.lengthOf(0);
+  });
+
+  it('keeps the confirmed signal and drops the mempool one from the same listing', async () => {
+    const mined = transaction(
+      'c'.repeat(64),
+      [input('d'.repeat(64), 0, payment(BEACON, 100_000))],
+      [payment(BEACON, 90_000), signalOutput(HASH)],
+    );
+    const pending = unconfirmed(
+      'e'.repeat(64),
+      [input('c'.repeat(64), 0, payment(BEACON, 90_000))],
+      [payment(BEACON, 80_000), signalOutput(OTHER_HASH)],
+    );
+
+    const signals = await discover(mockBitcoin([pending, mined]));
+
+    expect(signals.map(s => s.signalBytes)).to.deep.equal([HASH]);
+    expect(signals[0].blockMetadata.confirmations).to.equal(TIP - HEIGHT + 1);
+  });
+
+  it('does not fetch the funding transaction of a mempool transaction', async () => {
+    // The skip runs before the spend check, so a mempool transaction with no embedded
+    // prevout costs no lookup.
+    const tx = unconfirmed(
+      'c'.repeat(64),
+      [input('d'.repeat(64), 1, null)],
+      [payment(BEACON, 90_000), signalOutput(HASH)],
+    );
+    const fetched: Array<string> = [];
+
+    expect(await discover(mockBitcoin([tx], {}, fetched))).to.have.lengthOf(0);
+    expect(fetched).to.deep.equal([]);
+  });
+
+  it('treats a transaction with no confirmed flag as unconfirmed', async () => {
+    // A backend that omits the flag gives no evidence of a block. Absent counts as
+    // unconfirmed, as it does for UTXO selection.
+    const tx = {
+      ...transaction(
+        'c'.repeat(64),
+        [input('d'.repeat(64), 0, payment(BEACON, 100_000))],
+        [payment(BEACON, 90_000), signalOutput(HASH)],
+      ),
+      status : { block_height: HEIGHT, block_time: 1700000000 } as never,
+    };
 
     expect(await discover(mockBitcoin([tx]))).to.have.lengthOf(0);
   });

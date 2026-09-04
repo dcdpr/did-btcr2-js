@@ -369,7 +369,8 @@ privacy story: the world sees that *something* changed, not *what*.
 
 The write path broadcasts a real transaction, so it has two prerequisites: a funded
 beacon address, and one confirmation. Do steps A and B first, then the resolve in step D
-is the reveal.
+is the reveal. Resolution applies a signal only after six confirmations by default, about
+three minutes on Mutinynet; step D passes `--min-conf 1` so the reveal comes after one.
 
 ### Step A - find and fund a beacon address
 
@@ -454,11 +455,19 @@ Because a Singleton-beacon update lives off-chain, you resolve it by handing the
 update back as **sidecar** data:
 
 ```bash
-btcr2 resolve -i "$DID" -r "$(jq -c '{sidecar:{updates:[.]}}' signed-update.json)"
+btcr2 resolve -i "$DID" --min-conf 1 -r "$(jq -c '{sidecar:{updates:[.]}}' signed-update.json)"
 ```
 
 (For a bulky sidecar, write the resolution options to a JSON file and pass
 `-p options.json` instead of the inline `-r` string. Same shape, read from disk.)
+
+**Why `--min-conf 1`?** The specification tells a resolver to apply a beacon signal only
+after six confirmations, and that is the default. Six confirmations is the accepted
+standard for a settled Bitcoin transaction. Without the flag, the same command shows
+version 1 until the update has six blocks on top of it, about three minutes on Mutinynet.
+The flag lowers the threshold for the demo. The trade-off: a one-deep signal is more
+exposed to a block reorganization. The `confirmations` field of the metadata shows the
+depth the resolver saw.
 
 Expected: the same document, now with your patch applied and `versionId: "2"`:
 
@@ -725,6 +734,8 @@ rm -rf /tmp/btcr2-demo
 | `No spendable UTXO ... unconfirmed` | The faucet payment has not confirmed yet. Wait one block. |
 | Faucet returns a rate-limit or captcha error | A shared room IP is being throttled. Stagger requests, or use a pre-funded beacon (see Step A). |
 | `Signed update not found in CAS` | You resolved a DID that has an on-chain update without providing the sidecar. Pass it back with `-r '{"sidecar":{"updates":[...]}}'` (that is the privacy feature, not a bug). |
+| `resolve` still shows the old version, with no error | The update transaction has fewer than six confirmations, and resolution excludes it under the default `minConf`. Wait for six blocks, or pass `--min-conf 1`. |
+| `Invalid resolution option minConf` | `--min-conf` or the `minConf` in `-r`/`-p` is not a positive integer. Pass `1` or more. |
 | `resolve` hangs | Check reachability to `https://mutinynet.com/api` (`btcr2 config doctor -n mutinynet`); override with `--btc-rest <url>` if needed. |
 | `update`/`deactivate` does not prompt for a passphrase | Expected when a `keystore unlock` session is live, when `BTCR2_KEYSTORE_PASSPHRASE`/`--passphrase-file` is set, or with a dev keystore. Run `btcr2 keystore status` to inspect the session; `btcr2 keystore lock` forces the prompt back. |
 | `Incorrect passphrase ...; no session was created` | The passphrase did not match the keystore verifier. Re-enter it, or rotate with `btcr2 keystore change-passphrase`. |
@@ -739,7 +750,7 @@ btcr2 keystore init [--dev] [--force] | status | change-passphrase|passwd | unlo
 btcr2 key generate --name <n> --set-active
 btcr2 key list|ls | show <ref> | use <ref> | import [--secret-file <path> | --public <hex>] | export [--secret --out <path>] <ref> | delete|rm [--force] <ref>
 btcr2 create [-t k|x] [-n <network>] [-b <hex>] [--signing-key <ref>]
-btcr2 resolve|read -i <did> [-r <json>] [-p <path>]
+btcr2 resolve|read -i <did> [-r <json>] [-p <path>] [--min-conf <n>]
 btcr2 update -s <doc-json> --source-version-id <n> -p <patches-json> -m <vm-id> -b <beacon-id-json> [--publish-to-cas <mode>] [--fee-rate <n>] [--change-address <addr>]
 btcr2 deactivate|delete -s <doc-json> --source-version-id <n> -m <vm-id> -b <beacon-id-json> [--publish-to-cas <mode>] [--fee-rate <n>] [--change-address <addr>]
 btcr2 config init | get [path] | set <path> <value> | unset <path> | list|ls | validate | effective | path | doctor

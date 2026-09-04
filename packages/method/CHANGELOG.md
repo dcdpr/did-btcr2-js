@@ -1,5 +1,23 @@
 # @did-btcr2/method
 
+## 0.59.0
+
+### Minor Changes
+
+- Resolution processes a beacon signal only if its transaction has at least `minConf` confirmations, as the specification mandates (ADR 105).
+
+  - `ResolutionOptions.minConf`: a positive integer, default `6` (`DEFAULT_MIN_CONF`, a new named export). A signal below the threshold is excluded at signal intake; the rest are processed. An invalid value fails with a `ResolveError` of type `INVALID_OPTIONS` before any data need.
+  - `BeaconSignalDiscovery.indexer` skips a mempool transaction (`status.confirmed !== true`) before the OP_RETURN parse. An absent flag counts as unconfirmed.
+  - An eligible signal with no valid block height or block time fails fast with a `ResolveError` of type `INVALID_DID_UPDATE`. The `Invalid date` failure on a mempool signal is gone.
+
+  Breaking: a default resolve no longer applies a signal with fewer than six confirmations. Pass `{ minConf: 1 }` to keep the previous behaviour for a fresh update.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/bitcoin@0.11.0
+  - @did-btcr2/common@9.4.0
+
 ## 0.58.0
 
 ### Minor Changes

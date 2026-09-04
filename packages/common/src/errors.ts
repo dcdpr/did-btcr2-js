@@ -85,7 +85,14 @@ export enum MethodErrorCode {
   INVALID_DOMAIN_ERROR = 'INVALID_DOMAIN_ERROR',
 
   /** Options required for resolution are missing. */
-  MISSING_RESOLUTION_OPTIONS = 'MISSING_RESOLUTION_OPTIONS'
+  MISSING_RESOLUTION_OPTIONS = 'MISSING_RESOLUTION_OPTIONS',
+
+  /**
+   * A resolution option has an invalid value. Defined by
+   * {@link https://www.w3.org/TR/did-resolution-1.0/#errors | DID Resolution v1.0}
+   * and reused by did:btcr2 for its own resolution options.
+   */
+  INVALID_OPTIONS = 'INVALID_OPTIONS'
 }
 
 export const {
@@ -109,7 +116,8 @@ export const {
   LATE_PUBLISHING_ERROR,
   INVALID_SIDECAR_DATA,
   MISSING_UPDATE_DATA,
-  MISSING_RESOLUTION_OPTIONS
+  MISSING_RESOLUTION_OPTIONS,
+  INVALID_OPTIONS
 } = MethodErrorCode;
 
 type ErrorOptions = {

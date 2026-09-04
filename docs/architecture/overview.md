@@ -24,7 +24,7 @@ This pattern (popularized by [Hynek Schlawack's "Sans-I/O" talk](https://sans-io
 - **Pluggable I/O backends**: the same state machine works in Node, browsers, React Native, or workers, because the I/O is the caller's problem.
 - **Deterministic resolution**: given the same inputs, the resolver always produces the same output. No hidden state.
 
-The `Resolver` (`packages/method/src/core/resolver.ts`) is the canonical example. It progresses through five phases:
+The `Resolver` (`packages/method/src/core/resolver.ts`) is the canonical example. It progresses through five phases. In `BeaconProcess` it applies the `minConf` threshold: a signal below the configured confirmation depth (default 6) is excluded before any data need is emitted for it.
 
 ```
 GenesisDocument to BeaconDiscovery to BeaconProcess to ApplyUpdates to Complete

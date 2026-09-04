@@ -167,7 +167,7 @@ describe('DidBtcr2Api', () => {
     it('delegates to btcr2.resolve with the same arguments', async () => {
       const api = createApi({ btc: { network: 'regtest' } });
       const { did } = api.did.generate();
-      const options: ResolutionOptions = { versionId: '1' };
+      const options: ResolutionOptions = { versionId: '1', minConf: 1 };
       const resolved = {
         didDocument           : { id: did },
         didDocumentMetadata   : { versionId: '1' },
@@ -186,6 +186,13 @@ describe('DidBtcr2Api', () => {
       expect(seen).to.deep.equal([did, options]);
       expect(seen?.[1]).to.equal(options);
       expect(result).to.equal(resolved);
+    });
+
+    it('rejects an invalid minConf with the root cause in the message, before any chain read', async () => {
+      const api = createApi({ btc: { network: 'regtest' } });
+      const { did } = api.did.generate();
+      await expect(api.resolveDid(did, { minConf: 0 }))
+        .to.be.rejectedWith(/Failed to resolve DID .*minConf.*positive integer/);
     });
   });
 

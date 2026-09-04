@@ -9,6 +9,7 @@ import {
   INTERNAL_ERROR,
   INVALID_DID_DOCUMENT,
   INVALID_DID_UPDATE,
+  INVALID_OPTIONS,
   JSONPatch,
   JSONUtils,
   LATE_PUBLISHING_ERROR,
@@ -36,6 +37,15 @@ import { Identifier } from './identifier.js';
 import type { SMTProof } from './interfaces.js';
 import type { CASAnnouncement, Sidecar, SidecarData } from './types.js';
 import { equalBytes } from '@noble/curves/utils.js';
+
+/**
+ * Default minimum number of Bitcoin block confirmations a Beacon Signal
+ * transaction must have before resolution processes it. The specification
+ * mandates `6` when `ResolutionOptions.minConf` is not set: six confirmations
+ * is the accepted standard for a settled Bitcoin transaction. A resolution
+ * request can raise or lower it through `minConf`.
+ */
+export const DEFAULT_MIN_CONF = 6;
 
 /**
  * The response object for DID Resolution.
@@ -150,6 +160,22 @@ function isSMTProof(value: unknown): value is SMTProof {
 }
 
 /**
+ * Validate `ResolutionOptions.minConf`. `undefined` selects the specification
+ * default, {@link DEFAULT_MIN_CONF}. Any other value must be an integer of at
+ * least 1, as the specification defines the option.
+ * @throws {ResolveError} `INVALID_OPTIONS` for every other value.
+ */
+function validateMinConf(value: unknown): number {
+  if(value === undefined) return DEFAULT_MIN_CONF;
+  if(typeof value === 'number' && Number.isInteger(value) && value >= 1) return value;
+  const shown = typeof value === 'string' ? JSON.stringify(value) : String(value);
+  throw new ResolveError(
+    `Invalid resolution option minConf: expected a positive integer (minimum 1), got ${shown}.`,
+    INVALID_OPTIONS, { minConf: value }
+  );
+}
+
+/**
  * Different possible Resolver states representing phases in the resolution process.
  */
 enum ResolverPhase {
@@ -225,6 +251,15 @@ export class Resolver {
   /** Count of beacon-discovery passes driven by updates adding new beacon services. */
   #discoveryRounds = 0;
 
+  /**
+   * Minimum block confirmations a Beacon Signal must have before this resolver
+   * processes it: `ResolutionOptions.minConf`, default {@link DEFAULT_MIN_CONF}.
+   * Applied at signal intake in the BeaconProcess phase. A signal below the
+   * threshold is excluded from the resolution; the rest of the signals are
+   * processed.
+   */
+  readonly #minConf: number;
+
 
   /**
    * @internal Use {@link DidBtcr2.resolve} to create instances.
@@ -238,6 +273,7 @@ export class Resolver {
       versionTime?: string;
       genesisDocument?: object;
       maxDiscoveryRounds?: number;
+      minConf?: number;
     }
   ) {
     this.#didComponents = didComponents;
@@ -249,6 +285,9 @@ export class Resolver {
     // finite resource guard. A non-positive or omitted value means no limit.
     const rounds = options?.maxDiscoveryRounds;
     this.#maxDiscoveryRounds = typeof rounds === 'number' && rounds > 0 ? rounds : Infinity;
+    // The signal confirmation threshold. An invalid value fails here, before any
+    // data need is emitted, so the caller does no I/O for a request it cannot serve.
+    this.#minConf = validateMinConf(options?.minConf);
 
     // If a genesis document was provided (from sidecar), pre-seed it for validation
     if(options?.genesisDocument) {
@@ -374,6 +413,10 @@ export class Resolver {
    *   Version counter and update-hash history carried from earlier discovery rounds.
    *   Standalone callers omit it and start fresh at version 1 with an empty history.
    * @returns {DidResolutionResponse} The updated DID Document, number of confirmations, and version id.
+   *
+   * Confirmation depth is not checked here. The BeaconProcess phase excludes a
+   * signal below `ResolutionOptions.minConf` before its update reaches this method,
+   * so every tuple here comes from a block at or above the threshold.
    */
   static updates(
     currentDocument: DidDocument,
@@ -413,8 +456,6 @@ export class Resolver {
 
       // Safely convert block.time to timestamp
       const blocktime = DateUtils.blocktimeToTimestamp(block.time);
-
-      // TODO: How to detect if block is unconfirmed and exit gracefully or return without it
 
       // Set the updated field to the blocktime of the current update
       response.metadata.updated = DateUtils.toISOStringNonFractional(blocktime);
@@ -752,11 +793,17 @@ export class Resolver {
             // Skip already-processed services and services with no signals
             if(this.#processedServices.has(service.id) || !signals.length) continue;
 
+            // Keep only the signals at or above the confirmation threshold. A
+            // service whose signals are all below it is treated like a service
+            // with no signals: it is not processed and not marked processed.
+            const eligible = this.#eligibleSignals(signals);
+            if(!eligible.length) continue;
+
             // Establish a typed beacon and process its signals
             // The beacon is bound to the DID under resolution: a beacon service
             // `id` may be a relative DID URL, so it cannot supply the subject.
             const beacon = BeaconFactory.establish(service, this.#currentDocument!.id);
-            const result = beacon.processSignals(signals, this.#sidecarData);
+            const result = beacon.processSignals(eligible, this.#sidecarData);
 
             if(result.needs.length > 0) {
               // This service has unmet data needs, collect them
@@ -844,6 +891,43 @@ export class Resolver {
         }
       }
     }
+  }
+
+  /**
+   * Return the signals of one beacon service that resolution may process: the
+   * signals with at least `#minConf` confirmations. The specification removes a
+   * transaction below the threshold from the set of Beacon Signals, so an
+   * excluded signal emits no data need and applies no update. A signal with no
+   * integer confirmation count is excluded too: that is a mempool transaction
+   * from a driver that did not skip it.
+   *
+   * An eligible signal must carry a finite block height and block time. A
+   * signal that passes the count but lacks them is malformed. It fails fast
+   * here with a typed error, in the style of the {@link provide} guards, and
+   * not later with an invalid date inside {@link updates}.
+   * @param {Array<BeaconSignal>} signals The signals the caller provided for one service.
+   * @returns {Array<BeaconSignal>} The signals at or above the threshold, in the given order.
+   * @throws {ResolveError} `INVALID_DID_UPDATE` for an eligible signal with no valid block metadata.
+   */
+  #eligibleSignals(signals: Array<BeaconSignal>): Array<BeaconSignal> {
+    const eligible: Array<BeaconSignal> = [];
+    for(const signal of signals) {
+      const block = signal.blockMetadata as Partial<BlockMetadata> | undefined;
+      const confirmations = block?.confirmations;
+      if(!Number.isInteger(confirmations) || (confirmations as number) < this.#minConf) {
+        continue;
+      }
+      if(!Number.isFinite(block?.height) || !Number.isFinite(block?.time)) {
+        throw new ResolveError(
+          `Beacon signal ${signal.signalBytes} has ${confirmations} confirmations `
+          + 'but no valid block height or block time.',
+          INVALID_DID_UPDATE,
+          { signalBytes: signal.signalBytes, confirmations, height: block?.height, time: block?.time }
+        );
+      }
+      eligible.push(signal);
+    }
+    return eligible;
   }
 
   /**

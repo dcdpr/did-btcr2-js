@@ -2,6 +2,7 @@
 export {
   BeaconFactory,
   BeaconUtils,
+  DEFAULT_MIN_CONF,
   DidBtcr2,
   DidDocument,
   DidDocumentBuilder,

@@ -1,5 +1,13 @@
 # @did-btcr2/aggregation
 
+## 0.6.2
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/bitcoin@0.11.0
+  - @did-btcr2/common@9.4.0
+
 ## 0.6.1
 
 ### Patch Changes

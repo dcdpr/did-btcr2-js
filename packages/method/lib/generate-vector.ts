@@ -33,7 +33,7 @@ import { GenesisDocument } from '../src/utils/did-document.js';
  *   pnpm generate:vector update --hash <hash> [--interactive] [--offline]
  *   pnpm generate:vector fund --hash <hash> [--amount <btc>]
  *   pnpm generate:vector announce --hash <hash>
- *   pnpm generate:vector resolve --hash <hash> [--offline]
+ *   pnpm generate:vector resolve --hash <hash> [--offline] [--min-conf <n>]
  *   pnpm generate:vector list [--network <net>] [--type key|external]
  */
 const ACTIONS = ['create', 'update', 'fund', 'announce', 'resolve', 'list'] as const;
@@ -63,6 +63,15 @@ const hasFlag = (name: string) => args.includes(`--${name}`);
 let hashArg = flag('hash', '');
 const interactive = hasFlag('interactive');
 const offline = hasFlag('offline');
+
+// Resolution applies a beacon signal only at this many confirmations. The
+// specification default is 6; a fresh regtest vector needs 6 blocks on top of
+// its announce transaction, or --min-conf 1, to resolve past version 1.
+const minConfArg = flag('min-conf', '');
+if (minConfArg && !/^[1-9]\d*$/.test(minConfArg)) {
+  throw new Error(`--min-conf must be a positive integer (minimum 1), got "${minConfArg}"`);
+}
+const minConf = minConfArg ? Number(minConfArg) : undefined;
 
 // These flags are only relevant during the create step.
 // All other steps derive the type and network from the stored DID.
@@ -94,6 +103,7 @@ function printHelp(): never {
     --interactive           Enable interactive patch builder (update only)
     --amount <btc>          BTC amount to send (fund only, default: 0.001)
     --offline               Skip on-chain announcement (update) or live resolution (resolve)
+    --min-conf <n>          Minimum confirmations a beacon signal needs (resolve only, default: 6)
 
   Examples:
     pnpm generate:vector create
@@ -106,6 +116,7 @@ function printHelp(): never {
     pnpm generate:vector announce --hash q5ps09nu
     pnpm generate:vector resolve --hash q5ps09nu
     pnpm generate:vector resolve --hash q5ps09nu --offline
+    pnpm generate:vector resolve --hash q5ps09nu --min-conf 1
     pnpm generate:vector list
     pnpm generate:vector list --network regtest --type key
 `);
@@ -993,7 +1004,7 @@ async function stepResolve(hash: string = hashArg) {
 
   const { dir, did, idType, network } = loadVectorContext(hash);
 
-  console.log(`\n[resolve] hash=${hash} mode=${offline ? 'offline' : 'live'}\n`);
+  console.log(`\n[resolve] hash=${hash} mode=${offline ? 'offline' : 'live'} minConf=${minConf ?? 'default'}\n`);
 
   // Build the sidecar object. Include signed updates if the update step
   // has been run; otherwise resolve the DID in its initial state.
@@ -1031,7 +1042,7 @@ async function stepResolve(hash: string = hashArg) {
 
   // Live mode: create the Resolver state machine and drive it
   const bitcoin = requireBitcoinConnection(network);
-  const resolver = DidBtcr2.resolve(did, { sidecar });
+  const resolver = DidBtcr2.resolve(did, { sidecar, ...(minConf !== undefined ? { minConf } : {}) });
 
   console.log(`Resolving ${did} ...`);
 

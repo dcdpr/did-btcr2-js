@@ -59,6 +59,7 @@ pnpm generate:vector <action> [options]
 | `--interactive` | flag (no value) | off | `update` | Enable interactive patch builder |
 | `--amount` | BTC amount | `0.001` | `fund` | BTC amount to send to each beacon address |
 | `--offline` | flag (no value) | off | `update`, `resolve` | Skip on-chain announcement or live resolution |
+| `--min-conf` | positive integer | `6` | `resolve` | Minimum confirmations a beacon signal needs before resolution applies it |
 
 > After `create`, the hash uniquely identifies the vector. The script finds the directory automatically and derives the type and network from the stored DID.
 
@@ -150,6 +151,8 @@ Resolves a DID against a live Bitcoin node. Assembles a sidecar from the signed 
 
 **With `--offline`:** writes only the sidecar input file without connecting to Bitcoin.
 
+**With `--min-conf <n>`:** lowers or raises the confirmation threshold. Resolution applies a beacon signal only at six confirmations by default, the specification value. A fresh regtest vector therefore resolves to version 1 until six blocks sit on top of its announce transaction. Mine them, or pass `--min-conf 1`.
+
 ```bash
 # Resolve against a live Bitcoin node
 source .env
@@ -157,6 +160,9 @@ pnpm generate:vector resolve --hash <hash>
 
 # Offline: build sidecar input only
 pnpm generate:vector resolve --hash <hash> --offline
+
+# Apply the announce transaction after one confirmation
+pnpm generate:vector resolve --hash <hash> --min-conf 1
 ```
 
 **Outputs:**

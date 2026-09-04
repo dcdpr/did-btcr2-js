@@ -1,5 +1,18 @@
 # @did-btcr2/api
 
+## 0.21.0
+
+### Minor Changes
+
+- `resolveDid`, `tryResolveDid`, `updateDid`, and `deactivateDid` accept `minConf` on `ResolutionOptions`: the confirmations a beacon signal needs before resolution applies it. Default `6`, the specification value. `DEFAULT_MIN_CONF` is re-exported. Breaking: a default resolve no longer applies a signal with fewer than six confirmations; pass `{ minConf: 1 }` to see a fresh update after one block.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/bitcoin@0.11.0
+  - @did-btcr2/common@9.4.0
+  - @did-btcr2/method@0.59.0
+
 ## 0.20.0
 
 ### Minor Changes

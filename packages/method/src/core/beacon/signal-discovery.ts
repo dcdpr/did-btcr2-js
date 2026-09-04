@@ -109,6 +109,20 @@ export class BeaconSignalDiscovery {
   /**
    * Retrieves the beacon signals for the given array of BeaconService objects
    * using an esplora/electrs REST API connection via a bitcoin I/O driver.
+   *
+   * The address listing includes mempool transactions. The method skips a
+   * transaction whose `status.confirmed` is not `true`. A mempool transaction
+   * has no block height and no block time, so it cannot carry block metadata.
+   * The specification also says that a resolver must not process an
+   * unconfirmed transaction. An absent flag counts as unconfirmed, as it does
+   * for UTXO selection. The check runs before the OP_RETURN parse, so a
+   * mempool transaction costs no prevout fetch. The {@link fullnode} path
+   * needs no such check: it walks mined blocks only.
+   *
+   * The `confirmations` count uses the block count fetched before the listing.
+   * A block that arrives between the two calls yields a count of `0` for its
+   * transactions. The resolver then excludes them, because its minimum is at
+   * least `1`. An under-count is the safe direction, so keep that order.
    * @param {Array<BeaconService>} beaconServices Array of BeaconService objects to retrieve signals for
    * @param {BitcoinConnection} bitcoin Bitcoin network connection to use for REST calls
    * @returns {Promise<Map<BeaconService, Array<BeaconSignal>>>} Map of beacon service to its discovered signals
@@ -136,6 +150,14 @@ export class BeaconSignalDiscovery {
 
       // Iterate over each signal
       for (const beaconSignal of beaconSignals) {
+        // Skip a mempool transaction before any parse or fetch. Esplora reports it
+        // as `{ confirmed: false }` with no block fields, so it has no block
+        // metadata, and the specification forbids a resolver to process it.
+        const status = beaconSignal.status;
+        if(status.confirmed !== true) {
+          continue;
+        }
+
         // Get the last vout in the transaction
         const lastSignalVout = beaconSignal.vout.slice(-1)[0];
 
@@ -169,7 +191,7 @@ export class BeaconSignalDiscovery {
         }
 
         // Use the pre-fetched block count instead of calling per-signal
-        const confirmations = currentBlockCount - beaconSignal.status.block_height + 1;
+        const confirmations = currentBlockCount - status.block_height + 1;
 
         // Push the beacon signal object to the signals array for the beacon service
         beaconServiceSignals.get(beaconService)?.push({
@@ -177,8 +199,8 @@ export class BeaconSignalDiscovery {
           signalBytes   : updateHash,
           blockMetadata : {
             confirmations,
-            height : beaconSignal.status.block_height,
-            time   : beaconSignal.status.block_time,
+            height : status.block_height,
+            time   : status.block_time,
           }
         });
       }

@@ -21,6 +21,9 @@
  *
  * Env:
  *   BITCOIN_NETWORK   default: regtest (set mutinynet for the DEMO.md path)
+ *   E2E_MIN_CONF      the minConf every resolve passes, and the confirmation
+ *                     depth each broadcast waits for. Default: 6 on regtest
+ *                     (the specification default), 1 on a public network.
  *
  * Usage:
  *   npx tsx packages/api/lib/e2e-full-lifecycle.ts
@@ -33,11 +36,18 @@
  */
 import assert from 'node:assert/strict';
 import { createApi, DEFAULT_CAS_GATEWAY, explorerTxUrl } from '@did-btcr2/api';
-import { confirmBroadcast, fundBeacon, parseNetworkEnv, persistKey, utxoTimeoutMs, waitForUtxo } from './_e2e-helpers.js';
+import { confirmBroadcast, fundBeacon, parseMinConfEnv, parseNetworkEnv, persistKey, utxoTimeoutMs, waitForUtxo } from './_e2e-helpers.js';
 
 const NETWORK = parseNetworkEnv();
 
-console.log(`E2E: full did:btcr2 lifecycle against ${NETWORK}\n`);
+// Resolution applies a beacon signal only at MIN_CONF confirmations. The
+// specification default is 6. regtest mines 6 blocks per broadcast, so the
+// default holds there. On a public network 6 blocks is a long wait for a
+// walkthrough, so the script lowers it to 1 unless E2E_MIN_CONF says otherwise.
+// Every resolve below passes it, and every broadcast waits for that depth.
+const MIN_CONF = parseMinConfEnv(NETWORK);
+
+console.log(`E2E: full did:btcr2 lifecycle against ${NETWORK} (minConf ${MIN_CONF})\n`);
 
 // ─── Step 1: Build the api with a live Bitcoin connection ───────────────────
 
@@ -73,7 +83,7 @@ console.log(`    beacon (offline): ${beaconAddress}`);
 
 // ─── Step 4: Resolve v1 + confirm the beacon ─────────────────────────────────
 
-const v1 = await api.tryResolveDid(did);
+const v1 = await api.tryResolveDid(did, { minConf: MIN_CONF });
 if (!v1.ok) throw new Error(`Initial resolve failed: ${v1.errorMessage ?? v1.error}`);
 assert.equal(v1.metadata?.versionId, '1', 'fresh DID should resolve at version 1');
 
@@ -115,11 +125,11 @@ console.log(`    broadcast (targetVersionId: ${update1.signedUpdate.targetVersio
 const watch = explorerTxUrl(NETWORK, update1.txid);
 if (watch) console.log(`    watch: ${watch}`);
 
-await confirmBroadcast({ bitcoin: api.btc.connection, network: NETWORK, minerAddr, watchAddress: beaconAddress, txid: update1.txid });
+await confirmBroadcast({ bitcoin: api.btc.connection, network: NETWORK, minerAddr, watchAddress: beaconAddress, txid: update1.txid, confirmations: MIN_CONF });
 
 // ─── Step 7: Resolve v2 - with the sidecar, then without ─────────────────────
 
-const v2 = await api.tryResolveDid(did, { sidecar: { updates: [update1.signedUpdate] } });
+const v2 = await api.tryResolveDid(did, { sidecar: { updates: [update1.signedUpdate] }, minConf: MIN_CONF });
 if (!v2.ok) throw new Error(`v2 resolve failed: ${v2.errorMessage ?? v2.error}`);
 assert.equal(v2.metadata?.versionId, '2', 'sidecar resolve should reach version 2');
 assert.deepEqual(v2.document.alsoKnownAs, ['https://example.com/demo'], 'patch should be applied');
@@ -129,7 +139,7 @@ console.log('\n[7] Resolved v2 with the sidecar ✓');
 // found (Bitcoin only holds the 32-byte hash), so resolution MUST fail.
 let sidecarlessError: Error | undefined;
 try {
-  await api.resolveDid(did);
+  await api.resolveDid(did, { minConf: MIN_CONF });
 } catch (err) {
   sidecarlessError = err as Error;
 }
@@ -146,22 +156,24 @@ await waitForUtxo(beaconAddress, api.btc.connection, {
   timeoutMs        : utxoTimeoutMs(NETWORK),
 });
 
-// The auto-resolution needs the sidecar to see version 2. resolutionOptions
-// hands it over. The api derives the verification method and the beacon again.
+// The auto-resolution needs the sidecar to see version 2, and the same minConf
+// the broadcast waited for. resolutionOptions hands both over. The api derives
+// the verification method and the beacon again.
 console.log('\n[8] Broadcasting deactivation v2 -> v3 ...');
 const update2 = await api.deactivateDid({
   did,
   signer,
-  resolutionOptions : { sidecar: { updates: [update1.signedUpdate] } },
+  resolutionOptions : { sidecar: { updates: [update1.signedUpdate] }, minConf: MIN_CONF },
 });
 console.log(`    broadcast (targetVersionId: ${update2.signedUpdate.targetVersionId}, txid: ${update2.txid})`);
 
-await confirmBroadcast({ bitcoin: api.btc.connection, network: NETWORK, minerAddr, watchAddress: beaconAddress, txid: update2.txid });
+await confirmBroadcast({ bitcoin: api.btc.connection, network: NETWORK, minerAddr, watchAddress: beaconAddress, txid: update2.txid, confirmations: MIN_CONF });
 
 // ─── Step 9: Final resolve - both updates in the sidecar ─────────────────────
 
 const final = await api.tryResolveDid(did, {
   sidecar : { updates: [update1.signedUpdate, update2.signedUpdate] },
+  minConf : MIN_CONF,
 });
 if (!final.ok) throw new Error(`Final resolve failed: ${final.errorMessage ?? final.error}`);
 assert.equal(final.metadata?.versionId, '3', 'deactivation should land as version 3');

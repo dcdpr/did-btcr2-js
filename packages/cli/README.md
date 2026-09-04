@@ -79,6 +79,7 @@ Required flag: `-i/--identifier`. If both `-r` and `-p` are given, `-r` wins and
 | `-i, --identifier <identifier>` | did:btcr2 identifier to resolve (required) |
 | `-r, --resolution-options <json>` | Resolution options as an inline JSON string |
 | `-p, --resolution-options-path <path>` | Path to a JSON file containing resolution options |
+| `--min-conf <n>` | Minimum block confirmations a beacon signal needs before resolution applies it. A positive integer; default `6`, the specification value. Overrides a `minConf` inside `-r`/`-p`. Pass `1` to see a fresh update after one block |
 
 ### update
 
@@ -235,6 +236,9 @@ btcr2 resolve -i did:btcr2:k1qq... -r '{"versionId":"1"}'
 
 # With resolution options from a JSON file
 btcr2 resolve -i did:btcr2:k1qq... -p resolution-options.json
+
+# Apply a signal after one confirmation instead of the default six
+btcr2 resolve -i did:btcr2:k1qq... --min-conf 1 -r '{"sidecar":{"updates":[...]}}'
 
 # JSON output
 btcr2 -o json resolve -i did:btcr2:k1qq...
