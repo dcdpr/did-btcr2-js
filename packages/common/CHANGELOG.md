@@ -1,5 +1,11 @@
 # @did-btcr2/common
 
+## 9.4.0
+
+### Minor Changes
+
+- Add `INVALID_OPTIONS` to `MethodErrorCode` and to the named exports. It is the DID Resolution v1.0 error code for an invalid resolution option, which the did:btcr2 specification reuses.
+
 ## 9.3.0
 
 ### Minor Changes

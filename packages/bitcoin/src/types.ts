@@ -9,12 +9,28 @@ export type NetworkName =
   | 'mutinynet'
   | 'regtest';
 
-export type TransactionStatus = {
-  confirmed: boolean;
-  block_height: number;
-  block_hash: string;
-  block_time: UnixTimestamp;
-};
+/**
+ * Confirmation state of an Esplora transaction or UTXO.
+ *
+ * Esplora returns the block fields only for a confirmed transaction. A mempool
+ * transaction carries `{ confirmed: false }` and no block fields. The union
+ * makes a read of `block_height`, `block_hash`, or `block_time` narrow on
+ * `confirmed` first, so an unconfirmed transaction cannot reach code that
+ * expects a block.
+ */
+export type TransactionStatus =
+  | {
+    confirmed: true;
+    block_height: number;
+    block_hash: string;
+    block_time: UnixTimestamp;
+  }
+  | {
+    confirmed: false;
+    block_height?: undefined;
+    block_hash?: undefined;
+    block_time?: undefined;
+  };
 
 export interface Vin {
   txid: string;

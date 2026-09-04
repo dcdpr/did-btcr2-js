@@ -47,6 +47,19 @@ export interface ResolutionOptions extends DidResolutionOptions {
    */
   maxDiscoveryRounds?: number;
 
+  /**
+   * Minimum number of Bitcoin block confirmations a Beacon Signal transaction
+   * must have before resolution processes it. A positive integer, minimum `1`.
+   * Defaults to `6` ({@link DEFAULT_MIN_CONF}), the value the specification
+   * mandates. A signal below the threshold is excluded from the resolution
+   * as if it did not exist yet; the rest of the signals are processed. A lower
+   * value shows a fresh update sooner and raises the exposure to a block
+   * reorganization. The `confirmations` field of the resolution metadata
+   * reports the depth of the last applied signal, so a consumer can judge it.
+   * Any other value (`0`, a negative number, a fraction, `NaN`, a string)
+   * fails with a `ResolveError` of type `INVALID_OPTIONS`.
+   */
+  minConf?: number;
 }
 
 /**

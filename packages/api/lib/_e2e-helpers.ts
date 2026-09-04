@@ -28,6 +28,22 @@ const VALID_NETWORKS: ReadonlyArray<E2ENetwork> = ['regtest', 'mutinynet', 'sign
 const REGTEST_RPC = { username: 'polaruser', password: 'polarpass' } as const;
 
 /**
+ * Read `E2E_MIN_CONF`: the `minConf` the e2e resolves pass, and the confirmation
+ * depth `confirmBroadcast` waits for. Default 6 on regtest, the specification
+ * default; regtest mines 6 blocks per broadcast. Default 1 on a public network,
+ * where 6 blocks is a long wait for a walkthrough. Throws on a value that is not
+ * a positive integer.
+ */
+export function parseMinConfEnv(network: E2ENetwork): number {
+  const raw = process.env.E2E_MIN_CONF;
+  if (raw === undefined || raw === '') return network === 'regtest' ? 6 : 1;
+  if (!/^[1-9]\d*$/.test(raw)) {
+    throw new Error(`Unsupported E2E_MIN_CONF="${raw}". Expected a positive integer (minimum 1).`);
+  }
+  return Number(raw);
+}
+
+/**
  * Read and validate `BITCOIN_NETWORK` env. Defaults to `regtest`. Throws on
  * any unsupported value so e2e scripts fail loudly rather than silently
  * connecting to an unintended network.
@@ -180,23 +196,40 @@ export async function fundBeacon(args: {
 }
 
 /**
- * Poll Esplora until the indexer reports `txid` as confirmed. The indexer
- * answers 404 for a transaction it has not seen yet; that counts as "not yet".
+ * Confirmation depth of `txid` as the indexer sees it: the indexer tip minus the
+ * block height plus one, the formula beacon signal discovery uses. `0` for a
+ * transaction the indexer has not seen (it answers 404) or still has in the mempool.
+ */
+async function indexerConfirmations(txid: string, bitcoin: BitcoinConnection): Promise<number> {
+  const tx = await bitcoin.rest.transaction.get(txid).catch(() => undefined);
+  if (!tx || tx.status.confirmed !== true) return 0;
+  const tip = await bitcoin.rest.block.count();
+  return tip - tx.status.block_height + 1;
+}
+
+/**
+ * Poll Esplora until the indexer reports `txid` at `confirmations` depth
+ * (default 1). Match `confirmations` to the `minConf` of the resolve that
+ * follows: resolution excludes a signal below that depth, so a resolve right
+ * after a 1-deep wait shows the old version under the default of 6.
  */
 export async function waitForTxConfirmed(
   txid: string,
   bitcoin: BitcoinConnection,
-  opts: { timeoutMs?: number; pollMs?: number } = {},
+  opts: { timeoutMs?: number; pollMs?: number; confirmations?: number } = {},
 ): Promise<void> {
   const timeoutMs = opts.timeoutMs ?? 30_000;
   const pollMs = opts.pollMs ?? 500;
+  const confirmations = opts.confirmations ?? 1;
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    const confirmed = await bitcoin.rest.transaction.isConfirmed(txid).catch(() => false);
-    if (confirmed) return;
+    const depth = await indexerConfirmations(txid, bitcoin).catch(() => 0);
+    if (depth >= confirmations) return;
     await new Promise((r) => setTimeout(r, pollMs));
   }
-  throw new Error(`waitForTxConfirmed: ${txid} not confirmed in the indexer within ${timeoutMs}ms`);
+  throw new Error(
+    `waitForTxConfirmed: ${txid} did not reach ${confirmations} confirmation(s) in the indexer within ${timeoutMs}ms`,
+  );
 }
 
 /**
@@ -220,19 +253,21 @@ export async function waitForIndexerTip(
 }
 
 /**
- * Ensure a broadcast tx is confirmed before downstream verification steps
- * (e.g. BeaconSignalDiscovery.indexer expects confirmed signals).
+ * Ensure a broadcast tx has `confirmations` blocks on top of it in the indexer
+ * before the verification steps that follow. Resolution applies a beacon signal
+ * only at `minConf` confirmations (default 6), so the depth waited for here must
+ * match the `minConf` of the next resolve.
  *
- * - regtest: mine 6 blocks to `minerAddr`, then wait for the Esplora indexer.
- *   `generateToAddress` returns as soon as bitcoind has the blocks. The
- *   indexer lags by seconds. A resolve inside that window reads the broadcast
- *   tx as unconfirmed, with no block time, and fails.
- * - all others: prompt the operator to wait for the broadcast to confirm, then
- *   wait for the indexer in the same way.
+ * - regtest: mine `confirmations` blocks (at least 6) to `minerAddr`, then wait
+ *   for the Esplora indexer. `generateToAddress` returns as soon as bitcoind has
+ *   the blocks. The indexer lags by seconds. A resolve inside that window sees
+ *   the broadcast tx at a lower depth than bitcoind does.
+ * - all others: prompt the operator to wait for the depth, then wait for the
+ *   indexer in the same way.
  *
- * Pass `txid` to wait until the indexer reports that transaction confirmed.
+ * Pass `txid` to wait until the indexer reports that transaction at the depth.
  * Without it, the regtest path waits until the indexer tip reaches the
- * bitcoind tip.
+ * bitcoind tip, which gives the same depth.
  */
 export async function confirmBroadcast(args: {
   bitcoin: BitcoinConnection;
@@ -241,30 +276,34 @@ export async function confirmBroadcast(args: {
   minerAddr?: string;
   /** Optional: address whose UTXOs should reflect the broadcast (for operator URL hints). */
   watchAddress?: string;
-  /** Optional: the broadcast txid. If given, wait until the indexer reports it confirmed. */
+  /** Optional: the broadcast txid. If given, wait until the indexer reports it at the depth. */
   txid?: string;
+  /** Confirmation depth to wait for (default 1). Match it to the `minConf` of the next resolve. */
+  confirmations?: number;
 }): Promise<void> {
   const { bitcoin, network, minerAddr, watchAddress, txid } = args;
+  const confirmations = args.confirmations ?? 1;
   const timeoutMs = utxoTimeoutMs(network);
   if (network === 'regtest') {
     if (!bitcoin.rpc) throw new Error('regtest confirmBroadcast requires bitcoin.rpc');
     if (!minerAddr) throw new Error('regtest confirmBroadcast requires minerAddr');
-    await bitcoin.rpc.generateToAddress(6, minerAddr);
+    await bitcoin.rpc.generateToAddress(Math.max(6, confirmations), minerAddr);
     if (txid) {
-      await waitForTxConfirmed(txid, bitcoin, { timeoutMs });
+      await waitForTxConfirmed(txid, bitcoin, { timeoutMs, confirmations });
     } else {
       await waitForIndexerTip(await bitcoin.rpc.getBlockCount(), bitcoin, { timeoutMs });
     }
     return;
   }
-  console.log(`\n  ──> Wait for the broadcast to confirm on ${network}.`);
+  const blocks = confirmations === 1 ? '1 block' : `${confirmations} blocks`;
+  console.log(`\n  ──> Wait for the broadcast to reach ${blocks} of confirmation on ${network}.`);
   if (watchAddress) {
     console.log(`      Explorer: ${explorerUrl(network, watchAddress)}`);
   }
   console.log(`      Block times: ${blockTimeHint(network)}`);
-  await promptYes('      Broadcast confirmed (1+ block)? [Y/n] ');
+  await promptYes(`      Broadcast confirmed (${confirmations}+ ${confirmations === 1 ? 'block' : 'blocks'})? [Y/n] `);
   if (txid) {
-    await waitForTxConfirmed(txid, bitcoin, { timeoutMs });
+    await waitForTxConfirmed(txid, bitcoin, { timeoutMs, confirmations });
   }
 }
 

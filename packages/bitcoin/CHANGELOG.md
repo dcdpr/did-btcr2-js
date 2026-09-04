@@ -1,5 +1,16 @@
 # @did-btcr2/bitcoin
 
+## 0.11.0
+
+### Minor Changes
+
+- Make `TransactionStatus` a discriminated union. The confirmed arm carries `block_height`, `block_hash`, and `block_time`. The unconfirmed arm is `{ confirmed: false }` with the block fields typed as absent, as Esplora returns a mempool transaction. A read of a block field must narrow on `confirmed` first. This is a breaking type change for code that read a block field without the check.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/common@9.4.0
+
 ## 0.10.0
 
 ### Minor Changes
