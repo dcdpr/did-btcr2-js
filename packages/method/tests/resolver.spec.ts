@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { randomBytes } from 'crypto';
-import { canonicalHash, encode, hash, canonicalize, INTERNAL_ERROR, INVALID_DID_UPDATE, JSONPatch, LATE_PUBLISHING_ERROR } from '@did-btcr2/common';
+import { canonicalHash, encode, hash, canonicalize, INTERNAL_ERROR, INVALID_DID_UPDATE, INVALID_OPTIONS, JSONPatch, LATE_PUBLISHING_ERROR, ResolveError } from '@did-btcr2/common';
 import type { PatchOperation } from '@did-btcr2/common';
 import { getNetwork } from '@did-btcr2/bitcoin';
 import { CompressedSecp256k1PublicKey, LocalSigner } from '@did-btcr2/keypair';
@@ -14,7 +14,7 @@ import type { BeaconService, BeaconSignal } from '../src/core/beacon/interfaces.
 import type { DidDocument } from '../src/utils/did-document.js';
 import { DidVerificationMethod } from '../src/utils/did-document.js';
 import type { SignedBTCR2Update } from '../src/core/btcr2-update.js';
-import { Resolver } from '../src/core/resolver.js';
+import { DEFAULT_MIN_CONF, Resolver } from '../src/core/resolver.js';
 import type { DidResolutionResponse, NeedBeaconSignals, NeedCASAnnouncement, NeedGenesisDocument, NeedSMTProof, NeedSignedUpdate } from '../src/core/resolver.js';
 import { Updater } from '../src/core/updater.js';
 import deterministicData from './data/deterministic-data.js';
@@ -851,6 +851,218 @@ describe('Resolver', () => {
       expect(metadata.versionId).to.equal('2');
       // v3's benign append was never applied, so assertionMethod is unchanged from genesis.
       expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length);
+    });
+  });
+
+  describe('signal confirmation threshold (minConf, ADR 105)', () => {
+    // The specification processes a Beacon Signal only if its transaction has at least
+    // resolutionOptions.minConf confirmations, 6 when the option is absent. A signal
+    // below the threshold is excluded at intake: it emits no data need and applies no
+    // update. The rest of the signals are processed.
+    const fixture = deterministicData[2]; // regtest - has a known secretKey
+
+    /**
+     * Drive one round on the genesis beacon. Every update in `signalUpdates` becomes one
+     * signal with the confirmation count at the same index; `times`, when given, is used
+     * as is, so a test can inject an undefined block time. Records every need kind the
+     * resolver emits. Stops at the first need that is not NeedBeaconSignals and returns
+     * no result for it.
+     */
+    function driveThreshold(
+      sidecarUpdates: Array<SignedBTCR2Update>,
+      signalUpdates: Array<SignedBTCR2Update>,
+      confirmations: Array<number | undefined>,
+      options: { minConf?: number } = {},
+      times?: Array<number | undefined>
+    ): { result?: DidResolutionResponse; needs: Array<string> } {
+      const resolver = DidBtcr2.resolve(fixture.did, { sidecar: { updates: sidecarUpdates }, ...options });
+      const needs: Array<string> = [];
+      let state = resolver.resolve();
+      while(state.status === 'action-required') {
+        const need = state.needs[0]!;
+        needs.push(need.kind);
+        if(need.kind !== 'NeedBeaconSignals') return { needs };
+        const genesis = need.beaconServices[0] as BeaconService;
+        const signals = new Map<BeaconService, Array<BeaconSignal>>();
+        signals.set(genesis, signalUpdates.map((update, i) => ({
+          tx            : {} as any,
+          signalBytes   : canonicalHash(update, { encoding: 'hex' }),
+          blockMetadata : {
+            height        : 100 + i,
+            time          : (times ? times[i] : 1700000000 + i) as unknown as number,
+            confirmations : confirmations[i] as number
+          }
+        })));
+        resolver.provide(need, signals);
+        state = resolver.resolve();
+      }
+      return { result: state.result, needs };
+    }
+
+    /**
+     * Drive a beacon-discovery chain with a confirmation count per beacon address.
+     * Mirrors driveDiscoveryChain, plus `minConf` and per-address counts.
+     */
+    function driveChainWithConfirmations(
+      updates: Array<SignedBTCR2Update>,
+      signalByAddress: Map<string, string>,
+      confirmationsByAddress: Map<string, number>,
+      options: { minConf?: number } = {}
+    ): DidResolutionResponse {
+      const resolver = DidBtcr2.resolve(fixture.did, { sidecar: { updates }, ...options });
+      let height = 100;
+      let state = resolver.resolve();
+      while(state.status === 'action-required') {
+        const need = state.needs[0]!;
+        if(need.kind !== 'NeedBeaconSignals') throw new Error(`unexpected need: ${need.kind}`);
+        const signals = new Map<BeaconService, Array<BeaconSignal>>();
+        for(const service of need.beaconServices) {
+          const address = BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string);
+          const updateHashHex = signalByAddress.get(address);
+          signals.set(service, updateHashHex
+            ? [{
+              tx            : {} as any,
+              signalBytes   : updateHashHex,
+              blockMetadata : { height: height++, time: 1700000000, confirmations: confirmationsByAddress.get(address) ?? 6 }
+            }]
+            : []
+          );
+        }
+        resolver.provide(need, signals);
+        state = resolver.resolve();
+      }
+      if(state.status !== 'resolved') throw new Error('expected resolved');
+      return state.result;
+    }
+
+    it('DEFAULT_MIN_CONF is 6, the value the specification mandates', () => {
+      expect(DEFAULT_MIN_CONF).to.equal(6);
+    });
+
+    it('excludes a signal at 5 confirmations under the default and emits no data need for it', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ benignPatch(fixture.did) ]);
+      // No sidecar: an eligible signal would emit NeedSignedUpdate. The excluded one must not.
+      const { result, needs } = driveThreshold([], [ u2 ], [ 5 ]);
+      expect(needs).to.deep.equal([ 'NeedBeaconSignals' ]);
+      expect(result?.metadata.versionId).to.equal('1');
+      expect(result?.didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length);
+    });
+
+    it('emits NeedSignedUpdate for the same signal at 6 confirmations with no sidecar', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ benignPatch(fixture.did) ]);
+      const { result, needs } = driveThreshold([], [ u2 ], [ 6 ]);
+      expect(needs).to.deep.equal([ 'NeedBeaconSignals', 'NeedSignedUpdate' ]);
+      expect(result).to.equal(undefined);
+    });
+
+    it('applies a signal at 6 confirmations under the default', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ benignPatch(fixture.did) ]);
+      const { result } = driveThreshold([ u2 ], [ u2 ], [ 6 ]);
+      expect(result?.metadata.versionId).to.equal('2');
+      expect(result?.metadata.confirmations).to.equal(6);
+      expect(result?.didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 1);
+    });
+
+    it('minConf 1 applies a signal at 1 confirmation', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ benignPatch(fixture.did) ]);
+      const { result } = driveThreshold([ u2 ], [ u2 ], [ 1 ], { minConf: 1 });
+      expect(result?.metadata.versionId).to.equal('2');
+      expect(result?.metadata.confirmations).to.equal(1);
+    });
+
+    it('minConf 10 excludes a signal at 6 confirmations', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ benignPatch(fixture.did) ]);
+      const { result, needs } = driveThreshold([ u2 ], [ u2 ], [ 6 ], { minConf: 10 });
+      expect(needs).to.deep.equal([ 'NeedBeaconSignals' ]);
+      expect(result?.metadata.versionId).to.equal('1');
+    });
+
+    it('rejects an invalid minConf with a typed INVALID_OPTIONS error before any data need', () => {
+      for(const bad of [ 0, -1, 1.5, NaN, Infinity, '6' ]) {
+        let thrown: any;
+        try {
+          DidBtcr2.resolve(fixture.did, { minConf: bad as number });
+        } catch(error) {
+          thrown = error;
+        }
+        expect(thrown, `minConf ${String(bad)} must throw`).to.be.instanceOf(ResolveError);
+        expect(thrown.type, `minConf ${String(bad)}`).to.equal(INVALID_OPTIONS);
+        expect(thrown.message).to.match(/minConf/);
+        expect(thrown.data).to.deep.equal({ minConf: bad });
+      }
+    });
+
+    it('excludes a signal with a NaN or missing confirmation count instead of throwing', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ benignPatch(fixture.did) ]);
+      // A mempool transaction from a driver that did not skip it has no count.
+      expect(driveThreshold([ u2 ], [ u2 ], [ NaN ]).result?.metadata.versionId).to.equal('1');
+      expect(driveThreshold([ u2 ], [ u2 ], [ undefined ]).result?.metadata.versionId).to.equal('1');
+    });
+
+    it('a gap below the threshold surfaces as LATE_PUBLISHING_ERROR: v2 at 5, v3 at 6', () => {
+      // The specification removes the shallow transaction from the set; the loop then
+      // sees version 3 with no version 2. That is the true state of the chain at the
+      // threshold depth. The error clears when version 2 reaches the threshold.
+      const source = resolveDeterministic(fixture.did);
+      const [ u2, u3 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        benignPatch(fixture.did), benignPatch(fixture.did)
+      ]);
+      let thrown: any;
+      try {
+        driveThreshold([ u2, u3 ], [ u2, u3 ], [ 5, 6 ]);
+      } catch(error) {
+        thrown = error;
+      }
+      expect(thrown).to.be.instanceOf(ResolveError);
+      expect(thrown.type).to.equal(LATE_PUBLISHING_ERROR);
+      // Both at the threshold: the same history resolves.
+      expect(driveThreshold([ u2, u3 ], [ u2, u3 ], [ 6, 6 ]).result?.metadata.versionId).to.equal('3');
+    });
+
+    it('an eligible signal with no block time fails with a typed error, not an invalid date', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ benignPatch(fixture.did) ]);
+      let thrown: any;
+      try {
+        driveThreshold([ u2 ], [ u2 ], [ 6 ], {}, [ undefined ]);
+      } catch(error) {
+        thrown = error;
+      }
+      expect(thrown).to.be.instanceOf(ResolveError);
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.not.match(/invalid date/i);
+      expect(thrown.message).to.match(/block height or block time/);
+    });
+
+    it('metadata.confirmations reports the depth of the last applied signal', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2, u3 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        benignPatch(fixture.did), benignPatch(fixture.did)
+      ]);
+      const { result } = driveThreshold([ u2, u3 ], [ u2, u3 ], [ 9, 7 ]);
+      expect(result?.metadata.versionId).to.equal('3');
+      expect(result?.metadata.confirmations).to.equal(7);
+    });
+
+    it('an excluded signal on a beacon an earlier update added does not block the resolution', () => {
+      // Round one applies v2 at 6 confirmations and adds beacon-0. Round two finds v3 on
+      // beacon-0 at 3 confirmations: excluded under the default, applied under minConf 3.
+      const source = resolveDeterministic(fixture.did);
+      const { updates, signalByAddress } = buildDiscoveryChain(fixture.did, source, fixture.secretKey, 2);
+      const [ genesisAddress, hopAddress ] = [ ...signalByAddress.keys() ];
+      const confirmations = new Map([[ genesisAddress!, 6 ], [ hopAddress!, 3 ]]);
+
+      const byDefault = driveChainWithConfirmations(updates, signalByAddress, confirmations);
+      expect(byDefault.metadata.versionId).to.equal('2');
+
+      const lowered = driveChainWithConfirmations(updates, signalByAddress, confirmations, { minConf: 3 });
+      expect(lowered.metadata.versionId).to.equal('3');
     });
   });
 

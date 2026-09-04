@@ -210,20 +210,23 @@ Give the update transaction about 1 block (30-60 seconds on Mutinynet). Watch it
 Hand the signed update back as a sidecar and resolve:
 
 ```typescript
-const v2 = await api.tryResolveDid(did, { sidecar: { updates: [signedUpdate] } });
+const v2 = await api.tryResolveDid(did, { sidecar: { updates: [signedUpdate] }, minConf: 1 });
 if (!v2.ok) throw new Error(v2.errorMessage ?? v2.error);
 
-console.log(v2.metadata?.versionId);   // '2'
-console.log(v2.document.alsoKnownAs);  // [ 'https://example.com/demo' ]
+console.log(v2.metadata?.versionId);       // '2'
+console.log(v2.metadata?.confirmations);   // 1 or more: the depth the resolver saw
+console.log(v2.document.alsoKnownAs);      // [ 'https://example.com/demo' ]
 ```
 
 Same DID, version 2, patch applied, verified against the on-chain commitment.
+
+> **Why `minConf: 1`?** The specification tells a resolver to apply a beacon signal only after six confirmations, and `DEFAULT_MIN_CONF` is `6`. Without the option, the same call returns version 1 until the update has six blocks on top of it, about three minutes on Mutinynet. The option lowers the threshold for the walkthrough. The trade-off: a one-deep signal is more exposed to a block reorganization. `metadata.confirmations` shows the depth, so a consumer can judge it. Every resolve below passes the same value.
 
 **The privacy punchline.** Now resolve the same DID **without** the sidecar:
 
 ```typescript
 try {
-  await api.resolveDid(did);
+  await api.resolveDid(did, { minConf: 1 });
 } catch (err) {
   console.log((err as Error).message);
   // Failed to resolve DID did:btcr2:k1q5p8rn...qy2kh3v: Signed update not found in CAS (hash: ...)
@@ -248,18 +251,19 @@ No second faucet trip is needed: the update transaction in Part 4 returned its c
 const update2 = await api.deactivateDid({
   did,
   signer,
-  resolutionOptions : { sidecar: { updates: [signedUpdate] } },
+  resolutionOptions : { sidecar: { updates: [signedUpdate] }, minConf: 1 },
 });
 console.log(update2.txid);
 ```
 
-This time the auto-resolution needs the sidecar: without it the api cannot see version 2. `resolutionOptions` hands the sidecar to that resolution. You hold the history, so you are the source of truth for it: that is the model. As an alternative, pass `sourceDocument` and `sourceVersionId` together to skip the resolution. The api refuses one without the other.
+This time the auto-resolution needs the sidecar: without it the api cannot see version 2. `resolutionOptions` hands the sidecar to that resolution, and the same `minConf: 1` as Step D, so a one-deep update counts. You hold the history, so you are the source of truth for it: that is the model. As an alternative, pass `sourceDocument` and `sourceVersionId` together to skip the resolution. The api refuses one without the other.
 
 Wait one block, then resolve with the **full** update history in the sidecar:
 
 ```typescript
 const final = await api.tryResolveDid(did, {
   sidecar : { updates: [signedUpdate, update2.signedUpdate] },
+  minConf : 1,
 });
 if (final.ok) {
   console.log(final.metadata?.versionId);     // '3'
@@ -355,6 +359,8 @@ Modes: `'never'` (default: maximum privacy, sidecar-only), `'auto'` (best-effort
 | `No key id given and no active key set.` | `api.kms.signer()` with no id needs an active key. Part 1 sets one with `setActive: true`. Or pass the key id. |
 | `Provide both sourceDocument and sourceVersionId for DID ..., or neither.` | You passed one half of the source pair. Pass both, or omit both and pass `resolutionOptions` with the sidecar. |
 | `Failed to resolve DID <did>: Signed update not found in CAS (hash: ...)` | You resolved a DID that has an on-chain update without the sidecar. Pass `{ sidecar: { updates: [...] } }`: that is the privacy feature, not a bug. `tryResolveDid` returns the same text in `errorMessage`. |
+| A resolve returns the old version, with no error | The update transaction has fewer than six confirmations, and resolution excludes it under the default `minConf`. Wait for six blocks, or pass `{ minConf: 1 }` as this walkthrough does. |
+| `Failed to resolve DID <did>: Invalid resolution option minConf: ...` | `minConf` is not a positive integer. Pass `1` or more, or omit it for the default of `6`. |
 | `Failed to resolve DID <did>: Invalid update: verificationMethod is not authorized for capabilityInvocation` | New in v0.19.0: resolution only applies updates signed by a key the document lists under `capabilityInvocation`. Sign with an authorized verification method; `#initialKey` is authorized by default, so this demo never hits it. |
 | Resolve hangs | Check reachability to `https://mutinynet.com/api`; override with `btc: { rest: { host: '<url>' } }`. Slow CAS lookups are bounded by `cas.timeoutMs`. |
 | `The DID names the network "X", but the Bitcoin connection targets "Y".` | The DID and the `btc.network` of `createApi` disagree. The api refuses before any chain read, on resolve and on update (the update form starts with `DID ... names the network`). Create the api with the network of the DID. `api.did.decode(did).network` shows it. |

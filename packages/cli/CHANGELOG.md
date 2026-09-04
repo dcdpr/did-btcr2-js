@@ -1,5 +1,18 @@
 # @did-btcr2/cli
 
+## 0.20.0
+
+### Minor Changes
+
+- `resolve` gains `--min-conf <n>`: the confirmations a beacon signal needs before resolution applies it. A positive integer; default `6`, the specification value. The flag overrides a `minConf` inside `-r`/`-p`. Breaking: a default `resolve` no longer shows an update with fewer than six confirmations; pass `--min-conf 1` to see a fresh update after one block.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/api@0.21.0
+  - @did-btcr2/common@9.4.0
+  - @did-btcr2/method@0.59.0
+
 ## 0.19.3
 
 ### Patch Changes

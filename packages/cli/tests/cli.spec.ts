@@ -2,6 +2,7 @@ import type { Command } from 'commander';
 import { rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createApi } from '@did-btcr2/api';
 import { DidBtcr2Cli } from '../src/cli.js';
 import { CLIError } from '../src/error.js';
 import { createTestApiFactory, expect, originalConsoleLog } from './helpers.js';
@@ -124,6 +125,50 @@ describe('DidBtcr2Cli', () => {
       await expect(
         resolve.parseAsync(['-i', validDid, '-p', '/no/file/here.json'], { from: 'user' })
       ).to.be.rejectedWith(CLIError);
+    });
+
+    /** An api whose resolveDid records its arguments and returns a canned result. */
+    function recordingApi(did: string) {
+      const api = createApi();
+      const calls: unknown[][] = [];
+      (api as any).resolveDid = async (...args: unknown[]) => {
+        calls.push(args);
+        return { didDocument: { id: did }, didDocumentMetadata: {}, didResolutionMetadata: {} };
+      };
+      return { api, calls };
+    }
+
+    it('forwards --min-conf to resolveDid as minConf', async () => {
+      const validDid = 'did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47';
+      const { api, calls } = recordingApi(validDid);
+      const cli = new DidBtcr2Cli(() => api);
+      console.log = () => undefined;
+      await getSubcommand(cli, 'resolve').parseAsync(['-i', validDid, '--min-conf', '3'], { from: 'user' });
+      expect(calls).to.deep.equal([[ validDid, { minConf: 3 } ]]);
+    });
+
+    it('--min-conf wins over a minConf inside --resolution-options', async () => {
+      const validDid = 'did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47';
+      const { api, calls } = recordingApi(validDid);
+      const cli = new DidBtcr2Cli(() => api);
+      console.log = () => undefined;
+      await getSubcommand(cli, 'resolve').parseAsync(
+        ['-i', validDid, '--min-conf', '3', '-r', '{"minConf":9,"versionId":"1"}'], { from: 'user' }
+      );
+      expect(calls).to.deep.equal([[ validDid, { versionId: '1', minConf: 3 } ]]);
+    });
+
+    it('rejects a --min-conf that is not a positive integer before resolving', async () => {
+      const validDid = 'did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47';
+      for (const bad of ['0', 'abc', '1.5', '-2']) {
+        const { api, calls } = recordingApi(validDid);
+        const cli = new DidBtcr2Cli(() => api);
+        await expect(
+          getSubcommand(cli, 'resolve').parseAsync(['-i', validDid, '--min-conf', bad], { from: 'user' }),
+          `--min-conf ${bad}`
+        ).to.be.rejectedWith(CLIError, /--min-conf must be a positive integer/);
+        expect(calls).to.deep.equal([]);
+      }
     });
   });
 
