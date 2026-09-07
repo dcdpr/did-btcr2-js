@@ -188,14 +188,7 @@ describe('state + keystore commands (ADR 079/080)', () => {
     });
 
     async function runUpdate(did: string): Promise<void> {
-      await run(
-        'update',
-        '-s', JSON.stringify({ id: did }),
-        '--source-version-id', '1',
-        '-p', '[]',
-        '-m', `${did}#key-0`,
-        '-b', '"bitcoin:addr"',
-      );
+      await run('update', '-i', did, '-p', '[]');
     }
 
     it('refuses update on a mainnet DID', async () => {
@@ -215,13 +208,7 @@ describe('state + keystore commands (ADR 079/080)', () => {
 
     it('refuses deactivate on a mainnet DID', async () => {
       const did = didFor('bitcoin');
-      await run(
-        'deactivate',
-        '-s', JSON.stringify({ id: did }),
-        '--source-version-id', '1',
-        '-m', `${did}#key-0`,
-        '-b', '"bitcoin:addr"',
-      );
+      await run('deactivate', '-i', did);
       expect(err.join(' ')).to.match(/Refusing a mainnet/i);
     });
   });

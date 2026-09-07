@@ -1,5 +1,11 @@
 # @did-btcr2/cli
 
+## 0.21.0
+
+### Minor Changes
+
+- `update` and `deactivate` take `-i/--identifier <did>` and call the api's `updateDid` and `deactivateDid`. The api resolves the source document when `-s/--source-document` and `--source-version-id` are omitted; the pair stays available for offline use and must come whole. Both commands gain `-r/--resolution-options`, `--resolution-options-path`, and `--min-conf <n>` for that resolution; the three flags are refused together with the source pair. `-m/--verification-method-id` and `-b/--beacon-id` become optional overrides of the api's derivation, and `-b` takes a plain DID URL instead of a JSON string. `deactivate` no longer builds the deactivation patch; the api supplies it. Breaking: `-i` is required, `-b` no longer accepts JSON, and the `UpdateCommandOptions` type changes shape.
+
 ## 0.20.0
 
 ### Minor Changes

@@ -173,11 +173,13 @@ describe('DidBtcr2Cli', () => {
   });
 
   describe('update', () => {
+    const validDid = 'did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47';
+
     it('rejects invalid JSON for --source-document', async () => {
       const cli = new DidBtcr2Cli(createTestApiFactory());
       const update = getSubcommand(cli, 'update');
       await expect(
-        update.parseAsync(['-s', '{bad', '--source-version-id', '1', '-p', '[]', '-m', 'vm', '-b', '[]'], { from: 'user' })
+        update.parseAsync(['-i', validDid, '-p', '[]', '-s', '{bad', '--source-version-id', '1'], { from: 'user' })
       ).to.be.rejectedWith(CLIError, /--source-document/);
     });
 
@@ -185,34 +187,20 @@ describe('DidBtcr2Cli', () => {
       const cli = new DidBtcr2Cli(createTestApiFactory());
       const update = getSubcommand(cli, 'update');
       await expect(
-        update.parseAsync(['-s', '{}', '--source-version-id', '1', '-p', 'not json', '-m', 'vm', '-b', '[]'], { from: 'user' })
+        update.parseAsync(['-i', validDid, '-p', 'not json'], { from: 'user' })
       ).to.be.rejectedWith(CLIError, /--patches/);
-    });
-
-    it('rejects invalid JSON for --beacon-id', async () => {
-      const cli = new DidBtcr2Cli(createTestApiFactory());
-      const update = getSubcommand(cli, 'update');
-      await expect(
-        update.parseAsync(['-s', '{}', '--source-version-id', '1', '-p', '[]', '-m', 'vm', '-b', 'not json'], { from: 'user' })
-      ).to.be.rejectedWith(CLIError, /--beacon-id/);
     });
   });
 
   describe('deactivate', () => {
+    const validDid = 'did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47';
+
     it('rejects invalid JSON for --source-document', async () => {
       const cli = new DidBtcr2Cli(createTestApiFactory());
       const deactivate = getSubcommand(cli, 'deactivate');
       await expect(
-        deactivate.parseAsync(['-s', '{bad', '--source-version-id', '1', '-m', 'vm', '-b', '[]'], { from: 'user' })
+        deactivate.parseAsync(['-i', validDid, '-s', '{bad', '--source-version-id', '1'], { from: 'user' })
       ).to.be.rejectedWith(CLIError, /--source-document/);
-    });
-
-    it('rejects invalid JSON for --beacon-id', async () => {
-      const cli = new DidBtcr2Cli(createTestApiFactory());
-      const deactivate = getSubcommand(cli, 'deactivate');
-      await expect(
-        deactivate.parseAsync(['-s', '{}', '--source-version-id', '1', '-m', 'vm', '-b', 'not json'], { from: 'user' })
-      ).to.be.rejectedWith(CLIError, /--beacon-id/);
     });
   });
 });

@@ -407,30 +407,28 @@ Then:
 
 ### Step B - broadcast the update
 
-Save the current document, then describe the change as a JSON Patch. This example adds
-an `alsoKnownAs` link. Signing needs your secret key: on Path A the live `keystore unlock`
-session supplies the passphrase (no prompt); on Path B the dev keystore needs none.
+Describe the change as a JSON Patch. This example adds an `alsoKnownAs` link. Signing needs
+your secret key: on Path A the live `keystore unlock` session supplies the passphrase (no
+prompt); on Path B the dev keystore needs none.
 
 ```bash
-# Save the current (v1) document.
-btcr2 -o json resolve -i "$DID" | jq '.data.didDocument' > doc-v1.json
-
 # Sign, spend the funded beacon UTXO, and broadcast. Keep the signed update it returns.
 btcr2 -o json --signing-key demo update \
-  -s "$(cat doc-v1.json)" \
-  --source-version-id 1 \
+  -i "$DID" \
   -p '[{"op":"add","path":"/alsoKnownAs","value":["https://example.com/demo"]}]' \
-  -m "${DID}#initialKey" \
-  -b "\"${DID}#initialP2WPKH\"" \
   | jq '.data.signedUpdate' > signed-update.json
 ```
 
-`update` signs the change, spends the funded beacon UTXO, and broadcasts a Bitcoin
+`update` resolves the current document first (version 1, the genesis document, so no sidecar
+is needed yet). It picks the verification method that publishes your key and the one funded
+beacon, signs the change, spends the funded beacon UTXO, and broadcasts a Bitcoin
 transaction whose `OP_RETURN` carries the update hash. The command's `.data` is an
 enriched result (`.data.txid` is the broadcast transaction id, handy for watching the
 signal confirm); `.data.signedUpdate` is the off-chain half you keep, so we extract just
 that into `signed-update.json`. In text mode `update` also prints a `Watch:` explorer link
-for the txid to stderr, so you can click straight through to the transaction.
+for the txid to stderr, so you can click straight through to the transaction. A second
+update needs the first one as sidecar for its own source resolution: pass
+`--min-conf 1 -r "$(jq -c '{sidecar:{updates:[.]}}' signed-update.json)"`, exactly like Step D.
 
 The broadcast itself is tunable: `--fee-rate <sat/vB>` (default 5) raises the fee under
 congestion, and `--change-address` routes the transaction's change somewhere other than the
@@ -692,16 +690,22 @@ eval "$(btcr2 completion bash)"           # or: zsh, fish
 `btcr2 deactivate` (alias `delete`) permanently and irreversibly retires a DID via the
 same on-chain write path as `update`: same funding prerequisite, same signing (a live
 session or a prompt), same `--publish-to-cas` / `--fee-rate` / `--change-address` knobs.
-Do not run it against a DID you want to keep. The shape mirrors `update`, minus the
-patches (save the current document to `doc-v2.json` first, as in Part 4 Step B):
+Do not run it against a DID you want to keep. The command resolves the current state first,
+so it needs the version-2 update as sidecar and, for a fresh signal, `--min-conf 1`, exactly
+like the `resolve` of Step D. The api then derives the verification method and the beacon,
+and supplies the deactivation patch:
 
 ```bash
 btcr2 --signing-key demo deactivate \
-  -s "$(cat doc-v2.json)" \
-  --source-version-id 2 \
-  -m "${DID}#initialKey" \
-  -b "\"${DID}#initialP2WPKH\""
+  -i "$DID" \
+  --min-conf 1 \
+  -r "$(jq -c '{sidecar:{updates:[.]}}' signed-update.json)"
 ```
+
+An offline alternative skips that resolution. Save the version-2 document first
+(`btcr2 -o json resolve ... | jq '.data.didDocument' > doc-v2.json`, with the same `--min-conf 1`
+and `-r` as Step D), then pass `-s "$(cat doc-v2.json)" --source-version-id 2` instead of the two
+resolution flags.
 
 Resolving afterwards (with the deactivation supplied via sidecar, like any update)
 returns the document with `didDocumentMetadata.deactivated: true`: the identifier's
@@ -740,6 +744,11 @@ rm -rf /tmp/btcr2-demo
 | `update`/`deactivate` does not prompt for a passphrase | Expected when a `keystore unlock` session is live, when `BTCR2_KEYSTORE_PASSPHRASE`/`--passphrase-file` is set, or with a dev keystore. Run `btcr2 keystore status` to inspect the session; `btcr2 keystore lock` forces the prompt back. |
 | `Incorrect passphrase ...; no session was created` | The passphrase did not match the keystore verifier. Re-enter it, or rotate with `btcr2 keystore change-passphrase`. |
 | `Refusing to unlock for a mainnet (bitcoin) context` | Unlocking a mainnet default suspends per-use auth. Pass `--allow-mainnet` to override, or keep the per-use prompt. |
+| `Provide both --source-document and --source-version-id, or neither` | You passed one half of the offline source pair. Pass both, or omit both and let the command resolve the current document. |
+| `... apply only when --source-document and --source-version-id are omitted` | `-r`, `--resolution-options-path`, and `--min-conf` feed the source resolution. A supplied source pair skips that resolution. Drop the pair or drop the flags. |
+| `update`/`deactivate` fails with `Signed update not found in CAS` | The source resolution inside the command needs the same sidecar as `resolve`. Pass `-r '{"sidecar":{"updates":[...]}}'`, and `--min-conf 1` for a fresh signal. |
+| `... verification methods on DID ... publish the signer's key` | The document lists the signing key under several methods. Pass `-m <id>` with one of the named ids. |
+| `No beacon of DID ... holds a spendable UTXO`, or `... beacons of DID ... hold a spendable UTXO` | Fund exactly one beacon, or pass `-b <id>` to choose among the funded ones. |
 
 ### Command reference (quick)
 
@@ -751,8 +760,8 @@ btcr2 key generate --name <n> --set-active
 btcr2 key list|ls | show <ref> | use <ref> | import [--secret-file <path> | --public <hex>] | export [--secret --out <path>] <ref> | delete|rm [--force] <ref>
 btcr2 create [-t k|x] [-n <network>] [-b <hex>] [--signing-key <ref>]
 btcr2 resolve|read -i <did> [-r <json>] [-p <path>] [--min-conf <n>]
-btcr2 update -s <doc-json> --source-version-id <n> -p <patches-json> -m <vm-id> -b <beacon-id-json> [--publish-to-cas <mode>] [--fee-rate <n>] [--change-address <addr>]
-btcr2 deactivate|delete -s <doc-json> --source-version-id <n> -m <vm-id> -b <beacon-id-json> [--publish-to-cas <mode>] [--fee-rate <n>] [--change-address <addr>]
+btcr2 update -i <did> -p <patches-json> [-s <doc-json> --source-version-id <n>] [-m <vm-id>] [-b <beacon-id>] [-r <json> | --resolution-options-path <path>] [--min-conf <n>] [--publish-to-cas <mode>] [--fee-rate <n>] [--change-address <addr>]
+btcr2 deactivate|delete -i <did> [-s <doc-json> --source-version-id <n>] [-m <vm-id>] [-b <beacon-id>] [-r <json> | --resolution-options-path <path>] [--min-conf <n>] [--publish-to-cas <mode>] [--fee-rate <n>] [--change-address <addr>]
 btcr2 config init | get [path] | set <path> <value> | unset <path> | list|ls | validate | effective | path | doctor
 btcr2 profile add <name> | use <name> | show [name] | remove|rm <name>
 btcr2 completion [bash|zsh|fish]
