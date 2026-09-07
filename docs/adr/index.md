@@ -183,3 +183,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 103 | 2026-09-03 | [A DID and Its Bitcoin Connection Must Name the Same Network](103-did-and-connection-must-name-the-same-network.md) |
 | 104 | 2026-09-03 | [The Update Path Derives an Omitted Verification Method and Beacon](104-update-path-derives-omitted-verification-method-and-beacon.md) |
 | 105 | 2026-09-04 | [Resolution Processes Only Beacon Signals With at Least minConf Confirmations](105-resolution-processes-only-signals-at-min-conf.md) |
+| 106 | 2026-09-07 | [The cli Write Commands Take the Identifier and Resolve the Source Through the api](106-cli-write-commands-take-the-identifier-and-resolve-through-the-api.md) |

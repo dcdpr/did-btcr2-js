@@ -85,15 +85,19 @@ Required flag: `-i/--identifier`. If both `-r` and `-p` are given, `-r` wins and
 
 Signs and broadcasts an update to a DID document. The signing key comes from the encrypted keystore (choose one with `--signing-key <ref>` or set an active key with `btcr2 key use`).
 
-Required flags: `-s/--source-document`, `--source-version-id`, `-p/--patches`, `-m/--verification-method-id`, `-b/--beacon-id`.
+Required flags: `-i/--identifier`, `-p/--patches`. The command resolves the current document from the network unless you supply the source pair `-s/--source-document` and `--source-version-id` (both or neither). The api derives the verification method and the beacon unless you pass `-m` or `-b`.
 
 | Flag | Description |
 |---|---|
-| `-s, --source-document <json>` | Source DID document as a JSON string |
-| `--source-version-id <number>` | Source version ID as a non-negative integer |
-| `-p, --patches <json>` | JSON Patch operations as a JSON array string |
-| `-m, --verification-method-id <id>` | DID document verification method ID |
-| `-b, --beacon-id <json>` | Beacon ID as a JSON string |
+| `-i, --identifier <identifier>` | did:btcr2 identifier to update (required) |
+| `-p, --patches <json>` | JSON Patch operations as a JSON array string (required) |
+| `-s, --source-document <json>` | Source DID document as a JSON string. Requires `--source-version-id`. Omit both to resolve the current document first |
+| `--source-version-id <number>` | Version ID of the source document, a non-negative integer. Requires `--source-document` |
+| `-m, --verification-method-id <id>` | Verification method that signs the update. Default: the one method of the document that publishes the signing key. Pass it when the api names several candidates |
+| `-b, --beacon-id <id>` | Beacon service that announces the update, as a DID URL (`#initialP2WPKH` or absolute). Default: the only beacon of the document, else the one beacon with a spendable UTXO. Pass it when the api names several funded beacons |
+| `-r, --resolution-options <json>` | Resolution options as an inline JSON string, for the resolution of the source document. Supply sidecar data here if the DID's prior updates are not in a CAS. Not allowed with the source pair |
+| `--resolution-options-path <path>` | Path to a JSON file containing resolution options (`-r` wins if both are given). Not allowed with the source pair |
+| `--min-conf <n>` | Minimum block confirmations a beacon signal needs before the source resolution applies it. A positive integer; default `6`, the specification value. Overrides a `minConf` inside `-r`/`--resolution-options-path`. Not allowed with the source pair |
 | `--publish-to-cas <mode>` | Publish update artifacts to a writable CAS before broadcast: `auto`, `always`, or `never` (default: `never`). See [Publishing updates to CAS](#publishing-updates-to-cas) |
 | `--fee-rate <satsPerVByte>` | Fee rate in sats/vByte for the beacon transaction (default: `5`). Raise it under congestion so the transaction confirms (also `BTCR2_FEE_RATE`, profile `btc.feeRate`) |
 | `--change-address <address>` | Send transaction change to this address instead of the beacon address, so a DID's announcements are not linked on-chain (profile `btc.changeAddress`) |
@@ -102,9 +106,9 @@ On a network with a block explorer, text-mode `update` (and `deactivate`) also p
 
 ### deactivate (alias: delete)
 
-Permanently deactivates a DID. This is irreversible. Deactivation applies the `{ "op": "add", "path": "/deactivated", "value": true }` patch and routes through the same signed-update path as `update`, so it also signs via the keystore.
+Permanently deactivates a DID. This is irreversible. The command calls the api's `deactivateDid`, which applies the `{ "op": "add", "path": "/deactivated", "value": true }` patch and refuses a DID that is deactivated already. It signs via the keystore like `update`.
 
-Required flags: `-s/--source-document`, `--source-version-id`, `-m/--verification-method-id`, `-b/--beacon-id`. Optional: `--publish-to-cas <mode>`, `--fee-rate <satsPerVByte>`, `--change-address <address>` (same as `update`).
+Required flag: `-i/--identifier`. Optional: the same source, derivation, resolution, CAS, fee, and change-address flags as `update`, minus `-p`.
 
 ### init
 
@@ -247,24 +251,28 @@ btcr2 -o json resolve -i did:btcr2:k1qq...
 ### Update a DID
 
 ```bash
-# Signs with the active keystore key (or one chosen via --signing-key)
-btcr2 update \
-  -s "$(cat did.json)" \
-  --source-version-id 1 \
-  -p '[{"op":"add","path":"/service/-","value":{"id":"#svc","type":"X","serviceEndpoint":"https://x"}}]' \
-  -m 'did:btcr2:k1qq...#key-0' \
-  -b '{"id":"#beacon-0","type":"SingletonBeacon","serviceEndpoint":"bitcoin:bc1..."}'
+# Signs with the active keystore key (or one chosen via --signing-key).
+# The command resolves the current document, derives the verification
+# method and the beacon, then signs and broadcasts.
+btcr2 update -i did:btcr2:k1qq... \
+  -p '[{"op":"add","path":"/service/-","value":{"id":"#svc","type":"X","serviceEndpoint":"https://x"}}]'
+
+# A DID whose prior update is sidecar-only: hand that update to the source resolution
+btcr2 update -i did:btcr2:k1qq... --min-conf 1 -r '{"sidecar":{"updates":[...]}}' \
+  -p '[{"op":"remove","path":"/service/1"}]'
+
+# Offline source: supply the document and its version, and name the method and the beacon
+btcr2 update -i did:btcr2:k1qq... \
+  -s "$(cat did.json)" --source-version-id 1 \
+  -p '[{"op":"remove","path":"/service/1"}]' \
+  -m '#initialKey' -b '#initialP2WPKH'
 ```
 
 ### Deactivate a DID
 
 ```bash
-# Irreversible. Applies the deactivation patch and signs via the keystore.
-btcr2 deactivate \
-  -s "$(cat did.json)" \
-  --source-version-id 1 \
-  -m 'did:btcr2:k1qq...#key-0' \
-  -b '{"id":"#beacon-0","type":"SingletonBeacon","serviceEndpoint":"bitcoin:bc1..."}'
+# Irreversible. Resolves the current document, then signs the deactivation via the keystore.
+btcr2 deactivate -i did:btcr2:k1qq... --min-conf 1 -r '{"sidecar":{"updates":[...]}}'
 ```
 
 ### Manage keys
@@ -418,11 +426,8 @@ A writable CAS is configured with `--cas-rpc-url <url>` (an IPFS HTTP RPC endpoi
 btcr2 update \
   --cas-rpc-url http://127.0.0.1:5001 \
   --publish-to-cas auto \
-  -s "$(cat did.json)" \
-  --source-version-id 1 \
-  -p '[{"op":"add","path":"/service/-","value":{"id":"#svc","type":"X","serviceEndpoint":"https://x"}}]' \
-  -m 'did:btcr2:k1qq...#key-0' \
-  -b '{"id":"#beacon-0","type":"SingletonBeacon","serviceEndpoint":"bitcoin:bc1..."}'
+  -i did:btcr2:k1qq... \
+  -p '[{"op":"add","path":"/service/-","value":{"id":"#svc","type":"X","serviceEndpoint":"https://x"}}]'
 ```
 
 ## Links

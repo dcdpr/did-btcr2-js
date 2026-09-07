@@ -1,5 +1,4 @@
-import type { DidUpdateResult } from '@did-btcr2/api';
-import type { PatchOperation } from '@did-btcr2/common';
+import type { BroadcastOptions, DidUpdateResult, PublishToCasMode, Signer } from '@did-btcr2/api';
 import type { Btcr2DidDocument, ResolutionOptions } from '@did-btcr2/method';
 import type { DidResolutionResult } from '@web5/dids';
 import type { DoctorReport, EffectiveConfig } from './config.js';
@@ -36,12 +35,23 @@ export interface ResolveCommandOptions {
   options?   : ResolutionOptions;
 }
 
+/**
+ * The parameters that `update` and `deactivate` hand to the api's `updateDid`
+ * and `deactivateDid`. `update` adds `patches`. An absent source pair lets the
+ * api resolve the current document with `resolutionOptions` (ADR 098, ADR
+ * 101). An absent `verificationMethodId` or `beaconId` lets the api derive it
+ * (ADR 104).
+ */
 export interface UpdateCommandOptions {
-  sourceDocument       : Btcr2DidDocument;
-  patches              : PatchOperation[];
-  sourceVersionId      : number;
-  verificationMethodId : string;
-  beaconId             : string;
+  did                   : string;
+  signer                : Signer;
+  sourceDocument?       : Btcr2DidDocument;
+  sourceVersionId?      : number;
+  verificationMethodId? : string;
+  beaconId?             : string;
+  resolutionOptions?    : ResolutionOptions;
+  publishToCas          : PublishToCasMode;
+  broadcastOptions?     : BroadcastOptions;
 }
 
 export type CommandResult =
