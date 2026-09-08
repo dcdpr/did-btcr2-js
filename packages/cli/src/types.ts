@@ -1,4 +1,4 @@
-import type { BroadcastOptions, DidUpdateResult, PublishToCasMode, Signer } from '@did-btcr2/api';
+import type { BroadcastOptions, DidUpdateResult, IdentifierReport, PublishToCasMode, Signer } from '@did-btcr2/api';
 import type { Btcr2DidDocument, ResolutionOptions } from '@did-btcr2/method';
 import type { DidResolutionResult } from '@web5/dids';
 import type { DoctorReport, EffectiveConfig } from './config.js';
@@ -54,11 +54,28 @@ export interface UpdateCommandOptions {
   broadcastOptions?     : BroadcastOptions;
 }
 
+/**
+ * The data that `identifier decode` prints: the decoded components of the
+ * identifier with the genesis bytes as hex, plus the initial DID document
+ * if the caller asked for it.
+ */
+export interface IdentifierDecodeData {
+  did              : string;
+  idType           : string;
+  hrp              : string;
+  version          : number;
+  network          : string;
+  genesisBytes     : string;
+  initialDocument? : Btcr2DidDocument;
+}
+
 export type CommandResult =
   | { action: 'create'; data: string; keyId?: string; publicKey?: string }
   | { action: 'resolve'; data: DidResolutionResult }
   | { action: 'update'; data: DidUpdateResult }
   | { action: 'deactivate'; data: DidUpdateResult }
+  | { action: 'identifier-decode'; data: IdentifierDecodeData }
+  | { action: 'identifier-validate'; data: IdentifierReport }
   | { action: 'key-generate'; data: { keyId: string; publicKey: string; active: boolean } }
   | { action: 'key-list'; data: Array<{ keyId: string; fingerprint: string; name?: string; active: boolean }> }
   | { action: 'key-show'; data: { keyId: string; publicKey: string; tags?: Record<string, string> } }

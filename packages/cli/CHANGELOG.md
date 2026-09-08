@@ -1,5 +1,17 @@
 # @did-btcr2/cli
 
+## 0.22.0
+
+### Minor Changes
+
+- New `identifier` command group (ADR 107). `btcr2 identifier decode <did>` prints the identifier type, the hrp, the version, the network, and the genesis bytes as hex. `--initial-document` adds the initial DID document with no I/O; an external identifier needs `--genesis-document <path>` for it. `btcr2 identifier validate <did> [-b <hex>] [--genesis-document <path>]` prints the validation report and sets exit code 1 if the identifier is not valid; `-b` takes the genesis bytes of a `k` or an `x` identifier, the same value as `create -b`. Both subcommands are offline and keystore-free. The shell completion list gains `identifier`.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/api@0.22.0
+  - @did-btcr2/method@0.60.0
+
 ## 0.21.0
 
 ### Minor Changes

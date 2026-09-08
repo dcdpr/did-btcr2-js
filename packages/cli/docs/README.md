@@ -13,6 +13,7 @@ deactivating `did:btcr2` identifiers.
 | [`resolve`](./resolve.md) | Resolve the DID document of an identifier (alias: `read`). |
 | [`update`](./update.md) | Update a did:btcr2 document: sign a JSON Patch and broadcast a beacon signal. |
 | [`deactivate`](./deactivate.md) | Permanently deactivate an identifier (alias: `delete`; irreversible). |
+| [`identifier`](./identifier.md) | Decode and validate identifiers offline: `decode` prints the components, `validate` prints a conformance report. |
 | [`key`](./key.md) | Manage keypairs in the encrypted keystore. |
 | [`keystore`](./keystore.md) | Establish, inspect, re-key, and unlock the keystore. |
 | [`config`](./config.md) | Read and write CLI configuration. |
@@ -63,6 +64,8 @@ These are not global flags; they live on individual commands and are documented 
   it instead.
 - `--ttl <duration>` and `--allow-mainnet` on `keystore unlock` ([keystore.md](./keystore.md)) and
   [`quickstart`](./quickstart.md).
+- `--initial-document` and `--genesis-document <path>` on [`identifier decode`](./identifier.md);
+  `-b, --bytes <hex>` and `--genesis-document <path>` on [`identifier validate`](./identifier.md).
 
 ### Environment variables
 

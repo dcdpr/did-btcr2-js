@@ -50,6 +50,22 @@ describe('Decode Identifier', () => {
     it('rejects malformed bech32m payloads', () => {
       expect(() => Identifier.decode('did:btcr2:k1notavalidbech32m')).to.throw();
     });
+
+    it('rejects an uppercase method-specific id', () => {
+      // A Bech32m decoder accepts an all-uppercase string. The specification says the
+      // method-specific id MUST be lowercase, so the decoder refuses it first.
+      const [{ did }] = data;
+      const upper = `did:btcr2:${did.slice('did:btcr2:'.length).toUpperCase()}`;
+      expect(() => Identifier.decode(upper)).to.throw(/lowercase/i);
+      expect(Identifier.isValid(upper)).to.equal(false);
+    });
+
+    it('rejects a mixed-case method-specific id', () => {
+      const [{ did }] = data;
+      const encoded = did.slice('did:btcr2:'.length);
+      const mixed = `did:btcr2:${encoded.slice(0, 4).toUpperCase()}${encoded.slice(4)}`;
+      expect(() => Identifier.decode(mixed)).to.throw(/lowercase/i);
+    });
   });
 
   describe('hrp validation', () => {
@@ -105,19 +121,17 @@ describe('Decode Identifier', () => {
       expect(() => Identifier.decode(forge('k', 0x0F, validKeyBytes))).to.throw(/network/i);
     });
 
-    it('accepts custom network_value 12 (returns numeric 1)', () => {
-      const decoded = Identifier.decode(forge('k', 0x0C, validKeyBytes));
-      expect(decoded.network).to.equal(1);
+    it('rejects custom network_value 12 to 14 as not supported', () => {
+      // The specification says a custom value SHOULD be rejected when the implementation
+      // supports no custom network. This implementation supports none (ADR 107).
+      for (const value of [0x0C, 0x0D, 0x0E]) {
+        expect(() => Identifier.decode(forge('k', value, validKeyBytes)))
+          .to.throw(/custom network not supported/i);
+      }
     });
 
-    it('accepts custom network_value 13 (returns numeric 2)', () => {
-      const decoded = Identifier.decode(forge('k', 0x0D, validKeyBytes));
-      expect(decoded.network).to.equal(2);
-    });
-
-    it('accepts custom network_value 14 (returns numeric 3)', () => {
-      const decoded = Identifier.decode(forge('k', 0x0E, validKeyBytes));
-      expect(decoded.network).to.equal(3);
+    it('names a reserved network_value as reserved', () => {
+      expect(() => Identifier.decode(forge('k', 0x09, validKeyBytes))).to.throw(/reserved/i);
     });
   });
 

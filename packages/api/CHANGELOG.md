@@ -1,5 +1,16 @@
 # @did-btcr2/api
 
+## 0.22.0
+
+### Minor Changes
+
+- `DidApi.decode` declares `DidComponents`, with the Bech32m `hrp`, the value it always returned. New `DidApi.validate(did, options?)` returns the identifier validation report of `Identifier.validate` and does not throw on an invalid identifier (ADR 107). `options.genesisBytes` adds the check that the identifier encodes these bytes. The package exports `DidComponents`, `IdentifierReport`, `IdentifierCheck`, `IdentifierCheckName`, and `IdentifierValidateOptions`.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/method@0.60.0
+
 ## 0.21.0
 
 ### Minor Changes

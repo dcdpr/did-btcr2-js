@@ -17,6 +17,7 @@ If you're integrating did:btcr2 into an app, start here. If you're customizing t
 - **`updateDid` / `deactivateDid`** resolve the source state for you. Pass `resolutionOptions` to hand sidecar data to that resolution. Omit `verificationMethodId` and `beaconId`: the api derives them.
 - **`api.kms.signer(id?)`** returns the `Signer` for a KMS key. The write path needs no second package.
 - **`api.btcr2.getInitialDocument(did)`** and **`api.btcr2.getBeacons(document)`** give the beacon addresses to fund with no chain read.
+- **`api.did.validate(did, { genesisBytes?, genesisDocument? })`** returns a conformance report of an identifier: the checks of the decoding algorithm in run order, `valid`, and the failed check with its detail. `genesisBytes` adds the check that the identifier encodes these bytes. It does not throw on an invalid identifier. `api.did.decode(did)` returns `DidComponents`, with the Bech32m `hrp`, and refuses an uppercase id and a custom network.
 - **`minConf`** on `ResolutionOptions` sets the confirmations a beacon signal needs before resolution applies it. Default `6` (`DEFAULT_MIN_CONF`), the specification value. Pass `{ minConf: 1 }` to see a fresh update after one block. `updateDid` and `deactivateDid` inherit it through `resolutionOptions`.
 
 The api wires the configured `BitcoinApi` into the sans-I/O Resolver and Updater state machines, fulfilling `NeedBeaconSignals`, `NeedFunding`, `NeedBroadcast`, and CAS-related needs (`NeedGenesisDocument`, `NeedCASAnnouncement`, `NeedSignedUpdate`) automatically. How `NeedBeaconSignals` is fulfilled follows the connection's `btc.signalDiscovery` mode: `'indexer'` (the default) reads beacon-address transaction listings from the Esplora-compatible REST backend, while `'fullnode'` scans every block from genesis over Bitcoin Core RPC and needs an `rpc` config (rejected at construction without one), a node with `-txindex=1`, and Bitcoin Core >= 25; the linear scan makes it practical only on regtest. `NeedSMTProof` is not auto-fulfilled by the facade: SMT proofs are nonce-blinded (there is no content address to fetch them by), so they must be provided upfront via `options.sidecar.smtProofs`; resolution fails fast with that pointer otherwise. Multi-party aggregation is out of scope here; drive the Updater directly and hand `NeedBroadcast` to the aggregation runner from `@did-btcr2/aggregation`. On the read path, a signal below `minConf` confirmations is excluded before any fetch: the api requests no update, announcement, or proof for it, and the resolved document does not show it until the transaction reaches the depth.
@@ -58,6 +59,7 @@ pnpm add @did-btcr2/api
 | Signers | `Signer`, `LocalSigner`, `KeyManagerSigner`, `LocalKeyManager`, `KeyManager`, `SchnorrKeyPair` |
 | Write results | `DidUpdateResult`, `BeaconInfo`, `PublishToCasMode` |
 | Re-exports from method/common | `Btcr2DidDocument`, `DidDocument`, `DidDocumentBuilder`, `Identifier`, `IdentifierTypes`, `ResolutionOptions`, `Sidecar`, `PatchOperation` |
+| Identifier validation | `DidComponents`, `IdentifierReport`, `IdentifierCheck`, `IdentifierCheckName`, `IdentifierValidateOptions` |
 
 ## Quick Start
 

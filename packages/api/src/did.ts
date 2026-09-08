@@ -3,13 +3,13 @@ import type { DocumentBytes } from '@did-btcr2/common';
 import { IdentifierTypes } from '@did-btcr2/common';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import type { SchnorrKeyPairObject } from '@did-btcr2/common';
-import type { DidCreateOptions , IdentifierComponents } from '@did-btcr2/method';
+import type { DidComponents, DidCreateOptions, IdentifierReport, IdentifierValidateOptions } from '@did-btcr2/method';
 import { Identifier } from '@did-btcr2/method';
 import { Did } from '@web5/dids';
 import { assertBytes, assertString } from './helpers.js';
 
 /**
- * DID identifier operations sub-facade (encode, decode, generate, parse).
+ * DID identifier operations sub-facade (encode, decode, validate, generate, parse).
  * @public
  */
 export class DidApi {
@@ -27,11 +27,33 @@ export class DidApi {
   /**
    * Decode a DID into its components.
    * @param did The DID string to decode.
-   * @returns The decoded identifier components.
+   * @returns The decoded identifier components, with the Bech32m `hrp`.
+   * @throws {IdentifierError} If the DID is not a valid did:btcr2 identifier.
    */
-  decode(did: string): IdentifierComponents {
+  decode(did: string): DidComponents {
     assertString(did, 'did');
     return Identifier.decode(did);
+  }
+
+  /**
+   * Validate that a DID conforms to the did:btcr2 identifier decoding algorithm.
+   *
+   * The report lists the checks in run order and stops at the first failed check.
+   * The method does not throw on an invalid DID; `valid` is `false` instead.
+   * Pass `options.genesisBytes` to add the `genesisBytesMatch` check: the DID must
+   * encode these bytes (the public key of a KEY DID, the genesis document hash of
+   * an EXTERNAL DID). Pass `options.genesisDocument` for an EXTERNAL DID to add the
+   * `genesisDocument` check: the document must be a valid Genesis Document and its
+   * canonical hash must equal the genesis bytes of the DID.
+   * @param did The DID string to validate.
+   * @param options The validation options.
+   * @returns The validation report.
+   */
+  validate(did: string, options?: IdentifierValidateOptions): IdentifierReport {
+    if (typeof did !== 'string') {
+      throw new Error('did must be a string.');
+    }
+    return Identifier.validate(did, options);
   }
 
   /**

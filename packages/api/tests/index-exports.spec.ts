@@ -18,9 +18,13 @@ import type {
   BroadcastResult,
   Btcr2DidDocument,
   CASAnnouncement,
+  DidComponents,
   DidCreateOptions,
   GenerateKeyOptions,
+  IdentifierCheck,
   IdentifierComponents,
+  IdentifierReport,
+  IdentifierValidateOptions,
   ImportKeyOptions,
   KeyIdentifier,
   KeyManager,
@@ -47,9 +51,13 @@ type SurfaceTypes = {
   broadcastResult: BroadcastResult;
   btcr2DidDocument: Btcr2DidDocument;
   casAnnouncement: CASAnnouncement;
+  didComponents: DidComponents;
   didCreateOptions: DidCreateOptions;
   generateKeyOptions: GenerateKeyOptions;
+  identifierCheck: IdentifierCheck;
   identifierComponents: IdentifierComponents;
+  identifierReport: IdentifierReport;
+  identifierValidateOptions: IdentifierValidateOptions;
   importKeyOptions: ImportKeyOptions;
   keyIdentifier: KeyIdentifier;
   keyManager: KeyManager;
