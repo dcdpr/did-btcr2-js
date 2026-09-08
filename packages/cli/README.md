@@ -6,7 +6,7 @@ Part of the [`did-btcr2-js`](https://github.com/dcdpr/did-btcr2-js) monorepo.
 
 ## Summary
 
-This package provides the `btcr2` CLI for creating, resolving, updating, and deactivating did:btcr2 decentralized identifiers. It also manages an encrypted keystore of keypairs, reads and writes CLI configuration and profiles, and prints shell completion scripts. It wraps the `@did-btcr2/api` SDK via dependency injection, using [commander.js](https://github.com/tj/commander.js/) for argument parsing.
+This package provides the `btcr2` CLI for creating, resolving, updating, and deactivating did:btcr2 decentralized identifiers. It decodes and validates identifiers offline. It also manages an encrypted keystore of keypairs, reads and writes CLI configuration and profiles, and prints shell completion scripts. It wraps the `@did-btcr2/api` SDK via dependency injection, using [commander.js](https://github.com/tj/commander.js/) for argument parsing.
 
 Out of the box, `btcr2 resolve` works with zero configuration. The Bitcoin network is derived from the DID itself, and public endpoints (mempool.space, ipfs.io) are used as defaults. Override endpoints via CLI flags, environment variables, or a config file.
 
@@ -44,6 +44,7 @@ npx @did-btcr2/cli resolve -i did:btcr2:k1qq...
 | `resolve` | `read` | Resolve a DID document |
 | `update` | - | Update a DID document (signs via the keystore) |
 | `deactivate` | `delete` | Deactivate a DID permanently (signs via the keystore) |
+| `identifier` | - | Decode and validate identifiers (offline) |
 | `key` | - | Manage keypairs in the keystore |
 | `keystore` | - | Establish, inspect, and re-key the keystore |
 | `config` | - | Read and write CLI configuration |
@@ -109,6 +110,17 @@ On a network with a block explorer, text-mode `update` (and `deactivate`) also p
 Permanently deactivates a DID. This is irreversible. The command calls the api's `deactivateDid`, which applies the `{ "op": "add", "path": "/deactivated", "value": true }` patch and refuses a DID that is deactivated already. It signs via the keystore like `update`.
 
 Required flag: `-i/--identifier`. Optional: the same source, derivation, resolution, CAS, fee, and change-address flags as `update`, minus `-p`.
+
+### identifier
+
+Decodes and validates identifiers. Both subcommands are offline and keystore-free. The identifier is a positional argument.
+
+| Subcommand | Description |
+|---|---|
+| `identifier decode <did>` | Print the identifier type, the `hrp`, the version, the network, and the genesis bytes as hex. `--initial-document` adds the initial DID document; an `x` identifier needs `--genesis-document <path>` for it. |
+| `identifier validate <did>` | Run the checks of the identifier decoding algorithm in order and print the report. Exit code `1` if a check fails. `-b, --bytes <hex>` adds the `genesisBytesMatch` check: the identifier must encode these genesis bytes (`k` or `x`). `--genesis-document <path>` adds the `genesisDocument` check for an `x` identifier. |
+
+See [`docs/identifier.md`](./docs/identifier.md) for the check list and the output fields.
 
 ### init
 

@@ -5,6 +5,7 @@ import {
   registerConfigCommand,
   registerCreateCommand,
   registerDeactivateCommand,
+  registerIdentifierCommand,
   registerInitCommand,
   registerKeyCommand,
   registerKeystoreCommand,
@@ -32,7 +33,7 @@ export class DidBtcr2Cli {
    * for known networks and localhost Polar for regtest.
    *
    * @param factory - Optional API factory for keystore-free commands (create,
-   *   resolve). Defaults to {@link defaultApiFactory}.
+   *   resolve, identifier). Defaults to {@link defaultApiFactory}.
    * @param keystoreFactory - Optional keystore-aware API factory for commands
    *   that need a signing identity (key, update, deactivate). Defaults to
    *   {@link keystoreApiFactory}.
@@ -89,6 +90,7 @@ export class DidBtcr2Cli {
     registerResolveCommand(this.program, factory, globals);
     registerUpdateCommand(this.program, keystoreFactory, globals);
     registerDeactivateCommand(this.program, keystoreFactory, globals);
+    registerIdentifierCommand(this.program, factory, globals);
     registerKeyCommand(this.program, keystoreFactory, globals);
     registerKeystoreCommand(this.program, globals);
     registerConfigCommand(this.program, globals);

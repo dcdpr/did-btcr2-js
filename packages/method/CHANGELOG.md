@@ -1,5 +1,13 @@
 # @did-btcr2/method
 
+## 0.60.0
+
+### Minor Changes
+
+- `Identifier.decode` refuses a method-specific id that is not lowercase, as the specification requires, and refuses a reserved (6 to 11) or custom (12 to 15) network value, because this implementation supports no custom network (ADR 107). New `Identifier.validate(did, options?)` returns a report `{ did, valid, idType?, network?, checks }` and does not throw on an invalid identifier. The checks run in order (`prefix`, `lowercase`, `bech32m`, `version`, `network`, `genesisBytes`, `roundTrip`, `genesisBytesMatch`, `genesisDocument`) and stop at the first failure. The `genesisBytesMatch` check runs only with supplied genesis bytes and confirms that the identifier encodes them. The `genesisDocument` check runs only with a supplied document and confirms the placeholder id, the Genesis Document rules, and the canonical hash against the genesis bytes. New types: `IdentifierCheckName`, `IdentifierCheck`, `IdentifierValidateOptions`, `IdentifierReport`.
+
+  Breaking: an uppercase or mixed-case identifier, and an identifier with a network value from 12 to 15, decoded before and now fail with `INVALID_DID`. `DidComponents.network` is always a network name.
+
 ## 0.59.0
 
 ### Minor Changes

@@ -4,6 +4,7 @@ export { registerCreateCommand } from './create.js';
 export { registerResolveCommand } from './resolve.js';
 export { registerUpdateCommand } from './update.js';
 export { registerDeactivateCommand } from './deactivate.js';
+export { registerIdentifierCommand } from './identifier.js';
 export { registerKeyCommand } from './key.js';
 export { registerKeystoreCommand } from './keystore.js';
 export { registerConfigCommand } from './config.js';
