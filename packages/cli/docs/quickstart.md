@@ -1,15 +1,8 @@
 # btcr2 quickstart
 
-`btcr2 quickstart` is the one-command onboarding step (ADR 083): it creates the btcr2 home
-directory, writes a default `config.json` if none exists, establishes the keystore if none exists
-(encrypted with a confirmed passphrase by default, or unencrypted with `--dev`), records the chosen
-Bitcoin network as `defaults.network`, optionally caches the keystore passphrase for the session
-(`--unlock`, ADR 081), and runs an advisory endpoint reachability probe (on by default, skippable
-with `--no-doctor`). It composes the same primitives as `btcr2 init`, `btcr2 keystore unlock`, and
-`btcr2 config doctor`; it reimplements nothing, so the keystore and session guarantees of ADRs 080
-and 081 hold by construction. Use it as the first command in a fresh environment (workshops, demos,
-CI sandboxes); it is idempotent, so re-running it never touches an existing keystore and never
-clobbers a network default the operator set earlier.
+`btcr2 quickstart` is the setup in one command (ADR 083). It creates the home directory. It writes a default `config.json` if none exists. It creates the keystore if none exists: encrypted with a confirmed passphrase by default, or unencrypted with `--dev`. It records the Bitcoin network as `defaults.network`. With `--unlock`, it caches the keystore passphrase for the session (ADR 081). Then it runs an advisory endpoint probe (on by default, `--no-doctor` skips it).
+
+The command composes the same steps as `btcr2 init`, `btcr2 keystore unlock`, and `btcr2 config doctor`. It implements nothing twice, so the keystore and session guarantees of ADRs 080 and 081 hold by construction. Use it as the first command in a fresh environment (a workshop, a demo, a CI sandbox). It is idempotent: a second run never touches an existing keystore, and it never overwrites a network default that you set before.
 
 ## Synopsis
 
@@ -20,97 +13,61 @@ btcr2 quickstart [-n <network>] [--dev] [--unlock [--ttl <duration>]]
                  [--no-doctor] [--allow-mainnet] [--force]
 ```
 
-There are no positional arguments and no subcommands.
+There are no arguments and no subcommands.
 
 ## Options
 
 | Flag | Value | Default | Description |
 |---|---|---|---|
-| `-n, --network <network>` | One of `bitcoin`, `testnet3`, `testnet4`, `signet`, `mutinynet`, `regtest`. Any other value fails with `Invalid network "<value>". Must be one of bitcoin, testnet3, testnet4, signet, mutinynet, regtest.` (exit 1). | The config's existing `defaults.network`, else `mutinynet` | The network to set up. An explicit `-n` is always persisted to `defaults.network` in the config (overwriting a different recorded value). When omitted, an already-recorded `defaults.network` is used as-is; only when none is recorded does the built-in `mutinynet` fallback apply, and it is then persisted. |
-| `--dev` | boolean | `false` | Establish an UNENCRYPTED dev keystore: plaintext keys, no passphrase. Testnet only; mainnet operations are refused later at use time, and `quickstart -n bitcoin --dev` is refused up front. Prints a plaintext warning to stderr (suppressed by `--quiet`). Also silently disables `--unlock` (a dev keystore has no passphrase to cache). |
-| `--unlock` | boolean | `false` | Cache the verified keystore passphrase in `<home>/session.json` (mode `0600`) so later commands do not re-prompt until the session expires or `btcr2 keystore lock` revokes it (ADR 081). See "Session caching" below for the exact behavior. Ignored with `--dev`. |
-| `--ttl <duration>` | A positive integer, optionally suffixed: bare digits are seconds, `s` seconds, `m` minutes, `h` hours (regex `^\d+[smh]?$` after trimming). Must be greater than 0 and at most 24 hours; a malformed, non-positive, or over-cap value fails with an `INVALID_ARGUMENT_ERROR` naming the offending source (`--ttl` or `$BTCR2_KEYSTORE_TTL`). | `$BTCR2_KEYSTORE_TTL` if set, else 1 hour (`3600` seconds) | Session lifetime for `--unlock`. Only consulted when `--unlock` is in effect (and not `--dev`); otherwise the flag is ignored entirely, not even validated. |
-| `--no-doctor` | boolean | doctor runs by default | Skip the endpoint reachability probe. Without this flag, the resolved Bitcoin REST endpoint, the Bitcoin Core RPC endpoint (only when one is configured), and the CAS endpoint are each probed with a 5-second per-probe timeout. Probe failures are advisory: they appear in the report and produce a stderr warning in text mode, but the command still exits 0. |
-| `--allow-mainnet` | boolean | `false` | Permit a mainnet (`bitcoin`) quickstart. Without it, a `bitcoin` target is refused before any file is written (`MAINNET_QUICKSTART_REFUSED_ERROR`, exit 1). With it, mainnet is recorded as the default network; combined with `--unlock`, the cached session records `allowMainnet: true` so mainnet signing can consume it. A `--dev` keystore is still refused on mainnet even with this flag. |
-| `--force` | boolean | `false` | Re-create `config.json` even if it already exists. The file is reset to the default scaffold wholesale, so custom profiles and defaults in it are discarded, and `defaults.network` is then re-recorded (an explicit `-n` value, else the `mutinynet` fallback; a previously chosen non-`-n` network does not survive a `--force` re-scaffold). The keystore is NEVER re-created, even with `--force`: an existing one is left intact with a stderr note pointing at `btcr2 keystore init --force`. |
-| `-h, --help` | boolean | | Display help for the command. |
+| `-n, --network <network>` | One of `bitcoin`, `testnet3`, `testnet4`, `signet`, `mutinynet`, `regtest`. Another value fails with `Invalid network "<value>". Must be one of bitcoin, testnet3, testnet4, signet, mutinynet, regtest.` (exit code 1). | The existing `defaults.network` of the config file, else `mutinynet` | The network to set up. The command always writes an explicit `-n` to `defaults.network` in the config file, also over a different recorded value. Without the flag, the command uses a recorded `defaults.network` as it is. Only if no network is recorded does the built-in `mutinynet` fallback apply, and then the command records it. |
+| `--dev` | boolean | `false` | Create an UNENCRYPTED dev keystore: plaintext keys, no passphrase. Test networks only. A later command refuses a mainnet operation, and the command refuses `quickstart -n bitcoin --dev` up front. The command prints a plaintext warning on stderr (`--quiet` suppresses it). The flag also disables `--unlock` without a message: a dev keystore has no passphrase to cache. |
+| `--unlock` | boolean | `false` | Cache the verified keystore passphrase in `<home>/session.json` (mode `0600`), so that a later command does not ask for it until the session expires or `btcr2 keystore lock` revokes it (ADR 081). See "Session" below for the exact behavior. The command ignores the flag with `--dev`. |
+| `--ttl <duration>` | A positive integer with an optional suffix: bare digits are seconds, `s` seconds, `m` minutes, `h` hours (the pattern is `^\d+[smh]?$` after a trim). The value must be more than 0 and at most 24 hours. A malformed value, a value of 0 or less, or a value over the cap fails with an `INVALID_ARGUMENT_ERROR` that names the source (`--ttl` or `$BTCR2_KEYSTORE_TTL`). | `$BTCR2_KEYSTORE_TTL` if set, else 1 hour (`3600` seconds) | The session lifetime for `--unlock`. The command reads the flag only if `--unlock` applies (and not `--dev`). Otherwise it ignores the flag, and it does not validate it. |
+| `--no-doctor` | boolean | the probe runs by default | Skip the endpoint probe. Without this flag, the command probes the resolved Bitcoin REST endpoint, the Bitcoin Core RPC endpoint (only if one is configured), and the CAS endpoint, each with a 5-second timeout. A probe failure is advisory: it appears in the report and as a stderr warning in text mode, but the command still exits with code 0. |
+| `--allow-mainnet` | boolean | `false` | Permit a mainnet (`bitcoin`) quickstart. Without it, the command refuses a `bitcoin` target before it writes any file (`MAINNET_QUICKSTART_REFUSED_ERROR`, exit code 1). With it, the command records mainnet as the default network. With `--unlock`, the cached session records `allowMainnet: true`, so that a mainnet signature can use it. The command still refuses a `--dev` keystore on mainnet, also with this flag. |
+| `--force` | boolean | `false` | Write `config.json` again, also if it exists. The command resets the file to the default scaffold, so the custom profiles and defaults in it are lost. Then it records `defaults.network` again: an explicit `-n` value, else the `mutinynet` fallback. A network that you chose before without `-n` does not survive a `--force` run. The command NEVER creates the keystore again, also with `--force`. It leaves an existing keystore intact and prints a stderr note that points at `btcr2 keystore init --force`. |
+| `-h, --help` | boolean | | Print the help of the command. |
 
-Help-text notes (source wins over `--help` phrasing):
+Notes on the `--help` text (the source wins over the `--help` words):
 
-- The `--help` text for `-n` says `(default: mutinynet)`. In source, an existing recorded
-  `defaults.network` takes precedence over that fallback; `mutinynet` is only the last resort when
-  nothing is recorded and no `-n` is given.
-- The `--help` text for `--allow-mainnet` says it permits `-n bitcoin`. In source the mainnet guard
-  applies to the effective network however it was derived: a recorded `defaults.network` of
-  `bitcoin` also requires `--allow-mainnet`, even without `-n`.
+- The `--help` text of `-n` says `(default: mutinynet)`. In the source, a recorded `defaults.network` wins over that fallback. `mutinynet` is the last resort, if nothing is recorded and `-n` is absent.
+- The `--help` text of `--allow-mainnet` says that it permits `-n bitcoin`. In the source, the mainnet guard applies to the effective network from any source: a recorded `defaults.network` of `bitcoin` also needs `--allow-mainnet`, also without `-n`.
 
 ### Execution order
 
-1. Validate an explicit `-n` value, compute the effective network (flag, then the raw
-   `defaults.network` from the config, then `mutinynet`), and apply the mainnet guard before any
-   write.
-2. Scaffold: create the home directory (`0700`), write `config.json` if absent (or with `--force`),
-   and establish `keystore.json` if absent. A fresh encrypted keystore acquires the passphrase with
-   confirmation (see "Passphrase sources" below) and clears any stale `session.json`. Then record
-   `defaults.network` idempotently.
-3. With `--unlock` (and not `--dev`): cache the session (see "Session caching").
+1. Validate an explicit `-n` value. Compute the effective network (the flag, then the raw `defaults.network` of the config file, then `mutinynet`). Apply the mainnet guard before any write.
+2. Scaffold: create the home directory (`0700`), write `config.json` if it is absent (or with `--force`), and create `keystore.json` if it is absent. A fresh encrypted keystore gets the passphrase with a confirmation (see "Passphrase sources" below) and clears a stale `session.json`. Then record `defaults.network` (idempotent).
+3. With `--unlock` (and not `--dev`): cache the session (see "Session").
 4. Unless `--no-doctor`: run the advisory endpoint probe.
-5. Print the result envelope; in text mode, also print next-step hints to stderr.
+5. Print the result envelope. In text mode, also print the next-step hints on stderr.
 
-### Session caching (`--unlock`)
+### Session (`--unlock`)
 
-- On a freshly established encrypted keystore, the establish-time confirmed passphrase is reused to
-  seed the session, so there is no second prompt. It is still verified against the keystore
-  verifier before caching.
-- On an existing encrypted keystore with a live matching session, the step is an idempotent skip:
-  the existing session's expiry is reported and nothing is rewritten.
-- Otherwise the passphrase is acquired (env var, passphrase file, or prompt), verified, and the
-  session written. A wrong passphrase fails with `DECRYPT_ERROR` and writes no session file.
-- Non-interactive edge case (ADR 083): on an existing keystore with no passphrase source and no
-  terminal, caching is a non-fatal skip. A stderr note is printed (unless `--quiet`), the result
-  reports `unlocked: false`, and the command still exits 0, because the scaffold already succeeded.
-  An interactive wrong passphrase still fails the command.
-- The session file lives at `<home>/session.json`, mode `0600`, and holds the passphrase
-  base64url-encoded (an encoding, not encryption; the file mode is its only at-rest protection). It
-  is bound to the keystore path and to a fingerprint of the keystore's passphrase verifier, so a
-  rotated passphrase or re-established keystore invalidates it.
+- On a fresh encrypted keystore, the command reuses the confirmed passphrase of the creation step for the session, so there is no second prompt. The command still verifies it against the keystore verifier before the cache.
+- On an existing encrypted keystore with a live session that matches, the step is an idempotent skip: the command reports the expiry of the existing session and writes nothing.
+- Otherwise the command gets the passphrase (the environment variable, the passphrase file, or a prompt), verifies it, and writes the session. A wrong passphrase fails with `DECRYPT_ERROR` and writes no session file.
+- Non-interactive edge case (ADR 083): on an existing keystore with no passphrase source and no terminal, the cache step is a non-fatal skip. The command prints a stderr note (unless `--quiet`), the result reports `unlocked: false`, and the command still exits with code 0, because the scaffold succeeded. An interactive wrong passphrase still fails the command.
+- The session file is `<home>/session.json`, mode `0600`. It holds the passphrase base64url-encoded (an encoding, not encryption: the file mode is its only protection at rest). The session is bound to the keystore path and to a fingerprint of the passphrase verifier of the keystore. A changed passphrase or a new keystore invalidates it.
 
 ### Passphrase sources
 
-When a fresh encrypted keystore is established (no `--dev`), the passphrase is resolved in this
-order: the `BTCR2_KEYSTORE_PASSPHRASE` environment variable, then the file named by
-`--passphrase-file`, then a non-echoing terminal prompt (`New keystore passphrase: `) with a
-confirming second entry. The confirm step is a no-op for the env-var and file sources. With no
-source and no terminal, the command fails with `PASSPHRASE_REQUIRED_ERROR` (exit 1); mismatched
-interactive entries fail with `PASSPHRASE_MISMATCH_ERROR`; an empty or whitespace-only passphrase
-is rejected. The passphrase is never accepted as a command-line flag value.
+If the run creates an encrypted keystore (no `--dev`), the command gets the passphrase in this order: the `BTCR2_KEYSTORE_PASSPHRASE` environment variable, then the file that `--passphrase-file` names, then a terminal prompt with no echo (`New keystore passphrase: `) and a second entry as a confirmation. The confirmation step does nothing for the environment and file sources. With no source and no terminal, the command fails with `PASSPHRASE_REQUIRED_ERROR` (exit code 1). Two interactive entries that differ fail with `PASSPHRASE_MISMATCH_ERROR`. The command refuses an empty or whitespace-only passphrase. The command never takes the passphrase as a flag value.
 
 ### Endpoint probe (doctor)
 
-The probe resolves endpoints through the standard CLI precedence chain (flags, then env vars, then
-the config profile, then the per-network SDK defaults) and checks:
+The probe resolves the endpoints through the standard CLI precedence chain (the flags, then the environment variables, then the config profile, then the SDK defaults of the network). It checks:
 
-- `btc-rest`: `GET <rest-host>/blocks/tip/height` (for the default mutinynet setup this is
-  `https://mutinynet.com/api`).
-- `btc-rpc`: a `getblockchaininfo` call, only when an RPC endpoint is configured (regtest has a
-  default of `http://localhost:18443`; public networks have none unless configured).
-- `cas`: `POST <cas-rpc-url>/api/v0/version` when a writable CAS RPC endpoint is configured, else
-  `GET` on the resolved read-only gateway (default `https://ipfs.io`).
+- `btc-rest`: `GET <rest-host>/blocks/tip/height` (for the default mutinynet setup, the host is `https://mutinynet.com/api`).
+- `btc-rpc`: a `getblockchaininfo` call, only if an RPC endpoint is configured. Regtest has the default `http://localhost:18443`. A public network has none unless you configure one.
+- `cas`: `POST <cas-rpc-url>/api/v0/version` if a writable CAS RPC endpoint is configured, else `GET` on the resolved read-only gateway (default `https://ipfs.io`).
 
-Each probe has a 5000 ms timeout. The report also carries a `coherence` warning when the active
-profile declares a network different from the one being recorded. All findings are advisory: the
-exit code stays 0, and text mode adds a stderr warning suggesting `btcr2 config doctor`.
+Each probe has a 5000 ms timeout. The report also carries a `coherence` warning if the active profile declares a network that differs from the recorded network. Each finding is advisory: the exit code stays 0, and text mode adds a stderr warning that suggests `btcr2 config doctor`.
 
 ### Output
 
-The result envelope's `data` fields are: `home`, `config`, `keystore` (absolute paths), `network`,
-`created` (subset of `["config", "keystore"]`; empty on an idempotent re-run), `protection`
-(`encrypted` or `dev`), `unlocked` (boolean), plus `session` (`{ expiresAt, ttlSeconds }`, epoch
-milliseconds and whole seconds) only when a session is live, and `doctor` (`{ checks, coherence? }`)
-only when the probe ran.
+The `data` fields of the result envelope are: `home`, `config`, `keystore` (absolute paths), `network`, `created` (a subset of `["config", "keystore"]`, empty on an idempotent second run), `protection` (`encrypted` or `dev`), `unlocked` (boolean), `session` (`{ expiresAt, ttlSeconds }`, epoch milliseconds and whole seconds) only if a session is live, and `doctor` (`{ checks, coherence? }`) only if the probe ran.
 
-In text mode (the default), the `data` object is pretty-printed as JSON to stdout, followed by
-next-step hints on stderr:
+In text mode (the default), the command prints the `data` object as pretty JSON on stdout, then the next-step hints on stderr:
 
 ```
 $ btcr2 quickstart --dev --no-doctor
@@ -133,128 +90,91 @@ Next: btcr2 key generate --name demo --set-active
 Faucet (fund your beacon after "btcr2 create"): https://faucet.mutinynet.com/
 ```
 
-The stderr hint lines, in order and each conditional (ADR 082/083):
+The stderr hint lines, in this order, each with its condition (ADR 082 and 083):
 
 1. `btcr2 home ready at <home> on <network>.` (always)
-2. `Session cached until <ISO-8601 UTC>; signing will not re-prompt until it expires.` (only when a
-   session is live)
-3. `Dev keystore: keys are stored in plaintext; mainnet operations are refused.` (only with a dev
-   keystore)
-4. `Warning: one or more endpoints were unreachable (see the doctor report). Re-run "btcr2 config
-   doctor" for detail.` (only when a probe failed)
+2. `Session cached until <ISO-8601 UTC>; signing will not re-prompt until it expires.` (only if a session is live)
+3. `Dev keystore: keys are stored in plaintext; mainnet operations are refused.` (only with a dev keystore)
+4. `Warning: one or more endpoints were unreachable (see the doctor report). Re-run "btcr2 config doctor" for detail.` (only if a probe failed)
 5. `Next: btcr2 key generate --name demo --set-active` (always)
-6. `Faucet (fund your beacon after "btcr2 create"): <url>` (only on networks with a faucet:
-   `mutinynet` `https://faucet.mutinynet.com/`, `signet` `https://signetfaucet.com/`, `testnet4`
-   `https://mempool.space/testnet4/faucet`, `testnet3` `https://coinfaucet.eu/en/btc-testnet/`;
-   never for `bitcoin` or `regtest`)
+6. `Faucet (fund your beacon after "btcr2 create"): <url>` (only on a network with a faucet: `mutinynet` `https://faucet.mutinynet.com/`, `signet` `https://signetfaucet.com/`, `testnet4` `https://mempool.space/testnet4/faucet`, `testnet3` `https://coinfaucet.eu/en/btc-testnet/`. Never for `bitcoin` or `regtest`.)
 
-The hints are suppressed by `--quiet` and in JSON mode. In JSON mode (`-o json` or configured), the
-full envelope `{ "action": "quickstart", "data": { ... } }` is printed to stdout. Operational
-warnings (the dev-keystore plaintext warning, the `--force` keystore-left-intact note, and the
-skipped-session note) go to stderr in both modes and are suppressed only by `--quiet`.
+`--quiet` and JSON mode suppress the hints. In JSON mode (`-o json` or configured), the command prints the full envelope `{ "action": "quickstart", "data": { ... } }` on stdout. The operational warnings (the dev keystore plaintext warning, the `--force` keystore note, and the skipped session note) go to stderr in both modes. Only `--quiet` suppresses them.
 
-Exit code is 0 on success, including failed probes and a skipped session cache; refusals and errors
-exit 1 with the error message only (the full error object requires `--verbose`).
+The exit code is 0 on success, also with a failed probe and a skipped session cache. A refusal or an error exits with code 1 and prints the error message only. The full error object needs `--verbose`.
 
-## Environment & configuration
+## Environment and configuration
 
-Environment variables this command consults:
+The command reads these environment variables:
 
 | Variable | Role |
 |---|---|
-| `BTCR2_HOME` | Home directory holding `config.json`, `keystore.json`, and `session.json`. Overridden by `--home`. |
-| `BTCR2_KEYSTORE_PASSPHRASE` | Keystore passphrase for unattended use; consulted before `--passphrase-file` and the prompt, both at establishment and for `--unlock` verification. |
-| `BTCR2_KEYSTORE_TTL` | Default session TTL when `--ttl` is absent (same value domain as the flag). |
-| `BTCR2_OUTPUT` | Output format (`json` or `text`) when `-o/--output` is absent. |
-| `BTCR2_BTC_REST`, `BTCR2_BTC_RPC_URL`, `BTCR2_BTC_RPC_USER`, `BTCR2_BTC_RPC_PASS`, `BTCR2_BTC_RPC_PASS_FILE`, `BTCR2_CAS_GATEWAY`, `BTCR2_CAS_RPC_URL`, `BTCR2_BTC_SIGNAL_DISCOVERY`, `BTCR2_BTC_TIMEOUT`, `BTCR2_CAS_TIMEOUT` | Endpoint overrides consulted only by the doctor probe (they shape which endpoints get probed). |
+| `BTCR2_HOME` | The home directory that holds `config.json`, `keystore.json`, and `session.json`. `--home` wins. |
+| `BTCR2_KEYSTORE_PASSPHRASE` | The keystore passphrase for unattended use. The command reads it before `--passphrase-file` and the prompt, at the creation step and for the `--unlock` verification. |
+| `BTCR2_KEYSTORE_TTL` | The default session TTL if `--ttl` is absent (the same value format as the flag). |
+| `BTCR2_OUTPUT` | The output format (`json` or `text`) if `-o/--output` is absent. |
+| `BTCR2_BTC_REST`, `BTCR2_BTC_RPC_URL`, `BTCR2_BTC_RPC_USER`, `BTCR2_BTC_RPC_PASS`, `BTCR2_BTC_RPC_PASS_FILE`, `BTCR2_CAS_GATEWAY`, `BTCR2_CAS_RPC_URL`, `BTCR2_BTC_SIGNAL_DISCOVERY`, `BTCR2_BTC_TIMEOUT`, `BTCR2_CAS_TIMEOUT` | The endpoint overrides. Only the endpoint probe reads them. They select the endpoints that the probe checks. |
 
-Config-file keys that feed the command (in `<home>/config.json`, or the file named by
-`-c/--config`):
+The config file keys that feed the command (in `<home>/config.json`, or the file that `-c/--config` names):
 
 | Key | Role |
 |---|---|
-| `defaults.network` | Read (raw, no profile fallback) to compute the effective network before any write; written idempotently: an explicit `-n` always writes, the `mutinynet` fallback writes only when the key is unset. |
-| `defaults.output` | Output format when neither `-o/--output` nor `BTCR2_OUTPUT` is set. |
-| `defaults.profile` | Selects the active profile when `--profile` is absent (affects the keystore path and the doctor probe). |
-| `profiles.<name>.identity.keystore` | Keystore path for the active profile; overridden by `--keystore`, falls back to `<home>/keystore.json`. |
-| `profiles.<name>.network` | The network a profile declares; a mismatch with the network being recorded surfaces as the doctor report's `coherence` warning. |
-| `profiles.<name>.btc.*` (`rest`, `rpcUrl`, `rpcUser`, `rpcPass`, `timeoutMs`, `headers`, `wallet`, `rpcHeaders`, `signalDiscovery`) and `profiles.<name>.cas.*` (`gateway`, `rpcUrl`, `timeoutMs`) | Endpoint configuration consulted by the doctor probe. |
+| `defaults.network` | The command reads it raw (no profile fallback) to compute the effective network before any write. The command writes it idempotently: an explicit `-n` always writes, and the `mutinynet` fallback writes only if the key is unset. |
+| `defaults.output` | The output format if neither `-o/--output` nor `BTCR2_OUTPUT` is set. |
+| `defaults.profile` | The active profile if `--profile` is absent. It affects the keystore path and the endpoint probe. |
+| `profiles.<name>.identity.keystore` | The keystore path of the active profile. `--keystore` wins over it, and `<home>/keystore.json` is the fallback. |
+| `profiles.<name>.network` | The network that a profile declares. A mismatch with the recorded network shows as the `coherence` warning of the doctor report. |
+| `profiles.<name>.btc.*` (`rest`, `rpcUrl`, `rpcUser`, `rpcPass`, `timeoutMs`, `headers`, `wallet`, `rpcHeaders`, `signalDiscovery`) and `profiles.<name>.cas.*` (`gateway`, `rpcUrl`, `timeoutMs`) | The endpoint config that the endpoint probe reads. |
 
-A freshly scaffolded config contains `schemaVersion: 1`, `defaults.output: "text"`, and one empty
-profile per supported network; `defaults.network` is added by the network-recording step.
+A fresh scaffold contains `schemaVersion: 1`, `defaults.output: "text"`, and one empty profile per supported network. The network step adds `defaults.network`.
 
-Precedence, highest wins:
+Precedence, the highest wins:
 
-- Endpoints and output format: flag, then env var, then config file (profile), then built-in
-  default.
-- Network: `-n` flag, then the config's `defaults.network`, then the built-in `mutinynet` default.
-  There is no network env var.
-- Session TTL: `--ttl` flag, then `BTCR2_KEYSTORE_TTL`, then the 1-hour default (24-hour cap on
-  all sources).
+- Endpoints and output format: the flag, then the environment variable, then the config file (the profile), then the built-in default.
+- Network: the `-n` flag, then `defaults.network` of the config file, then the built-in `mutinynet` default. There is no environment variable for the network.
+- Session TTL: the `--ttl` flag, then `BTCR2_KEYSTORE_TTL`, then the 1-hour default. The cap is 24 hours for each source.
 - Passphrase: `BTCR2_KEYSTORE_PASSPHRASE`, then `--passphrase-file`, then the terminal prompt.
-- Home: `--home` flag, then `BTCR2_HOME`, then `~/.btcr2` (`%LOCALAPPDATA%\btcr2` on Windows).
-- Blank values at any layer defer to the next layer instead of masking it.
+- Home: the `--home` flag, then `BTCR2_HOME`, then `~/.btcr2` (`%LOCALAPPDATA%\btcr2` on Windows).
+- A blank value at one layer defers to the next layer. It does not mask the next layer.
 
-Failure modes tied to configuration. The first thing every run does is quietly read the recorded
-`defaults.network` from the raw config, in two deliberately forgiving ways: an unreadable or
-unparseable file is treated as having no recorded network, while a file written by a newer CLI
-(`schemaVersion` above 1) still parses raw, so its recorded `defaults.network` drives the
-effective network and the mainnet guard before any config error can surface (a recorded
-`bitcoin` without `--allow-mainnet` aborts with `MAINNET_QUICKSTART_REFUSED_ERROR` even though
-the file would later be rejected). Past that guard, the config is consulted while resolving the
-keystore path, and an unreadable, invalid, or newer-schema file aborts there with
-`CONFIG_READ_ERROR`, `CONFIG_PARSE_ERROR`, or `CONFIG_SCHEMA_VERSION_ERROR` before anything is
-scaffolded: the home directory is not created, no keystore is established, and no passphrase
-prompt appears. Only an explicit `--keystore` bypasses that read; an unreadable or unparseable
-file's error then surfaces at the network-recording write, while `CONFIG_SCHEMA_VERSION_ERROR`
-surfaces only when the recording step actually writes (an explicit `-n` differing from the
-recorded value, or no valid network recorded yet), else at the doctor probe, or not at all with
-`--no-doctor`. `--keystore` plus `--force` re-scaffolds the config wholesale before the
-recording step, clearing the error rather than reporting it.
+Failure modes that come from the config. The first step of each run reads the recorded `defaults.network` from the raw config file, in two forgiving ways. An unreadable or unparseable file counts as no recorded network. A file from a newer CLI (`schemaVersion` above 1) still parses raw, so its recorded `defaults.network` drives the effective network and the mainnet guard before any config error surfaces. A recorded `bitcoin` without `--allow-mainnet` fails with `MAINNET_QUICKSTART_REFUSED_ERROR`, although the command refuses the file later. After that guard, the command reads the config file to resolve the keystore path. An unreadable, invalid, or newer file stops the command there with `CONFIG_READ_ERROR`, `CONFIG_PARSE_ERROR`, or `CONFIG_SCHEMA_VERSION_ERROR`, before any scaffold: the command does not create the home directory, does not create a keystore, and shows no passphrase prompt. Only an explicit `--keystore` bypasses that read. Then the error of an unreadable or unparseable file surfaces at the network write. `CONFIG_SCHEMA_VERSION_ERROR` surfaces only if the network step writes (an explicit `-n` that differs from the recorded value, or no valid network recorded yet), else at the endpoint probe, or not at all with `--no-doctor`. `--keystore` with `--force` writes the whole config scaffold again before the network step, which clears the error instead of a report.
 
-## Global options
+## Global flags
 
-Shared global flags are documented in the [docs README](./README.md#global-options); `quickstart` notably
-interacts with `--home`, `-c/--config`, `--profile`, `--keystore`, `--passphrase-file`,
-`-o/--output`, `--quiet`, `--verbose`, and (through the doctor probe) the endpoint overrides
-(`--btc-rest`, `--btc-rpc-url`, `--btc-rpc-user`, `--btc-rpc-wallet`,
-`--btc-rest-header`, `--btc-rpc-header`, `--btc-signal-discovery`, `--btc-timeout`,
-`--cas-gateway`, `--cas-rpc-url`, `--cas-timeout`).
+See the [docs README](./README.md#global-flags) for the shared global flags. `quickstart` uses `--home`, `-c/--config`, `--profile`, `--keystore`, `--passphrase-file`, `-o/--output`, `--quiet`, `--verbose`, and (through the endpoint probe) the endpoint overrides (`--btc-rest`, `--btc-rpc-url`, `--btc-rpc-user`, `--btc-rpc-wallet`, `--btc-rest-header`, `--btc-rpc-header`, `--btc-signal-discovery`, `--btc-timeout`, `--cas-gateway`, `--cas-rpc-url`, `--cas-timeout`).
 
 ## Examples
 
 ```sh
-# The default workshop setup: mutinynet, encrypted keystore (prompts for a
-# confirmed passphrase), network recorded, endpoints probed.
+# The default setup: mutinynet, an encrypted keystore (asks for a confirmed
+# passphrase), the network recorded, the endpoints probed.
 btcr2 quickstart
 
-# Same, plus cache the passphrase for two hours so the following key and
-# signing commands do not re-prompt.
+# The same, and cache the passphrase for two hours, so that the next key and
+# signing commands do not ask for it.
 btcr2 quickstart -n mutinynet --unlock --ttl 2h
 
-# Disposable dev setup: unencrypted keystore, no passphrase, no prompts.
+# A throwaway dev setup: an unencrypted keystore, no passphrase, no prompt.
 btcr2 quickstart --dev
 
-# Unattended (CI) setup on mutinynet with a session, no prompt.
+# An unattended (CI) setup on mutinynet with a session, no prompt.
 BTCR2_KEYSTORE_PASSPHRASE='correct horse battery staple' btcr2 quickstart --unlock
 
-# Signet, skipping the endpoint probe (e.g. offline).
+# Signet, without the endpoint probe (for example offline).
 btcr2 quickstart -n signet --no-doctor
 
-# A sandboxed home for a demo, JSON output for scripting.
+# A sandbox home for a demo, with JSON output for a script.
 BTCR2_HOME=/tmp/btcr2-demo btcr2 quickstart --dev --no-doctor -o json
 
-# Mainnet requires the explicit opt-in; dev keystores are still refused there.
+# Mainnet needs the explicit opt-in. The command still refuses a dev keystore there.
 btcr2 quickstart -n bitcoin --allow-mainnet
 ```
 
 ## See also
 
-- `btcr2 init`: the scaffold step alone (home, config, keystore, network recording), without the
-  session cache or the probe.
-- `btcr2 keystore unlock` / `btcr2 keystore lock` / `btcr2 keystore status`: manage the cached
-  session after setup.
-- `btcr2 keystore init --force`: the only way to re-establish an existing keystore.
-- `btcr2 config doctor`: re-run the endpoint reachability probe on demand.
-- `btcr2 key generate --name demo --set-active`: the suggested next step after quickstart.
-- [DEMO.md](./DEMO.md): the guided end-to-end walkthrough that starts from `quickstart`.
+- `btcr2 init`: the scaffold step alone (the home, the config file, the keystore, the network record), without the session and the probe.
+- `btcr2 keystore unlock`, `btcr2 keystore lock`, `btcr2 keystore status`: manage the session after the setup.
+- `btcr2 keystore init --force`: the only way to create an existing keystore again.
+- `btcr2 config doctor`: run the endpoint probe again at any time.
+- `btcr2 key generate --name demo --set-active`: the next step after `quickstart`.
+- [DEMO.md](./DEMO.md): the walkthrough that starts with `quickstart`.

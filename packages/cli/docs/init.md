@@ -1,53 +1,32 @@
 # btcr2 init
 
-`btcr2 init` is the one-command entry point that sets up the btcr2 home: it creates the home
-directory (mode `0700`), writes a default `config.json` if none exists, and establishes the
-keystore if none exists (encrypted under a confirmed passphrase by default, or unencrypted with
-`--dev` for disposable testnet material). With `-n/--network` it also records the chosen network as
-`defaults.network` in the config so later commands can omit `-n`. The command is idempotent:
-re-running it leaves existing files untouched (`--force` re-creates only the regenerable config,
-never the keystore), so it is safe to run before any other command and is the expected first step
-of a fresh installation, ahead of `btcr2 key generate --set-active` and `btcr2 create`.
+`btcr2 init` sets up the home in one command. It creates the home directory (mode `0700`). It writes a default `config.json` if none exists. It creates the keystore if none exists: encrypted under a confirmed passphrase by default, or unencrypted with `--dev` for throwaway test-network keys. With `-n/--network`, it also records the network as `defaults.network` in the config file, so that a later command can omit `-n`.
+
+The command is idempotent. A second run does not touch the existing files. `--force` writes the config file again, never the keystore. So the command is safe before any other command. It is the expected first step of a fresh installation, before `btcr2 key generate --set-active` and `btcr2 create`.
 
 ## Synopsis
 
 ```
-btcr2 [global options] init [-n <network>] [--dev] [--force]
+btcr2 [global flags] init [-n <network>] [--dev] [--force]
 btcr2 init --help
 ```
 
-`init` takes no positional arguments and has no subcommands; a stray argument fails with
-`too many arguments for 'init'. Expected 0 arguments but got 1.`
+`init` takes no arguments and has no subcommands. An extra argument fails with `too many arguments for 'init'. Expected 0 arguments but got 1.`
 
 ## Options
 
 | Flag | Value | Default | Description |
 |------|-------|---------|-------------|
-| `-n, --network <network>` | One of `bitcoin`, `testnet3`, `testnet4`, `signet`, `mutinynet`, `regtest` | none (nothing is written; see fallback below) | Bitcoin network to record as `defaults.network` in the config file. The write is idempotent: it only happens when the flag value differs from the raw `defaults.network` already on disk. Any other value fails with `Invalid network "<value>". Must be one of bitcoin, testnet3, testnet4, signet, mutinynet, regtest.` (exit code 1). When the flag is omitted, `init` never writes `defaults.network`; the network it reports is the existing `defaults.network` if set, else the active profile's network, else the built-in `regtest`. |
-| `--dev` | boolean flag | `false` | Establish an UNENCRYPTED dev keystore: keys are stored as plaintext, no passphrase is ever prompted for. Prints a warning to stderr (suppressed by `--quiet`). Mainnet (`bitcoin`) operations are hard-refused against a dev keystore by later commands. Only applies when a keystore is being established in this run; it does not convert an existing keystore. |
-| `--force` | boolean flag | `false` | Re-create the config scaffold even if `config.json` already exists. This overwrites the file with the pristine scaffold, discarding any customizations it held, including a previously recorded `defaults.network` (pass `-n` in the same run to keep one recorded). The keystore is NEVER touched by `--force`; if one exists, a note is printed to stderr (suppressed by `--quiet`) pointing at `btcr2 keystore init --force` for a deliberate re-establishment. |
-| `-h, --help` | | | Display help for the command. |
+| `-n, --network <network>` | One of `bitcoin`, `testnet3`, `testnet4`, `signet`, `mutinynet`, `regtest` | none (the command writes nothing, see the fallback below) | The Bitcoin network to record as `defaults.network` in the config file. The write is idempotent: it happens only if the flag value differs from the raw `defaults.network` on disk. Another value fails with `Invalid network "<value>". Must be one of bitcoin, testnet3, testnet4, signet, mutinynet, regtest.` (exit code 1). Without the flag, `init` never writes `defaults.network`. The network that it reports is then the existing `defaults.network`, else the network of the active profile, else the built-in `regtest`. |
+| `--dev` | boolean | `false` | Create an UNENCRYPTED dev keystore: the keys are plaintext, and no command asks for a passphrase. The command prints a warning on stderr (`--quiet` suppresses it). A later command refuses a mainnet (`bitcoin`) operation with a dev keystore. The flag applies only if this run creates a keystore. It does not convert an existing keystore. |
+| `--force` | boolean | `false` | Write the config scaffold again, also if `config.json` exists. This overwrites the file with the default scaffold and removes each customization in it, also a recorded `defaults.network` (pass `-n` in the same run to record one). `--force` NEVER touches the keystore. If a keystore exists, the command prints a note on stderr (`--quiet` suppresses it) that points at `btcr2 keystore init --force` for a deliberate re-creation. |
+| `-h, --help` | | | Print the help of the command. |
 
-**Scaffolding rules.** The home directory is created (recursively, `0700`) if absent. The config is
-written only when absent or when `--force` is given; the scaffold is `schemaVersion: 1`,
-`defaults.output: "text"`, and one empty profile per supported network (`bitcoin`, `testnet3`,
-`testnet4`, `signet`, `mutinynet`, `regtest`). The keystore is established only when no file exists
-at the resolved keystore path, regardless of `--force`. All file writes are atomic (temp sibling +
-rename) with file mode `0600` and directory mode `0700`.
+**Scaffold rules.** The command creates the home directory (recursively, `0700`) if it is absent. It writes the config file only if the file is absent or if `--force` is present. The scaffold is `schemaVersion: 1`, `defaults.output: "text"`, and one empty profile per supported network (`bitcoin`, `testnet3`, `testnet4`, `signet`, `mutinynet`, `regtest`). The command creates the keystore only if no file exists at the resolved keystore path, with or without `--force`. Each file write is atomic (a temporary file next to the target, then a rename) with file mode `0600` and directory mode `0700`.
 
-**Passphrase establishment.** When a fresh encrypted keystore is established (no `--dev`), the
-passphrase is acquired in this order: the `BTCR2_KEYSTORE_PASSPHRASE` environment variable, then
-the file named by `--passphrase-file`, then a hidden interactive prompt entered twice
-(`New keystore passphrase: `, `Confirm passphrase: `). A trailing newline is trimmed from env and
-file sources. Failure modes, each exit code 1: no source available and stdin is not a terminal
-(`No passphrase available. Set BTCR2_KEYSTORE_PASSPHRASE, pass --passphrase-file, or run in a
-terminal.`), mismatched confirmation (`Passphrases did not match.`), and an empty or
-whitespace-only passphrase (`A non-empty keystore passphrase is required.`). Ctrl-C during the
-prompt aborts. A cached session is never consulted during establishment. Whenever a keystore is
-established (encrypted or dev), any cached session file at `<home>/session.json` is deleted, since
-it could only belong to a keystore that no longer exists.
+**Passphrase.** If the run creates an encrypted keystore (no `--dev`), the command gets the passphrase in this order: the `BTCR2_KEYSTORE_PASSPHRASE` environment variable, then the file that `--passphrase-file` names, then a hidden interactive prompt, entered twice (`New keystore passphrase: `, `Confirm passphrase: `). The CLI trims a trailing newline from the environment and file sources. The failure modes, each with exit code 1: no source and stdin is not a terminal (`No passphrase available. Set BTCR2_KEYSTORE_PASSPHRASE, pass --passphrase-file, or run in a terminal.`), a confirmation that does not match (`Passphrases did not match.`), and an empty or whitespace-only passphrase (`A non-empty keystore passphrase is required.`). Ctrl-C at the prompt stops the command. The command never reads a cached session for the first passphrase. Each time the command creates a keystore (encrypted or dev), it deletes a cached session file at `<home>/session.json`. That session can only belong to a keystore that no longer exists.
 
-**Output.** In text mode (the default), stdout is the pretty-printed data payload:
+**Output.** In text mode (the default), stdout is the data payload as pretty JSON:
 
 ```json
 {
@@ -60,97 +39,74 @@ it could only belong to a keystore that no longer exists.
 }
 ```
 
-followed by a next-step hint on stderr (suppressed by `--quiet`):
-`btcr2 home ready at <home> on <network>. Next: btcr2 key generate --set-active`. In JSON mode
-(`-o json`), stdout is the same payload wrapped as `{ "action": "init", "data": { ... } }` and the
-next-step hint is not printed; the `--dev` warning and the `--force` keystore-left-intact note
-still go to stderr in JSON mode unless `--quiet` is given. `created` lists what this run actually
-wrote (a subset of `config` and `keystore`; empty on an idempotent re-run). `protection` is the
-keystore's protection label read structurally after the run: `encrypted` (passphrase-sealed),
-`dev` (plaintext), or `absent` (only possible when a pre-existing file at the keystore path is not
-a keystore this CLI recognizes; `init` leaves such a file intact). `init` prints no faucet or
-explorer hints; those come from `btcr2 create` and `btcr2 quickstart`.
+Then a next-step hint follows on stderr (`--quiet` suppresses it): `btcr2 home ready at <home> on <network>. Next: btcr2 key generate --set-active`. In JSON mode (`-o json`), stdout is the same payload in the envelope `{ "action": "init", "data": { ... } }`, and the command prints no next-step hint. The `--dev` warning and the `--force` keystore note still go to stderr in JSON mode, unless `--quiet` is present. `created` lists what this run wrote: a subset of `config` and `keystore`, empty on an idempotent second run. `protection` is the protection label of the keystore, read from the file structure after the run: `encrypted` (sealed under a passphrase), `dev` (plaintext), or `absent`. `absent` is possible only if a file at the keystore path is not a keystore that this CLI knows. `init` leaves such a file intact. `init` prints no faucet or explorer hint. `btcr2 create` and `btcr2 quickstart` print those.
 
-**Error conditions from an existing config.** If a config file exists but is not valid JSON, `init`
-aborts (exit 1) with `Config file at <path> is not valid JSON: ... Fix the file by hand; the CLI
-will not overwrite it while it is unparseable.`; `--force` alone does not bypass this. A config
-written by a newer CLI (`schemaVersion` greater than 1) is likewise refused with a message to
-upgrade. Exception: both refusals are raised while resolving the keystore path from the config, so
-passing an explicit `--keystore` together with `--force` skips that read and DOES overwrite the
-unparseable (or newer-schema) config with the pristine scaffold.
+**Errors from an existing config file.** If a config file exists but is not valid JSON, `init` stops (exit code 1) with `Config file at <path> is not valid JSON: ... Fix the file by hand; the CLI will not overwrite it while it is unparseable.`. `--force` alone does not bypass this check. The command also refuses a config file from a newer CLI (`schemaVersion` greater than 1), with a message to upgrade. Exception: both refusals occur while the command resolves the keystore path from the config file. An explicit `--keystore` with `--force` skips that read. Then the command DOES overwrite the unparseable (or newer) config file with the default scaffold.
 
-## Environment & configuration
+## Environment and configuration
 
-Environment variables consulted:
+The command reads these environment variables:
 
 | Variable | Role |
 |----------|------|
-| `BTCR2_HOME` | Home directory when `--home` is absent. A blank value is ignored. |
-| `BTCR2_KEYSTORE_PASSPHRASE` | Passphrase for establishing a fresh encrypted keystore. Consulted BEFORE `--passphrase-file` (for the passphrase specifically, the env var outranks the flag-named file). |
-| `BTCR2_OUTPUT` | Output format (`json` or `text`) when `-o/--output` is absent. |
+| `BTCR2_HOME` | The home directory if `--home` is absent. The CLI ignores a blank value. |
+| `BTCR2_KEYSTORE_PASSPHRASE` | The passphrase for a new encrypted keystore. The CLI reads it BEFORE `--passphrase-file`. For the passphrase, the environment variable outranks the file that the flag names. |
+| `BTCR2_OUTPUT` | The output format (`json` or `text`) if `-o/--output` is absent. |
 
-The Bitcoin/CAS connection variables (`BTCR2_BTC_REST`, `BTCR2_BTC_RPC_*`, `BTCR2_BTC_TIMEOUT`,
-`BTCR2_BTC_SIGNAL_DISCOVERY`, `BTCR2_CAS_*`, `BTCR2_FEE_RATE`) are not consulted: `init` performs
-no network I/O.
+The command does not read the Bitcoin and CAS connection variables (`BTCR2_BTC_REST`, `BTCR2_BTC_RPC_*`, `BTCR2_BTC_TIMEOUT`, `BTCR2_BTC_SIGNAL_DISCOVERY`, `BTCR2_CAS_*`, `BTCR2_FEE_RATE`). `init` does no network I/O.
 
-Config-file keys read (from an existing config, if any):
+The config file keys that the command reads (from an existing config file, if any):
 
 | Key | Role |
 |-----|------|
-| `defaults.network` | Reported as the resolved network when `-n` is absent; left untouched. |
-| `defaults.profile` | Selects the active profile when `--profile` is absent. |
-| `profiles.<name>.network` | The active profile's declared network: the network fallback when neither `-n` nor `defaults.network` is set. A profile named after a network counts as declaring it. |
-| `profiles.<name>.identity.keystore` | Keystore path when `--keystore` is absent. |
-| `defaults.output` | Output format fallback when neither `-o` nor `BTCR2_OUTPUT` is set. |
+| `defaults.network` | The reported network if `-n` is absent. The command does not change it. |
+| `defaults.profile` | The active profile if `--profile` is absent. |
+| `profiles.<name>.network` | The declared network of the active profile: the network fallback if neither `-n` nor `defaults.network` is set. A profile with a network name declares that network. |
+| `profiles.<name>.identity.keystore` | The keystore path if `--keystore` is absent. |
+| `defaults.output` | The output format fallback if neither `-o` nor `BTCR2_OUTPUT` is set. |
 
-Config-file keys written:
+The config file keys that the command writes:
 
-| Key | When |
-|-----|------|
-| whole scaffold (`schemaVersion`, `defaults.output`, empty `profiles.*`) | Config absent, or `--force`. |
-| `defaults.network` | `-n` given and its value differs from the raw on-disk value. |
+| Key | Condition |
+|-----|-----------|
+| the whole scaffold (`schemaVersion`, `defaults.output`, empty `profiles.*`) | The config file is absent, or `--force` is present. |
+| `defaults.network` | `-n` is present, and its value differs from the raw value on disk. |
 
-Precedence (highest wins):
+Precedence (the highest wins):
 
-- Home directory: `--home` flag > `BTCR2_HOME` > platform default (`~/.btcr2` on Linux/macOS;
-  `%LOCALAPPDATA%\btcr2` on Windows, falling back to `%APPDATA%\btcr2`, then the user profile).
-- Config path: `--config` flag > `<home>/config.json`.
-- Keystore path: `--keystore` flag > active profile's `identity.keystore` > `<home>/keystore.json`.
-- Network recorded/reported: `-n` flag > existing `defaults.network` > active profile's network >
-  built-in `regtest`. Only the `-n` layer ever writes.
-- Passphrase source: `BTCR2_KEYSTORE_PASSPHRASE` > `--passphrase-file` > interactive prompt.
-- Output format: `-o` flag > `BTCR2_OUTPUT` > config `defaults.output` > built-in `text`.
+- Home directory: the `--home` flag, then `BTCR2_HOME`, then the platform default. The platform default is `~/.btcr2` on Linux and macOS. On Windows it is `%LOCALAPPDATA%\btcr2`, else `%APPDATA%\btcr2`, else the user profile.
+- Config path: the `--config` flag, then `<home>/config.json`.
+- Keystore path: the `--keystore` flag, then the `identity.keystore` of the active profile, then `<home>/keystore.json`.
+- The recorded or reported network: the `-n` flag, then the existing `defaults.network`, then the network of the active profile, then the built-in `regtest`. Only the `-n` layer writes.
+- Passphrase source: `BTCR2_KEYSTORE_PASSPHRASE`, then `--passphrase-file`, then the interactive prompt.
+- Output format: the `-o` flag, then `BTCR2_OUTPUT`, then config `defaults.output`, then the built-in `text`.
 
-The session file is always `<home>/session.json`, derived from the home root alone (never from
-`--config`, `--keystore`, or the config file).
+The session file is always `<home>/session.json`. Its path comes from the home root alone, never from `--config`, `--keystore`, or the config file.
 
-## Global options
+## Global flags
 
-See the [docs README](./README.md#global-options) for the shared global flags; `init` notably interacts
-with `--home`, `-c/--config`, `--keystore`, `--profile`, `--passphrase-file`, `-o/--output`,
-`--quiet` (suppresses the stderr hint, the `--dev` warning, and the `--force` keystore note), and
-`--verbose` (full error objects on failure).
+See the [docs README](./README.md#global-flags) for the shared global flags. `init` uses `--home`, `-c/--config`, `--keystore`, `--profile`, `--passphrase-file`, `-o/--output`, `--quiet` (suppresses the stderr hint, the `--dev` warning, and the `--force` keystore note), and `--verbose` (full error objects on a failure).
 
 ## Examples
 
 ```sh
-# First-time setup on mutinynet: prompts twice for a new keystore passphrase
+# First setup on mutinynet: asks twice for a new keystore passphrase
 btcr2 init -n mutinynet
 
-# Unattended setup: passphrase from a secrets file
+# Unattended setup: the passphrase from a secrets file
 btcr2 --passphrase-file /run/secrets/btcr2-pass init -n mutinynet
 
-# Unattended setup: passphrase from the environment
+# Unattended setup: the passphrase from the environment
 BTCR2_KEYSTORE_PASSPHRASE='correct horse battery staple' btcr2 init -n mutinynet
 
-# Disposable local development: unencrypted dev keystore on regtest
+# Throwaway local development: a dev keystore on regtest
 btcr2 init --dev -n regtest
 
-# Sandboxed home for experiments (real ~/.btcr2 untouched)
+# A sandbox home for experiments (the real ~/.btcr2 stays untouched)
 BTCR2_HOME=/tmp/btcr2-sandbox btcr2 init -n mutinynet
 
-# Repair a hand-edited config: re-scaffold it (keystore untouched).
-# Re-pass -n, or the previously recorded defaults.network is lost with the old file.
+# Repair a hand-edited config file: write the scaffold again (the keystore stays).
+# Pass -n again, or the recorded defaults.network is lost with the old file.
 btcr2 init --force -n mutinynet
 
 # Machine-readable result
@@ -159,13 +115,10 @@ btcr2 -o json init -n mutinynet
 
 ## See also
 
-- `btcr2 quickstart`: one-command onboarding built on the same scaffolding step, with optional
-  session unlock and endpoint probing (defaults the network to mutinynet).
-- `btcr2 keystore init`: establish or deliberately re-establish just the keystore
-  (`--force` there DOES discard existing keys).
-- `btcr2 keystore status` / `btcr2 keystore unlock` / `btcr2 keystore lock`: inspect the keystore
-  and manage the cached passphrase session.
-- `btcr2 config init`: write just the default config scaffold.
-- `btcr2 key generate --set-active`: the suggested next step after `init`.
-- [README.md](./README.md) for global flags, environment variables, and configuration setup.
-- [DEMO.md](./DEMO.md) for a full walkthrough that starts from `init`/`quickstart`.
+- `btcr2 quickstart`: the setup in one command, built on the same scaffold step, with an optional session and an endpoint probe (the default network is mutinynet).
+- `btcr2 keystore init`: create the keystore alone, or create it again on purpose (`--force` there DOES discard the existing keys).
+- `btcr2 keystore status`, `btcr2 keystore unlock`, `btcr2 keystore lock`: inspect the keystore and manage the session.
+- `btcr2 config init`: write the default config scaffold alone.
+- `btcr2 key generate --set-active`: the next step after `init`.
+- [README.md](./README.md): the global flags, the environment variables, and the config setup.
+- [DEMO.md](./DEMO.md): a full walkthrough that starts with `quickstart`.

@@ -6,13 +6,15 @@ Part of the [`did-btcr2-js`](https://github.com/dcdpr/did-btcr2-js) monorepo.
 
 ## Summary
 
-This package provides the `btcr2` CLI for creating, resolving, updating, and deactivating did:btcr2 decentralized identifiers. It decodes and validates identifiers offline, and it builds the genesis document of an external identifier. It also manages an encrypted keystore of keypairs, reads and writes CLI configuration and profiles, and prints shell completion scripts. It wraps the `@did-btcr2/api` SDK via dependency injection, using [commander.js](https://github.com/tj/commander.js/) for argument parsing.
+The `btcr2` command creates, resolves, updates, and deactivates did:btcr2 identifiers. It decodes and validates identifiers offline. It builds the genesis document of an external identifier. It manages the keys in an encrypted keystore. It reads and writes the CLI config and its profiles. It prints shell completion scripts.
 
-Out of the box, `btcr2 resolve` works with zero configuration. The Bitcoin network is derived from the DID itself, and public endpoints (mempool.space, ipfs.io) are used as defaults. Override endpoints via CLI flags, environment variables, or a config file.
+The CLI wraps the `@did-btcr2/api` SDK. It parses the arguments with [commander.js](https://github.com/tj/commander.js/).
 
-Signing operations (`update`, `deactivate`, and generated `create` keys) read secret keys from an encrypted on-disk keystore. Choose a key with `--signing-key <ref>` or set an active key with `btcr2 key use <ref>`.
+`btcr2 resolve` works with no config. The identifier names its network, and the CLI uses public endpoints (mempool.space, ipfs.io) by default. A flag, an environment variable, or the config file can override each endpoint.
 
-Full reference documentation lives in [`docs/`](./docs/README.md): a page per command, the global options and configuration precedence, and a guided end-to-end walkthrough on Mutinynet in [`docs/DEMO.md`](./docs/DEMO.md).
+`update` and `deactivate` read the signing key from the keystore. Select a key with `--signing-key <ref>`, or set the active key with `btcr2 key use <ref>`.
+
+The reference documentation is in [`docs/`](./docs/README.md). It has one page per command, the global flags, the environment variables, and the precedence rules. [`docs/DEMO.md`](./docs/DEMO.md) is a walkthrough of the full lifecycle on mutinynet.
 
 ## Install
 
@@ -26,9 +28,9 @@ Or with pnpm:
 pnpm add -g @did-btcr2/cli
 ```
 
-Requires Node.js >= 22.
+The CLI needs Node.js 22 or newer.
 
-Without installing globally, run directly via npx:
+To run the CLI without a global install, use npx:
 
 ```bash
 npx @did-btcr2/cli resolve -i did:btcr2:k1qq...
@@ -38,424 +40,47 @@ npx @did-btcr2/cli resolve -i did:btcr2:k1qq...
 
 | Command | Alias | Description |
 |---|---|---|
-| `init` | - | Set up the btcr2 home: create the directory, a default config, and establish the keystore |
-| `quickstart` | - | One-command onboarding: `init` + record the network + (optionally) cache the session and probe endpoints |
-| `create` | - | Create an identifier and initial DID document |
-| `resolve` | `read` | Resolve a DID document |
-| `update` | - | Update a DID document (signs via the keystore) |
-| `deactivate` | `delete` | Deactivate a DID permanently (signs via the keystore) |
-| `identifier` | - | Decode and validate identifiers (offline) |
-| `genesis` | - | Build the genesis document of an external identifier (offline) |
-| `key` | - | Manage keypairs in the keystore |
-| `keystore` | - | Establish, inspect, and re-key the keystore |
-| `config` | - | Read and write CLI configuration |
-| `profile` | - | Manage configuration profiles |
-| `completion` | - | Print a shell completion script |
+| [`init`](./docs/init.md) | | Set up the home: create the directory, a default config file, and the keystore. |
+| [`quickstart`](./docs/quickstart.md) | | Set up the home in one command, record the network, and (optional) cache the session and probe the endpoints. |
+| [`create`](./docs/create.md) | | Create an identifier and its initial DID document (offline). |
+| [`resolve`](./docs/resolve.md) | `read` | Resolve the DID document of an identifier. |
+| [`update`](./docs/update.md) | | Update a DID document. The keystore signs the update. |
+| [`deactivate`](./docs/deactivate.md) | `delete` | Deactivate an identifier. This is permanent. The keystore signs the deactivation. |
+| [`identifier`](./docs/identifier.md) | | Decode and validate identifiers (offline). |
+| [`genesis`](./docs/genesis.md) | | Build the genesis document of an external identifier (offline). |
+| [`key`](./docs/key.md) | | Manage the keys in the keystore. |
+| [`keystore`](./docs/keystore.md) | | Create, inspect, re-key, and unlock the keystore. |
+| [`config`](./docs/config.md) | | Read and write the CLI config. |
+| [`profile`](./docs/profile.md) | | Manage the config profiles. |
+| [`completion`](./docs/completion.md) | | Print a shell completion script. |
 
-### create
-
-Creates an identifier and initial DID document. Two identifier types, selected by `-t/--type`:
-
-- **`k`** (deterministic): a 33-byte compressed secp256k1 public key. Three mutually-exclusive input modes:
-  - **generate** (neither `--bytes` nor `--signing-key`): mint a fresh key, persist it to the keystore, set it active, and print the identifier. Sealing the secret prompts for the keystore passphrase.
-  - **existing** (`--signing-key <ref>`): use a stored key's public key as the genesis bytes. Reading a public key never decrypts, so this never prompts.
-  - **raw** (`--bytes <hex>`): a 33-byte public key as hex. Offline and keystore-free.
-- **`x`** (external): the genesis document file via `--document <path>` (the api hashes it; see `genesis build`), or the 32-byte SHA-256 hash via `--bytes`.
-
-| Flag | Description |
-|---|---|
-| `-t, --type <type>` | Identifier type: `k` (deterministic) or `x` (external). Default: `k` |
-| `-n, --network <network>` | Bitcoin network: `bitcoin`, `testnet3`, `testnet4`, `signet`, `mutinynet`, or `regtest`. Default: config `defaults.network`, else the active profile's network, else `regtest` |
-| `-b, --bytes <bytes>` | Genesis bytes as a hex string. For type=k, a 33-byte public key (omit to generate a key); for type=x, the 32-byte genesis-document hash |
-| `--document <path>` | For type=x, the JSON genesis document to hash. Exclusive with `--bytes`. The result adds `genesisBytes` |
-
-`--signing-key <ref>` (global) selects a stored key for the existing-key mode; it applies only to `-t k`.
-
-On a testnet with a public faucet, text-mode `create` (for a `-t k` identifier) also prints a **funding hint** on stderr: the initial P2WPKH beacon address next to its faucet and explorer links, from the per-network preset. It is suppressed under `--quiet` and `-o json`, and absent on regtest and mainnet.
-
-### resolve (alias: read)
-
-Required flag: `-i/--identifier`. If both `-r` and `-p` are given, `-r` wins and `-p` is silently ignored.
-
-| Flag | Description |
-|---|---|
-| `-i, --identifier <identifier>` | did:btcr2 identifier to resolve (required) |
-| `-r, --resolution-options <json>` | Resolution options as an inline JSON string |
-| `-p, --resolution-options-path <path>` | Path to a JSON file containing resolution options |
-| `--min-conf <n>` | Minimum block confirmations a beacon signal needs before resolution applies it. A positive integer; default `6`, the specification value. Overrides a `minConf` inside `-r`/`-p`. Pass `1` to see a fresh update after one block |
-| `--genesis-document <path>` | The JSON genesis document of an external (`x`) identifier. Fills `sidecar.genesisDocument`; wins over a value inside `-r`/`-p`. Refused for a `k` identifier |
-
-### update
-
-Signs and broadcasts an update to a DID document. The signing key comes from the encrypted keystore (choose one with `--signing-key <ref>` or set an active key with `btcr2 key use`).
-
-Required flags: `-i/--identifier`, `-p/--patches`. The command resolves the current document from the network unless you supply the source pair `-s/--source-document` and `--source-version-id` (both or neither). The api derives the verification method and the beacon unless you pass `-m` or `-b`.
-
-| Flag | Description |
-|---|---|
-| `-i, --identifier <identifier>` | did:btcr2 identifier to update (required) |
-| `-p, --patches <json>` | JSON Patch operations as a JSON array string (required) |
-| `-s, --source-document <json>` | Source DID document as a JSON string. Requires `--source-version-id`. Omit both to resolve the current document first |
-| `--source-version-id <number>` | Version ID of the source document, a non-negative integer. Requires `--source-document` |
-| `-m, --verification-method-id <id>` | Verification method that signs the update. Default: the one method of the document that publishes the signing key. Pass it when the api names several candidates |
-| `-b, --beacon-id <id>` | Beacon service that announces the update, as a DID URL (`#initialP2WPKH` or absolute). Default: the only beacon of the document, else the one beacon with a spendable UTXO. Pass it when the api names several funded beacons |
-| `-r, --resolution-options <json>` | Resolution options as an inline JSON string, for the resolution of the source document. Supply sidecar data here if the DID's prior updates are not in a CAS. Not allowed with the source pair |
-| `--resolution-options-path <path>` | Path to a JSON file containing resolution options (`-r` wins if both are given). Not allowed with the source pair |
-| `--min-conf <n>` | Minimum block confirmations a beacon signal needs before the source resolution applies it. A positive integer; default `6`, the specification value. Overrides a `minConf` inside `-r`/`--resolution-options-path`. Not allowed with the source pair |
-| `--publish-to-cas <mode>` | Publish update artifacts to a writable CAS before broadcast: `auto`, `always`, or `never` (default: `never`). See [Publishing updates to CAS](#publishing-updates-to-cas) |
-| `--fee-rate <satsPerVByte>` | Fee rate in sats/vByte for the beacon transaction (default: `5`). Raise it under congestion so the transaction confirms (also `BTCR2_FEE_RATE`, profile `btc.feeRate`) |
-| `--change-address <address>` | Send transaction change to this address instead of the beacon address, so a DID's announcements are not linked on-chain (profile `btc.changeAddress`) |
-
-On a network with a block explorer, text-mode `update` (and `deactivate`) also prints a `Watch:` link on stderr for the broadcast txid, suppressed under `--quiet` and `-o json`.
-
-### deactivate (alias: delete)
-
-Permanently deactivates a DID. This is irreversible. The command calls the api's `deactivateDid`, which applies the `{ "op": "add", "path": "/deactivated", "value": true }` patch and refuses a DID that is deactivated already. It signs via the keystore like `update`.
-
-Required flag: `-i/--identifier`. Optional: the same source, derivation, resolution, CAS, fee, and change-address flags as `update`, minus `-p`.
-
-### identifier
-
-Decodes and validates identifiers. Both subcommands are offline and keystore-free. The identifier is a positional argument.
-
-| Subcommand | Description |
-|---|---|
-| `identifier decode <did>` | Print the identifier type, the `hrp`, the version, the network, and the genesis bytes as hex. `--initial-document` adds the initial DID document; an `x` identifier needs `--genesis-document <path>` for it. |
-| `identifier validate <did>` | Run the checks of the identifier decoding algorithm in order and print the report. Exit code `1` if a check fails. `-b, --bytes <hex>` adds the `genesisBytesMatch` check: the identifier must encode these genesis bytes (`k` or `x`). `--genesis-document <path>` adds the `genesisDocument` check for an `x` identifier. |
-
-See [`docs/identifier.md`](./docs/identifier.md) for the check list and the output fields.
-
-### genesis
-
-Builds the genesis document of an external (`x`) identifier, writes it to a file, and prints the identifier. Offline: the beacon addresses are derived from the keys. The keystore opens only for public reads of a key reference.
-
-| Subcommand | Description |
-|---|---|
-| `genesis build` | On a terminal, ask for the keys, the relationships, the beacons, and the services (defaults: the active key, all four relationships, one P2WPKH Singleton beacon). `--spec <path>` reads a JSON spec instead and asks nothing. `-n <network>` as in `create`. `--out <path>` names the file (default `genesis.json`); `--force` overwrites. Prints `{ did, network, genesisBytes, path, beacons }`. |
-
-Then: `create -t x --document <path>` mints the identifier again from the file, `identifier validate <did> --genesis-document <path>` confirms the pair, and `resolve`, `update`, and `deactivate` take the file with `--genesis-document <path>`.
-
-See [`docs/genesis.md`](./docs/genesis.md) for the wizard questions, the spec file, and the output fields.
-
-### init
-
-`btcr2 init` is the one-command setup: it creates the btcr2 home directory, writes a default config if none exists, and establishes the keystore if none exists. It is idempotent (existing files are left untouched unless `--force`). For a single command that also records the network and (optionally) caches the session and probes the endpoints, see [`quickstart`](#quickstart).
-
-| Flag | Description |
-|---|---|
-| `-n, --network <network>` | Bitcoin network to record as `defaults.network` so later commands can drop `-n`. Written idempotently: it never clobbers a network you set earlier |
-| `--dev` | Establish an **unencrypted** dev keystore (plaintext keys, no passphrase). Testnet/regtest only; mainnet operations are refused |
-| `--force` | Re-create the config even if it exists. **Never** re-creates the keystore (re-establishing one is the explicit `keystore init --force`) |
-
-By default `init` establishes an **encrypted** keystore and prompts (with confirmation) for a passphrase up front, so the first `key generate` never seals the keystore under an unconfirmed, mistyped passphrase. Supply the passphrase non-interactively with `BTCR2_KEYSTORE_PASSPHRASE` or `--passphrase-file` for scripted setup. The output envelope reports the resolved `network` alongside the paths and `protection`.
-
-### quickstart
-
-`btcr2 quickstart` collapses onboarding into one step: it runs `init`'s scaffold, records the network (default **mutinynet**), and optionally caches the session and probes the endpoints. It reimplements nothing - it composes `init`, `keystore unlock`, and `config doctor` - so the keystore and session guarantees hold unchanged.
-
-| Flag | Description |
-|---|---|
-| `-n, --network <network>` | Bitcoin network to set up. Default: `mutinynet` |
-| `--dev` | Establish an unencrypted dev keystore (testnet only) |
-| `--unlock` | Cache the passphrase for the session so later commands do not re-prompt. Opt-in; on a fresh encrypted keystore it reuses the establish-time passphrase with no second prompt |
-| `--ttl <duration>` | Session lifetime with `--unlock`: bare seconds or an `s`/`m`/`h` suffix (default `1h`, max `24h`; also `BTCR2_KEYSTORE_TTL`) |
-| `--no-doctor` | Skip the endpoint reachability probe (which is on by default and **advisory**: a failed probe warns but `quickstart` still exits 0) |
-| `--allow-mainnet` | Permit `-n bitcoin` (records mainnet as the default; dev keystores are still refused). Guarded before any writes |
-| `--force` | Re-create the config even if it exists (never the keystore) |
-
-The workshop happy path:
-
-```bash
-btcr2 quickstart -n mutinynet --unlock --ttl 2h   # (or: --dev  for an unencrypted dev keystore)
-btcr2 key generate --set-active
-btcr2 create                                       # network comes from defaults.network
-# ...fund the beacon (create prints the faucet + explorer links), resolve, update, deactivate...
-```
-
-### key
-
-Manage keypairs in the keystore. All subcommands operate offline (no Bitcoin connection).
-
-| Subcommand | Alias | Description |
-|---|---|---|
-| `key generate` | - | Generate a new keypair and store it. Flags: `--name <name>`, `--set-active` |
-| `key list` | `ls` | List stored keys (id, fingerprint, name, active) |
-| `key show <ref>` | - | Show a key's public material and tags (never prints the secret) |
-| `key import` | - | Import a secret from a hex file (`--secret-file`) or a public key as watch-only (`--public`). Flags: `--name`, `--set-active` |
-| `key export <ref>` | - | Export public material by default; `--secret --out <path>` writes the secret to a new 0600 file |
-| `key delete <ref>` | `rm` | Delete a key. `--force` deletes even the active key |
-| `key use <ref>` | - | Set the active key, persisted across invocations |
-
-A key reference is a full URN, a unique `name` tag, or a unique fingerprint prefix.
-
-### keystore
-
-Establish, inspect, and re-key the keystore. These operate on the keystore file directly (no Bitcoin connection).
-
-| Subcommand | Alias | Description |
-|---|---|---|
-| `keystore init` | - | Establish the keystore (encrypted by default; prompts and confirms the passphrase). `--dev` creates an unencrypted dev keystore; `--force` re-establishes an existing one (discards its keys) |
-| `keystore status` | - | Show the resolved path, protection mode (`encrypted`/`dev`/`absent`), whether a passphrase is established, the key count, and the `session` state (whether one is live and its remaining lifetime). Never decrypts or prompts |
-| `keystore change-passphrase` | `passwd` | Re-seal every key under a new passphrase (encrypted keystores only). Prompts for the current passphrase, then a new one (with confirmation). Clears any cached session |
-| `keystore unlock` | - | Cache the verified passphrase for the session so later commands do not re-prompt. `--ttl <duration>` sets the lifetime (default `1h`, max `24h`; also `BTCR2_KEYSTORE_TTL`); `--allow-mainnet` permits unlocking a `bitcoin`-default context |
-| `keystore lock` | - | Revoke the cached session so later commands prompt again. Idempotent; needs no passphrase |
-
-**Encrypted vs dev keystores.** An encrypted keystore seals each secret with argon2id + XChaCha20-Poly1305 under one passphrase, and records a verifier so a mistyped passphrase fails loudly (with `Incorrect passphrase`) instead of sealing a key under an unknown or divergent passphrase. A **dev keystore** (`--dev`) stores secrets in plaintext and never prompts: it is for disposable testnet/regtest keys only, and the CLI **hard-refuses** to sign or generate a mainnet (`bitcoin`) key with one.
-
-**Session unlock.** `keystore unlock` caches the verified passphrase in `<home>/session.json` (`0600`) so a returning operator authenticates once instead of on every signing command. A cached session sits below `BTCR2_KEYSTORE_PASSPHRASE` / `--passphrase-file` and above the interactive prompt, so unattended and CI paths still win. Mainnet keeps per-use authentication: a `bitcoin` operation is withheld from a session that was not unlocked with `--allow-mainnet`. The cached passphrase is base64url-encoded, not encrypted; its only protection at rest is the `0600` file mode.
-
-### config
-
-Read and write CLI configuration.
-
-| Subcommand | Alias | Description |
-|---|---|---|
-| `config init` | - | Create a default config file with one profile per network. `--force` overwrites |
-| `config get [path]` | - | Print a value at a dotted path, or the whole config. Secret values are redacted; `--show-secrets` reveals them |
-| `config set <path> <value>` | - | Set a value at a dotted path (value parsed as JSON when valid, else a string; known endpoint/credential/name paths are always stored as strings). An invalid enum for a known key is rejected; an unknown path warns but writes |
-| `config unset <path>` | - | Delete a value at a dotted path |
-| `config list` | `ls` | Print the entire config file. Secret values are redacted; `--show-secrets` reveals them |
-| `config validate` | - | Report unknown keys, invalid enum values, and an unsupported schema version |
-| `config effective` | - | Print the resolved connection config with per-value provenance (`flag`/`env`/`file`/`default`). `-n, --network <n>` selects the network; `--show-secrets` reveals the RPC password |
-| `config path` | - | Print the resolved home directory, config-file, and keystore paths |
-| `config doctor` | - | Probe reachability of the resolved endpoints (read-only; touches the network). `-n, --network <n>` selects the network |
-
-### profile
-
-Manage configuration profiles.
-
-| Subcommand | Alias | Description |
-|---|---|---|
-| `profile add <name>` | - | Add an empty profile |
-| `profile use <name>` | - | Set the active profile (writes `defaults.profile`) |
-| `profile show [name]` | - | Show a profile (defaults to the active profile). Secret values are redacted; `--show-secrets` reveals them |
-| `profile remove <name>` | `rm` | Remove a profile |
-
-### completion
-
-`btcr2 completion [shell]` prints a shell completion script (bash, zsh, or fish) to stdout. Defaults to bash. For example: `eval "$(btcr2 completion bash)"`.
+Each page lists the flags, the output, the environment variables, and examples of the command. `btcr2 <command> --help` prints the flags of a command.
 
 ## Usage
 
-### Create a DID
-
 ```bash
-# Generate a fresh key (type=k), store it in the keystore, and print the identifier
-btcr2 create -n regtest
+# Set up the home, the config file, and an encrypted keystore on mutinynet.
+# Cache the passphrase for two hours.
+btcr2 quickstart -n mutinynet --unlock --ttl 2h
 
-# Deterministic (type=k): from an explicit compressed secp256k1 public key (33 bytes hex)
-btcr2 create -t k -n regtest -b 02aa...
+# Generate a key, store it as the active key, and create an identifier (offline).
+btcr2 create -n mutinynet
 
-# Deterministic (type=k): from a stored key's public key
-btcr2 create -t k -n regtest --signing-key mykey
+# Resolve the DID document from Bitcoin.
+btcr2 resolve -i did:btcr2:k1q5p...
 
-# External (type=x): from a SHA-256 hash of a genesis document (32 bytes hex)
-btcr2 create -t x -n bitcoin -b bb...
+# Update the DID document: sign a JSON Patch and broadcast a beacon signal.
+btcr2 update -i did:btcr2:k1q5p... \
+  -p '[{"op":"add","path":"/alsoKnownAs","value":["https://example.com/demo"]}]'
 ```
 
-### Resolve a DID
-
-```bash
-# Zero-config: network and endpoints are derived from the DID
-btcr2 resolve -i did:btcr2:k1qq...
-
-# Alias: read
-btcr2 read -i did:btcr2:k1qq...
-
-# With resolution options as inline JSON
-btcr2 resolve -i did:btcr2:k1qq... -r '{"versionId":"1"}'
-
-# With resolution options from a JSON file
-btcr2 resolve -i did:btcr2:k1qq... -p resolution-options.json
-
-# Apply a signal after one confirmation instead of the default six
-btcr2 resolve -i did:btcr2:k1qq... --min-conf 1 -r '{"sidecar":{"updates":[...]}}'
-
-# JSON output
-btcr2 -o json resolve -i did:btcr2:k1qq...
-```
-
-### Update a DID
-
-```bash
-# Signs with the active keystore key (or one chosen via --signing-key).
-# The command resolves the current document, derives the verification
-# method and the beacon, then signs and broadcasts.
-btcr2 update -i did:btcr2:k1qq... \
-  -p '[{"op":"add","path":"/service/-","value":{"id":"#svc","type":"X","serviceEndpoint":"https://x"}}]'
-
-# A DID whose prior update is sidecar-only: hand that update to the source resolution
-btcr2 update -i did:btcr2:k1qq... --min-conf 1 -r '{"sidecar":{"updates":[...]}}' \
-  -p '[{"op":"remove","path":"/service/1"}]'
-
-# Offline source: supply the document and its version, and name the method and the beacon
-btcr2 update -i did:btcr2:k1qq... \
-  -s "$(cat did.json)" --source-version-id 1 \
-  -p '[{"op":"remove","path":"/service/1"}]' \
-  -m '#initialKey' -b '#initialP2WPKH'
-```
-
-### Deactivate a DID
-
-```bash
-# Irreversible. Resolves the current document, then signs the deactivation via the keystore.
-btcr2 deactivate -i did:btcr2:k1qq... --min-conf 1 -r '{"sidecar":{"updates":[...]}}'
-```
-
-### Manage keys
-
-```bash
-btcr2 key generate --name mykey --set-active
-btcr2 key list
-btcr2 key use mykey
-```
+An update needs a funded beacon. On a test network, `create` prints the beacon address and the faucet link. [`docs/DEMO.md`](./docs/DEMO.md) has the full sequence.
 
 ## Configuration
 
-Override precedence, highest wins: CLI flags, then environment variables, then config file, then network defaults.
+The CLI keeps its state in one home directory: `~/.btcr2` on Linux and macOS, `%LOCALAPPDATA%\btcr2` on Windows. The home holds `config.json`, `keystore.json`, and `session.json`. `--home <dir>` or `BTCR2_HOME` moves the home.
 
-### Global flags
-
-| Flag | Description |
-|---|---|
-| `-v, --version` | Output the current version |
-| `-o, --output <format>` | Output format: `json` or `text` (default: config `defaults.output`, else `text`) |
-| `--verbose` | Verbose output |
-| `--quiet` | Suppress non-essential output |
-| `--home <dir>` | btcr2 home directory holding `config.json` + `keystore.json` (default: `~/.btcr2`, `%LOCALAPPDATA%\btcr2` on Windows; overrides `$BTCR2_HOME`) |
-| `-c, --config <path>` | Path to config file (default: `<home>/config.json`) |
-| `--profile <name>` | Config profile name (default: auto-detected from network) |
-| `--btc-rest <url>` | Override Bitcoin REST endpoint (Esplora API) |
-| `--btc-rpc-url <url>` | Override Bitcoin Core RPC endpoint |
-| `--btc-rpc-user <user>` | Bitcoin Core RPC username |
-| `--btc-rpc-wallet <name>` | Bitcoin Core wallet name for wallet-scoped RPCs (`/wallet/<name>`) |
-| `--btc-rpc-header <header>` | Extra Bitcoin Core RPC header `"Key: Value"` (repeatable). A credential passed here is on argv: prefer `btc.rpcHeaders` in a profile |
-| `--btc-signal-discovery <mode>` | Where beacon signals are read from `<indexer\|fullnode>` (default: `indexer`; `fullnode` scans blocks over Bitcoin Core RPC) |
-| `--btc-rest-header <header>` | Extra Bitcoin REST header `"Key: Value"` (repeatable). A credential passed here (an API key, a bearer token) is on argv and readable through `ps`: prefer `btc.headers` in a profile |
-| `--btc-timeout <ms>` | Bitcoin REST/RPC request timeout in milliseconds (default: unbounded) |
-| `--cas-gateway <url>` | IPFS HTTP gateway for CAS reads (read-only) |
-| `--cas-rpc-url <url>` | IPFS HTTP RPC endpoint for a writable CAS (reads + writes; enables `--publish-to-cas`) |
-| `--cas-timeout <ms>` | CAS request timeout in milliseconds (default: `30000`; `0` disables) |
-| `--keystore <path>` | Path to the keystore file (default: `<home>/keystore.json`) |
-| `--passphrase-file <path>` | Read the keystore passphrase from a file (unattended use) |
-| `--signing-key <ref>` | Key for create/update/deactivate signing: a URN, fingerprint prefix, or name |
-
-### Environment variables
-
-| Variable | Equivalent flag |
-|---|---|
-| `BTCR2_BTC_REST` | `--btc-rest` |
-| `BTCR2_BTC_RPC_URL` | `--btc-rpc-url` |
-| `BTCR2_BTC_RPC_USER` | `--btc-rpc-user` |
-| `BTCR2_BTC_RPC_PASS` | no flag: a password on argv is readable through `ps` and shell history |
-| `BTCR2_BTC_RPC_PASS_FILE` | file whose contents are the RPC password |
-| `BTCR2_CAS_GATEWAY` | `--cas-gateway` |
-| `BTCR2_CAS_RPC_URL` | `--cas-rpc-url` |
-| `BTCR2_BTC_SIGNAL_DISCOVERY` | `--btc-signal-discovery` |
-| `BTCR2_BTC_TIMEOUT` | `--btc-timeout` |
-| `BTCR2_CAS_TIMEOUT` | `--cas-timeout` |
-| `BTCR2_FEE_RATE` | `--fee-rate` |
-| `BTCR2_OUTPUT` | `-o, --output` |
-| `BTCR2_HOME` | `--home` |
-| `BTCR2_KEYSTORE_PASSPHRASE` | keystore passphrase (unattended use) |
-| `BTCR2_KEYSTORE_TTL` | session lifetime for `keystore unlock` / `quickstart --unlock` (default `1h`, max `24h`) |
-
-### Home directory
-
-The CLI keeps its config and keystore side by side in one home directory, resolved as `--home <dir>`, then `$BTCR2_HOME`, then the platform default: `~/.btcr2` on Linux/macOS and `%LOCALAPPDATA%\btcr2` on Windows. Both files live directly under it (`<home>/config.json`, `<home>/keystore.json`); `btcr2 config path` prints the resolved locations. `--config` and `--keystore` still override each file individually, so the historical XDG split can be reproduced explicitly.
-
-### Config file
-
-Default location: `<home>/config.json`. A malformed config file fails loudly (the CLI never silently falls back to public endpoints, and never overwrites an unparseable file).
-
-Profiles are matched by network name when neither `--profile` nor the config's `defaults.profile` selects one. For example, with no active profile set, resolving a regtest DID automatically selects the `"regtest"` profile. A profile that is not named after a network can declare its network with a `network` field.
-
-```json
-{
-  "schemaVersion": 1,
-  "defaults": {
-    "profile": "production",
-    "network": "bitcoin",
-    "output": "text"
-  },
-  "profiles": {
-    "regtest": {
-      "btc": {
-        "rest": "http://localhost:3000",
-        "rpcUrl": "http://localhost:18443",
-        "rpcUser": "polaruser",
-        "rpcPass": "polarpass",
-        "wallet": "primary",
-        "feeRate": 5,
-        "timeoutMs": 30000
-      }
-    },
-    "production": {
-      "network": "bitcoin",
-      "btc": {
-        "rest": "https://my-mempool/api",
-        "headers": { "Authorization": "Bearer <api-key>" },
-        "feeRate": 20
-      },
-      "cas": { "gateway": "https://ipfs.io", "rpcUrl": "http://127.0.0.1:5001", "timeoutMs": 30000 },
-      "identity": { "keystore": "/secure/prod-keystore.json", "default": "did:btcr2:...#key-0" }
-    }
-  }
-}
-```
-
-Field notes:
-
-- **`defaults`**: `profile` selects the active profile; `network` fixes the network `create` encodes when `-n` is absent; `output` sets the default output format. `schemaVersion` is stamped on every write; a file written by a newer CLI is refused.
-- **`btc`**: `rest`/`rpcUrl`/`rpcUser`/`rpcPass` are endpoints and credentials; `wallet` targets a Bitcoin Core wallet (`/wallet/<name>`); `headers`/`rpcHeaders` add REST/RPC headers; `feeRate` (sats/vByte), `changeAddress`, and `timeoutMs` set broadcast and request behavior;
-`signalDiscovery` (`"indexer"` or `"fullnode"`) picks where beacon signals are read from. The RPC url, user, and pass are resolved as one atomic unit, so a URL from a higher-precedence layer never inherits credentials from a lower one.
-- **`cas`**: `gateway` is a read-only IPFS HTTP gateway; `cas.rpcUrl` is a writable IPFS HTTP RPC endpoint (enables `--publish-to-cas`; `rpcUrl` wins over `gateway`); `timeoutMs` bounds CAS operations (`0` disables).
-- **`identity`**: `keystore` points the profile at its own keystore file, and `default` is the profile's default signing key. Both fall **below** the corresponding `--keystore` / `--signing-key` flags.
-
-Use `config validate` to check a file, and `config effective` to see the resolved values with their provenance.
-
-### RPC password and secrets
-
-`config get`, `config list`, and `profile show` redact secret-looking values (the RPC password and any key matching `pass`/`secret`/`token`/`auth`/`api-key`/`credential`/`bearer`, e.g. an `Authorization` header) by default; pass `--show-secrets` to reveal them.
-
-An `rpcPass` written directly into `config.json` is stored in cleartext (the file is mode 0600 but not encrypted). For anything sensitive, keep the secret out of the file with a reference or an RPC-URL-embedded credential:
-
-- `"rpcPass": "env:MY_RPC_PASS"` reads the password from the `MY_RPC_PASS` environment variable.
-- `"rpcPass": "file:/run/secrets/rpc-pass"` reads it from a file (a single trailing newline is trimmed).
-- `BTCR2_BTC_RPC_PASS_FILE=/run/secrets/rpc-pass` names a file to read when no other RPC password source applies.
-
-### Defaults
-
-When no overrides are configured:
-
-- **Bitcoin REST**: [mempool.space](https://mempool.space) for `bitcoin`, `testnet3`, `testnet4`, and `signet`; [mutinynet.com](https://mutinynet.com) for `mutinynet`; `http://localhost:3000` for `regtest`
-- **Bitcoin RPC**: `http://localhost:18443` for `regtest` (credentials required), not configured for public networks
-- **CAS**: [ipfs.io](https://ipfs.io) HTTP gateway (read-only). Configure a writable CAS with `--cas-rpc-url` (or `cas.rpcUrl`) to publish with `--publish-to-cas`
-
-## Publishing updates to CAS
-
-CAS publication is **optional and never required**. Every `update` and `deactivate` can be completed and shared entirely via sidecar: the command always prints the artifacts a resolver needs (the signed update, the transaction id, the CAS announcement for CAS beacons, and the SMT proof for SMT beacons) for you to distribute yourself.
-
-Optionally, the signed update (and, for CAS beacons, the announcement) can be published to a content-addressed store before the on-chain broadcast, so any OP_RETURN update hash is fetchable from CAS at resolution time without sidecar data. This is opt-in via `--publish-to-cas`:
-
-| Mode | Behavior |
-|---|---|
-| `never` (default) | Publish nothing. Distribute the printed artifacts via sidecar. |
-| `auto` | Best-effort. Publish when a writable CAS is configured; otherwise skip publication silently for every beacon type and proceed. Never blocks an update. |
-| `always` | Require a writable CAS; error up-front for every beacon type when none is configured. |
-
-A writable CAS is configured with `--cas-rpc-url <url>` (an IPFS HTTP RPC endpoint, e.g. a local Kubo node at `http://127.0.0.1:5001`), the `BTCR2_CAS_RPC_URL` environment variable, or a profile's `cas.rpcUrl`. The default IPFS gateway is read-only, so without a configured `--cas-rpc-url`, `--publish-to-cas auto` publishes nothing and completes the update sidecar-only, while `--publish-to-cas always` errors up-front (naming the fix) for every beacon type.
-
-**Privacy:** under `auto`/`always`, canonical signed updates (and announcements) are published to the configured, possibly public, CAS before the on-chain anchor. Keep `never` (the default) to distribute update data privately via sidecar.
-
-```bash
-# Opt into CAS publication against a local IPFS (Kubo) node
-btcr2 update \
-  --cas-rpc-url http://127.0.0.1:5001 \
-  --publish-to-cas auto \
-  -i did:btcr2:k1qq... \
-  -p '[{"op":"add","path":"/service/-","value":{"id":"#svc","type":"X","serviceEndpoint":"https://x"}}]'
-```
+A value comes from the first of these sources: a flag, an environment variable, the active profile in the config file, the built-in default of the network. [`docs/config.md`](./docs/config.md) describes the config file and the `config` subcommands. [`docs/README.md`](./docs/README.md) lists the global flags, the environment variables, and the precedence of each value.
 
 ## Links
 

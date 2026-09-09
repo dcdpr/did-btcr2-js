@@ -3,8 +3,8 @@
 Decodes and validates `did:btcr2` identifiers. The command group has two subcommands. `decode`
 prints the components of an identifier. `validate` checks that an identifier conforms to the
 identifier decoding algorithm of the specification and prints a report. Both subcommands are
-offline and keystore-free: they open no Bitcoin connection, read no CAS, read no keystore, and
-never prompt for a passphrase. The CLI calls `api.did.decode`, `api.did.validate`, and
+offline. They open no Bitcoin connection, read no CAS, read no keystore, and never ask for a
+passphrase. The CLI calls `api.did.decode`, `api.did.validate`, and
 `api.btcr2.getInitialDocument` from `@did-btcr2/api`.
 
 ## Synopsis
@@ -22,7 +22,7 @@ btcr2 identifier validate did:btcr2:x1qh... -b be0db3...
 btcr2 identifier validate did:btcr2:x1qh... --genesis-document ./genesis.json
 ```
 
-The identifier is a positional argument. There is no `-i` flag on this command group.
+The identifier is an argument. There is no `-i` flag on this command group.
 
 ## decode
 
@@ -33,13 +33,13 @@ the network, and the genesis bytes as hex.
 
 | Flag | Value | Default | Description |
 |------|-------|---------|-------------|
-| `<did>` (positional) | A `did:btcr2` identifier | none (required) | The identifier to decode. An invalid identifier fails before any other step with `Invalid identifier (<check> check): <detail>` (`INVALID_ARGUMENT_ERROR`), where `<check>` is the first failed check of `validate`. |
+| `<did>` (the argument) | A `did:btcr2` identifier | none (required) | The identifier to decode. An invalid identifier fails before any other step with `Invalid identifier (<check> check): <detail>` (`INVALID_ARGUMENT_ERROR`), where `<check>` is the first failed check of `validate`. |
 | `--initial-document` | boolean | `false` | Add the initial DID document to the output. For a `k` identifier the CLI derives the document from the public key with no I/O. For an `x` identifier the CLI needs `--genesis-document`. Without it, the command fails with `An external identifier (x) needs --genesis-document <path> for --initial-document.` (`INVALID_ARGUMENT_ERROR`). |
-| `--genesis-document <path>` | file path | none | Path to the JSON genesis document of an `x` identifier. The CLI replaces the placeholder id `did:btcr2:_` with the identifier and prints the result as `initialDocument`. Requires `--initial-document`; without it the command fails with `--genesis-document requires --initial-document.`. For a `k` identifier the command fails with `--genesis-document applies only to external identifiers (x).`. A document whose canonical SHA-256 hash is not the genesis bytes fails with `Initial document mismatch: genesisBytes !== genesisDocumentHash`. |
-| `-h, --help` | none | n/a | Print usage for the subcommand and exit. |
+| `--genesis-document <path>` | file path | none | Path to the JSON genesis document of an `x` identifier. The CLI replaces the placeholder id `did:btcr2:_` with the identifier and prints the result as `initialDocument`. The flag requires `--initial-document`. Without it, the command fails with `--genesis-document requires --initial-document.`. For a `k` identifier the command fails with `--genesis-document applies only to external identifiers (x).`. A document whose canonical SHA-256 hash is not the genesis bytes fails with `Initial document mismatch: genesisBytes !== genesisDocumentHash`. |
+| `-h, --help` | none | n/a | Print the help of the subcommand and exit. |
 
-Validation order: the flag pair is checked first, then the identifier, then the flag against the
-identifier type, then the file is read.
+The validation order: the command checks the flag pair first, then the identifier, then the flag
+against the identifier type. Then it reads the file.
 
 ### Output
 
@@ -88,7 +88,7 @@ what failed, and the exit code is `1`.
 | `version` | `btcr2_version` (the high nibble of the first data byte) is `0`. | `btcr2_version must be 0, got 1.` |
 | `network` | `network_value` (the low nibble of the first data byte) names a network (`0` to `5`). A reserved value (`6` to `11`) fails. A custom value (`12` to `15`) fails, because this implementation supports no custom network. | `network_value 12 is a custom network, not supported by this implementation.` |
 | `genesisBytes` | The remaining bytes are a 33-byte SEC compressed secp256k1 public key (`k`) or a 32-byte SHA-256 hash (`x`). | `Expected a 32-byte SHA-256 hash, got 31 bytes.` |
-| `roundTrip` | Encoding the decoded components reproduces the identifier. | `Re-encoding produced "did:btcr2:k1...".` |
+| `roundTrip` | The encoding of the decoded components reproduces the identifier. | `Re-encoding produced "did:btcr2:k1...".` |
 | `genesisBytesMatch` | Only with `-b, --bytes`. The supplied bytes equal the genesis bytes of the identifier: the public key of a `k` identifier, the genesis document hash of an `x` identifier. | `Expected 33 genesis bytes for a KEY identifier, got 32.` |
 | `genesisDocument` | Only with `--genesis-document`, `x` only. The document id is `did:btcr2:_`, the document is a valid Genesis Document, and its canonical SHA-256 hash equals the genesis bytes. | `The genesis document hash <hex> does not equal the genesis bytes <hex>.` |
 
@@ -96,10 +96,10 @@ what failed, and the exit code is `1`.
 
 | Flag | Value | Default | Description |
 |------|-------|---------|-------------|
-| `<did>` (positional) | any string | none (required) | The identifier to validate. |
+| `<did>` (the argument) | any string | none (required) | The identifier to validate. |
 | `-b, --bytes <hex>` | hex string | none | The genesis bytes that the identifier must encode, the same value as `create -b`: the 33-byte compressed public key of a `k` identifier, or the 32-byte SHA-256 hash of the genesis document of an `x` identifier. Adds the `genesisBytesMatch` check. A value that is not hex fails with `Invalid bytes: not valid hex.` (`INVALID_ARGUMENT_ERROR`). A wrong length is a failed check in the report, not an argument error. |
 | `--genesis-document <path>` | file path | none | Path to the JSON genesis document of an `x` identifier. Adds the `genesisDocument` check. For a valid `k` identifier the command fails with `--genesis-document applies only to external identifiers (x).` before it reads the file. An unreadable path or a file that is not JSON fails with `Invalid genesis document path. Must be a valid path to a JSON file.`. A JSON value that is not an object fails with `Invalid genesis document. The file must contain a JSON object.`. |
-| `-h, --help` | none | n/a | Print usage for the subcommand and exit. |
+| `-h, --help` | none | n/a | Print the help of the subcommand and exit. |
 
 ### Output
 
@@ -130,13 +130,13 @@ Example, an uppercase id:
 Exit codes: `0` if the identifier is valid. `1` if the identifier is not valid (the report is on
 stdout, stderr is empty) and on any error (the message is on stderr).
 
-## Global options
+## Global flags
 
-Shared global flags are documented in the [docs README](./README.md#global-options). The
-command group uses `-o, --output` (text vs json envelope) and `--verbose` (full structured
-error output). The connection overrides, the state-location flags, `--quiet`, `--keystore`,
-`--passphrase-file`, and `--signing-key` are accepted but have no effect: the command group
-reads no configuration, no keystore, and no endpoint.
+See the [docs README](./README.md#global-flags) for the shared global flags. The command group
+uses `-o, --output` (text or the JSON envelope) and `--verbose` (the full structured error).
+The command group accepts the connection overrides, the state location flags, `--quiet`,
+`--keystore`, `--passphrase-file`, and `--signing-key`, but they have no effect: the command
+group reads no config, no keystore, and no endpoint.
 
 ## Examples
 
@@ -150,7 +150,7 @@ btcr2 identifier decode did:btcr2:k1q5pvksjk8vfxpp0pl6jzwvc4sw7knmv8q4l2j5j2vgsj
 # Print the initial DID document of an EXTERNAL identifier from its genesis document
 btcr2 identifier decode did:btcr2:x1qh... --initial-document --genesis-document ./genesis.json
 
-# Validate an identifier; the exit code is 1 if it does not conform
+# Validate an identifier. The exit code is 1 if it does not conform
 btcr2 identifier validate did:btcr2:k1q5pvksjk8vfxpp0pl6jzwvc4sw7knmv8q4l2j5j2vgsjwfrfer2vqqqcx5ksj
 
 # Confirm that a KEY identifier encodes this public key (the same bytes as create -b)
@@ -168,8 +168,10 @@ btcr2 -o json identifier validate did:btcr2:k1qq...
 
 ## See also
 
-- `btcr2 create`: mint the identifier that `identifier decode` reads back. `create -b` takes the
+- `btcr2 create`: create the identifier that `identifier decode` reads back. `create -b` takes the
   genesis bytes that `identifier validate -b` confirms.
-- `btcr2 resolve`: resolve the DID document. `resolve` derives the network from the identifier in
+- `btcr2 resolve`: resolve the DID document. `resolve` reads the network from the identifier in
   the same way as `identifier decode`.
-- [README](./README.md): global flags, config file reference, and profile semantics.
+- `btcr2 genesis build`: write the genesis document that `identifier validate --genesis-document`
+  checks.
+- [README](./README.md): the global flags, the config file reference, and the profile rules.
