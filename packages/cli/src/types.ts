@@ -1,4 +1,4 @@
-import type { BroadcastOptions, DidUpdateResult, IdentifierReport, PublishToCasMode, Signer } from '@did-btcr2/api';
+import type { BeaconInfo, BroadcastOptions, DidUpdateResult, IdentifierReport, PublishToCasMode, Signer } from '@did-btcr2/api';
 import type { Btcr2DidDocument, ResolutionOptions } from '@did-btcr2/method';
 import type { DidResolutionResult } from '@web5/dids';
 import type { DoctorReport, EffectiveConfig } from './config.js';
@@ -69,13 +69,28 @@ export interface IdentifierDecodeData {
   initialDocument? : Btcr2DidDocument;
 }
 
+/**
+ * The data that `genesis build` prints: the external identifier, its
+ * network, its genesis bytes as hex, the path of the written genesis
+ * document, and the beacons of the initial DID document with their
+ * addresses to fund.
+ */
+export interface GenesisBuildData {
+  did          : string;
+  network      : NetworkOption;
+  genesisBytes : string;
+  path         : string;
+  beacons      : BeaconInfo[];
+}
+
 export type CommandResult =
-  | { action: 'create'; data: string; keyId?: string; publicKey?: string }
+  | { action: 'create'; data: string; keyId?: string; publicKey?: string; genesisBytes?: string }
   | { action: 'resolve'; data: DidResolutionResult }
   | { action: 'update'; data: DidUpdateResult }
   | { action: 'deactivate'; data: DidUpdateResult }
   | { action: 'identifier-decode'; data: IdentifierDecodeData }
   | { action: 'identifier-validate'; data: IdentifierReport }
+  | { action: 'genesis-build'; data: GenesisBuildData }
   | { action: 'key-generate'; data: { keyId: string; publicKey: string; active: boolean } }
   | { action: 'key-list'; data: Array<{ keyId: string; fingerprint: string; name?: string; active: boolean }> }
   | { action: 'key-show'; data: { keyId: string; publicKey: string; tags?: Record<string, string> } }

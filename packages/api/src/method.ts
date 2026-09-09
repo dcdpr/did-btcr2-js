@@ -1,15 +1,35 @@
 import type { BitcoinConnection, NetworkName } from '@did-btcr2/bitcoin';
-import type { DocumentBytes, KeyBytes, PatchOperation } from '@did-btcr2/common';
+import type { DocumentBytes, HashBytes, KeyBytes, PatchOperation } from '@did-btcr2/common';
 import { decode as decodeHash, IdentifierHrp, IdentifierTypes, INVALID_DID_UPDATE, ResolveError, UpdateError } from '@did-btcr2/common';
 import type { Signer } from '@did-btcr2/keypair';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import type { BeaconService, BroadcastOptions, BroadcastResult, Btcr2DidDocument, CASAnnouncement, CASBroadcastOptions, DidCreateOptions, DidDocument, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, ResolutionOptions, SignedBTCR2Update, SMTProof } from '@did-btcr2/method';
-import { BeaconError, BeaconFactory, BeaconSignalDiscovery, BeaconUtils, DidBtcr2, Identifier, Resolver, selectSpendableUtxo } from '@did-btcr2/method';
+import { BeaconError, BeaconFactory, BeaconSignalDiscovery, BeaconUtils, DidBtcr2, GenesisDocument, Identifier, Resolver, selectSpendableUtxo } from '@did-btcr2/method';
 import type { DidResolutionResult, DidVerificationMethod } from '@web5/dids';
 import type { BitcoinApi } from './bitcoin.js';
 import type { CasApi } from './cas.js';
+import type { GenesisDocumentSpec } from './genesis.js';
+import { assertGenesisDocument, buildGenesisDocument } from './genesis.js';
 import { assertBytes, assertCompressedPubkey, assertString, NOOP_LOGGER, rootCauseMessage } from './helpers.js';
 import type { Logger } from './types.js';
+
+/**
+ * Result of {@link DidMethodApi.createExternalFromDocument}: the EXTERNAL
+ * identifier, the genesis bytes it encodes, and the initial DID document.
+ * @public
+ */
+export interface ExternalCreateResult {
+  /** The EXTERNAL (`x`) identifier. */
+  did: string;
+  /** The SHA-256 hash of the canonical genesis document: the genesis bytes of `did`. */
+  genesisBytes: HashBytes;
+  /**
+   * The initial DID document: the genesis document with `did` in place of the
+   * placeholder id. Pass it to {@link DidMethodApi.getBeacons} for the beacon
+   * addresses to fund.
+   */
+  didDocument: Btcr2DidDocument;
+}
 
 /**
  * Policy for publishing update artifacts to the configured CAS during
@@ -223,6 +243,64 @@ export class DidMethodApi {
         type    : service.type,
         address : BeaconUtils.parseBitcoinAddress(String(service.serviceEndpoint)),
       }));
+  }
+
+  /**
+   * Build a Genesis Document from keys, beacons, and services, with zero I/O.
+   *
+   * The document carries the placeholder id `did:btcr2:_`, one Multikey
+   * verification method per key, the verification relationships, one beacon
+   * service per beacon, and the other services. Its canonical SHA-256 hash is
+   * the genesis bytes of an EXTERNAL (`x`) identifier; pass the document to
+   * {@link DidMethodApi.createExternalFromDocument} to mint one. The caller
+   * keeps the document: an EXTERNAL identifier resolves only with it.
+   *
+   * When `spec.network` is omitted, the beacon addresses are derived for the
+   * network of the configured Bitcoin connection, else for
+   * {@link DidMethodApi.FALLBACK_NETWORK} (regtest), never mainnet. When
+   * `spec.beacons` is omitted, the document gets one Singleton beacon with the
+   * P2WPKH address of the first key. The builder refuses a spec with no
+   * `capabilityInvocation` method or no beacon: such a DID can never be updated.
+   * @param spec The keys, beacons, and services. See {@link GenesisDocumentSpec}.
+   * @returns The genesis document.
+   * @throws {DidDocumentError} If the spec is not valid.
+   */
+  buildGenesisDocument(spec: Omit<GenesisDocumentSpec, 'network'> & { network?: NetworkName }): Btcr2DidDocument {
+    if (spec === null || typeof spec !== 'object') {
+      throw new Error('spec must be an object.');
+    }
+    return buildGenesisDocument({ ...spec, network: spec.network ?? this.defaultNetwork });
+  }
+
+  /**
+   * Create an EXTERNAL (`x`) DID from its genesis document, with zero I/O.
+   *
+   * The document must be a Genesis Document: a JSON object with the id
+   * `did:btcr2:_`, the two required contexts, and the placeholder in every
+   * verification method and service id. The api hashes the document as given
+   * (JCS canonical form, SHA-256), encodes the identifier for the network, and
+   * derives the initial DID document, which validates the document as a DID
+   * document. Hash the same JSON you keep or publish: a document with one
+   * changed byte hashes to a different identifier.
+   *
+   * When `options.network` is omitted, the DID is minted for the network of the
+   * configured Bitcoin connection, else for {@link DidMethodApi.FALLBACK_NETWORK}
+   * (regtest), never mainnet. The network is not checked against the beacon
+   * addresses of the document.
+   * @param genesisDocument The genesis document.
+   * @param options Creation options (idType is set for you).
+   * @returns The identifier, its genesis bytes, and the initial DID document.
+   * @throws {DidDocumentError} If the document is not a valid genesis document.
+   */
+  createExternalFromDocument(
+    genesisDocument: object,
+    options: Omit<DidCreateOptions, 'idType'> = {},
+  ): ExternalCreateResult {
+    assertGenesisDocument(genesisDocument);
+    const genesisBytes = GenesisDocument.toGenesisBytes(genesisDocument);
+    const did = this.createExternal(genesisBytes, options);
+    const didDocument = Resolver.external(Identifier.decode(did), genesisDocument);
+    return { did, genesisBytes, didDocument };
   }
 
   /**

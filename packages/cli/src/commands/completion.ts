@@ -2,7 +2,7 @@ import type { Command } from 'commander';
 import { CLIError } from '../error.js';
 import type { GlobalOptions } from '../types.js';
 
-const COMMANDS = 'create resolve read update deactivate delete identifier key config profile completion';
+const COMMANDS = 'create resolve read update deactivate delete identifier genesis key config profile completion';
 
 /** Registers the `completion` command, which prints a shell completion script to stdout. */
 export function registerCompletionCommand(program: Command, _globals: () => GlobalOptions): void {

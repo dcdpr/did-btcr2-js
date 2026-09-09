@@ -85,5 +85,6 @@ export * from './presets.js';
 export * from './key-manager.js';
 export * from './crypto.js';
 export * from './did.js';
+export * from './genesis.js';
 export * from './method.js';
 export * from './api.js';

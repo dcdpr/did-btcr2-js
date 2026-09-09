@@ -5,6 +5,7 @@ import {
   registerConfigCommand,
   registerCreateCommand,
   registerDeactivateCommand,
+  registerGenesisCommand,
   registerIdentifierCommand,
   registerInitCommand,
   registerKeyCommand,
@@ -91,6 +92,7 @@ export class DidBtcr2Cli {
     registerUpdateCommand(this.program, keystoreFactory, globals);
     registerDeactivateCommand(this.program, keystoreFactory, globals);
     registerIdentifierCommand(this.program, factory, globals);
+    registerGenesisCommand(this.program, factory, keystoreFactory, globals);
     registerKeyCommand(this.program, keystoreFactory, globals);
     registerKeystoreCommand(this.program, globals);
     registerConfigCommand(this.program, globals);

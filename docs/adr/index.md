@@ -185,3 +185,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 105 | 2026-09-04 | [Resolution Processes Only Beacon Signals With at Least minConf Confirmations](105-resolution-processes-only-signals-at-min-conf.md) |
 | 106 | 2026-09-07 | [The cli Write Commands Take the Identifier and Resolve the Source Through the api](106-cli-write-commands-take-the-identifier-and-resolve-through-the-api.md) |
 | 107 | 2026-09-08 | [Identifier Validation Returns a Report, and the cli Exposes It as identifier decode and identifier validate](107-identifier-validation-report-and-cli-identifier-command-group.md) |
+| 108 | 2026-09-09 | [The api Builds a Genesis Document from a Spec, and the cli Exposes It as genesis build](108-genesis-document-builder-and-cli-genesis-build.md) |

@@ -2,9 +2,9 @@ import type { IdentifierReport } from '@did-btcr2/api';
 import { Identifier } from '@did-btcr2/api';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 import type { Command } from 'commander';
-import { readFile } from 'node:fs/promises';
 import type { ApiFactory } from '../config.js';
 import { CLIError } from '../error.js';
+import { readGenesisDocumentFile } from '../genesis-document-file.js';
 import { formatResult } from '../output.js';
 import type { CommandResult, GlobalOptions, IdentifierDecodeData } from '../types.js';
 
@@ -69,7 +69,7 @@ export function registerIdentifierCommand(
         }
         const genesisDocument = options.genesisDocument === undefined
           ? undefined
-          : await readGenesisDocument(options.genesisDocument);
+          : await readGenesisDocumentFile(options.genesisDocument);
         data.initialDocument = api.btcr2.getInitialDocument(did, genesisDocument);
       }
       print({ action: 'identifier-decode', data });
@@ -100,7 +100,7 @@ export function registerIdentifierCommand(
             { did },
           );
         }
-        genesisDocument = await readGenesisDocument(options.genesisDocument);
+        genesisDocument = await readGenesisDocumentFile(options.genesisDocument);
       }
       const report: IdentifierReport = factory().did.validate(did, { genesisBytes, genesisDocument });
       print({ action: 'identifier-validate', data: report });
@@ -131,26 +131,4 @@ function parseHexBytes(value: string): Uint8Array {
   } catch {
     throw new CLIError('Invalid bytes: not valid hex.', 'INVALID_ARGUMENT_ERROR', { bytes: value });
   }
-}
-
-/** Reads and parses the genesis document file. The content must be a JSON object. */
-async function readGenesisDocument(path: string): Promise<object> {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(await readFile(path, 'utf-8'));
-  } catch {
-    throw new CLIError(
-      'Invalid genesis document path. Must be a valid path to a JSON file.',
-      'INVALID_ARGUMENT_ERROR',
-      { genesisDocument: path },
-    );
-  }
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new CLIError(
-      'Invalid genesis document. The file must contain a JSON object.',
-      'INVALID_ARGUMENT_ERROR',
-      { genesisDocument: path },
-    );
-  }
-  return parsed;
 }

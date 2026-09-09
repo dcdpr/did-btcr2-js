@@ -16,6 +16,7 @@ sidecar distribution to resolvers, or opt into CAS publication with `--publish-t
 btcr2 [global options] update -i <did> -p <json>
                               [-s <json> --source-version-id <number>] [-m <id>] [-b <id>]
                               [-r <json> | --resolution-options-path <path>] [--min-conf <n>]
+                              [--genesis-document <path>]
                               [--publish-to-cas <auto|always|never>]
                               [--fee-rate <satsPerVByte>]
                               [--change-address <address>]
@@ -39,6 +40,7 @@ go before the `update` keyword.
 | `-r, --resolution-options <json>` | Resolution options as a JSON string, the same shape as `btcr2 resolve -r`. Invalid JSON fails with `Invalid resolution options.` Not allowed with the source pair. | none | Feeds the resolution of the current document. Supply sidecar data here if a prior update of the DID is not in a CAS. |
 | `--resolution-options-path <path>` | Path to a JSON file with resolution options. An unreadable file or invalid JSON fails with `Invalid resolution options path.` `-r` wins if both are given. Not allowed with the source pair. | none | The file form of `-r`. There is no short form: `-p` is `--patches` on this command. |
 | `--min-conf <n>` | A positive integer (minimum 1). Other values are rejected at parse time with `--min-conf must be a positive integer (minimum 1).` Not allowed with the source pair. | `6` (the specification value) | Minimum block confirmations a beacon signal needs before the source resolution applies it (ADR 105). Overrides a `minConf` inside `-r` or the options file. Pass `1` to build on an update that has one confirmation. |
+| `--genesis-document <path>` | Path to the JSON genesis document of an external (`x`) identifier. An unreadable file or invalid JSON fails with `Invalid genesis document path.` Refused for a `k` identifier with `--genesis-document applies only to external identifiers (x).` Not allowed with the source pair. | none | Fills `sidecar.genesisDocument` of the resolution options, and wins over a value inside `-r` or the options file. Use it when the genesis document is not in a CAS (ADR 108). |
 | `--publish-to-cas <mode>` | One of `auto`, `always`, `never`. Any other value is rejected at parse time. | `never` | CAS publication policy for the update artifacts, applied before broadcast. `never`: publish nothing; distribute the returned artifacts via sidecar. `auto`: best-effort; publish the signed update (all beacon types) and the CAS Announcement (CAS beacons) when a writable CAS is configured, otherwise skip silently. `always`: require a writable CAS; a read-only or absent CAS aborts up-front, before any signing or spending. A writable CAS is configured via `--cas-rpc-url`, `BTCR2_CAS_RPC_URL`, or `profiles.<name>.cas.rpcUrl`. |
 | `--fee-rate <satsPerVByte>` | A positive finite number of sats per vByte (decimals allowed). Zero, negative, or non-numeric values fail with `Invalid --fee-rate ...`. | unset (SDK default 5 sat/vB) | Fee rate for the beacon transaction. Raise it under congestion so the transaction confirms. When unset, resolution falls through to `BTCR2_FEE_RATE`, then the profile's `btc.feeRate`, then the SDK default. |
 | `--change-address <address>` | A Bitcoin address on the DID's network; validated by the beacon at broadcast time. | unset (change returns to the beacon address) | Sends transaction change to this address instead of the beacon address, so a DID's successive announcements are not linked on-chain (ADR 044). When unset, falls through to the profile's `btc.changeAddress`. There is deliberately no environment variable for this knob (a change address is DID/network-specific). |
@@ -52,8 +54,9 @@ go before the `update` keyword.
 - **Source resolution.** With no source pair, the command resolves the DID first, through the
   same path as `btcr2 resolve`. That resolution needs the sidecar data of every prior update that
   is not in a CAS, passed with `-r` or `--resolution-options-path`, and honours `--min-conf`
-  (default six). A half pair is refused before any key is read:
-  `Provide both --source-document and --source-version-id, or neither.` The three resolution
+  (default six). An external (`x`) identifier also needs its genesis document, passed with
+  `--genesis-document` when it is not in a CAS. A half pair is refused before any key is read:
+  `Provide both --source-document and --source-version-id, or neither.` The four resolution
   flags with the pair are refused: `... apply only when --source-document and
   --source-version-id are omitted.` The api ignores resolution options when the pair is
   supplied (ADR 098), so the cli refuses the combination instead of a silent ignore.
@@ -200,6 +203,16 @@ btcr2 --signing-key demo update \
   --min-conf 1 \
   -r "$(jq -c '{sidecar:{updates:[.]}}' signed-update.json)" \
   -p '[{"op":"remove","path":"/service/1"}]'
+```
+
+An external (`x`) identifier whose genesis document is not in a CAS. The file that
+`btcr2 genesis build` wrote fills the sidecar:
+
+```bash
+btcr2 --signing-key alice update \
+  -i did:btcr2:x1q... \
+  --genesis-document ./alice.json \
+  -p '[{"op":"add","path":"/alsoKnownAs","value":["https://example.com/alice"]}]'
 ```
 
 Offline source. Use this form when the source document is not reachable over the network, or

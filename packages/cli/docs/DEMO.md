@@ -295,12 +295,17 @@ that raw path and the `--signing-key` path above yield the **same** DID for the 
 **Two identifier flavors.** The one above is a *deterministic* (`k`) identifier: it is
 derived straight from a public key, so it resolves with zero external data. There is
 also an *external* (`x`) identifier, minted from the SHA-256 hash of a genesis document
-you author:
+you author. `btcr2 genesis build` writes that document from your keys, beacons, and services,
+and prints the identifier; `create -t x --document` mints it again from the file:
 
 ```bash
-btcr2 create -t x -b <64-hex-sha256-of-your-genesis-document>
+btcr2 genesis build -n mutinynet --out ./genesis.json
+btcr2 create -t x -n mutinynet --document ./genesis.json
 # did:btcr2:x1q8ugqsp7tc24yf2ql6k7tsf9m5p7gtr7zmtuv7yl7f5rhv47yd8pvc9ef67
 ```
+
+Keep `genesis.json`: an external identifier resolves only with it
+(`resolve -i <did> --genesis-document ./genesis.json`).
 
 ---
 

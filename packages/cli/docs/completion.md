@@ -31,7 +31,7 @@ There are no subcommands. The single positional argument selects the target shel
 The completed word list is identical for all three shells:
 
 ```
-create resolve read update deactivate delete identifier key config profile completion
+create resolve read update deactivate delete identifier genesis key config profile completion
 ```
 
 - `bash`: defines a `_btcr2` function using `compgen -W` and registers it with

@@ -6,7 +6,7 @@ Part of the [`did-btcr2-js`](https://github.com/dcdpr/did-btcr2-js) monorepo.
 
 ## Summary
 
-This package provides the `btcr2` CLI for creating, resolving, updating, and deactivating did:btcr2 decentralized identifiers. It decodes and validates identifiers offline. It also manages an encrypted keystore of keypairs, reads and writes CLI configuration and profiles, and prints shell completion scripts. It wraps the `@did-btcr2/api` SDK via dependency injection, using [commander.js](https://github.com/tj/commander.js/) for argument parsing.
+This package provides the `btcr2` CLI for creating, resolving, updating, and deactivating did:btcr2 decentralized identifiers. It decodes and validates identifiers offline, and it builds the genesis document of an external identifier. It also manages an encrypted keystore of keypairs, reads and writes CLI configuration and profiles, and prints shell completion scripts. It wraps the `@did-btcr2/api` SDK via dependency injection, using [commander.js](https://github.com/tj/commander.js/) for argument parsing.
 
 Out of the box, `btcr2 resolve` works with zero configuration. The Bitcoin network is derived from the DID itself, and public endpoints (mempool.space, ipfs.io) are used as defaults. Override endpoints via CLI flags, environment variables, or a config file.
 
@@ -45,6 +45,7 @@ npx @did-btcr2/cli resolve -i did:btcr2:k1qq...
 | `update` | - | Update a DID document (signs via the keystore) |
 | `deactivate` | `delete` | Deactivate a DID permanently (signs via the keystore) |
 | `identifier` | - | Decode and validate identifiers (offline) |
+| `genesis` | - | Build the genesis document of an external identifier (offline) |
 | `key` | - | Manage keypairs in the keystore |
 | `keystore` | - | Establish, inspect, and re-key the keystore |
 | `config` | - | Read and write CLI configuration |
@@ -59,13 +60,14 @@ Creates an identifier and initial DID document. Two identifier types, selected b
   - **generate** (neither `--bytes` nor `--signing-key`): mint a fresh key, persist it to the keystore, set it active, and print the identifier. Sealing the secret prompts for the keystore passphrase.
   - **existing** (`--signing-key <ref>`): use a stored key's public key as the genesis bytes. Reading a public key never decrypts, so this never prompts.
   - **raw** (`--bytes <hex>`): a 33-byte public key as hex. Offline and keystore-free.
-- **`x`** (external): raw-bytes only, the 32-byte SHA-256 hash of a genesis document via `--bytes`.
+- **`x`** (external): the genesis document file via `--document <path>` (the api hashes it; see `genesis build`), or the 32-byte SHA-256 hash via `--bytes`.
 
 | Flag | Description |
 |---|---|
 | `-t, --type <type>` | Identifier type: `k` (deterministic) or `x` (external). Default: `k` |
 | `-n, --network <network>` | Bitcoin network: `bitcoin`, `testnet3`, `testnet4`, `signet`, `mutinynet`, or `regtest`. Default: config `defaults.network`, else the active profile's network, else `regtest` |
 | `-b, --bytes <bytes>` | Genesis bytes as a hex string. For type=k, a 33-byte public key (omit to generate a key); for type=x, the 32-byte genesis-document hash |
+| `--document <path>` | For type=x, the JSON genesis document to hash. Exclusive with `--bytes`. The result adds `genesisBytes` |
 
 `--signing-key <ref>` (global) selects a stored key for the existing-key mode; it applies only to `-t k`.
 
@@ -81,6 +83,7 @@ Required flag: `-i/--identifier`. If both `-r` and `-p` are given, `-r` wins and
 | `-r, --resolution-options <json>` | Resolution options as an inline JSON string |
 | `-p, --resolution-options-path <path>` | Path to a JSON file containing resolution options |
 | `--min-conf <n>` | Minimum block confirmations a beacon signal needs before resolution applies it. A positive integer; default `6`, the specification value. Overrides a `minConf` inside `-r`/`-p`. Pass `1` to see a fresh update after one block |
+| `--genesis-document <path>` | The JSON genesis document of an external (`x`) identifier. Fills `sidecar.genesisDocument`; wins over a value inside `-r`/`-p`. Refused for a `k` identifier |
 
 ### update
 
@@ -121,6 +124,18 @@ Decodes and validates identifiers. Both subcommands are offline and keystore-fre
 | `identifier validate <did>` | Run the checks of the identifier decoding algorithm in order and print the report. Exit code `1` if a check fails. `-b, --bytes <hex>` adds the `genesisBytesMatch` check: the identifier must encode these genesis bytes (`k` or `x`). `--genesis-document <path>` adds the `genesisDocument` check for an `x` identifier. |
 
 See [`docs/identifier.md`](./docs/identifier.md) for the check list and the output fields.
+
+### genesis
+
+Builds the genesis document of an external (`x`) identifier, writes it to a file, and prints the identifier. Offline: the beacon addresses are derived from the keys. The keystore opens only for public reads of a key reference.
+
+| Subcommand | Description |
+|---|---|
+| `genesis build` | On a terminal, ask for the keys, the relationships, the beacons, and the services (defaults: the active key, all four relationships, one P2WPKH Singleton beacon). `--spec <path>` reads a JSON spec instead and asks nothing. `-n <network>` as in `create`. `--out <path>` names the file (default `genesis.json`); `--force` overwrites. Prints `{ did, network, genesisBytes, path, beacons }`. |
+
+Then: `create -t x --document <path>` mints the identifier again from the file, `identifier validate <did> --genesis-document <path>` confirms the pair, and `resolve`, `update`, and `deactivate` take the file with `--genesis-document <path>`.
+
+See [`docs/genesis.md`](./docs/genesis.md) for the wizard questions, the spec file, and the output fields.
 
 ### init
 

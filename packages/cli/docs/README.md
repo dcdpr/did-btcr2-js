@@ -14,6 +14,7 @@ deactivating `did:btcr2` identifiers.
 | [`update`](./update.md) | Update a did:btcr2 document: sign a JSON Patch and broadcast a beacon signal. |
 | [`deactivate`](./deactivate.md) | Permanently deactivate an identifier (alias: `delete`; irreversible). |
 | [`identifier`](./identifier.md) | Decode and validate identifiers offline: `decode` prints the components, `validate` prints a conformance report. |
+| [`genesis`](./genesis.md) | Build the genesis document of an external identifier offline: `build` asks for the keys, beacons, and services (or reads `--spec`), writes the file, and prints the identifier. |
 | [`key`](./key.md) | Manage keypairs in the encrypted keystore. |
 | [`keystore`](./keystore.md) | Establish, inspect, re-key, and unlock the keystore. |
 | [`config`](./config.md) | Read and write CLI configuration. |

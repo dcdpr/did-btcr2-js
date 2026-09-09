@@ -119,9 +119,9 @@ describe('create command', () => {
     expect(process.exitCode).to.equal(1);
   });
 
-  it('external type requires --bytes', async () => {
+  it('external type requires --document or --bytes', async () => {
     await run('create', '-t', 'x', '-n', 'regtest');
-    expect(err.join(' ')).to.match(/external identifiers .* require --bytes/i);
+    expect(err.join(' ')).to.match(/external identifiers .* require --document <path>.* or --bytes <hex>/i);
     expect(process.exitCode).to.equal(1);
   });
 

@@ -1,8 +1,12 @@
 import { expect } from 'chai';
 import {
+  BEACON_ADDRESS_TYPES,
+  BEACON_TYPES,
   BeaconFactory,
   BeaconUtils,
   BitcoinConnection,
+  buildGenesisDocument,
+  DEFAULT_BEACON_ADDRESS_TYPE,
   DidBtcr2,
   KeyManagerSigner,
   LocalKeyManager,
@@ -11,16 +15,23 @@ import {
   rootCauseMessage,
   SchnorrKeyPair,
   Updater,
+  VERIFICATION_RELATIONSHIPS,
 } from '../src/index.js';
 import type {
+  BeaconAddressType,
   BeaconService,
+  BeaconType,
   BroadcastOptions,
   BroadcastResult,
   Btcr2DidDocument,
   CASAnnouncement,
   DidComponents,
   DidCreateOptions,
+  ExternalCreateResult,
   GenerateKeyOptions,
+  GenesisBeaconSpec,
+  GenesisDocumentSpec,
+  GenesisVerificationMethodSpec,
   IdentifierCheck,
   IdentifierComponents,
   IdentifierReport,
@@ -36,6 +47,7 @@ import type {
   SigningScheme,
   SignOptions,
   SMTProof,
+  VerificationRelationship,
   VerifyOptions,
 } from '../src/index.js';
 
@@ -70,6 +82,13 @@ type SurfaceTypes = {
   signOptions: SignOptions;
   smtProof: SMTProof;
   verifyOptions: VerifyOptions;
+  beaconAddressType: BeaconAddressType;
+  beaconType: BeaconType;
+  externalCreateResult: ExternalCreateResult;
+  genesisBeaconSpec: GenesisBeaconSpec;
+  genesisDocumentSpec: GenesisDocumentSpec;
+  genesisVerificationMethodSpec: GenesisVerificationMethodSpec;
+  verificationRelationship: VerificationRelationship;
 };
 
 /**
@@ -112,6 +131,16 @@ describe('index re-exports', () => {
   it('every re-exported type name is usable in type position', () => {
     const witness: SurfaceTypes | undefined = undefined;
     expect(witness).to.equal(undefined);
+  });
+
+  it('exports the genesis document builder and its constants as values', () => {
+    expect(buildGenesisDocument).to.be.a('function');
+    expect(BEACON_TYPES).to.deep.equal(['SingletonBeacon', 'CASBeacon', 'SMTBeacon']);
+    expect(BEACON_ADDRESS_TYPES).to.deep.equal(['p2pkh', 'p2wpkh', 'p2tr']);
+    expect(VERIFICATION_RELATIONSHIPS).to.deep.equal([
+      'authentication', 'assertionMethod', 'capabilityInvocation', 'capabilityDelegation',
+    ]);
+    expect(DEFAULT_BEACON_ADDRESS_TYPE).to.equal('p2wpkh');
   });
 
   it('exports rootCauseMessage as a value', () => {
