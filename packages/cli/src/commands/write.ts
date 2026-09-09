@@ -8,10 +8,13 @@ import {
   resolveSigningKeyRef,
   type ApiFactory,
 } from '../config.js';
+import { Identifier } from '@did-btcr2/api';
 import { CLIError } from '../error.js';
+import { GENESIS_DOCUMENT_HELP } from '../genesis-document-file.js';
 import { resolveKeyRef } from '../keystore/resolve-key-ref.js';
-import { MIN_CONF_HELP, parseMinConf, readResolutionOptions, type ResolutionOptionFlags } from '../resolution-options.js';
+import { hasResolutionFlags, MIN_CONF_HELP, parseMinConf, readResolutionOptions, type ResolutionOptionFlags } from '../resolution-options.js';
 import type { GlobalOptions, NetworkOption, UpdateCommandOptions } from '../types.js';
+import { assertGenesisDocumentApplies } from './resolve.js';
 
 /** The parsed flags that `update` and `deactivate` share. */
 export type WriteFlags = ResolutionOptionFlags & {
@@ -62,6 +65,7 @@ export function registerWriteOptions(command: Command): Command {
       'Path to a JSON file with resolution options, for the resolution of the source document',
     )
     .option('--min-conf <n>', MIN_CONF_HELP, parseMinConf)
+    .option('--genesis-document <path>', `${GENESIS_DOCUMENT_HELP}, for the resolution of the source document`)
     .option(
       '--publish-to-cas <mode>',
       'Publish update artifacts to a writable CAS before broadcast: auto|always|never. '
@@ -93,7 +97,8 @@ export function registerWriteOptions(command: Command): Command {
  * 3. The resolution flags come only without the source pair. The api ignores
  *    `resolutionOptions` when the pair is supplied (ADR 098). A silent ignore
  *    of `--min-conf` would mislead.
- * 4. A mainnet write is refused with an unencrypted dev keystore (ADR 080).
+ * 4. `--genesis-document` comes only with an external (x) identifier.
+ * 5. A mainnet write is refused with an unencrypted dev keystore (ADR 080).
  */
 export async function prepareWrite(
   options : WriteFlags,
@@ -112,17 +117,15 @@ export async function prepareWrite(
       { did },
     );
   }
-  const hasResolutionFlags = options.resolutionOptions !== undefined
-    || options.resolutionOptionsPath !== undefined
-    || options.minConf !== undefined;
-  if (hasDocument && hasResolutionFlags) {
+  if (hasDocument && hasResolutionFlags(options)) {
     throw new CLIError(
-      '--resolution-options, --resolution-options-path, and --min-conf apply only when '
+      '--resolution-options, --resolution-options-path, --min-conf, and --genesis-document apply only when '
         + '--source-document and --source-version-id are omitted. A supplied source pair skips resolution.',
       'INVALID_ARGUMENT_ERROR',
       { did },
     );
   }
+  assertGenesisDocumentApplies(options, Identifier.decode(did).hrp);
   assertKeystoreAllowedForNetwork(network, g);
   const resolutionOptions = await readResolutionOptions(options);
   const api = factory(network, g);

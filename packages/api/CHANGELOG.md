@@ -1,5 +1,11 @@
 # @did-btcr2/api
 
+## 0.23.0
+
+### Minor Changes
+
+- Add `api.btcr2.buildGenesisDocument(spec)` and `api.btcr2.createExternalFromDocument(document, options)` (ADR 108). The builder takes public keys with their relationships, beacons (a key with an address type, or a Bitcoin address), and other services, and returns the Genesis Document with the placeholder id `did:btcr2:_`. The default beacon is one Singleton beacon with the P2WPKH address of the first key. The builder refuses a spec with no `capabilityInvocation` method or no beacon. `createExternalFromDocument` checks the document, hashes it as given, encodes the EXTERNAL identifier, and returns `{ did, genesisBytes, didDocument }`. Neither method does I/O. The package exports the spec types and the constants `VERIFICATION_RELATIONSHIPS`, `BEACON_TYPES`, `BEACON_ADDRESS_TYPES`, and `DEFAULT_BEACON_ADDRESS_TYPE`.
+
 ## 0.22.0
 
 ### Minor Changes

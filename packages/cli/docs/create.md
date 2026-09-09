@@ -7,7 +7,9 @@ key; the initial document is derived deterministically from the identifier) and 
 encoded from the 32-byte SHA-256 hash of a genesis DID document that you must supply as sidecar
 data at resolution time). For `-t k` the command has three mutually exclusive input modes: generate
 a fresh key into the keystore (the default), reuse a stored key's public key (`--signing-key`), or
-supply raw public-key bytes (`--bytes`, keystore-free). For `-t x` only raw bytes are accepted.
+supply raw public-key bytes (`--bytes`, keystore-free). For `-t x` the command has two mutually
+exclusive input modes: the genesis document file (`--document`), which the api hashes, or the
+hash as raw bytes (`--bytes`). `btcr2 genesis build` writes the document file.
 
 ## Synopsis
 
@@ -17,6 +19,7 @@ btcr2 create [options]
 btcr2 create                                  # -t k: generate a key, store it, set it active
 btcr2 create --signing-key <ref>              # -t k: reuse a stored key's public key
 btcr2 create -b <66-hex-chars>                # -t k: raw 33-byte compressed public key
+btcr2 create -t x --document <path>           # -t x: hash the genesis document file
 btcr2 create -t x -b <64-hex-chars>           # -t x: raw 32-byte genesis document hash
 ```
 
@@ -29,6 +32,7 @@ There are no subcommands.
 | `-t, --type <type>` | `k` \| `x` | `k` | Identifier type. `k` = deterministic KEY identifier from a compressed secp256k1 public key. `x` = external identifier from a genesis-document hash. Any other value fails with `Invalid type. Must be "k" or "x".` and exit code 1. |
 | `-n, --network <network>` | `bitcoin` \| `testnet3` \| `testnet4` \| `signet` \| `mutinynet` \| `regtest` | resolved from config (see below), else `regtest` | The Bitcoin network encoded into the identifier. Creation stays offline; this only fixes which network the identifier (and later resolution/update traffic) targets. An unsupported value fails with `Invalid network. Must be one of "bitcoin", "testnet3", "testnet4", "signet", "mutinynet", or "regtest".` |
 | `-b, --bytes <bytes>` | hex string (case-insensitive; surrounding whitespace trimmed) | none | Genesis bytes. For `-t k`: exactly 33 bytes (66 hex chars), a valid compressed secp256k1 public key. For `-t x`: exactly 32 bytes (64 hex chars), the SHA-256 hash of the genesis DID document. Non-hex input fails with `Invalid bytes: not valid hex. ...`; a wrong length fails with `Invalid bytes length for type="<t>": ...`. A 33-byte value that is not a point on the curve is rejected by the method layer (`Expected "genesisBytes" to be a valid compressed secp256k1 public key`). |
+| `--document <path>` | file path | none | For `-t x` only: the JSON genesis document to hash, for example the file that `btcr2 genesis build` wrote. The api checks the document (placeholder id `did:btcr2:_`, the two contexts, placeholder ids in every method and service) and hashes it as written. An unreadable path or non-JSON content fails with `Invalid genesis document path. ...`; a document with the wrong shape fails with the reason, for example `The genesis document id must be "did:btcr2:_", ...`. Exclusive with `--bytes` (`Provide at most one of --bytes or --document.`). With `-t k` the flag fails with `--document applies only to external identifiers (-t x).`. |
 | `--signing-key <ref>` (global flag) | key URN (`urn:kms:secp256k1:<32-hex>`), unique keystore `name` tag, or unique fingerprint prefix | none | Selects the existing-key mode for `-t k`: the referenced key's public key becomes the genesis bytes. Resolution order: exact URN match, then unique name-tag match, then unique fingerprint-prefix match (an exact name wins over a fingerprint prefix). Reads public material only, so it never decrypts and never prompts. Fails with `No key matches reference "<ref>".` or an ambiguity error when several keys match. Not valid with `-t x`, and mutually exclusive with `--bytes`. |
 | `-h, --help` | none | n/a | Print usage for the command and exit. |
 
@@ -58,12 +62,19 @@ Exactly one of the three modes runs, selected by which inputs are present. `--by
 3. **Raw bytes** (`--bytes <hex>`). Fully offline and keystore-free; the keystore file is not
    touched and no passphrase machinery runs.
 
-### `-t x` (external)
+### Input modes for `-t x`
 
-Raw-bytes only: `--bytes` is required and must be the 32-byte genesis document hash. Omitting it
-fails with `External identifiers (-t x) require --bytes <hex>, ...`. Combining `-t x` with
-`--signing-key` fails with `--signing-key applies only to deterministic identifiers (-t k).`
-No funding hint is printed for external identifiers.
+Exactly one of the two modes runs. Neither fails with `External identifiers (-t x) require
+--document <path>, the genesis document, or --bytes <hex>, its 32-byte hash. ...`. Both together
+fail with `Provide at most one of --bytes or --document.` Combining `-t x` with `--signing-key`
+fails with `--signing-key applies only to deterministic identifiers (-t k).`
+
+1. **Document** (`--document <path>`). The api hashes the file as written (JCS canonical form,
+   SHA-256) and encodes the identifier. The result carries the hash as `genesisBytes`. Keep the
+   file: the identifier resolves only with it. A text-mode funding hint names the first beacon of
+   the document on a network with a faucet.
+2. **Raw bytes** (`--bytes <hex>`). The 32-byte genesis document hash, computed elsewhere. No
+   funding hint is printed: the command does not know the beacons.
 
 ### Output
 
@@ -71,15 +82,17 @@ No funding hint is printed for external identifiers.
   generate mode prints `Generated and stored key <urn> (now the active key).`, the existing-key
   mode prints `Using stored key <urn>.`
 - **JSON mode** (`-o json`): stdout carries a single JSON object; stderr notes and hints are
-  suppressed. Raw-bytes and `-t x` runs print `{ "action": "create", "data": "<did>" }`; the
-  generate and existing-key modes add `"keyId"` (the key URN) and `"publicKey"` (hex).
+  suppressed. Raw-bytes runs print `{ "action": "create", "data": "<did>" }`; the generate and
+  existing-key modes add `"keyId"` (the key URN) and `"publicKey"` (hex); the `-t x --document`
+  mode adds `"genesisBytes"` (hex, the hash of the document).
 
 ### Stderr hints and warnings
 
-- **Funding hint** (ADR 082): after a `-t k` create on a network with a public faucet (`testnet3`,
-  `testnet4`, `signet`, `mutinynet`; never `regtest` or `bitcoin`), a text-mode hint is printed to
-  stderr with the DID's derived initial P2WPKH beacon address, the faucet URL, and the explorer
-  address URL:
+- **Funding hint** (ADR 082): after a `-t k` create, or a `-t x --document` create, on a network
+  with a public faucet (`testnet3`, `testnet4`, `signet`, `mutinynet`; never `regtest` or
+  `bitcoin`), a text-mode hint is printed to stderr with the beacon address to fund (the DID's
+  derived initial P2WPKH beacon for `k`, the first beacon of the genesis document for `x`), the
+  faucet URL, and the explorer address URL:
 
   ```
   Fund the initial beacon to anchor updates:
@@ -186,6 +199,9 @@ btcr2 create -n mutinynet --signing-key urn:kms:secp256k1:3fa2e1c09b7d54a6880f13
 # Offline and keystore-free: bring your own 33-byte compressed public key
 btcr2 create -n mutinynet -b 0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
 
+# External identifier from a genesis document file (see: btcr2 genesis build)
+btcr2 create -t x -n mutinynet --document ./genesis.json
+
 # External identifier from the SHA-256 hash of a genesis DID document
 btcr2 create -t x -n mutinynet \
   -b 8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4
@@ -200,6 +216,7 @@ btcr2 create -n mutinynet
 
 ## See also
 
+- `btcr2 genesis build`: build the genesis document that `-t x --document` hashes.
 - `btcr2 resolve`: resolve the DID document the identifier produces.
 - `btcr2 update` / `btcr2 deactivate`: anchor changes via the funded beacon.
 - `btcr2 key`: list, show, import, and activate keystore keys (`--signing-key` references).

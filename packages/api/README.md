@@ -17,6 +17,7 @@ If you're integrating did:btcr2 into an app, start here. If you're customizing t
 - **`updateDid` / `deactivateDid`** resolve the source state for you. Pass `resolutionOptions` to hand sidecar data to that resolution. Omit `verificationMethodId` and `beaconId`: the api derives them.
 - **`api.kms.signer(id?)`** returns the `Signer` for a KMS key. The write path needs no second package.
 - **`api.btcr2.getInitialDocument(did)`** and **`api.btcr2.getBeacons(document)`** give the beacon addresses to fund with no chain read.
+- **`api.btcr2.buildGenesisDocument(spec)`** builds the Genesis Document of an EXTERNAL (`x`) DID from public keys, relationships, beacons, and services, with no I/O. **`api.btcr2.createExternalFromDocument(document, { network })`** checks the document, hashes it as given, and returns `{ did, genesisBytes, didDocument }`. Keep the document: an EXTERNAL DID resolves only with it.
 - **`api.did.validate(did, { genesisBytes?, genesisDocument? })`** returns a conformance report of an identifier: the checks of the decoding algorithm in run order, `valid`, and the failed check with its detail. `genesisBytes` adds the check that the identifier encodes these bytes. It does not throw on an invalid identifier. `api.did.decode(did)` returns `DidComponents`, with the Bech32m `hrp`, and refuses an uppercase id and a custom network.
 - **`minConf`** on `ResolutionOptions` sets the confirmations a beacon signal needs before resolution applies it. Default `6` (`DEFAULT_MIN_CONF`), the specification value. Pass `{ minConf: 1 }` to see a fresh update after one block. `updateDid` and `deactivateDid` inherit it through `resolutionOptions`.
 
@@ -88,6 +89,24 @@ const beacons = api.btcr2.getBeacons(api.btcr2.getInitialDocument(did));
 const beacon = beacons.find((b) => b.id.endsWith('#initialP2WPKH'))!;
 console.log(beacon.address); // fund this address before the first update
 ```
+
+### Build an EXTERNAL DID from a genesis document
+
+```typescript
+// One key with all four relationships, one P2WPKH Singleton beacon on mutinynet.
+const genesisDocument = api.btcr2.buildGenesisDocument({
+  network             : 'mutinynet',
+  verificationMethods : [{ publicKey: kp.publicKey.compressed }],
+});
+// Hash exactly the bytes you keep or publish.
+const json = JSON.stringify(genesisDocument, null, 2);
+const { did, didDocument } = api.btcr2.createExternalFromDocument(JSON.parse(json), { network: 'mutinynet' });
+const [beacon] = api.btcr2.getBeacons(didDocument);
+console.log(did, beacon.address); // fund this address before the first update
+// Later: api.resolveDid(did, { sidecar: { genesisDocument: JSON.parse(json) } })
+```
+
+A spec can name several keys with chosen relationships, a `CASBeacon` or `SMTBeacon` with the address of a cohort, and other services. The builder refuses a spec with no `capabilityInvocation` method or no beacon.
 
 ### Update via the fluent builder
 

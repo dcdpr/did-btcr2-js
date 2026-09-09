@@ -2,13 +2,23 @@ import { DEFAULT_MIN_CONF } from '@did-btcr2/api';
 import type { ResolutionOptions } from '@did-btcr2/method';
 import { readFile } from 'node:fs/promises';
 import { CLIError } from './error.js';
+import { readGenesisDocumentFile } from './genesis-document-file.js';
 
 /** The flags that select the resolution options of a command. */
 export type ResolutionOptionFlags = {
   resolutionOptions?     : string;
   resolutionOptionsPath? : string;
   minConf?               : number;
+  genesisDocument?       : string;
 };
+
+/** Whether any resolution flag is set. */
+export function hasResolutionFlags(flags: ResolutionOptionFlags): boolean {
+  return flags.resolutionOptions !== undefined
+    || flags.resolutionOptionsPath !== undefined
+    || flags.minConf !== undefined
+    || flags.genesisDocument !== undefined;
+}
 
 /** The help text of `--min-conf`. `resolve`, `update`, and `deactivate` share it. */
 export const MIN_CONF_HELP =
@@ -17,8 +27,9 @@ export const MIN_CONF_HELP =
 
 /**
  * Builds the resolution options from the flags. The inline JSON wins over
- * the file. The `--min-conf` flag wins over a `minConf` inside the JSON.
- * Returns `undefined` if no flag is set.
+ * the file. The `--min-conf` flag wins over a `minConf` inside the JSON. The
+ * `--genesis-document` file wins over a `sidecar.genesisDocument` inside the
+ * JSON. Returns `undefined` if no flag is set.
  */
 export async function readResolutionOptions(flags: ResolutionOptionFlags): Promise<ResolutionOptions | undefined> {
   let resolutionOptions: ResolutionOptions | undefined;
@@ -47,6 +58,14 @@ export async function readResolutionOptions(flags: ResolutionOptionFlags): Promi
   // The flag wins over a minConf inside the JSON options.
   if (flags.minConf !== undefined) {
     resolutionOptions = { ...(resolutionOptions ?? {}), minConf: flags.minConf };
+  }
+  // The file wins over a sidecar.genesisDocument inside the JSON options.
+  if (flags.genesisDocument !== undefined) {
+    const genesisDocument = await readGenesisDocumentFile(flags.genesisDocument);
+    resolutionOptions = {
+      ...(resolutionOptions ?? {}),
+      sidecar : { ...(resolutionOptions?.sidecar ?? {}), genesisDocument },
+    };
   }
   return resolutionOptions;
 }

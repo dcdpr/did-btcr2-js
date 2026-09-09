@@ -1,5 +1,16 @@
 # @did-btcr2/cli
 
+## 0.23.0
+
+### Minor Changes
+
+- New `genesis` command group (ADR 108). `btcr2 genesis build` builds the genesis document of an external identifier, writes it to `--out` (default `genesis.json`; `--force` overwrites), and prints `{ did, network, genesisBytes, path, beacons }`. On a terminal the command asks for the keys, the relationships, the beacons, and the services; `--spec <path>` reads a JSON spec and asks nothing. `create -t x --document <path>` hashes a genesis document file and adds `genesisBytes` to the result. `resolve`, `update`, and `deactivate` gain `--genesis-document <path>`, which fills `sidecar.genesisDocument` and is refused for a `k` identifier. Breaking: the `create -t x` error message with no input names both `--document` and `--bytes`. The shell completion list gains `genesis`.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/api@0.23.0
+
 ## 0.22.0
 
 ### Minor Changes

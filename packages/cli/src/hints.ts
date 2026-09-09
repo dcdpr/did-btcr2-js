@@ -20,8 +20,6 @@ import type { GlobalOptions, NetworkOption } from './types.js';
  */
 export function printCreateFundingHint(g: GlobalOptions, network: NetworkOption, did: string): void {
   if (g.quiet || g.output === 'json') return;
-  const faucet = faucetUrl(network);
-  if (!faucet) return;
   let beaconAddress: string;
   try {
     const { serviceEndpoint } = BeaconUtils.createBeaconService(did, 'p2wpkh', 'SingletonBeacon');
@@ -29,6 +27,19 @@ export function printCreateFundingHint(g: GlobalOptions, network: NetworkOption,
   } catch {
     return;
   }
+  printBeaconFundingHint(g, network, beaconAddress);
+}
+
+/**
+ * Prints a funding hint for a beacon address on a network with a public
+ * faucet: the address next to the faucet and explorer links. A no-op on a
+ * network without a faucet (regtest/mainnet). `create -t x --document` and
+ * `genesis build` use it for the first beacon of the genesis document.
+ */
+export function printBeaconFundingHint(g: GlobalOptions, network: NetworkOption, beaconAddress: string): void {
+  if (g.quiet || g.output === 'json') return;
+  const faucet = faucetUrl(network);
+  if (!faucet) return;
   const explorer = explorerAddressUrl(network, beaconAddress);
   const lines = [
     'Fund the initial beacon to anchor updates:',

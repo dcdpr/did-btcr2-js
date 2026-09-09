@@ -1,13 +1,14 @@
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 import type { Command } from 'commander';
-import type { ApiFactory, ConnectionOverrides } from '../config.js';
-import { assertKeystoreAllowedForNetwork, profileNetworkMismatch, resolveDefaultNetwork } from '../config.js';
+import type { ApiFactory } from '../config.js';
+import { assertKeystoreAllowedForNetwork } from '../config.js';
 import { CLIError } from '../error.js';
-import { printCreateFundingHint } from '../hints.js';
+import { readGenesisDocumentFile } from '../genesis-document-file.js';
+import { printBeaconFundingHint, printCreateFundingHint } from '../hints.js';
 import { resolveKeyRef } from '../keystore/resolve-key-ref.js';
+import { NETWORK_OPTION_HELP, overridesFromGlobals, resolveNetworkOption, warnProfileNetworkMismatch } from '../network-option.js';
 import { formatResult } from '../output.js';
-import type { CommandResult, GlobalOptions, NetworkOption } from '../types.js';
-import { SUPPORTED_NETWORKS } from '../types.js';
+import type { CommandResult, GlobalOptions } from '../types.js';
 
 /** Expected byte length per identifier type: compressed secp256k1 = 33, SHA-256 hash = 32. */
 const EXPECTED_BYTES: Record<'k' | 'x', { length: number; label: string }> = {
@@ -27,11 +28,12 @@ const EXPECTED_BYTES: Record<'k' | 'x', { length: number; label: string }> = {
  *   genesis bytes. Reading a public key never decrypts, so this never prompts.
  * - raw (`--bytes <hex>`): a 33-byte public key as hex. Offline, keystore-free.
  *
- * An external (`-t x`) identifier is raw-bytes-only: a 32-byte genesis-document
- * hash via `--bytes`. Generation and `--signing-key` apply only to `-t k`.
+ * An external (`-t x`) identifier has two input modes: the genesis document
+ * file (`--document <path>`), which the api hashes, or the 32-byte hash as
+ * hex (`--bytes`). Generation and `--signing-key` apply only to `-t k`.
  *
- * The keystore-free `factory` serves the raw-bytes path; the keystore-aware
- * `keystoreFactory` serves the generate and existing-key paths.
+ * The keystore-free `factory` serves the raw-bytes and document paths; the
+ * keystore-aware `keystoreFactory` serves the generate and existing-key paths.
  */
 export function registerCreateCommand(
   program         : Command,
@@ -43,38 +45,28 @@ export function registerCreateCommand(
     .command('create')
     .description('Create an identifier and initial DID document')
     .option('-t, --type <type>', 'Identifier type <k|x>', 'k')
-    .option(
-      '-n, --network <network>',
-      'Identifier bitcoin network <bitcoin|testnet3|testnet4|signet|mutinynet|regtest> '
-      + '(default: config defaults.network, else regtest)'
-    )
+    .option('-n, --network <network>', NETWORK_OPTION_HELP)
     .option(
       '-b, --bytes <bytes>',
       'Genesis bytes as a hex string. '
       + 'For type=k, a 33-byte secp256k1 public key (omit to generate a key). '
       + 'For type=x, the 32-byte SHA-256 hash of a genesis document.'
     )
-    .action(async (options: { type: string; network?: string; bytes?: string }) => {
+    .option(
+      '--document <path>',
+      'For type=x, the path of the JSON genesis document to hash (see "btcr2 genesis build"). '
+      + 'Exclusive with --bytes.'
+    )
+    .action(async (options: { type: string; network?: string; bytes?: string; document?: string }) => {
       const g = globals();
       if (options.type !== 'k' && options.type !== 'x') {
         throw new CLIError('Invalid type. Must be "k" or "x".', 'INVALID_ARGUMENT_ERROR', options);
       }
 
       const overrides = overridesFromGlobals(g);
-      const network = resolveNetwork(options.network, overrides);
+      const network = resolveNetworkOption(options.network, overrides);
       const signingKey = g.signingKey;
-
-      // Warn (never block) when the network being encoded disagrees with the
-      // active profile's declared network, so a `production` profile holding
-      // mainnet endpoints cannot silently mint a regtest DID.
-      const mismatch = profileNetworkMismatch(network, overrides);
-      if (mismatch && !g.quiet) {
-        process.stderr.write(
-          `Warning: creating a "${network}" identifier while the active profile `
-          + `"${mismatch.profile}" declares network "${mismatch.declared}". The `
-          + 'identifier\'s network and the profile\'s endpoints may not match.\n'
-        );
-      }
+      warnProfileNetworkMismatch(g, network, overrides);
 
       /** Prints the result, plus a stderr provenance line in text mode. */
       const print = (result: CommandResult, note?: string): void => {
@@ -82,7 +74,7 @@ export function registerCreateCommand(
         if (note && g.output !== 'json') process.stderr.write(`${note}\n`);
       };
 
-      // External: raw-bytes only.
+      // External: the genesis document file, or its hash as raw bytes.
       if (options.type === 'x') {
         if (signingKey) {
           throw new CLIError(
@@ -90,10 +82,22 @@ export function registerCreateCommand(
             'INVALID_ARGUMENT_ERROR',
           );
         }
+        if (options.bytes !== undefined && options.document !== undefined) {
+          throw new CLIError('Provide at most one of --bytes or --document.', 'INVALID_ARGUMENT_ERROR');
+        }
+        if (options.document !== undefined) {
+          const genesisDocument = await readGenesisDocumentFile(options.document);
+          const api = factory();
+          const { did, genesisBytes, didDocument } = api.btcr2.createExternalFromDocument(genesisDocument, { network });
+          print({ action: 'create', data: did, genesisBytes: bytesToHex(genesisBytes) });
+          const beacons = api.btcr2.getBeacons(didDocument);
+          if (beacons.length > 0) printBeaconFundingHint(g, network, beacons[0].address);
+          return;
+        }
         if (options.bytes === undefined) {
           throw new CLIError(
-            'External identifiers (-t x) require --bytes <hex>, the 32-byte genesis document hash. '
-            + 'Key generation is only available for -t k.',
+            'External identifiers (-t x) require --document <path>, the genesis document, '
+            + 'or --bytes <hex>, its 32-byte hash. Key generation is only available for -t k.',
             'INVALID_ARGUMENT_ERROR',
           );
         }
@@ -101,6 +105,10 @@ export function registerCreateCommand(
         const did = factory().createDid('external', genesisBytes, { network });
         print({ action: 'create', data: did });
         return;
+      }
+
+      if (options.document !== undefined) {
+        throw new CLIError('--document applies only to external identifiers (-t x).', 'INVALID_ARGUMENT_ERROR');
       }
 
       // Deterministic (KEY): three mutually-exclusive modes.
@@ -146,30 +154,6 @@ export function registerCreateCommand(
       );
       printCreateFundingHint(g, network, did);
     });
-}
-
-/** Builds the keystore- and config-resolution overrides from the global flags. */
-function overridesFromGlobals(g: GlobalOptions): ConnectionOverrides {
-  return {
-    home           : g.home,
-    config         : g.config,
-    profile        : g.profile,
-    keystore       : g.keystore,
-    passphraseFile : g.passphraseFile,
-  };
-}
-
-/** Validates an explicit `--network`, or resolves the default from configuration. */
-function resolveNetwork(explicit: string | undefined, overrides: ConnectionOverrides): NetworkOption {
-  if (!explicit) return resolveDefaultNetwork(overrides);
-  if (!SUPPORTED_NETWORKS.includes(explicit as NetworkOption)) {
-    throw new CLIError(
-      'Invalid network. Must be one of "bitcoin", "testnet3", "testnet4", "signet", "mutinynet", or "regtest".',
-      'INVALID_ARGUMENT_ERROR',
-      { network: explicit },
-    );
-  }
-  return explicit as NetworkOption;
 }
 
 /** Parses and length-checks hex genesis bytes for the given identifier type. */

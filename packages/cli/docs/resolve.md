@@ -21,6 +21,7 @@ btcr2 read [options] -i <identifier>          # 'read' is a registered alias
 btcr2 resolve -i did:btcr2:k1qq...
 btcr2 resolve -i did:btcr2:x1qh... -r '<json>'
 btcr2 resolve -i did:btcr2:x1qh... -p <path-to-json-file>
+btcr2 resolve -i did:btcr2:x1qh... --genesis-document ./genesis.json
 ```
 
 There are no subcommands and no positional arguments; the identifier is passed with the required
@@ -33,10 +34,13 @@ There are no subcommands and no positional arguments; the identifier is passed w
 | `-i, --identifier <identifier>` | A `did:btcr2` identifier string: `did:btcr2:` followed by a Bech32m-encoded body whose HRP is `k` (deterministic, 33-byte compressed secp256k1 pubkey) or `x` (external, 32-byte genesis-document hash). The embedded network must decode to one of `bitcoin`, `testnet3`, `testnet4`, `signet`, `mutinynet`, `regtest`. | none (required) | The DID to resolve. Decoded and validated before any I/O: a malformed DID fails immediately (for example `Invalid did: <value>`), and a DID whose network nibble is reserved (`6` to `11`) or custom (`12` to `15`) fails at decode with `Invalid network (reserved): <n>` or `Invalid network (custom network not supported): <n>` (ADR 107). |
 | `-r, --resolution-options <json>` | An inline JSON string; see "Resolution options JSON" below for the accepted shape. | none | Resolution options passed straight through to the resolver. Non-JSON input fails with `Invalid resolution options. Must be a valid JSON string.` (`INVALID_ARGUMENT_ERROR`). When both `-r` and `-p` are given, `-r` wins and `-p` is silently ignored. |
 | `-p, --resolution-options-path <path>` | Path to a file containing the same JSON shape as `-r`. | none | File-based alternative to `-r`. An unreadable path or non-JSON file content fails with `Invalid resolution options path. Must be a valid path to a JSON file.` (`INVALID_ARGUMENT_ERROR`). |
+| `--min-conf <n>` | A positive integer (minimum 1). Other values fail at parse time with `--min-conf must be a positive integer (minimum 1).` | `6` (the specification value) | Minimum block confirmations a beacon signal needs before resolution applies it (ADR 105). Overrides a `minConf` inside `-r` or `-p`. Pass `1` to see a fresh update after one block. |
+| `--genesis-document <path>` | Path to the JSON genesis document of an external (`x`) identifier, for example the file that `btcr2 genesis build` wrote. An unreadable path or non-JSON content fails with `Invalid genesis document path. Must be a valid path to a JSON file.`. A JSON value that is not an object fails with `Invalid genesis document. The file must contain a JSON object.`. | none | Fills `sidecar.genesisDocument` of the resolution options, and wins over a `sidecar.genesisDocument` inside `-r` or `-p`. Refused for a `k` identifier with `--genesis-document applies only to external identifiers (x).` before the file is read (ADR 108). |
 | `-h, --help` | none | n/a | Print usage for the command and exit. |
 
-Validation order (from source): the identifier is decoded first, then `-r` is parsed, then `-p`.
-An invalid identifier therefore fails before a bad options string is even looked at.
+Validation order (from source): the identifier is decoded first, then `--genesis-document` is
+checked against the identifier type, then `-r` is parsed, then `-p`, then the genesis document
+file is read. An invalid identifier therefore fails before a bad options string is even looked at.
 
 The printed `--help` output for `resolve` matches the source exactly; no discrepancies.
 
@@ -212,6 +216,9 @@ btcr2 resolve -i did:btcr2:k1qq... -r '{"versionTime":"2026-07-01T00:00:00Z"}'
 
 # External (x1) DID with sidecar data from a file
 btcr2 resolve -i did:btcr2:x1qh... -p ./resolution-options.json
+
+# External (x1) DID with its genesis document from the file that genesis build wrote
+btcr2 resolve -i did:btcr2:x1qh... --genesis-document ./genesis.json
 
 # Cap multi-round beacon discovery as a resource guard
 btcr2 resolve -i did:btcr2:k1qq... -r '{"maxDiscoveryRounds":3}'
