@@ -1,13 +1,6 @@
 # btcr2 key
 
-Manages keypairs in the encrypted on-disk keystore. All subcommands operate offline: they open no
-Bitcoin or CAS connection, take no network flag, and print no faucet or explorer hints. The command
-group is backed by the keystore-aware API factory, which wraps a file-backed key manager over
-`<home>/keystore.json` (or a configured keystore path); secret keys are sealed per entry with
-argon2id + XChaCha20-Poly1305 under one shared passphrase, and only the subcommands that actually
-seal or open a secret ever ask for that passphrase. Use `btcr2 key` to create, inspect, import,
-export, delete, and select the signing keys that `btcr2 create`, `btcr2 update`, and
-`btcr2 deactivate` later use.
+Manages the keys in the keystore. Each subcommand is offline: it opens no Bitcoin or CAS connection, takes no network flag, and prints no faucet or explorer hint. The command group uses the api factory with a keystore. That factory wraps a file-backed key manager over `<home>/keystore.json` (or a configured keystore path). The keystore seals each secret key with argon2id and XChaCha20-Poly1305 under one shared passphrase. Only a subcommand that seals or opens a secret key asks for that passphrase. Use `btcr2 key` to create, inspect, import, export, delete, and select the signing keys that `btcr2 create`, `btcr2 update`, and `btcr2 deactivate` use.
 
 ## Synopsis
 
@@ -22,40 +15,25 @@ btcr2 key use <ref>
 btcr2 key help [command]
 ```
 
-### Key identifiers and the `<ref>` positional
+### Key ids and the `<ref>` argument
 
-Every stored key is identified by a URN of the form `urn:kms:secp256k1:<fingerprint>`, where
-`<fingerprint>` is the first 16 bytes of SHA-256 over the 33-byte compressed public key, hex-encoded
-(32 hex chars). The `<ref>` positional accepted by `show`, `export`, `delete`, and `use` resolves in
-this order:
+A URN of the form `urn:kms:secp256k1:<fingerprint>` identifies each stored key. The `<fingerprint>` is the first 16 bytes of the SHA-256 hash of the 33-byte compressed public key, as hex (32 hex characters). The `<ref>` argument of `show`, `export`, `delete`, and `use` resolves in this order:
 
-1. Exact URN match (`urn:kms:secp256k1:...`).
-2. Unique exact match on a key's `name` tag. An exact name wins over a fingerprint prefix, so a
-   hex-looking name such as `cafe` is never shadowed by another key's fingerprint.
-3. Unique fingerprint prefix match (case-insensitive; the ref is lowercased before comparison).
+1. An exact URN match (`urn:kms:secp256k1:...`).
+2. A unique exact match on the `name` tag of a key. An exact name wins over a fingerprint prefix, so the fingerprint of another key never hides a hex-like name such as `cafe`.
+3. A unique fingerprint prefix match (case-insensitive: the CLI lowercases the reference before the comparison).
 
-A ref matching more than one key by name or by prefix fails with an ambiguity error
-(`KEY_REF_AMBIGUOUS_ERROR`); a ref matching nothing fails with `No key matches reference "<ref>".`
-(`KEY_NOT_FOUND_ERROR`). Resolution reads only public material and never triggers a passphrase
-prompt.
+A reference that matches more than one key by name or by prefix fails with an ambiguity error (`KEY_REF_AMBIGUOUS_ERROR`). A reference that matches nothing fails with `No key matches reference "<ref>".` (`KEY_NOT_FOUND_ERROR`). The resolution reads public material only, and it never asks for the passphrase.
 
 ## Subcommands
 
 ### generate
 
-Generates a new secp256k1 keypair and stores it. The key identifier is derived from the public key
-as described above. When `--name` is given, the name must not already be in use by another key's
-`name` tag (error: `A key named "<name>" already exists.`). With `--set-active` the new key becomes
-the active key, and the active pointer is persisted in the keystore file so it survives across
-invocations.
+Generates a new secp256k1 key and stores it. The key id derives from the public key as described above. With `--name`, the name must not be in use as the `name` tag of another key (error: `A key named "<name>" already exists.`). With `--set-active`, the new key becomes the active key. The keystore file stores the active pointer, so the active key survives across invocations.
 
-Sealing the new secret requires the keystore passphrase on an encrypted keystore. On a fresh
-encrypted keystore (no passphrase established yet) this command establishes it: an interactive
-prompt asks twice and requires both entries to match; a passphrase from the environment variable or
-`--passphrase-file` is accepted without confirmation. A dev (plaintext) keystore never prompts.
+The seal of the new secret key needs the keystore passphrase on an encrypted keystore. On a fresh encrypted keystore (no passphrase yet), this command sets the passphrase: an interactive prompt asks twice, and the two entries must match. The command takes a passphrase from the environment variable or `--passphrase-file` without a confirmation. A dev (plaintext) keystore never asks for a passphrase.
 
-Prints `{ keyId, publicKey, active }`, where `publicKey` is the 33-byte compressed public key as 66
-hex chars.
+Prints `{ keyId, publicKey, active }`. `publicKey` is the 33-byte compressed public key as 66 hex characters.
 
 ```
 btcr2 key generate --name signing --set-active
@@ -63,9 +41,7 @@ btcr2 key generate --name signing --set-active
 
 ### list (alias: ls)
 
-Lists stored keys. Never decrypts and never prompts. Prints an array of
-`{ keyId, fingerprint, name?, active }`, where `fingerprint` is the hex tail of the URN and `name`
-appears only for keys carrying a `name` tag. An absent or empty keystore lists as `[]`.
+Lists the stored keys. The command never decrypts and never asks for the passphrase. It prints an array of `{ keyId, fingerprint, name?, active }`. `fingerprint` is the hex tail of the URN. `name` appears only for a key with a `name` tag. An absent or empty keystore lists as `[]`.
 
 ```
 btcr2 key list
@@ -73,8 +49,7 @@ btcr2 key list
 
 ### show <ref>
 
-Shows a key's public material and tags: `{ keyId, publicKey, tags? }`. Never prints the secret,
-never decrypts, never prompts.
+Shows the public material and the tags of a key: `{ keyId, publicKey, tags? }`. The command never prints the secret key, never decrypts, and never asks for the passphrase.
 
 ```
 btcr2 key show signing
@@ -82,20 +57,12 @@ btcr2 key show signing
 
 ### import
 
-Imports a key. Exactly one of `--secret-file` or `--public` is required; providing both or neither
-fails with `Provide exactly one of --secret-file or --public.`
+Imports a key. Exactly one of `--secret-file` or `--public` is required. Both flags, or neither flag, fail with `Provide exactly one of --secret-file or --public.`
 
-- `--secret-file <path>`: the file's contents (surrounding whitespace ignored) must be the hex
-  encoding of a 32-byte secret key (64 hex chars). Unreadable file, invalid hex, or a wrong length
-  each fail with a specific message. The secret is sealed into the keystore, which requires the
-  passphrase on an encrypted keystore (and establishes it, with confirmation, on a fresh one).
-- `--public <hex>`: a 33-byte compressed secp256k1 public key as 66 hex chars, imported watch-only
-  (no secret stored). Watch-only import never prompts for a passphrase.
+- `--secret-file <path>`: the file content (the CLI ignores whitespace around it) must be the hex form of a 32-byte secret key (64 hex characters). An unreadable file, invalid hex, or a wrong length each fail with a specific message. The command seals the secret key into the keystore. On an encrypted keystore, the seal needs the passphrase. On a fresh keystore, the command sets the passphrase with a confirmation.
+- `--public <hex>`: a 33-byte compressed secp256k1 public key as 66 hex characters. The command imports it watch-only (no secret key stored). A watch-only import never asks for the passphrase.
 
-`--name` and `--set-active` behave as on `generate`. Because the key identifier is derived from the
-public key, importing a key whose public key already exists in the store fails with
-`Key already exists: <keyId>` - including importing the watch-only form of a key already held with
-its secret.
+`--name` and `--set-active` work as on `generate`. The key id derives from the public key. So an import of a key whose public key is in the keystore already fails with `Key already exists: <keyId>`. This includes the watch-only import of a key that the keystore holds with its secret key.
 
 Prints `{ keyId, publicKey, watchOnly, active }`.
 
@@ -106,21 +73,15 @@ btcr2 key import --public 0329d6c65220...c505f0 --name cold-watch
 
 ### export <ref>
 
-Exports a key. Without `--secret`, prints only public material (`{ keyId, publicKey }`) and never
-decrypts or prompts; a `--out` given without `--secret` is ignored.
+Exports a key. Without `--secret`, the command prints public material only (`{ keyId, publicKey }`). It never decrypts and never asks for the passphrase. The command ignores `--out` without `--secret`.
 
 With `--secret`:
 
-- `--out <path>` is required; omitting it fails with
-  `Exporting a secret requires --out <file> so it is not written to the terminal.`
-- The secret is decrypted, which requires the passphrase on an encrypted keystore.
+- `--out <path>` is required. Without it, the command fails with `Exporting a secret requires --out <file> so it is not written to the terminal.`
+- The command decrypts the secret key. On an encrypted keystore, this needs the passphrase.
 - A watch-only key fails with `Key <keyId> is watch-only and has no secret to export.`
-- The warning `warning: writing an unencrypted secret key to disk. Protect this file and delete it
-  when done.` is written to stderr.
-- The file is created exclusively (`O_CREAT|O_EXCL`, mode `0600`): an existing file at `--out` is
-  refused (`Refusing to overwrite existing file <path>. Choose a new --out path.`), and a
-  pre-placed symlink is not followed. The file contains the secret as 64 hex chars with no trailing
-  newline, the exact format `import --secret-file` reads back.
+- The command prints the warning `warning: writing an unencrypted secret key to disk. Protect this file and delete it when done.` on stderr.
+- The command creates the file exclusively (`O_CREAT|O_EXCL`, mode `0600`). It refuses an existing file at `--out` (`Refusing to overwrite existing file <path>. Choose a new --out path.`), and it does not follow a symlink that is in place. The file holds the secret key as 64 hex characters without a trailing newline: the exact format that `import --secret-file` reads.
 
 Prints `{ keyId, secretWrittenTo }` on the secret path.
 
@@ -131,10 +92,7 @@ btcr2 key export signing --secret --out ./backup.hex
 
 ### delete <ref> (alias: rm)
 
-Deletes a key from the keystore. Deleting the active key without `--force` fails with
-`Cannot remove active key (use "force": true or switch active key)`; with `--force` the key is
-removed and the persisted active pointer is cleared. Never decrypts, never prompts. Prints
-`{ keyId, deleted: true }`.
+Deletes a key from the keystore. A delete of the active key without `--force` fails with `Cannot remove active key (use "force": true or switch active key)`. With `--force`, the command removes the key and clears the stored active pointer. The command never decrypts and never asks for the passphrase. It prints `{ keyId, deleted: true }`.
 
 ```
 btcr2 key delete old-key
@@ -143,11 +101,7 @@ btcr2 key delete signing --force
 
 ### use <ref>
 
-Sets the active key and persists the pointer in the keystore file, so "the active key" survives
-across CLI invocations. The active key is what `--signing-key`-less signing commands fall back to
-when the active profile sets no `identity.default` (precedence: `--signing-key` flag, then
-`profiles.<name>.identity.default`, then the active key), and what no-ref key resolution falls
-back to. Never decrypts, never prompts. Prints `{ keyId, active: true }`.
+Sets the active key and stores the pointer in the keystore file, so that the active key survives across invocations. A signing command without `--signing-key` falls back to the active key if the active profile sets no `identity.default`. The precedence is: the `--signing-key` flag, then `profiles.<name>.identity.default`, then the active key. A key resolution without a reference also falls back to the active key. The command never decrypts and never asks for the passphrase. It prints `{ keyId, active: true }`.
 
 ```
 btcr2 key use signing
@@ -155,94 +109,65 @@ btcr2 key use signing
 
 ## Options
 
-The `btcr2 key` group itself has no options besides `-h, --help`. Subcommand flags:
+The `btcr2 key` group itself has no flag except `-h, --help`. The subcommand flags:
 
 | Flag | Value | Default | Description |
 |------|-------|---------|-------------|
-| `<ref>` (positional on `show`, `export`, `delete`, `use`) | exact URN `urn:kms:secp256k1:<32 hex>`, a unique `name` tag, or a unique case-insensitive fingerprint prefix | none (required) | The key to operate on. Resolution order: exact URN, then exact unique name, then unique fingerprint prefix. |
-| `--name <name>` | free-form string; must be unique among stored keys' `name` tags | none | (`generate`, `import`) Human-friendly name stored as the `name` tag and usable as a key reference. |
-| `--set-active` | boolean switch | `false` | (`generate`, `import`) Make the new key the active key; the pointer is persisted in the keystore file. |
-| `--secret-file <path>` | path to a file whose contents are 64 hex chars (a 32-byte secret key); surrounding whitespace ignored | none | (`import`) Import a signing key from a hex file. Mutually exclusive with `--public`; exactly one of the two is required. |
-| `--public <hex>` | 66 hex chars (a 33-byte compressed secp256k1 public key) | none | (`import`) Import a public key watch-only. Mutually exclusive with `--secret-file`. |
-| `--secret` | boolean switch | `false` | (`export`) Export the secret key instead of public material. Requires `--out`. |
-| `--out <path>` | path to a file that must not already exist | none | (`export`) Destination for the exported secret, created exclusively with mode `0600`. Only meaningful with `--secret`. |
-| `--force` | boolean switch | `false` | (`delete`) Delete even if the key is the active key (also clears the persisted active pointer). |
-| `-h, --help` | switch | n/a | (all) Display help for the command. |
+| `<ref>` (the argument of `show`, `export`, `delete`, `use`) | an exact URN `urn:kms:secp256k1:<32 hex>`, a unique `name` tag, or a unique case-insensitive fingerprint prefix | none (required) | The key to operate on. The resolution order: an exact URN, then an exact unique name, then a unique fingerprint prefix. |
+| `--name <name>` | a string, unique among the `name` tags of the stored keys | none | (`generate`, `import`) A name for a person, stored as the `name` tag. It is a valid key reference. |
+| `--set-active` | boolean | `false` | (`generate`, `import`) Make the new key the active key. The keystore file stores the pointer. |
+| `--secret-file <path>` | the path of a file with 64 hex characters (a 32-byte secret key). The CLI ignores whitespace around them. | none | (`import`) Import a signing key from a hex file. Exclusive with `--public`. Exactly one of the two is required. |
+| `--public <hex>` | 66 hex characters (a 33-byte compressed secp256k1 public key) | none | (`import`) Import a public key watch-only. Exclusive with `--secret-file`. |
+| `--secret` | boolean | `false` | (`export`) Export the secret key instead of the public material. It requires `--out`. |
+| `--out <path>` | the path of a file that does not exist yet | none | (`export`) The destination of the exported secret key. The command creates it exclusively with mode `0600`. The flag has an effect only with `--secret`. |
+| `--force` | boolean | `false` | (`delete`) Delete the key also if it is the active key. This also clears the stored active pointer. |
+| `-h, --help` | | n/a | (all) Print the help of the command. |
 
-## Environment & configuration
+## Environment and configuration
 
-Because `key` subcommands are offline (no network is passed to the API factory), the Bitcoin/CAS
-endpoint flags, environment variables, and profile `btc`/`cas` blocks are not consulted. What does
-feed this command:
+The `key` subcommands are offline (they pass no network to the api factory). So the command group does not read the Bitcoin and CAS endpoint flags, the endpoint environment variables, and the profile `btc` and `cas` blocks. The command group reads these values:
 
 **Environment variables**
 
 | Variable | Effect |
 |----------|--------|
-| `BTCR2_HOME` | The CLI home directory holding `config.json`, `keystore.json`, and `session.json`. Overridden by `--home`. |
-| `BTCR2_KEYSTORE_PASSPHRASE` | Supplies the keystore passphrase for unattended use. Consulted before `--passphrase-file`. At most one trailing newline is trimmed. A set-but-empty value is ignored (resolution falls through to the next source); a whitespace-only value is rejected with `PASSPHRASE_REQUIRED_ERROR`. |
-| `BTCR2_OUTPUT` | Default output format (`json` or `text`) below the `-o/--output` flag. |
+| `BTCR2_HOME` | The CLI home directory that holds `config.json`, `keystore.json`, and `session.json`. `--home` wins. |
+| `BTCR2_KEYSTORE_PASSPHRASE` | The keystore passphrase for unattended use. The CLI reads it before `--passphrase-file`. The CLI trims at most one trailing newline. The CLI ignores a set but empty value (the resolution falls through to the next source). It refuses a whitespace-only value with `PASSPHRASE_REQUIRED_ERROR`. |
+| `BTCR2_OUTPUT` | The default output format (`json` or `text`) below the `-o/--output` flag. |
 
-**config.json / profile keys**
+**The config.json and profile keys**
 
 | Key | Effect |
 |-----|--------|
-| `defaults.profile` | Names the active profile when no `--profile` flag is given. |
-| `profiles.<name>.identity.keystore` | Keystore file path used when that profile is active. |
-| `defaults.output` | Output format below the flag and `BTCR2_OUTPUT`. |
+| `defaults.profile` | The active profile if `--profile` is absent. |
+| `profiles.<name>.identity.keystore` | The keystore file path if that profile is active. |
+| `defaults.output` | The output format below the flag and `BTCR2_OUTPUT`. |
 
-`profiles.<name>.identity.default` (the default signing-key ref) is not consulted by `key`
-subcommands; it feeds `create`/`update`/`deactivate`.
+The `key` subcommands do not read `profiles.<name>.identity.default` (the default signing key reference). It feeds `create`, `update`, and `deactivate`.
 
 **Precedence**
 
-- Home directory: `--home` flag, then `$BTCR2_HOME`, then the platform default (`~/.btcr2` on
-  Linux/macOS; `%LOCALAPPDATA%\btcr2` on Windows, falling back to `%APPDATA%\btcr2`, then the user
-  profile). A blank value at any layer defers to the next.
-- Config file: `-c/--config` flag, then `<home>/config.json`.
-- Keystore file: `--keystore` flag, then the active profile's `identity.keystore`, then
-  `<home>/keystore.json`. The flag short-circuits before any config read. A config file that exists
-  but cannot be parsed aborts key commands loudly (no silent fallback), so a keystore-mutating
-  command never reads or writes the wrong store.
-- Output format: `-o/--output` flag, then `BTCR2_OUTPUT`, then `defaults.output`, then `text`.
-- Passphrase (note: here the environment variable outranks the flag):
-  `BTCR2_KEYSTORE_PASSPHRASE`, then `--passphrase-file <path>`, then a live session
-  (`<home>/session.json`, created by `btcr2 keystore unlock`), then a hidden interactive prompt on
-  stderr. With no source available and stdin not a TTY, the command fails with
-  `PASSPHRASE_REQUIRED_ERROR`.
+- Home directory: the `--home` flag, then `$BTCR2_HOME`, then the platform default. The platform default is `~/.btcr2` on Linux and macOS. On Windows it is `%LOCALAPPDATA%\btcr2`, else `%APPDATA%\btcr2`, else the user profile. A blank value at one layer defers to the next layer.
+- Config file: the `-c/--config` flag, then `<home>/config.json`.
+- Keystore file: the `--keystore` flag, then the `identity.keystore` of the active profile, then `<home>/keystore.json`. The flag applies before any config read. A config file that exists but does not parse fails a key command with a message (no silent fallback). So a command that changes the keystore never reads or writes the wrong keystore.
+- Output format: the `-o/--output` flag, then `BTCR2_OUTPUT`, then `defaults.output`, then `text`.
+- Passphrase (here the environment variable outranks the flag): `BTCR2_KEYSTORE_PASSPHRASE`, then `--passphrase-file <path>`, then a live session (`<home>/session.json`, from `btcr2 keystore unlock`), then a hidden interactive prompt on stderr. With no source and stdin not a TTY, the command fails with `PASSPHRASE_REQUIRED_ERROR`.
 
-**Passphrase and session interaction**
+**Passphrase and session**
 
-Only operations that seal or open a secret acquire the passphrase, and only on an encrypted
-keystore: `generate`, `import --secret-file`, and `export --secret`. `list`, `show`, `use`,
-`delete`, `export` (public), and `import --public` never decrypt and never prompt. A dev
-(plaintext) keystore never prompts at all.
+Only an operation that seals or opens a secret key gets the passphrase, and only on an encrypted keystore: `generate`, `import --secret-file`, and `export --secret`. `list`, `show`, `use`, `delete`, `export` (public), and `import --public` never decrypt and never ask for the passphrase. A dev (plaintext) keystore never asks for a passphrase.
 
-A cached session is consumed only on the non-establishing path: it must be live (not expired), bound
-to the resolved keystore path, and bound to the keystore's current passphrase-verifier fingerprint
-(so a rotated passphrase invalidates it). Expired, stale, future-dated, or malformed sessions are
-pruned on read. Because `key` subcommands pass no network, a session unlocked without
-`--allow-mainnet` still serves them; the mainnet gate applies at consumption time to `bitcoin`
-DID operations, not to key management. Establishing a fresh keystore's passphrase never consults the
-session and always confirms an interactive entry twice.
+The command reads a cached session only on the path that does not set the passphrase. The session must be live (not expired), bound to the resolved keystore path, and bound to the current passphrase verifier fingerprint of the keystore (so a changed passphrase invalidates it). The CLI removes an expired, stale, future-dated, or malformed session when it reads it. The `key` subcommands pass no network, so a session that you unlocked without `--allow-mainnet` still serves them. The mainnet gate applies at the read of the session to a `bitcoin` identifier operation, not to the key management. The step that sets the passphrase of a fresh keystore never reads the session, and it always confirms an interactive entry twice.
 
-On a fresh home, any `key` subcommand (even the read-only ones) creates `<home>` with mode `0700`;
-the first mutating command additionally writes `keystore.json` with mode `0600`.
+On a fresh home, each `key` subcommand (also a read-only one) creates `<home>` with mode `0700`. The first subcommand that changes the keystore also writes `keystore.json` with mode `0600`.
 
 **Output modes**
 
-In `json` mode the full result envelope is printed:
-`{ "action": "key-<subcommand>", "data": { ... } }`. In `text` mode (the default) only the `data`
-payload is printed, pretty-printed as JSON (2-space indent). The payload shapes per subcommand are
-given in each subcommand section above. Errors print their message alone to stderr with exit code 1;
-`--verbose` prints the full error object and stack.
+In `json` mode, the command prints the full result envelope: `{ "action": "key-<subcommand>", "data": { ... } }`. In `text` mode (the default), it prints the `data` payload only, as pretty JSON (2-space indentation). The subcommand sections above give the payload shape of each subcommand. An error prints its message alone on stderr with exit code 1. `--verbose` prints the full error object and the stack.
 
-## Global options
+## Global flags
 
-Shared global flags are documented in the [docs README](./README.md#global-options). Globals this command
-notably interacts with: `--home`, `-c/--config`, `--profile`, `--keystore`, `--passphrase-file`,
-`-o/--output`, and `--verbose`. The connection globals (`--btc-*`, `--cas-*`) and `--signing-key`
-have no effect on `key` subcommands.
+See the [docs README](./README.md#global-flags) for the shared global flags. The `key` subcommands use `--home`, `-c/--config`, `--profile`, `--keystore`, `--passphrase-file`, `-o/--output`, and `--verbose`. The connection flags (`--btc-*`, `--cas-*`) and `--signing-key` have no effect on the `key` subcommands.
 
 ## Examples
 
@@ -250,18 +175,18 @@ have no effect on `key` subcommands.
 # Generate a named signing key and make it active
 btcr2 key generate --name workshop --set-active
 
-# Inspect the inventory (json mode)
+# List the keys (JSON mode)
 btcr2 key list -o json
 
-# Show a key by name, URN, or fingerprint prefix
+# Show a key by name, by URN, or by fingerprint prefix
 btcr2 key show workshop
 btcr2 key show urn:kms:secp256k1:1fccacfc2b360548a3e40cba04b3c3fe
 btcr2 key show 1fcc
 
-# Unattended generation (scripted): passphrase from a file
+# Unattended generation (a script): the passphrase from a file
 btcr2 --passphrase-file ~/.btcr2-pass key generate --name ci-key
 
-# Back up a secret to a new 0600 file, then restore it elsewhere
+# Back up a secret key to a new 0600 file, then restore it in another home
 btcr2 key export workshop --secret --out ./workshop.hex
 btcr2 --home /tmp/other-home key import --secret-file ./workshop.hex --name workshop
 
@@ -269,21 +194,18 @@ btcr2 --home /tmp/other-home key import --secret-file ./workshop.hex --name work
 btcr2 key import --public 0329d6c652204d8050c57d746794396f7764f1f77834621877fb3739bcb3c505f0 \
   --name cold-watch
 
-# Switch the active key, then delete the old one
+# Change the active key, then delete the old one
 btcr2 key use workshop
 btcr2 key delete old-key
 
-# Typical flow before minting a DID on mutinynet: the active key signs the create
+# A stored key as the source of a mutinynet identifier
 btcr2 key generate --name mutinynet-demo --set-active
-btcr2 create -n mutinynet
+btcr2 create -n mutinynet --signing-key mutinynet-demo
 ```
 
 ## See also
 
-- `btcr2 keystore` (init, status, change-passphrase, unlock, lock): keystore lifecycle and the
-  session unlock agent that key commands consume.
-- `btcr2 create`, `btcr2 update`, `btcr2 deactivate`: the signing commands that use the active key
-  or `--signing-key <ref>`.
-- `btcr2 config` and `btcr2 profile`: manage `defaults.profile` and
-  `profiles.<name>.identity.keystore`.
-- [DEMO.md](./DEMO.md): the end-to-end CLI walkthrough, including key setup.
+- `btcr2 keystore` (init, status, change-passphrase, unlock, lock): the keystore lifecycle and the session that the key commands use.
+- `btcr2 create`, `btcr2 update`, `btcr2 deactivate`: the commands that use the active key or `--signing-key <ref>`.
+- `btcr2 config` and `btcr2 profile`: manage `defaults.profile` and `profiles.<name>.identity.keystore`.
+- [DEMO.md](./DEMO.md): the CLI walkthrough, with the key setup.

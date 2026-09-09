@@ -1,22 +1,14 @@
 # btcr2 resolve
 
-Resolves the DID document of a `did:btcr2` identifier and prints the resolution result to stdout.
-The command is read-only and keystore-free: it never touches the keystore, never prompts for a
-passphrase, and never consults the session cache. The Bitcoin network is derived from the
-identifier itself (it is encoded in the DID), so `resolve` works with zero configuration against
-the public per-network defaults (mempool.space-style Esplora REST endpoints, and the public
-`https://ipfs.io` IPFS gateway for CAS reads). Under the hood the CLI drives the sans-I/O
-`Resolver` state machine through `@did-btcr2/api`: beacon signals are fetched from the Bitcoin
-REST endpoint (or, with `--btc-signal-discovery fullnode`, by scanning blocks over Bitcoin Core
-RPC), and any genesis document, CAS announcement, or signed update not supplied via
-sidecar is fetched from the configured CAS by hash. Use `-r`/`-p` to pass resolution options
-(version pinning, sidecar data, discovery limits).
+Resolves the DID document of a `did:btcr2` identifier and prints the resolution result on stdout. The command is read-only and needs no keystore: it never touches the keystore, never asks for a passphrase, and never reads the session. The identifier encodes the network. So `resolve` works with no config against the public defaults of each network: the mempool.space Esplora REST endpoints and the public `https://ipfs.io` IPFS gateway for CAS reads.
+
+The CLI drives the sans-I/O `Resolver` state machine through `@did-btcr2/api`. The api fetches the beacon signals from the Bitcoin REST endpoint. With `--btc-signal-discovery fullnode`, it scans blocks over Bitcoin Core RPC instead. The api fetches a genesis document, a CAS announcement, or a signed update from the configured CAS by hash, if the sidecar data does not supply it. Use `-r` or `-p` to pass resolution options (a version pin, sidecar data, a discovery limit).
 
 ## Synopsis
 
 ```
 btcr2 resolve [options] -i <identifier>
-btcr2 read [options] -i <identifier>          # 'read' is a registered alias
+btcr2 read [options] -i <identifier>          # 'read' is an alias
 
 btcr2 resolve -i did:btcr2:k1qq...
 btcr2 resolve -i did:btcr2:x1qh... -r '<json>'
@@ -24,105 +16,81 @@ btcr2 resolve -i did:btcr2:x1qh... -p <path-to-json-file>
 btcr2 resolve -i did:btcr2:x1qh... --genesis-document ./genesis.json
 ```
 
-There are no subcommands and no positional arguments; the identifier is passed with the required
-`-i` flag.
+There are no subcommands and no arguments. The required `-i` flag carries the identifier.
 
 ## Options
 
 | Flag | Value | Default | Description |
 |------|-------|---------|-------------|
-| `-i, --identifier <identifier>` | A `did:btcr2` identifier string: `did:btcr2:` followed by a Bech32m-encoded body whose HRP is `k` (deterministic, 33-byte compressed secp256k1 pubkey) or `x` (external, 32-byte genesis-document hash). The embedded network must decode to one of `bitcoin`, `testnet3`, `testnet4`, `signet`, `mutinynet`, `regtest`. | none (required) | The DID to resolve. Decoded and validated before any I/O: a malformed DID fails immediately (for example `Invalid did: <value>`), and a DID whose network nibble is reserved (`6` to `11`) or custom (`12` to `15`) fails at decode with `Invalid network (reserved): <n>` or `Invalid network (custom network not supported): <n>` (ADR 107). |
-| `-r, --resolution-options <json>` | An inline JSON string; see "Resolution options JSON" below for the accepted shape. | none | Resolution options passed straight through to the resolver. Non-JSON input fails with `Invalid resolution options. Must be a valid JSON string.` (`INVALID_ARGUMENT_ERROR`). When both `-r` and `-p` are given, `-r` wins and `-p` is silently ignored. |
-| `-p, --resolution-options-path <path>` | Path to a file containing the same JSON shape as `-r`. | none | File-based alternative to `-r`. An unreadable path or non-JSON file content fails with `Invalid resolution options path. Must be a valid path to a JSON file.` (`INVALID_ARGUMENT_ERROR`). |
-| `--min-conf <n>` | A positive integer (minimum 1). Other values fail at parse time with `--min-conf must be a positive integer (minimum 1).` | `6` (the specification value) | Minimum block confirmations a beacon signal needs before resolution applies it (ADR 105). Overrides a `minConf` inside `-r` or `-p`. Pass `1` to see a fresh update after one block. |
-| `--genesis-document <path>` | Path to the JSON genesis document of an external (`x`) identifier, for example the file that `btcr2 genesis build` wrote. An unreadable path or non-JSON content fails with `Invalid genesis document path. Must be a valid path to a JSON file.`. A JSON value that is not an object fails with `Invalid genesis document. The file must contain a JSON object.`. | none | Fills `sidecar.genesisDocument` of the resolution options, and wins over a `sidecar.genesisDocument` inside `-r` or `-p`. Refused for a `k` identifier with `--genesis-document applies only to external identifiers (x).` before the file is read (ADR 108). |
-| `-h, --help` | none | n/a | Print usage for the command and exit. |
+| `-i, --identifier <identifier>` | A `did:btcr2` identifier string: `did:btcr2:` and a Bech32m body. The HRP is `k` (deterministic, a 33-byte compressed secp256k1 public key) or `x` (external, a 32-byte genesis document hash). The encoded network must be one of `bitcoin`, `testnet3`, `testnet4`, `signet`, `mutinynet`, `regtest`. | none (required) | The identifier to resolve. The command decodes and validates it before any I/O. A malformed identifier fails at once (for example `Invalid did: <value>`). An identifier with a reserved network value (`6` to `11`) or a custom network value (`12` to `15`) fails at decode with `Invalid network (reserved): <n>` or `Invalid network (custom network not supported): <n>` (ADR 107). |
+| `-r, --resolution-options <json>` | An inline JSON string. See "Resolution options JSON" below for the shape. | none | The resolution options, passed to the resolver as they are. Non-JSON input fails with `Invalid resolution options. Must be a valid JSON string.` (`INVALID_ARGUMENT_ERROR`). If both `-r` and `-p` are present, `-r` wins and the command ignores `-p` without a message. |
+| `-p, --resolution-options-path <path>` | The path of a file with the same JSON shape as `-r`. | none | The file form of `-r`. An unreadable path or non-JSON content fails with `Invalid resolution options path. Must be a valid path to a JSON file.` (`INVALID_ARGUMENT_ERROR`). |
+| `--min-conf <n>` | A positive integer (minimum 1). Another value fails at parse time with `--min-conf must be a positive integer (minimum 1).` | `6` (the specification value) | The minimum number of block confirmations that a beacon signal needs before resolution applies it (ADR 105). The flag overrides a `minConf` inside `-r` or `-p`. Pass `1` to see a fresh update after one block. |
+| `--genesis-document <path>` | The path of the JSON genesis document of an external (`x`) identifier, for example the file that `btcr2 genesis build` wrote. An unreadable path or non-JSON content fails with `Invalid genesis document path. Must be a valid path to a JSON file.`. A JSON value that is not an object fails with `Invalid genesis document. The file must contain a JSON object.`. | none | Fills `sidecar.genesisDocument` of the resolution options. The flag wins over a `sidecar.genesisDocument` inside `-r` or `-p`. For a `k` identifier, the command refuses the flag with `--genesis-document applies only to external identifiers (x).` before it reads the file (ADR 108). |
+| `-h, --help` | none | n/a | Print the help of the command and exit. |
 
-Validation order (from source): the identifier is decoded first, then `--genesis-document` is
-checked against the identifier type, then `-r` is parsed, then `-p`, then the genesis document
-file is read. An invalid identifier therefore fails before a bad options string is even looked at.
+The validation order (from the source): the command decodes the identifier first, then checks `--genesis-document` against the identifier type, then parses `-r`, then `-p`, then reads the genesis document file. An invalid identifier therefore fails before the command looks at a bad options string.
 
-The printed `--help` output for `resolve` matches the source exactly; no discrepancies.
+The `--help` text of `resolve` matches the source.
 
-### Resolution options JSON (`-r` / `-p` value)
+### Resolution options JSON (the `-r` or `-p` value)
 
-The JSON object is the `ResolutionOptions` type from `@did-btcr2/method`. All fields are optional;
-an empty object `{}` is equivalent to passing no options.
+The JSON object is the `ResolutionOptions` type of `@did-btcr2/method`. Each field is optional. An empty object `{}` equals no options.
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `versionId` | string | ASCII string of the specific DID document version to resolve (versions start at `"1"`). |
-| `versionTime` | string | XML datetime, UTC, no sub-second precision (for example `'2026-07-01T00:00:00Z'`). Resolves the most recent version valid before that time. |
-| `maxDiscoveryRounds` | number | Opt-in upper bound on multi-round beacon-discovery passes. Unset, omitted, or non-positive means unlimited (termination is guaranteed by de-duplicating queried beacon addresses); a positive value is a resource guard, and exceeding it surfaces as an `INTERNAL_ERROR`. |
-| `sidecar` | object | Off-chain data bundle, see below. |
+| `versionId` | string | The version of the DID document to resolve, as an ASCII string. The versions start at `"1"`. |
+| `versionTime` | string | An XML datetime in UTC without sub-second precision (for example `'2026-07-01T00:00:00Z'`). The resolver returns the most recent version that was valid before that time. |
+| `maxDiscoveryRounds` | number | An opt-in upper bound on the number of beacon discovery rounds. Unset, absent, or not positive means no limit. The resolver always stops, because it does not query a beacon address twice. A positive value is a resource guard. A run over the limit fails with `INTERNAL_ERROR`. |
+| `sidecar` | object | The off-chain data bundle. See below. |
 
-`sidecar` fields:
+The `sidecar` fields:
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `@context` | string | Optional context string `https://btcr2.dev/context/v1`. |
-| `genesisDocument` | object | The genesis DID document. Required for `x1` (external) DIDs unless the document can be fetched from the configured CAS by its hash. |
-| `updates` | array of SignedBTCR2Update | Signed updates. Required if the DID has published updates that cannot be fetched from the CAS. |
-| `casUpdates` | array of CASAnnouncement | CAS announcements (maps of DID to signed-update hash). Required for CAS-beacon updates not fetchable from the CAS. |
-| `smtProofs` | array of SMTProof | SMT inclusion proofs (`id`, `collapsed`, `hashes`, optional `nonce`/`updateId`, all base64url no-pad). **Sidecar is the only channel for SMT proofs**: they are nonce-blinded and cannot be fetched from a CAS, so a missing proof fails resolution with `SMT proof required but not in sidecar (root hash: ...)`. |
+| `@context` | string | The optional context string `https://btcr2.dev/context/v1`. |
+| `genesisDocument` | object | The genesis document. An `x` identifier needs it, unless the api can fetch the document from the configured CAS by its hash. |
+| `updates` | array of SignedBTCR2Update | The signed updates. Necessary if the identifier has published updates that the api cannot fetch from the CAS. |
+| `casUpdates` | array of CASAnnouncement | The CAS announcements (maps of identifier to signed update hash). Necessary for CAS beacon updates that the api cannot fetch from the CAS. |
+| `smtProofs` | array of SMTProof | The SMT inclusion proofs (`id`, `collapsed`, `hashes`, optional `nonce` and `updateId`, all base64url without padding). **Sidecar data is the only channel for an SMT proof.** A proof has a nonce blind, so the api cannot fetch it from a CAS. A missing proof fails resolution with `SMT proof required but not in sidecar (root hash: ...)`. |
 
-How data needs are satisfied (behavior of the `@did-btcr2/api` layer the CLI calls):
+How the `@did-btcr2/api` layer satisfies each data need:
 
-- Beacon signals are fetched from the Bitcoin endpoint selected by the signal-discovery mode:
-  `indexer` (the default) reads them from the REST endpoint for the DID's network; `fullnode`
-  scans blocks over Bitcoin Core RPC.
-- A genesis document, CAS announcement, or signed update is taken from `sidecar` when present;
-  otherwise it is fetched from the configured CAS by its hex hash. If the CAS lookup returns
-  nothing, resolution fails (for example `Signed update not found in CAS (hash: ...)`).
-- SMT proofs come from `sidecar.smtProofs` only (see above).
+- The api fetches the beacon signals from the Bitcoin endpoint of the signal discovery mode. `indexer` (the default) reads them from the REST endpoint of the network of the identifier. `fullnode` scans blocks over Bitcoin Core RPC.
+- The api takes a genesis document, a CAS announcement, or a signed update from `sidecar` if present. Otherwise it fetches the item from the configured CAS by its hex hash. If the CAS lookup returns nothing, resolution fails (for example `Signed update not found in CAS (hash: ...)`).
+- An SMT proof comes from `sidecar.smtProofs` only (see above).
 
 ### Output
 
-- Text mode (default): the `DidResolutionResult` object, pretty-printed as 2-space-indented JSON
-  on stdout: `{ "didResolutionMetadata": {}, "didDocument": { ... }, "didDocumentMetadata":
-  { ... } }`. `didResolutionMetadata` is always `{}` on success; version and update metadata
-  (`versionId`, and so on) live in `didDocumentMetadata`.
-- JSON mode (`-o json`): the same payload wrapped in the CLI result envelope:
-  `{ "action": "resolve", "data": { ...DidResolutionResult... } }`, pretty-printed on stdout.
-- `--quiet` has no effect on this command; it prints nothing besides the result.
-- No stderr hints: unlike `create`, `update`, and `deactivate`, `resolve` prints no faucet or
-  explorer links.
+- Text mode (default): the `DidResolutionResult` object as pretty JSON with 2-space indentation on stdout: `{ "didResolutionMetadata": {}, "didDocument": { ... }, "didDocumentMetadata": { ... } }`. `didResolutionMetadata` is always `{}` on success. The version and update metadata (`versionId`, and so on) live in `didDocumentMetadata`.
+- JSON mode (`-o json`): the same payload in the CLI envelope `{ "action": "resolve", "data": { ...DidResolutionResult... } }`, as pretty JSON on stdout.
+- `--quiet` has no effect on this command. The command prints nothing except the result.
+- There are no stderr hints. Unlike `create`, `update`, and `deactivate`, `resolve` prints no faucet or explorer links.
 
-Exit codes: `0` on success, `1` on any error. Errors go to stderr. CLI-typed errors (invalid
-identifier network, bad `-r`/`-p` input, config problems) print message-only unless `--verbose`
-is set, in which case the full structured error is shown. A resolution failure raised by the API
-layer (network failure, missing sidecar data, unreachable endpoint) is a plain `Error` with a
-`cause` chain and prints with its stack regardless of `--verbose`. Note that a well-formed-prefix
-DID with an invalid Bech32m body can also surface as a raw `TypeError` with a stack (the decoder's
-own error), while `Invalid did: ...` prints as a single line.
+Exit codes: `0` on success, `1` on an error. Errors go to stderr. A CLI-typed error (an invalid identifier network, bad `-r` or `-p` input, a config problem) prints the message only, unless `--verbose` is set. Then it prints the full structured error. A resolution failure from the api layer (a network failure, missing sidecar data, an unreachable endpoint) is a plain `Error` with a `cause` chain. It prints with its stack, with or without `--verbose`. An identifier with a correct prefix but an invalid Bech32m body can also fail as a raw `TypeError` with a stack (the error of the decoder). `Invalid did: ...` prints as one line.
 
-## Environment & configuration
+## Environment and configuration
 
-`resolve` derives its network from the DID, then resolves Bitcoin and CAS endpoints for that
-network through the standard CLI precedence chain:
+`resolve` reads the network from the identifier. Then it resolves the Bitcoin and CAS endpoints of that network through the standard CLI precedence chain:
 
 ```
-flag  >  environment variable  >  profile in config.json  >  built-in per-network default
+flag  >  environment variable  >  profile in config.json  >  built-in default of the network
 ```
 
-A blank value at any layer defers to the next layer instead of masking it.
+A blank value at one layer defers to the next layer. It does not mask the next layer.
 
-Profile selection: `--profile <name>` flag, else the config file's `defaults.profile`, else the
-network name derived from the DID is used as the profile key (resolving a mutinynet DID
-auto-selects `profiles.mutinynet`). The config file's `defaults.network` is **not** consulted by
-`resolve` (that key steers commands that lack a network-fixing DID, such as offline `create`,
-`init`, and `quickstart`); the DID always fixes the network.
+Profile selection: the `--profile <name>` flag, else `defaults.profile` of the config file, else the profile with the name of the network of the identifier. A mutinynet identifier selects `profiles.mutinynet`. `resolve` does **not** read `defaults.network` of the config file. That key steers a command without an identifier, such as `create`, `init`, and `quickstart`. The identifier always fixes the network.
 
-Settings that feed this command:
+The settings that feed this command:
 
 | Setting | Flag | Env var | config.json key | Built-in default |
 |---------|------|---------|-----------------|------------------|
-| Home directory | `--home <dir>` | `BTCR2_HOME` | n/a | `~/.btcr2` (Linux/macOS); `%LOCALAPPDATA%\btcr2` on Windows (fallback `%APPDATA%\btcr2`) |
+| Home directory | `--home <dir>` | `BTCR2_HOME` | n/a | `~/.btcr2` (Linux and macOS). On Windows `%LOCALAPPDATA%\btcr2`, else `%APPDATA%\btcr2` |
 | Config file | `-c, --config <path>` | none | n/a | `<home>/config.json` |
-| Active profile | `--profile <name>` | none | `defaults.profile` | network name from the DID |
+| Active profile | `--profile <name>` | none | `defaults.profile` | the network name of the identifier |
 | Output format | `-o, --output <format>` (`json` \| `text`) | `BTCR2_OUTPUT` | `defaults.output` | `text` |
 | Bitcoin REST endpoint | `--btc-rest <url>` | `BTCR2_BTC_REST` | `profiles.<name>.btc.rest` | per network, see below |
-| Bitcoin Core RPC URL | `--btc-rpc-url <url>` | `BTCR2_BTC_RPC_URL` | `profiles.<name>.btc.rpcUrl` | `http://localhost:18443` (regtest only); none elsewhere |
+| Bitcoin Core RPC URL | `--btc-rpc-url <url>` | `BTCR2_BTC_RPC_URL` | `profiles.<name>.btc.rpcUrl` | `http://localhost:18443` (regtest only), none elsewhere |
 | RPC username | `--btc-rpc-user <user>` | `BTCR2_BTC_RPC_USER` | `profiles.<name>.btc.rpcUser` | none |
 | RPC password | none (never argv) | `BTCR2_BTC_RPC_PASS` | `profiles.<name>.btc.rpcPass` | none |
 | RPC password file | none | `BTCR2_BTC_RPC_PASS_FILE` | none | none |
@@ -130,12 +98,12 @@ Settings that feed this command:
 | Extra REST headers | `--btc-rest-header <header>` (repeatable, `'Key: Value'`) | none | `profiles.<name>.btc.headers` | none |
 | Extra RPC headers | `--btc-rpc-header <header>` (repeatable, `'Key: Value'`) | none | `profiles.<name>.btc.rpcHeaders` | none |
 | Beacon signal discovery | `--btc-signal-discovery <mode>` (`indexer` \| `fullnode`) | `BTCR2_BTC_SIGNAL_DISCOVERY` | `profiles.<name>.btc.signalDiscovery` | `indexer` |
-| Bitcoin timeout (ms) | `--btc-timeout <ms>` (finite number >= 1) | `BTCR2_BTC_TIMEOUT` | `profiles.<name>.btc.timeoutMs` | unbounded |
+| Bitcoin timeout (ms) | `--btc-timeout <ms>` (finite number, 1 or more) | `BTCR2_BTC_TIMEOUT` | `profiles.<name>.btc.timeoutMs` | no limit |
 | CAS gateway (read-only) | `--cas-gateway <url>` | `BTCR2_CAS_GATEWAY` | `profiles.<name>.cas.gateway` | `https://ipfs.io` |
 | CAS RPC endpoint (writable) | `--cas-rpc-url <url>` | `BTCR2_CAS_RPC_URL` | `profiles.<name>.cas.rpcUrl` | none |
-| CAS timeout (ms) | `--cas-timeout <ms>` (finite number >= 0; `0` disables) | `BTCR2_CAS_TIMEOUT` | `profiles.<name>.cas.timeoutMs` | `30000` |
+| CAS timeout (ms) | `--cas-timeout <ms>` (finite number, 0 or more. `0` disables the timeout) | `BTCR2_CAS_TIMEOUT` | `profiles.<name>.cas.timeoutMs` | `30000` |
 
-Built-in per-network Bitcoin REST defaults (from `@did-btcr2/api`):
+The built-in Bitcoin REST defaults per network (from `@did-btcr2/api`):
 
 | Network | REST default |
 |---------|--------------|
@@ -146,96 +114,61 @@ Built-in per-network Bitcoin REST defaults (from `@did-btcr2/api`):
 | `mutinynet` | `https://mutinynet.com/api` |
 | `regtest` | `http://localhost:3000` (REST), `http://localhost:18443` (RPC, no default credentials) |
 
-Behavior details, all confirmed against the source:
+Behavior details, all checked against the source:
 
-- **RPC credentials resolve as one atomic unit** (url + user + pass from a single precedence
-  layer), so a URL from one layer never inherits credentials from another. The password value may
-  be a secret reference: `env:<VAR>` reads an environment variable, `file:<path>` reads a file
-  (one trailing newline trimmed); anything else is used literally. When no layer supplies a
-  password, `BTCR2_BTC_RPC_PASS_FILE` (a path to a file holding the password) is the final
-  fallback, read lazily only when an RPC config is actually built.
-- **An RPC client is only wired when a host exists**: some layer supplies `--btc-rpc-url` (or its
-  env/profile equivalent), or the network is `regtest` (which has a default RPC host). RPC
-  credentials, wallet, or headers alone on a public network configure nothing. For most `resolve`
-  runs no RPC is involved at all; beacon-signal discovery uses the REST endpoint in the default
-  `indexer` mode (`fullnode` mode instead reads signals over the RPC client, and therefore
-  requires one).
-- **Header flags merge over profile headers** per key, with the flag winning. Headers apply even
-  without a host override, so an authenticated Esplora/mempool endpoint works with the default
-  host. A header value missing a `Key: Value` colon fails with `INVALID_ARGUMENT_ERROR`.
-- **CAS endpoint selection**: a writable `--cas-rpc-url` takes precedence over the read-only
-  gateway for retrieval. When only a CAS timeout is set, the default gateway is attached so the
-  timeout is honored. (The `--cas-rpc-url` help text's mention of `--publish-to-cas` applies to
-  `update`/`deactivate`; `resolve` only ever reads from the CAS.)
-- **A malformed config file aborts the command** with `CONFIG_PARSE_ERROR` naming the file, and a
-  config written by a newer CLI (higher `schemaVersion`) is refused with
-  `CONFIG_SCHEMA_VERSION_ERROR`. A genuinely absent config file is fine (defaults apply).
-- **Timeout validation**: `--btc-timeout` must be a finite number >= 1 (`0` would abort every
-  request); `--cas-timeout` must be >= 0 (`0` disables the timeout). Violations fail with
-  `INVALID_ARGUMENT_ERROR`.
-- **Signal-discovery validation**: a `--btc-signal-discovery` value other than `indexer` or
-  `fullnode` (from any layer, including a typo in `BTCR2_BTC_SIGNAL_DISCOVERY` or a profile)
-  fails with `Invalid --btc-signal-discovery value "<value>". Expected indexer or fullnode.`
-  (`INVALID_ARGUMENT_ERROR`). `fullnode` needs an RPC-capable connection: without one (any public
-  network with no RPC configured) resolution fails with `signalDiscovery: 'fullnode' scans blocks
-  over Bitcoin Core RPC, but no rpc config was resolved for network '<network>' ...`, a plain
-  `Error` printed with its stack.
-- **No keystore, passphrase, or session interaction.** `resolve` uses the keystore-free API
-  factory: `--keystore`, `--passphrase-file`, and `--signing-key` are accepted globally but have
-  no effect here, `<home>/session.json` is never read, and no prompt can occur. The profile's
-  `identity.*` keys and the `btc.feeRate`/`btc.changeAddress` broadcast knobs (and
-  `BTCR2_FEE_RATE`) are likewise not consulted.
+- **The RPC credentials resolve as one unit** (URL, user, and password from one precedence layer). A URL from one layer never gets the credentials of another layer. The password value can be a secret reference: `env:<VAR>` reads an environment variable, `file:<path>` reads a file (the CLI trims one trailing newline). The CLI uses any other value as it is. If no layer supplies a password, `BTCR2_BTC_RPC_PASS_FILE` (the path of a file with the password) is the last fallback. The CLI reads that file only if it builds an RPC config.
+- **The CLI creates an RPC client only if a host exists**: one layer supplies `--btc-rpc-url` (or its environment or profile equivalent), or the network is `regtest` (which has a default RPC host). RPC credentials, a wallet name, or headers alone on a public network configure nothing. Most `resolve` runs use no RPC at all. The default `indexer` mode reads the beacon signals from the REST endpoint. The `fullnode` mode reads them over the RPC client, so it needs one.
+- **A header flag merges over the profile headers** per key, and the flag wins. The headers apply also without a host override, so an authenticated Esplora or mempool endpoint works with the default host. A header value without a `Key: Value` colon fails with `INVALID_ARGUMENT_ERROR`.
+- **CAS endpoint selection**: a writable `--cas-rpc-url` wins over the read-only gateway for a fetch. If only a CAS timeout is set, the CLI attaches the default gateway so that the timeout applies. The `--cas-rpc-url` help text mentions `--publish-to-cas`. That applies to `update` and `deactivate`. `resolve` only reads from the CAS.
+- **A malformed config file fails the command** with `CONFIG_PARSE_ERROR` and the file name. The CLI refuses a config file from a newer CLI (a higher `schemaVersion`) with `CONFIG_SCHEMA_VERSION_ERROR`. An absent config file is fine: the defaults apply.
+- **Timeout validation**: `--btc-timeout` must be a finite number of 1 or more (`0` would fail each request). `--cas-timeout` must be 0 or more (`0` disables the timeout). A violation fails with `INVALID_ARGUMENT_ERROR`.
+- **Signal discovery validation**: a `--btc-signal-discovery` value other than `indexer` or `fullnode`, from any layer (also a typo in `BTCR2_BTC_SIGNAL_DISCOVERY` or in a profile), fails with `Invalid --btc-signal-discovery value "<value>". Expected indexer or fullnode.` (`INVALID_ARGUMENT_ERROR`). `fullnode` needs a connection with RPC. Without one (a public network with no RPC config), resolution fails with `signalDiscovery: 'fullnode' scans blocks over Bitcoin Core RPC, but no rpc config was resolved for network '<network>' ...`, a plain `Error` with its stack.
+- **No keystore, passphrase, or session interaction.** `resolve` uses the api factory without a keystore. The command accepts `--keystore`, `--passphrase-file`, and `--signing-key`, but they have no effect here. The command never reads `<home>/session.json`, and no prompt can occur. The command does not read the `identity.*` keys of the profile, the `btc.feeRate` and `btc.changeAddress` broadcast values, or `BTCR2_FEE_RATE`.
 
-## Global options
+## Global flags
 
-Shared global flags are documented in the [docs README](./README.md#global-options). `resolve` notably interacts
-with: `-o, --output` (text vs json envelope), `--verbose` (full structured error output for
-CLI-typed errors), the connection overrides (`--btc-rest`, `--btc-rpc-url`, `--btc-rpc-user`,
-`--btc-rpc-wallet`, `--btc-rest-header`, `--btc-rpc-header`, `--btc-signal-discovery`,
-`--btc-timeout`, `--cas-gateway`, `--cas-rpc-url`, `--cas-timeout`), and the state-location flags (`--home`,
-`-c, --config`, `--profile`). `--quiet`, `--keystore`, `--passphrase-file`, and `--signing-key`
-are accepted but have no effect on this command.
+See the [docs README](./README.md#global-flags) for the shared global flags. `resolve` uses: `-o, --output` (text or the JSON envelope), `--verbose` (the full structured error for a CLI-typed error), the connection overrides (`--btc-rest`, `--btc-rpc-url`, `--btc-rpc-user`, `--btc-rpc-wallet`, `--btc-rest-header`, `--btc-rpc-header`, `--btc-signal-discovery`, `--btc-timeout`, `--cas-gateway`, `--cas-rpc-url`, `--cas-timeout`), and the state location flags (`--home`, `-c, --config`, `--profile`). The command accepts `--quiet`, `--keystore`, `--passphrase-file`, and `--signing-key`, but they have no effect on it.
 
 ## Examples
 
 ```sh
-# Zero-config resolution; the DID encodes mainnet ('bitcoin'), so https://mempool.space/api is used
+# No config: the identifier encodes mainnet ('bitcoin'), so the CLI uses https://mempool.space/api
 btcr2 resolve -i did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47
 
-# Same, via the alias
+# The same, through the alias
 btcr2 read -i did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47
 
-# JSON envelope output ({ "action": "resolve", "data": ... })
+# The JSON envelope ({ "action": "resolve", "data": ... })
 btcr2 -o json resolve -i did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47
 
-# Pin a specific document version
+# Pin one version of the document
 btcr2 resolve -i did:btcr2:k1qq... -r '{"versionId":"2"}'
 
-# Resolve the document as it stood at a point in time (UTC, no sub-second precision)
+# Resolve the document as it was at a point in time (UTC, no sub-second precision)
 btcr2 resolve -i did:btcr2:k1qq... -r '{"versionTime":"2026-07-01T00:00:00Z"}'
 
-# External (x1) DID with sidecar data from a file
+# An external (x) identifier with sidecar data from a file
 btcr2 resolve -i did:btcr2:x1qh... -p ./resolution-options.json
 
-# External (x1) DID with its genesis document from the file that genesis build wrote
+# An external (x) identifier with the genesis document that genesis build wrote
 btcr2 resolve -i did:btcr2:x1qh... --genesis-document ./genesis.json
 
-# Cap multi-round beacon discovery as a resource guard
+# Limit the beacon discovery rounds as a resource guard
 btcr2 resolve -i did:btcr2:k1qq... -r '{"maxDiscoveryRounds":3}'
 
-# Override the Bitcoin REST endpoint and bound request time
+# Override the Bitcoin REST endpoint and limit the request time
 btcr2 --btc-rest 'https://mutinynet.com/api' --btc-timeout 15000 resolve -i did:btcr2:k1qq...
 
-# Use a self-hosted IPFS gateway for CAS reads
+# Use your own IPFS gateway for the CAS reads
 btcr2 --cas-gateway 'http://127.0.0.1:8080' resolve -i did:btcr2:x1qh...
 ```
 
-A `resolution-options.json` for an external DID whose updates are distributed via sidecar:
+A `resolution-options.json` for an external identifier with sidecar updates:
 
 ```json
 {
   "sidecar": {
-    "genesisDocument": { "id": "did:btcr2:x1qh...", "@context": ["..."] },
+    "genesisDocument": { "id": "did:btcr2:_", "@context": ["..."] },
     "updates": [ { "patch": [ ... ], "proof": { ... }, "targetVersionId": 2 } ],
     "smtProofs": [ { "id": "...", "collapsed": "...", "hashes": [ "..." ] } ]
   }
@@ -244,9 +177,9 @@ A `resolution-options.json` for an external DID whose updates are distributed vi
 
 ## See also
 
-- `btcr2 create`: mint the identifier that `resolve` reads back.
-- `btcr2 update` / `btcr2 deactivate`: publish the updates that `resolve` discovers and applies.
-- `btcr2 config effective` / `btcr2 config doctor`: inspect the resolved endpoints (with
-  provenance) and probe their reachability for a given network.
-- [README](./README.md): global flags, config file reference, and profile semantics.
-- [DEMO.md](./DEMO.md): full create, fund, resolve, update, deactivate walkthrough on mutinynet.
+- `btcr2 create`: create the identifier that `resolve` reads back.
+- `btcr2 identifier`: decode and validate the identifier offline.
+- `btcr2 update` and `btcr2 deactivate`: publish the updates that `resolve` discovers and applies.
+- `btcr2 config effective` and `btcr2 config doctor`: show the resolved endpoints (with their source) and probe them for a network.
+- [README](./README.md): the global flags, the config file reference, and the profile rules.
+- [DEMO.md](./DEMO.md): the full create, fund, resolve, update, and deactivate walkthrough on mutinynet.

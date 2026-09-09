@@ -1,13 +1,8 @@
 # btcr2 keystore
 
-Establish, inspect, re-key, and unlock the on-disk keystore that holds the CLI's signing keys.
-The subcommands operate on the keystore file (default `<home>/keystore.json`) and the session file
-(`<home>/session.json`) directly: no Bitcoin connection is opened and no KeyManager is constructed.
-Nothing here decrypts a key except `change-passphrase`, which re-seals every key under a new
-passphrase. Use `btcr2 keystore init` once to establish the store (or let `btcr2 init` / `btcr2
-quickstart` do it), `btcr2 keystore status` to inspect it safely, `btcr2 keystore
-change-passphrase` to rotate the passphrase, and `btcr2 keystore unlock` / `btcr2 keystore lock`
-to manage the session unlock agent that lets later signing commands run without re-prompting.
+Creates, inspects, re-keys, and unlocks the keystore that holds the signing keys of the CLI. The subcommands work on the keystore file (default `<home>/keystore.json`) and on the session file (`<home>/session.json`) directly. They open no Bitcoin connection and construct no key manager. No subcommand decrypts a key, except `change-passphrase`, which seals each key again under a new passphrase.
+
+Use `btcr2 keystore init` once to create the keystore (or let `btcr2 init` or `btcr2 quickstart` do it). Use `btcr2 keystore status` to inspect it safely. Use `btcr2 keystore change-passphrase` to change the passphrase. Use `btcr2 keystore unlock` and `btcr2 keystore lock` to manage the session, so that a later signing command does not ask for the passphrase.
 
 ## Synopsis
 
@@ -26,31 +21,18 @@ btcr2 keystore help [command]
 
 ### init
 
-Establishes a fresh keystore file. By default the keystore is encrypted: the command prompts for a
-passphrase on the terminal (non-echoing, on stderr) and prompts a second time to confirm it, then
-writes a keystore whose passphrase verifier is sealed with argon2id + XChaCha20-Poly1305. The
-passphrase can instead come from `BTCR2_KEYSTORE_PASSPHRASE` or `--passphrase-file` for scripted
-setup (the confirm step is a no-op for those sources). The file is written atomically with mode
-`0600` in a `0700` home directory.
+Creates a fresh keystore file. By default the keystore is encrypted. The command asks for a passphrase on the terminal (no echo, on stderr) and asks a second time as a confirmation. Then it writes a keystore whose passphrase verifier is sealed with argon2id and XChaCha20-Poly1305. For a script, the passphrase can come from `BTCR2_KEYSTORE_PASSPHRASE` or `--passphrase-file`. The confirmation step does nothing for those sources. The command writes the file atomically with mode `0600` in a `0700` home directory.
 
-Behavior details, from source:
+Behavior details, from the source:
 
-- If a keystore already exists at the resolved path, `init` fails with
-  `A keystore already exists at <path>. Use --force to re-establish it (this discards its keys).`
-  unless `--force` is given.
-- With `--force` over an existing keystore that holds one or more keys, a warning is printed to
-  stderr naming the number of keys that will be permanently discarded (suppressed by `--quiet`).
-- With `--dev`, an unencrypted dev keystore is written: plaintext keys, no passphrase, no prompt.
-  A stderr warning is printed (suppressed by `--quiet`). Dev keystores are hard-refused for
-  mainnet (`bitcoin`) operations elsewhere in the CLI.
-- After any successful `init`, the cached session at `<home>/session.json` is deleted: a
-  re-established keystore mints a new verifier (or none, for `--dev`), so a cached passphrase for
-  the old keystore must not linger on disk.
-- An empty or whitespace-only passphrase is rejected. Ctrl-C during the prompt aborts.
-- A malformed config file aborts the command loudly (the keystore path may be redirected by the
-  active profile's `identity.keystore`, so `init` refuses to guess).
+- If a keystore exists at the resolved path, `init` fails with `A keystore already exists at <path>. Use --force to re-establish it (this discards its keys).`, unless `--force` is present.
+- With `--force` over an existing keystore with one or more keys, the command prints a warning on stderr with the number of keys that it discards (`--quiet` suppresses it).
+- With `--dev`, the command writes an unencrypted dev keystore: plaintext keys, no passphrase, no prompt. It prints a stderr warning (`--quiet` suppresses it). The other commands of the CLI refuse a dev keystore for a mainnet (`bitcoin`) operation.
+- After each successful `init`, the command deletes the cached session at `<home>/session.json`. A new keystore gets a new verifier (or none, with `--dev`), so a cached passphrase of the old keystore must not stay on disk.
+- The command refuses an empty or whitespace-only passphrase. Ctrl-C at the prompt stops the command.
+- A malformed config file fails the command with a message. The `identity.keystore` of the active profile can move the keystore path, so `init` does not guess.
 
-Prints (text mode) the data payload; (json mode) the full envelope:
+Prints the data payload in text mode, and the full envelope in JSON mode:
 
 ```json
 { "action": "keystore-init", "data": { "path": "<keystore path>", "protection": "encrypted" } }
@@ -58,27 +40,22 @@ Prints (text mode) the data payload; (json mode) the full envelope:
 
 `protection` is `'encrypted'` or `'dev'`.
 
-Example:
+Examples:
 
 ```sh
-btcr2 keystore init                       # prompts for a passphrase, twice
-btcr2 keystore init --dev                 # plaintext dev keystore, testnet/regtest only
+btcr2 keystore init                       # asks for a passphrase, twice
+btcr2 keystore init --dev                 # a plaintext dev keystore, test networks only
 btcr2 keystore init --force               # discard the existing keystore and its keys
 BTCR2_KEYSTORE_PASSPHRASE='s3cret' btcr2 keystore init   # unattended
 ```
 
 ### status
 
-Shows the resolved keystore path, protection mode, whether a passphrase has been established, the
-key count, the active-key id (when one is set), and the session state. Never decrypts, never
-prompts, and never fails on a broken config: the keystore path is resolved leniently (a malformed
-config falls back to the home default `<home>/keystore.json` instead of crashing), and an
-unreadable or foreign keystore file simply reports `absent`.
+Shows the resolved keystore path, the protection mode, whether a passphrase is set, the key count, the active key id (if one is set), and the session state. The command never decrypts, never asks for the passphrase, and never fails on a broken config file. It resolves the keystore path in a lenient way: a malformed config file falls back to the home default `<home>/keystore.json` instead of a failure. An unreadable or unknown keystore file reports `absent`.
 
-For a dev keystore, a stderr warning (`warning: this is an UNENCRYPTED dev keystore; keys are
-stored in plaintext.`) is printed unless `--quiet` is set or the output mode is `json`.
+For a dev keystore, the command prints a stderr warning (`warning: this is an UNENCRYPTED dev keystore; keys are stored in plaintext.`), unless `--quiet` is present or the output mode is `json`.
 
-Data payload:
+The data payload:
 
 ```json
 {
@@ -97,184 +74,130 @@ Data payload:
 ```
 
 - `protection`: `'encrypted'`, `'dev'`, or `'absent'`.
-- `established`: for an encrypted keystore, whether the passphrase verifier exists yet (written by
-  `keystore init` or the first key seal); always `true` for `dev`; `false` for `absent`.
-- `active` is omitted when no active key is set.
-- `session`: `{ "active": false }` when no live session matches this keystore; a live session adds
-  `expiresAt` (ms epoch), `secondsRemaining`, and `allowMainnet`. Read-only: an expired or stale
-  session is reported inactive but not pruned by `status`.
+- `established`: for an encrypted keystore, whether the passphrase verifier exists yet (`keystore init` or the first key seal writes it). Always `true` for `dev`. `false` for `absent`.
+- `active`: absent if no active key is set.
+- `session`: `{ "active": false }` if no live session matches this keystore. A live session adds `expiresAt` (epoch milliseconds), `secondsRemaining`, and `allowMainnet`. The command is read-only: it reports an expired or stale session as inactive, but it does not remove the session.
 
 ### change-passphrase
 
-Alias: `passwd`. Changes the keystore passphrase, decrypting and re-sealing every sealed key (and
-the verifier) under the new one. Encrypted keystores only.
+Alias: `passwd`. Changes the keystore passphrase. The command decrypts each sealed key (and the verifier) and seals them again under the new passphrase. Encrypted keystores only.
 
-- Fails with `No keystore at <path>. Run "btcr2 keystore init" first.` when the keystore is
-  absent, and with a dedicated message when it is a dev keystore (no passphrase to change).
-- The current passphrase is acquired through the normal chain (`BTCR2_KEYSTORE_PASSPHRASE`, then
-  `--passphrase-file`, then a terminal prompt), so unattended rotation of the current passphrase
-  is possible.
-- The new passphrase is always entered fresh at the terminal (prompted twice, entries must
-  match). The env var and passphrase file are deliberately skipped for the new passphrase so the
-  same source cannot silently satisfy both and make the change a no-op. Consequence: this
-  subcommand requires a TTY for the new passphrase; with no TTY it fails with
-  `No passphrase available. Set BTCR2_KEYSTORE_PASSPHRASE, pass --passphrase-file, or run in a
-  terminal.`
+- If the keystore is absent, the command fails with `No keystore at <path>. Run "btcr2 keystore init" first.`. For a dev keystore, it fails with a dedicated message (no passphrase to change).
+- The command gets the current passphrase through the normal chain (`BTCR2_KEYSTORE_PASSPHRASE`, then `--passphrase-file`, then a terminal prompt). So an unattended run can supply the current passphrase.
+- You always type the new passphrase at the terminal (twice, and the two entries must match). The command skips the environment variable and the passphrase file for the new passphrase on purpose. Otherwise the same source would satisfy both passphrases, and the change would do nothing. As a result, this subcommand needs a TTY for the new passphrase. With no TTY, it fails with `No passphrase available. Set BTCR2_KEYSTORE_PASSPHRASE, pass --passphrase-file, or run in a terminal.`
 - A wrong current passphrase fails against the verifier before any re-seal work.
-- If the keystore changes concurrently while re-sealing, the command aborts with a
-  `KEYSTORE_CONCURRENT_CHANGE_ERROR` rather than leaving keys under mixed passphrases.
-- After a successful change, the cached session file is deleted: the rotated verifier already
-  invalidates it by fingerprint, but the file still holds the old passphrase in plaintext
-  (base64url-encoded), so it is removed outright.
+- If the keystore changes during the re-seal, the command stops with `KEYSTORE_CONCURRENT_CHANGE_ERROR`. It does not leave keys under two passphrases.
+- After a successful change, the command deletes the cached session file. The new verifier already invalidates the session by fingerprint, but the file still holds the old passphrase in plaintext (base64url-encoded), so the command removes it.
 
-Data payload: `{ "path": "<keystore path>", "rekeyed": <number of secrets re-sealed> }`.
+The data payload: `{ "path": "<keystore path>", "rekeyed": <number of secrets sealed again> }`.
 
 ### unlock
 
-Caches the verified keystore passphrase in `<home>/session.json` so later signing commands (`key
-generate`, `key export`, `update`, `deactivate`, `create` with a generated key) read it from the
-session instead of prompting again, until the session expires or `keystore lock` revokes it.
+Caches the verified keystore passphrase in `<home>/session.json`. A later signing command (`key generate`, `key export`, `update`, `deactivate`, `create` with a generated key) reads it from the session instead of a prompt, until the session expires or `keystore lock` revokes it.
 
-Refusals, in order, before anything is cached:
+The refusals, in this order, before any cache:
 
-- Absent keystore: `No keystore at <path>. Run "btcr2 init" or "btcr2 keystore init" first.`
-- Dev keystore: it has no passphrase to cache, so no unlock is needed.
-- Encrypted keystore with no established passphrase (no verifier yet): establish one with
-  `btcr2 keystore init` or the first `btcr2 key generate`.
-- Mainnet gate: when the resolved default network is `bitcoin` and `--allow-mainnet` is not
-  passed, unlock is refused (`MAINNET_UNLOCK_REFUSED_ERROR`), because a cached passphrase
-  suspends per-use authentication for the whole session. The network checked here is the
-  configured default (config `defaults.network`, else the active profile's network, else
-  `regtest`); the authoritative check happens again at consumption, where a `bitcoin` operation
-  (network derived from the DID) is withheld from a session that lacks `allowMainnet`.
+- An absent keystore: `No keystore at <path>. Run "btcr2 init" or "btcr2 keystore init" first.`
+- A dev keystore: it has no passphrase to cache, so no unlock is necessary.
+- An encrypted keystore with no passphrase yet (no verifier): set one with `btcr2 keystore init` or with the first `btcr2 key generate`.
+- The mainnet gate: if the resolved default network is `bitcoin` and `--allow-mainnet` is absent, the command refuses (`MAINNET_UNLOCK_REFUSED_ERROR`). A cached passphrase suspends the per-use authentication for the whole session. The network here is the configured default: config `defaults.network`, else the network of the active profile, else `regtest`. The authoritative check happens again at the read of the session: a `bitcoin` operation (the network comes from the identifier) does not use a session without `allowMainnet`.
 
-The passphrase is acquired directly (`BTCR2_KEYSTORE_PASSPHRASE`, then `--passphrase-file`, then a
-terminal prompt; an existing session is never consulted) and verified against the keystore's
-verifier before caching. A wrong passphrase fails with `Incorrect passphrase for the keystore at
-<path>; no session was created.` (`DECRYPT_ERROR`) and writes no session file.
+The command gets the passphrase directly (`BTCR2_KEYSTORE_PASSPHRASE`, then `--passphrase-file`, then a terminal prompt). It never reads an existing session. It verifies the passphrase against the keystore verifier before the cache. A wrong passphrase fails with `Incorrect passphrase for the keystore at <path>; no session was created.` (`DECRYPT_ERROR`) and writes no session file.
 
-The session file is written atomically at mode `0600`. It records the resolved keystore path, a
-fingerprint of the keystore's passphrase verifier (so `change-passphrase` or `init --force`
-invalidates it), the base64url-encoded passphrase (an encoding, not encryption: its only
-protection at rest is the file mode), the `allowMainnet` flag, and the created/expiry timestamps.
+The command writes the session file atomically with mode `0600`. The file records the resolved keystore path, a fingerprint of the passphrase verifier of the keystore (so `change-passphrase` or `init --force` invalidates it), the base64url-encoded passphrase (an encoding, not encryption: the file mode is its only protection at rest), the `allowMainnet` flag, and the creation and expiry timestamps.
 
-TTL resolution: the `--ttl` flag, else `$BTCR2_KEYSTORE_TTL`, else the one-hour default. The value
-is a bare integer (seconds) or an integer with an `s`, `m`, or `h` suffix, e.g. `3600`, `45m`,
-`2h`. Zero, negative, malformed, and over-24h values are rejected with an error that names the
-actual source (`--ttl` or `$BTCR2_KEYSTORE_TTL`). A blank flag defers to the env var.
+The TTL comes from the `--ttl` flag, else `$BTCR2_KEYSTORE_TTL`, else the one-hour default. The value is a bare integer (seconds) or an integer with an `s`, `m`, or `h` suffix, for example `3600`, `45m`, `2h`. The command refuses zero, a negative value, a malformed value, and a value over 24 hours with an error that names the source (`--ttl` or `$BTCR2_KEYSTORE_TTL`). A blank flag defers to the environment variable.
 
-Data payload: `{ "keystore": "<keystore path>", "expiresAt": <ms epoch>, "ttlSeconds": <n> }`.
+The data payload: `{ "keystore": "<keystore path>", "expiresAt": <epoch milliseconds>, "ttlSeconds": <n> }`.
 
 ### lock
 
-Revokes the cached session: deletes `<home>/session.json` and sweeps any crash-orphaned atomic-
-write temp files next to it (each of which would hold a plaintext passphrase). Idempotent; needs
-no passphrase; works even under a malformed config, because the session path is derived from the
-home directory alone (never from `--config`, `--keystore`, or the config file). Unlink removes the
-file name; it does not securely erase the bytes.
+Revokes the cached session. The command deletes `<home>/session.json` and removes the temporary files of an atomic write that a crash left next to it (each of them would hold a plaintext passphrase). The command is idempotent and needs no passphrase. It works also with a malformed config file, because the session path comes from the home directory alone (never from `--config`, `--keystore`, or the config file). The unlink removes the file name. It does not erase the bytes in a secure way.
 
-Data payload: `{ "path": "<session path>", "cleared": <boolean> }`. `cleared` is `true` when a
-session file was present and removed, `false` when there was none (or removal failed).
+The data payload: `{ "path": "<session path>", "cleared": <boolean> }`. `cleared` is `true` if a session file was present and the command removed it. It is `false` if there was none (or if the removal failed).
 
 ## Options
 
-All subcommand-specific flags. Every subcommand also accepts `-h, --help`.
+The subcommand flags. Each subcommand also accepts `-h, --help`.
 
 | Flag | Value | Default | Description |
 |------|-------|---------|-------------|
-| `--dev` (`init`) | boolean | `false` | Create an UNENCRYPTED dev keystore: plaintext keys, no passphrase, never prompts. For disposable testnet/regtest material only; mainnet (`bitcoin`) operations with a dev keystore are refused elsewhere in the CLI. |
-| `--force` (`init`) | boolean | `false` | Re-establish even if a keystore already exists, permanently discarding its keys. Warns on stderr with the key count when keys would be lost (suppressed by `--quiet`). |
-| `--ttl <duration>` (`unlock`) | bare integer seconds, or an integer with an `s`, `m`, or `h` suffix; must be > 0 and <= 24h (e.g. `3600`, `45m`, `2h`) | `1h` (via `$BTCR2_KEYSTORE_TTL` when set) | Session lifetime for the cached passphrase. |
-| `--allow-mainnet` (`unlock`) | boolean | `false` | Permit unlocking when the resolved default network is mainnet (`bitcoin`), and record the allowance in the session so mainnet operations may consume it. Without it, mainnet operations keep per-use passphrase authentication even while a session is live. |
-| `-h, --help` | - | - | Display help for the command or subcommand. |
+| `--dev` (`init`) | boolean | `false` | Create an UNENCRYPTED dev keystore: plaintext keys, no passphrase, no prompt. For throwaway test-network keys only. The other commands of the CLI refuse a mainnet (`bitcoin`) operation with a dev keystore. |
+| `--force` (`init`) | boolean | `false` | Create the keystore again, also if one exists. This discards its keys for good. The command prints a stderr warning with the key count if keys are lost (`--quiet` suppresses it). |
+| `--ttl <duration>` (`unlock`) | a bare integer in seconds, or an integer with an `s`, `m`, or `h` suffix. It must be more than 0 and at most 24h (for example `3600`, `45m`, `2h`). | `1h` (or `$BTCR2_KEYSTORE_TTL` if set) | The session lifetime of the cached passphrase. |
+| `--allow-mainnet` (`unlock`) | boolean | `false` | Permit the unlock if the resolved default network is mainnet (`bitcoin`), and record the permission in the session, so that a mainnet operation can use it. Without it, a mainnet operation keeps the per-use passphrase authentication, also while a session is live. |
+| `-h, --help` | | | Print the help of the command or the subcommand. |
 
-`status`, `change-passphrase`, and `lock` take no flags of their own.
+`status`, `change-passphrase`, and `lock` take no flag of their own.
 
-## Environment & configuration
+## Environment and configuration
 
-General precedence is flag > env var > profile config > built-in default, with the exceptions
-noted per item (the passphrase chain puts the env var above the flag-named file).
+The general precedence is: flag, then environment variable, then the profile in the config file, then the built-in default. The exceptions follow per item (the passphrase chain puts the environment variable above the file that the flag names).
 
-Environment variables consulted:
+The environment variables that the command group reads:
 
 | Variable | Used by | Meaning |
 |----------|---------|---------|
-| `BTCR2_HOME` | all subcommands | Home directory holding `config.json`, `keystore.json`, and `session.json`. Overridden by `--home`; falls back to `~/.btcr2` (Linux/macOS) or `%LOCALAPPDATA%\btcr2` (Windows, then `%APPDATA%\btcr2`, then the user profile). A blank value defers to the next layer. |
-| `BTCR2_KEYSTORE_PASSPHRASE` | `init`, `change-passphrase` (current passphrase only), `unlock` | Supplies the keystore passphrase for unattended use. Checked BEFORE `--passphrase-file`; a trailing newline is trimmed. Never used for the NEW passphrase in `change-passphrase`. |
-| `BTCR2_KEYSTORE_TTL` | `unlock` | Default session TTL, below the `--ttl` flag. Same value domain as `--ttl`. |
-| `BTCR2_OUTPUT` | all subcommands | Output format (`json` or `text`), below the `-o/--output` flag and above the config file's `defaults.output`. |
+| `BTCR2_HOME` | all subcommands | The home directory that holds `config.json`, `keystore.json`, and `session.json`. `--home` wins. The fallback is `~/.btcr2` (Linux and macOS) or `%LOCALAPPDATA%\btcr2` (Windows, then `%APPDATA%\btcr2`, then the user profile). A blank value defers to the next layer. |
+| `BTCR2_KEYSTORE_PASSPHRASE` | `init`, `change-passphrase` (the current passphrase only), `unlock` | The keystore passphrase for unattended use. The CLI reads it BEFORE `--passphrase-file`, and it trims a trailing newline. The CLI never uses it for the NEW passphrase in `change-passphrase`. |
+| `BTCR2_KEYSTORE_TTL` | `unlock` | The default session TTL, below the `--ttl` flag. The same value format as `--ttl`. |
+| `BTCR2_OUTPUT` | all subcommands | The output format (`json` or `text`), below the `-o/--output` flag and above `defaults.output` of the config file. |
 
-Config file (`<home>/config.json`, or the file named by `-c/--config`) keys that feed this
-command:
+The config file keys (`<home>/config.json`, or the file that `-c/--config` names) that feed the command group:
 
 | Key | Used by | Effect |
 |-----|---------|--------|
-| `defaults.profile` | all subcommands | Selects the active profile when `--profile` is not given. |
-| `profiles.<name>.identity.keystore` | all except `lock` | Keystore path for the active profile. Precedence: `--keystore` flag > this key > `<home>/keystore.json`. Only consulted when a profile is active (via `--profile` or `defaults.profile`). |
+| `defaults.profile` | all subcommands | The active profile if `--profile` is absent. |
+| `profiles.<name>.identity.keystore` | all except `lock` | The keystore path of the active profile. The precedence: the `--keystore` flag, then this key, then `<home>/keystore.json`. The CLI reads the key only if a profile is active (through `--profile` or `defaults.profile`). |
 | `defaults.network` | `unlock` | The resolved default network drives the mainnet unlock gate: `bitcoin` here refuses `unlock` without `--allow-mainnet`. |
-| `profiles.<name>.network` (or a profile named after a network) | `unlock` | Fallback network for the mainnet gate when `defaults.network` is unset; the final fallback is `regtest`. |
-| `defaults.output` | all subcommands | Output format when neither `-o/--output` nor `BTCR2_OUTPUT` is set. |
+| `profiles.<name>.network` (or a profile with a network name) | `unlock` | The fallback network of the mainnet gate if `defaults.network` is unset. The last fallback is `regtest`. |
+| `defaults.output` | all subcommands | The output format if neither `-o/--output` nor `BTCR2_OUTPUT` is set. |
 
-Malformed-config behavior differs by subcommand: `init`, `change-passphrase`, and `unlock` abort
-loudly on an unparseable config (the profile could redirect the keystore path, so they refuse to
-guess); `status` falls back to the home-default keystore path so it can still report; `lock` never
-reads the config at all.
+The behavior with a malformed config file differs per subcommand. `init`, `change-passphrase`, and `unlock` fail with a message on an unparseable config file (the profile could move the keystore path, so they do not guess). `status` falls back to the home default keystore path, so that it can still report. `lock` never reads the config file.
 
-Session interaction summary: the session file is `<home>/session.json` (mode `0600`), written only
-by `unlock` (and `quickstart --unlock`), deleted by `lock`, `init`, and `change-passphrase`. Other
-CLI commands consume it when acquiring a passphrase, in this order: `BTCR2_KEYSTORE_PASSPHRASE`,
-then `--passphrase-file`, then a live session, then the interactive prompt. A session that is
-expired, stale (passphrase rotated), future-dated, or malformed is pruned on read; a live session
-bound to a different keystore is left in place. A `bitcoin` operation never consumes a session
-that was not unlocked with `--allow-mainnet`. The passphrase-establishing path (a fresh keystore's
-first seal) never consults the session.
+The session in short: the session file is `<home>/session.json` (mode `0600`). Only `unlock` (and `quickstart --unlock`) writes it. `lock`, `init`, and `change-passphrase` delete it. The other CLI commands read it when they get a passphrase, in this order: `BTCR2_KEYSTORE_PASSPHRASE`, then `--passphrase-file`, then a live session, then the interactive prompt. The CLI removes an expired, stale (passphrase changed), future-dated, or malformed session when it reads it. It leaves a live session of another keystore in place. A `bitcoin` operation never uses a session that you unlocked without `--allow-mainnet`. The step that sets the passphrase (the first seal of a fresh keystore) never reads the session.
 
-## Global options
+## Global flags
 
-Shared global flags are documented in the [docs README](./README.md#global-options). Globals this command notably
-interacts with: `--home <dir>`, `-c, --config <path>`, `--profile <name>`, `--keystore <path>`,
-`--passphrase-file <path>`, `-o, --output <json|text>`, `--quiet` (suppresses the stderr
-warnings), and `--verbose` (full error objects). The Bitcoin/CAS connection flags are ignored
-here: these subcommands open no network connection.
+See the [docs README](./README.md#global-flags) for the shared global flags. The `keystore` subcommands use `--home <dir>`, `-c, --config <path>`, `--profile <name>`, `--keystore <path>`, `--passphrase-file <path>`, `-o, --output <json|text>`, `--quiet` (suppresses the stderr warnings), and `--verbose` (full error objects). The command group ignores the Bitcoin and CAS connection flags: the subcommands open no network connection.
 
 ## Examples
 
 ```sh
-# Establish an encrypted keystore (prompts twice for the passphrase)
+# Create an encrypted keystore (asks for the passphrase twice)
 btcr2 keystore init
 
-# Inspect it: path, protection, key count, session state. Safe anywhere.
+# Inspect it: path, protection, key count, session state. Safe at any time.
 btcr2 keystore status
 btcr2 -o json keystore status
 
-# Unattended establishment in a sandboxed home
+# An unattended creation in a sandbox home
 BTCR2_HOME=/tmp/btcr2-demo BTCR2_KEYSTORE_PASSPHRASE='demo-pass' btcr2 keystore init
 
-# Working against mutinynet: record the default network, then unlock for 2 hours
+# Work on mutinynet: record the default network, then unlock for 2 hours
 btcr2 config set defaults.network mutinynet
 btcr2 keystore unlock --ttl 2h
-btcr2 update ...        # signs without re-prompting until the session expires
+btcr2 update ...        # signs without a prompt until the session expires
 
-# Revoke the session when done
+# Revoke the session at the end
 btcr2 keystore lock
 
-# Rotate the passphrase (current may come from env/file; the new one is always
-# entered fresh at the terminal, twice)
+# Change the passphrase (the current one can come from the environment or a file,
+# you always type the new one at the terminal, twice)
 btcr2 keystore passwd
 
-# Dev keystore for throwaway regtest keys (plaintext; refused for mainnet)
+# A dev keystore for throwaway regtest keys (plaintext, refused for mainnet)
 btcr2 keystore init --dev
 
-# Mainnet default network: unlock is refused unless explicitly allowed
+# A mainnet default network: the command refuses the unlock without the permission
 btcr2 keystore unlock --allow-mainnet
 ```
 
 ## See also
 
-- `btcr2 init`: one-command home setup that also establishes the keystore.
-- `btcr2 quickstart`: onboarding that composes `btcr2 init`, `btcr2 keystore unlock` (via
-  `--unlock`), and `btcr2 config doctor`.
-- `btcr2 key`: manage keypairs inside the keystore (generate, import, export, use, delete).
-- `btcr2 update` / `btcr2 deactivate`: the signing commands that consume the keystore and session.
+- `btcr2 init`: the home setup in one command, which also creates the keystore.
+- `btcr2 quickstart`: the setup that composes `btcr2 init`, `btcr2 keystore unlock` (through `--unlock`), and `btcr2 config doctor`.
+- `btcr2 key`: manage the keys in the keystore (generate, import, export, use, delete).
+- `btcr2 update` and `btcr2 deactivate`: the signing commands that use the keystore and the session.
 - `btcr2 config path`: print the resolved home, config, and keystore paths.
-- [DEMO.md](./DEMO.md): full walkthrough including keystore establishment and session unlock.
+- [DEMO.md](./DEMO.md): the full walkthrough, with the keystore creation and the session unlock.
