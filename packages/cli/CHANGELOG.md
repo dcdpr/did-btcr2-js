@@ -1,5 +1,11 @@
 # @did-btcr2/cli
 
+## 0.23.1
+
+### Patch Changes
+
+- `btcr2 completion` builds the word list from the registered commands at run time, not from a constant. The list gains `init`, `quickstart`, `keystore`, and the built-in `help`, which the constant omitted.
+
 ## 0.23.0
 
 ### Minor Changes

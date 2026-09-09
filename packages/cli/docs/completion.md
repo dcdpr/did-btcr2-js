@@ -24,10 +24,10 @@ There are no subcommands. The one argument selects the target shell.
 
 ### The script per shell
 
-The word list is the same for the three shells:
+The CLI builds the word list at run time from the registered commands: the name and the aliases of each top-level command, in registration order, then the built-in `help` command. The list is the same for the three shells:
 
 ```
-create resolve read update deactivate delete identifier genesis key config profile completion
+init quickstart create resolve read update deactivate delete identifier genesis key keystore config profile completion help
 ```
 
 - `bash`: defines a `_btcr2` function with `compgen -W` and registers it with `complete -F _btcr2 btcr2`. The header comment says: install with `eval "$(btcr2 completion bash)"`.
@@ -36,10 +36,9 @@ create resolve read update deactivate delete identifier genesis key config profi
 
 ### Known limitations of the word list
 
-The list is a constant in `src/commands/completion.ts`. The CLI does not derive it from the registered command tree. Two consequences, both confirmed against the source:
-
 - The list includes `read` and `delete`. They are the registered aliases of `resolve` and `deactivate`.
-- The list omits `init`, `quickstart`, `keystore`, and the built-in `help` command, although the CLI registers them. So they do not complete. A subcommand (for example `key list`, `profile add`, `keystore unlock`) and a flag never complete either.
+- The list has top-level words only. A subcommand (for example `key list`, `profile add`, `keystore unlock`) and a flag never complete.
+- The fish script is a saved file. After an upgrade of the CLI, save it again to get a new command. The bash and zsh `eval` lines read the current list at each shell start.
 
 ## Environment and configuration
 
@@ -81,4 +80,3 @@ btcr2 completion powershell
 
 - [README](./README.md): the global flags, the config precedence, and the full command list.
 - [DEMO.md](./DEMO.md): the CLI walkthrough.
-- `btcr2 quickstart`: the setup in one command (not in the completion word list).
