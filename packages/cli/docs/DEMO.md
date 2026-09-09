@@ -4,7 +4,7 @@ This walkthrough shows the `btcr2` command-line tool from the setup to an on-cha
 
 **How to use this document:** run the commands from top to bottom in one terminal session. A later command reuses the shell variables of an earlier command, so keep the same session open. Each output block is an example. Your keys, identifiers, and Bitcoin addresses differ, but the shape is the same.
 
-The text matches `@did-btcr2/cli` v0.23.2.
+The text matches `@did-btcr2/cli` v0.24.0.
 
 ---
 
@@ -44,7 +44,7 @@ btcr2 --version
 ```
 
 ```
-btcr2 0.23.2
+btcr2 0.24.0
 ```
 
 ### Set up in one command
@@ -281,7 +281,7 @@ Example output (your `id`, `publicKeyMultibase`, and beacon addresses differ):
 
 ```json
 {
-  "didResolutionMetadata": {},
+  "didResolutionMetadata": { "contentType": "application/did" },
   "didDocument": {
     "id": "did:btcr2:k1q5plyvwt6qw6523ndym6dg8hqdnvk0kxqke37ejl0hc6taffmqdz36qnssf9t",
     "@context": [
@@ -308,6 +308,7 @@ Example output (your `id`, `publicKeyMultibase`, and beacon addresses differ):
   },
   "didDocumentMetadata": {
     "versionId": "1",
+    "confirmations": 0,
     "deactivated": false
   }
 }
@@ -317,7 +318,7 @@ What the output shows:
 
 - A full W3C DID document, built from Bitcoin, with **no server in the middle**.
 - Three `SingletonBeacon` services (P2PKH, P2WPKH, P2TR). A **beacon** is a Bitcoin address that the controller watches. To publish an update, the controller broadcasts a small transaction from one of these addresses. The addresses come from the same key, so they exist as soon as the identifier exists.
-- `versionId: "1"`. There is no update yet.
+- `versionId: "1"` and `confirmations: 0`. There is no update yet.
 
 ---
 
@@ -388,14 +389,14 @@ The expected output is the same document, now with your patch and `versionId: "2
 
 ```json
 {
-  "didResolutionMetadata": {},
+  "didResolutionMetadata": { "contentType": "application/did" },
   "didDocument": {
     "id": "did:btcr2:k1q5p...",
     "alsoKnownAs": ["https://example.com/demo"],
     "verificationMethod": [ "..." ],
     "service": [ "..." ]
   },
-  "didDocumentMetadata": { "versionId": "2", "deactivated": false }
+  "didDocumentMetadata": { "versionId": "2", "confirmations": 1, "updated": "2026-09-09T12:00:00Z", "deactivated": false }
 }
 ```
 

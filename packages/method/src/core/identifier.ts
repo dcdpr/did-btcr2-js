@@ -223,8 +223,20 @@ export class Identifier {
       throw new IdentifierError(`Invalid method-specific id (must be lowercase): ${identifier}`, INVALID_DID, { identifier });
     }
 
-    // 7. Bech32m-decode the id into its hrp and dataBytes.
-    const { prefix: hrp, bytes: dataBytes } = bech32m.decodeToBytes(encoded);
+    // 7. Bech32m-decode the id into its hrp and dataBytes. The decoder throws its own Error
+    //    for a bad character, a bad length, a bad checksum, or bad padding. The specification
+    //    maps every decoding failure to INVALID_DID.
+    let hrp: string;
+    let dataBytes: Uint8Array;
+    try {
+      ({ prefix: hrp, bytes: dataBytes } = bech32m.decodeToBytes(encoded));
+    } catch (error: unknown) {
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new IdentifierError(
+        `Invalid method-specific id (Bech32m decoding failed: ${reason}): ${identifier}`,
+        INVALID_DID, { identifier, reason }
+      );
+    }
 
     // 8. The hrp MUST be "k" (KEY) or "x" (EXTERNAL).
     if (!['x', 'k'].includes(hrp)) {

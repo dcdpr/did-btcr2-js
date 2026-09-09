@@ -57,17 +57,17 @@ The `sidecar` fields:
 How the `@did-btcr2/api` layer satisfies each data need:
 
 - The api fetches the beacon signals from the Bitcoin endpoint of the signal discovery mode. `indexer` (the default) reads them from the REST endpoint of the network of the identifier. `fullnode` scans blocks over Bitcoin Core RPC.
-- The api takes a genesis document, a CAS announcement, or a signed update from `sidecar` if present. Otherwise it fetches the item from the configured CAS by its hex hash. If the CAS lookup returns nothing, resolution fails (for example `Signed update not found in CAS (hash: ...)`).
+- The api takes a genesis document, a CAS announcement, or a signed update from `sidecar` if present. Otherwise it fetches the item from the configured CAS by its hex hash. If the CAS lookup returns nothing, resolution fails with a typed error: `NOT_FOUND` for the genesis document (for example `Genesis document not found in CAS (hash: ...)`), `MISSING_UPDATE_DATA` for a signed update or a CAS announcement (for example `Signed update not found in CAS (hash: ...)`). The api hashes the bytes that the CAS returns and refuses content that does not hash to the requested address.
 - An SMT proof comes from `sidecar.smtProofs` only (see above).
 
 ### Output
 
-- Text mode (default): the `DidResolutionResult` object as pretty JSON with 2-space indentation on stdout: `{ "didResolutionMetadata": {}, "didDocument": { ... }, "didDocumentMetadata": { ... } }`. `didResolutionMetadata` is always `{}` on success. The version and update metadata (`versionId`, and so on) live in `didDocumentMetadata`.
+- Text mode (default): the `DidResolutionResult` object as pretty JSON with 2-space indentation on stdout: `{ "didResolutionMetadata": { "contentType": "application/did" }, "didDocument": { ... }, "didDocumentMetadata": { ... } }`. `didResolutionMetadata.contentType` is always `application/did` on success, the media type of a bare DID document. `didDocumentMetadata` always carries `versionId`, `confirmations`, and `deactivated`. `confirmations` is `0` and `versionId` is `"1"` before the first update. `updated` is present after an update.
 - JSON mode (`-o json`): the same payload in the CLI envelope `{ "action": "resolve", "data": { ...DidResolutionResult... } }`, as pretty JSON on stdout.
 - `--quiet` has no effect on this command. The command prints nothing except the result.
 - There are no stderr hints. Unlike `create`, `update`, and `deactivate`, `resolve` prints no faucet or explorer links.
 
-Exit codes: `0` on success, `1` on an error. Errors go to stderr. A CLI-typed error (an invalid identifier network, bad `-r` or `-p` input, a config problem) prints the message only, unless `--verbose` is set. Then it prints the full structured error. A resolution failure from the api layer (a network failure, missing sidecar data, an unreachable endpoint) is a plain `Error` with a `cause` chain. It prints with its stack, with or without `--verbose`. An identifier with a correct prefix but an invalid Bech32m body can also fail as a raw `TypeError` with a stack (the error of the decoder). `Invalid did: ...` prints as one line.
+Exit codes: `0` on success, `1` on an error. Errors go to stderr. A CLI-typed error (an invalid identifier network, bad `-r` or `-p` input, a config problem) prints the message only, unless `--verbose` is set. Then it prints the full structured error. A resolution failure from the api layer (a network failure, missing sidecar data, an unreachable endpoint) is a plain `Error` with a `cause` chain. It prints with its stack, with or without `--verbose`. An identifier that does not decode, also one with a correct prefix but an invalid Bech32m body, fails as a method error of type `INVALID_DID` and prints as one line (`Invalid did: ...` or `Invalid method-specific id (Bech32m decoding failed: ...)`).
 
 ## Environment and configuration
 

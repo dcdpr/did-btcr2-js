@@ -1,5 +1,6 @@
+import { DidMethodError, INTERNAL_ERROR, INVALID_DID, NOT_FOUND, ResolveError } from '@did-btcr2/common';
 import { expect } from 'chai';
-import { rootCauseMessage } from '../src/index.js';
+import { resolutionErrorCode, rootCauseMessage } from '../src/index.js';
 
 /**
  * rootCauseMessage unit matrix: the helper must surface the deepest
@@ -131,5 +132,42 @@ describe('rootCauseMessage()', () => {
       };
       expect(rootCauseMessage(hostile)).to.equal('top');
     });
+  });
+});
+
+describe('resolutionErrorCode()', () => {
+  it('returns the type of a typed error at the top', () => {
+    expect(resolutionErrorCode(new ResolveError('x', NOT_FOUND))).to.equal(NOT_FOUND);
+  });
+
+  it('returns the type of a typed error below a plain wrapper', () => {
+    const wrapped = new Error('Failed to resolve DID', { cause: new ResolveError('x', INVALID_DID) });
+    expect(resolutionErrorCode(wrapped)).to.equal(INVALID_DID);
+  });
+
+  it('prefers the nearest typed link over a deeper one', () => {
+    const inner = new ResolveError('inner', INVALID_DID);
+    const outer = new ResolveError('outer', NOT_FOUND, { cause: inner });
+    (outer as Error & { cause?: unknown }).cause = inner;
+    expect(resolutionErrorCode(new Error('wrap', { cause: outer }))).to.equal(NOT_FOUND);
+  });
+
+  it('returns INTERNAL_ERROR for a plain Error', () => {
+    expect(resolutionErrorCode(new Error('boom'))).to.equal(INTERNAL_ERROR);
+  });
+
+  it('returns INTERNAL_ERROR for a DidMethodError whose type is not a resolution code', () => {
+    expect(resolutionErrorCode(new DidMethodError('x', { type: 'ResolveError' }))).to.equal(INTERNAL_ERROR);
+  });
+
+  it('returns INTERNAL_ERROR for null, undefined, and a string', () => {
+    expect(resolutionErrorCode(null)).to.equal(INTERNAL_ERROR);
+    expect(resolutionErrorCode(undefined)).to.equal(INTERNAL_ERROR);
+    expect(resolutionErrorCode('nope')).to.equal(INTERNAL_ERROR);
+  });
+
+  it('survives a throwing cause getter', () => {
+    const hostile = { get cause(): unknown { throw new Error('trap'); } };
+    expect(resolutionErrorCode(hostile)).to.equal(INTERNAL_ERROR);
   });
 });

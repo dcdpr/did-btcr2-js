@@ -1,15 +1,18 @@
 import { expect, use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import type { BitcoinConnection, HttpExecutor } from '@did-btcr2/bitcoin';
-import { canonicalHashBytes, INVALID_DID_UPDATE, ResolveError, UpdateError } from '@did-btcr2/common';
+import { getNetwork } from '@did-btcr2/bitcoin';
+import { canonicalHashBytes, INVALID_DID_UPDATE, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey, LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import {
   BitcoinApi,
+  CasApi,
   DidApi,
   DidMethodApi,
   MultikeyApi,
   UpdateBuilder,
 } from '../src/index.js';
+import type { CasExecutor } from '../src/index.js';
 
 use(chaiAsPromised);
 
@@ -271,8 +274,10 @@ describe('DidMethodApi', () => {
       const result = await methodApi.resolve(did);
 
       expect(result.didDocument?.id).to.equal(did);
-      expect(result.didDocumentMetadata).to.include({ versionId: '1', deactivated: false });
-      expect(result.didResolutionMetadata).to.deep.equal({});
+      // The specification requires confirmations and deactivated; a never-updated DID
+      // reports confirmations 0. A bare DID document has the media type application/did.
+      expect(result.didDocumentMetadata).to.deep.equal({ versionId: '1', confirmations: 0, deactivated: false });
+      expect(result.didResolutionMetadata).to.deep.equal({ contentType: 'application/did' });
       // The injected connection is the one that was read: one tip-height lookup,
       // then one transaction listing per beacon of the initial document.
       expect(urls[0]).to.match(/\/blocks\/tip\/height$/);
@@ -337,6 +342,110 @@ describe('DidMethodApi', () => {
         expect(e.message).to.include('Bitcoin connection required to fetch beacon signals');
         expect(e.cause).to.exist;
       }
+    });
+
+    /** A CAS executor whose retrieve returns the given bytes for every hash. */
+    function casReturning(bytes: Uint8Array | null): CasApi {
+      const executor: CasExecutor = {
+        retrieve : async () => bytes,
+        publish  : async () => '',
+      };
+      return new CasApi({ executor });
+    }
+
+    /** The typed failure inside the plain wrapper that resolve() rejects with. */
+    async function typedCause(promise: Promise<unknown>): Promise<ResolveError> {
+      try {
+        await promise;
+      } catch (e: any) {
+        expect(e.message).to.include('Failed to resolve DID');
+        expect(e.cause).to.be.instanceOf(ResolveError);
+        return e.cause as ResolveError;
+      }
+      throw new Error('resolution should have failed');
+    }
+
+    /**
+     * A Bitcoin facade whose chain holds one confirmed signal from the beacon of
+     * EXTERNAL_GENESIS_DOCUMENT: an OP_RETURN with `updateHashHex` at height 100,
+     * six blocks below the tip.
+     */
+    function chainWithSignal(updateHashHex: string): BitcoinApi {
+      const signalTx = {
+        vin : [{
+          txid        : 'f'.repeat(64),
+          vout        : 0,
+          prevout     : { scriptpubkey_address: '12QG2GG9TWPD16SWyfWCsW4W3NhMFnnSFK' },
+          is_coinbase : false,
+        }],
+        vout : [{
+          scriptpubkey     : `6a20${updateHashHex}`,
+          scriptpubkey_asm : `OP_RETURN OP_PUSHBYTES_32 ${updateHashHex}`,
+        }],
+        status : { confirmed: true, block_height: 100, block_time: 1700000000 },
+      };
+      return {
+        connection : {
+          data : getNetwork('regtest'),
+          rest : {
+            block   : { count: async () => 105 },
+            address : { getTxs: async () => [signalTx] },
+          },
+        } as unknown as BitcoinConnection,
+      } as unknown as BitcoinApi;
+    }
+
+    it('raises NOT_FOUND when no CAS driver can return the genesis document', async () => {
+      const methodApi = new DidMethodApi();
+      const did = methodApi.createExternal(canonicalHashBytes(EXTERNAL_GENESIS_DOCUMENT), { network: 'regtest' });
+      const cause = await typedCause(methodApi.resolve(did));
+      expect(cause.type).to.equal(NOT_FOUND);
+      expect(cause.message).to.include('no CAS driver configured');
+    });
+
+    it('raises NOT_FOUND when the CAS does not return the genesis document', async () => {
+      const methodApi = new DidMethodApi(undefined, casReturning(null));
+      const did = methodApi.createExternal(canonicalHashBytes(EXTERNAL_GENESIS_DOCUMENT), { network: 'regtest' });
+      const cause = await typedCause(methodApi.resolve(did));
+      expect(cause.type).to.equal(NOT_FOUND);
+      expect(cause.message).to.include('not found in CAS');
+    });
+
+    it('raises NOT_FOUND when the CAS content does not hash to the genesis bytes', async () => {
+      const wrongBytes = new TextEncoder().encode('{"id":"did:btcr2:_"}');
+      const methodApi = new DidMethodApi(undefined, casReturning(wrongBytes));
+      const did = methodApi.createExternal(canonicalHashBytes(EXTERNAL_GENESIS_DOCUMENT), { network: 'regtest' });
+      const cause = await typedCause(methodApi.resolve(did));
+      expect(cause.type).to.equal(NOT_FOUND);
+      expect(cause.message).to.include('unusable from CAS');
+      // The CAS integrity failure rides along as the cause of the NOT_FOUND.
+      expect(cause.data?.cause).to.be.instanceOf(ResolveError);
+      expect(cause.data?.cause?.type).to.equal(MISSING_UPDATE_DATA);
+    });
+
+    it('raises MISSING_UPDATE_DATA when no CAS driver can return a signed update', async () => {
+      const methodApi = new DidMethodApi(chainWithSignal('ab'.repeat(32)));
+      const did = methodApi.createExternal(canonicalHashBytes(EXTERNAL_GENESIS_DOCUMENT), { network: 'regtest' });
+      const cause = await typedCause(methodApi.resolve(did, { sidecar: { genesisDocument: EXTERNAL_GENESIS_DOCUMENT } }));
+      expect(cause.type).to.equal(MISSING_UPDATE_DATA);
+      expect(cause.message).to.include('no CAS driver configured');
+    });
+
+    it('raises MISSING_UPDATE_DATA when the CAS does not return a signed update', async () => {
+      const methodApi = new DidMethodApi(chainWithSignal('ab'.repeat(32)), casReturning(null));
+      const did = methodApi.createExternal(canonicalHashBytes(EXTERNAL_GENESIS_DOCUMENT), { network: 'regtest' });
+      const cause = await typedCause(methodApi.resolve(did, { sidecar: { genesisDocument: EXTERNAL_GENESIS_DOCUMENT } }));
+      expect(cause.type).to.equal(MISSING_UPDATE_DATA);
+      expect(cause.message).to.include('Signed update not found in CAS');
+    });
+
+    it('refuses CAS content that does not hash to the announced update hash', async () => {
+      const wrongBytes = new TextEncoder().encode('{"patch":[]}');
+      const methodApi = new DidMethodApi(chainWithSignal('ab'.repeat(32)), casReturning(wrongBytes));
+      const did = methodApi.createExternal(canonicalHashBytes(EXTERNAL_GENESIS_DOCUMENT), { network: 'regtest' });
+      const cause = await typedCause(methodApi.resolve(did, { sidecar: { genesisDocument: EXTERNAL_GENESIS_DOCUMENT } }));
+      expect(cause.type).to.equal(MISSING_UPDATE_DATA);
+      expect(cause.message).to.match(/hashes to .*; the resolver must not use it/);
     });
 
     it('refuses a DID whose network differs from the connection before any chain read', async () => {

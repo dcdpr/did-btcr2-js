@@ -1,3 +1,4 @@
+import { INVALID_DID, ResolveError } from '@did-btcr2/common';
 import { expect } from 'chai';
 import { DidBtcr2 } from '../src/did-btcr2.js';
 import type { BeaconService, BeaconSignal } from '../src/core/beacon/interfaces.js';
@@ -45,5 +46,22 @@ describe('Resolve External', () => {
         expect(final.result).to.have.property('didDocument');
         expect(final.result.didDocument).to.have.property('id', did);
       }
+    });
+
+  it('rejects a genesis document whose hash is not the genesis bytes with INVALID_DID',
+    () => {
+      const { did, genesisDocument } = data[0];
+      const wrongDocument = { ...genesisDocument, service: [] };
+      const resolver = DidBtcr2.resolve(did, { sidecar: { genesisDocument: wrongDocument } });
+      let caught: unknown;
+      try {
+        resolver.resolve();
+      } catch (error: unknown) {
+        caught = error;
+      }
+      // The specification raises INVALID_DID when the computed hash does not match genesis_bytes.
+      expect(caught).to.be.instanceOf(ResolveError);
+      expect(caught).to.have.property('type', INVALID_DID);
+      expect((caught as Error).message).to.match(/Initial document mismatch/);
     });
 });
