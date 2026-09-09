@@ -54,7 +54,7 @@ const multikey     = SchnorrMultikey.fromSecretKey(id, controller, secretKeyByte
 
 const unsigned = { /* UnsecuredDocument: any JSON object to add a proof to (e.g. an unsigned did:btcr2 update) */ };
 const config = {
-  '@context'         : ['https://w3id.org/security/v2', 'https://w3id.org/zcap/v1', 'https://w3id.org/json-ld-patch/v1', 'https://btcr2.dev/context/v1'],
+  '@context'         : ['https://w3id.org/json-ld-patch/v1', 'https://w3id.org/zcap/v1', 'https://w3id.org/security/data-integrity/v2', 'https://btcr2.dev/context/v1'],
   type               : 'DataIntegrityProof' as const,
   cryptosuite        : 'bip340-jcs-2025',
   proofPurpose       : 'capabilityInvocation',
@@ -90,7 +90,7 @@ const id         = '#initialKey';
 const multikey   = SchnorrMultikey.fromSigner(id, controller, kmsSigner);
 
 const config = {
-  '@context'         : ['https://w3id.org/security/v2', 'https://w3id.org/zcap/v1', 'https://w3id.org/json-ld-patch/v1', 'https://btcr2.dev/context/v1'],
+  '@context'         : ['https://w3id.org/json-ld-patch/v1', 'https://w3id.org/zcap/v1', 'https://w3id.org/security/data-integrity/v2', 'https://btcr2.dev/context/v1'],
   type               : 'DataIntegrityProof' as const,
   cryptosuite        : 'bip340-jcs-2025',
   proofPurpose       : 'capabilityInvocation',

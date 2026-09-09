@@ -1,5 +1,13 @@
 # @did-btcr2/method
 
+## 0.61.0
+
+### Minor Changes
+
+- `Updater.construct` writes the `@context` array that the specification pins for a BTCR2 Update: `https://w3id.org/json-ld-patch/v1`, `https://w3id.org/zcap/v1`, `https://w3id.org/security/data-integrity/v2`, `https://btcr2.dev/context/v1`, in this order (ADR 109). The proof of a signed update carries the same array. New exports: `BTCR2_UPDATE_CONTEXT` (the frozen array) and `isBtcr2UpdateContext(value, expected?)` (the equality rule of the specification: the same URLs, in the same order, with no other member). The resolver rejects an update whose `@context` is a different array, or whose proof `@context` differs from the update `@context`, with a `ResolveError` of type `INVALID_DID_UPDATE`, before signature verification.
+
+  Breaking: every update signed with method 0.60.0 or earlier carries `https://w3id.org/security/v2` in a different order and fails on this version with `INVALID_DID_UPDATE`. The array is inside the signed bytes, so no party can re-label an announced update.
+
 ## 0.60.0
 
 ### Minor Changes

@@ -4,6 +4,7 @@ import { canonicalHash, INVALID_DID_UPDATE, JSONPatch, UpdateError } from '@did-
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import type { Signer } from '@did-btcr2/keypair';
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from './btcr2-update.js';
+import { BTCR2_UPDATE_CONTEXT } from './btcr2-update.js';
 import { DidDocument, type Btcr2DidDocument, type DidVerificationMethod } from '../utils/did-document.js';
 import type { BroadcastResult } from './beacon/beacon.js';
 import type { CASBroadcastOptions } from './beacon/cas-beacon.js';
@@ -214,12 +215,9 @@ export class Updater {
     sourceVersionId: number,
   ): UnsignedBTCR2Update {
     const unsignedUpdate: UnsignedBTCR2Update = {
-      '@context'      : [
-        'https://w3id.org/security/v2',
-        'https://w3id.org/zcap/v1',
-        'https://w3id.org/json-ld-patch/v1',
-        'https://btcr2.dev/context/v1'
-      ],
+      // The array the specification pins, as a fresh copy: the update is a plain JSON
+      // object that callers may edit, and the shared constant is frozen.
+      '@context'      : [ ...BTCR2_UPDATE_CONTEXT ],
       patch           : patches,
       targetHash      : '',
       targetVersionId : sourceVersionId + 1,
@@ -311,12 +309,10 @@ export class Updater {
     }
 
     const config: Btcr2DataIntegrityConfig = {
-      '@context' : [
-        'https://w3id.org/security/v2',
-        'https://w3id.org/zcap/v1',
-        'https://w3id.org/json-ld-patch/v1',
-        'https://btcr2.dev/context/v1'
-      ],
+      // The proof must carry the same array as the update. The cryptosuite copies the
+      // document @context into the proof when the document has one, so the two arrays
+      // are equal by construction; this value is the fallback for a document without one.
+      '@context'         : [ ...BTCR2_UPDATE_CONTEXT ],
       cryptosuite        : 'bip340-jcs-2025',
       type               : 'DataIntegrityProof',
       // The proof names the signing method by absolute DID URL, even when the document

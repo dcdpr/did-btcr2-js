@@ -2,6 +2,39 @@ import type { PatchOperation } from '@did-btcr2/common';
 import type { DataIntegrityProofObject, DataIntegrityProofOptions } from '@did-btcr2/cryptosuite';
 
 /**
+ * The `@context` array of a BTCR2 Update. The specification pins the members and their
+ * order. The array is part of the bytes that the JSON Document Hashing algorithm hashes
+ * and that the proof signs, so an update with a different array is a different update,
+ * and a conformant resolver rejects it. The proof of a signed update carries the same
+ * array. See
+ * {@link https://dcdpr.github.io/did-btcr2/data-structures.html#btcr2-unsigned-update | BTCR2 Unsigned Update (data structure)}.
+ */
+export const BTCR2_UPDATE_CONTEXT = Object.freeze([
+  'https://w3id.org/json-ld-patch/v1',
+  'https://w3id.org/zcap/v1',
+  'https://w3id.org/security/data-integrity/v2',
+  'https://btcr2.dev/context/v1',
+] as const);
+
+/**
+ * True if `value` is an array with the same context URLs as `expected`, in the same
+ * order, and with no other member. This is the equality rule of the specification for
+ * two `@context` arrays. `expected` defaults to {@link BTCR2_UPDATE_CONTEXT}.
+ *
+ * @param {unknown} value The `@context` value to check.
+ * @param {readonly string[]} expected The array that `value` must equal.
+ * @returns {boolean} True if the two arrays are equal.
+ */
+export function isBtcr2UpdateContext(
+  value: unknown,
+  expected: readonly string[] = BTCR2_UPDATE_CONTEXT
+): value is string[] {
+  return Array.isArray(value)
+    && value.length === expected.length
+    && value.every((url, i) => url === expected[i]);
+}
+
+/**
  * A {@link https://dcdpr.github.io/did-btcr2/terminology.html#btcr2-update | BTCR2 Update} without a data integrity proof.
  * See {@link https://dcdpr.github.io/did-btcr2/data-structures.html#btcr2-unsigned-update | BTCR2 Unsigned Update (data structure)}.
  *
@@ -12,8 +45,8 @@ import type { DataIntegrityProofObject, DataIntegrityProofOptions } from '@did-b
  */
 export type UnsignedBTCR2Update = {
   /**
-   * JSON-LD context URIs for interpreting this payload, including contexts
-   * for ZCAP (capabilities), Data Integrity proofs, and JSON-LD patch ops.
+   * The JSON-LD context array of the update: exactly the members of
+   * {@link BTCR2_UPDATE_CONTEXT}, in that order.
    */
   '@context': string[];
 
@@ -76,7 +109,7 @@ export type BTCR2Update = UnsignedBTCR2Update | SignedBTCR2Update;
  * {@link https://dcdpr.github.io/did-btcr2/data-structures.html#data-integrity-config | Data Integrity Config}.
  */
 export type Btcr2DataIntegrityConfig = DataIntegrityProofOptions & {
-  /** JSON-LD context URIs for the proof (ZCAP, Data Integrity, JSON-LD patch). */
+  /** The same array as the update `@context`: {@link BTCR2_UPDATE_CONTEXT}. */
   '@context': string[];
 
   /** The root capability being invoked, e.g. `urn:zcap:root:<urlencoded-did>`. */

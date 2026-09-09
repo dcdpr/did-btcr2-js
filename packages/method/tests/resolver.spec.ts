@@ -14,6 +14,7 @@ import type { BeaconService, BeaconSignal } from '../src/core/beacon/interfaces.
 import type { DidDocument } from '../src/utils/did-document.js';
 import { DidVerificationMethod } from '../src/utils/did-document.js';
 import type { SignedBTCR2Update } from '../src/core/btcr2-update.js';
+import { BTCR2_UPDATE_CONTEXT } from '../src/core/btcr2-update.js';
 import { DEFAULT_MIN_CONF, Resolver } from '../src/core/resolver.js';
 import type { DidResolutionResponse, NeedBeaconSignals, NeedCASAnnouncement, NeedGenesisDocument, NeedSMTProof, NeedSignedUpdate } from '../src/core/resolver.js';
 import { Updater } from '../src/core/updater.js';
@@ -2055,6 +2056,113 @@ describe('Resolver', () => {
 
       const { metadata } = driveSignalSequence(fixture.did, [ u2, u3 ], [ u2, u3 ]);
       expect(metadata.versionId).to.equal('3');
+    });
+  });
+
+  describe('update @context pin on the read path (spec "Check update.proof")', () => {
+    const fixture = deterministicData[2]; // regtest - has a known secretKey
+    const PINNED = [
+      'https://w3id.org/json-ld-patch/v1',
+      'https://w3id.org/zcap/v1',
+      'https://w3id.org/security/data-integrity/v2',
+      'https://btcr2.dev/context/v1'
+    ];
+    /** The array that method 0.60.0 and earlier emitted: one wrong member, in a different order. */
+    const LEGACY = [
+      'https://w3id.org/security/v2',
+      'https://w3id.org/zcap/v1',
+      'https://w3id.org/json-ld-patch/v1',
+      'https://btcr2.dev/context/v1'
+    ];
+    const PERMUTED = [ PINNED[1], PINNED[0], PINNED[2], PINNED[3] ];
+
+    /** A legitimate v1->v2 update, signed by the fixture key. */
+    function legitimateV2(): SignedBTCR2Update {
+      const source = resolveDeterministic(fixture.did);
+      return buildUpdateChain(fixture.did, source, fixture.secretKey, [ benignPatch(fixture.did) ])[0]!;
+    }
+
+    /**
+     * Drive resolution with `update` as the only sidecar update and the only signal. The
+     * signal is the hash of `update` as given, so a changed array passes the hash binding
+     * and reaches the apply path. Returns what the resolver threw, or undefined.
+     */
+    function thrownBy(update: SignedBTCR2Update): any {
+      try {
+        driveSignalSequence(fixture.did, [ update ], [ update ]);
+        return undefined;
+      } catch(error) {
+        return error;
+      }
+    }
+
+    it('the constant is the array of the specification', () => {
+      expect([ ...BTCR2_UPDATE_CONTEXT ]).to.deep.equal(PINNED);
+    });
+
+    it('an emitted update carries the pinned array in the update and in the proof, and resolves', () => {
+      const u2 = legitimateV2();
+      expect(u2['@context']).to.deep.equal(PINNED);
+      expect(u2.proof['@context']).to.deep.equal(PINNED);
+      const { metadata } = driveSignalSequence(fixture.did, [ u2 ], [ u2 ]);
+      expect(metadata.versionId).to.equal('2');
+    });
+
+    const wrongArrays: Array<[ string, unknown ]> = [
+      [ 'the array of method 0.60.0 and earlier', LEGACY ],
+      [ 'a permuted array', PERMUTED ],
+      [ 'an array with a missing member', PINNED.slice(0, 3) ],
+      [ 'an array with an extra member', [ ...PINNED, 'https://www.w3.org/ns/did/v1.1' ] ],
+      [ 'an empty array', [] ],
+      [ 'a string instead of an array', PINNED[3] ],
+    ];
+    for(const [ label, context ] of wrongArrays) {
+      it(`rejects an update whose @context is ${label} with INVALID_DID_UPDATE`, () => {
+        const u2 = legitimateV2();
+        // The proof keeps the array it was made with, so only the update array is wrong here.
+        const wrong = { ...u2, '@context': context } as unknown as SignedBTCR2Update;
+        const thrown = thrownBy(wrong);
+        expect(thrown, 'expected the update to be rejected').to.exist;
+        expect(thrown).to.be.instanceOf(ResolveError);
+        expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+        expect(thrown.message).to.match(/@context is not the array/);
+      });
+    }
+
+    it('rejects an update whose proof @context differs from the update @context', () => {
+      const u2 = legitimateV2();
+      const wrong = { ...u2, proof: { ...u2.proof, '@context': PERMUTED } };
+      const thrown = thrownBy(wrong);
+      expect(thrown, 'expected the update to be rejected').to.exist;
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.match(/proof @context does not equal/);
+    });
+
+    it('rejects an update whose proof has no @context', () => {
+      const u2 = legitimateV2();
+      const { '@context': _dropped, ...proof } = u2.proof;
+      const wrong = { ...u2, proof } as SignedBTCR2Update;
+      const thrown = thrownBy(wrong);
+      expect(thrown, 'expected the update to be rejected').to.exist;
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.match(/proof @context does not equal/);
+    });
+
+    it('the @context check runs before signature verification', () => {
+      // A changed array invalidates the signature too. The typed message names the array,
+      // not the proof, so the array check is the one that fired.
+      const u2 = legitimateV2();
+      const wrong = { ...u2, '@context': LEGACY } as SignedBTCR2Update;
+      const thrown = thrownBy(wrong);
+      expect(thrown.message).to.not.match(/proof not verified/);
+      expect(thrown.message).to.match(/@context/);
+    });
+
+    it('a duplicate re-announcement is confirmed by hash, not by the @context check', () => {
+      // A true duplicate of an applied update carries the applied array, so it passes.
+      const u2 = legitimateV2();
+      const { metadata } = driveSignalSequence(fixture.did, [ u2 ], [ u2, u2 ]);
+      expect(metadata.versionId).to.equal('2');
     });
   });
 });
