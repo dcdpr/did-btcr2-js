@@ -20,6 +20,7 @@ import type {
   SignedBTCR2Update,
   UnsignedBTCR2Update
 } from './btcr2-update.js';
+import { BTCR2_UPDATE_CONTEXT, isBtcr2UpdateContext } from './btcr2-update.js';
 import {
   BIP340Cryptosuite,
   BIP340DataIntegrityProof,
@@ -608,7 +609,8 @@ export class Resolver {
   }
 
   /**
-   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#apply-update | 7.2.f.3 Apply Update}.
+   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#apply-update | 7.2.f.3 Apply Update}
+   * and its step {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#check-update-proof | Check update.proof}.
    * @param {DidDocument} currentDocument The current DID Document to apply the update to.
    * @param {SignedBTCR2Update} update The BTCR2 Signed Update to apply.
    * @returns {DidDocument} The updated DID Document after applying the update.
@@ -618,6 +620,24 @@ export class Resolver {
     currentDocument: DidDocument,
     update: SignedBTCR2Update
   ): DidDocument {
+    // Spec "Check update.proof": the update @context must be the array that the BTCR2
+    // Unsigned Update data structure pins, and the proof @context must equal it, member
+    // for member and in order. The array is inside the hashed and signed bytes, so an
+    // update with another array is a different update. The check runs before signature
+    // verification so that the failure names the array and not the signature.
+    if(!isBtcr2UpdateContext(update['@context'])) {
+      throw new ResolveError(
+        'Invalid update: @context is not the array the specification pins for a BTCR2 Update',
+        INVALID_DID_UPDATE, { context: update['@context'], expected: [ ...BTCR2_UPDATE_CONTEXT ] }
+      );
+    }
+    if(!isBtcr2UpdateContext(update.proof?.['@context'], update['@context'])) {
+      throw new ResolveError(
+        'Invalid update: proof @context does not equal the update @context',
+        INVALID_DID_UPDATE, { proofContext: update.proof?.['@context'], context: update['@context'] }
+      );
+    }
+
     // Get the capability id from the to update proof.
     const capabilityId = update.proof?.capability;
     // Since this field is optional, check that it exists

@@ -123,6 +123,8 @@ const { signedUpdate } = state.result;
 
 See [`src/core/updater.ts`](./src/core/updater.ts) for the full `UpdaterDataNeed` union and phase transitions.
 
+An update carries the `@context` array that the specification pins, in this order: `https://w3id.org/json-ld-patch/v1`, `https://w3id.org/zcap/v1`, `https://w3id.org/security/data-integrity/v2`, `https://btcr2.dev/context/v1`. `Updater.construct()` writes the array, and the proof of the signed update repeats it. The package exports the array as `BTCR2_UPDATE_CONTEXT`. The array is inside the hashed and signed bytes, so an update with a different array is a different update. The resolver rejects an update with a different array, or with a proof `@context` that differs from the update `@context`, with a `ResolveError` of type `INVALID_DID_UPDATE`.
+
 ### Update Aggregation (Multi-Party MuSig2)
 
 Aggregation lets multiple DID controllers coordinate a single Bitcoin transaction that announces all of their updates at once, signed n-of-n with MuSig2. That subsystem now ships as its own package, [`@did-btcr2/aggregation`](https://github.com/dcdpr/did-btcr2-js/tree/main/packages/aggregation), which builds on this one. Its high-level `Runner` API hides the message routing and decision plumbing:

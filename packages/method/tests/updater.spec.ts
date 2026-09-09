@@ -6,6 +6,7 @@ import { expect } from 'chai';
 import { DidBtcr2 } from '../src/did-btcr2.js';
 import type { BeaconService, BeaconSignal } from '../src/core/beacon/interfaces.js';
 import type { NeedBeaconSignals } from '../src/core/resolver.js';
+import { BTCR2_UPDATE_CONTEXT } from '../src/core/btcr2-update.js';
 import { Updater } from '../src/core/updater.js';
 import type { NeedBroadcast, NeedFunding, NeedSigningKey } from '../src/core/updater.js';
 import type { Btcr2DidDocument } from '../src/utils/did-document.js';
@@ -278,6 +279,34 @@ describe('Updater', () => {
       expect(signed).to.have.property('proof');
       expect(signed.proof).to.have.property('proofValue').that.is.a('string');
       expect(signed.proof).to.have.property('cryptosuite', 'bip340-jcs-2025');
+    });
+
+    it('Updater.construct() emits the @context array that the specification pins, in order', () => {
+      const unsigned = Updater.construct(sourceDocument, [], 1);
+      // The literal is the value from the specification, so this test pins the constant too.
+      expect(unsigned['@context']).to.deep.equal([
+        'https://w3id.org/json-ld-patch/v1',
+        'https://w3id.org/zcap/v1',
+        'https://w3id.org/security/data-integrity/v2',
+        'https://btcr2.dev/context/v1'
+      ]);
+      expect(unsigned['@context']).to.deep.equal([ ...BTCR2_UPDATE_CONTEXT ]);
+    });
+
+    it('Updater.construct() gives each update its own copy of the @context array', () => {
+      expect(Object.isFrozen(BTCR2_UPDATE_CONTEXT)).to.be.true;
+      const first = Updater.construct(sourceDocument, [], 1);
+      first['@context'].push('https://example.com/extra');
+      const second = Updater.construct(sourceDocument, [], 1);
+      expect(second['@context']).to.deep.equal([ ...BTCR2_UPDATE_CONTEXT ]);
+    });
+
+    it('Updater.sign() gives the proof the same @context as the update', () => {
+      const unsigned = Updater.construct(sourceDocument, [], 1);
+      const vm = sourceDocument.verificationMethod![0]!;
+      const signed = Updater.sign(sourceDocument.id, unsigned, vm, signer);
+      expect(signed.proof['@context']).to.deep.equal(signed['@context']);
+      expect(signed['@context']).to.deep.equal([ ...BTCR2_UPDATE_CONTEXT ]);
     });
   });
 
