@@ -1,5 +1,18 @@
 # @did-btcr2/cli
 
+## 0.24.0
+
+### Minor Changes
+
+- Resolution reports the required DID document metadata (`confirmations`, `deactivated`; `contentType: application/did`) and the DID Resolution error codes (`INVALID_DID`, `NOT_FOUND`, `MISSING_UPDATE_DATA`, `INTERNAL_ERROR`); `CasApi.retrieve` checks the content hash (ADR 110).
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/common@9.5.0
+  - @did-btcr2/method@0.62.0
+  - @did-btcr2/api@0.24.0
+
 ## 0.23.2
 
 ### Patch Changes

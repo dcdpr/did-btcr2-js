@@ -1,6 +1,6 @@
 import type { BitcoinConnection, NetworkName } from '@did-btcr2/bitcoin';
 import type { DocumentBytes, HashBytes, KeyBytes, PatchOperation } from '@did-btcr2/common';
-import { decode as decodeHash, IdentifierHrp, IdentifierTypes, INVALID_DID_UPDATE, ResolveError, UpdateError } from '@did-btcr2/common';
+import { decode as decodeHash, IdentifierHrp, IdentifierTypes, INVALID_DID_UPDATE, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/common';
 import type { Signer } from '@did-btcr2/keypair';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import type { BeaconService, BroadcastOptions, BroadcastResult, Btcr2DidDocument, CASAnnouncement, CASBroadcastOptions, DidCreateOptions, DidDocument, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, ResolutionOptions, SignedBTCR2Update, SMTProof } from '@did-btcr2/method';
@@ -309,9 +309,16 @@ export class DidMethodApi {
    * to fetch beacon signals. Sidecar data flows through `options.sidecar`.
    * If the DID names a network other than the connection's, resolution is
    * refused before any chain read.
+   *
+   * A failure rejects with a plain `Error` whose `cause` chain carries the
+   * typed failure: `ResolveError` of type `NOT_FOUND` when the genesis
+   * document of an EXTERNAL DID is not in the sidecar and the CAS does not
+   * return it, `MISSING_UPDATE_DATA` when a signed update or a CAS
+   * announcement is not in the sidecar and the CAS does not return it.
    * @param did The DID to resolve.
    * @param options Resolution options.
-   * @returns The resolution result.
+   * @returns The resolution result. `didResolutionMetadata.contentType` is
+   *          `application/did`, the media type of a bare DID document.
    */
   async resolve(did: string, options?: ResolutionOptions): Promise<DidResolutionResult> {
     assertString(did, 'did');
@@ -355,36 +362,57 @@ export class DidMethodApi {
               break;
             }
             case 'NeedGenesisDocument': {
+              // The specification raises NOT_FOUND when the genesis document cannot be
+              // retrieved. Without a CAS driver the sidecar was the only source.
               if(!this.#cas) {
-                throw new Error(
+                throw new ResolveError(
                   `Genesis document required but not in sidecar (hash: ${need.genesisHash}), `
                   + 'and no CAS driver configured. Either provide the genesis document via '
-                  + 'options.sidecar.genesisDocument or configure a CAS driver.'
+                  + 'options.sidecar.genesisDocument or configure a CAS driver.',
+                  NOT_FOUND, { genesisHash: need.genesisHash }
                 );
               }
               this.#log.debug('Fetching genesis document from CAS: %s', need.genesisHash);
-              const doc = await this.#cas.retrieve(decodeHash(need.genesisHash, 'hex'));
+              let doc: object | null;
+              try {
+                doc = await this.#cas.retrieve(decodeHash(need.genesisHash, 'hex'));
+              } catch (err) {
+                // CasApi.retrieve refuses content that does not hash to the address with
+                // MISSING_UPDATE_DATA. For the genesis document the specification code is NOT_FOUND.
+                if(err instanceof ResolveError && err.type === MISSING_UPDATE_DATA) {
+                  throw new ResolveError(
+                    `Genesis document unusable from CAS (hash: ${need.genesisHash}): ${err.message}`,
+                    NOT_FOUND, { genesisHash: need.genesisHash, cause: err }
+                  );
+                }
+                throw err;
+              }
               if(!doc) {
-                throw new Error(
-                  `Genesis document not found in CAS (hash: ${need.genesisHash}).`
+                throw new ResolveError(
+                  `Genesis document not found in CAS (hash: ${need.genesisHash}).`,
+                  NOT_FOUND, { genesisHash: need.genesisHash }
                 );
               }
               resolver.provide(need as NeedGenesisDocument, doc);
               break;
             }
             case 'NeedCASAnnouncement': {
+              // The specification raises MISSING_UPDATE_DATA when update data is not
+              // available from the sidecar or from the CAS.
               if(!this.#cas) {
-                throw new Error(
+                throw new ResolveError(
                   `CAS announcement required but not in sidecar (hash: ${need.announcementHash}), `
                   + 'and no CAS driver configured. Either provide it via '
-                  + 'options.sidecar.casUpdates or configure a CAS driver.'
+                  + 'options.sidecar.casUpdates or configure a CAS driver.',
+                  MISSING_UPDATE_DATA, { announcementHash: need.announcementHash }
                 );
               }
               this.#log.debug('Fetching CAS announcement from CAS: %s', need.announcementHash);
               const announcement = await this.#cas.retrieve(decodeHash(need.announcementHash, 'hex'));
               if(!announcement) {
-                throw new Error(
-                  `CAS announcement not found in CAS (hash: ${need.announcementHash}).`
+                throw new ResolveError(
+                  `CAS announcement not found in CAS (hash: ${need.announcementHash}).`,
+                  MISSING_UPDATE_DATA, { announcementHash: need.announcementHash }
                 );
               }
               resolver.provide(need as NeedCASAnnouncement, announcement as CASAnnouncement);
@@ -392,17 +420,19 @@ export class DidMethodApi {
             }
             case 'NeedSignedUpdate': {
               if(!this.#cas) {
-                throw new Error(
+                throw new ResolveError(
                   `Signed update required but not in sidecar (hash: ${need.updateHash}), `
                   + 'and no CAS driver configured. Either provide it via '
-                  + 'options.sidecar.updates or configure a CAS driver.'
+                  + 'options.sidecar.updates or configure a CAS driver.',
+                  MISSING_UPDATE_DATA, { updateHash: need.updateHash }
                 );
               }
               this.#log.debug('Fetching signed update from CAS: %s', need.updateHash);
               const update = await this.#cas.retrieve(decodeHash(need.updateHash, 'hex'));
               if(!update) {
-                throw new Error(
-                  `Signed update not found in CAS (hash: ${need.updateHash}).`
+                throw new ResolveError(
+                  `Signed update not found in CAS (hash: ${need.updateHash}).`,
+                  MISSING_UPDATE_DATA, { updateHash: need.updateHash }
                 );
               }
               resolver.provide(need as NeedSignedUpdate, update as SignedBTCR2Update);
@@ -433,8 +463,10 @@ export class DidMethodApi {
       }
 
       this.#log.debug('DID resolved successfully', did, state.result.metadata);
+      // The specification: a resolver that returns a bare DID document records the
+      // media type application/did in the resolution metadata.
       return {
-        didResolutionMetadata : {},
+        didResolutionMetadata : { contentType: 'application/did' },
         didDocument           : state.result.didDocument as unknown as DidResolutionResult['didDocument'],
         didDocumentMetadata   : state.result.metadata,
       };

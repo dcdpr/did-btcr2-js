@@ -10,7 +10,7 @@ import { BitcoinApi } from './bitcoin.js';
 import { CasApi, DEFAULT_CAS_GATEWAY, type CasConfig } from './cas.js';
 import { CryptoApi } from './crypto.js';
 import { DidApi } from './did.js';
-import { assertString, NOOP_LOGGER, rootCauseMessage } from './helpers.js';
+import { assertString, NOOP_LOGGER, resolutionErrorCode, rootCauseMessage } from './helpers.js';
 import { KeyManagerApi } from './key-manager.js';
 import { DidMethodApi, type DidUpdateResult, type PublishToCasMode } from './method.js';
 import type { ApiConfig, BitcoinApiConfig, Logger, ResolutionResult } from './types.js';
@@ -167,7 +167,10 @@ export class DidBtcr2Api {
    * @param did The DID to resolve.
    * @param options Optional resolution options.
    * @returns A {@link ResolutionResult} with `ok: true` on success or
-   *          `ok: false` with error details on failure.
+   *          `ok: false` with error details on failure. `error` is the DID
+   *          Resolution error code of the nearest typed failure in the cause
+   *          chain (for example `NOT_FOUND`, `INVALID_DID`, `MISSING_UPDATE_DATA`),
+   *          else `INTERNAL_ERROR`.
    */
   async tryResolveDid(did: string, options?: ResolutionOptions): Promise<ResolutionResult> {
     this.#assertNotDisposed();
@@ -190,15 +193,16 @@ export class DidBtcr2Api {
       };
     } catch (err) {
       const errorMessage = rootCauseMessage(err);
+      const error = resolutionErrorCode(err);
       return {
         ok           : false,
-        error        : 'internalError',
+        error,
         errorMessage,
         cause        : err,
         raw          : {
           didDocument            : null,
           didDocumentMetadata    : {},
-          didResolutionMetadata  : { error: 'internalError', errorMessage },
+          didResolutionMetadata  : { error, errorMessage },
         } as unknown as DidResolutionResult,
       };
     }

@@ -1,3 +1,4 @@
+import { DidMethodError, INTERNAL_ERROR, MethodErrorCode } from '@did-btcr2/common';
 import type { Logger } from './types.js';
 
 const noopFn = () => {};
@@ -109,4 +110,38 @@ function fallbackString(value: unknown): string {
   } catch {
     return 'Unknown error';
   }
+}
+
+/** The error codes that a DID Resolution result can carry in `didResolutionMetadata.error`. */
+const RESOLUTION_ERROR_CODES: ReadonlySet<string> = new Set<string>(Object.values(MethodErrorCode));
+
+/**
+ * The DID Resolution error code of a caught value.
+ *
+ * Walks `err.cause` links from the top (capped at 16 hops, cycle-safe) and
+ * returns the `type` of the first link that is a {@link DidMethodError} whose
+ * type is a member of {@link MethodErrorCode}. The nearest typed link wins, so
+ * a wrapper that re-types a deeper failure decides the code. Every other value
+ * maps to `INTERNAL_ERROR`, the code DID Resolution v1 gives to an unexpected
+ * error. Never throws.
+ *
+ * @param err The caught value.
+ * @returns A member of {@link MethodErrorCode}.
+ */
+export function resolutionErrorCode(err: unknown): string {
+  let current: unknown = err;
+  for (let hops = 0; hops < 16; hops++) {
+    if (current instanceof DidMethodError && RESOLUTION_ERROR_CODES.has(current.type)) {
+      return current.type;
+    }
+    let next: unknown;
+    try {
+      next = (current as { cause?: unknown } | null)?.cause;
+    } catch {
+      break;
+    }
+    if (next === undefined || next === null) break;
+    current = next;
+  }
+  return INTERNAL_ERROR;
 }

@@ -187,3 +187,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 107 | 2026-09-08 | [Identifier Validation Returns a Report, and the cli Exposes It as identifier decode and identifier validate](107-identifier-validation-report-and-cli-identifier-command-group.md) |
 | 108 | 2026-09-09 | [The api Builds a Genesis Document from a Spec, and the cli Exposes It as genesis build](108-genesis-document-builder-and-cli-genesis-build.md) |
 | 109 | 2026-09-09 | [A BTCR2 Update Carries the Pinned @context Array, and the Resolver Rejects Any Other Array](109-btcr2-update-carries-the-pinned-context-array.md) |
+| 110 | 2026-09-09 | [Resolution Reports the Required Document Metadata and DID Resolution Error Codes](110-resolution-metadata-and-did-resolution-error-codes.md) |

@@ -31,4 +31,17 @@ describe('Resolve Deterministic (k1)', () => {
         expect(final.result.didDocument).to.have.property('id', did);
       }
     });
+
+  it('reports confirmations 0, deactivated false, and no updated field when no update applies',
+    () => {
+      const resolver = DidBtcr2.resolve(data[0].did);
+      const state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected action-required');
+      resolver.provide(state.needs[0] as NeedBeaconSignals, new Map<BeaconService, Array<BeaconSignal>>());
+      const final = resolver.resolve();
+      if(final.status !== 'resolved') throw new Error('expected resolved');
+      // The specification requires versionId, confirmations, and deactivated; updated is
+      // optional and only present once an update is applied.
+      expect(final.result.metadata).to.deep.equal({ versionId: '1', confirmations: 0, deactivated: false });
+    });
 });

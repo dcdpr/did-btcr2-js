@@ -7,7 +7,7 @@ import {
   encode as encodeHash,
   decode as decodeHash,
   INTERNAL_ERROR,
-  INVALID_DID_DOCUMENT,
+  INVALID_DID,
   INVALID_DID_UPDATE,
   INVALID_OPTIONS,
   JSONPatch,
@@ -49,15 +49,27 @@ import { equalBytes } from '@noble/curves/utils.js';
 export const DEFAULT_MIN_CONF = 6;
 
 /**
- * The response object for DID Resolution.
+ * The response object for DID Resolution. `metadata` is the DID document metadata
+ * of the specification: `versionId`, `confirmations`, and `deactivated` are always
+ * present; `updated` is present after the resolver applies an update.
  */
 export interface DidResolutionResponse {
   didDocument: DidDocument;
   metadata: {
-    confirmations?: number;
+    /**
+     * Number of confirmations of the Bitcoin block that contains the last applied
+     * unique update. `0` when the resolver applied no update.
+     */
+    confirmations: number;
+    /** The version of the resolved document as an ASCII string. `"1"` when the resolver applied no update. */
     versionId: string;
+    /**
+     * XML Datetime (UTC, no fraction) of the block of the last applied update.
+     * Absent until the resolver applies an update.
+     */
     updated?: string;
-    deactivated?: boolean;
+    /** Whether the resolved document is deactivated. */
+    deactivated: boolean;
   }
 }
 
@@ -341,7 +353,7 @@ export class Resolver {
    * @param {DidComponents} didComponents BTCR2 DID components used to resolve the DID Document
    * @param {object} genesisDocument The genesis document for resolving the DID Document.
    * @returns {DidDocument} The resolved DID Document object
-   * @throws {ResolveError} InvalidDidDocument if not conformant to DID Core v1.1
+   * @throws {ResolveError} `INVALID_DID` if the hash of the genesis document is not the genesis bytes of the identifier
    */
   static external(
     didComponents: DidComponents,
@@ -350,11 +362,12 @@ export class Resolver {
     // Canonicalize and sha256 hash the genesis document
     const genesisDocumentHash = canonicalHashBytes(genesisDocument);
 
-    // Compare genesis bytes from identifier against the document hash (byte comparison)
+    // Compare genesis bytes from identifier against the document hash (byte comparison).
+    // The specification raises INVALID_DID when the computed hash does not match genesis_bytes.
     if (!equalBytes(didComponents.genesisBytes, genesisDocumentHash)) {
       throw new ResolveError(
         `Initial document mismatch: genesisBytes !== genesisDocumentHash`,
-        INVALID_DID_DOCUMENT, {
+        INVALID_DID, {
           genesisBytes        : encodeHash(didComponents.genesisBytes, 'hex'),
           genesisDocumentHash : encodeHash(genesisDocumentHash, 'hex')
         }
@@ -439,13 +452,12 @@ export class Resolver {
       upd0.targetVersionId - upd1.targetVersionId || blk0.height - blk1.height
     );
 
-    // Create a default response object
+    // Create a default response object. `updated` is absent until an update applies.
     const response: DidResolutionResponse = {
       didDocument : currentDocument,
       metadata    : {
         versionId     : `${currentVersionId}`,
         confirmations : 0,
-        updated       : '',
         deactivated   : currentDocument.deactivated || false
       }
     };
@@ -900,11 +912,13 @@ export class Resolver {
         case ResolverPhase.Complete: {
           return {
             status : 'resolved',
+            // No update applied: confirmations is 0 per the specification.
             result : this.#resolvedResponse ?? {
               didDocument : this.#currentDocument!,
               metadata    : {
-                versionId   : this.#versionId ?? '1',
-                deactivated : this.#currentDocument!.deactivated || false
+                versionId     : this.#versionId ?? '1',
+                confirmations : 0,
+                deactivated   : this.#currentDocument!.deactivated || false
               }
             }
           };

@@ -1,6 +1,6 @@
 import { expect, use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/common';
+import { INTERNAL_ERROR, INVALID_DID_UPDATE, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/common';
 import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import {
   BitcoinApi,
@@ -667,7 +667,7 @@ describe('DidBtcr2Api', () => {
       const result = await api.tryResolveDid(did);
       expect(result.ok).to.equal(false);
       if (!result.ok) {
-        expect(result.error).to.equal('internalError');
+        expect(result.error).to.equal(INTERNAL_ERROR);
         expect(result.errorMessage).to.be.a('string');
         expect(result.raw).to.exist;
       }
@@ -694,7 +694,7 @@ describe('DidBtcr2Api', () => {
         expect(result.cause).to.be.instanceOf(Error);
         expect((result.cause as Error).message).to.include(`Failed to resolve DID ${did}: `);
         // The raw metadata mirrors the top-level fields.
-        expect(result.raw.didResolutionMetadata.error).to.equal('internalError');
+        expect(result.raw.didResolutionMetadata.error).to.equal(INTERNAL_ERROR);
         expect(result.raw.didResolutionMetadata.errorMessage).to.equal(result.errorMessage);
       }
     });
@@ -709,6 +709,32 @@ describe('DidBtcr2Api', () => {
         expect(result.errorMessage).to.equal('Unknown error');
         expect(result.cause).to.equal(null);
         expect(result.raw.didResolutionMetadata.errorMessage).to.equal('Unknown error');
+      }
+    });
+
+    it('reports the DID Resolution error code of a typed failure in the cause chain', async () => {
+      const api = createApi();
+      const { did } = api.did.generate();
+      (api.btcr2 as any).resolve = () => Promise.reject(
+        new Error(`Failed to resolve DID ${did}: not found`, { cause: new ResolveError('Genesis document not found in CAS', NOT_FOUND) })
+      );
+      const result = await api.tryResolveDid(did);
+      expect(result.ok).to.equal(false);
+      if (!result.ok) {
+        expect(result.error).to.equal(NOT_FOUND);
+        expect(result.errorMessage).to.equal('Genesis document not found in CAS');
+        expect(result.raw.didResolutionMetadata.error).to.equal(NOT_FOUND);
+      }
+    });
+
+    it('reports NOT_FOUND for an EXTERNAL DID whose genesis document the CAS does not return', async () => {
+      // A hermetic CAS: the default createApi() config reaches a public gateway.
+      const api = createApi({ cas: { executor: { retrieve: async () => null, publish: async () => '' } } });
+      const did = api.btcr2.createExternal(new Uint8Array(32).fill(0xAB), { network: 'regtest' });
+      const result = await api.tryResolveDid(did);
+      expect(result.ok).to.equal(false);
+      if (!result.ok) {
+        expect(result.error).to.equal(NOT_FOUND);
       }
     });
   });

@@ -66,6 +66,8 @@ See [`src/core/resolver.ts`](./src/core/resolver.ts) for the full `DataNeed` uni
 
 Resolution processes a beacon signal only if its transaction has at least `minConf` confirmations. The default is `6` (`DEFAULT_MIN_CONF`), the value the specification mandates. A signal below the threshold is excluded as if it did not exist yet; the other signals are processed. Pass `{ minConf: 1 }` to see a fresh update after one block, at a higher exposure to a block reorganization. `metadata.confirmations` reports the depth of the last applied signal. A `minConf` that is not a positive integer fails with a `ResolveError` of type `INVALID_OPTIONS`. Indexer signal discovery skips a mempool transaction before the threshold applies.
 
+The `metadata` of the result is the DID document metadata of the specification. `versionId`, `confirmations`, and `deactivated` are always present. `confirmations` is `0` and `versionId` is `"1"` when the resolver applied no update. `updated` is present after the resolver applies an update. An identifier that does not decode fails with an `IdentifierError` of type `INVALID_DID`, also when the Bech32m decoder rejects the body. A sidecar genesis document whose hash is not the genesis bytes of the identifier fails with a `ResolveError` of type `INVALID_DID`.
+
 ### Update a DID
 
 `DidBtcr2.update()` returns a sans-I/O state machine: the counterpart to the Resolver. The caller drives the update by fulfilling typed data needs (signing key, funding confirmation, broadcast).

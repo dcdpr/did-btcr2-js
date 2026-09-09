@@ -1,3 +1,4 @@
+import { IdentifierError, INVALID_DID } from '@did-btcr2/common';
 import { bytesToHex } from '@noble/hashes/utils';
 import { bech32m, hex } from '@scure/base';
 import { expect } from 'chai';
@@ -215,5 +216,68 @@ describe('Decode Identifier', () => {
       const externalDid = data.find(d => d.components.idType === 'EXTERNAL')!.did;
       expect(() => Identifier.getPublicKey(externalDid)).to.throw(/EXTERNAL/i);
     });
+  });
+
+  // The specification maps every failure of the Bech32m decoder to INVALID_DID. The
+  // decoder itself throws a plain Error or TypeError; decode() must not leak it.
+  describe('Bech32m decoding failures', () => {
+    const validDid = data[0].did;
+
+    function expectInvalidDid(did: string): void {
+      let caught: unknown;
+      try {
+        Identifier.decode(did);
+      } catch (error: unknown) {
+        caught = error;
+      }
+      expect(caught, did).to.be.instanceOf(IdentifierError);
+      expect(caught).to.have.property('type', INVALID_DID);
+      expect((caught as Error).message).to.match(/Bech32m decoding failed/);
+    }
+
+    it('rejects a bad checksum with INVALID_DID', () => {
+      const last = validDid.at(-1);
+      expectInvalidDid(validDid.slice(0, -1) + (last === 'q' ? 'p' : 'q'));
+    });
+
+    it('rejects non-zero padding with INVALID_DID', () => {
+      // Two 5-bit words carry one byte and two padding bits; the low bits of the last word are set.
+      expectInvalidDid(`did:btcr2:${bech32m.encode('k', [5, 3])}`);
+    });
+
+    it('rejects excess padding with INVALID_DID', () => {
+      // Three 5-bit words carry one byte and seven padding bits, more than one byte allows.
+      expectInvalidDid(`did:btcr2:${bech32m.encode('k', [5, 0, 0])}`);
+    });
+
+    it('rejects a body that is too short for the decoder with INVALID_DID', () => {
+      expectInvalidDid('did:btcr2:k1qqbbb');
+    });
+
+    it('rejects a character outside the Bech32m alphabet with INVALID_DID', () => {
+      expectInvalidDid(validDid.slice(0, -3) + 'b1o');
+    });
+  });
+});
+
+describe('Decode Identifier: specification examples', () => {
+  // "DID-BTCR2 Identifier Encoding" and "DID-BTCR2 Identifier Decoding" in the
+  // specification. The vectors come from the specification text, not from the
+  // output of this implementation.
+  const GENERATOR_POINT = '0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798';
+  const ENCODING_EXAMPLE = 'did:btcr2:k1qqp8n0nx0muaewav2ksx99wwsu9swq5mlndjmn3gm9vl9q2mzmup0xqhmkf96';
+  const DECODING_EXAMPLE = 'did:btcr2:x1qhjw6jnhwcyu5wau4x0cpwvz74c3g82c3uaehqpaf7lzfgmnwsd7spmmf54';
+  const DECODING_EXAMPLE_HASH = 'e4ed4a777609ca3bbca99f80b982f571141d588f3b9b803d4fbe24a373741be8';
+
+  it('decodes the encoding example to the generator point on bitcoin', () => {
+    const components = Identifier.decode(ENCODING_EXAMPLE);
+    expect(components).to.include({ idType: 'KEY', version: 1, network: 'bitcoin' });
+    expect(bytesToHex(components.genesisBytes)).to.equal(GENERATOR_POINT);
+  });
+
+  it('decodes the decoding example to its SHA-256 hash on mutinynet', () => {
+    const components = Identifier.decode(DECODING_EXAMPLE);
+    expect(components).to.include({ idType: 'EXTERNAL', version: 1, network: 'mutinynet' });
+    expect(bytesToHex(components.genesisBytes)).to.equal(DECODING_EXAMPLE_HASH);
   });
 });

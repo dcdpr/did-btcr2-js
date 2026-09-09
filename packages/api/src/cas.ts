@@ -1,5 +1,6 @@
 import type { HashBytes } from '@did-btcr2/common';
-import { canonicalize, decode as decodeHash, encode as encodeHash } from '@did-btcr2/common';
+import { canonicalize, decode as decodeHash, encode as encodeHash, MISSING_UPDATE_DATA, ResolveError } from '@did-btcr2/common';
+import { equals as equalBytes } from 'multiformats/bytes';
 import { CID } from 'multiformats/cid';
 import * as raw from 'multiformats/codecs/raw';
 import { create as createDigest } from 'multiformats/hashes/digest';
@@ -265,14 +266,37 @@ export class CasApi {
 
   /**
    * Retrieve a JSON object from the CAS by its SHA-256 hash bytes.
+   *
+   * The specification requires a resolver to compute the SHA-256 hash of the
+   * retrieved content, to compare it to the hash used for the retrieval, and
+   * to not use the content if the hashes differ. This method hashes the raw
+   * bytes before it parses them.
    * @param hashBytes Raw SHA-256 hash bytes of the JCS-canonicalized object.
    * @returns The parsed JSON object, or `null` if not found.
+   * @throws {ResolveError} `MISSING_UPDATE_DATA` if the retrieved bytes do not
+   *         hash to `hashBytes`, or if they are not a JSON object.
    */
   async retrieve(hashBytes: HashBytes): Promise<object | null> {
     const hash = encodeHash(hashBytes, 'base64urlnopad');
     const bytes = await this.#withTimeout(this.#executor.retrieve(hash));
     if (!bytes) return null;
-    return JSON.parse(new TextDecoder().decode(bytes)) as object;
+    const actual = (await sha256.digest(bytes)).digest;
+    if (!equalBytes(actual, hashBytes)) {
+      throw new ResolveError(
+        `CAS content for ${hash} hashes to ${encodeHash(actual, 'base64urlnopad')}; the resolver must not use it.`,
+        MISSING_UPDATE_DATA, { hash, actual: encodeHash(actual, 'base64urlnopad') }
+      );
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(new TextDecoder().decode(bytes));
+    } catch {
+      throw new ResolveError(`CAS content for ${hash} is not JSON.`, MISSING_UPDATE_DATA, { hash });
+    }
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new ResolveError(`CAS content for ${hash} is not a JSON object.`, MISSING_UPDATE_DATA, { hash });
+    }
+    return parsed;
   }
 
   /**

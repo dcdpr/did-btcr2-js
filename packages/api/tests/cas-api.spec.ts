@@ -1,4 +1,4 @@
-import { canonicalHash, canonicalHashBytes, canonicalize, encode, hash } from '@did-btcr2/common';
+import { canonicalHash, canonicalHashBytes, canonicalize, encode, hash, MISSING_UPDATE_DATA, ResolveError } from '@did-btcr2/common';
 import { expect } from 'chai';
 import { CID } from 'multiformats/cid';
 import * as raw from 'multiformats/codecs/raw';
@@ -308,6 +308,52 @@ describe('CasApi', () => {
         error = e;
       }
       expect(error?.message).to.match(/timed out after 20ms/);
+    });
+  });
+
+  // The specification: the resolver computes the SHA-256 hash of the retrieved content,
+  // compares it to the hash used for the retrieval, and does not use the content if they differ.
+  describe('retrieve() content check', () => {
+    const casWith = (bytes: Uint8Array | null) => new CasApi({
+      executor : { retrieve: async () => bytes, publish: async () => dataHash },
+    });
+
+    async function rejection(promise: Promise<unknown>): Promise<ResolveError> {
+      try {
+        await promise;
+      } catch (error: unknown) {
+        expect(error).to.be.instanceOf(ResolveError);
+        expect(error).to.have.property('type', MISSING_UPDATE_DATA);
+        return error as ResolveError;
+      }
+      throw new Error('retrieve should have failed');
+    }
+
+    it('returns the object when the bytes hash to the requested address', async () => {
+      expect(await casWith(data).retrieve(hash(text))).to.deep.equal(object);
+    });
+
+    it('returns null when the executor has no content', async () => {
+      expect(await casWith(null).retrieve(hash(text))).to.be.null;
+    });
+
+    it('rejects bytes that do not hash to the requested address', async () => {
+      const other = new TextEncoder().encode('{"other":1}');
+      const error = await rejection(casWith(other).retrieve(hash(text)));
+      expect(error.message).to.match(/hashes to .*; the resolver must not use it/);
+      expect(error.data).to.include({ hash: dataHash });
+    });
+
+    it('rejects content that is not JSON', async () => {
+      const notJson = new TextEncoder().encode('not json');
+      const error = await rejection(casWith(notJson).retrieve(hash('not json')));
+      expect(error.message).to.match(/is not JSON/);
+    });
+
+    it('rejects content that is not a JSON object', async () => {
+      const array = new TextEncoder().encode('[1,2]');
+      const error = await rejection(casWith(array).retrieve(hash('[1,2]')));
+      expect(error.message).to.match(/is not a JSON object/);
     });
   });
 });

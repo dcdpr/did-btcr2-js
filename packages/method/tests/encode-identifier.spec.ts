@@ -131,3 +131,17 @@ describe('Encode Identifier', () => {
     });
   });
 });
+
+describe('Encode Identifier: specification example', () => {
+  // "DID-BTCR2 Identifier Encoding" in the specification encodes the secp256k1
+  // generator point on bitcoin. The vector comes from the specification text,
+  // not from the output of this implementation.
+  const GENERATOR_POINT = hex.decode('0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798');
+  const ENCODING_EXAMPLE = 'did:btcr2:k1qqp8n0nx0muaewav2ksx99wwsu9swq5mlndjmn3gm9vl9q2mzmup0xqhmkf96';
+
+  it('encodes the generator point on bitcoin to the encoding example', () => {
+    expect(Identifier.encode(GENERATOR_POINT, {
+      idType : 'KEY', version : 1, network : 'bitcoin'
+    })).to.equal(ENCODING_EXAMPLE);
+  });
+});

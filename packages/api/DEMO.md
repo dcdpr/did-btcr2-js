@@ -120,7 +120,8 @@ Resolution reads beacon signals from the chain and materializes the W3C DID docu
 const v1 = await api.tryResolveDid(did);
 if (!v1.ok) throw new Error(v1.errorMessage ?? v1.error);
 
-console.log(v1.metadata?.versionId);   // '1' - no updates yet
+console.log(v1.metadata?.versionId);      // '1' - no updates yet
+console.log(v1.metadata?.confirmations);  // 0 - no update applied
 console.log(v1.document);
 ```
 
