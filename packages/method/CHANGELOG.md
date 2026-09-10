@@ -1,5 +1,13 @@
 # @did-btcr2/method
 
+## 0.63.0
+
+### Minor Changes
+
+- The resolver processes one update per pass, as the specification loop describes, and re-scans the beacon addresses that an applied update adds before the next update (ADR 111). The constructor validates the resolution options: `versionId` and `versionTime` together, a `versionId` that is not an ASCII string of an integer, or a `versionTime` that is not an XML Datetime in UTC without a fraction raise a `ResolveError` of type `INVALID_OPTIONS`. The `versionId` test runs before Apply, so `"1"` returns the genesis document; a version that the history does not reach raises `NOT_FOUND`. The `versionTime` test compares the block `mediantime` with an inclusive boundary. `confirmations` and `updated` report the last applied update only.
+
+  Breaking: `BlockMetadata.mediantime` is required; both discovery paths fill it (the indexer path reads the Esplora block record once per distinct block). `Resolver.updates()` is removed. A request with both options or with a value that does not parse fails with `INVALID_OPTIONS`; before, it was silent. A `versionId` past the history fails with `NOT_FOUND`; before, it returned the latest document.
+
 ## 0.62.0
 
 ### Minor Changes
