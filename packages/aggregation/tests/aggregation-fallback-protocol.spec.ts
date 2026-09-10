@@ -66,7 +66,7 @@ function createSignedUpdate(did: string, keys: SchnorrKeyPair, version = 2): Sig
     capabilityAction   : 'Write',
   };
   const multikey = SchnorrMultikey.fromSecretKey(verificationMethodId, did, keys.secretKey.bytes);
-  return multikey.toCryptosuite().toDataIntegrityProof().addProof(unsigned, config);
+  return multikey.toCryptosuite().toDataIntegrityProof().addProof(unsigned, config) as SignedBTCR2Update;
 }
 
 describe('Aggregate beacon fallback protocol (ADR 042)', () => {

@@ -27,6 +27,13 @@ function findUnsafeSegment(pointer: string): string | undefined {
 }
 
 export type PatchOpCode = 'add' | 'remove' | 'replace' | 'move' | 'copy' | 'test';
+
+/** The operation codes of RFC 6902, section 4. */
+const PATCH_OP_CODES: ReadonlySet<string> = new Set<PatchOpCode>(['add', 'remove', 'replace', 'move', 'copy', 'test']);
+
+/** The operations that require a `value` (RFC 6902, sections 4.1, 4.3, 4.6). */
+const OPS_WITH_VALUE: ReadonlySet<string> = new Set<PatchOpCode>(['add', 'replace', 'test']);
+
 /**
  * A JSON Patch operation, as defined in {@link https://datatracker.ietf.org/doc/html/rfc6902 | RFC 6902}.
  */
@@ -37,6 +44,40 @@ export interface PatchOperation {
   from?: string; // Required for move, copy
 }
 
+/** The options of {@link JSONPatch.apply}. */
+export interface JSONPatchApplyOptions {
+  /** Apply the operations to the source document itself. Default: `false` (the patch runs on a deep clone). */
+  mutate?: boolean;
+
+  /** The clone function for a non-mutating apply. Default: the deep clone of fast-json-patch. */
+  clone?: (value: any) => any;
+
+  /**
+   * Validate each operation against RFC 6902 and against the document. With `true`, an
+   * unknown `op`, a missing `value` (add, replace, test), a missing `from` (move, copy), a
+   * `remove` or a `replace` of a path that does not exist, a `move` or a `copy` from a path
+   * that does not exist, an `add` under a parent that does not exist, and a failed `test`
+   * fail the patch at the first failing operation. With `false`, only a failed `test` fails
+   * the patch; the other cases pass silently. Default: `false`.
+   */
+  strict?: boolean;
+}
+
+/**
+ * Describe a failure of fast-json-patch for an error message: the index and the code of the
+ * failing operation, and the reason. An error without those fields yields its message only.
+ * @param {unknown} error - The error that fast-json-patch threw.
+ * @returns {string} The description, with a leading separator, or an empty string.
+ */
+function describePatchFailure(error: unknown): string {
+  if (!(error instanceof Error)) return '';
+  const { index, operation } = error as Error & { index?: number; operation?: Partial<PatchOperation> };
+  const location = typeof index === 'number' && operation && typeof operation === 'object'
+    ? ` at operation ${index} (${String(operation.op)} ${String(operation.path)})`
+    : '';
+  return `${location}: ${error.message}`;
+}
+
 /**
  * Thin wrapper around fast-json-patch to keep a stable API within this package.
  * @class JSONPatch
@@ -45,32 +86,38 @@ export interface PatchOperation {
 export class JSONPatch {
   /**
    * Applies a JSON Patch to a source document and returns the patched document.
-   * Does not mutate the input document.
+   * Does not mutate the input document unless `options.mutate` is `true`.
    * @param {JSONObject} sourceDocument - The source JSON document to apply the patch to.
    * @param {PatchOperation[]} operations - The JSON Patch operations to apply.
+   * @param {JSONPatchApplyOptions} [options] - The apply options; see {@link JSONPatchApplyOptions}.
    * @returns {JSONObject} The patched JSON document.
+   * @throws {MethodError} `JSON_PATCH_APPLY_ERROR` if an operation is invalid or fails to apply.
    */
   static apply(
     sourceDocument: Record<any, any>,
     operations: PatchOperation[],
-    options: { mutate?: boolean; clone?: (value: any) => any } = {}
+    options: JSONPatchApplyOptions = {}
   ): Record<any, any> {
     const mutate = options.mutate ?? false;
+    const strict = options.strict ?? false;
     const cloneFn = options.clone ?? deepClone;
     const docClone = mutate ? sourceDocument : cloneFn(sourceDocument);
-    const validationError = this.validateOperations(operations);
+    const validationError = this.validateOperations(operations, strict);
     if (validationError) {
-      throw new MethodError('Invalid JSON Patch operations', 'JSON_PATCH_APPLY_ERROR', { error: validationError });
+      throw new MethodError(
+        `Invalid JSON Patch operations: ${validationError.message}`, 'JSON_PATCH_APPLY_ERROR', { error: validationError }
+      );
     }
+    let result;
     try {
-      const result = applyPatch(docClone, operations as Operation[], false, mutate);
-      if (result.newDocument === undefined) {
-        throw new MethodError('JSON Patch application failed', 'JSON_PATCH_APPLY_ERROR', { result });
-      }
-      return result.newDocument as JSONObject;
+      result = applyPatch(docClone, operations as Operation[], strict, mutate);
     } catch (error) {
-      throw new MethodError('JSON Patch application failed', 'JSON_PATCH_APPLY_ERROR', { error });
+      throw new MethodError(`JSON Patch application failed${describePatchFailure(error)}`, 'JSON_PATCH_APPLY_ERROR', { error });
     }
+    if (result.newDocument === undefined) {
+      throw new MethodError('JSON Patch application failed: no document', 'JSON_PATCH_APPLY_ERROR', { result });
+    }
+    return result.newDocument as JSONObject;
   }
 
   /**
@@ -116,16 +163,25 @@ export class JSONPatch {
   }
 
   /**
- * Validate JSON Patch operations.
+ * Validate JSON Patch operations. The structural checks run in both modes. With `strict`,
+ * the `op` must be an RFC 6902 operation code, and `add`, `replace`, and `test` must carry
+ * a `value`.
  * @param {PatchOperation[]} operations - The operations to validate.
+ * @param {boolean} [strict=false] - Apply the RFC 6902 checks of {@link JSONPatchApplyOptions.strict}.
  * @returns {MethodError | null} A MethodError if validation fails, otherwise null.
  */
-  static validateOperations(operations: PatchOperation[]): MethodError | null {
+  static validateOperations(operations: PatchOperation[], strict: boolean = false): MethodError | null {
     if (!Array.isArray(operations)) return new MethodError('Operations must be an array', 'JSON_PATCH_VALIDATION_ERROR');
     for (const op of operations) {
       if (!op || typeof op !== 'object') return new MethodError('Operation must be an object', 'JSON_PATCH_VALIDATION_ERROR');
       if (typeof op.op !== 'string') return new MethodError('Operation.op must be a string', 'JSON_PATCH_VALIDATION_ERROR');
       if (typeof op.path !== 'string') return new MethodError('Operation.path must be a string', 'JSON_PATCH_VALIDATION_ERROR');
+      if (strict && !PATCH_OP_CODES.has(op.op)) {
+        return new MethodError(`Operation.op is not an RFC 6902 operation: ${op.op}`, 'JSON_PATCH_VALIDATION_ERROR');
+      }
+      if (strict && OPS_WITH_VALUE.has(op.op) && op.value === undefined) {
+        return new MethodError(`Operation.value is required for op=${op.op}`, 'JSON_PATCH_VALIDATION_ERROR');
+      }
       const unsafePathSegment = findUnsafeSegment(op.path);
       if (unsafePathSegment) {
         return new MethodError(

@@ -18,6 +18,7 @@ import {
   DidErrorCode
 } from '@web5/dids';
 import type { BeaconService } from './core/beacon/interfaces.js';
+import { DEACTIVATION_PATCH } from './core/btcr2-update.js';
 import { Identifier } from './core/identifier.js';
 import type { ResolutionOptions } from './core/interfaces.js';
 import { Resolver } from './core/resolver.js';
@@ -155,9 +156,11 @@ export class DidBtcr2 implements DidMethod {
    * @param {string} params.verificationMethodId The verification method ID to sign with.
    * @param {string} params.beaconId The beacon service ID to broadcast through.
    * @returns {Updater} A sans-I/O state machine for driving the update.
-   * @throws {UpdateError} If the verification method is not authorized, not found,
-   *   not of type `Multikey`, or does not have a `zQ3s` publicKeyMultibase prefix.
-   *   Also throws if the beacon service is not found.
+   * @throws {UpdateError} `INVALID_DID_UPDATE` if `sourceVersionId` is not an integer of at
+   *   least 1, if no entry of `capabilityInvocation` identifies the verification method, if a
+   *   reference entry names no member of `verificationMethod`, or if the beacon service is not
+   *   found. `INVALID_DID_DOCUMENT` if the method is not of type `Multikey` or does not have a
+   *   `zQ3s` publicKeyMultibase prefix.
    */
   static update({
     sourceDocument,
@@ -172,30 +175,37 @@ export class DidBtcr2 implements DidMethod {
     verificationMethodId: string;
     beaconId: string;
   }): Updater {
-    // Validate that the verificationMethodId is authorized for capabilityInvocation.
-    // Both sides are resolved to absolute DID URLs first, so the caller's spelling of the
-    // reference and the document's spelling of the entry may differ: either is legal per
-    // DID Core. This is the same rule the read path applies to an update's proof, so an
-    // update this factory authorizes is one the resolver will also accept.
-    const authorizedMethodId = Appendix.relationshipMethodId(verificationMethodId, sourceDocument.id);
-    const authorized = authorizedMethodId !== undefined && sourceDocument.capabilityInvocation?.some(
-      entry => Appendix.relationshipMethodId(entry, sourceDocument.id) === authorizedMethodId
-    );
-    if(!authorized) {
+    // The version of the source document is a positive integer: versionId starts at 1, and
+    // targetVersionId is sourceVersionId + 1. Without the guard, Number(undefined) + 1 is
+    // NaN, and the update carries no usable version.
+    if(!Number.isInteger(sourceVersionId) || sourceVersionId < 1) {
       throw new UpdateError(
-        'Invalid verificationMethodId: not authorized for capabilityInvocation',
-        INVALID_DID_DOCUMENT, sourceDocument
+        `Invalid sourceVersionId: expected an integer of at least 1, got ${String(sourceVersionId)}.`,
+        INVALID_DID_UPDATE, { sourceVersionId }
       );
     }
 
-    // Get the verification method to be used for signing the update
-    const verificationMethod = this.getSigningMethod(sourceDocument, verificationMethodId);
+    // Spec "Construct BTCR2 Signed Update": an entry of capabilityInvocation must identify
+    // the verificationMethodId, in the reference form or the embedded form. Both sides are
+    // resolved to absolute DID URLs first, so the caller's spelling of the reference and the
+    // document's spelling of the entry may differ: either is legal per DID Core. This is the
+    // same rule the read path applies to an update's proof, so an update this factory
+    // authorizes is one the resolver will also accept.
+    const entry = Appendix.capabilityInvocationEntry(sourceDocument, verificationMethodId);
+    if(entry === undefined) {
+      throw new UpdateError(
+        'Invalid verificationMethodId: not authorized for capabilityInvocation',
+        INVALID_DID_UPDATE, { verificationMethodId, capabilityInvocation: sourceDocument.capabilityInvocation }
+      );
+    }
 
-    // Validate the verificationMethod exists in the sourceDocument
+    // The verification method is the embedded object of the entry, or the member of
+    // verificationMethod[] that a reference entry names.
+    const verificationMethod = Appendix.verificationMethodOfEntry(sourceDocument, entry);
     if(!verificationMethod) {
       throw new UpdateError(
-        'Invalid verificationMethod: not found in source document',
-        INVALID_DID_DOCUMENT, { sourceDocument, verificationMethodId }
+        'Invalid verificationMethodId: not found in source document',
+        INVALID_DID_UPDATE, { verificationMethodId }
       );
     }
 
@@ -233,13 +243,47 @@ export class DidBtcr2 implements DidMethod {
       );
     }
 
-    // Return a sans-I/O state machine the caller will drive
+    // Return a sans-I/O state machine the caller will drive. The prefix check above proves
+    // that the method carries a publicKeyMultibase, which the btcr2 method type requires.
     return new Updater({
       sourceDocument,
       patches,
       sourceVersionId,
-      verificationMethod,
+      verificationMethod : verificationMethod as DidVerificationMethod,
       beaconService,
+    });
+  }
+
+  /**
+   * Entry point for section {@link https://dcdpr.github.io/did-btcr2/operations/deactivate.html | 7.4 Deactivate}.
+   *
+   * Deactivate is the Update operation with the predetermined patch {@link DEACTIVATION_PATCH}:
+   * it adds the `deactivated` property with the value `true`. The factory returns the
+   * {@link Updater} that {@link DidBtcr2.update} returns for that patch, and the caller drives
+   * it in the same way. Resolution stops at the deactivation for good. The factory does not
+   * refuse a source document that is deactivated already; the api does (ADR 100).
+   *
+   * @param params Deactivation parameters: the parameters of {@link DidBtcr2.update} without `patches`.
+   * @returns {Updater} A sans-I/O state machine for driving the deactivation.
+   * @throws {UpdateError} As {@link DidBtcr2.update}.
+   */
+  static deactivate({
+    sourceDocument,
+    sourceVersionId,
+    verificationMethodId,
+    beaconId,
+  }: {
+    sourceDocument: Btcr2DidDocument;
+    sourceVersionId: number;
+    verificationMethodId: string;
+    beaconId: string;
+  }): Updater {
+    return this.update({
+      sourceDocument,
+      patches : [{ ...DEACTIVATION_PATCH }],
+      sourceVersionId,
+      verificationMethodId,
+      beaconId,
     });
   }
 
@@ -272,9 +316,10 @@ export class DidBtcr2 implements DidMethod {
 
     // An unusable target matches nothing: without this guard it compares equal to every
     // method whose own id is unusable, and the document's first malformed method is
-    // returned as the signing method.
-    const verificationMethod = targetId === undefined ? undefined : didDocument.verificationMethod?.find(
-      (vm: DidVerificationMethod) => Appendix.absoluteDidUrl(vm.id, didDocument.id) === targetId
+    // returned as the signing method. The search covers verificationMethod[] first, then the
+    // methods that a verification relationship embeds.
+    const verificationMethod = targetId === undefined ? undefined : Appendix.getVerificationMethods(didDocument).find(
+      vm => Appendix.absoluteDidUrl(vm.id, didDocument.id) === targetId
     );
 
     // If no verification method is found, throw an error

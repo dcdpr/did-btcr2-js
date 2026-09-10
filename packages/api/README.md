@@ -199,7 +199,9 @@ const { txid } = await api.deactivateDid({
 });
 ```
 
-A later `updateDid` on a deactivated DID is refused before any signature or broadcast.
+A later `updateDid` on a deactivated DID is refused before any signature or broadcast. The patch is `DEACTIVATION_PATCH` of `@did-btcr2/method`; `DidMethodApi.DEACTIVATION_PATCH` is the same object.
+
+Every update failure that the specification names is an `UpdateError` of type `INVALID_DID_UPDATE`. Examples: a verification method that no `capabilityInvocation` entry identifies, a reference with no `verificationMethod` member, a patch that fails to apply, a patched document that changes the `id` or does not conform to DID Core, and a proof that does not verify with the published key. The method package applies the patch strictly per RFC 6902: a `remove` of a missing path or a failed `test` fails the whole patch. A method that `capabilityInvocation` embeds as an object signs an update like a referenced one, also when `verificationMethod` does not list it.
 
 ## Architecture Principles
 

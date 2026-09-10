@@ -3,6 +3,7 @@ import { randomBytes } from 'crypto';
 import { canonicalHash, encode, hash, canonicalize, INTERNAL_ERROR, INVALID_DID_UPDATE, INVALID_OPTIONS, JSONPatch, LATE_PUBLISHING_ERROR, NOT_FOUND, ResolveError } from '@did-btcr2/common';
 import type { PatchOperation } from '@did-btcr2/common';
 import { getNetwork } from '@did-btcr2/bitcoin';
+import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey, LocalSigner } from '@did-btcr2/keypair';
 import { BTCR2MerkleTree, hashToHex } from '@did-btcr2/smt';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
@@ -13,7 +14,7 @@ import { BeaconUtils } from '../src/core/beacon/utils.js';
 import type { BeaconService, BeaconSignal } from '../src/core/beacon/interfaces.js';
 import type { DidDocument } from '../src/utils/did-document.js';
 import { DidVerificationMethod } from '../src/utils/did-document.js';
-import type { SignedBTCR2Update } from '../src/core/btcr2-update.js';
+import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from '../src/core/btcr2-update.js';
 import { BTCR2_UPDATE_CONTEXT } from '../src/core/btcr2-update.js';
 import { DEFAULT_MIN_CONF } from '../src/core/resolver.js';
 import type { DidResolutionResponse, NeedBeaconSignals, NeedCASAnnouncement, NeedGenesisDocument, NeedSMTProof, NeedSignedUpdate } from '../src/core/resolver.js';
@@ -2434,6 +2435,245 @@ describe('Resolver', () => {
       expect(metadata.versionId).to.equal('4');
       expect(didDocument.service.length).to.equal(source.service.length + 1);
       expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 2);
+    });
+  });
+
+  describe('proof fields, embedded methods, the proof time window, and the strict patch on the read path (ADR 112)', () => {
+    // Spec "Check update.proof": each proof field by string equality; the capabilityInvocation
+    // entry in the reference form or the embedded form; the created and expires window
+    // against the block of the signal. Spec "Apply update": a strict JSON Patch, the id
+    // check, and DID Core conformance. Every failure is a ResolveError of type
+    // INVALID_DID_UPDATE, and the message names the check that fired.
+    const fixture = deterministicData[2]; // regtest - has a known secretKey
+    const HEADER_TIME = 1700000000;
+    const MEDIANTIME = HEADER_TIME - 3600;
+
+    /** An XML Datetime in UTC for a Unix time in seconds. */
+    function utc(seconds: number): string {
+      return new Date(seconds * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+    }
+
+    /** A distinct, valid secp256k1 key and the verification method that publishes it. */
+    function newKey(seed: number, fragment: string): { signer: LocalSigner; vm: DidVerificationMethod } {
+      const secret = new Uint8Array(32);
+      secret[31] = seed;
+      const publicKeyMultibase = new CompressedSecp256k1PublicKey(
+        secp256k1.getPublicKey(secret, true)
+      ).multibase.encoded;
+      return {
+        signer : new LocalSigner(secret),
+        vm     : new DidVerificationMethod({
+          id         : `${fixture.did}#${fragment}`,
+          type       : 'Multikey',
+          controller : fixture.did,
+          publicKeyMultibase
+        })
+      };
+    }
+
+    /**
+     * Sign `unsigned` with the fixture key through the cryptosuite. `extra` adds proof
+     * fields (created, expires) that Updater.sign does not set.
+     */
+    function signWith(unsigned: UnsignedBTCR2Update, extra: Record<string, unknown> = {}): SignedBTCR2Update {
+      const multikey = SchnorrMultikey.fromSigner('#initialKey', fixture.did, new LocalSigner(hexToBytes(fixture.secretKey)));
+      const config = {
+        '@context'         : [ ...BTCR2_UPDATE_CONTEXT ],
+        type               : 'DataIntegrityProof',
+        cryptosuite        : 'bip340-jcs-2025',
+        verificationMethod : `${fixture.did}#initialKey`,
+        proofPurpose       : 'capabilityInvocation',
+        capability         : `urn:zcap:root:${encodeURIComponent(fixture.did)}`,
+        capabilityAction   : 'Write',
+        ...extra,
+      } as Btcr2DataIntegrityConfig;
+      return multikey.toCryptosuite().toDataIntegrityProof().addProof({ ...unsigned }, config) as SignedBTCR2Update;
+    }
+
+    /** An unsigned v1->v2 update with the given patch and an explicit target hash. */
+    function unsignedV2(source: DidDocument, patch: PatchOperation[], target: object): UnsignedBTCR2Update {
+      return {
+        '@context'      : [ ...BTCR2_UPDATE_CONTEXT ],
+        patch,
+        sourceHash      : canonicalHash(source),
+        targetHash      : canonicalHash(target),
+        targetVersionId : 2,
+      };
+    }
+
+    /** A legitimate v1->v2 update, signed by the fixture key. */
+    function legitimateV2(): { source: DidDocument; update: SignedBTCR2Update } {
+      const source = resolveDeterministic(fixture.did);
+      const update = buildUpdateChain(fixture.did, source, fixture.secretKey, [ benignPatch(fixture.did) ])[0]!;
+      return { source, update };
+    }
+
+    /**
+     * Drive resolution with `updates` as the sidecar and as the signals, each in a block with
+     * the header time and the mediantime of this describe. Returns what the resolver threw.
+     */
+    function thrownBy(updates: Array<SignedBTCR2Update>): any {
+      try {
+        driveSignalSequence(fixture.did, updates, updates, updates.map(() => ({ time: HEADER_TIME, mediantime: MEDIANTIME })));
+        return undefined;
+      } catch(error) {
+        return error;
+      }
+    }
+
+    function expectInvalidUpdate(thrown: any, message: RegExp): void {
+      expect(thrown, 'expected the update to be rejected').to.exist;
+      expect(thrown).to.be.instanceOf(ResolveError);
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.match(message);
+    }
+
+    const wrongFields: Array<[ string, unknown ]> = [
+      [ 'type', 'Ed25519Signature2020' ],
+      [ 'cryptosuite', 'schnorr-secp256k1-jcs-2025' ],
+      [ 'proofPurpose', 'assertionMethod' ],
+      [ 'capabilityAction', 'Read' ],
+      [ 'capability', `urn:zcap:root:${fixture.did}` ],
+      [ 'capability', `urn:zcap:root:${encodeURIComponent(deterministicData[0].did)}` ],
+      [ 'capability', undefined ],
+    ];
+    for(const [ field, value ] of wrongFields) {
+      it(`rejects a proof whose ${field} is ${value === undefined ? 'absent' : JSON.stringify(value)}, and names the field`, () => {
+        // The changed field also breaks the signature; the field check runs first, so the
+        // message names the field and not the proof value.
+        const { update } = legitimateV2();
+        const proof = { ...update.proof, [field]: value };
+        if(value === undefined) delete (proof as Record<string, unknown>)[field];
+        const thrown = thrownBy([ { ...update, proof } ]);
+        expectInvalidUpdate(thrown, new RegExp(`proof\\.${field} must equal`));
+        expect(thrown.message).to.not.match(/proof not verified/);
+      });
+    }
+
+    it('accepts an update signed by a method that capabilityInvocation embeds and verificationMethod does not list', () => {
+      const key = newKey(21, 'embedded');
+      const source = resolveDeterministic(fixture.did);
+      // v1->v2: the controller embeds the new method in capabilityInvocation only.
+      const embedPatch: PatchOperation[] = [{ op: 'add', path: '/capabilityInvocation/-', value: { ...key.vm } }];
+      const [ u2 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ embedPatch ]);
+      const document = JSONPatch.apply(source, embedPatch) as DidDocument;
+      // v2->v3: the embedded method signs.
+      const u3 = Updater.sign(fixture.did, Updater.construct(document, benignPatch(fixture.did), 2), key.vm, key.signer);
+
+      const { metadata, didDocument } = driveSignalSequence(fixture.did, [ u2!, u3 ], [ u2!, u3 ]);
+      expect(metadata.versionId).to.equal('3');
+      expect(didDocument.verificationMethod!.length).to.equal(source.verificationMethod!.length);
+    });
+
+    it('rejects an update whose proof names a capabilityInvocation reference with no verificationMethod member', () => {
+      const ghost = newKey(22, 'ghost');
+      const source = resolveDeterministic(fixture.did);
+      // v1->v2: a reference to a method that the document does not define.
+      const referencePatch: PatchOperation[] = [{ op: 'add', path: '/capabilityInvocation/-', value: ghost.vm.id }];
+      const [ u2 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ referencePatch ]);
+      const document = JSONPatch.apply(source, referencePatch) as DidDocument;
+      const u3 = Updater.sign(fixture.did, Updater.construct(document, benignPatch(fixture.did), 2), ghost.vm, ghost.signer);
+
+      expectInvalidUpdate(thrownBy([ u2!, u3 ]), /not found in the verificationMethod/);
+    });
+
+    it('rejects a proofValue that does not decode, as a wrapped INVALID_DID_UPDATE', () => {
+      const { update } = legitimateV2();
+      const thrown = thrownBy([ { ...update, proof: { ...update.proof, proofValue: 'not-base58-0OIl' } } ]);
+      expectInvalidUpdate(thrown, /proof verification failed/);
+      expect(thrown.data.cause).to.have.property('message').that.is.a('string');
+    });
+
+    it('rejects a sourceHash that does not decode, as INVALID_DID_UPDATE', () => {
+      const { update } = legitimateV2();
+      expectInvalidUpdate(thrownBy([ { ...update, sourceHash: '***' } ]), /sourceHash does not decode/);
+    });
+
+    describe('the proof time window', () => {
+      it('accepts a proof whose created is at the header time and whose expires is at the mediantime', () => {
+        // Both boundaries are inclusive. expires equal to the mediantime is before created
+        // here (the mediantime is one hour before the header time), so this pair checks
+        // the two block comparisons only.
+        const { source } = legitimateV2();
+        const created = signWith(Updater.construct(source, benignPatch(fixture.did), 1), { created: utc(HEADER_TIME) });
+        expect(thrownBy([ created ])).to.equal(undefined);
+        const expires = signWith(Updater.construct(source, benignPatch(fixture.did), 1), { expires: utc(MEDIANTIME) });
+        expect(thrownBy([ expires ])).to.equal(undefined);
+      });
+
+      it('accepts a proof whose window contains the block', () => {
+        const { source } = legitimateV2();
+        const update = signWith(Updater.construct(source, benignPatch(fixture.did), 1), {
+          created : utc(HEADER_TIME - 60),
+          expires : utc(MEDIANTIME + 86400)
+        });
+        expect(thrownBy([ update ])).to.equal(undefined);
+      });
+
+      it('rejects a proof whose created is one second after the header time', () => {
+        const { source } = legitimateV2();
+        const update = signWith(Updater.construct(source, benignPatch(fixture.did), 1), { created: utc(HEADER_TIME + 1) });
+        expectInvalidUpdate(thrownBy([ update ]), /proof\.created is after the header time/);
+      });
+
+      it('rejects a proof whose expires is one second before the mediantime', () => {
+        const { source } = legitimateV2();
+        const update = signWith(Updater.construct(source, benignPatch(fixture.did), 1), { expires: utc(MEDIANTIME - 1) });
+        expectInvalidUpdate(thrownBy([ update ]), /proof\.expires is before the mediantime/);
+      });
+
+      it('rejects a proof whose expires is before its created', () => {
+        const { source } = legitimateV2();
+        const update = signWith(Updater.construct(source, benignPatch(fixture.did), 1), {
+          created : utc(HEADER_TIME),
+          expires : utc(MEDIANTIME)
+        });
+        expectInvalidUpdate(thrownBy([ update ]), /proof\.expires is before proof\.created/);
+      });
+
+      it('rejects a created without a timezone', () => {
+        const { source } = legitimateV2();
+        const update = signWith(Updater.construct(source, benignPatch(fixture.did), 1), { created: utc(HEADER_TIME - 60).slice(0, -1) });
+        expectInvalidUpdate(thrownBy([ update ]), /proof\.created is not an XML Datetime with a timezone/);
+      });
+
+      it('rejects an expires that is not a datetime', () => {
+        const { source } = legitimateV2();
+        const update = signWith(Updater.construct(source, benignPatch(fixture.did), 1), { expires: 'soon' });
+        expectInvalidUpdate(thrownBy([ update ]), /proof\.expires is not an XML Datetime/);
+      });
+    });
+
+    describe('the strict patch and the patched document', () => {
+      it('rejects a patch that removes a path that does not exist, and carries the patch error as the cause', () => {
+        const source = resolveDeterministic(fixture.did);
+        // A lenient library applies this patch with no effect, so the target hash is the
+        // source hash and the update is otherwise consistent.
+        const update = signWith(unsignedV2(source, [{ op: 'remove', path: '/nothingHere' }], source));
+        const thrown = thrownBy([ update ]);
+        expectInvalidUpdate(thrown, /at operation 0 \(remove \/nothingHere\)/);
+        expect(thrown.data.cause.type).to.equal('JSON_PATCH_APPLY_ERROR');
+      });
+
+      it('rejects a patch whose test operation fails', () => {
+        const source = resolveDeterministic(fixture.did);
+        const update = signWith(unsignedV2(source, [{ op: 'test', path: '/id', value: 'did:example:other' }], source));
+        expectInvalidUpdate(thrownBy([ update ]), /Test operation failed/);
+      });
+
+      it('rejects a patch that changes the document id', () => {
+        const source = resolveDeterministic(fixture.did);
+        const patch: PatchOperation[] = [{ op: 'replace', path: '/id', value: deterministicData[0].did }];
+        const update = signWith(unsignedV2(source, patch, JSONPatch.apply(source, patch)));
+        expectInvalidUpdate(thrownBy([ update ]), /changes the document id/);
+      });
+
+      it('rejects a patched document that does not conform to DID Core', () => {
+        const source = resolveDeterministic(fixture.did);
+        const patch: PatchOperation[] = [{ op: 'replace', path: '/@context', value: [] }];
+        const update = signWith(unsignedV2(source, patch, JSONPatch.apply(source, patch)));
+        expectInvalidUpdate(thrownBy([ update ]), /does not conform to DID Core/);
+      });
     });
   });
 });

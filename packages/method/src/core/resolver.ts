@@ -18,6 +18,7 @@ import {
 } from '@did-btcr2/common';
 import type { HashBytes } from '@did-btcr2/common';
 import type {
+  Btcr2DataIntegrityProof,
   SignedBTCR2Update,
   UnsignedBTCR2Update
 } from './btcr2-update.js';
@@ -28,9 +29,9 @@ import {
   SchnorrMultikey
 } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
-import { DidBtcr2 } from '../did-btcr2.js';
 import { Appendix } from '../utils/appendix.js';
 import { DidDocument, ID_PLACEHOLDER_VALUE } from '../utils/did-document.js';
+import { errorCause } from '../utils/error-cause.js';
 import { BeaconFactory } from './beacon/factory.js';
 import type { BeaconService, BeaconSignal, BlockMetadata } from './beacon/interfaces.js';
 import { BeaconUtils } from './beacon/utils.js';
@@ -216,6 +217,9 @@ function validateVersionId(value: unknown): number | undefined {
 
 /** An XML Datetime in UTC with the `Z` designator and no fraction, for example `2026-07-01T00:00:00Z`. */
 const UTC_XSD_DATETIME = /^-?\d{4,}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+
+/** The timezone part that an XML Schema `dateTimeStamp` requires: `Z` or an offset. */
+const XSD_TIMEZONE = /(Z|[+-]\d{2}:\d{2})$/;
 
 /**
  * Parse `ResolutionOptions.versionTime`. DID Resolution v1 requires an XML Datetime
@@ -542,21 +546,103 @@ export class Resolver {
   }
 
   /**
+   * Decode a hash of a BTCR2 Update (`sourceHash` or `targetHash`). The specification encodes
+   * both with base64url without padding.
+   * @param {unknown} value The encoded hash.
+   * @param {'sourceHash' | 'targetHash'} field The name of the field, for the error.
+   * @returns {HashBytes} The decoded bytes.
+   * @throws {ResolveError} `INVALID_DID_UPDATE` if the value is not a string or does not decode.
+   */
+  private static decodeUpdateHash(value: unknown, field: 'sourceHash' | 'targetHash'): HashBytes {
+    if(typeof value === 'string') {
+      try {
+        return decodeHash(value, 'base64urlnopad');
+      } catch(error) {
+        throw new ResolveError(
+          `Invalid update: ${field} does not decode as base64url: ${errorCause(error).message}`,
+          INVALID_DID_UPDATE, { [field]: value, cause: errorCause(error) }
+        );
+      }
+    }
+    throw new ResolveError(`Invalid update: ${field} is not a string`, INVALID_DID_UPDATE, { [field]: value });
+  }
+
+  /**
+   * Parse a `created` or `expires` value of an update proof. Data Integrity types both as an
+   * XML Schema `dateTimeStamp`: an XML Datetime with a timezone. A value without a timezone
+   * names no fixed instant, so two resolvers would read two instants; it is rejected.
+   * @param {Btcr2DataIntegrityProof} proof The update proof.
+   * @param {'created' | 'expires'} field The field to parse.
+   * @returns {number | undefined} The instant in milliseconds since the Unix epoch, or `undefined` when the field is absent.
+   * @throws {ResolveError} `INVALID_DID_UPDATE` for a value that is not an XML Datetime with a timezone.
+   */
+  private static proofInstant(proof: Btcr2DataIntegrityProof, field: 'created' | 'expires'): number | undefined {
+    const value = proof[field];
+    if(value === undefined) return undefined;
+    if(typeof value === 'string' && XSD_TIMEZONE.test(value) && DateUtils.isValidXsdDateTime(value)) {
+      const ms = Date.parse(value);
+      if(Number.isFinite(ms)) return ms;
+    }
+    throw new ResolveError(
+      `Invalid update: proof.${field} is not an XML Datetime with a timezone`,
+      INVALID_DID_UPDATE, { [field]: value }
+    );
+  }
+
+  /**
+   * Spec "Check `update.proof`": the proof time window against the block that contains the
+   * Beacon Signal. `created` must not be after the header time of the block: a controller
+   * signs a short time before the block, and on mainnet the header time is about one hour
+   * after the `mediantime`. `expires` must not be before the block `mediantime`: it limits a
+   * replay, and a single miner cannot change `mediantime`. `expires` must not be before
+   * `created`. Each comparison has no tolerance.
+   * @param {Btcr2DataIntegrityProof} proof The update proof.
+   * @param {BlockMetadata} block The block of the Beacon Signal.
+   * @throws {ResolveError} `INVALID_DID_UPDATE` if a value is outside the window.
+   */
+  private static checkProofWindow(proof: Btcr2DataIntegrityProof, block: BlockMetadata): void {
+    const created = Resolver.proofInstant(proof, 'created');
+    const expires = Resolver.proofInstant(proof, 'expires');
+    if(created !== undefined && created > block.time * 1000) {
+      throw new ResolveError(
+        'Invalid update: proof.created is after the header time of the block that contains the Beacon Signal',
+        INVALID_DID_UPDATE, { created: proof.created, blockTime: block.time }
+      );
+    }
+    if(expires !== undefined && expires < block.mediantime * 1000) {
+      throw new ResolveError(
+        'Invalid update: proof.expires is before the mediantime of the block that contains the Beacon Signal',
+        INVALID_DID_UPDATE, { expires: proof.expires, mediantime: block.mediantime }
+      );
+    }
+    if(created !== undefined && expires !== undefined && expires < created) {
+      throw new ResolveError(
+        'Invalid update: proof.expires is before proof.created',
+        INVALID_DID_UPDATE, { created: proof.created, expires: proof.expires }
+      );
+    }
+  }
+
+  /**
    * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#apply-update | Apply update}
    * and its step {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#check-update-proof | Check update.proof}.
+   * Every failure that the specification names raises `INVALID_DID_UPDATE`. An error of the
+   * cryptosuite, the multikey, the hash decoder, or the patch rides along as `data.cause`.
    * @param {DidDocument} currentDocument The current DID Document to apply the update to.
    * @param {SignedBTCR2Update} update The BTCR2 Signed Update to apply.
+   * @param {BlockMetadata} block The block that contains the Beacon Signal that announced the update.
    * @returns {DidDocument} The updated DID Document after applying the update.
    * @throws {ResolveError} `INVALID_DID_UPDATE` if the update is invalid or cannot be applied.
    */
   private static applyUpdate(
     currentDocument: DidDocument,
-    update: SignedBTCR2Update
+    update: SignedBTCR2Update,
+    block: BlockMetadata
   ): DidDocument {
     // Spec "Apply update": the hash of the current document must be the decoded
     // update.sourceHash (byte comparison).
     const currentDocumentHash = canonicalHashBytes(currentDocument);
-    const sourceHashBytes = decodeHash(update.sourceHash, 'base64urlnopad');
+    const sourceHashBytes = Resolver.decodeUpdateHash(update.sourceHash, 'sourceHash');
     if (!equalBytes(sourceHashBytes, currentDocumentHash)) {
       throw new ResolveError(
         `Hash mismatch: update.sourceHash !== currentDocumentHash`,
@@ -585,50 +671,37 @@ export class Resolver {
       );
     }
 
-    // Get the capability id from the to update proof.
-    const capabilityId = update.proof?.capability;
-    // Since this field is optional, check that it exists
-    if (!capabilityId) {
-      // If it does not exist, throw INVALID_DID_UPDATE error
-      throw new ResolveError('No root capability found in update', INVALID_DID_UPDATE, update);
+    // Spec "Check update.proof": each proof field by string equality, before the method
+    // lookup and before signature verification, so that a failure names the field. The
+    // capability is the URN that the Data Integrity Config specifies for this DID; the root
+    // capability is not derived, the specification makes that optional.
+    const proof = update.proof;
+    const expectedFields: Array<[ string, string ]> = [
+      [ 'type', 'DataIntegrityProof' ],
+      [ 'cryptosuite', 'bip340-jcs-2025' ],
+      [ 'proofPurpose', 'capabilityInvocation' ],
+      [ 'capabilityAction', 'Write' ],
+      [ 'capability', `urn:zcap:root:${encodeURIComponent(currentDocument.id)}` ],
+    ];
+    for(const [ field, expected ] of expectedFields) {
+      const actual = (proof as Record<string, unknown>)[field];
+      if(actual !== expected) {
+        throw new ResolveError(
+          `Invalid update: proof.${field} must equal "${expected}"`,
+          INVALID_DID_UPDATE, { field, expected, actual }
+        );
+      }
     }
 
-    // Get the root capability object by dereferencing the capabilityId
-    const rootCapability = Appendix.dereferenceZcapId(capabilityId);
-
-    // Deconstruct the invocationTarget and controller from the root capability
-    const { invocationTarget, controller: rootController } = rootCapability;
-    // Check that both invocationTarget and rootController equal currentDocument.id
-    if (![invocationTarget, rootController].every((id) => id === currentDocument.id)) {
-      // If they do not all match, throw INVALID_DID_UPDATE error
-      throw new ResolveError(
-        'Invalid root capability',
-        INVALID_DID_UPDATE, { rootCapability, currentDocument }
-      );
-    }
-
-    // Get the verificationMethod field from the update proof as verificationMethodId.
-    const verificationMethodId = update.proof?.verificationMethod;
-    // Since this field is optional, check that it exists
-    if(!verificationMethodId) {
-      // If it does not exist, throw INVALID_DID_UPDATE error
-      throw new ResolveError('No verificationMethod found in update', INVALID_DID_UPDATE, update);
-    }
-
-    // Spec "Check update.proof": raise INVALID_DID_UPDATE if
-    // currentDocument.capabilityInvocation does not contain
-    // update.proof.verificationMethod. Locating the method in verificationMethod[] and
-    // verifying its signature is not sufficient on its own: a key the controller
-    // published only for authentication (or for no relationship at all) must not be
-    // able to authorize a DID update. The write path enforces this in DidBtcr2.update();
-    // without it here the read path applies an update signed by any key in the document.
-    // Checked before the method is located so an unauthorized method always fails with
-    // this typed error, whether or not it also appears in verificationMethod[].
-    const authorizedMethodId = Appendix.relationshipMethodId(verificationMethodId, currentDocument.id);
-    const authorized = authorizedMethodId !== undefined && currentDocument.capabilityInvocation?.some(
-      entry => Appendix.relationshipMethodId(entry, currentDocument.id) === authorizedMethodId
-    );
-    if(!authorized) {
+    // Spec "Check update.proof": the entry of currentDocument.capabilityInvocation that
+    // identifies update.proof.verificationMethod, in the reference form or the embedded
+    // form. A key the controller published for authentication only, or for no relationship
+    // at all, must not authorize an update; the membership test runs before the method
+    // lookup so that such a key always fails with this typed error. The method is the
+    // entry itself when embedded, else the member of verificationMethod[] with that id.
+    const verificationMethodId = proof.verificationMethod;
+    const entry = Appendix.capabilityInvocationEntry(currentDocument, verificationMethodId);
+    if(entry === undefined) {
       throw new ResolveError(
         'Invalid update: verificationMethod is not authorized for capabilityInvocation',
         INVALID_DID_UPDATE, {
@@ -637,48 +710,75 @@ export class Resolver {
         }
       );
     }
-
-    // Get the verificationMethod from the DID Document using the verificationMethodId.
-    const vm = DidBtcr2.getSigningMethod(currentDocument, verificationMethodId);
-
-    // Construct a new SchnorrMultikey.
-    const multikey = SchnorrMultikey.fromVerificationMethod(vm);
-
-    // Construct a new BIP340Cryptosuite with the SchnorrMultikey.
-    const cryptosuite = new BIP340Cryptosuite(multikey);
-
-    // Canonicalize the update
-    const canonicalUpdate = canonicalize(update);
-
-    // Construct a DataIntegrityProof with the cryptosuite
-    const diProof = new BIP340DataIntegrityProof(cryptosuite);
-
-    // Call the verifyProof method
-    const verificationResult = diProof.verifyProof(canonicalUpdate, 'capabilityInvocation');
-
-    // If the result is not verified, throw INVALID_DID_UPDATE error
-    if (!verificationResult.verified) {
+    const vm = Appendix.verificationMethodOfEntry(currentDocument, entry);
+    if(vm === undefined) {
       throw new ResolveError(
-        'Invalid update: proof not verified',
-        INVALID_DID_UPDATE, verificationResult
+        'Invalid update: verificationMethod is not found in the verificationMethod of the current document',
+        INVALID_DID_UPDATE, { verificationMethodId }
       );
     }
 
-    // Apply the update.patch to the currentDocument to get the updatedDocument.
-    const updatedDocument = JSONPatch.apply(currentDocument, update.patch) as DidDocument;
+    // Spec "Check update.proof": the proof time window against the block of the signal.
+    Resolver.checkProofWindow(proof, block);
 
-    // Verify that updatedDocument is conformant to DID Core v1.1.
-    DidDocument.validate(updatedDocument);
+    // Verify the proof with the public key that the verification method publishes. The
+    // multikey names the method by its absolute DID URL, as the proof does. An error of the
+    // multikey or the cryptosuite (a key that does not decode, a proof value that does not
+    // decode, a created value the suite rejects) is an invalid update.
+    let verified: boolean;
+    try {
+      const multikey = SchnorrMultikey.fromVerificationMethod({
+        ...vm, id : Appendix.absoluteDidUrl(vm.id, currentDocument.id) ?? vm.id
+      });
+      const diProof = new BIP340DataIntegrityProof(new BIP340Cryptosuite(multikey));
+      verified = diProof.verifyProof(canonicalize(update), 'capabilityInvocation').verified;
+    } catch(error) {
+      throw new ResolveError(
+        `Invalid update: proof verification failed: ${errorCause(error).message}`,
+        INVALID_DID_UPDATE, { verificationMethodId, cause: errorCause(error) }
+      );
+    }
+    if(!verified) {
+      throw new ResolveError('Invalid update: proof not verified', INVALID_DID_UPDATE, { verificationMethodId });
+    }
+
+    // Spec "Apply update": apply update.patch strictly. The first operation that fails,
+    // including a failed test, fails the whole patch.
+    let updatedDocument: DidDocument;
+    try {
+      updatedDocument = JSONPatch.apply(currentDocument, update.patch, { strict: true }) as DidDocument;
+    } catch(error) {
+      throw new ResolveError(
+        `Invalid update: ${errorCause(error).message}`,
+        INVALID_DID_UPDATE, { cause: errorCause(error) }
+      );
+    }
+
+    // Spec "Apply update": the patched document keeps the DID as its id and conforms to
+    // DID Core v1.1.
+    if(updatedDocument?.id !== currentDocument.id) {
+      throw new ResolveError(
+        `Invalid update: the patch changes the document id (from "${currentDocument.id}" to "${String(updatedDocument?.id)}")`,
+        INVALID_DID_UPDATE, { sourceId: currentDocument.id, targetId: updatedDocument?.id }
+      );
+    }
+    try {
+      DidDocument.validate(updatedDocument);
+    } catch(error) {
+      throw new ResolveError(
+        `Invalid update: the patched document does not conform to DID Core: ${errorCause(error).message}`,
+        INVALID_DID_UPDATE, { cause: errorCause(error) }
+      );
+    }
 
     // Canonicalize and hash the updatedDocument (raw bytes).
     const updatedDocumentHash = canonicalHashBytes(updatedDocument);
 
     // Prepare the update targetHash for comparison with updatedDocumentHash.
-    const updateTargetHash = decodeHash(update.targetHash);
+    const updateTargetHash = Resolver.decodeUpdateHash(update.targetHash, 'targetHash');
 
     // Make sure the update.targetHash equals updatedDocumentHash.
     if (!equalBytes(updateTargetHash, updatedDocumentHash)) {
-      // If they do not match, throw INVALID_DID_UPDATE error.
       throw new ResolveError(
         `Invalid update: update.targetHash !== updatedDocumentHash`,
         INVALID_DID_UPDATE, { updateTargetHash, updatedDocumentHash }
@@ -863,7 +963,7 @@ export class Resolver {
 
           // Second arm: update.targetVersionId == currentVersionId + 1. Apply the update,
           // append the unsigned update hash to the history, increment the version.
-          this.#currentDocument = Resolver.applyUpdate(document, update);
+          this.#currentDocument = Resolver.applyUpdate(document, update, block);
           const unsignedUpdate = JSONUtils.deleteKeys(update, ['proof']) as UnsignedBTCR2Update;
           this.#updateHashHistory.push(canonicalHashBytes(unsignedUpdate));
           this.#currentVersionId++;

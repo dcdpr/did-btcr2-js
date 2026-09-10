@@ -102,6 +102,79 @@ describe('JSONPatch', () => {
     });
   });
 
+  describe('strict option (ADR 112)', () => {
+    const source = () => ({ a: 1, nested: { b: 2 }, list: [1, 2] });
+
+    it('applies a valid patch with the same result as the default mode', () => {
+      const ops: PatchOperation[] = [
+        { op: 'replace', path: '/a', value: 3 },
+        { op: 'add', path: '/nested/c', value: 4 },
+        { op: 'remove', path: '/list/0' },
+        { op: 'move', from: '/nested/b', path: '/b' },
+        { op: 'copy', from: '/a', path: '/d' },
+        { op: 'test', path: '/d', value: 3 },
+      ];
+      expect(JSONPatch.apply(source(), ops, { strict: true })).to.deep.equal(JSONPatch.apply(source(), ops));
+    });
+
+    it('the default mode passes a remove of a missing path silently; strict fails it at that operation', () => {
+      const ops: PatchOperation[] = [{ op: 'remove', path: '/missing' }];
+      expect(JSONPatch.apply(source(), ops)).to.deep.equal(source());
+      expect(() => JSONPatch.apply(source(), ops, { strict: true }))
+        .to.throw(MethodError, /at operation 0 \(remove \/missing\).*does not exist/);
+    });
+
+    it('the default mode replaces a missing path by adding it; strict fails it', () => {
+      const ops: PatchOperation[] = [{ op: 'replace', path: '/missing', value: 1 }];
+      expect(JSONPatch.apply(source(), ops)).to.have.property('missing', 1);
+      expect(() => JSONPatch.apply(source(), ops, { strict: true })).to.throw(MethodError, /does not exist/);
+    });
+
+    it('strict fails a move from a missing path', () => {
+      const ops: PatchOperation[] = [{ op: 'move', from: '/missing', path: '/b' }];
+      expect(() => JSONPatch.apply(source(), ops, { strict: true })).to.throw(MethodError, /does not exist/);
+    });
+
+    it('the default mode ignores an unknown op on the root path; strict rejects it', () => {
+      const ops = [{ op: 'frobnicate', path: '' } as unknown as PatchOperation];
+      expect(JSONPatch.apply(source(), ops)).to.deep.equal(source());
+      expect(() => JSONPatch.apply(source(), ops, { strict: true }))
+        .to.throw(MethodError, /not an RFC 6902 operation: frobnicate/);
+    });
+
+    it('the default mode writes a missing value as undefined; strict rejects it', () => {
+      const ops = [{ op: 'add', path: '/a' } as PatchOperation];
+      const lenient = JSONPatch.apply(source(), ops);
+      expect('a' in lenient).to.equal(true);
+      expect(lenient.a).to.equal(undefined);
+      expect(() => JSONPatch.apply(source(), ops, { strict: true }))
+        .to.throw(MethodError, /Operation.value is required for op=add/);
+    });
+
+    it('a failed test fails the patch in both modes, at the failing operation', () => {
+      const ops: PatchOperation[] = [
+        { op: 'replace', path: '/a', value: 2 },
+        { op: 'test', path: '/a', value: 1 },
+      ];
+      expect(() => JSONPatch.apply(source(), ops)).to.throw(MethodError, /Test operation failed/);
+      expect(() => JSONPatch.apply(source(), ops, { strict: true }))
+        .to.throw(MethodError, /at operation 1 \(test \/a\): Test operation failed/);
+    });
+
+    it('the failure carries the type JSON_PATCH_APPLY_ERROR and the inner error', () => {
+      const ops: PatchOperation[] = [{ op: 'remove', path: '/missing' }];
+      let thrown: any;
+      try {
+        JSONPatch.apply(source(), ops, { strict: true });
+      } catch(error) {
+        thrown = error;
+      }
+      expect(thrown).to.be.instanceOf(MethodError);
+      expect(thrown.type).to.equal('JSON_PATCH_APPLY_ERROR');
+      expect(thrown.data.error.name).to.equal('OPERATION_PATH_UNRESOLVABLE');
+    });
+  });
+
   it('computes diffs and prefixes paths with escaping', () => {
     const source = { 'a/b': 1 };
     const target = { 'a/b': 2, c: 3 };

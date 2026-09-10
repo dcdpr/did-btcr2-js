@@ -57,6 +57,12 @@ const patched = JSONPatch.apply(
   [{ op: 'add', path: '/service/-', value: { id: '#dwn' } }],
 );
 
+// Apply the patch strictly: an unknown op, a missing value, a remove or replace of a
+// path that does not exist, a move or copy from a path that does not exist, and a
+// failed test fail the patch at the first failing operation (RFC 6902). The default
+// mode fails a failed test only. The did:btcr2 update paths use the strict mode.
+const strict = JSONPatch.apply(document, operations, { strict: true });
+
 // Throw a structured error with type tag + data payload.
 throw new MethodError('beacon address mismatch', 'BEACON_VALIDATION', {
   address : 'tb1q...',
