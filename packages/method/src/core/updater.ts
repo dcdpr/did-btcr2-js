@@ -1,11 +1,12 @@
 import type { BitcoinConnection } from '@did-btcr2/bitcoin';
 import type { PatchOperation } from '@did-btcr2/common';
-import { canonicalHash, INVALID_DID_UPDATE, JSONPatch, UpdateError } from '@did-btcr2/common';
+import { canonicalHash, canonicalize, INVALID_DID_UPDATE, JSONPatch, UpdateError } from '@did-btcr2/common';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import type { Signer } from '@did-btcr2/keypair';
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from './btcr2-update.js';
 import { BTCR2_UPDATE_CONTEXT } from './btcr2-update.js';
 import { DidDocument, type Btcr2DidDocument, type DidVerificationMethod } from '../utils/did-document.js';
+import { errorCause } from '../utils/error-cause.js';
 import type { BroadcastResult } from './beacon/beacon.js';
 import type { CASBroadcastOptions } from './beacon/cas-beacon.js';
 import { BeaconFactory } from './beacon/factory.js';
@@ -224,7 +225,19 @@ export class Updater {
       sourceHash      : canonicalHash(sourceDocument),
     };
 
-    const targetDocument = JSONPatch.apply(sourceDocument, patches);
+    // Spec "Construct BTCR2 Unsigned Update": apply jsonPatch strictly. The first operation
+    // that fails, including a failed test, fails the whole patch. A patch that a lenient
+    // library applies with no effect is refused here, before it is signed and announced: a
+    // conformant resolver would reject the announced update.
+    let targetDocument: Record<string, any>;
+    try {
+      targetDocument = JSONPatch.apply(sourceDocument, patches, { strict: true });
+    } catch(error) {
+      throw new UpdateError(
+        `Invalid patch: ${errorCause(error).message}`,
+        INVALID_DID_UPDATE, { cause: errorCause(error) }
+      );
+    }
 
     // Spec (operations/update.md): "An INVALID_DID_UPDATE error MUST be raised if
     // didTargetDocument.id is not equal to didSourceDocument.id." `DidDocument.isValid`
@@ -327,7 +340,32 @@ export class Updater {
     };
 
     const diproof = multikey.toCryptosuite().toDataIntegrityProof();
-    return diproof.addProof(unsignedUpdate, config);
+    const signedUpdate = diproof.addProof(unsignedUpdate, config) as SignedBTCR2Update;
+
+    // Spec "Construct BTCR2 Signed Update": verify update.proof before the announcement,
+    // with the public key that the verification method publishes, not the signer's key. A
+    // signer that returns a wrong signature for the right key passes the key comparison
+    // above. An announced update with an invalid proof permanently invalidates the DID, so
+    // the failure surfaces here, before the state machine asks for funding.
+    let verified: boolean;
+    try {
+      const verifier = SchnorrMultikey.fromVerificationMethod({ ...verificationMethod, id: absoluteMethodId });
+      verified = verifier.toCryptosuite().toDataIntegrityProof()
+        .verifyProof(canonicalize(signedUpdate), 'capabilityInvocation').verified;
+    } catch(error) {
+      throw new UpdateError(
+        `Invalid update: the proof does not verify with the public key of "${verificationMethod.id}": `
+        + errorCause(error).message,
+        INVALID_DID_UPDATE, { verificationMethodId: verificationMethod.id, cause: errorCause(error) }
+      );
+    }
+    if(!verified) {
+      throw new UpdateError(
+        `Invalid update: the proof does not verify with the public key of "${verificationMethod.id}".`,
+        INVALID_DID_UPDATE, { verificationMethodId: verificationMethod.id }
+      );
+    }
+    return signedUpdate;
   }
 
   /**

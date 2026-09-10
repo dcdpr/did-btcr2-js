@@ -1,14 +1,17 @@
+import { INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/common';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import type { Signer } from '@did-btcr2/keypair';
-import { LocalSigner } from '@did-btcr2/keypair';
+import { CompressedSecp256k1PublicKey, LocalSigner } from '@did-btcr2/keypair';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { hexToBytes } from '@noble/hashes/utils';
 import { expect } from 'chai';
 import { DidBtcr2 } from '../src/did-btcr2.js';
 import type { BeaconService, BeaconSignal } from '../src/core/beacon/interfaces.js';
 import type { NeedBeaconSignals } from '../src/core/resolver.js';
-import { BTCR2_UPDATE_CONTEXT } from '../src/core/btcr2-update.js';
+import { BTCR2_UPDATE_CONTEXT, DEACTIVATION_PATCH } from '../src/core/btcr2-update.js';
 import { Updater } from '../src/core/updater.js';
 import type { NeedBroadcast, NeedFunding, NeedSigningKey } from '../src/core/updater.js';
+import { DidVerificationMethod } from '../src/utils/did-document.js';
 import type { Btcr2DidDocument } from '../src/utils/did-document.js';
 import data from './data/deterministic-data.js';
 
@@ -81,6 +84,150 @@ describe('Updater', () => {
         verificationMethodId,
         beaconId        : `${did}#nonexistent-beacon`,
       })).to.throw(/No beacon service found/i);
+    });
+
+    /** Call the factory and return what it threw, or undefined. */
+    function factoryThrows(params: Record<string, unknown>): any {
+      try {
+        DidBtcr2.update({ sourceDocument, patches: [], sourceVersionId: 1, verificationMethodId, beaconId, ...params } as any);
+        return undefined;
+      } catch(error) {
+        return error;
+      }
+    }
+
+    it('an unauthorized verificationMethodId fails with UpdateError of type INVALID_DID_UPDATE (ADR 112)', () => {
+      const thrown = factoryThrows({ verificationMethodId: `${did}#not-a-real-key` });
+      expect(thrown).to.be.instanceOf(UpdateError);
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.match(/not authorized for capabilityInvocation/);
+    });
+
+    it('a capabilityInvocation reference with no verificationMethod member fails with INVALID_DID_UPDATE (ADR 112)', () => {
+      const document = {
+        ...sourceDocument,
+        capabilityInvocation : [ ...(sourceDocument.capabilityInvocation ?? []), `${did}#ghost` ]
+      } as Btcr2DidDocument;
+      const thrown = factoryThrows({ sourceDocument: document, verificationMethodId: `${did}#ghost` });
+      expect(thrown).to.be.instanceOf(UpdateError);
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.match(/not found in source document/);
+    });
+
+    it('accepts a verification method that capabilityInvocation embeds and verificationMethod does not list (ADR 112)', () => {
+      const secret = new Uint8Array(32);
+      secret[31] = 5;
+      const embedded = new DidVerificationMethod({
+        id                 : `${did}#embedded`,
+        type               : 'Multikey',
+        controller         : did,
+        publicKeyMultibase : new CompressedSecp256k1PublicKey(secp256k1.getPublicKey(secret, true)).multibase.encoded,
+      });
+      const document = {
+        ...sourceDocument,
+        capabilityInvocation : [ ...(sourceDocument.capabilityInvocation ?? []), { ...embedded } ]
+      } as Btcr2DidDocument;
+      const updater = DidBtcr2.update({
+        sourceDocument       : document,
+        patches              : [],
+        sourceVersionId      : 1,
+        verificationMethodId : `${did}#embedded`,
+        beaconId,
+      });
+      let state = updater.advance();
+      if(state.status !== 'action-required') throw new Error('expected action-required');
+      expect((state.needs[0] as NeedSigningKey).verificationMethodId).to.equal(`${did}#embedded`);
+      updater.provide(state.needs[0] as NeedSigningKey, new LocalSigner(secret));
+      state = updater.advance();
+      expect(state.status).to.equal('action-required');
+      if(state.status !== 'action-required') return;
+      expect(state.needs[0]!.kind).to.equal('NeedFunding');
+    });
+
+    for(const bad of [ 0, -1, 1.5, Number.NaN, undefined, '1' ]) {
+      it(`refuses sourceVersionId ${String(bad)} with INVALID_DID_UPDATE (ADR 112)`, () => {
+        const thrown = factoryThrows({ sourceVersionId: bad });
+        expect(thrown).to.be.instanceOf(UpdateError);
+        expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+        expect(thrown.message).to.match(/sourceVersionId/);
+      });
+    }
+  });
+
+  describe('strict patch, proof verification before funding, and deactivate (ADR 112)', () => {
+    it('Updater.construct refuses a patch that removes a missing path, and carries the patch error as the cause', () => {
+      let thrown: any;
+      try {
+        Updater.construct(sourceDocument, [{ op: 'remove', path: '/nothingHere' }], 1);
+      } catch(error) {
+        thrown = error;
+      }
+      expect(thrown).to.be.instanceOf(UpdateError);
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.match(/Invalid patch: .*at operation 0 \(remove \/nothingHere\)/);
+      expect(thrown.data.cause.type).to.equal('JSON_PATCH_APPLY_ERROR');
+    });
+
+    it('Updater.construct refuses a patch whose test operation fails', () => {
+      expect(() => Updater.construct(sourceDocument, [{ op: 'test', path: '/id', value: 'did:example:other' }], 1))
+        .to.throw(UpdateError, /Test operation failed/);
+    });
+
+    it('the state machine refuses the same patch before it asks for a signature', () => {
+      const updater = DidBtcr2.update({
+        sourceDocument,
+        patches         : [{ op: 'remove', path: '/nothingHere' }],
+        sourceVersionId : 1,
+        verificationMethodId,
+        beaconId,
+      });
+      expect(() => updater.advance()).to.throw(UpdateError, /Invalid patch/);
+    });
+
+    it('Updater.sign refuses a signer that returns a wrong signature for the right key, before NeedFunding', () => {
+      // The signer publishes the right key, so the key comparison passes; the signature it
+      // returns is garbage, so the proof does not verify with the published key.
+      const garbage: Signer = { publicKey: signer.publicKey, sign: () => new Uint8Array(64) };
+      const updater = DidBtcr2.update({ sourceDocument, patches: [], sourceVersionId: 1, verificationMethodId, beaconId });
+      const state = updater.advance();
+      if(state.status !== 'action-required') throw new Error('expected action-required');
+      let thrown: any;
+      try {
+        updater.provide(state.needs[0] as NeedSigningKey, garbage);
+      } catch(error) {
+        thrown = error;
+      }
+      expect(thrown).to.be.instanceOf(UpdateError);
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.match(/does not verify with the public key/);
+      // The state machine stays in Sign: no funding is requested for an update that no resolver accepts.
+      const again = updater.advance();
+      expect(again.status).to.equal('action-required');
+      if(again.status !== 'action-required') return;
+      expect(again.needs[0]!.kind).to.equal('NeedSigningKey');
+    });
+
+    it('DEACTIVATION_PATCH is the predetermined patch of the specification', () => {
+      expect(DEACTIVATION_PATCH).to.deep.equal({ op: 'add', path: '/deactivated', value: true });
+      expect(Object.isFrozen(DEACTIVATION_PATCH)).to.equal(true);
+    });
+
+    it('DidBtcr2.deactivate returns the Updater of DidBtcr2.update with the deactivation patch', () => {
+      const updater = DidBtcr2.deactivate({ sourceDocument, sourceVersionId: 1, verificationMethodId, beaconId });
+      const state = updater.advance();
+      expect(state.status).to.equal('action-required');
+      if(state.status !== 'action-required') return;
+      const need = state.needs[0] as NeedSigningKey;
+      expect(need.kind).to.equal('NeedSigningKey');
+      expect(need.unsignedUpdate.patch).to.deep.equal([ { ...DEACTIVATION_PATCH } ]);
+      expect(need.unsignedUpdate.targetVersionId).to.equal(2);
+      expect(need.unsignedUpdate['@context']).to.deep.equal([ ...BTCR2_UPDATE_CONTEXT ]);
+    });
+
+    it('DidBtcr2.deactivate applies the factory checks of DidBtcr2.update', () => {
+      expect(() => DidBtcr2.deactivate({
+        sourceDocument, sourceVersionId : 1, verificationMethodId : `${did}#not-a-real-key`, beaconId
+      })).to.throw(UpdateError, /not authorized for capabilityInvocation/);
     });
   });
 

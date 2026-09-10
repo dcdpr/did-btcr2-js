@@ -17,6 +17,7 @@ pnpm add @did-btcr2/method
 | Create a DID (offline, deterministic or external) | `DidBtcr2.create()` |
 | Resolve a DID (sans-I/O state machine) | `DidBtcr2.resolve()` |
 | Update a DID (sans-I/O state machine) | `DidBtcr2.update()` returns an `Updater` |
+| Deactivate a DID (the update with the fixed patch) | `DidBtcr2.deactivate()` returns an `Updater`; `DEACTIVATION_PATCH` |
 | Update utilities (construct, sign, announce) | `Updater.construct()`, `Updater.sign()`, `Updater.announce()` |
 | Beacon types (Singleton, CAS, SMT) | `SingletonBeacon`, `CASBeacon`, `SMTBeacon` |
 | Fee estimation (pluggable) | `FeeEstimator`, `StaticFeeEstimator` |
@@ -130,6 +131,14 @@ const { signedUpdate } = state.result;
 See [`src/core/updater.ts`](./src/core/updater.ts) for the full `UpdaterDataNeed` union and phase transitions.
 
 An update carries the `@context` array that the specification pins, in this order: `https://w3id.org/json-ld-patch/v1`, `https://w3id.org/zcap/v1`, `https://w3id.org/security/data-integrity/v2`, `https://btcr2.dev/context/v1`. `Updater.construct()` writes the array, and the proof of the signed update repeats it. The package exports the array as `BTCR2_UPDATE_CONTEXT`. The array is inside the hashed and signed bytes, so an update with a different array is a different update. The resolver rejects an update with a different array, or with a proof `@context` that differs from the update `@context`, with a `ResolveError` of type `INVALID_DID_UPDATE`.
+
+Both update paths apply the checks of the specification. Each failure that the specification names is an `UpdateError` on the write path, or a `ResolveError` on the read path, of type `INVALID_DID_UPDATE`. The inner error of the cryptosuite, the multikey, or the patch rides along as `data.cause`. The patch is applied strictly per RFC 6902. An unknown `op`, a missing `value`, a `remove` or `replace` of a missing path, a `move` or `copy` from a missing path, and a failed `test` fail the patch at the first failing operation. The patched document must keep the DID as its `id`, and it must conform to DID Core.
+
+The verification method is the entry of `capabilityInvocation` that identifies `verificationMethodId`. A reference entry identifies it when the two values are equal. An embedded method object identifies it when its `id` is equal. A reference names a member of `verificationMethod`. `Updater.sign()` verifies the proof with the public key of the verification method before the state machine asks for funding. A signer that returns a wrong signature spends no beacon UTXO. `sourceVersionId` must be an integer of at least 1.
+
+On the read path, the resolver checks each proof field by string equality before it verifies the signature. `type` is `DataIntegrityProof`, `cryptosuite` is `bip340-jcs-2025`, `proofPurpose` is `capabilityInvocation`, `capabilityAction` is `Write`, and `capability` is `urn:zcap:root:${encodeURIComponent(did)}`. A proof can carry `created` and `expires`. Each value must be an XML Datetime with a timezone. `created` must not be after the header time of the block that contains the Beacon Signal. `expires` must not be before the `mediantime` of that block, and not before `created`. The write path sets neither field.
+
+`DidBtcr2.deactivate()` is `DidBtcr2.update()` with the patch `[{ "op": "add", "path": "/deactivated", "value": true }]`, exported as `DEACTIVATION_PATCH`. Resolution stops at the deactivation for good. The factory does not refuse a source document that is deactivated already. The api does.
 
 ### Update Aggregation (Multi-Party MuSig2)
 

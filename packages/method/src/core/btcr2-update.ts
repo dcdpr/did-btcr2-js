@@ -35,6 +35,18 @@ export function isBtcr2UpdateContext(
 }
 
 /**
+ * The JSON Patch operation of the Deactivate operation: it adds the `deactivated` property
+ * with the value `true`. Deactivate is the Update operation with this predetermined patch, and
+ * resolution stops at the deactivation for good. See
+ * {@link https://dcdpr.github.io/did-btcr2/operations/deactivate.html | Deactivate}.
+ */
+export const DEACTIVATION_PATCH: Readonly<PatchOperation> = Object.freeze({
+  op    : 'add',
+  path  : '/deactivated',
+  value : true,
+});
+
+/**
  * A {@link https://dcdpr.github.io/did-btcr2/terminology.html#btcr2-update | BTCR2 Update} without a data integrity proof.
  * See {@link https://dcdpr.github.io/did-btcr2/data-structures.html#btcr2-unsigned-update | BTCR2 Unsigned Update (data structure)}.
  *
@@ -83,11 +95,11 @@ export type UnsignedBTCR2Update = {
  * ZCAP capability-invocation fields a did:btcr2 update proof carries.
  */
 export type Btcr2DataIntegrityProof = DataIntegrityProofObject & {
-  /** The root capability being invoked, e.g. `urn:zcap:root:<urlencoded-did>`. */
-  capability?: string;
+  /** The root capability being invoked: `urn:zcap:root:${encodeURIComponent(did)}`. */
+  capability: string;
 
-  /** The action performed under the capability, set to `"Write"` for DID document updates. */
-  capabilityAction?: string;
+  /** The action performed under the capability: `"Write"` for a DID document update. */
+  capabilityAction: string;
 };
 
 /**
@@ -112,9 +124,9 @@ export type Btcr2DataIntegrityConfig = DataIntegrityProofOptions & {
   /** The same array as the update `@context`: {@link BTCR2_UPDATE_CONTEXT}. */
   '@context': string[];
 
-  /** The root capability being invoked, e.g. `urn:zcap:root:<urlencoded-did>`. */
-  capability?: string;
+  /** The root capability being invoked: `urn:zcap:root:${encodeURIComponent(did)}`. */
+  capability: string;
 
-  /** The action performed under the capability, set to `"Write"` for DID document updates. */
-  capabilityAction?: string;
+  /** The action performed under the capability: `"Write"` for a DID document update. */
+  capabilityAction: string;
 };

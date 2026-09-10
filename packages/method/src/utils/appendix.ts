@@ -61,6 +61,51 @@ export class Appendix {
   }
 
   /**
+   * Finds the entry of `document.capabilityInvocation` that identifies `methodId`. A
+   * reference entry identifies it when the two DID URLs are equal. An embedded verification
+   * method object identifies it when its `id` is equal. Both spellings of a DID URL compare
+   * equal, as in {@link relationshipMethodId}. This is the lookup of the specification steps
+   * "Check `update.proof`" (the read path) and "Construct BTCR2 Signed Update" (the write
+   * path); the caller raises `INVALID_DID_UPDATE` when no entry identifies the method.
+   *
+   * @param {DidDocument} document The DID document.
+   * @param {unknown} methodId The verification method id, absolute or relative. A non-string yields `undefined`.
+   * @returns {string | DidVerificationMethod | undefined} The entry, or `undefined` if no entry identifies the id.
+   */
+  public static capabilityInvocationEntry(
+    document: DidDocument,
+    methodId: unknown
+  ): string | DidVerificationMethod | undefined {
+    const targetId = Appendix.relationshipMethodId(methodId, document.id);
+    if (targetId === undefined) return undefined;
+    return document.capabilityInvocation?.find(
+      entry => Appendix.relationshipMethodId(entry, document.id) === targetId
+    );
+  }
+
+  /**
+   * Returns the verification method that a relationship entry denotes: the object itself
+   * when the entry embeds the method, else the member of `document.verificationMethod` whose
+   * `id` equals the reference. Both spellings of a DID URL compare equal. The caller raises
+   * `INVALID_DID_UPDATE` when a reference names no member.
+   *
+   * @param {DidDocument} document The DID document.
+   * @param {string | DidVerificationMethod} entry The relationship entry: a reference, or an embedded method.
+   * @returns {DidVerificationMethod | undefined} The method, or `undefined` if a reference names no member.
+   */
+  public static verificationMethodOfEntry(
+    document: DidDocument,
+    entry: string | DidVerificationMethod
+  ): DidVerificationMethod | undefined {
+    if (Appendix.isDidVerificationMethod(entry)) return entry;
+    const targetId = Appendix.absoluteDidUrl(entry, document.id);
+    if (targetId === undefined) return undefined;
+    return document.verificationMethod?.find(
+      method => Appendix.absoluteDidUrl(method?.id, document.id) === targetId
+    );
+  }
+
+  /**
    * Validates that the given object is a DidVerificationMethod
    * @param {unknown} obj The object to validate
    * @returns {boolean} A boolean indicating whether the object is a DidVerificationMethod
@@ -194,13 +239,14 @@ export class Appendix {
     const rootCapability = {} as RootCapability;
 
     // 2. Set components to the result of capabilityId.split(":").
-    const [urn, zcap, root, did] = capabilityId.split(':') ?? [];
+    const components = capabilityId.split(':');
 
     // 3. Validate components:
     //    1. Assert length of components is 4.
-    if ([urn, zcap, root, did].length !== 4) {
+    if (components.length !== 4) {
       throw new DidError(DidErrorCode.InvalidDid, `Invalid capabilityId: ${capabilityId}`);
     }
+    const [urn, zcap, root, did] = components;
 
     //    2. components[0] == urn.
     if (!urn || urn !== 'urn') {

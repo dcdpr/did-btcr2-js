@@ -110,7 +110,7 @@ function createSignedUpdate(did: string, keys: SchnorrKeyPair): SignedBTCR2Updat
     capabilityAction   : 'Write',
   };
   const multikey = SchnorrMultikey.fromSecretKey(verificationMethodId, did, keys.secretKey.bytes);
-  return multikey.toCryptosuite().toDataIntegrityProof().addProof(unsigned, config);
+  return multikey.toCryptosuite().toDataIntegrityProof().addProof(unsigned, config) as SignedBTCR2Update;
 }
 
 // ------------------------------------------------------------------ nostr harness

@@ -97,6 +97,18 @@ describe('relative DID URLs in a DID document', () => {
         .to.throw();
     });
 
+    it('finds a method that a verification relationship embeds and verificationMethod does not list (ADR 112)', () => {
+      const document = relativeDocument();
+      document.capabilityInvocation!.push({
+        id                 : '#embeddedKey',
+        type               : 'Multikey',
+        controller         : DID,
+        publicKeyMultibase : MULTIBASE,
+      });
+      const vm = DidBtcr2.getSigningMethod(document, `${DID}#embeddedKey`);
+      expect(vm.id).to.equal('#embeddedKey');
+    });
+
     it('does not return a malformed method when the target id is unusable', () => {
       // An unusable target and an unusable method id both resolve to undefined; without a
       // guard they compare equal and the malformed method is returned as the signing method.
@@ -104,6 +116,52 @@ describe('relative DID URLs in a DID document', () => {
       document.verificationMethod[0]!.id = '';
       document.assertionMethod = [];
       expect(() => DidBtcr2.getSigningMethod(document, '')).to.throw();
+    });
+  });
+
+  describe('Appendix.capabilityInvocationEntry and verificationMethodOfEntry (ADR 112)', () => {
+    const embedded = {
+      id                 : '#embeddedKey',
+      type               : 'Multikey',
+      controller         : DID,
+      publicKeyMultibase : MULTIBASE,
+    };
+
+    it('finds a reference entry in either spelling', () => {
+      const document = relativeDocument();
+      expect(Appendix.capabilityInvocationEntry(document, '#initialKey')).to.equal('#initialKey');
+      expect(Appendix.capabilityInvocationEntry(document, `${DID}#initialKey`)).to.equal('#initialKey');
+    });
+
+    it('finds an embedded entry by its id', () => {
+      const document = relativeDocument();
+      document.capabilityInvocation!.push(embedded);
+      expect(Appendix.capabilityInvocationEntry(document, `${DID}#embeddedKey`)).to.deep.equal(embedded);
+    });
+
+    it('returns undefined when no entry identifies the id, or when the id is unusable', () => {
+      const document = relativeDocument();
+      expect(Appendix.capabilityInvocationEntry(document, '#unknownKey')).to.equal(undefined);
+      expect(Appendix.capabilityInvocationEntry(document, `${OTHER_DID}#initialKey`)).to.equal(undefined);
+      expect(Appendix.capabilityInvocationEntry(document, 42)).to.equal(undefined);
+      expect(Appendix.capabilityInvocationEntry({ ...document, capabilityInvocation: undefined }, '#initialKey')).to.equal(undefined);
+    });
+
+    it('resolves a reference entry to the verificationMethod member in either spelling', () => {
+      const document = relativeDocument();
+      expect(Appendix.verificationMethodOfEntry(document, '#initialKey')?.publicKeyMultibase).to.equal(MULTIBASE);
+      expect(Appendix.verificationMethodOfEntry(document, `${DID}#initialKey`)?.publicKeyMultibase).to.equal(MULTIBASE);
+    });
+
+    it('returns an embedded entry as the method itself', () => {
+      const document = relativeDocument();
+      expect(Appendix.verificationMethodOfEntry(document, embedded)).to.equal(embedded);
+    });
+
+    it('returns undefined for a reference that names no member', () => {
+      const document = relativeDocument();
+      expect(Appendix.verificationMethodOfEntry(document, '#ghost')).to.equal(undefined);
+      expect(Appendix.verificationMethodOfEntry(document, `${OTHER_DID}#initialKey`)).to.equal(undefined);
     });
   });
 

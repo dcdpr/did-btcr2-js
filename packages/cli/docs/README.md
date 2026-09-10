@@ -2,7 +2,7 @@
 
 Reference documentation for `btcr2`, the command-line tool of the `did:btcr2` method. This page lists the commands, the global flags, the environment variables, and the precedence of each value. One page per command follows the links in the table.
 
-The text matches `@did-btcr2/cli` v0.24.1.
+The text matches `@did-btcr2/cli` v0.24.2.
 
 ## Commands
 

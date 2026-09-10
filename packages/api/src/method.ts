@@ -4,7 +4,7 @@ import { decode as decodeHash, IdentifierHrp, IdentifierTypes, INVALID_DID_UPDAT
 import type { Signer } from '@did-btcr2/keypair';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import type { BeaconService, BroadcastOptions, BroadcastResult, Btcr2DidDocument, CASAnnouncement, CASBroadcastOptions, DidCreateOptions, DidDocument, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, ResolutionOptions, SignedBTCR2Update, SMTProof } from '@did-btcr2/method';
-import { BeaconError, BeaconFactory, BeaconSignalDiscovery, BeaconUtils, DidBtcr2, GenesisDocument, Identifier, Resolver, selectSpendableUtxo } from '@did-btcr2/method';
+import { BeaconError, BeaconFactory, BeaconSignalDiscovery, BeaconUtils, DEACTIVATION_PATCH, DidBtcr2, GenesisDocument, Identifier, Resolver, selectSpendableUtxo } from '@did-btcr2/method';
 import type { DidResolutionResult, DidVerificationMethod } from '@web5/dids';
 import type { BitcoinApi } from './bitcoin.js';
 import type { CasApi } from './cas.js';
@@ -105,13 +105,10 @@ export class DidMethodApi {
    * The JSON Patch operation that deactivates a DID document: it sets the
    * `deactivated` flag that resolvers halt on. Deactivation is not a separate
    * primitive in did:btcr2; it is an ordinary update carrying exactly this
-   * patch, which is what {@link DidMethodApi.deactivate} broadcasts.
+   * patch, which is what {@link DidMethodApi.deactivate} broadcasts. The
+   * constant is the `DEACTIVATION_PATCH` of `@did-btcr2/method`.
    */
-  static readonly DEACTIVATION_PATCH: Readonly<PatchOperation> = Object.freeze({
-    op    : 'add',
-    path  : '/deactivated',
-    value : true,
-  });
+  static readonly DEACTIVATION_PATCH: Readonly<PatchOperation> = DEACTIVATION_PATCH;
 
   /**
    * The network an identifier is minted for when the caller names none and no

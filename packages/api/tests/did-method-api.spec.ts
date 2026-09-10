@@ -4,6 +4,7 @@ import type { BitcoinConnection, HttpExecutor } from '@did-btcr2/bitcoin';
 import { getNetwork } from '@did-btcr2/bitcoin';
 import { canonicalHashBytes, INVALID_DID_UPDATE, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey, LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
+import { DEACTIVATION_PATCH } from '@did-btcr2/method';
 import {
   BitcoinApi,
   CasApi,
@@ -680,6 +681,13 @@ describe('DidMethodApi', () => {
         bitcoin         : connection,
       })).to.be.rejectedWith(UpdateError, 'names the network "testnet4"');
       expect(events).to.deep.equal([]);
+    });
+  });
+
+  describe('DEACTIVATION_PATCH', () => {
+    it('is the constant of the method package (ADR 112)', () => {
+      expect(DidMethodApi.DEACTIVATION_PATCH).to.equal(DEACTIVATION_PATCH);
+      expect(DidMethodApi.DEACTIVATION_PATCH).to.deep.equal({ op: 'add', path: '/deactivated', value: true });
     });
   });
 

@@ -52,7 +52,7 @@ function createSignedUpdate(did: string, keys: SchnorrKeyPair, version = 2): Sig
     capabilityAction   : 'Write',
   };
   const multikey = SchnorrMultikey.fromSecretKey(verificationMethodId, did, keys.secretKey.bytes);
-  return multikey.toCryptosuite().toDataIntegrityProof().addProof(unsigned, config);
+  return multikey.toCryptosuite().toDataIntegrityProof().addProof(unsigned, config) as SignedBTCR2Update;
 }
 
 /** A dummy P2TR signing payload over the cohort's aggregate key (matches the solo/e2e demos). */
