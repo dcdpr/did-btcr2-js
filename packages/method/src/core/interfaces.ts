@@ -18,15 +18,26 @@ export interface RootCapability {
  */
 export interface ResolutionOptions extends DidResolutionOptions {
   /**
-   * Optional ASCII string representation of the specific version of a DID document
-   * to be resolved.
+   * The version of the DID document to resolve, as an ASCII string of an integer
+   * (for example `"2"`). The versions start at `"1"`, the genesis document. The
+   * resolver stops before it applies the update that yields the next version, so
+   * `"1"` returns the genesis document also when updates exist. A version that the
+   * history does not reach, also a version after a deactivation, fails with a
+   * `ResolveError` of type `NOT_FOUND`. A value that is not an ASCII string of an
+   * integer fails with `INVALID_OPTIONS`. Mutually exclusive with `versionTime`:
+   * a request with both fails with `INVALID_OPTIONS`.
    */
   versionId?: string
 
   /**
-   * Optional XML Datetime normalized to UTC without sub-second decimal precision.
-   * The DID document to be resolved is the most recent version of the DID document
-   * that was valid for the DID before the specified versionTime.
+   * An XML Datetime in UTC with the `Z` designator and no fraction (for example
+   * `"2026-07-01T00:00:00Z"`), the form that DID Resolution v1 requires. The
+   * resolver applies each update whose block `mediantime` (median time past) is
+   * at or before this instant, and stops at the first update whose block
+   * `mediantime` is after it. The boundary is inclusive. Every conformant resolver
+   * reads the same `mediantime` from the block chain, so every resolver selects
+   * the same version. A value in another form fails with `INVALID_OPTIONS`.
+   * Mutually exclusive with `versionId`.
    */
   versionTime?: string;
 

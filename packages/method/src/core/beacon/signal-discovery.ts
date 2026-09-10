@@ -7,7 +7,7 @@ import {
   GENESIS_TX_ID,
   TXIN_WITNESS_COINBASE
 } from '@did-btcr2/bitcoin';
-import { ResolveError } from '@did-btcr2/common';
+import { INTERNAL_ERROR, ResolveError } from '@did-btcr2/common';
 import type { BeaconService, BeaconSignal } from './interfaces.js';
 import { BeaconUtils } from './utils.js';
 
@@ -136,6 +136,10 @@ export class BeaconSignalDiscovery {
     // Fetch the current block count once before the loop
     const currentBlockCount = await bitcoin.rest.block.count();
 
+    // The median time past of each block that holds a signal, keyed by block hash.
+    // One fetch per distinct block for the whole run.
+    const mediantimes = new Map<string, number>();
+
     // Iterate over each beacon
     for (const beaconService of beaconServices) {
       beaconServiceSignals.set(beaconService, []);
@@ -193,6 +197,11 @@ export class BeaconSignalDiscovery {
         // Use the pre-fetched block count instead of calling per-signal
         const confirmations = currentBlockCount - status.block_height + 1;
 
+        // The address listing carries the header time of the block, not its median
+        // time past. The resolver compares `versionTime` with the median time past,
+        // so read it from the block record.
+        const mediantime = await BeaconSignalDiscovery.mediantime(status.block_hash, bitcoin, mediantimes);
+
         // Push the beacon signal object to the signals array for the beacon service
         beaconServiceSignals.get(beaconService)?.push({
           tx            : beaconSignal,
@@ -201,12 +210,45 @@ export class BeaconSignalDiscovery {
             confirmations,
             height : status.block_height,
             time   : status.block_time,
+            mediantime,
           }
         });
       }
     }
 
     return beaconServiceSignals;
+  }
+
+  /**
+   * Return the median time past of a block, from the per-run cache or from the
+   * Esplora block record (`GET /block/:hash`). The specification compares
+   * `versionTime` with the block `mediantime`, and the address listing does not
+   * carry it. One block record serves every signal in that block.
+   * @param {string} blockhash The hash of the block that contains a signal.
+   * @param {BitcoinConnection} bitcoin Bitcoin network connection to use for REST calls.
+   * @param {Map<string, number>} cache The median time past values fetched so far, keyed by block hash.
+   * @returns {Promise<number>} The median time past of the block, in Unix seconds.
+   * @throws {ResolveError} `INTERNAL_ERROR` if the backend returns no block record or no `mediantime` for the hash.
+   */
+  private static async mediantime(
+    blockhash: string,
+    bitcoin: BitcoinConnection,
+    cache: Map<string, number>
+  ): Promise<number> {
+    const cached = cache.get(blockhash);
+    if(cached !== undefined) {
+      return cached;
+    }
+    const block = await bitcoin.rest.block.get({ blockhash });
+    const mediantime = block?.mediantime;
+    if(typeof mediantime !== 'number' || !Number.isFinite(mediantime)) {
+      throw new ResolveError(
+        `Block ${blockhash} has no mediantime in the block record of the Bitcoin REST backend.`,
+        INTERNAL_ERROR, { blockhash, block }
+      );
+    }
+    cache.set(blockhash, mediantime);
+    return mediantime;
   }
 
   /**
@@ -357,6 +399,7 @@ export class BeaconSignalDiscovery {
             blockMetadata : {
               height        : block.height,
               time          : block.time,
+              mediantime    : block.mediantime,
               confirmations : block.confirmations
             }
           });

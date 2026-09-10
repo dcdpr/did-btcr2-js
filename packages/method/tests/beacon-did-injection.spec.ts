@@ -20,7 +20,7 @@ import type { CASAnnouncement, SidecarData } from '../src/core/types.js';
 
 const DID = 'did:btcr2:x1qk8wjcft0ypu2ju5v89p590jaklr30w7tprlpk9rt22f4y2qlq2j7fvyr2z';
 const ENDPOINT = 'bitcoin:tb1pg5zz46v2fynlzm5rmjce3u4m86x90t9me2tprz4et3w52f3s6vaqntpjhk';
-const blockMeta: BlockMetadata = { height: 100, time: 1700000000, confirmations: 6 };
+const blockMeta: BlockMetadata = { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 };
 
 /** A beacon service whose `id` is a relative DID URL, as DID Core permits. */
 const relativeService: BeaconService = {

@@ -13,6 +13,7 @@ import {
   JSONPatch,
   JSONUtils,
   LATE_PUBLISHING_ERROR,
+  NOT_FOUND,
   ResolveError
 } from '@did-btcr2/common';
 import type { HashBytes } from '@did-btcr2/common';
@@ -181,21 +182,73 @@ function isSMTProof(value: unknown): value is SMTProof {
 function validateMinConf(value: unknown): number {
   if(value === undefined) return DEFAULT_MIN_CONF;
   if(typeof value === 'number' && Number.isInteger(value) && value >= 1) return value;
-  const shown = typeof value === 'string' ? JSON.stringify(value) : String(value);
   throw new ResolveError(
-    `Invalid resolution option minConf: expected a positive integer (minimum 1), got ${shown}.`,
+    `Invalid resolution option minConf: expected a positive integer (minimum 1), got ${shown(value)}.`,
     INVALID_OPTIONS, { minConf: value }
   );
 }
 
+/** Render an option value for an error message: a string in quotes, any other value as is. */
+function shown(value: unknown): string {
+  return typeof value === 'string' ? JSON.stringify(value) : String(value);
+}
+
+/** An ASCII string of an integer: an optional minus sign, then digits. */
+const ASCII_INTEGER = /^-?[0-9]+$/;
+
 /**
- * Different possible Resolver states representing phases in the resolution process.
+ * Parse `ResolutionOptions.versionId`. The specification says that the value MUST
+ * parse as an integer, and DID Resolution v1 types the option as a string. The
+ * accepted form is an ASCII string of an integer inside the safe integer range.
+ * @returns {number | undefined} The integer, or `undefined` when the option is absent.
+ * @throws {ResolveError} `INVALID_OPTIONS` for every other value.
+ */
+function validateVersionId(value: unknown): number | undefined {
+  if(value === undefined) return undefined;
+  if(typeof value === 'string' && ASCII_INTEGER.test(value) && Number.isSafeInteger(Number(value))) {
+    return Number(value);
+  }
+  throw new ResolveError(
+    `Invalid resolution option versionId: expected an ASCII string of an integer, got ${shown(value)}.`,
+    INVALID_OPTIONS, { versionId: value }
+  );
+}
+
+/** An XML Datetime in UTC with the `Z` designator and no fraction, for example `2026-07-01T00:00:00Z`. */
+const UTC_XSD_DATETIME = /^-?\d{4,}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
+
+/**
+ * Parse `ResolutionOptions.versionTime`. DID Resolution v1 requires an XML Datetime
+ * normalized to UTC without sub-second precision. The specification raises
+ * `INVALID_OPTIONS` for a value that does not parse.
+ * @returns {number | undefined} The instant in milliseconds since the Unix epoch, or `undefined` when the option is absent.
+ * @throws {ResolveError} `INVALID_OPTIONS` for every other value.
+ */
+function validateVersionTime(value: unknown): number | undefined {
+  if(value === undefined) return undefined;
+  if(typeof value === 'string' && UTC_XSD_DATETIME.test(value) && DateUtils.isValidXsdDateTime(value)) {
+    const ms = Date.parse(value);
+    if(Number.isFinite(ms)) return ms;
+  }
+  throw new ResolveError(
+    'Invalid resolution option versionTime: expected an XML Datetime in UTC without a fraction '
+    + `(for example "2026-07-01T00:00:00Z"), got ${shown(value)}.`,
+    INVALID_OPTIONS, { versionTime: value }
+  );
+}
+
+/**
+ * The phases of the resolution process. Each pass of the specification loop is
+ * BeaconDiscovery (the scan of the beacon addresses the resolver did not scan yet),
+ * BeaconProcess (the tuples of the signals the caller provided), and ProcessUpdate
+ * (one tuple). GenesisDocument runs once, for an EXTERNAL identifier whose genesis
+ * document is not in the sidecar.
  */
 enum ResolverPhase {
   GenesisDocument = 'GenesisDocument',
   BeaconDiscovery = 'BeaconDiscovery',
   BeaconProcess   = 'BeaconProcess',
-  ApplyUpdates    = 'ApplyUpdates',
+  ProcessUpdate   = 'ProcessUpdate',
   Complete        = 'Complete',
 }
 
@@ -224,8 +277,10 @@ enum ResolverPhase {
 export class Resolver {
   // --- Immutable inputs ---
   readonly #didComponents: DidComponents;
-  readonly #versionId?: string;
-  readonly #versionTime?: string;
+  /** The parsed `ResolutionOptions.versionId`, or `undefined` when the option is absent. */
+  readonly #versionId?: number;
+  /** The parsed `ResolutionOptions.versionTime` in milliseconds since the Unix epoch, or `undefined`. */
+  readonly #versionTime?: number;
 
   /**
    * The specific phase the Resolver is current in.
@@ -236,23 +291,29 @@ export class Resolver {
   #providedGenesisDocument: object | null = null;
   #beaconServicesSignals: Map<BeaconService, Array<BeaconSignal>> = new Map();
   #processedServices: Set<string> = new Set();
+  /** The beacon addresses the resolver requested signals for: `scanned_beacons` of the specification. */
   #requestCache: Set<string> = new Set();
+  /**
+   * The tuples of the specification's `updates` list: a signed update and the metadata of
+   * the block that announced it. BeaconProcess appends; ProcessUpdate sorts the list and
+   * removes one tuple per step. A tuple that one pass does not reach waits for the next.
+   */
   #unsortedUpdates: Array<[SignedBTCR2Update, BlockMetadata]> = [];
   #resolvedResponse: DidResolutionResponse | null = null;
 
   /**
-   * Monotonic DID-document version counter and the update-hash history that backs
-   * duplicate confirmation, both carried across the entire resolution. The spec's
-   * read algorithm keeps a single version counter and a single update-hash history
-   * for the whole signal-processing loop, re-deriving beacons from the contemporary
-   * document on each pass. This sans-I/O resolver splits that one loop into discovery
-   * rounds, so the two must persist across rounds rather than restart each pass.
-   * Restarting them would reject a legitimate linear history whose later updates are
-   * announced on beacons that earlier updates added: round two would forget it had
-   * already reached version two, see version three, and raise a late-publishing error.
+   * The state of the specification loop, carried across every pass: the version counter
+   * (`current_version_id`), the update-hash history that backs duplicate confirmation
+   * (`update_hash_history`), the confirmations of the block that contains the most
+   * recently applied unique update (`block_confirmations`), and the header time of that
+   * block as `updated`. A pass that finds a new beacon address returns to discovery, so
+   * the state must not restart: a restart would reject a linear history whose later
+   * updates are announced on beacons that earlier updates added.
    */
   #currentVersionId = 1;
   #updateHashHistory: HashBytes[] = [];
+  #blockConfirmations = 0;
+  #updated?: string;
 
   /**
    * Opt-in upper bound on multi-round beacon-discovery passes. `Infinity` (the
@@ -292,14 +353,23 @@ export class Resolver {
     this.#didComponents = didComponents;
     this.#sidecarData = sidecarData;
     this.#currentDocument = currentDocument;
-    this.#versionId = options?.versionId;
-    this.#versionTime = options?.versionTime;
+    // The resolution options fail here, before any data need is emitted, so the
+    // caller does no I/O for a request it cannot serve. DID Resolution v1 defines
+    // versionId and versionTime as mutually exclusive; the specification raises
+    // INVALID_OPTIONS for a request with both, and for a value that does not parse.
+    if(options?.versionId !== undefined && options?.versionTime !== undefined) {
+      throw new ResolveError(
+        'Invalid resolution options: versionId and versionTime are mutually exclusive. Pass one of them.',
+        INVALID_OPTIONS, { versionId: options.versionId, versionTime: options.versionTime }
+      );
+    }
+    this.#versionId = validateVersionId(options?.versionId);
+    this.#versionTime = validateVersionTime(options?.versionTime);
     // Discovery is unbounded by default; a positive maxDiscoveryRounds opts into a
     // finite resource guard. A non-positive or omitted value means no limit.
     const rounds = options?.maxDiscoveryRounds;
     this.#maxDiscoveryRounds = typeof rounds === 'number' && rounds > 0 ? rounds : Infinity;
-    // The signal confirmation threshold. An invalid value fails here, before any
-    // data need is emitted, so the caller does no I/O for a request it cannot serve.
+    // The signal confirmation threshold.
     this.#minConf = validateMinConf(options?.minConf);
 
     // If a genesis document was provided (from sidecar), pre-seed it for validation
@@ -418,156 +488,7 @@ export class Resolver {
   }
 
   /**
-   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process-updates | 7.2.f Process updates Array}.
-   * @param {DidDocument} currentDocument The current DID Document to apply the updates to.
-   * @param {Array<[SignedBTCR2Update, BlockMetadata]>} unsortedUpdates The unsorted array of BTCR2 Signed Updates and their associated Block Metadata.
-   * @param {string} [versionTime] The optional version time to limit updates to.
-   * @param {string} [versionId] The optional version id to limit updates to.
-   * @param {{ currentVersionId: number; updateHashHistory: HashBytes[] }} [resolutionState]
-   *   Version counter and update-hash history carried from earlier discovery rounds.
-   *   Standalone callers omit it and start fresh at version 1 with an empty history.
-   * @returns {DidResolutionResponse} The updated DID Document, number of confirmations, and version id.
-   *
-   * Confirmation depth is not checked here. The BeaconProcess phase excludes a
-   * signal below `ResolutionOptions.minConf` before its update reaches this method,
-   * so every tuple here comes from a block at or above the threshold.
-   */
-  static updates(
-    currentDocument: DidDocument,
-    unsortedUpdates: Array<[SignedBTCR2Update, BlockMetadata]>,
-    versionTime?: string,
-    versionId?: string,
-    resolutionState: { currentVersionId: number; updateHashHistory: HashBytes[] } =
-    { currentVersionId: 1, updateHashHistory: [] }
-  ): DidResolutionResponse {
-    // Continue the version counter and update-hash history from earlier discovery
-    // rounds so the whole resolution is one monotonic sequence, matching the spec's
-    // single signal-processing loop. updateHashHistory is shared by reference, so the
-    // appends made below are visible to the next round.
-    let currentVersionId = resolutionState.currentVersionId;
-    const updateHashHistory: HashBytes[] = resolutionState.updateHashHistory;
-
-    // 1. Sort updates by targetVersionId (ascending), using blockheight as tie-breaker
-    const updates = unsortedUpdates.sort(([upd0, blk0], [upd1, blk1]) =>
-      upd0.targetVersionId - upd1.targetVersionId || blk0.height - blk1.height
-    );
-
-    // Create a default response object. `updated` is absent until an update applies.
-    const response: DidResolutionResponse = {
-      didDocument : currentDocument,
-      metadata    : {
-        versionId     : `${currentVersionId}`,
-        confirmations : 0,
-        deactivated   : currentDocument.deactivated || false
-      }
-    };
-
-    // Iterate over each (update block) pair
-    for(const [update, block] of updates) {
-      // Get the hash of the current document as raw bytes
-      const currentDocumentHash = canonicalHashBytes(response.didDocument);
-
-      // Safely convert block.time to timestamp
-      const blocktime = DateUtils.blocktimeToTimestamp(block.time);
-
-      // Set the updated field to the blocktime of the current update
-      response.metadata.updated = DateUtils.toISOStringNonFractional(blocktime);
-
-      // Set confirmations to the block confirmations
-      response.metadata.confirmations = block.confirmations;
-
-      // Check update.targetVersionId against currentVersionId.
-      // If update.targetVersionId <= currentVersionId, this update re-announces a version
-      // that has already been applied. Confirm it is a true duplicate, then skip it: a
-      // duplicate does not advance the version counter (the increment and the
-      // metadata.versionId it sets run only on the apply path below), and confirmation
-      // compares against the update-hash history without appending to it, because the
-      // history already holds the applied update at updateHashHistory[targetVersionId - 2].
-      // Holding the increment off the duplicate path is the deliberate did:btcr2 deviation
-      // recorded in ADR 067: the read algorithm's "Increment current_version_id" belongs
-      // to the apply branch, not to every tuple. Duplicates are confirmed whatever their
-      // blocktime, before the versionTime check below, so a re-announcement mined after
-      // versionTime can neither truncate the in-window history nor dodge late-publishing
-      // detection (ADR 068).
-      if(update.targetVersionId <= currentVersionId) {
-        this.confirmDuplicate(update, updateHashHistory);
-        continue;
-      }
-
-      // if resolutionOptions.versionTime is defined and the blocktime is more recent, return
-      // currentDocument. Evaluated only for tuples that would change state (apply or late
-      // publishing). The spec places this check before the duplicate branch, where the sort
-      // by targetVersionId lets a duplicate of an early version mined after versionTime end
-      // resolution before genuine in-window updates are processed; checking it here is the
-      // deliberate deviation recorded in ADR 068.
-      if(versionTime) {
-        // Safely convert versionTime to timestamp
-        if(blocktime > DateUtils.dateStringToTimestamp(versionTime)) {
-          return response;
-        }
-      }
-
-      // If update.targetVersionId == currentVersionId + 1, apply the update
-      if (update.targetVersionId === currentVersionId + 1) {
-        // Check if update.sourceHash !== currentDocumentHash (byte comparison)
-        const sourceHashBytes = decodeHash(update.sourceHash, 'base64urlnopad');
-        if (!equalBytes(sourceHashBytes, currentDocumentHash)) {
-          throw new ResolveError(
-            `Hash mismatch: update.sourceHash !== currentDocumentHash`,
-            INVALID_DID_UPDATE, {
-              sourceHash          : update.sourceHash,
-              currentDocumentHash : encodeHash(currentDocumentHash, 'hex')
-            }
-          );
-        }
-        // Apply the update to the currentDocument and set it in the response
-        response.didDocument = this.applyUpdate(response.didDocument, update);
-
-        // Create unsigned_update by removing the proof property from update.
-        const unsignedUpdate = JSONUtils.deleteKeys(update, ['proof']) as UnsignedBTCR2Update;
-        // Push the canonicalized unsigned update hash bytes to the updateHashHistory
-        updateHashHistory.push(canonicalHashBytes(unsignedUpdate));
-      }
-
-      // Otherwise update.targetVersionId > currentVersionId + 1: a version was skipped,
-      // so throw LATE_PUBLISHING error. The duplicate case already continued above.
-      else {
-        throw new ResolveError(
-          `Version Id Mismatch: targetVersionId cannot be > currentVersionId + 1`,
-          LATE_PUBLISHING_ERROR, {
-            targetVersionId  : update.targetVersionId,
-            currentVersionId : currentVersionId + 1
-          }
-        );
-      }
-
-      // Increment currentVersionId
-      currentVersionId++;
-
-      // Set response.versionId to be the new currentVersionId
-      response.metadata.versionId = `${currentVersionId}`;
-
-      // If resolutionOptions.versionId is defined and <= currentVersionId, return currentDocument
-      const versionIdNumber = Number(versionId);
-      if(!isNaN(versionIdNumber) && versionIdNumber <= currentVersionId) {
-        return response;
-      }
-
-      // Check if the current document is deactivated before further processing
-      if(response.didDocument.deactivated) {
-        // Set the response deactivated flag to true
-        response.metadata.deactivated = response.didDocument.deactivated;
-        // If deactivated, stop processing further updates and return the response
-        return response;
-      }
-    }
-
-    // Return response data
-    return response;
-  }
-
-  /**
-   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/#confirm-duplicate-update | 7.2.f.1 Confirm Duplicate Update}.
+   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#confirm-duplicate-update | Confirm Duplicate Update}.
    * This step confirms that an update with a lower-than-expected targetVersionId is a true duplicate.
    * @param {SignedBTCR2Update} update The BTCR2 Signed Update to confirm as a duplicate.
    * @param {HashBytes[]} updateHashHistory The accumulated hash history for comparison.
@@ -621,17 +542,31 @@ export class Resolver {
   }
 
   /**
-   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#apply-update | 7.2.f.3 Apply Update}
+   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#apply-update | Apply update}
    * and its step {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#check-update-proof | Check update.proof}.
    * @param {DidDocument} currentDocument The current DID Document to apply the update to.
    * @param {SignedBTCR2Update} update The BTCR2 Signed Update to apply.
    * @returns {DidDocument} The updated DID Document after applying the update.
-   * @throws {ResolveError} If the update is invalid or cannot be applied.
+   * @throws {ResolveError} `INVALID_DID_UPDATE` if the update is invalid or cannot be applied.
    */
   private static applyUpdate(
     currentDocument: DidDocument,
     update: SignedBTCR2Update
   ): DidDocument {
+    // Spec "Apply update": the hash of the current document must be the decoded
+    // update.sourceHash (byte comparison).
+    const currentDocumentHash = canonicalHashBytes(currentDocument);
+    const sourceHashBytes = decodeHash(update.sourceHash, 'base64urlnopad');
+    if (!equalBytes(sourceHashBytes, currentDocumentHash)) {
+      throw new ResolveError(
+        `Hash mismatch: update.sourceHash !== currentDocumentHash`,
+        INVALID_DID_UPDATE, {
+          sourceHash          : update.sourceHash,
+          currentDocumentHash : encodeHash(currentDocumentHash, 'hex')
+        }
+      );
+    }
+
     // Spec "Check update.proof": the update @context must be the array that the BTCR2
     // Unsigned Update data structure pins, and the proof @context must equal it, member
     // for member and in order. The array is inside the hashed and signed bytes, so an
@@ -735,18 +670,18 @@ export class Resolver {
     // Verify that updatedDocument is conformant to DID Core v1.1.
     DidDocument.validate(updatedDocument);
 
-    // Canonicalize and hash the updatedDocument to get the currentDocumentHash (raw bytes).
-    const currentDocumentHash = canonicalHashBytes(updatedDocument);
+    // Canonicalize and hash the updatedDocument (raw bytes).
+    const updatedDocumentHash = canonicalHashBytes(updatedDocument);
 
-    // Prepare the update targetHash for comparison with currentDocumentHash.
+    // Prepare the update targetHash for comparison with updatedDocumentHash.
     const updateTargetHash = decodeHash(update.targetHash);
 
-    // Make sure the update.targetHash equals currentDocumentHash.
-    if (!equalBytes(updateTargetHash, currentDocumentHash)) {
+    // Make sure the update.targetHash equals updatedDocumentHash.
+    if (!equalBytes(updateTargetHash, updatedDocumentHash)) {
       // If they do not match, throw INVALID_DID_UPDATE error.
       throw new ResolveError(
-        `Invalid update: update.targetHash !== currentDocumentHash`,
-        INVALID_DID_UPDATE, { updateTargetHash, currentDocumentHash }
+        `Invalid update: update.targetHash !== updatedDocumentHash`,
+        INVALID_DID_UPDATE, { updateTargetHash, updatedDocumentHash }
       );
     }
 
@@ -851,80 +786,143 @@ export class Resolver {
             return { status: 'action-required', needs: allNeeds };
           }
 
-          this.#phase = ResolverPhase.ApplyUpdates;
+          this.#phase = ResolverPhase.ProcessUpdate;
           continue;
         }
 
-        // Phase: ApplyUpdates
-        // Apply collected updates, then check for new beacon services (multi-round).
-        case ResolverPhase.ApplyUpdates: {
-          if(this.#unsortedUpdates.length > 0) {
-            // Apply this round's updates, continuing the resolution-wide version
-            // counter and update-hash history rather than restarting them. Without
-            // this carry, a linear history split across discovery rounds would be
-            // rejected at round two as late publishing.
-            this.#resolvedResponse = Resolver.updates(
-              this.#currentDocument!,
-              this.#unsortedUpdates,
-              this.#versionTime,
-              this.#versionId,
-              { currentVersionId: this.#currentVersionId, updateHashHistory: this.#updateHashHistory }
-            );
-            // updates() reports the version it reached via metadata.versionId; carry
-            // it forward so the next round continues the monotonic sequence.
-            this.#currentVersionId = Number(this.#resolvedResponse.metadata.versionId);
-            this.#currentDocument = this.#resolvedResponse.didDocument;
-            this.#unsortedUpdates = [];
+        // Phase: ProcessUpdate
+        // Spec "Process Next Update": one tuple per step. The phase repeats until
+        // the document resolves, or until an applied update adds a beacon address
+        // that the resolver did not scan (then the pass returns to BeaconDiscovery).
+        case ResolverPhase.ProcessUpdate: {
+          const document = this.#currentDocument!;
 
-            // Check for new beacon services added by updates (multi-round discovery)
-            const beaconServices = BeaconUtils.getBeaconServices(this.#currentDocument);
-            const hasNewServices = beaconServices.some(service => {
-              const address = BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string);
-              return !this.#requestCache.has(address);
-            });
-
-            if(hasNewServices) {
-              // Discovery is unbounded by default: termination is guaranteed by
-              // address de-duplication (#requestCache), so a well-formed DID
-              // resolves in however many rounds its history requires. An opt-in
-              // maxDiscoveryRounds lets a caller bound the work as a resource
-              // guard. Exceeding it is a limit the caller imposed, not a malformed
-              // document, so it surfaces as INTERNAL_ERROR, not INVALID_DID_DOCUMENT.
-              if(++this.#discoveryRounds > this.#maxDiscoveryRounds) {
-                throw new ResolveError(
-                  `Exceeded the configured maximum of ${this.#maxDiscoveryRounds} beacon-discovery `
-                  + 'rounds. Raise or remove ResolutionOptions.maxDiscoveryRounds to resolve this DID.',
-                  INTERNAL_ERROR,
-                  { maxDiscoveryRounds: this.#maxDiscoveryRounds, discoveryRounds: this.#discoveryRounds }
-                );
-              }
-              // Loop back to discover signals for new beacon services
-              this.#phase = ResolverPhase.BeaconDiscovery;
-              continue;
-            }
+          // Step 1: the requested version is reached. The test runs before Apply,
+          // so version 1 is reachable.
+          if(this.#versionId !== undefined && this.#currentVersionId === this.#versionId) {
+            this.#phase = ResolverPhase.Complete;
+            continue;
           }
 
-          this.#phase = ResolverPhase.Complete;
+          // Step 2: no tuple is left, or the document is deactivated. A requested
+          // version that the history does not reach is NOT_FOUND.
+          if(this.#unsortedUpdates.length === 0 || document.deactivated) {
+            if(this.#versionId !== undefined) {
+              throw new ResolveError(
+                `Version ${this.#versionId} of the DID does not exist: the history `
+                + (document.deactivated
+                  ? `ends with the deactivation at version ${this.#currentVersionId}.`
+                  : `ends at version ${this.#currentVersionId}.`),
+                NOT_FOUND, { versionId: this.#versionId, currentVersionId: this.#currentVersionId }
+              );
+            }
+            this.#phase = ResolverPhase.Complete;
+            continue;
+          }
+
+          // Step 3: sort the tuples by targetVersionId (ascending), then by block
+          // height, and remove the first one. The sort runs on every step because
+          // a scan between two steps can add a tuple with a lower version.
+          this.#unsortedUpdates.sort(([upd0, blk0], [upd1, blk1]) =>
+            upd0.targetVersionId - upd1.targetVersionId || blk0.height - blk1.height
+          );
+          const [update, block] = this.#unsortedUpdates.shift()!;
+
+          // Check targetVersionId, first arm: update.targetVersionId <= currentVersionId
+          // re-announces an applied version. Confirm that it is a true duplicate, then
+          // skip it. A duplicate does not advance the version counter, does not append
+          // to the history (the slot already holds the applied update, ADR 067), and
+          // does not stamp the metadata: confirmations refers to the block of the most
+          // recently applied unique update. The branch runs before the versionTime
+          // test (ADR 068): a re-announcement mined after versionTime can neither end
+          // the resolution early nor dodge late-publishing detection.
+          if(update.targetVersionId <= this.#currentVersionId) {
+            Resolver.confirmDuplicate(update, this.#updateHashHistory);
+            continue;
+          }
+
+          // Step 4: the versionTime stop. The block mediantime of the tuple is after
+          // versionTime: resolve the current document. The boundary is inclusive, so a
+          // tuple whose mediantime equals versionTime applies. The stopped tuple stamps
+          // nothing: the metadata reports the last applied update.
+          if(this.#versionTime !== undefined && block.mediantime * 1000 > this.#versionTime) {
+            this.#phase = ResolverPhase.Complete;
+            continue;
+          }
+
+          // Check targetVersionId, third arm: a version was skipped, so raise LATE_PUBLISHING.
+          if(update.targetVersionId !== this.#currentVersionId + 1) {
+            throw new ResolveError(
+              `Version Id Mismatch: targetVersionId cannot be > currentVersionId + 1`,
+              LATE_PUBLISHING_ERROR, {
+                targetVersionId  : update.targetVersionId,
+                currentVersionId : this.#currentVersionId + 1
+              }
+            );
+          }
+
+          // Second arm: update.targetVersionId == currentVersionId + 1. Apply the update,
+          // append the unsigned update hash to the history, increment the version.
+          this.#currentDocument = Resolver.applyUpdate(document, update);
+          const unsignedUpdate = JSONUtils.deleteKeys(update, ['proof']) as UnsignedBTCR2Update;
+          this.#updateHashHistory.push(canonicalHashBytes(unsignedUpdate));
+          this.#currentVersionId++;
+
+          // Step 5: block_confirmations, and the header time as `updated`. On the apply
+          // path only: the stop above and the duplicate branch stamp nothing.
+          this.#blockConfirmations = block.confirmations;
+          this.#updated = DateUtils.toISOStringNonFractional(DateUtils.blocktimeToTimestamp(block.time));
+
+          // The applied update can add a beacon service. "Find Beacon Signals" runs at
+          // the top of every pass for the addresses that are not scanned yet, so the
+          // pass returns to BeaconDiscovery before the next tuple. Discovery is
+          // unbounded by default: termination is guaranteed by address
+          // de-duplication (#requestCache). An opt-in maxDiscoveryRounds lets a caller
+          // bound the work as a resource guard. Exceeding it is a limit the caller
+          // imposed, not a malformed document, so it surfaces as INTERNAL_ERROR.
+          if(this.#hasUnscannedBeacons()) {
+            if(++this.#discoveryRounds > this.#maxDiscoveryRounds) {
+              throw new ResolveError(
+                `Exceeded the configured maximum of ${this.#maxDiscoveryRounds} beacon-discovery `
+                + 'rounds. Raise or remove ResolutionOptions.maxDiscoveryRounds to resolve this DID.',
+                INTERNAL_ERROR,
+                { maxDiscoveryRounds: this.#maxDiscoveryRounds, discoveryRounds: this.#discoveryRounds }
+              );
+            }
+            this.#phase = ResolverPhase.BeaconDiscovery;
+          }
           continue;
         }
 
         // Phase: Complete
+        // The document metadata of the specification: versionId is current_version_id,
+        // confirmations is block_confirmations (0 when no update applied), deactivated
+        // is the flag of the document. `updated` is present after the first apply.
         case ResolverPhase.Complete: {
-          return {
-            status : 'resolved',
-            // No update applied: confirmations is 0 per the specification.
-            result : this.#resolvedResponse ?? {
-              didDocument : this.#currentDocument!,
-              metadata    : {
-                versionId     : this.#versionId ?? '1',
-                confirmations : 0,
-                deactivated   : this.#currentDocument!.deactivated || false
-              }
+          this.#resolvedResponse ??= {
+            didDocument : this.#currentDocument!,
+            metadata    : {
+              versionId     : `${this.#currentVersionId}`,
+              confirmations : this.#blockConfirmations,
+              ...(this.#updated !== undefined ? { updated: this.#updated } : {}),
+              deactivated   : this.#currentDocument!.deactivated || false
             }
           };
+          return { status: 'resolved', result: this.#resolvedResponse };
         }
       }
     }
+  }
+
+  /**
+   * True if the current document carries a beacon service whose address the resolver
+   * did not request signals for. "Find Beacon Signals" scans such an address on the
+   * next pass.
+   */
+  #hasUnscannedBeacons(): boolean {
+    return BeaconUtils.getBeaconServices(this.#currentDocument!).some(service =>
+      !this.#requestCache.has(BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string))
+    );
   }
 
   /**
@@ -935,10 +933,11 @@ export class Resolver {
    * integer confirmation count is excluded too: that is a mempool transaction
    * from a driver that did not skip it.
    *
-   * An eligible signal must carry a finite block height and block time. A
-   * signal that passes the count but lacks them is malformed. It fails fast
-   * here with a typed error, in the style of the {@link provide} guards, and
-   * not later with an invalid date inside {@link updates}.
+   * An eligible signal must carry a finite block height, block time, and block
+   * median time past. A signal that passes the count but lacks them is
+   * malformed. It fails fast here with a typed error, in the style of the
+   * {@link provide} guards, and not later with an invalid date or a false
+   * `versionTime` comparison in the ProcessUpdate phase.
    * @param {Array<BeaconSignal>} signals The signals the caller provided for one service.
    * @returns {Array<BeaconSignal>} The signals at or above the threshold, in the given order.
    * @throws {ResolveError} `INVALID_DID_UPDATE` for an eligible signal with no valid block metadata.
@@ -951,12 +950,18 @@ export class Resolver {
       if(!Number.isInteger(confirmations) || (confirmations as number) < this.#minConf) {
         continue;
       }
-      if(!Number.isFinite(block?.height) || !Number.isFinite(block?.time)) {
+      if(!Number.isFinite(block?.height) || !Number.isFinite(block?.time) || !Number.isFinite(block?.mediantime)) {
         throw new ResolveError(
           `Beacon signal ${signal.signalBytes} has ${confirmations} confirmations `
-          + 'but no valid block height or block time.',
+          + 'but no valid block height, block time, or block mediantime.',
           INVALID_DID_UPDATE,
-          { signalBytes: signal.signalBytes, confirmations, height: block?.height, time: block?.time }
+          {
+            signalBytes : signal.signalBytes,
+            confirmations,
+            height      : block?.height,
+            time        : block?.time,
+            mediantime  : block?.mediantime
+          }
         );
       }
       eligible.push(signal);

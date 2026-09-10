@@ -39,8 +39,8 @@ The JSON object is the `ResolutionOptions` type of `@did-btcr2/method`. Each fie
 
 | Field | Type | Meaning |
 |-------|------|---------|
-| `versionId` | string | The version of the DID document to resolve, as an ASCII string. The versions start at `"1"`. |
-| `versionTime` | string | An XML datetime in UTC without sub-second precision (for example `'2026-07-01T00:00:00Z'`). The resolver returns the most recent version that was valid before that time. |
+| `versionId` | string | The version of the DID document to resolve, as an ASCII string of an integer. The versions start at `"1"`, the genesis document. The resolver stops before it applies the update that yields the next version. A version that the history does not reach fails with `NOT_FOUND`. Mutually exclusive with `versionTime`: a request with both fails with `INVALID_OPTIONS`. |
+| `versionTime` | string | An XML datetime in UTC with the `Z` designator and no fraction (for example `'2026-07-01T00:00:00Z'`). The resolver applies each update whose block `mediantime` (median time past) is at or before that instant, and stops at the first update whose block `mediantime` is after it. A value in another form fails with `INVALID_OPTIONS`. |
 | `maxDiscoveryRounds` | number | An opt-in upper bound on the number of beacon discovery rounds. Unset, absent, or not positive means no limit. The resolver always stops, because it does not query a beacon address twice. A positive value is a resource guard. A run over the limit fails with `INTERNAL_ERROR`. |
 | `sidecar` | object | The off-chain data bundle. See below. |
 

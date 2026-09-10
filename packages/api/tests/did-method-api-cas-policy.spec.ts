@@ -727,13 +727,13 @@ describe('DidMethodApi resolve() SMT proof handling', () => {
         scriptpubkey     : `6a20${smtRootHex}`,
         scriptpubkey_asm : `OP_RETURN OP_PUSHBYTES_32 ${smtRootHex}`,
       }],
-      status : { confirmed: true, block_height: 100, block_time: 1700000000 },
+      status : { confirmed: true, block_height: 100, block_hash: 'b'.repeat(64), block_time: 1700000000 },
     };
     const btcMock = {
       connection : {
         data : network,
         rest : {
-          block   : { count: async () => 105 },
+          block   : { count: async () => 105, get: async () => ({ mediantime: 1700000000 }) },
           address : { getTxs: async () => [signalTx] },
         },
       } as unknown as BitcoinConnection,
