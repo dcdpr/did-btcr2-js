@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { randomBytes } from 'crypto';
-import { canonicalHash, encode, hash, canonicalize, INTERNAL_ERROR, INVALID_DID_UPDATE, INVALID_OPTIONS, JSONPatch, LATE_PUBLISHING_ERROR, ResolveError } from '@did-btcr2/common';
+import { canonicalHash, encode, hash, canonicalize, INTERNAL_ERROR, INVALID_DID_UPDATE, INVALID_OPTIONS, JSONPatch, LATE_PUBLISHING_ERROR, NOT_FOUND, ResolveError } from '@did-btcr2/common';
 import type { PatchOperation } from '@did-btcr2/common';
 import { getNetwork } from '@did-btcr2/bitcoin';
 import { CompressedSecp256k1PublicKey, LocalSigner } from '@did-btcr2/keypair';
@@ -15,7 +15,7 @@ import type { DidDocument } from '../src/utils/did-document.js';
 import { DidVerificationMethod } from '../src/utils/did-document.js';
 import type { SignedBTCR2Update } from '../src/core/btcr2-update.js';
 import { BTCR2_UPDATE_CONTEXT } from '../src/core/btcr2-update.js';
-import { DEFAULT_MIN_CONF, Resolver } from '../src/core/resolver.js';
+import { DEFAULT_MIN_CONF } from '../src/core/resolver.js';
 import type { DidResolutionResponse, NeedBeaconSignals, NeedCASAnnouncement, NeedGenesisDocument, NeedSMTProof, NeedSignedUpdate } from '../src/core/resolver.js';
 import { Updater } from '../src/core/updater.js';
 import deterministicData from './data/deterministic-data.js';
@@ -105,7 +105,7 @@ function driveDiscoveryChain(
   did: string,
   updates: Array<SignedBTCR2Update>,
   signalByAddress: Map<string, string>,
-  options?: { maxDiscoveryRounds?: number }
+  options?: { maxDiscoveryRounds?: number; versionId?: string }
 ): DidResolutionResponse {
   const resolver = DidBtcr2.resolve(did, { sidecar: { updates }, ...options });
   let height = 100;
@@ -118,7 +118,7 @@ function driveDiscoveryChain(
       const address = BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string);
       const updateHashHex = signalByAddress.get(address);
       signals.set(service, updateHashHex
-        ? [{ tx: {} as any, signalBytes: updateHashHex, blockMetadata: { height: height++, time: 1700000000, confirmations: 6 } }]
+        ? [{ tx: {} as any, signalBytes: updateHashHex, blockMetadata: { height: height++, time: 1700000000, mediantime: 1700000000, confirmations: 6 } }]
         : []
       );
     }
@@ -163,13 +163,14 @@ function buildUpdateChain(
 
 /**
  * Drive a resolver delivering every update as a signal on the single genesis beacon in one
- * discovery round (the updates add no beacons). Optional versionId/versionTime limits and
- * per-update block times exercise the early-return branches inside Resolver.updates().
+ * discovery pass (the updates add no beacons). Optional versionId/versionTime limits and
+ * per-update block times exercise the stop conditions of the ProcessUpdate phase. The
+ * block mediantime of update i is `mediantimes[i]`, else its header time.
  */
 function driveSingleBeacon(
   did: string,
   updates: Array<SignedBTCR2Update>,
-  options?: { versionId?: string; versionTime?: string; times?: Array<number> }
+  options?: { versionId?: string; versionTime?: string; times?: Array<number>; mediantimes?: Array<number> }
 ): ReturnType<typeof driveDiscoveryChain> {
   const resolver = DidBtcr2.resolve(did, {
     sidecar : { updates },
@@ -181,11 +182,14 @@ function driveSingleBeacon(
   const need = state.needs[0] as NeedBeaconSignals;
   const genesis = need.beaconServices[0] as BeaconService;
   const signals = new Map<BeaconService, Array<BeaconSignal>>();
-  signals.set(genesis, updates.map((update, i) => ({
-    tx            : {} as any,
-    signalBytes   : canonicalHash(update, { encoding: 'hex' }),
-    blockMetadata : { height: 100 + i, time: options?.times?.[i] ?? (1700000000 + i), confirmations: 6 }
-  })));
+  signals.set(genesis, updates.map((update, i) => {
+    const time = options?.times?.[i] ?? (1700000000 + i);
+    return {
+      tx            : {} as any,
+      signalBytes   : canonicalHash(update, { encoding: 'hex' }),
+      blockMetadata : { height: 100 + i, time, mediantime: options?.mediantimes?.[i] ?? time, confirmations: 6 }
+    };
+  }));
   resolver.provide(need, signals);
   state = resolver.resolve();
   if(state.status !== 'resolved') throw new Error('expected resolved');
@@ -205,7 +209,7 @@ function driveSignalSequence(
   did: string,
   sidecarUpdates: Array<SignedBTCR2Update>,
   signalUpdates: Array<SignedBTCR2Update>,
-  blocks?: Array<{ height?: number; time?: number; confirmations?: number }>,
+  blocks?: Array<{ height?: number; time?: number; mediantime?: number; confirmations?: number }>,
   versionTime?: string
 ): DidResolutionResponse {
   const resolver = DidBtcr2.resolve(did, {
@@ -217,15 +221,19 @@ function driveSignalSequence(
   const need = state.needs[0] as NeedBeaconSignals;
   const genesis = need.beaconServices[0] as BeaconService;
   const signals = new Map<BeaconService, Array<BeaconSignal>>();
-  signals.set(genesis, signalUpdates.map((update, i) => ({
-    tx            : {} as any,
-    signalBytes   : canonicalHash(update, { encoding: 'hex' }),
-    blockMetadata : {
-      height        : blocks?.[i]?.height ?? (100 + i),
-      time          : blocks?.[i]?.time ?? (1700000000 + i),
-      confirmations : blocks?.[i]?.confirmations ?? 6
-    }
-  })));
+  signals.set(genesis, signalUpdates.map((update, i) => {
+    const time = blocks?.[i]?.time ?? (1700000000 + i);
+    return {
+      tx            : {} as any,
+      signalBytes   : canonicalHash(update, { encoding: 'hex' }),
+      blockMetadata : {
+        height        : blocks?.[i]?.height ?? (100 + i),
+        time,
+        mediantime    : blocks?.[i]?.mediantime ?? time,
+        confirmations : blocks?.[i]?.confirmations ?? 6
+      }
+    };
+  }));
   resolver.provide(need, signals);
   state = resolver.resolve();
   if(state.status !== 'resolved') throw new Error('expected resolved');
@@ -423,7 +431,7 @@ describe('Resolver', () => {
       fakeSignals.set(service, [{
         tx            : {} as any,
         signalBytes   : fakeSignalHash,
-        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+        blockMetadata : { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
       }]);
       resolver.provide(beaconNeed, fakeSignals);
 
@@ -464,7 +472,7 @@ describe('Resolver', () => {
       fakeSignals.set(casService, [{
         tx            : {} as any,
         signalBytes   : fakeAnnouncementHash,
-        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+        blockMetadata : { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
       }]);
       resolver.provide(beaconNeed, fakeSignals);
 
@@ -513,7 +521,7 @@ describe('Resolver', () => {
       fakeSignals.set(casService, [{
         tx            : {} as any,
         signalBytes   : announcementHashHex,
-        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+        blockMetadata : { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
       }]);
       resolver.provide(beaconNeed, fakeSignals);
 
@@ -568,7 +576,7 @@ describe('Resolver', () => {
       fakeSignals.set(smtService, [{
         tx            : {} as any,
         signalBytes   : fakeRootHash,
-        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+        blockMetadata : { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
       }]);
       resolver.provide(beaconNeed, fakeSignals);
 
@@ -622,7 +630,7 @@ describe('Resolver', () => {
       fakeSignals.set(smtService, [{
         tx            : {} as any,
         signalBytes   : rootHashHex,
-        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+        blockMetadata : { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
       }]);
       resolver.provide(beaconNeed, fakeSignals);
 
@@ -686,7 +694,7 @@ describe('Resolver', () => {
       fakeSignals.set(smtService, [{
         tx            : {} as any,
         signalBytes   : rootHashHex,
-        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+        blockMetadata : { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
       }]);
       resolver.provide(beaconNeed, fakeSignals);
 
@@ -753,7 +761,7 @@ describe('Resolver', () => {
       signals.set(originalService as BeaconService, [{
         tx            : {} as any,
         signalBytes   : updateHashHex,
-        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+        blockMetadata : { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
       }]);
       resolver.provide(round1Need, signals);
 
@@ -891,6 +899,7 @@ describe('Resolver', () => {
           blockMetadata : {
             height        : 100 + i,
             time          : (times ? times[i] : 1700000000 + i) as unknown as number,
+            mediantime    : (times ? times[i] : 1700000000 + i) as unknown as number,
             confirmations : confirmations[i] as number
           }
         })));
@@ -924,7 +933,7 @@ describe('Resolver', () => {
             ? [{
               tx            : {} as any,
               signalBytes   : updateHashHex,
-              blockMetadata : { height: height++, time: 1700000000, confirmations: confirmationsByAddress.get(address) ?? 6 }
+              blockMetadata : { height: height++, time: 1700000000, mediantime: 1700000000, confirmations: confirmationsByAddress.get(address) ?? 6 }
             }]
             : []
           );
@@ -1038,7 +1047,7 @@ describe('Resolver', () => {
       expect(thrown).to.be.instanceOf(ResolveError);
       expect(thrown.type).to.equal(INVALID_DID_UPDATE);
       expect(thrown.message).to.not.match(/invalid date/i);
-      expect(thrown.message).to.match(/block height or block time/);
+      expect(thrown.message).to.match(/block height, block time, or block mediantime/);
     });
 
     it('metadata.confirmations reports the depth of the last applied signal', () => {
@@ -1126,7 +1135,7 @@ describe('Resolver', () => {
       signals.set(beaconNeed.beaconServices[0] as BeaconService, [{
         tx            : {} as any,
         signalBytes   : 'deadbeef'.repeat(8),
-        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+        blockMetadata : { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
       }]);
       resolver.provide(beaconNeed, signals);
       state = resolver.resolve();
@@ -1173,7 +1182,7 @@ describe('Resolver', () => {
       signals.set(beaconNeed.beaconServices[0] as BeaconService, [{
         tx            : {} as any,
         signalBytes   : 'abcdef01'.repeat(8),
-        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+        blockMetadata : { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
       }]);
       resolver.provide(beaconNeed, signals);
 
@@ -1269,7 +1278,7 @@ describe('Resolver', () => {
       signals.set(genesis, [{
         tx            : {} as any,
         signalBytes   : updateHashHex,
-        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+        blockMetadata : { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
       }]);
       resolver.provide(beaconNeed, signals);
 
@@ -1312,7 +1321,7 @@ describe('Resolver', () => {
       signals.set(casService, [{
         tx            : {} as any,
         signalBytes   : announcementHashHex,
-        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+        blockMetadata : { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
       }]);
       resolver.provide(beaconNeed, signals);
 
@@ -1355,7 +1364,7 @@ describe('Resolver', () => {
       signals.set(smtService, [{
         tx            : {} as any,
         signalBytes   : rootHashHex,
-        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+        blockMetadata : { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
       }]);
       resolver.provide(beaconNeed, signals);
 
@@ -1393,7 +1402,7 @@ describe('Resolver', () => {
       late.set(beaconNeed.beaconServices[0] as BeaconService, [{
         tx            : {} as any,
         signalBytes   : canonicalHash(signed, { encoding: 'hex' }),
-        blockMetadata : { height: 200, time: 1700000000, confirmations: 6 }
+        blockMetadata : { height: 200, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
       }]);
       expect(() => resolver.provide(beaconNeed, late)).to.not.throw();
 
@@ -1423,7 +1432,7 @@ describe('Resolver', () => {
       withUpdate.set(genesis, [{
         tx            : {} as any,
         signalBytes   : updateHashHex,
-        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+        blockMetadata : { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
       }]);
       resolver.provide(beaconNeed, withUpdate);
 
@@ -1451,7 +1460,7 @@ describe('Resolver', () => {
           const address = BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string);
           const updateHashHex = signalByAddress.get(address);
           map.set(service as BeaconService, updateHashHex
-            ? [{ tx: {} as any, signalBytes: updateHashHex, blockMetadata: { height: height++, time: 1700000000, confirmations: 6 } }]
+            ? [{ tx: {} as any, signalBytes: updateHashHex, blockMetadata: { height: height++, time: 1700000000, mediantime: 1700000000, confirmations: 6 } }]
             : []
           );
         }
@@ -1578,11 +1587,11 @@ describe('Resolver', () => {
           const address = BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string);
           const sigs: Array<BeaconSignal> = [];
           const primary = signalByAddress.get(address);
-          if(primary) sigs.push({ tx: {} as any, signalBytes: primary, blockMetadata: { height: height++, time: 1700000000, confirmations: 6 } });
+          if(primary) sigs.push({ tx: {} as any, signalBytes: primary, blockMetadata: { height: height++, time: 1700000000, mediantime: 1700000000, confirmations: 6 } });
           // Redundantly re-announce u2 on the beacon it added; this signal is discovered a
           // round after u2 was applied, so confirmDuplicate must confirm it against the
           // update-hash history carried across discovery rounds (ADR 060), not misread it.
-          if(address === addedBeaconAddress) sigs.push({ tx: {} as any, signalBytes: u2hash, blockMetadata: { height: height++, time: 1700000050, confirmations: 6 } });
+          if(address === addedBeaconAddress) sigs.push({ tx: {} as any, signalBytes: u2hash, blockMetadata: { height: height++, time: 1700000050, mediantime: 1700000050, confirmations: 6 } });
           signals.set(service as BeaconService, sigs);
         }
         resolver.provide(need, signals);
@@ -1646,7 +1655,7 @@ describe('Resolver', () => {
       const signals = new Map<BeaconService, Array<BeaconSignal>>();
       need.beaconServices.forEach((service, i) => {
         signals.set(service as BeaconService, i < 2
-          ? [{ tx: {} as any, signalBytes: updateHashHex, blockMetadata: { height: 100 + i, time: 1700000000, confirmations: 6 } }]
+          ? [{ tx: {} as any, signalBytes: updateHashHex, blockMetadata: { height: 100 + i, time: 1700000000, mediantime: 1700000000, confirmations: 6 } }]
           : []
         );
       });
@@ -1682,9 +1691,9 @@ describe('Resolver', () => {
       const { metadata, didDocument } = driveSignalSequence(
         fixture.did, [ u2, u3 ], [ u2, u2, u3 ],
         [
-          { height: 100, time: 1700000000, confirmations: 6 },
-          { height: 200, time: 1900000000, confirmations: 6 },
-          { height: 150, time: 1735000000, confirmations: 6 }
+          { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 },
+          { height: 200, time: 1900000000, mediantime: 1900000000, confirmations: 6 },
+          { height: 150, time: 1735000000, mediantime: 1735000000, confirmations: 6 }
         ],
         '2025-01-01T00:00:00Z'
       );
@@ -1705,9 +1714,9 @@ describe('Resolver', () => {
       const { metadata, didDocument } = driveSignalSequence(
         fixture.did, [ u2, u3 ], [ u2, u2, u3 ],
         [
-          { height: 100, time: 1700000000, confirmations: 6 },
-          { height: 200, time: 1900000000, confirmations: 6 },
-          { height: 210, time: 1910000000, confirmations: 6 }
+          { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 },
+          { height: 200, time: 1900000000, mediantime: 1900000000, confirmations: 6 },
+          { height: 210, time: 1910000000, mediantime: 1910000000, confirmations: 6 }
         ],
         '2025-01-01T00:00:00Z'
       );
@@ -1740,8 +1749,8 @@ describe('Resolver', () => {
         driveSignalSequence(
           fixture.did, [ applied, forged ], [ applied, forged ],
           [
-            { height: 100, time: 1700000000, confirmations: 6 },
-            { height: 200, time: 1900000000, confirmations: 6 }
+            { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 },
+            { height: 200, time: 1900000000, mediantime: 1900000000, confirmations: 6 }
           ],
           '2025-01-01T00:00:00Z'
         );
@@ -1798,32 +1807,6 @@ describe('Resolver', () => {
       expect(thrown.type).to.equal(INVALID_DID_UPDATE);
     });
 
-    it('Resolver.updates() with a version counter that outruns its history throws typed late publishing', () => {
-      // A standalone caller can pass a resolutionState whose counter exceeds its history;
-      // a duplicate then names a version with no recorded applied update. Unconfirmable
-      // duplicates are late-publishing evidence, and must not surface as a TypeError.
-      const source = resolveDeterministic(fixture.did);
-      const [ , u3 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
-        benignPatch(fixture.did), benignPatch(fixture.did)
-      ]);
-      let thrown: any;
-      try {
-        Resolver.updates(
-          source,
-          [[ u3, { height: 100, time: 1700000000, confirmations: 6 } ]],
-          undefined,
-          undefined,
-          { currentVersionId: 5, updateHashHistory: [] }
-        );
-      } catch(error) {
-        thrown = error;
-      }
-      expect(thrown, 'expected the unconfirmable duplicate to throw').to.exist;
-      expect(thrown).to.not.be.instanceOf(TypeError);
-      expect(thrown.type).to.equal(LATE_PUBLISHING_ERROR);
-      expect(thrown.message).to.match(/no applied update/i);
-    });
-
     it('provide() rejects a signed update whose targetVersionId is not an integer >= 2', () => {
       // The crafted update passes every other shape check and matches the signal's hash
       // binding (the signal IS its hash), so only the tightened targetVersionId guard
@@ -1846,7 +1829,7 @@ describe('Resolver', () => {
       signals.set(beaconNeed.beaconServices[0] as BeaconService, [{
         tx            : {} as any,
         signalBytes   : craftedHashHex,
-        blockMetadata : { height: 100, time: 1700000000, confirmations: 6 }
+        blockMetadata : { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
       }]);
       resolver.provide(beaconNeed, signals);
 
@@ -2163,6 +2146,294 @@ describe('Resolver', () => {
       const u2 = legitimateV2();
       const { metadata } = driveSignalSequence(fixture.did, [ u2 ], [ u2, u2 ]);
       expect(metadata.versionId).to.equal('2');
+    });
+  });
+
+  describe('resolution options and the update loop of the specification (ADR 111)', () => {
+    // Spec "Resolve", "Process": versionId and versionTime are mutually exclusive and
+    // must parse (INVALID_OPTIONS). Spec "Process Next Update": the versionId test runs
+    // before Apply; an unsatisfiable versionId is NOT_FOUND; the versionTime test
+    // compares the block mediantime with an inclusive boundary; block_confirmations is
+    // set after the versionTime stop; one update per pass, then "Find Beacon Signals"
+    // for the beacon addresses the resolver did not scan yet.
+    const fixture = deterministicData[2]; // regtest - has a known secretKey
+    // 2025-01-01T00:00:00Z as Unix seconds.
+    const NEW_YEAR_2025 = 1735689600;
+
+    /** Construct a resolver with the given options and return the thrown error, if any. */
+    function constructorError(options: object): any {
+      try {
+        DidBtcr2.resolve(fixture.did, options);
+      } catch(error) {
+        return error;
+      }
+      return undefined;
+    }
+
+    /**
+     * Drive resolution with a fixed list of update hashes per beacon address. Each
+     * beacon address the resolver asks for receives the signals recorded for it, in
+     * order, at increasing block heights; an address with no entry receives none.
+     */
+    function driveSignalsByAddress(
+      updates: Array<SignedBTCR2Update>,
+      signalsByAddress: Map<string, Array<string>>,
+      options: { versionId?: string } = {}
+    ): DidResolutionResponse {
+      const resolver = DidBtcr2.resolve(fixture.did, { sidecar: { updates }, ...options });
+      let height = 100;
+      let state = resolver.resolve();
+      while(state.status === 'action-required') {
+        const need = state.needs[0]!;
+        if(need.kind !== 'NeedBeaconSignals') throw new Error(`unexpected need: ${need.kind}`);
+        const signals = new Map<BeaconService, Array<BeaconSignal>>();
+        for(const service of need.beaconServices) {
+          const address = BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string);
+          signals.set(service, (signalsByAddress.get(address) ?? []).map(signalBytes => ({
+            tx            : {} as any,
+            signalBytes,
+            blockMetadata : { height: height++, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
+          })));
+        }
+        resolver.provide(need, signals);
+        state = resolver.resolve();
+      }
+      if(state.status !== 'resolved') throw new Error('expected resolved');
+      return state.result;
+    }
+
+    it('rejects versionId and versionTime together with INVALID_OPTIONS before any data need', () => {
+      const thrown = constructorError({ versionId: '2', versionTime: '2025-01-01T00:00:00Z' });
+      expect(thrown).to.be.instanceOf(ResolveError);
+      expect(thrown.type).to.equal(INVALID_OPTIONS);
+      expect(thrown.message).to.match(/mutually exclusive/);
+    });
+
+    for(const value of ['abc', '1.5', '', ' 2', '+2', '1e3', '99999999999999999999']) {
+      it(`rejects versionId ${JSON.stringify(value)} with INVALID_OPTIONS`, () => {
+        const thrown = constructorError({ versionId: value });
+        expect(thrown).to.be.instanceOf(ResolveError);
+        expect(thrown.type).to.equal(INVALID_OPTIONS);
+        expect(thrown.message).to.match(/versionId/);
+      });
+    }
+
+    it('rejects a versionId that is not a string with INVALID_OPTIONS', () => {
+      expect(constructorError({ versionId: 2 })?.type).to.equal(INVALID_OPTIONS);
+    });
+
+    for(const value of [
+      '2025-13-01T00:00:00Z', 'yesterday', '', '2025-01-01', '2025-01-01T00:00:00',
+      '2025-01-01T00:00:00+00:00', '2025-01-01T00:00:00.5Z', '2025-02-30T00:00:00Z', 1735689600
+    ]) {
+      it(`rejects versionTime ${JSON.stringify(value)} with INVALID_OPTIONS`, () => {
+        const thrown = constructorError({ versionTime: value });
+        expect(thrown).to.be.instanceOf(ResolveError);
+        expect(thrown.type).to.equal(INVALID_OPTIONS);
+        expect(thrown.message).to.match(/versionTime/);
+      });
+    }
+
+    it('accepts an XML Datetime in UTC without a fraction', () => {
+      expect(constructorError({ versionTime: '2025-01-01T00:00:00Z' })).to.equal(undefined);
+    });
+
+    it('versionId "1" with a version 2 signal returns the genesis document labelled "1"', () => {
+      const source = resolveDeterministic(fixture.did);
+      const updates = buildUpdateChain(fixture.did, source, fixture.secretKey, [benignPatch(fixture.did)]);
+      const { metadata, didDocument } = driveSingleBeacon(fixture.did, updates, { versionId: '1' });
+      // The versionId test runs before Apply, so no update applies and nothing stamps.
+      expect(metadata).to.deep.equal({ versionId: '1', confirmations: 0, deactivated: false });
+      expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length);
+    });
+
+    it('versionId "2" of three hops returns version 2 with the metadata of its block', () => {
+      const source = resolveDeterministic(fixture.did);
+      const updates = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        benignPatch(fixture.did), benignPatch(fixture.did), benignPatch(fixture.did)
+      ]);
+      const { metadata, didDocument } = driveSingleBeacon(fixture.did, updates, { versionId: '2' });
+      expect(metadata).to.deep.equal({
+        versionId : '2', confirmations : 6, updated : '2023-11-14T22:13:20Z', deactivated : false
+      });
+      expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 1);
+    });
+
+    it('a versionId past the history fails with NOT_FOUND', () => {
+      const source = resolveDeterministic(fixture.did);
+      const updates = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        benignPatch(fixture.did), benignPatch(fixture.did)
+      ]);
+      let thrown: any;
+      try {
+        driveSingleBeacon(fixture.did, updates, { versionId: '5' });
+      } catch(error) {
+        thrown = error;
+      }
+      expect(thrown).to.be.instanceOf(ResolveError);
+      expect(thrown.type).to.equal(NOT_FOUND);
+      expect(thrown.message).to.match(/ends at version 3/);
+    });
+
+    it('a versionId with no signal at all fails with NOT_FOUND, not with the genesis document labelled with it', () => {
+      const resolver = DidBtcr2.resolve(fixture.did, { versionId: '7' });
+      const state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+      provideEmptySignals(resolver, state.needs[0] as NeedBeaconSignals);
+      let thrown: any;
+      try {
+        resolver.resolve();
+      } catch(error) {
+        thrown = error;
+      }
+      expect(thrown?.type).to.equal(NOT_FOUND);
+      expect(thrown.message).to.match(/ends at version 1/);
+    });
+
+    it('a versionId past a deactivation fails with NOT_FOUND', () => {
+      const source = resolveDeterministic(fixture.did);
+      const updates = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        [{ op: 'add' as const, path: '/deactivated', value: true }], // v2 deactivates
+        benignPatch(fixture.did)                                     // v3 is announced but unreachable
+      ]);
+      let thrown: any;
+      try {
+        driveSingleBeacon(fixture.did, updates, { versionId: '3' });
+      } catch(error) {
+        thrown = error;
+      }
+      expect(thrown?.type).to.equal(NOT_FOUND);
+      expect(thrown.message).to.match(/deactivation at version 2/);
+    });
+
+    it('the deactivating version itself is reachable by versionId', () => {
+      const source = resolveDeterministic(fixture.did);
+      const updates = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        [{ op: 'add' as const, path: '/deactivated', value: true }]
+      ]);
+      const { metadata } = driveSingleBeacon(fixture.did, updates, { versionId: '2' });
+      expect(metadata.versionId).to.equal('2');
+      expect(metadata.deactivated).to.equal(true);
+    });
+
+    it('a versionId reached in a later pass, on a beacon an earlier update added, resolves', () => {
+      const source = resolveDeterministic(fixture.did);
+      const { updates, signalByAddress } = buildDiscoveryChain(fixture.did, source, fixture.secretKey, 3);
+      // v3 lives on the beacon that v2 added: the first pass cannot see it.
+      const resolved = driveDiscoveryChain(fixture.did, updates, signalByAddress, { versionId: '3' });
+      expect(resolved.metadata.versionId).to.equal('3');
+      expect(resolved.didDocument.service.length).to.equal(source.service.length + 2);
+    });
+
+    it('versionTime: a block whose header time is after versionTime but whose mediantime is at or before it applies', () => {
+      const source = resolveDeterministic(fixture.did);
+      const updates = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        benignPatch(fixture.did), benignPatch(fixture.did)
+      ]);
+      // The header time of the v3 block is 400 s after versionTime; its mediantime is
+      // 600 s before it. The specification compares the mediantime, so v3 applies.
+      const { metadata } = driveSingleBeacon(fixture.did, updates, {
+        versionTime : '2025-01-01T00:00:00Z',
+        times       : [1700000000, NEW_YEAR_2025 + 400],
+        mediantimes : [1700000000, NEW_YEAR_2025 - 600]
+      });
+      expect(metadata.versionId).to.equal('3');
+    });
+
+    it('versionTime: a block whose mediantime equals versionTime applies (the boundary is inclusive)', () => {
+      const source = resolveDeterministic(fixture.did);
+      const updates = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        benignPatch(fixture.did), benignPatch(fixture.did)
+      ]);
+      const { metadata } = driveSingleBeacon(fixture.did, updates, {
+        versionTime : '2025-01-01T00:00:00Z',
+        times       : [1700000000, NEW_YEAR_2025 + 400],
+        mediantimes : [1700000000, NEW_YEAR_2025]
+      });
+      expect(metadata.versionId).to.equal('3');
+    });
+
+    it('versionTime: a block whose mediantime is one second after versionTime does not apply', () => {
+      const source = resolveDeterministic(fixture.did);
+      const updates = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        benignPatch(fixture.did), benignPatch(fixture.did)
+      ]);
+      // The header time of the v3 block is before versionTime, its mediantime after it:
+      // the header time does not select the version.
+      const { metadata } = driveSingleBeacon(fixture.did, updates, {
+        versionTime : '2025-01-01T00:00:00Z',
+        times       : [1700000000, NEW_YEAR_2025 - 400],
+        mediantimes : [1700000000, NEW_YEAR_2025 + 1]
+      });
+      expect(metadata.versionId).to.equal('2');
+    });
+
+    it('versionTime: the tuple that stops the resolution stamps neither confirmations nor updated', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2, u3 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        benignPatch(fixture.did), benignPatch(fixture.did)
+      ]);
+      const { metadata } = driveSignalSequence(
+        fixture.did, [ u2, u3 ], [ u2, u3 ],
+        [
+          { height: 100, time: 1700000000, confirmations: 9 },
+          { height: 200, time: 1900000000, confirmations: 3 }
+        ],
+        '2025-01-01T00:00:00Z'
+      );
+      expect(metadata).to.deep.equal({
+        versionId : '2', confirmations : 9, updated : '2023-11-14T22:13:20Z', deactivated : false
+      });
+    });
+
+    it('a confirmed duplicate lowers neither confirmations nor moves updated', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2, u3 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        benignPatch(fixture.did), benignPatch(fixture.did)
+      ]);
+      // u3 applies from height 150 (8 confirmations); its re-announcement at height 400
+      // has 2 confirmations and a later time. The metadata reports the applied block.
+      const { metadata } = driveSignalSequence(
+        fixture.did, [ u2, u3 ], [ u2, u3, u3 ],
+        [
+          { height: 100, time: 1700000000, confirmations: 9 },
+          { height: 150, time: 1700000600, confirmations: 8 },
+          { height: 400, time: 1800000000, confirmations: 2 }
+        ]
+      );
+      expect(metadata).to.deep.equal({
+        versionId : '3', confirmations : 8, updated : '2023-11-14T22:23:20Z', deactivated : false
+      });
+    });
+
+    it('resolves [v2 on A, v3 on B, v4 on A] where v2 adds beacon B: one update per pass, then a re-scan', () => {
+      const source = resolveDeterministic(fixture.did);
+      const genesisAddress = BeaconUtils.parseBitcoinAddress(
+        BeaconUtils.getBeaconServices(source)[0]!.serviceEndpoint as string
+      );
+      const secret = new Uint8Array(32);
+      secret[31] = 7;
+      const addedAddress = p2wpkh(secp256k1.getPublicKey(secret, true), getNetwork('regtest')).address!;
+      const [ u2, u3, u4 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        [{
+          op    : 'add' as const,
+          path  : '/service/-',
+          value : { id: `${fixture.did}#beacon-b`, type: 'SingletonBeacon', serviceEndpoint: `bitcoin:${addedAddress}` }
+        }],
+        benignPatch(fixture.did),
+        benignPatch(fixture.did)
+      ]);
+      const hash = (u: SignedBTCR2Update) => canonicalHash(u, { encoding: 'hex' });
+      // The first scan of A yields v2 and v4. A whole-pass apply raised LATE_PUBLISHING on
+      // v4. The specification applies v2, scans B (added by v2), then v3, then v4.
+      const signalsByAddress = new Map([
+        [genesisAddress, [hash(u2), hash(u4)]],
+        [addedAddress, [hash(u3)]]
+      ]);
+      const { metadata, didDocument } = driveSignalsByAddress([ u2, u3, u4 ], signalsByAddress);
+      expect(metadata.versionId).to.equal('4');
+      expect(didDocument.service.length).to.equal(source.service.length + 1);
+      expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 2);
     });
   });
 });

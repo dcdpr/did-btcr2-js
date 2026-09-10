@@ -94,7 +94,7 @@ function readSignedUpdates(dir: string, count: number): SignedBTCR2Update[] {
 const SIGNAL = (signalBytes: string, height: number): BeaconSignal => ({
   tx            : {} as unknown as BeaconSignal['tx'],
   signalBytes,
-  blockMetadata : { height, time: 1_700_000_000 + height, confirmations: 6 },
+  blockMetadata : { height, time: 1_700_000_000 + height, mediantime: 1_700_000_000 + height, confirmations: 6 },
 });
 
 /**

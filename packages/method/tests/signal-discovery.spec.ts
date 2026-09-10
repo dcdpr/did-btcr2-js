@@ -1,5 +1,6 @@
 import type { BitcoinConnection, BlockV3, RawTransactionRest, RawTransactionV2, Vin, Vout } from '@did-btcr2/bitcoin';
 import { TXIN_WITNESS_COINBASE } from '@did-btcr2/bitcoin';
+import { INTERNAL_ERROR } from '@did-btcr2/common';
 import { expect } from 'chai';
 import type { BeaconService } from '../src/core/beacon/interfaces.js';
 import { BeaconSignalDiscovery, extractOpReturnSignalHash } from '../src/core/beacon/signal-discovery.js';
@@ -122,6 +123,8 @@ describe('BeaconSignalDiscovery.indexer', () => {
   const OTHER_HASH = 'a'.repeat(64);
   const TIP = 110;
   const HEIGHT = 100;
+  /** The median time past of the block at HEIGHT: before its header time, as on a real chain. */
+  const MEDIANTIME = 1699999400;
 
   const beaconService = {
     id              : '#beacon-0',
@@ -190,16 +193,26 @@ describe('BeaconSignalDiscovery.indexer', () => {
   /**
    * Minimal BitcoinConnection over a fixed address transaction listing. Every
    * `transaction.get` txid is recorded in `fetched` so a test can assert whether the
-   * prevout fallback was taken, and is answered from `funding`.
+   * prevout fallback was taken, and is answered from `funding`. Every `block.get`
+   * hash is recorded in `blocks`; the block record carries `mediantime` MEDIANTIME
+   * unless `blockRecord` overrides it.
    */
   function mockBitcoin(
     txs: Array<RawTransactionRest>,
     funding: Record<string, RawTransactionRest> = {},
     fetched: Array<string> = [],
+    blocks: Array<string> = [],
+    blockRecord: (blockhash: string) => unknown = blockhash => ({ id: blockhash, mediantime: MEDIANTIME }),
   ): BitcoinConnection {
     return {
       rest : {
-        block       : { count: async () => TIP },
+        block       : {
+          count : async () => TIP,
+          get   : async ({ blockhash }: { blockhash: string }) => {
+            blocks.push(blockhash);
+            return blockRecord(blockhash);
+          },
+        },
         address     : { getTxs: async () => txs },
         transaction : {
           get : async (txid: string) => {
@@ -236,7 +249,59 @@ describe('BeaconSignalDiscovery.indexer', () => {
       confirmations : TIP - HEIGHT + 1,
       height        : HEIGHT,
       time          : 1700000000,
+      mediantime    : MEDIANTIME,
     });
+  });
+
+  it('reads mediantime from the block record once per distinct block', async () => {
+    // Two signals in one block, a third in another block: two block fetches, not three.
+    const inBlockA = (txid: string) => transaction(
+      txid,
+      [input('d'.repeat(64), 0, payment(BEACON, 100_000))],
+      [payment(BEACON, 90_000), signalOutput(HASH)],
+    );
+    const inBlockB = {
+      ...inBlockA('e'.repeat(64)),
+      status : { confirmed: true as const, block_height: HEIGHT + 1, block_hash: 'c'.repeat(64), block_time: 1700000600 },
+    };
+    const blocks: Array<string> = [];
+    const record = (blockhash: string) => ({ id: blockhash, mediantime: blockhash === 'c'.repeat(64) ? MEDIANTIME + 600 : MEDIANTIME });
+
+    const signals = await discover(mockBitcoin([inBlockA('c'.repeat(64)), inBlockA('f'.repeat(64)), inBlockB], {}, [], blocks, record));
+
+    expect(signals.map(s => s.blockMetadata.mediantime)).to.deep.equal([MEDIANTIME, MEDIANTIME, MEDIANTIME + 600]);
+    expect(blocks).to.deep.equal(['b'.repeat(64), 'c'.repeat(64)]);
+  });
+
+  it('fails with a typed INTERNAL_ERROR when the block record carries no mediantime', async () => {
+    const tx = transaction(
+      'c'.repeat(64),
+      [input('d'.repeat(64), 0, payment(BEACON, 100_000))],
+      [payment(BEACON, 90_000), signalOutput(HASH)],
+    );
+    let thrown: any;
+    try {
+      await discover(mockBitcoin([tx], {}, [], [], blockhash => ({ id: blockhash })));
+    } catch(error) {
+      thrown = error;
+    }
+    expect(thrown, 'expected discovery to fail').to.exist;
+    expect(thrown.type).to.equal(INTERNAL_ERROR);
+    expect(thrown.message).to.match(/mediantime/);
+  });
+
+  it('does not fetch the block record of a mempool transaction', async () => {
+    const tx = unconfirmed(
+      'c'.repeat(64),
+      [input('d'.repeat(64), 0, payment(BEACON, 100_000))],
+      [payment(BEACON, 90_000), signalOutput(HASH)],
+    );
+    const blocks: Array<string> = [];
+
+    const signals = await discover(mockBitcoin([tx], {}, [], blocks));
+
+    expect(signals).to.have.lengthOf(0);
+    expect(blocks).to.deep.equal([]);
   });
 
   it('ignores an inbound payment to the beacon that carries a well-formed OP_RETURN', async () => {
@@ -552,6 +617,7 @@ describe('BeaconSignalDiscovery.fullnode', () => {
       tx,
       hash          : String(height).padStart(64, '0'),
       time          : 1700000000 + height,
+      mediantime    : 1699999400 + height,
       confirmations : TIP - height + 1,
     } as BlockV3;
   }
@@ -609,6 +675,7 @@ describe('BeaconSignalDiscovery.fullnode', () => {
     expect(signals[0].blockMetadata).to.deep.equal({
       height        : 2,
       time          : 1700000002,
+      mediantime    : 1699999402,
       confirmations : 1,
     });
   });

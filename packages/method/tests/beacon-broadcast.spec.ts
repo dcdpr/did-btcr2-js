@@ -29,7 +29,7 @@ function emptySidecar(): SidecarData {
 }
 
 /** Helper: stock block metadata for test signals. */
-const blockMeta: BlockMetadata = { height: 100, time: 1700000000, confirmations: 6 };
+const blockMeta: BlockMetadata = { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 };
 
 /** Helper: a fake signed update object for tests. */
 function fakeUpdate(marker: string): SignedBTCR2Update {

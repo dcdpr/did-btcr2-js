@@ -35,9 +35,18 @@ export interface BlockMetadata {
   height: number;
 
   /**
-   * The timestamp of the block containing the Beacon Signal.
+   * The timestamp in the header of the block that contains the Beacon Signal.
+   * The resolver reports it as `updated` in the document metadata.
    */
   time: UnixTimestamp;
+
+  /**
+   * The median time past of the block that contains the Beacon Signal: the
+   * median of the header timestamps of that block and the ten blocks before it.
+   * The value does not decrease from one block to the next, and no single miner
+   * can change it. The resolver compares it with `ResolutionOptions.versionTime`.
+   */
+  mediantime: UnixTimestamp;
 
   /**
    * The number of confirmations for the block containing the Beacon Signal.
