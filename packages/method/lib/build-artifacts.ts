@@ -46,7 +46,7 @@ import { hex } from '@scure/base';
 import { p2wpkh } from '@scure/btc-signer';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = join(HERE, 'data');
+const DATA_DIR = join(HERE, '..', '..', 'api', 'lib', 'data');
 const COHORTS_FILE = join(HERE, 'cohorts.json');
 
 type CohortDef = {

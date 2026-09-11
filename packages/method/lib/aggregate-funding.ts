@@ -1,11 +1,11 @@
-// Walk all generated scenario directories under lib/data/ and collate their
+// Walk all generated scenario directories under packages/api/lib/data/ and collate their
 // funding requirements into a single markdown table.
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE     = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = join(HERE, 'data');
+const DATA_DIR = join(HERE, '..', '..', 'api', 'lib', 'data');
 
 interface FundingFile {
   scenarioId    : string;

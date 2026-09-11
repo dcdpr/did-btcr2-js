@@ -36,7 +36,7 @@ import { DidBtcr2 } from '../src/did-btcr2.js';
 import type { BeaconService, BeaconSignal } from '../src/core/beacon/interfaces.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = join(HERE, 'data');
+const DATA_DIR = join(HERE, '..', '..', 'api', 'lib', 'data');
 const SCENARIOS_DIR = join(HERE, 'scenarios');
 const COHORTS_DIR = join(SCENARIOS_DIR, 'cohorts');
 const COHORTS_FILE = join(HERE, 'cohorts.json');
