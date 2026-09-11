@@ -40,7 +40,7 @@ import { canonicalHash } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '../src/core/btcr2-update.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = join(HERE, 'data');
+const DATA_DIR = join(HERE, '..', '..', 'api', 'lib', 'data');
 const SCENARIOS_DIR = join(HERE, 'scenarios');
 const COHORTS_DIR = join(SCENARIOS_DIR, 'cohorts');
 const COHORTS_FILE = join(HERE, 'cohorts.json');

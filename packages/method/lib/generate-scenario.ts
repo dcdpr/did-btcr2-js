@@ -2,7 +2,7 @@
  * Scenario-driven test vector generator.
  *
  * Reads a scenario recipe (JSON) and produces a self-contained test vector
- * tree under `lib/data/{network}/{type}/{hash}/`. Mirrors the structure of
+ * tree under `packages/api/lib/data/{network}/{type}/{hash}/`. Mirrors the structure of
  * `generate-vector.ts` but trades the stepped CLI for a single declarative
  * input file.
  *
@@ -84,7 +84,7 @@ type CohortDef = {
 };
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = join(HERE, 'data');
+const DATA_DIR = join(HERE, '..', '..', 'api', 'lib', 'data');
 const COHORTS_FILE = join(HERE, 'cohorts.json');
 
 function loadCohorts(): CohortDef[] {

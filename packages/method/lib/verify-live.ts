@@ -39,7 +39,7 @@ import { BeaconSignalDiscovery } from '../src/core/beacon/signal-discovery.js';
 import { DidBtcr2 } from '../src/did-btcr2.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = join(HERE, 'data');
+const DATA_DIR = join(HERE, '..', '..', 'api', 'lib', 'data');
 const NETWORK = 'mutinynet';
 const GATEWAY = (process.env.CAS_GATEWAY ?? 'http://127.0.0.1:8080').replace(/\/+$/, '');
 
