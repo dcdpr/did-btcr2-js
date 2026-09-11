@@ -1,6 +1,6 @@
 # Test Vector Generator
 
-An incremental CLI tool for generating did:btcr2 test vectors through a stepped workflow: `create` -> `update` (offline) -> `fund` -> `announce` -> `resolve`. It produces JSON files under `lib/data/`.
+An incremental CLI tool for generating did:btcr2 test vectors through a stepped workflow: `create` -> `update` (offline) -> `fund` -> `announce` -> `resolve`. It produces JSON files under `packages/api/lib/data/`.
 
 The first positional argument is the action. `create` runs offline. All subsequent actions only need `--hash`: the type and network are derived from the DID itself.
 
@@ -84,7 +84,7 @@ pnpm generate:vector create --type external --network regtest --genesis 82830a78
 
 **Outputs:**
 ```
-lib/data/{network}/{type}/{hash}/
+packages/api/lib/data/{network}/{type}/{hash}/
   create/input.json    # { idType, version, network, genesisBytes }
   create/output.json   # { did }
   other.json           # { genesisKeys: { secret, public }, genesisDocument? }
@@ -116,7 +116,7 @@ pnpm generate:vector update --hash <hash>
 
 **Outputs:**
 ```
-lib/data/{network}/{type}/{hash}/
+packages/api/lib/data/{network}/{type}/{hash}/
   update/input.json    # { sourceDocument, patches, sourceVersionId, ... }
   update/output.json   # { signedUpdate }
   other.json           # (updated with generated keys)
@@ -167,7 +167,7 @@ pnpm generate:vector resolve --hash <hash> --min-conf 1
 
 **Outputs:**
 ```
-lib/data/{network}/{type}/{hash}/
+packages/api/lib/data/{network}/{type}/{hash}/
   resolve/input.json   # { did, resolutionOptions: { sidecar } }
   resolve/output.json  # { didDocument, didResolutionMetadata, didDocumentMetadata } (live only)
 ```
@@ -255,7 +255,7 @@ All generated and user-provided keys are persisted in `other.json` for later reu
 ## Output Directory Structure
 
 ```
-lib/data/{network}/{type}/{hash}/
+packages/api/lib/data/{network}/{type}/{hash}/
   create/
     input.json
     output.json

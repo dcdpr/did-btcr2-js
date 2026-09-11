@@ -26,7 +26,7 @@ import { GenesisDocument } from '../src/utils/did-document.js';
  *   create -> update (--offline) -> fund -> announce -> resolve
  *
  * Each step reads output from the previous step and produces its own
- * input/output JSON files under lib/data/{network}/{type}/{hash}/.
+ * input/output JSON files under packages/api/lib/data/{network}/{type}/{hash}/.
  *
  * Usage:
  *   pnpm generate:vector create [--type key|external] [--network regtest] [--genesis <hex>]
@@ -124,7 +124,7 @@ function printHelp(): never {
 }
 
 /** Root directory for all generated test vector data. */
-const DATA_DIR = join(import.meta.dirname, 'data');
+const DATA_DIR = join(import.meta.dirname, '..', '..', 'api', 'lib', 'data');
 
 /**
  * Extracts an 8-character short hash from a did:btcr2 identifier.
@@ -212,7 +212,7 @@ interface VectorContext {
 }
 
 /**
- * Searches lib/data/ for a vector directory matching the given short hash.
+ * Searches packages/api/lib/data/ for a vector directory matching the given short hash.
  * Walks the directory tree: data/{network}/{type}/{hash}/ and checks for
  * the presence of create/output.json to confirm a valid vector.
  *
@@ -1078,7 +1078,7 @@ async function stepResolve(hash: string = hashArg) {
 }
 
 /**
- * Metadata for a single test vector discovered in lib/data/.
+ * Metadata for a single test vector discovered in packages/api/lib/data/.
  *
  * @interface VectorEntry
  */
@@ -1096,7 +1096,7 @@ interface VectorEntry {
 }
 
 /**
- * Scans lib/data/ for all existing test vectors and returns their metadata.
+ * Scans packages/api/lib/data/ for all existing test vectors and returns their metadata.
  * Walks the directory tree: data/{network}/{type}/{hash}/ and checks for
  * step completion by the presence of output files.
  *

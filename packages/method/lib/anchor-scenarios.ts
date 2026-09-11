@@ -32,7 +32,7 @@ import { anchorSignal } from './wallet/tx-builder.js';
 import type { Network } from './wallet/store.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = join(HERE, 'data');
+const DATA_DIR = join(HERE, '..', '..', 'api', 'lib', 'data');
 const COHORTS_FILE = join(HERE, 'cohorts.json');
 const NETWORK: Network = 'mutinynet';
 
