@@ -1,0 +1,46 @@
+{
+  "id": "n12-k1-invalid-update-proof-context",
+  "description": "Negative: k1 DID with 1 anchored update; the proof @context differs from the update @context.",
+  "network": "regtest",
+  "idType": "KEY",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "8fd63879ca814026e4718d75977e3c92186c7b221dd6b3a34b5fe91625e94cde"
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar",
+      "tamper": "proof-context"
+    }
+  ],
+  "expect": {
+    "error": "INVALID_DID_UPDATE"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

@@ -198,7 +198,6 @@ Tests run from compiled JS, so run `pnpm build:tests` before `pnpm test` after a
 - **[`docs/beacon-system-overview.md`](./docs/beacon-system-overview.md)** Beacon architecture, Singleton / CAS / SMT behavior, signal discovery
 - **[`docs/aggregation.md`](./docs/aggregation.md)** Multi-party aggregation protocol, Runner and state machine APIs, e2e examples (the runnable APIs live in `@did-btcr2/aggregation`)
 - **[`docs/http-transport.md`](./docs/http-transport.md)** HTTP/REST transport: wire protocol, signed envelopes, SSE subscriptions, Hono/Node framework mount example, permissive CORS (shipped by `@did-btcr2/aggregation`)
-- **[`docs/test-vectors.md`](./docs/test-vectors.md)** CLI tool for generating did:btcr2 test vectors via a stepped workflow, plus the cross-implementation harness that resolves another implementation's vectors through ours
 - **Source reference** See JSDoc comments on public classes; the most important entry points are `DidBtcr2` (facade), `Resolver` (read path), and `Updater` (write path).
 
 ## License

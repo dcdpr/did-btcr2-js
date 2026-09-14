@@ -1,0 +1,41 @@
+{
+  "id": "n22-k1-invalid-update-patch-missing-path",
+  "description": "Negative: k1 DID with 1 anchored update whose patch removes a path that does not exist.",
+  "network": "testnet4",
+  "idType": "KEY",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "fcc781b6b7876441065542033739ce4f4d270d314c501a14ab348dd92dea660b"
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "remove",
+          "path": "/service/9"
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar",
+      "tamper": "invalid-patch"
+    }
+  ],
+  "expect": {
+    "error": "INVALID_DID_UPDATE"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

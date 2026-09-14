@@ -1,0 +1,45 @@
+{
+  "id": "19-x1-relative-ids",
+  "description": "x1 DID whose genesis document spells every id as a relative DID URL (#initialKey, #initialP2PKH). 1 sidecar update.",
+  "network": "signet",
+  "idType": "EXTERNAL",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "9a0796777fe97867bd1d4794367b01dbe04f30a93775aa861369c676d0aaaa56"
+  },
+  "genesis": {
+    "relativeIds": true
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar"
+    }
+  ],
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

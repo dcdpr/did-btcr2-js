@@ -1,0 +1,156 @@
+{
+  "id": "22-x1-three-updates-resolution-options",
+  "description": "x1 DID with 3 sidecar updates, each anchored in its own block. The sub-vectors cover versionId, versionTime (before the first update, between the first and the second, at the second), an unreachable versionId, both options, and minConf above the chain depth.",
+  "network": "signet",
+  "idType": "EXTERNAL",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "0a07af54abd97a56ddc1029552a3edb7f02c27c8758b820fac855d96da6a2196"
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar"
+    },
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/4",
+          "value": {
+            "id": "#dwn",
+            "type": "DecentralizedWebNode",
+            "serviceEndpoint": "http://example.com/dwn"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar"
+    },
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/alsoKnownAs",
+          "value": [
+            "https://example.com/alias"
+          ]
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar"
+    }
+  ],
+  "resolves": [
+    {
+      "id": "01",
+      "options": {
+        "versionId": "1"
+      },
+      "expect": {
+        "versionId": "1"
+      }
+    },
+    {
+      "id": "02",
+      "options": {
+        "versionId": "2"
+      },
+      "expect": {
+        "versionId": "2"
+      }
+    },
+    {
+      "id": "03",
+      "options": {
+        "versionId": "3"
+      },
+      "expect": {
+        "versionId": "3"
+      }
+    },
+    {
+      "id": "04",
+      "options": {
+        "versionId": "9"
+      },
+      "expect": {
+        "error": "NOT_FOUND"
+      }
+    },
+    {
+      "id": "05",
+      "options": {
+        "versionTime": "before:1"
+      },
+      "expect": {
+        "versionId": "1"
+      }
+    },
+    {
+      "id": "06",
+      "options": {
+        "versionTime": "after:1"
+      },
+      "expect": {
+        "versionId": "2"
+      }
+    },
+    {
+      "id": "07",
+      "options": {
+        "versionTime": "at:2"
+      },
+      "expect": {
+        "versionId": "3"
+      }
+    },
+    {
+      "id": "08",
+      "options": {
+        "versionId": "2",
+        "versionTime": "before:1"
+      },
+      "expect": {
+        "error": "INVALID_OPTIONS"
+      }
+    },
+    {
+      "id": "09",
+      "options": {
+        "minConf": 1000000
+      },
+      "expect": {
+        "versionId": "1"
+      }
+    }
+  ],
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

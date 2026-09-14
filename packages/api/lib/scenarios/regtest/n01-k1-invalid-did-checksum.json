@@ -1,0 +1,31 @@
+{
+  "id": "n01-k1-invalid-did-checksum",
+  "description": "Negative: the resolve input carries a k1 identifier with a wrong Bech32m checksum.",
+  "network": "regtest",
+  "idType": "KEY",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "0d65653750bdd77c9f31f93d298a3368e2a1c89a11c3c9122fe1981a891d6ef4"
+  },
+  "identifier": {
+    "tamper": "checksum"
+  },
+  "updates": [],
+  "expect": {
+    "error": "INVALID_DID"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

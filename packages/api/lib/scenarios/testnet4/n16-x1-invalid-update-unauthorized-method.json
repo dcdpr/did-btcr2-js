@@ -1,0 +1,62 @@
+{
+  "id": "n16-x1-invalid-update-unauthorized-method",
+  "description": "Negative: x1 DID with a second verification method #key-1 listed for authentication only; 1 anchored update signed with #key-1.",
+  "network": "testnet4",
+  "idType": "EXTERNAL",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "0e0102251756dc1a8ce874fceb21e80dad8684dfeb912ed2bfb314ef57929dd2"
+  },
+  "extraKeys": {
+    "key-1": {
+      "source": "fixed",
+      "secretHex": "89842fa337fa9994d2554f89b383854024576f579daf352e6e55bba99554b782"
+    }
+  },
+  "genesis": {
+    "verificationMethods": [
+      {
+        "id": "#key-1",
+        "key": "key-1",
+        "relationships": [
+          "authentication"
+        ]
+      }
+    ]
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#key-1",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar"
+    }
+  ],
+  "expect": {
+    "error": "INVALID_DID_UPDATE"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

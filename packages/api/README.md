@@ -228,6 +228,7 @@ The `lib/` directory contains end-to-end scripts that exercise the full update p
 
 - **[DEMO.md](./DEMO.md)** Full-lifecycle walkthrough (create, resolve, update, deactivate on Mutinynet), with a runnable companion script at `lib/e2e-full-lifecycle.ts`
 - **Package docs on btcr2.dev** [btcr2.dev/impls/ts](https://btcr2.dev/impls/ts)
+- **[`docs/test-vectors.md`](./docs/test-vectors.md)** The test-vector pipeline for the did-btcr2-test-suite corpus, the test-network wallet, and the cross-implementation harness
 - **[ADR-006](../../docs/adr/006-api-package-boundary.md)** API package boundary
 - **[ADR-024](../../docs/adr/024-api-facade-lazy-and-layered-config.md)** API facade lazy initialization + layered config
 - **[ADR-069](../../docs/adr/069-fetch-based-cas-executors-drop-helia.md)** Fetch-based CAS executors

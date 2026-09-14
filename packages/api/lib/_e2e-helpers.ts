@@ -12,7 +12,7 @@
  *       discovery) goes through Esplora/REST.
  */
 import type { BitcoinConnection } from '@did-btcr2/bitcoin';
-import { BitcoinApi, NETWORK_PRESETS, explorerAddressUrl, faucetUrl } from '../src/index.js';
+import { BitcoinApi, NETWORK_PRESETS, explorerAddressUrl, faucetUrl, type BitcoinApiConfig } from '../src/index.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -59,12 +59,16 @@ export function parseNetworkEnv(): E2ENetwork {
 }
 
 /**
- * Build a `BitcoinConnection` for the given network. RPC credentials are wired
- * only for regtest (no public network has callable RPC).
+ * The api Bitcoin config for the given network. RPC credentials are wired only
+ * for regtest (no public network has callable RPC).
  */
+export function bitcoinConfigFor(network: E2ENetwork): BitcoinApiConfig {
+  return network === 'regtest' ? { network, rpc: REGTEST_RPC } : { network };
+}
+
+/** Build a `BitcoinConnection` for the given network. See {@link bitcoinConfigFor}. */
 export function bitcoinFor(network: E2ENetwork): BitcoinConnection {
-  const cfg = network === 'regtest' ? { network, rpc: REGTEST_RPC } : { network };
-  return new BitcoinApi(cfg).connection;
+  return new BitcoinApi(bitcoinConfigFor(network)).connection;
 }
 
 /**

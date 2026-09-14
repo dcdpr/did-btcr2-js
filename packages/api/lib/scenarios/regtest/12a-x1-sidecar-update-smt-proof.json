@@ -1,0 +1,43 @@
+{
+  "id": "12a-x1-sidecar-update-smt-proof",
+  "description": "x1 DID with default 3 singleton beacons + dedicated SMTBeacon, 1 sidecar update. SMT Proof delivered via sidecar. Mirrors danubetech example 12a (paired with 12b in danubetech's tree).",
+  "network": "regtest",
+  "idType": "EXTERNAL",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "39ee03af0466e2f442bbb312c52b4597fd683a55ea773e60e329f3834c527918"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ],
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/4",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#cohortBeacon",
+      "delivery": "sidecar"
+    }
+  ],
+  "skip": "SMT vectors wait for specification pull request 365 (ADR 113)."
+}

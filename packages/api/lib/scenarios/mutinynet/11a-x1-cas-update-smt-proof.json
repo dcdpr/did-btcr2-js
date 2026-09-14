@@ -1,0 +1,46 @@
+{
+  "id": "11a-x1-cas-update-smt-proof",
+  "description": "x1 DID with default 3 singleton beacons, 1 CAS update + SMT Proof (sidecar). Mirrors danubetech example 11a (paired with 11b in danubetech's tree).",
+  "network": "mutinynet",
+  "idType": "EXTERNAL",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "6df8d20a799c36fdc70cc5af32940ed2e7a5ade47cc7f1bc3c5a3896ecabc599"
+  },
+  "delivery": {
+    "genesis": "cas"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ],
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/4",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#cohortBeacon",
+      "delivery": "cas"
+    }
+  ],
+  "skip": "SMT vectors wait for specification pull request 365 (ADR 113)."
+}

@@ -1,0 +1,31 @@
+{
+  "id": "n03-k1-invalid-did-network-nibble",
+  "description": "Negative: the resolve input carries a k1 identifier whose network nibble names a custom network (12).",
+  "network": "regtest",
+  "idType": "KEY",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "b132d8d4515f9af9c0d1027c3425d0d500d6edd3093eb053416af25eebb115a7"
+  },
+  "identifier": {
+    "tamper": "network-nibble"
+  },
+  "updates": [],
+  "expect": {
+    "error": "INVALID_DID"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

@@ -1,0 +1,45 @@
+{
+  "id": "18-x1-embedded-invocation-key",
+  "description": "x1 DID whose capabilityInvocation embeds the initial verification method as an object; verificationMethod is empty. 1 sidecar update signed with the embedded method.",
+  "network": "testnet4",
+  "idType": "EXTERNAL",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "570dd87924b8f4312bb5f312310a20b158ea54ff756773cefcc355303f9f9c64"
+  },
+  "genesis": {
+    "embedInvocationKey": true
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar"
+    }
+  ],
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

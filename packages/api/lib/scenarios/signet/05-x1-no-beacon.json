@@ -1,0 +1,15 @@
+{
+  "id": "05-x1-no-beacon",
+  "description": "Base resolution: x1 (external-type) DID with NO beacon services in the document, no updates. Genesis doc delivered via sidecar. Mirrors danubetech example 5 (CAS-delivered genesis); our vector uses sidecar delivery so the vector is self-contained.",
+  "network": "signet",
+  "idType": "EXTERNAL",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "df42c2639ae85d9a35b9af7b1958f3e309193816cb256f8dac53295ec7df6dda"
+  },
+  "delivery": {
+    "genesis": "cas"
+  },
+  "beacons": [],
+  "updates": []
+}

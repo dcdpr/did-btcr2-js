@@ -1,0 +1,65 @@
+{
+  "note": "Aggregate-beacon cohorts. Each cohort is a set of scenario DIDs whose updates share ONE on-chain beacon signal: a CAS Announcement Map hash (CASBeacon) or a Sparse Merkle Tree root (SMTBeacon), anchored once in a single OP_RETURN. The shared beacon address derives from the cohort's own fixed key (the aggregator), independent of each member's genesis key, and is injected as a service into every member's genesis document under `serviceId`. The address type is P2WPKH (cheapest to spend from when anchoring). Run `pnpm scenario:keys --network <network>` to assign a fixed secret to any cohort still on `generate`.",
+  "cohorts": [
+    {
+      "id": "cas-09",
+      "beaconType": "CASBeacon",
+      "addressType": "P2WPKH",
+      "serviceId": "#cohortBeacon",
+      "network": "signet",
+      "keys": {
+        "source": "fixed",
+        "secretHex": "01594303fba5e9259247bb36c038120955dbf1d5c5c106ebc145dc1d6092e0ba"
+      },
+      "members": [
+        "09a-x1-cas-update-announcement",
+        "09b-x1-cas-update-announcement-paired"
+      ]
+    },
+    {
+      "id": "cas-10",
+      "beaconType": "CASBeacon",
+      "addressType": "P2WPKH",
+      "serviceId": "#cohortBeacon",
+      "network": "signet",
+      "keys": {
+        "source": "fixed",
+        "secretHex": "604a2b8245ae4c150d06e70be4d517acd8bdb4db064b3f2f79bfc615f0880d61"
+      },
+      "members": [
+        "10a-x1-sidecar-update-cas-announcement",
+        "10b-x1-sidecar-update-cas-announcement-paired"
+      ]
+    },
+    {
+      "id": "smt-11",
+      "beaconType": "SMTBeacon",
+      "addressType": "P2WPKH",
+      "serviceId": "#cohortBeacon",
+      "network": "signet",
+      "keys": {
+        "source": "fixed",
+        "secretHex": "97de037e8e8e93a11b24e23e8c1422a43794307259e26a39c02036aa9c8d6048"
+      },
+      "members": [
+        "11a-x1-cas-update-smt-proof",
+        "11b-x1-cas-update-smt-proof-paired"
+      ]
+    },
+    {
+      "id": "smt-12",
+      "beaconType": "SMTBeacon",
+      "addressType": "P2WPKH",
+      "serviceId": "#cohortBeacon",
+      "network": "signet",
+      "keys": {
+        "source": "fixed",
+        "secretHex": "5e0d62ed12f654a7b5d2b2abf2daa5d6749825ce3a484aff6c66ec3947c207d1"
+      },
+      "members": [
+        "12a-x1-sidecar-update-smt-proof",
+        "12b-x1-sidecar-update-smt-proof-paired"
+      ]
+    }
+  ]
+}
