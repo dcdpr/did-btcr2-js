@@ -1,0 +1,46 @@
+{
+  "id": "n05-x1-missing-update-data",
+  "description": "Negative: x1 DID with 1 anchored update that is in neither the sidecar nor the CAS.",
+  "network": "mutinynet",
+  "idType": "EXTERNAL",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "27e402d3e0fc8feaecbe252f6f8c464132e99fda2176ef65b45b6ca53353dd97"
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar",
+      "withhold": true
+    }
+  ],
+  "expect": {
+    "error": "MISSING_UPDATE_DATA"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

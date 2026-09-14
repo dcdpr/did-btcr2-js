@@ -1,0 +1,31 @@
+{
+  "id": "n02-x1-invalid-did-padding",
+  "description": "Negative: the resolve input carries an x1 identifier with non-zero Bech32m padding bits.",
+  "network": "testnet4",
+  "idType": "EXTERNAL",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "386b537e31b69a24dfe9c2f27c6682550163703c576c54c55725a465b1d3833b"
+  },
+  "identifier": {
+    "tamper": "padding"
+  },
+  "updates": [],
+  "expect": {
+    "error": "INVALID_DID"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

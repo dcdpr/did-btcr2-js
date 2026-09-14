@@ -1,0 +1,46 @@
+{
+  "id": "n26-k1-invalid-update-expires-before-mediantime",
+  "description": "Negative: k1 DID with 1 anchored update; proof.expires is before the mediantime of the block.",
+  "network": "mutinynet",
+  "idType": "KEY",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "2c60276587c9726319454564c1a600968da227188c9a0420ed02eb32b8c60462"
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar",
+      "tamper": "expires-before-mediantime"
+    }
+  ],
+  "expect": {
+    "error": "INVALID_DID_UPDATE"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

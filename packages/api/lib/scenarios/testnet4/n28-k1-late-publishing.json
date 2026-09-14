@@ -1,0 +1,62 @@
+{
+  "id": "n28-k1-late-publishing",
+  "description": "Negative: k1 DID with two different updates from version 1 to version 2, anchored at two beacons (late publishing).",
+  "network": "testnet4",
+  "idType": "KEY",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "0b46a8ed843108d413b52c3bc226868dc30a53c0380728953ce132d096a7af75"
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar"
+    },
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#dwn",
+            "type": "DecentralizedWebNode",
+            "serviceEndpoint": "http://example.com/dwn"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2PKH",
+      "delivery": "sidecar",
+      "fork": true
+    }
+  ],
+  "expect": {
+    "error": "LATE_PUBLISHING_ERROR"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

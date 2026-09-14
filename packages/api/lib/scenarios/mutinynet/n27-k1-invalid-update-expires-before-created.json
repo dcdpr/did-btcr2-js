@@ -1,0 +1,46 @@
+{
+  "id": "n27-k1-invalid-update-expires-before-created",
+  "description": "Negative: k1 DID with 1 anchored update; proof.expires is before proof.created.",
+  "network": "mutinynet",
+  "idType": "KEY",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "78c14ad0c9e3085b7b5d96b063ebe79783a47eda4a466d2b71a8b12ae1ac7581"
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar",
+      "tamper": "expires-before-created"
+    }
+  ],
+  "expect": {
+    "error": "INVALID_DID_UPDATE"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

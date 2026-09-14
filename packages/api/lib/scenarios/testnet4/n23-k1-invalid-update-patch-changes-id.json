@@ -1,0 +1,42 @@
+{
+  "id": "n23-k1-invalid-update-patch-changes-id",
+  "description": "Negative: k1 DID with 1 anchored update whose patch replaces the document id.",
+  "network": "testnet4",
+  "idType": "KEY",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "e44bf99667dad3beada0025c461ca8a1440dd8a5eca5399bc9d642822a2caad0"
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "replace",
+          "path": "/id",
+          "value": "did:btcr2:k1qexample"
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar",
+      "tamper": "invalid-patch"
+    }
+  ],
+  "expect": {
+    "error": "INVALID_DID_UPDATE"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

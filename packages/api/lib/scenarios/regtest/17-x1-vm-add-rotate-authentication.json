@@ -1,0 +1,77 @@
+{
+  "id": "17-x1-vm-add-rotate-authentication",
+  "description": "x1 DID; update 1 adds the verification method #key-1, replaces authentication with it, and adds it to capabilityInvocation; update 2 is signed with #key-1.",
+  "network": "regtest",
+  "idType": "EXTERNAL",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "3a785e17b85370a08f31ddf96a803de588a9b8a4d416728608daf51facc4abe1"
+  },
+  "extraKeys": {
+    "key-1": {
+      "source": "fixed",
+      "secretHex": "7a51aabb4887dbcbb8d0e09f314c1c2bb6b42384fbc7c5f272c063a5bb441092"
+    }
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/verificationMethod/1",
+          "value": {
+            "id": "$did#key-1",
+            "type": "Multikey",
+            "controller": "$did",
+            "publicKeyMultibase": "$multibase(key-1)"
+          }
+        },
+        {
+          "op": "replace",
+          "path": "/authentication",
+          "value": [
+            "$did#key-1"
+          ]
+        },
+        {
+          "op": "add",
+          "path": "/capabilityInvocation/-",
+          "value": "$did#key-1"
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar"
+    },
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#key-1",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar"
+    }
+  ],
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

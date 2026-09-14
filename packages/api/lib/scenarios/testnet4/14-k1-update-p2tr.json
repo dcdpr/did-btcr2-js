@@ -1,0 +1,42 @@
+{
+  "id": "14-k1-update-p2tr",
+  "description": "k1 DID with the default 3 singleton beacons, 1 sidecar update anchored at the #initialP2TR beacon.",
+  "network": "testnet4",
+  "idType": "KEY",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "ef0d04fd1d40ea172ec64da08193df8177bd95c411572b8dd7c6f4f5aa4e0c07"
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2TR",
+      "delivery": "sidecar"
+    }
+  ],
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "id": "n21-k1-invalid-update-version-skip",
+  "description": "Negative: k1 DID with 1 anchored update; targetVersionId skips a version, so a version is missing (late publishing).",
+  "network": "regtest",
+  "idType": "KEY",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "6cf06b08fd500f00d647031731cdb0b31734c47635b3131b30dadc60ca217da5"
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar",
+      "tamper": "version-skip"
+    }
+  ],
+  "expect": {
+    "error": "LATE_PUBLISHING_ERROR"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

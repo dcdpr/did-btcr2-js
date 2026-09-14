@@ -1,0 +1,65 @@
+{
+  "note": "Aggregate-beacon cohorts. Each cohort is a set of scenario DIDs whose updates share ONE on-chain beacon signal: a CAS Announcement Map hash (CASBeacon) or a Sparse Merkle Tree root (SMTBeacon), anchored once in a single OP_RETURN. The shared beacon address derives from the cohort's own fixed key (the aggregator), independent of each member's genesis key, and is injected as a service into every member's genesis document under `serviceId`. The address type is P2WPKH (cheapest to spend from when anchoring). Run `pnpm scenario:keys --network <network>` to assign a fixed secret to any cohort still on `generate`.",
+  "cohorts": [
+    {
+      "id": "cas-09",
+      "beaconType": "CASBeacon",
+      "addressType": "P2WPKH",
+      "serviceId": "#cohortBeacon",
+      "network": "mutinynet",
+      "keys": {
+        "source": "fixed",
+        "secretHex": "033588bff7f194c9dffbe7f0e5e5f0bee4ceaa890d17836bef481761e4cf5ddb"
+      },
+      "members": [
+        "09a-x1-cas-update-announcement",
+        "09b-x1-cas-update-announcement-paired"
+      ]
+    },
+    {
+      "id": "cas-10",
+      "beaconType": "CASBeacon",
+      "addressType": "P2WPKH",
+      "serviceId": "#cohortBeacon",
+      "network": "mutinynet",
+      "keys": {
+        "source": "fixed",
+        "secretHex": "b9507a59d76f196b53fbfaf7135d1ecfd5ad43dc9b9290deecd6cad909488838"
+      },
+      "members": [
+        "10a-x1-sidecar-update-cas-announcement",
+        "10b-x1-sidecar-update-cas-announcement-paired"
+      ]
+    },
+    {
+      "id": "smt-11",
+      "beaconType": "SMTBeacon",
+      "addressType": "P2WPKH",
+      "serviceId": "#cohortBeacon",
+      "network": "mutinynet",
+      "keys": {
+        "source": "fixed",
+        "secretHex": "e00372369ba23d1118acfeedefe3a72a7d4cc3a05afd02406495a2c7095bcd88"
+      },
+      "members": [
+        "11a-x1-cas-update-smt-proof",
+        "11b-x1-cas-update-smt-proof-paired"
+      ]
+    },
+    {
+      "id": "smt-12",
+      "beaconType": "SMTBeacon",
+      "addressType": "P2WPKH",
+      "serviceId": "#cohortBeacon",
+      "network": "mutinynet",
+      "keys": {
+        "source": "fixed",
+        "secretHex": "cfc3d9ae6772d52c4e7d6543e92c1184b02ceae1e52d2a0f29978ccae7956bed"
+      },
+      "members": [
+        "12a-x1-sidecar-update-smt-proof",
+        "12b-x1-sidecar-update-smt-proof-paired"
+      ]
+    }
+  ]
+}

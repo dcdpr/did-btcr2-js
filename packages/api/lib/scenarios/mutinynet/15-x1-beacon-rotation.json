@@ -1,0 +1,60 @@
+{
+  "id": "15-x1-beacon-rotation",
+  "description": "x1 DID; update 1 replaces the endpoint of the #initialP2PKH singleton beacon with a new address (beacon rotation); update 2 is anchored at the rotated beacon.",
+  "network": "mutinynet",
+  "idType": "EXTERNAL",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "f3c6cbba5d1925503b6456be5d6b182129ef8d9132cb57bb58318e33923191ff"
+  },
+  "extraKeys": {
+    "rotated": {
+      "source": "fixed",
+      "secretHex": "6876673a30c52b9308f5842005a1e778e850ee6613c88fcb4d51e993be8f957e"
+    }
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "replace",
+          "path": "/service/0/serviceEndpoint",
+          "value": "bitcoin:$address(rotated,p2pkh)"
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar"
+    },
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2PKH",
+      "delivery": "sidecar"
+    }
+  ],
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

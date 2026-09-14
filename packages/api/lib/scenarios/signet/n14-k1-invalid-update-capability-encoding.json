@@ -1,0 +1,46 @@
+{
+  "id": "n14-k1-invalid-update-capability-encoding",
+  "description": "Negative: k1 DID with 1 anchored update; proof.capability carries the DID without percent-encoding.",
+  "network": "signet",
+  "idType": "KEY",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "5fac0ff89f0573d0b3a920d4d7ce69e0e9efc425f088de946ea11542ebdda798"
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar",
+      "tamper": "capability-encoding"
+    }
+  ],
+  "expect": {
+    "error": "INVALID_DID_UPDATE"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

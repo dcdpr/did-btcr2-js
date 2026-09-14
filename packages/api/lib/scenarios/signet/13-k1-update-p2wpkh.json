@@ -1,0 +1,42 @@
+{
+  "id": "13-k1-update-p2wpkh",
+  "description": "k1 DID with the default 3 singleton beacons, 1 sidecar update anchored at the #initialP2WPKH beacon.",
+  "network": "signet",
+  "idType": "KEY",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "b4ca428f57b92dc20bb66162681c8f162a1059473b7b4c709a7c113187e5fc92"
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar"
+    }
+  ],
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

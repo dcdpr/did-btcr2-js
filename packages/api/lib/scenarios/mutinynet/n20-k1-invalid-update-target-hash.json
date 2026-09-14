@@ -1,0 +1,46 @@
+{
+  "id": "n20-k1-invalid-update-target-hash",
+  "description": "Negative: k1 DID with 1 anchored update; targetHash is not the hash of the patched document.",
+  "network": "mutinynet",
+  "idType": "KEY",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "21344dec0c296cb321d5577d82a2d8add59d106c82a257ca69c6aecad448f2b1"
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar",
+      "tamper": "target-hash"
+    }
+  ],
+  "expect": {
+    "error": "INVALID_DID_UPDATE"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

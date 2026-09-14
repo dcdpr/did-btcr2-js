@@ -1,0 +1,42 @@
+{
+  "id": "n24-k1-invalid-update-patch-invalid-document",
+  "description": "Negative: k1 DID with 1 anchored update whose patched document does not conform (the verification method type is not Multikey).",
+  "network": "signet",
+  "idType": "KEY",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "d43efdf5d2cef60a7172b9fca8d743fd23d275b425acaf738db239ab0614936b"
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "replace",
+          "path": "/verificationMethod/0/type",
+          "value": "JsonWebKey2020"
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar",
+      "tamper": "invalid-patch"
+    }
+  ],
+  "expect": {
+    "error": "INVALID_DID_UPDATE"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "id": "n21-k1-invalid-update-version-skip",
+  "description": "Negative: k1 DID with 1 anchored update; targetVersionId skips a version, so a version is missing (late publishing).",
+  "network": "mutinynet",
+  "idType": "KEY",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "df7d9c23b49685603e968c167390a6da18c15a3e5780e233187b00cfbaf558e4"
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar",
+      "tamper": "version-skip"
+    }
+  ],
+  "expect": {
+    "error": "LATE_PUBLISHING_ERROR"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "id": "n11-k1-invalid-update-context-order",
+  "description": "Negative: k1 DID with 1 anchored update; two members of the update @context are swapped.",
+  "network": "regtest",
+  "idType": "KEY",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "2b9cf2f11d99acbcbffa995b3822a8a1121f884ca57eea688f0927991e4a7cbe"
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar",
+      "tamper": "context-order"
+    }
+  ],
+  "expect": {
+    "error": "INVALID_DID_UPDATE"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "id": "n04-x1-genesis-hash-mismatch",
+  "description": "Negative: the sidecar genesis document does not hash to the genesis bytes of the x1 identifier.",
+  "network": "signet",
+  "idType": "EXTERNAL",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "861d0bdf27a635bc085e4af262709c14805409669f67f83e91594549dccd49fc"
+  },
+  "genesis": {
+    "tamper": "hash-mismatch"
+  },
+  "updates": [],
+  "expect": {
+    "error": "INVALID_DID"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

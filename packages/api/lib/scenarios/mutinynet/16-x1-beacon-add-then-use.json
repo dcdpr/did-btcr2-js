@@ -1,0 +1,64 @@
+{
+  "id": "16-x1-beacon-add-then-use",
+  "description": "x1 DID; update 1 adds a fourth singleton beacon #newBeacon; update 2 is anchored at #newBeacon, so the resolver needs a second discovery round.",
+  "network": "mutinynet",
+  "idType": "EXTERNAL",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "b467f610ba8155d433973e234ac4496ee069703c6ee08d60760b8dda4f589657"
+  },
+  "extraKeys": {
+    "newBeacon": {
+      "source": "fixed",
+      "secretHex": "40e2a9591a08fb70ef17348adf22d29859e70a6083694bbbe91e3bb709a74fd4"
+    }
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#newBeacon",
+            "type": "SingletonBeacon",
+            "serviceEndpoint": "bitcoin:$address(newBeacon,p2wpkh)"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar"
+    },
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/4",
+          "value": {
+            "id": "#dwn",
+            "type": "DecentralizedWebNode",
+            "serviceEndpoint": "http://example.com/dwn"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#newBeacon",
+      "delivery": "sidecar"
+    }
+  ],
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

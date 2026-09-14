@@ -1,0 +1,46 @@
+{
+  "id": "n10-k1-invalid-update-context-member",
+  "description": "Negative: k1 DID with 1 anchored update; the update @context has a wrong last member.",
+  "network": "testnet4",
+  "idType": "KEY",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "f5a5b960c0e59fd9f2f9c1bb488e6108665ab691c7d56c5aff377603e4ae2b87"
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar",
+      "tamper": "context-member"
+    }
+  ],
+  "expect": {
+    "error": "INVALID_DID_UPDATE"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

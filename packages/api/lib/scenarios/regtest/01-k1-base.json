@@ -1,0 +1,25 @@
+{
+  "id": "01-k1-base",
+  "description": "Base resolution: k1 (key-type) DID with default 3 singleton beacons, no updates. Mirrors danubetech example 1.",
+  "network": "regtest",
+  "idType": "KEY",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "07933990d41b0afc969295a8a13dd369e6bb8ff9f9757f9833a572602dc28e7f"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ],
+  "updates": []
+}
