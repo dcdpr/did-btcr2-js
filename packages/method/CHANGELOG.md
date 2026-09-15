@@ -1,5 +1,15 @@
 # @did-btcr2/method
 
+## 0.65.0
+
+### Minor Changes
+
+- The resolver ignores the signals of a beacon address that an applied update removed from the DID document (ADR 114, specification pull request 367).
+
+  - method: each update tuple carries the beacon address of its signal. Step 4 of "Process Next Update" ignores a tuple whose address the current document does not carry: the tuple stamps no metadata, enters no history, and does not reach the duplicate check. An update announced at the address that it removes still applies. Breaking: a history that announces a later version at a removed beacon address resolves to the last version that a kept address announced, and a `versionId` that only an ignored update reaches fails with `NOT_FOUND`. A conflicting re-announcement at a removed address is ignored; before, it raised `LATE_PUBLISHING`.
+  - api: dependency uptake.
+  - cli: dependency uptake.
+
 ## 0.64.0
 
 ### Minor Changes

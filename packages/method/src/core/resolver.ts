@@ -137,6 +137,13 @@ export interface BeaconProcessResult {
   needs: Array<DataNeed>;
 }
 
+/**
+ * One entry of the `updates` list of the specification: the signed update, the block
+ * that announced it, and the beacon address of the signal. The address feeds the
+ * removed-beacon test of "Process Next Update", step 4.
+ */
+type UpdateTuple = [update: SignedBTCR2Update, block: BlockMetadata, address: string];
+
 // ─── provide() payload guards ────────────────────────────────────────────────
 // Runtime shape checks so a malformed payload fails fast at the provide()
 // boundary rather than flowing downstream as an unchecked `as` cast.
@@ -298,11 +305,12 @@ export class Resolver {
   /** The beacon addresses the resolver requested signals for: `scanned_beacons` of the specification. */
   #requestCache: Set<string> = new Set();
   /**
-   * The tuples of the specification's `updates` list: a signed update and the metadata of
-   * the block that announced it. BeaconProcess appends; ProcessUpdate sorts the list and
-   * removes one tuple per step. A tuple that one pass does not reach waits for the next.
+   * The tuples of the specification's `updates` list: a signed update, the metadata of
+   * the block that announced it, and the beacon address of the signal. BeaconProcess
+   * appends; ProcessUpdate sorts the list and removes one tuple per step. A tuple that
+   * one pass does not reach waits for the next.
    */
-  #unsortedUpdates: Array<[SignedBTCR2Update, BlockMetadata]> = [];
+  #unsortedUpdates: Array<UpdateTuple> = [];
   #resolvedResponse: DidResolutionResponse | null = null;
 
   /**
@@ -876,8 +884,12 @@ export class Resolver {
               // This service has unmet data needs, collect them
               allNeeds.push(...result.needs);
             } else {
-              // All signals for this service resolved, collect updates, mark processed
-              this.#unsortedUpdates.push(...result.updates);
+              // All signals for this service resolved: collect the updates with the
+              // beacon address of the service, mark the service processed.
+              const address = BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string);
+              this.#unsortedUpdates.push(...result.updates.map(
+                ([update, block]): UpdateTuple => [update, block, address]
+              ));
               this.#processedServices.add(service.id);
             }
           }
@@ -894,6 +906,8 @@ export class Resolver {
         // Spec "Process Next Update": one tuple per step. The phase repeats until
         // the document resolves, or until an applied update adds a beacon address
         // that the resolver did not scan (then the pass returns to BeaconDiscovery).
+        // A tuple whose beacon address the current document no longer carries is
+        // ignored (step 4).
         case ResolverPhase.ProcessUpdate: {
           const document = this.#currentDocument!;
 
@@ -926,9 +940,20 @@ export class Resolver {
           this.#unsortedUpdates.sort(([upd0, blk0], [upd1, blk1]) =>
             upd0.targetVersionId - upd1.targetVersionId || blk0.height - blk1.height
           );
-          const [update, block] = this.#unsortedUpdates.shift()!;
+          const [update, block, address] = this.#unsortedUpdates.shift()!;
 
-          // Check targetVersionId, first arm: update.targetVersionId <= currentVersionId
+          // Step 4: the current document has no beacon with the address of the signal:
+          // an applied update removed the beacon. Ignore the tuple (ADR 114). It stamps
+          // nothing, it enters no history, and it does not reach the duplicate check
+          // below: a conflicting re-announcement at a removed address is not an
+          // equivocation of the DID. The test reads the document before Apply, so an
+          // update announced at the address that it removes itself applies.
+          const removed = !BeaconUtils.getBeaconServices(document).some(service =>
+            BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string) === address
+          );
+          if(removed) continue;
+
+          // Step 7, "Check targetVersionId", first arm: targetVersionId <= currentVersionId
           // re-announces an applied version. Confirm that it is a true duplicate, then
           // skip it. A duplicate does not advance the version counter, does not append
           // to the history (the slot already holds the applied update, ADR 067), and
@@ -941,7 +966,7 @@ export class Resolver {
             continue;
           }
 
-          // Step 4: the versionTime stop. The block mediantime of the tuple is after
+          // Step 5: the versionTime stop. The block mediantime of the tuple is after
           // versionTime: resolve the current document. The boundary is inclusive, so a
           // tuple whose mediantime equals versionTime applies. The stopped tuple stamps
           // nothing: the metadata reports the last applied update.
@@ -950,7 +975,7 @@ export class Resolver {
             continue;
           }
 
-          // Check targetVersionId, third arm: a version was skipped, so raise LATE_PUBLISHING.
+          // Step 7, third arm: a version was skipped, so raise LATE_PUBLISHING.
           if(update.targetVersionId !== this.#currentVersionId + 1) {
             throw new ResolveError(
               `Version Id Mismatch: targetVersionId cannot be > currentVersionId + 1`,
@@ -961,14 +986,14 @@ export class Resolver {
             );
           }
 
-          // Second arm: update.targetVersionId == currentVersionId + 1. Apply the update,
+          // Step 7, second arm: targetVersionId == currentVersionId + 1. Apply the update,
           // append the unsigned update hash to the history, increment the version.
           this.#currentDocument = Resolver.applyUpdate(document, update, block);
           const unsignedUpdate = JSONUtils.deleteKeys(update, ['proof']) as UnsignedBTCR2Update;
           this.#updateHashHistory.push(canonicalHashBytes(unsignedUpdate));
           this.#currentVersionId++;
 
-          // Step 5: block_confirmations, and the header time as `updated`. On the apply
+          // Step 6: block_confirmations, and the header time as `updated`. On the apply
           // path only: the stop above and the duplicate branch stamp nothing.
           this.#blockConfirmations = block.confirmations;
           this.#updated = DateUtils.toISOStringNonFractional(DateUtils.blocktimeToTimestamp(block.time));
