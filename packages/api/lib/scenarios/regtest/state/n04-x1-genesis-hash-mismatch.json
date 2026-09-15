@@ -1,0 +1,25 @@
+{
+    "scenarioId": "n04-x1-genesis-hash-mismatch",
+    "network": "regtest",
+    "did": "did:btcr2:x1qgaglc0dpu0mhktpgzfcna9qxemcr99yrhq72hex4kx4jhcumxj5cc4yygv",
+    "needsFunding": false,
+    "cohort": null,
+    "anchors": [],
+    "allBeacons": [
+        {
+            "id": "did:btcr2:x1qgaglc0dpu0mhktpgzfcna9qxemcr99yrhq72hex4kx4jhcumxj5cc4yygv#initialP2PKH",
+            "type": "SingletonBeacon",
+            "address": "mjnR747XbRNreppY2PqEZh5Nu6TE94xcJQ"
+        },
+        {
+            "id": "did:btcr2:x1qgaglc0dpu0mhktpgzfcna9qxemcr99yrhq72hex4kx4jhcumxj5cc4yygv#initialP2WPKH",
+            "type": "SingletonBeacon",
+            "address": "bcrt1q9mx376n875wlsu33emevrl5ag5xllsw7r3nlv6"
+        },
+        {
+            "id": "did:btcr2:x1qgaglc0dpu0mhktpgzfcna9qxemcr99yrhq72hex4kx4jhcumxj5cc4yygv#initialP2TR",
+            "type": "SingletonBeacon",
+            "address": "bcrt1pdhlxv0242wkefugfkeu9jxwhdms4xe2u4fsarc9j6h7554u8xysswqed7k"
+        }
+    ]
+}

@@ -13,15 +13,17 @@
  *     that the SHA-256 matches the manifest hash. No network. Writes the CID
  *     manifest (`lib/scenarios/<network>/cid-manifest.json`).
  *   - live (`--publish`): also `block/put` + `pin/add` each block to a
- *     Kubo-compatible IPFS RPC endpoint (env `IPFS_RPC_URL`). This repository
- *     records no endpoint.
+ *     Kubo-compatible IPFS RPC endpoint. On regtest the endpoint is the Kubo
+ *     node of the Polar stack (ADR 117). The other networks take the endpoint
+ *     from `IPFS_RPC_URL`. This repository records no public endpoint.
  *
  * The content bytes are the canonical JSON of the object, byte for byte what
  * the resolver parses after retrieval.
  *
  * Usage:
  *   pnpm scenario:publish --network regtest              # dry-run
- *   IPFS_RPC_URL=http://host:5001 pnpm scenario:publish --network regtest --publish
+ *   pnpm scenario:publish --network regtest --publish    # pins to the Kubo node of the Polar stack
+ *   IPFS_RPC_URL=http://host:5001 pnpm scenario:publish --network mutinynet --publish
  */
 
 import { existsSync } from 'node:fs';
@@ -32,6 +34,7 @@ import * as raw from 'multiformats/codecs/raw';
 import { create as createDigest } from 'multiformats/hashes/digest';
 import { sha256 } from 'multiformats/hashes/sha2';
 
+import { REGTEST_IPFS } from './_e2e-helpers.js';
 import { cidManifestFile, parseNetworkArg, publishManifestFile, readJSON, writeJSON } from './_scenario-helpers.js';
 
 const { network, rest } = parseNetworkArg();
@@ -72,9 +75,9 @@ async function run(): Promise<void> {
     console.error(`No publish manifest at ${manifestPath}. Run scenario:route first.`);
     process.exit(1);
   }
-  const rpcUrl = process.env.IPFS_RPC_URL?.replace(/\/+$/, '');
+  const rpcUrl = (process.env.IPFS_RPC_URL ?? (network === 'regtest' ? REGTEST_IPFS.rpc : undefined))?.replace(/\/+$/, '');
   if (live && !rpcUrl) {
-    console.error('--publish requires a Kubo-compatible endpoint in IPFS_RPC_URL (e.g. http://127.0.0.1:5001).');
+    console.error('--publish requires a Kubo-compatible endpoint in IPFS_RPC_URL (e.g. http://host:5001).');
     process.exit(1);
   }
 
@@ -122,7 +125,11 @@ async function run(): Promise<void> {
 
   console.log(`\n=== ${live ? 'published' : 'verified'} ${ok}/${items.length} (${bad} failed) ===`);
   console.log(`  wrote ${cidPath}`);
-  if (!live) console.log('  dry-run only: run again with --publish and IPFS_RPC_URL set to pin to IPFS.');
+  if (!live) {
+    console.log(network === 'regtest'
+      ? '  dry-run only: run again with --publish to pin to the Kubo node of the Polar stack.'
+      : '  dry-run only: run again with --publish and IPFS_RPC_URL set to pin to IPFS.');
+  }
   process.exit(bad ? 1 : 0);
 }
 

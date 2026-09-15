@@ -22,9 +22,11 @@ pnpm scenario:route --network regtest
 # 4. Check the vectors offline, with synthetic beacon signals.
 pnpm scenario:verify --network regtest
 
-# 5. Publish the CAS objects (dry-run first; --publish pins to IPFS_RPC_URL).
+# 5. Publish the CAS objects (dry-run first). On regtest, --publish pins to the
+#    Kubo node of the Polar stack. On the other networks, set IPFS_RPC_URL.
 pnpm scenario:publish --network regtest
-IPFS_RPC_URL=http://host:5001 pnpm scenario:publish --network regtest --publish
+pnpm scenario:publish --network regtest --publish
+IPFS_RPC_URL=http://host:5001 pnpm scenario:publish --network mutinynet --publish
 
 # 6. Fund the beacon addresses. After the confirmation, anchor the signals,
 #    one round per command. Run the anchor command again after each block,
@@ -86,8 +88,28 @@ The corpus holds the files a consumer needs and no pipeline state ([ADR 115](../
 
 ## Networks
 
-- **regtest:** a Polar network with auto-mine on (30 seconds) that runs for the whole pass (`localhost:18443` RPC with `polaruser` / `polarpass`, Esplora at `localhost:3000`). `scenario:fund` sends over RPC. No script mines a block. The auto-miner confirms the funding and each anchor round. Let the network mine at least 11 blocks before the first anchor, so that the block `mediantime` rises with each block. Export the Polar network to `lib/data/regtest/did-btcr2.polar.zip` after the pass.
-- **mutinynet, testnet4, signet:** the wallet funding key pays the beacons (`pnpm wallet init`, `pnpm wallet status`, faucet the P2WPKH address; see `lib/wallet/README.md`). One anchor round per block: about 30 seconds on mutinynet, about 10 minutes on testnet4 and signet. `CAS_GATEWAY` selects the IPFS gateway of the live verify (default: the api gateway).
+- **regtest:** a Polar network with auto-mine on (30 seconds) that runs for the whole pass. The stack has three services: Bitcoin Core (`localhost:18443` RPC with `polaruser` / `polarpass`), Esplora (`localhost:3000`), and Kubo (`127.0.0.1:5001` RPC, `127.0.0.1:8080` gateway). `scenario:fund` sends over RPC from the wallet of the node. A coinbase output is spendable after 100 confirmations, so let the network mine 100 blocks before `scenario:fund`. The 100 blocks also give the rising block `mediantime` that the `versionTime` forms need. No script mines a block. The auto-miner confirms the funding and each anchor round. `scenario:publish --publish` pins the CAS objects to the Kubo node, and `scenario:verify:live` reads them from its gateway ([ADR 117](../../../docs/adr/117-regtest-vectors-publish-cas-objects-to-a-kubo-node-in-the-polar-stack.md)). Export the Polar network to `lib/data/regtest/did-btcr2.polar.zip` after the pass. The export holds the chain, the Esplora index, and the Kubo repository.
+- **mutinynet, testnet4, signet:** the wallet funding key pays the beacons (`pnpm wallet init`, `pnpm wallet status`, faucet the P2WPKH address; see `lib/wallet/README.md`). One anchor round per block: about 30 seconds on mutinynet, about 10 minutes on testnet4 and signet. `IPFS_RPC_URL` names the IPFS node of the publish step. `CAS_GATEWAY` selects the IPFS gateway of the live verify (default: the api gateway).
+
+### Kubo service of the regtest stack
+
+Add this service to the `docker-compose.yml` of the Polar network, next to the Esplora service. Run `docker compose up -d ipfs` in the network folder to start it. The other containers do not restart. The daemon runs offline: no swarm, no DHT, no bootstrap traffic. Both ports bind to the loopback of the host, because the Kubo RPC API has no authentication. The repository sits in `volumes/ipfs`, inside the network folder, so the Polar export carries the blocks.
+
+```yaml
+  ipfs:
+    image: ipfs/kubo:v0.43.1
+    container_name: polar-n3-ipfs
+    restart: unless-stopped
+    command: ['daemon', '--offline', '--migrate=true']
+    volumes:
+      - ./volumes/ipfs:/data/ipfs
+    expose:
+      - '5001'
+      - '8080'
+    ports:
+      - '127.0.0.1:5001:5001'
+      - '127.0.0.1:8080:8080'
+```
 
 ## Cross-implementation harness
 
