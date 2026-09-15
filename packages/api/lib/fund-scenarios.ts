@@ -10,9 +10,12 @@
  * one funding UTXO per address covers the whole chain.
  *
  *   - regtest: `sendtoaddress` over the Bitcoin Core RPC of the local Polar
- *     stack, then one block, then a wait for the Esplora indexer. No wallet.
+ *     stack, one send per address. No wallet.
  *   - other networks: ONE batch transaction from the wallet funding key (one
  *     output per address). Faucet the funding key first: `pnpm wallet status`.
+ *
+ * No script mines a block. On regtest the auto-miner of the Polar network
+ * confirms the sends. Run `scenario:anchor` after the confirmation.
  *
  * Usage:
  *   pnpm scenario:fund --network regtest
@@ -22,7 +25,7 @@
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { hex } from '@scure/base';
 
-import { bitcoinFor, waitForIndexerTip } from './_e2e-helpers.js';
+import { bitcoinFor } from './_e2e-helpers.js';
 import {
   indexScenarioDirs, loadCohorts, parseNetworkArg, readState,
   type AddrType,
@@ -68,10 +71,6 @@ async function fundRegtest(targets: Array<Target & { amountSats: bigint }>): Pro
     const tx = await btc.rpc.sendToAddress(t.address, Number(t.amountSats) / 100_000_000);
     console.log(`  sent ${t.amountSats} sats to ${t.address}  tx=${typeof tx === 'string' ? tx : (tx as { txid?: string }).txid ?? ''}`);
   }
-  const minerAddr = await btc.rpc.getNewAddress('bech32');
-  await btc.rpc.generateToAddress(1, minerAddr);
-  await waitForIndexerTip(await btc.rpc.getBlockCount(), btc);
-  console.log('  mined 1 block; indexer in sync');
 }
 
 async function run(): Promise<void> {
@@ -102,8 +101,8 @@ async function run(): Promise<void> {
     console.log(`  Broadcast: ${result.txid}`);
     console.log(`  vsize ${result.vsize} vB, fee ${result.feeSats} sats`);
     console.log(`  explorer: ${explorerHint(network, result.txid)}`);
-    console.log('\n  Wait for the confirmation.');
   }
+  console.log('\n  Wait for the confirmation.');
   console.log(`  Next: pnpm scenario:anchor --network ${network}`);
 }
 

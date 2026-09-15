@@ -26,9 +26,12 @@ pnpm scenario:verify --network regtest
 pnpm scenario:publish --network regtest
 IPFS_RPC_URL=http://host:5001 pnpm scenario:publish --network regtest --publish
 
-# 6. Fund the beacon addresses, then anchor the signals.
+# 6. Fund the beacon addresses. After the confirmation, anchor the signals,
+#    one round per command. Run the anchor command again after each block,
+#    until it reports that every anchor is broadcast.
 pnpm scenario:fund --network regtest
 pnpm scenario:anchor --network regtest
+pnpm scenario:anchor --network regtest     # after the next block: round 2, and so on
 
 # 7. After six confirmations: resolve live through the api and record the outputs.
 pnpm scenario:verify:live --network regtest --record
@@ -39,9 +42,17 @@ pnpm scenario:readme --network regtest
 
 Run the steps 1 to 6 as one pass. BIP340 signing uses random auxiliary data, so every generation produces different signed bytes, and the artifacts, the manifest, and the anchored signals belong to one generation.
 
+### Anchor rounds
+
+`scenario:anchor` broadcasts one round per command ([ADR 116](../../../docs/adr/116-anchor-step-broadcasts-one-round-per-command-and-no-script-mines.md)). Round k broadcasts the k-th anchor of every scenario. The cohort anchors are round 1. The anchors of one scenario then sit in different blocks. The block `mediantime` rises from one anchor to the next, as the `versionTime` forms need.
+
+The command writes the `txid` of each broadcast anchor into `state/<scenario-id>.json` (the `anchors` entry) or into `cohorts/<cohort-id>.json`. A second run skips an anchor that has a `txid`. Before it broadcasts round k, the command reads the indexer one time. It stops if an anchor of round k-1 is not confirmed. At round 1 it stops if an address already carries a Beacon Signal. Then roll the keys (`pnpm scenario:keys --network <name> --force`) or use a fresh chain.
+
+`--dry` lists the rounds with their txids and reports whether the next round is ready. No script mines a block or waits for one. Run the command again after the next block.
+
 ## Recipes
 
-A recipe is a JSON file in `lib/scenarios/<network>/`. One directory per network holds the recipes, the `cohorts.json` of the aggregate beacons, the head of the network README (`README.head.md`), and the build state of the last pass: `cohorts/`, `publish-manifest.json`, `cid-manifest.json`, `FUNDING.md`, and `state/<scenario-id>.json` (the DID, the anchors, and the beacon addresses of every generated scenario). The build state is committed with the pass of the network. Every network directory has its own secrets, so a published key belongs to one chain.
+A recipe is a JSON file in `lib/scenarios/<network>/`. One directory per network holds the recipes, the `cohorts.json` of the aggregate beacons, the head of the network README (`README.head.md`), and the build state of the last pass: `cohorts/`, `publish-manifest.json`, `cid-manifest.json`, `FUNDING.md`, and `state/<scenario-id>.json` (the DID, the anchors with their txids, and the beacon addresses of every generated scenario). The build state is committed with the pass of the network. Every network directory has its own secrets, so a published key belongs to one chain.
 
 A recipe names:
 
@@ -75,8 +86,8 @@ The corpus holds the files a consumer needs and no pipeline state ([ADR 115](../
 
 ## Networks
 
-- **regtest:** the Polar stack (`localhost:18443` RPC with `polaruser` / `polarpass`, Esplora at `localhost:3000`). `scenario:fund` sends over RPC and mines a block. `scenario:anchor` mines a block after each anchor and six blocks at the end. Export the Polar network to `lib/data/regtest/did-btcr2.polar.zip` after the pass.
-- **mutinynet, testnet4, signet:** the wallet funding key pays the beacons (`pnpm wallet init`, `pnpm wallet status`, faucet the P2WPKH address; see `lib/wallet/README.md`). Anchors chain in the mempool. `CAS_GATEWAY` selects the IPFS gateway of the live verify (default: the api gateway).
+- **regtest:** a Polar network with auto-mine on (30 seconds) that runs for the whole pass (`localhost:18443` RPC with `polaruser` / `polarpass`, Esplora at `localhost:3000`). `scenario:fund` sends over RPC. No script mines a block. The auto-miner confirms the funding and each anchor round. Let the network mine at least 11 blocks before the first anchor, so that the block `mediantime` rises with each block. Export the Polar network to `lib/data/regtest/did-btcr2.polar.zip` after the pass.
+- **mutinynet, testnet4, signet:** the wallet funding key pays the beacons (`pnpm wallet init`, `pnpm wallet status`, faucet the P2WPKH address; see `lib/wallet/README.md`). One anchor round per block: about 30 seconds on mutinynet, about 10 minutes on testnet4 and signet. `CAS_GATEWAY` selects the IPFS gateway of the live verify (default: the api gateway).
 
 ## Cross-implementation harness
 
