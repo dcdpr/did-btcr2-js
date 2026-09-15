@@ -38,8 +38,8 @@ import { DidBtcr2 } from '@did-btcr2/method';
 
 import {
   cohortsOutDir, findCohort, indexScenarioDirs, loadCohorts, loadRecipes, parseNetworkArg, publishManifestFile,
-  readExpected, readJSON, readSignedUpdates, resolveCaseDir, resolveVersionTime,
-  type CohortDef, type Expected, type FundingFile, type Scenario,
+  readExpected, readJSON, readSignedUpdates, readState, realUpdates, resolveCaseDir, resolveVersionTime,
+  type CohortDef, type Expected, type Scenario,
 } from './_scenario-helpers.js';
 
 const { network } = parseNetworkArg();
@@ -67,25 +67,28 @@ function syntheticSignal(signalBytes: string, n: number): BeaconSignal {
 }
 
 /**
- * The signals per beacon fragment: a cohort member anchors the shared signal at
- * the cohort beacon (as update 1); a solo scenario anchors the hash of update N
- * at the beacon of update N.
+ * The signals per beacon address, as a chain holds them: a cohort member anchors
+ * the shared signal at the cohort address (as entry 1); a solo scenario anchors
+ * the signal of entry N (the hash of its signed update, or of the update that a
+ * duplicate entry repeats) in synthetic block N. The key is the address, not the
+ * service id: a beacon rotation keeps the id and changes the address, and the
+ * resolver scans the new address in a later discovery round.
  */
 function buildSignalPlan(dir: string, recipe: Scenario, cohort: CohortDef | undefined): Map<string, BeaconSignal[]> {
   const plan = new Map<string, BeaconSignal[]>();
   if (cohort) {
-    const signalHex = readJSON<{ signalHex: string }>(join(cohortsOutDir(network), `${cohort.id}.json`)).signalHex;
-    plan.set(cohort.serviceId, [syntheticSignal(signalHex, 1)]);
+    const { anchorAddress, signalHex } = readJSON<{ anchorAddress: string; signalHex: string }>(join(cohortsOutDir(network), `${cohort.id}.json`));
+    plan.set(anchorAddress, [syntheticSignal(signalHex, 1)]);
     return plan;
   }
-  const count = recipe.updates.length;
+  const count = realUpdates(recipe).length;
   if (count === 0) return plan;
-  const funding = readJSON<FundingFile>(join(dir, 'funding.json'));
+  const state = readState(network, recipe.id);
+  if (!state) throw new Error(`no pipeline state for ${recipe.id}; run generate:scenario`);
   const signed = readSignedUpdates(dir, count);
-  for (const a of funding.anchors) {
-    const fragment = a.beaconId.slice(a.beaconId.indexOf('#'));
-    const hashHex = canonicalHash(signed[a.update - 1] as Record<string, unknown>, { encoding: 'hex' });
-    (plan.get(fragment) ?? plan.set(fragment, []).get(fragment)!).push(syntheticSignal(hashHex, a.update));
+  for (const a of state.anchors) {
+    const hashHex = canonicalHash(signed[a.signalOf - 1] as Record<string, unknown>, { encoding: 'hex' });
+    (plan.get(a.address) ?? plan.set(a.address, []).get(a.address)!).push(syntheticSignal(hashHex, a.update));
   }
   return plan;
 }
@@ -102,8 +105,8 @@ function resolveOffline(did: string, options: object, plan: Map<string, BeaconSi
           case 'NeedBeaconSignals': {
             const map = new Map<BeaconService, BeaconSignal[]>();
             for (const svc of need.beaconServices) {
-              const fragment = [...plan.keys()].find((f) => svc.id.endsWith(f));
-              map.set(svc, fragment ? plan.get(fragment)! : []);
+              const address = String(svc.serviceEndpoint).slice('bitcoin:'.length);
+              map.set(svc, plan.get(address) ?? []);
             }
             resolver.provide(need, map);
             break;

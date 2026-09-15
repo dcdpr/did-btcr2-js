@@ -10,7 +10,8 @@
  *   - Solo beacons: one OP_RETURN per update at the beacon the update names
  *     (P2PKH, P2WPKH, or P2TR), with the hash of that update, signed by the key
  *     of the address (the genesis key or an extra key from `other.json`).
- *     Anchors at one address chain the change UTXO.
+ *     A duplicate entry anchors the hash of an earlier update again. Anchors at
+ *     one address chain the change UTXO.
  *
  * On regtest the script mines one block after each anchor, so each update sits
  * in its own block, then six more blocks, then waits for the Esplora indexer.
@@ -31,8 +32,9 @@ import { canonicalHash } from '@did-btcr2/common';
 
 import { bitcoinFor, waitForIndexerTip } from './_e2e-helpers.js';
 import {
-  cohortsOutDir, indexScenarioDirs, loadCohorts, parseNetworkArg, readJSON, readSignedUpdates,
-  type AddrType, type FundingFile, type OtherFile,
+  cohortsOutDir, indexScenarioDirs, loadCohorts, loadRecipes, parseNetworkArg, readJSON, readSignedUpdates, readState,
+  realUpdates,
+  type AddrType, type OtherFile,
 } from './_scenario-helpers.js';
 import { anchorSignal, explorerHint } from './wallet/tx-builder.js';
 
@@ -53,21 +55,21 @@ function collectAnchors(): Anchor[] {
     anchors.push({ label: cohort.id, secretHex: cohort.keys.secretHex, signalHex, kind: 'p2wpkh' });
   }
 
-  for (const [, dir] of indexScenarioDirs(network)) {
-    const fundingPath = join(dir, 'funding.json');
-    if (!existsSync(fundingPath)) continue;
-    const f = readJSON<FundingFile>(fundingPath);
-    if (f.anchors.length === 0) continue;
+  const recipes = loadRecipes(network);
+  for (const [id, dir] of indexScenarioDirs(network)) {
+    const recipe = recipes.get(id);
+    const f = readState(network, id);
+    if (!recipe || !f || f.anchors.length === 0) continue;
     const other = readJSON<OtherFile>(join(dir, 'other.json'));
-    const count = readJSON<{ updates?: unknown[] }>(join(dir, 'scenario.json')).updates?.length ?? 0;
-    const updates = readSignedUpdates(dir, count);
+    const updates = readSignedUpdates(dir, realUpdates(recipe).length);
     for (const a of f.anchors) {
       const secretHex = a.key === 'genesis' ? other.genesisKeys.secret : other.extraKeys?.[a.key]?.secret;
       if (!secretHex) throw new Error(`${f.scenarioId}: no secret for key "${a.key}" in other.json`);
-      const update = updates[a.update - 1];
-      if (!update) throw new Error(`${f.scenarioId}: update ${a.update} not found`);
+      const update = updates[a.signalOf - 1];
+      if (!update) throw new Error(`${f.scenarioId}: update ${a.signalOf} not found`);
+      const again = a.duplicateOf ? ` (update ${a.duplicateOf} again)` : '';
       anchors.push({
-        label     : `${f.scenarioId} update ${a.update}/${count} @${a.beaconId.slice(a.beaconId.indexOf('#'))}`,
+        label     : `${f.scenarioId} entry ${a.update}/${recipe.updates.length}${again} @${a.beaconId.slice(a.beaconId.indexOf('#'))}`,
         secretHex,
         signalHex : canonicalHash(update as Record<string, unknown>, { encoding: 'hex' }),
         kind      : a.kind,

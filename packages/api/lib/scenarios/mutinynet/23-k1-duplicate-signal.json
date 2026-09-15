@@ -1,0 +1,73 @@
+{
+  "id": "23-k1-duplicate-signal",
+  "description": "k1 DID; update 1 (version 2) and update 2 (version 3) are anchored at #initialP2WPKH; entry 3 announces the signed update of version 2 again at the same beacon, in a later block (a duplicate signal). Resolves to version 3. The sub-vector asks for a versionTime after the block of version 3 and before the block of the duplicate: a resolver confirms the duplicate before the versionTime test, so the duplicate does not end the resolution at version 2.",
+  "network": "mutinynet",
+  "idType": "KEY",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "238ed6da1cbff5c0c00b6945175d3de2b5cd91f1fc16395f1d7ebb9ddb871ad0"
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar"
+    },
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/4",
+          "value": {
+            "id": "#dwn",
+            "type": "DecentralizedWebNode",
+            "serviceEndpoint": "http://example.com/dwn"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar"
+    },
+    {
+      "duplicateOf": 1,
+      "beaconId": "#initialP2WPKH"
+    }
+  ],
+  "resolves": [
+    {
+      "id": "01",
+      "options": {
+        "versionTime": "before:3"
+      },
+      "expect": {
+        "versionId": "3"
+      }
+    }
+  ],
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

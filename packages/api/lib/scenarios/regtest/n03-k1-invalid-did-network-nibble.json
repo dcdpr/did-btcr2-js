@@ -1,6 +1,6 @@
 {
   "id": "n03-k1-invalid-did-network-nibble",
-  "description": "Negative: the resolve input carries a k1 identifier whose network nibble names a custom network (12).",
+  "description": "Negative: the resolve input carries a k1 identifier whose network nibble is the reserved value 6.",
   "network": "regtest",
   "idType": "KEY",
   "keys": {

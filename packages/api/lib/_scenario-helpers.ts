@@ -5,6 +5,9 @@
  *
  * The pipeline reads one recipe directory per network (`lib/scenarios/<network>/`)
  * and writes one vector tree per network (`lib/data/<network>/{k1,x1}/<hash>/`).
+ * The vector tree is the corpus that other implementations consume; it holds no
+ * pipeline state. The state of a generated scenario (the DID, the anchors, the
+ * beacon addresses) lives in `lib/scenarios/<network>/state/<scenario-id>.json`.
  * Every script takes `--network <name>` (default `mutinynet`). This module holds
  * the recipe types, the paths, the JSON I/O, and the lookups that more than one
  * script needs.
@@ -95,6 +98,13 @@ export function fundingSummaryFile(network: VectorNetwork): string {
 export function readmeHeadFile(network: VectorNetwork): string {
   return join(scenariosDir(network), 'README.head.md');
 }
+/** The pipeline state of a network: one file per generated scenario. */
+export function stateDir(network: VectorNetwork): string {
+  return join(scenariosDir(network), 'state');
+}
+export function stateFile(network: VectorNetwork, scenarioId: string): string {
+  return join(stateDir(network), `${scenarioId}.json`);
+}
 /** The vector tree of a network. */
 export function networkDataDir(network: VectorNetwork): string {
   return join(DATA_DIR, network);
@@ -166,7 +176,36 @@ export type ScenarioUpdate = {
   tamper?: TamperKind;
   /** Keep the signed update out of the sidecar and out of the CAS. */
   withhold?: boolean;
+  /**
+   * Announce this update at a beacon that an earlier update removed from the
+   * document. The anchor address comes from the genesis document. A resolver
+   * ignores the signal, so the update does not advance the expected document.
+   */
+  removedBeacon?: boolean;
 };
+
+/**
+ * An entry of `updates` that is not an update: it announces the signed update
+ * of an earlier entry again, at `beaconId`, in a later block (a duplicate
+ * signal). The entry has no `update/NN/` directory and no sidecar entry.
+ */
+export type DuplicateEntry = {
+  /** The entry (1-based) whose signed update the signal announces again. */
+  duplicateOf: number;
+  beaconId: string;
+  label?: string;
+};
+
+export type ScenarioEntry = ScenarioUpdate | DuplicateEntry;
+
+export function isDuplicate(entry: ScenarioEntry): entry is DuplicateEntry {
+  return 'duplicateOf' in entry;
+}
+
+/** The update entries of a recipe, in order: the entries that have an `update/NN/` directory. */
+export function realUpdates(recipe: Scenario): ScenarioUpdate[] {
+  return recipe.updates.filter((e): e is ScenarioUpdate => !isDuplicate(e));
+}
 
 export type VerificationRelationship = 'authentication' | 'assertionMethod' | 'capabilityInvocation' | 'capabilityDelegation';
 
@@ -188,9 +227,9 @@ export type IdentifierTamper = 'checksum' | 'padding' | 'network-nibble';
 /**
  * A resolve sub-vector (`resolve/<id>/`) with resolution options. A `versionTime`
  * of the form `before:N`, `at:N`, or `after:N` names the `mediantime` of the block
- * that anchors update N, minus one second, exactly, or plus one second. The
- * verifiers resolve the form against the chain they read; the record step writes
- * the timestamp into the committed input.
+ * that anchors entry N of `updates` (a duplicate entry counts), minus one second,
+ * exactly, or plus one second. The verifiers resolve the form against the chain
+ * they read; the record step writes the timestamp into the committed input.
  */
 export type ResolveCase = {
   id: string;
@@ -210,7 +249,7 @@ export type Scenario = {
   genesis?: GenesisOptions;
   identifier?: { tamper: IdentifierTamper };
   delivery?: { genesis?: 'cas' | 'sidecar'; announcement?: 'cas' | 'sidecar' };
-  updates: ScenarioUpdate[];
+  updates: ScenarioEntry[];
   resolves?: ResolveCase[];
   /** The expected result of the main resolve when it is an error. */
   expect?: { error: string };
@@ -228,13 +267,18 @@ export type CohortDef = {
   members: string[];
 };
 
-// ─── State written next to a vector ─────────────────────────────────────────
+// ─── Pipeline state (lib/scenarios/<network>/state/) ────────────────────────
 
 export type AddrType = 'p2pkh' | 'p2wpkh' | 'p2tr';
 
-/** One on-chain anchor of a solo scenario: update N goes into an OP_RETURN at this address. */
+/** One on-chain anchor of a solo scenario: an OP_RETURN at this address with the hash of a signed update. */
 export type AnchorEntry = {
+  /** The entry (1-based) of `updates` that the anchor announces. A `versionTime` form names its block. */
   update: number;
+  /** The update directory (1-based, `update/NN/`) whose signed update is the signal. */
+  signalOf: number;
+  /** Set on the anchor of a duplicate entry: the entry whose signal it repeats. */
+  duplicateOf?: number;
   beaconId: string;
   address: string;
   kind: AddrType;
@@ -242,7 +286,12 @@ export type AnchorEntry = {
   key: string;
 };
 
-export type FundingFile = {
+/**
+ * The state of one generated scenario, written by the generator and read by the
+ * funding, anchor, and verify steps. It is not part of the vector corpus, and it
+ * holds no secret: the anchor step reads the keys from `other.json`.
+ */
+export type ScenarioState = {
   scenarioId: string;
   network: VectorNetwork;
   did: string;
@@ -319,18 +368,26 @@ export function findCohort(scenarioId: string, cohorts: CohortDef[]): CohortDef 
   return cohorts.find((c) => c.members.includes(scenarioId));
 }
 
-/** Every generated vector directory of a network, keyed by scenario id. */
+/** Every generated vector directory of a network, keyed by the scenario id of its `other.json`. */
 export function indexScenarioDirs(network: VectorNetwork): Map<string, string> {
   const idx = new Map<string, string>();
   for (const type of ['k1', 'x1']) {
     const typeDir = join(networkDataDir(network), type);
     if (!existsSync(typeDir)) continue;
     for (const h of readdirSync(typeDir).sort()) {
-      const scn = join(typeDir, h, 'scenario.json');
-      if (existsSync(scn)) idx.set(readJSON<{ id: string }>(scn).id, join(typeDir, h));
+      const other = join(typeDir, h, 'other.json');
+      if (!existsSync(other)) continue;
+      const id = readJSON<{ scenarioId?: string }>(other).scenarioId;
+      if (id) idx.set(id, join(typeDir, h));
     }
   }
   return idx;
+}
+
+/** The pipeline state of a generated scenario, or `undefined` when no generator pass wrote it. */
+export function readState(network: VectorNetwork, scenarioId: string): ScenarioState | undefined {
+  const path = stateFile(network, scenarioId);
+  return existsSync(path) ? readJSON<ScenarioState>(path) : undefined;
 }
 
 /** The directory of update N of a vector: `update/` for a single update, `update/NN/` otherwise. */

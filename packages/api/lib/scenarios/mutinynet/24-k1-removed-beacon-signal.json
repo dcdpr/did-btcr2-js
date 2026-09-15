@@ -1,0 +1,65 @@
+{
+  "id": "24-k1-removed-beacon-signal",
+  "description": "k1 DID; update 1 removes the #initialP2PKH beacon service (version 2); update 2 is announced at the removed #initialP2PKH address and adds a service. A resolver ignores the signal of a beacon address that the current document does not carry (Process Next Update, step 4): resolves to version 2, and version 3 does not exist.",
+  "network": "mutinynet",
+  "idType": "KEY",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "fd77db4d353d2c6bb325c857c1649cb2f24003d902914cbca2e33bfedc30796d"
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "remove",
+          "path": "/service/0"
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar"
+    },
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/2",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2PKH",
+      "delivery": "sidecar",
+      "removedBeacon": true
+    }
+  ],
+  "resolves": [
+    {
+      "id": "01",
+      "options": {
+        "versionId": "3"
+      },
+      "expect": {
+        "error": "NOT_FOUND"
+      }
+    }
+  ],
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

@@ -15,8 +15,8 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
-  findCohort, indexScenarioDirs, loadCohorts, loadRecipes, networkDataDir, parseNetworkArg, readExpected,
-  readJSON, readmeHeadFile, resolveCaseDir,
+  findCohort, indexScenarioDirs, isDuplicate, loadCohorts, loadRecipes, networkDataDir, parseNetworkArg,
+  readExpected, readJSON, readmeHeadFile, realUpdates, resolveCaseDir,
   type Scenario,
 } from './_scenario-helpers.js';
 
@@ -25,8 +25,10 @@ const { network } = parseNetworkArg();
 function deliveryOf(recipe: Scenario, cohortType: string | undefined): string {
   const parts: string[] = [];
   if (recipe.idType === 'EXTERNAL') parts.push(`genesis ${recipe.delivery?.genesis ?? 'sidecar'}`);
-  const updates = recipe.updates.map((u) => (u.withhold ? 'withheld' : u.delivery));
+  const updates = realUpdates(recipe).map((u) => (u.withhold ? 'withheld' : u.delivery));
   if (updates.length > 0) parts.push(`${updates.length} update${updates.length > 1 ? 's' : ''} ${[...new Set(updates)].join('/')}`);
+  const again = recipe.updates.filter(isDuplicate).length;
+  if (again > 0) parts.push(`${again} duplicate signal${again > 1 ? 's' : ''}`);
   if (cohortType === 'CASBeacon') parts.push(`announcement ${recipe.delivery?.announcement ?? 'sidecar'}`);
   if (cohortType === 'SMTBeacon') parts.push('SMT proof sidecar');
   return parts.length > 0 ? parts.join(', ') : 'no update';
@@ -53,12 +55,13 @@ function run(): void {
   md += '- `update/input.json`, `update/output.json`: the update operation; `update/NN/` for a set with more than one update. `signingMaterial` is the secret key of the signer.\n';
   md += '- `resolve/input.json`, `resolve/output.json`: the resolve operation with the sidecar; `resolve/NN/` for a sub-vector with resolution options.\n';
   md += '- `other.json`: the keys and the genesis document.\n';
-  md += '- `scenario.json`, `funding.json`: the recipe and the pipeline state.\n\n';
+  md += '- `signals.json` (a set with a Beacon Signal on the chain): one entry per signal with the update it commits to (`update` is the `update/NN/` number; `duplicate` marks a second signal of the same update in a later block), the beacon id, the address, the `txid`, the block height, hash, time, and `mediantime`, and the signal bytes. A cohort member records the shared signal with the cohort id and members.\n\n';
   md += '## How to compare\n\n';
   md += '- Take the inputs and produce your own outputs. The signed bytes of an update are not compared: BIP340 signing is randomized. Your signed update must verify and must resolve to the recorded document.\n';
   md += '- `resolve/output.json` is the DID Resolution result. Compare `didDocument`, `didDocumentMetadata.versionId`, and `didDocumentMetadata.deactivated`. Compare `didDocumentMetadata.confirmations` as "at least the recorded value": it grows with the chain. `updated` is the header time of the block of the last applied update.\n';
   md += '- A negative vector records `didResolutionMetadata.error` with the DID Resolution error code. Compare the code only; `errorMessage` is the text of this implementation.\n';
-  md += '- Resolution applies a beacon signal at six confirmations (the specification default). A resolve before that depth returns an earlier version.\n\n';
+  md += '- Resolution applies a beacon signal at six confirmations (the specification default). A resolve before that depth returns an earlier version.\n';
+  md += '- `signals.json` is what your signal discovery must find at the beacon addresses. Compare the `txid`, the block, and the signal bytes; a resolver that reads no chain can take the signals from the file.\n\n';
 
   const rows: Array<{ recipe: Scenario; dir: string; did: string; negative: boolean }> = [];
   for (const id of [...recipes.keys()].sort()) {
