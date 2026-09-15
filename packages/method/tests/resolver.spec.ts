@@ -11,7 +11,7 @@ import { hexToBytes } from '@noble/hashes/utils';
 import { p2wpkh } from '@scure/btc-signer';
 import { DidBtcr2 } from '../src/did-btcr2.js';
 import { BeaconUtils } from '../src/core/beacon/utils.js';
-import type { BeaconService, BeaconSignal } from '../src/core/beacon/interfaces.js';
+import type { BeaconService, BeaconSignal, BlockMetadata } from '../src/core/beacon/interfaces.js';
 import type { DidDocument } from '../src/utils/did-document.js';
 import { DidVerificationMethod } from '../src/utils/did-document.js';
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from '../src/core/btcr2-update.js';
@@ -2674,6 +2674,188 @@ describe('Resolver', () => {
         const update = signWith(unsignedV2(source, patch, JSONPatch.apply(source, patch)));
         expectInvalidUpdate(thrownBy([ update ]), /does not conform to DID Core/);
       });
+    });
+  });
+
+  describe('the signals of a removed beacon address (ADR 114)', () => {
+    // Spec "Process Next Update", step 4: the current document has no beacon with the
+    // beacon address of the tuple, so the resolver ignores the tuple and continues with
+    // the next one. An ignored tuple stamps no metadata, enters no history, and does not
+    // reach the duplicate check. The three genesis beacons of the fixture are the
+    // addresses A (#initialP2PKH), B (#initialP2WPKH), and C (#initialP2TR).
+    const fixture = deterministicData[2]; // regtest - has a known secretKey
+
+    /** One signal to deliver at an address: the announced update and its block. */
+    interface AddressSignal { update: SignedBTCR2Update; block?: Partial<BlockMetadata> }
+
+    /** The beacon address of service `index` of the document. */
+    function addressOf(document: DidDocument, index: number): string {
+      return BeaconUtils.parseBitcoinAddress(
+        BeaconUtils.getBeaconServices(document)[index]!.serviceEndpoint as string
+      );
+    }
+
+    /** The patch that removes service `index`. */
+    function removeService(index: number): PatchOperation[] {
+      return [{ op: 'remove' as const, path: `/service/${index}` }];
+    }
+
+    /** The patch that appends `service` to the service list. */
+    function addService(service: BeaconService): PatchOperation[] {
+      return [{ op: 'add' as const, path: '/service/-', value: service }];
+    }
+
+    /**
+     * Drive resolution with explicit signals per beacon address. Each address the
+     * resolver asks for receives its signals in order. The block of a signal defaults
+     * to height 100 plus its position across all addresses, six confirmations; an
+     * explicit `block` overrides any field. Returns the resolved response or
+     * propagates whatever the resolver throws.
+     */
+    function driveAddresses(
+      updates: Array<SignedBTCR2Update>,
+      signalsByAddress: Map<string, Array<AddressSignal>>,
+      options: { versionId?: string } = {}
+    ): DidResolutionResponse {
+      const resolver = DidBtcr2.resolve(fixture.did, { sidecar: { updates }, ...options });
+      let position = 0;
+      let state = resolver.resolve();
+      while(state.status === 'action-required') {
+        const need = state.needs[0]!;
+        if(need.kind !== 'NeedBeaconSignals') throw new Error(`unexpected need: ${need.kind}`);
+        const signals = new Map<BeaconService, Array<BeaconSignal>>();
+        for(const service of need.beaconServices) {
+          const address = BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string);
+          signals.set(service, (signalsByAddress.get(address) ?? []).map(({ update, block }) => ({
+            tx            : {} as any,
+            signalBytes   : canonicalHash(update, { encoding: 'hex' }),
+            blockMetadata : {
+              height        : 100 + position++,
+              time          : 1700000000,
+              mediantime    : 1700000000,
+              confirmations : 6,
+              ...block
+            }
+          })));
+        }
+        resolver.provide(need, signals);
+        state = resolver.resolve();
+      }
+      if(state.status !== 'resolved') throw new Error('expected resolved');
+      return state.result;
+    }
+
+    /** Resolve and return the thrown error, if any. */
+    function thrownBy(
+      updates: Array<SignedBTCR2Update>,
+      signalsByAddress: Map<string, Array<AddressSignal>>,
+      options: { versionId?: string } = {}
+    ): any {
+      try {
+        driveAddresses(updates, signalsByAddress, options);
+      } catch(error) {
+        return error;
+      }
+      return undefined;
+    }
+
+    it('ignores a later update announced at an address that an applied update removed', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [A, B] = [addressOf(source, 0), addressOf(source, 1)];
+      const [v2, v3] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        removeService(0),         // v2 at B removes A
+        benignPatch(fixture.did)  // v3 at A is ignored
+      ]);
+      const { didDocument, metadata } = driveAddresses([v2, v3], new Map([
+        [B, [{ update: v2, block: { confirmations: 9 } }]],
+        [A, [{ update: v3, block: { confirmations: 7 } }]]
+      ]));
+      expect(metadata.versionId).to.equal('2');
+      expect(metadata.confirmations).to.equal(9);
+      expect(didDocument.service.length).to.equal(source.service.length - 1);
+      expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length);
+    });
+
+    it('applies the later updates at a kept address and ignores the one at the removed address', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [A, B] = [addressOf(source, 0), addressOf(source, 1)];
+      const [v2, v3, v4] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        removeService(0),          // v2 at B removes A
+        benignPatch(fixture.did),  // v3 at B applies
+        benignPatch(fixture.did)   // v4 at A is ignored
+      ]);
+      const { didDocument, metadata } = driveAddresses([v2, v3, v4], new Map([
+        [B, [{ update: v2, block: { confirmations: 9 } }, { update: v3, block: { confirmations: 8 } }]],
+        [A, [{ update: v4, block: { confirmations: 7 } }]]
+      ]));
+      expect(metadata.versionId).to.equal('3');
+      expect(metadata.confirmations).to.equal(8);
+      expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 1);
+    });
+
+    it('a versionId that only an ignored update reaches fails with NOT_FOUND', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [A, B] = [addressOf(source, 0), addressOf(source, 1)];
+      const [v2, v3] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        removeService(0), benignPatch(fixture.did)
+      ]);
+      const thrown = thrownBy([v2, v3], new Map([[B, [{ update: v2 }]], [A, [{ update: v3 }]]]), { versionId: '3' });
+      expect(thrown).to.be.instanceOf(ResolveError);
+      expect(thrown.type).to.equal(NOT_FOUND);
+      expect(thrown.message).to.match(/ends at version 2/);
+    });
+
+    it('applies an update at an address that a later update added again', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [A, B] = [addressOf(source, 0), addressOf(source, 1)];
+      const serviceA = BeaconUtils.getBeaconServices(source)[0]!;
+      const [v2, v3, v4] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        removeService(0),          // v2 at B removes A
+        addService(serviceA),      // v3 at B adds A again
+        benignPatch(fixture.did)   // v4 at A applies
+      ]);
+      // A is in the scanned set from the first pass, so its signal arrives in that pass.
+      const { didDocument, metadata } = driveAddresses([v2, v3, v4], new Map([
+        [B, [{ update: v2 }, { update: v3 }]],
+        [A, [{ update: v4 }]]
+      ]));
+      expect(metadata.versionId).to.equal('4');
+      expect(didDocument.service.length).to.equal(source.service.length);
+      expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 1);
+    });
+
+    it('applies an update announced at the address that the update itself removes', () => {
+      const source = resolveDeterministic(fixture.did);
+      const A = addressOf(source, 0);
+      const [v2] = buildUpdateChain(fixture.did, source, fixture.secretKey, [removeService(0)]);
+      const { didDocument, metadata } = driveAddresses([v2], new Map([[A, [{ update: v2 }]]]));
+      expect(metadata.versionId).to.equal('2');
+      expect(didDocument.service.length).to.equal(source.service.length - 1);
+    });
+
+    it('ignores a conflicting version 2 at the removed address and does not check it as a duplicate', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [A, B] = [addressOf(source, 0), addressOf(source, 1)];
+      const [v2] = buildUpdateChain(fixture.did, source, fixture.secretKey, [removeService(0)]);
+      const [conflict] = buildUpdateChain(fixture.did, source, fixture.secretKey, [benignPatch(fixture.did)]);
+      // The conflict is in a later block, so the sort processes v2 first.
+      const { metadata } = driveAddresses([v2, conflict], new Map([
+        [B, [{ update: v2, block: { height: 100 } }]],
+        [A, [{ update: conflict, block: { height: 200 } }]]
+      ]));
+      expect(metadata.versionId).to.equal('2');
+    });
+
+    it('control: the same conflicting version 2 at a kept address raises LATE_PUBLISHING', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [B, C] = [addressOf(source, 1), addressOf(source, 2)];
+      const [v2] = buildUpdateChain(fixture.did, source, fixture.secretKey, [removeService(0)]);
+      const [conflict] = buildUpdateChain(fixture.did, source, fixture.secretKey, [benignPatch(fixture.did)]);
+      const thrown = thrownBy([v2, conflict], new Map([
+        [B, [{ update: v2, block: { height: 100 } }]],
+        [C, [{ update: conflict, block: { height: 200 } }]]
+      ]));
+      expect(thrown?.type).to.equal(LATE_PUBLISHING_ERROR);
     });
   });
 });
