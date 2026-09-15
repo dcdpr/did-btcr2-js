@@ -25,9 +25,13 @@
  *
  * Prerequisites: generate -> artifacts -> route -> publish (--publish) -> fund ->
  * anchor, with the anchors at `minConf` confirmations and the CAS objects pinned.
+ * `--min-conf N` is the `minConf` of every resolve that sets none. A resolve
+ * case with its own `minConf` keeps it.
  *
  * Env:
- *   CAS_GATEWAY   IPFS gateway base (default: the api DEFAULT_CAS_GATEWAY)
+ *   CAS_GATEWAY   IPFS gateway base (default: the Kubo gateway of the Polar
+ *                 stack on regtest, ADR 117; the api DEFAULT_CAS_GATEWAY on
+ *                 the other networks)
  *
  * Usage:
  *   pnpm scenario:verify:live --network regtest
@@ -41,7 +45,7 @@ import { createApi, DEFAULT_CAS_GATEWAY, type DidBtcr2Api } from '@did-btcr2/api
 import { canonicalHash, canonicalize } from '@did-btcr2/common';
 import { BeaconSignalDiscovery, DEFAULT_MIN_CONF, type BeaconService, type BeaconSignal } from '@did-btcr2/method';
 
-import { bitcoinConfigFor } from './_e2e-helpers.js';
+import { bitcoinConfigFor, REGTEST_IPFS } from './_e2e-helpers.js';
 import {
   cohortsOutDir, findCohort, indexScenarioDirs, isVersionTimeForm, loadCohorts, loadRecipes, parseNetworkArg,
   readExpected, readJSON, readSignedUpdates, readState, realUpdates, resolveCaseDir, resolveVersionTime, takeOption,
@@ -54,7 +58,7 @@ const record = rest.includes('--record');
 const minConfOpt = takeOption(rest, 'min-conf').value;
 const minConf = minConfOpt === undefined ? DEFAULT_MIN_CONF : Number(minConfOpt);
 if (!Number.isInteger(minConf) || minConf < 1) throw new Error(`--min-conf must be a positive integer, got "${minConfOpt}"`);
-const gateway = (process.env.CAS_GATEWAY ?? DEFAULT_CAS_GATEWAY).replace(/\/+$/, '');
+const gateway = (process.env.CAS_GATEWAY ?? (network === 'regtest' ? REGTEST_IPFS.gateway : DEFAULT_CAS_GATEWAY)).replace(/\/+$/, '');
 
 type Outcome = { kind: 'ok'; didDocument: object; versionId: string; deactivated: boolean } | { kind: 'error'; error: string };
 type ResolveInput = { did: string; resolutionOptions: Record<string, unknown> };
@@ -162,7 +166,7 @@ async function readAnchorSignals(api: DidBtcr2Api, dir: string, recipe: Scenario
 }
 
 async function resolveLive(api: DidBtcr2Api, did: string, options: Record<string, unknown>): Promise<{ outcome: Outcome; raw: unknown }> {
-  const r = await api.tryResolveDid(did, { ...options, minConf });
+  const r = await api.tryResolveDid(did, { minConf, ...options });
   if (r.ok) {
     return {
       outcome : { kind: 'ok', didDocument: r.document, versionId: r.metadata?.versionId ?? '1', deactivated: r.metadata?.deactivated ?? false },
@@ -221,9 +225,7 @@ async function run(): Promise<void> {
         if (record) {
           writeJSON(c.outputPath, raw);
           const current = readJSON<ResolveInput>(c.inputPath);
-          const { minConf: _omit, ...committed } = c.options;
-          void _omit;
-          current.resolutionOptions = committed;
+          current.resolutionOptions = c.options;
           writeJSON(c.inputPath, current);
         }
       }

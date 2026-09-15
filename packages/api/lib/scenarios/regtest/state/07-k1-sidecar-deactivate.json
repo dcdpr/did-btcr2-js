@@ -1,0 +1,35 @@
+{
+    "scenarioId": "07-k1-sidecar-deactivate",
+    "network": "regtest",
+    "did": "did:btcr2:k1qgpx06u2yw3404yajkf4xv339xu3zc078lj55q3ew2p3kvr3823yn3swgvhfu",
+    "needsFunding": true,
+    "cohort": null,
+    "anchors": [
+        {
+            "update": 1,
+            "signalOf": 1,
+            "beaconId": "did:btcr2:k1qgpx06u2yw3404yajkf4xv339xu3zc078lj55q3ew2p3kvr3823yn3swgvhfu#initialP2PKH",
+            "address": "n3fnKAdm8pTGb9oGyeLAdSnJSMu6dvTPy8",
+            "kind": "p2pkh",
+            "key": "genesis",
+            "txid": "d46f0cc22b9e69cccc5214b017c0846507aee04a8d78ebfc739964b13d1ed87d"
+        }
+    ],
+    "allBeacons": [
+        {
+            "id": "did:btcr2:k1qgpx06u2yw3404yajkf4xv339xu3zc078lj55q3ew2p3kvr3823yn3swgvhfu#initialP2PKH",
+            "type": "SingletonBeacon",
+            "address": "n3fnKAdm8pTGb9oGyeLAdSnJSMu6dvTPy8"
+        },
+        {
+            "id": "did:btcr2:k1qgpx06u2yw3404yajkf4xv339xu3zc078lj55q3ew2p3kvr3823yn3swgvhfu#initialP2WPKH",
+            "type": "SingletonBeacon",
+            "address": "bcrt1q7tlzm6gyv4gdj73crexertvtvy2rt4weefzyd0"
+        },
+        {
+            "id": "did:btcr2:k1qgpx06u2yw3404yajkf4xv339xu3zc078lj55q3ew2p3kvr3823yn3swgvhfu#initialP2TR",
+            "type": "SingletonBeacon",
+            "address": "bcrt1pvntpj0rvsak5yaa8zhhaat8tfxqfq9hm4mt4zsg2zz666sn9vdtsn7rg65"
+        }
+    ]
+}

@@ -28,6 +28,13 @@ const VALID_NETWORKS: ReadonlyArray<E2ENetwork> = ['regtest', 'mutinynet', 'sign
 const REGTEST_RPC = { username: 'polaruser', password: 'polarpass' } as const;
 
 /**
+ * The Kubo node of the Polar regtest stack (ADR 117): the RPC API for the
+ * publish step and the HTTP gateway for the live verify. Both ports bind to
+ * the loopback of the host.
+ */
+export const REGTEST_IPFS = { rpc: 'http://127.0.0.1:5001', gateway: 'http://127.0.0.1:8080' } as const;
+
+/**
  * Read `E2E_MIN_CONF`: the `minConf` the e2e resolves pass, and the confirmation
  * depth `confirmBroadcast` waits for. Default 6 on regtest, the specification
  * default; regtest mines 6 blocks per broadcast. Default 1 on a public network,
