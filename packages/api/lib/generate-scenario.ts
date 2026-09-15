@@ -48,7 +48,7 @@ import { Address, p2pkh, p2tr, p2wpkh } from '@scure/btc-signer';
 
 import {
   errorEnvelope, findCohort, isDuplicate, loadCohorts, loadRecipes, networkDataDir, okEnvelope, parseNetworkArg,
-  realUpdates, resolveCaseDir, stateDir, stateFile, updateDir, writeJSON,
+  realUpdates, resolveCaseDir, stateDir, updateDir, writeJSON, writeState,
   type AddrType, type AnchorEntry, type CohortDef, type IdentifierTamper, type KeySpec,
   type OtherFile, type Scenario, type ScenarioBeacon, type ScenarioState, type ScenarioUpdate, type TamperKind,
   type VectorNetwork,
@@ -566,7 +566,7 @@ function runScenario(scenario: Scenario, cohorts: CohortDef[]): void {
       address : String(s.serviceEndpoint).slice('bitcoin:'.length),
     })),
   };
-  writeJSON(stateFile(scenario.network, scenario.id), state);
+  writeState(state);
 
   const expectText = scenario.expect ? `error ${scenario.expect.error}` : `versionId ${currentVersion}${deactivated ? ' deactivated' : ''}`;
   console.log(`[scenario] ${scenario.id} done: hash=${hash} expect ${expectText}${anchors.length ? `, ${anchors.length} anchor(s)` : ''}`);

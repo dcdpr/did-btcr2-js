@@ -271,7 +271,11 @@ export type CohortDef = {
 
 export type AddrType = 'p2pkh' | 'p2wpkh' | 'p2tr';
 
-/** One on-chain anchor of a solo scenario: an OP_RETURN at this address with the hash of a signed update. */
+/**
+ * One on-chain anchor of a solo scenario: an OP_RETURN at this address with the
+ * hash of a signed update. The anchor step broadcasts the k-th anchor of every
+ * scenario in round k, one round per block.
+ */
 export type AnchorEntry = {
   /** The entry (1-based) of `updates` that the anchor announces. A `versionTime` form names its block. */
   update: number;
@@ -284,6 +288,8 @@ export type AnchorEntry = {
   kind: AddrType;
   /** `genesis` or the name of an extra key. */
   key: string;
+  /** The transaction of the anchor. The anchor step sets it after the broadcast. */
+  txid?: string;
 };
 
 /**
@@ -388,6 +394,11 @@ export function indexScenarioDirs(network: VectorNetwork): Map<string, string> {
 export function readState(network: VectorNetwork, scenarioId: string): ScenarioState | undefined {
   const path = stateFile(network, scenarioId);
   return existsSync(path) ? readJSON<ScenarioState>(path) : undefined;
+}
+
+/** Write the pipeline state of a scenario to its state file. */
+export function writeState(state: ScenarioState): void {
+  writeJSON(stateFile(state.network, state.scenarioId), state);
 }
 
 /** The directory of update N of a vector: `update/` for a single update, `update/NN/` otherwise. */
