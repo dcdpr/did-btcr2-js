@@ -1,28 +1,26 @@
 /**
  * Funding summary. Walks the generated vectors of one network and collates
- * their `funding.json` files into `lib/scenarios/<network>/FUNDING.md`: the
- * addresses to fund, the anchors each address carries, and every beacon
- * address per scenario.
+ * their pipeline state (`lib/scenarios/<network>/state/`) into
+ * `lib/scenarios/<network>/FUNDING.md`: the addresses to fund, the anchors each
+ * address carries, and every beacon address per scenario.
  *
  * Usage:
  *   pnpm scenario:funding --network regtest
  */
 
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import { writeFileSync } from 'node:fs';
 
 import {
-  fundingSummaryFile, indexScenarioDirs, loadCohorts, parseNetworkArg, readJSON,
-  type FundingFile,
+  fundingSummaryFile, indexScenarioDirs, loadCohorts, parseNetworkArg, readState,
+  type ScenarioState,
 } from './_scenario-helpers.js';
 
 const { network } = parseNetworkArg();
 
-const entries: FundingFile[] = [];
-for (const [, dir] of indexScenarioDirs(network)) {
-  const path = join(dir, 'funding.json');
-  if (existsSync(path)) entries.push(readJSON<FundingFile>(path));
+const entries: ScenarioState[] = [];
+for (const [id] of indexScenarioDirs(network)) {
+  const state = readState(network, id);
+  if (state) entries.push(state);
 }
 entries.sort((a, b) => a.scenarioId.localeCompare(b.scenarioId));
 

@@ -38,7 +38,7 @@ import type { SignedBTCR2Update } from '@did-btcr2/method';
 
 import {
   cohortsOutDir, findCohort, indexScenarioDirs, loadCohorts, loadRecipes, parseNetworkArg, publishManifestFile,
-  readJSON, readSignedUpdates, writeJSON,
+  readJSON, readSignedUpdates, realUpdates, writeJSON,
 } from './_scenario-helpers.js';
 
 const { network } = parseNetworkArg();
@@ -81,7 +81,7 @@ function run(): void {
     const did = readJSON<{ did: string }>(join(dir, 'create', 'output.json')).did;
     const genesisDelivery = recipe.delivery?.genesis ?? 'sidecar';
     const announcementDelivery = recipe.delivery?.announcement ?? 'sidecar';
-    const updates = recipe.updates ?? [];
+    const updates = realUpdates(recipe);
 
     // Build the sidecar again from scratch. SMT proofs stay as build-artifacts wrote them.
     const oldSidecar = input.resolutionOptions.sidecar ?? {};
@@ -144,9 +144,6 @@ function run(): void {
       setSidecar(subInput.resolutionOptions);
       writeJSON(subPath, subInput);
     }
-
-    // Keep the committed scenario.json in sync with the recipe.
-    writeJSON(join(dir, 'scenario.json'), recipe);
 
     if (routedThis) {
       routedScenarios++;

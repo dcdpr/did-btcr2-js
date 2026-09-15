@@ -8,11 +8,14 @@
  *   update/input.json, update/output.json      (update/NN/ for more than one update)
  *   resolve/input.json, resolve/output.json    (resolve/NN/ for a sub-vector with options)
  *   other.json                                  (the keys and the genesis document)
- *   scenario.json, funding.json                 (pipeline state)
+ *
+ * The state of a scenario (the DID, the anchors, the beacon addresses) goes to
+ * `lib/scenarios/<network>/state/<scenario-id>.json`, outside the corpus.
  *
  * A recipe names the identifier type, the beacon mix, the genesis options, the
- * updates (with a signer, a fork, a tamper, or a withhold directive), the resolve
- * sub-vectors, and the expected error of a negative vector. The generator runs
+ * updates (with a signer, a fork, a tamper, a withhold, or a removedBeacon
+ * directive, or a duplicate entry that announces an earlier update again), the
+ * resolve sub-vectors, and the expected error of a negative vector. The generator runs
  * offline: the funding and the anchoring are later steps of the pipeline, and
  * the live resolve of `scenario:verify:live --record` writes the final
  * `resolve/output.json`.
@@ -44,10 +47,11 @@ import { bech32m, hex } from '@scure/base';
 import { Address, p2pkh, p2tr, p2wpkh } from '@scure/btc-signer';
 
 import {
-  errorEnvelope, findCohort, loadCohorts, loadRecipes, networkDataDir, okEnvelope, parseNetworkArg,
-  resolveCaseDir, updateDir, writeJSON,
-  type AddrType, type AnchorEntry, type CohortDef, type FundingFile, type IdentifierTamper, type KeySpec,
-  type OtherFile, type Scenario, type ScenarioBeacon, type ScenarioUpdate, type TamperKind, type VectorNetwork,
+  errorEnvelope, findCohort, isDuplicate, loadCohorts, loadRecipes, networkDataDir, okEnvelope, parseNetworkArg,
+  realUpdates, resolveCaseDir, stateDir, stateFile, updateDir, writeJSON,
+  type AddrType, type AnchorEntry, type CohortDef, type IdentifierTamper, type KeySpec,
+  type OtherFile, type Scenario, type ScenarioBeacon, type ScenarioState, type ScenarioUpdate, type TamperKind,
+  type VectorNetwork,
 } from './_scenario-helpers.js';
 
 const { network, rest } = parseNetworkArg();
@@ -192,8 +196,9 @@ function tamperIdentifier(did: string, kind: IdentifierTamper, genesisBytes: Uin
       return `did:btcr2:${bech32m.encode(prefix, next, 200)}`;
     }
     case 'network-nibble': {
-      // 12 to 15 are custom networks; this implementation supports none of them.
-      return `did:btcr2:${bech32m.encodeFromBytes(hrp, new Uint8Array([0x0c, ...genesisBytes]))}`;
+      // 6 to 11 are reserved network values. A custom value (12 to 15) would not do:
+      // an implementation may support a custom network, and then the vector passes.
+      return `did:btcr2:${bech32m.encodeFromBytes(hrp, new Uint8Array([0x06, ...genesisBytes]))}`;
     }
   }
 }
@@ -397,7 +402,6 @@ function runScenario(scenario: Scenario, cohorts: CohortDef[]): void {
   if (resolveDid !== did) console.log(`  resolve as: ${resolveDid} (${scenario.identifier!.tamper})`);
   console.log(`  output dir: ${outDir}`);
 
-  writeJSON(join(outDir, 'scenario.json'), scenario);
   writeJSON(join(outDir, 'other.json'), other);
   writeJSON(join(outDir, 'create', 'input.json'), {
     idType       : scenario.idType,
@@ -414,7 +418,9 @@ function runScenario(scenario: Scenario, cohorts: CohortDef[]): void {
     : Resolver.external(components, genesisDocument!)) as unknown as Btcr2DidDocument;
 
   // Every update signs against the document of its source version. A tampered or
-  // forked update does not advance the document.
+  // forked update does not advance the document, and neither does an update that
+  // a resolver ignores (removedBeacon). A duplicate entry signs nothing: it anchors
+  // the signed update of an earlier entry again.
   const documents: Btcr2DidDocument[] = [baseDocument];  // documents[v - 1] is version v
   let currentDocument = baseDocument;
   let currentVersion = 1;
@@ -422,10 +428,36 @@ function runScenario(scenario: Scenario, cohorts: CohortDef[]): void {
   const signedUpdates: SignedBTCR2Update[] = [];
   const anchors: AnchorEntry[] = [];
   const count = scenario.updates.length;
+  const realCount = realUpdates(scenario).length;
+  const ordinalOfEntry = new Map<number, number>();  // entry number -> update directory number
+
+  /** The anchor of an entry: the beacon `beaconId` of `document`, signed by the key of its address. */
+  const anchorAt = (document: Btcr2DidDocument, beaconId: string, stepNum: number, signalOf: number): AnchorEntry => {
+    const service = (document.service ?? []).find((s) => absolutize(did, s.id) === beaconId);
+    if (!service) throw new Error(`${scenario.id} entry ${stepNum}: beacon ${beaconId} is not in the document`);
+    const address = String(service.serviceEndpoint).slice('bitcoin:'.length);
+    const key = registry.get(address);
+    if (!key) throw new Error(`${scenario.id} entry ${stepNum}: no key for beacon address ${address}`);
+    return { update: stepNum, signalOf, beaconId, address, kind: kindOfAddress(address, scenario.network), key };
+  };
 
   for (let i = 0; i < count; i++) {
-    const u: ScenarioUpdate = scenario.updates[i]!;
+    const entry = scenario.updates[i]!;
     const stepNum = i + 1;
+
+    if (isDuplicate(entry)) {
+      const signalOf = ordinalOfEntry.get(entry.duplicateOf);
+      if (!signalOf) throw new Error(`${scenario.id} entry ${stepNum}: duplicateOf must name an earlier update entry, got ${entry.duplicateOf}`);
+      if (cohort) throw new Error(`${scenario.id} entry ${stepNum}: a duplicate entry needs a solo scenario`);
+      const beaconId = absolutize(did, entry.beaconId);
+      anchors.push({ ...anchorAt(currentDocument, beaconId, stepNum, signalOf), duplicateOf: entry.duplicateOf });
+      console.log(`  [entry ${stepNum}/${count}] announces update ${entry.duplicateOf} again at beacon=${fragmentOf(beaconId)}`);
+      continue;
+    }
+
+    const u: ScenarioUpdate = entry;
+    const ordinal = ordinalOfEntry.size + 1;
+    ordinalOfEntry.set(stepNum, ordinal);
     const source = u.fork && previousSource ? previousSource : { document: currentDocument, version: currentVersion };
     const patches = substitute(u.patches, { did, keys, registry, net: scenario.network }) as PatchOperation[];
     // An unknown method names a fragment that the document does not contain.
@@ -453,10 +485,10 @@ function runScenario(scenario: Scenario, cohorts: CohortDef[]): void {
       : Updater.sign(did, unsigned, vm, signer);
     tamperSigned(signed, u.tamper);
 
-    const flags = [u.fork && 'fork', u.tamper, u.withhold && 'withhold', u.signWith && `signWith=${u.signWith}`].filter(Boolean).join(' ');
+    const flags = [u.fork && 'fork', u.tamper, u.withhold && 'withhold', u.removedBeacon && 'removedBeacon', u.signWith && `signWith=${u.signWith}`].filter(Boolean).join(' ');
     console.log(`  [update ${stepNum}/${count}] v${source.version} -> v${unsigned.targetVersionId} vm=${fragmentOf(vmId)} beacon=${fragmentOf(beaconId)} ${u.delivery}${flags ? ` (${flags})` : ''}`);
 
-    const dir = updateDir(outDir, count, stepNum);
+    const dir = updateDir(outDir, realCount, ordinal);
     writeJSON(join(dir, 'input.json'), {
       sourceDocument       : source.document,
       patches,
@@ -468,23 +500,25 @@ function runScenario(scenario: Scenario, cohorts: CohortDef[]): void {
     writeJSON(join(dir, 'output.json'), { signedUpdate: signed });
 
     // The anchor of a solo scenario: the beacon of the source document at beaconId.
+    // With removedBeacon, the beacon of the genesis document: an earlier update
+    // removed it, so the source document must not carry it.
     if (!cohort) {
-      const service = (source.document.service ?? []).find((s) => absolutize(did, s.id) === beaconId);
-      if (!service) throw new Error(`${scenario.id} update ${stepNum}: beacon ${beaconId} is not in the source document`);
-      const address = String(service.serviceEndpoint).slice('bitcoin:'.length);
-      const key = registry.get(address);
-      if (!key) throw new Error(`${scenario.id} update ${stepNum}: no key for beacon address ${address}`);
-      anchors.push({ update: stepNum, beaconId, address, kind: kindOfAddress(address, scenario.network), key });
+      const inSource = (source.document.service ?? []).some((s) => absolutize(did, s.id) === beaconId);
+      if (u.removedBeacon && inSource) {
+        throw new Error(`${scenario.id} update ${stepNum}: removedBeacon is set, but the source document still carries ${beaconId}`);
+      }
+      anchors.push(anchorAt(u.removedBeacon ? baseDocument : source.document, beaconId, stepNum, ordinal));
     }
 
     if (!u.withhold) signedUpdates.push(signed);
 
     // A valid update advances the document. A resolver applies no update after a
     // deactivation, so an update that follows one is signed and anchored but does
-    // not advance the expected document.
+    // not advance the expected document. A resolver ignores the signal of a
+    // removed beacon address, so that update does not advance it either.
     previousSource = source;
     const deactivatedNow = (currentDocument as { deactivated?: boolean }).deactivated === true;
-    if (!u.tamper && !u.fork && !deactivatedNow) {
+    if (!u.tamper && !u.fork && !deactivatedNow && !u.removedBeacon) {
       currentDocument = JSONPatch.apply(source.document, patches, { strict: true }) as Btcr2DidDocument;
       currentVersion = unsigned.targetVersionId;
       documents[currentVersion - 1] = currentDocument;
@@ -517,9 +551,9 @@ function runScenario(scenario: Scenario, cohorts: CohortDef[]): void {
     console.log(`  [resolve ${c.id}] ${JSON.stringify(c.options)} -> ${JSON.stringify(c.expect)}`);
   }
 
-  // The funding state: every address that carries an anchor, and every beacon of the DID.
+  // The pipeline state: every address that carries an anchor, and every beacon of the DID.
   const services = [...buildServices(scenario.beacons, publicKey, scenario.network, ID_PLACEHOLDER_VALUE), ...(cohortService ? [cohortService] : [])];
-  const funding: FundingFile = {
+  const state: ScenarioState = {
     scenarioId   : scenario.id,
     network      : scenario.network,
     did,
@@ -532,7 +566,7 @@ function runScenario(scenario: Scenario, cohorts: CohortDef[]): void {
       address : String(s.serviceEndpoint).slice('bitcoin:'.length),
     })),
   };
-  writeJSON(join(outDir, 'funding.json'), funding);
+  writeJSON(stateFile(scenario.network, scenario.id), state);
 
   const expectText = scenario.expect ? `error ${scenario.expect.error}` : `versionId ${currentVersion}${deactivated ? ' deactivated' : ''}`;
   console.log(`[scenario] ${scenario.id} done: hash=${hash} expect ${expectText}${anchors.length ? `, ${anchors.length} anchor(s)` : ''}`);
@@ -551,8 +585,7 @@ const selected = onlyIds.length > 0
   : [...recipes.values()];
 
 if (clean) {
-  for (const type of ['k1', 'x1']) {
-    const dir = join(networkDataDir(network), type);
+  for (const dir of [join(networkDataDir(network), 'k1'), join(networkDataDir(network), 'x1'), stateDir(network)]) {
     if (existsSync(dir)) {
       rmSync(dir, { recursive: true, force: true });
       console.log(`[clean] removed ${dir}`);

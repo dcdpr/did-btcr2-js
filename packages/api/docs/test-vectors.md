@@ -41,7 +41,7 @@ Run the steps 1 to 6 as one pass. BIP340 signing uses random auxiliary data, so 
 
 ## Recipes
 
-A recipe is a JSON file in `lib/scenarios/<network>/`. One directory per network holds the recipes, the `cohorts.json` of the aggregate beacons, the head of the network README (`README.head.md`), and the build state of the last pass (`cohorts/`, `publish-manifest.json`, `cid-manifest.json`, `FUNDING.md`). Every network directory has its own secrets, so a published key belongs to one chain.
+A recipe is a JSON file in `lib/scenarios/<network>/`. One directory per network holds the recipes, the `cohorts.json` of the aggregate beacons, the head of the network README (`README.head.md`), and the build state of the last pass: `cohorts/`, `publish-manifest.json`, `cid-manifest.json`, `FUNDING.md`, and `state/<scenario-id>.json` (the DID, the anchors, and the beacon addresses of every generated scenario). The build state is committed with the pass of the network. Every network directory has its own secrets, so a published key belongs to one chain.
 
 A recipe names:
 
@@ -51,9 +51,10 @@ A recipe names:
 - `genesis` (x1 only): `verificationMethods` (extra methods with their relationships), `embedInvocationKey` (the initial key is an embedded object in `capabilityInvocation`), `relativeIds` (every id is a relative DID URL), `tamper: hash-mismatch` (the sidecar genesis document does not hash to the identifier).
 - `identifier.tamper`: `checksum`, `padding`, or `network-nibble` makes the identifier of the resolve input invalid.
 - `delivery`: `genesis` and `announcement` as `sidecar` or `cas`.
-- `updates`: each with `patches`, `verificationMethodId`, `beaconId`, and `delivery` (`sidecar`, `cas`, `smt`). Options: `signWith` (a named key), `fork` (a second update from the same source version), `tamper` (an invalid update, see the kinds in `lib/_scenario-helpers.ts`), `withhold` (the update is in neither the sidecar nor the CAS).
+- `updates`: each with `patches`, `verificationMethodId`, `beaconId`, and `delivery` (`sidecar`, `cas`, `smt`). Options: `signWith` (a named key), `fork` (a second update from the same source version), `tamper` (an invalid update, see the kinds in `lib/_scenario-helpers.ts`), `withhold` (the update is in neither the sidecar nor the CAS), `removedBeacon` (the update is announced at a beacon that an earlier update removed; a resolver ignores the signal, so the expected document does not advance).
+- A duplicate entry in `updates`: `{ "duplicateOf": N, "beaconId": "#..." }` announces the signed update of entry N again, in a later block. The entry has no `update/NN/` directory and no sidecar entry. The update directories count the update entries only.
 - Patch values take the forms `$did`, `$address(name,kind)`, and `$multibase(name)`.
-- `resolves`: sub-vectors with resolution options (`versionId`, `versionTime`, `minConf`) and the expected version or error. A `versionTime` of the form `before:N`, `at:N`, or `after:N` names the `mediantime` of the block that anchors update N; the record step writes the timestamp.
+- `resolves`: sub-vectors with resolution options (`versionId`, `versionTime`, `minConf`) and the expected version or error. A `versionTime` of the form `before:N`, `at:N`, or `after:N` names the `mediantime` of the block that anchors entry N of `updates` (a duplicate entry counts); the record step writes the timestamp.
 - `expect.error`: the DID Resolution error code of a negative vector.
 - `skip`: a reason to leave the recipe out of the pass (the SMT recipes wait for a specification change).
 
@@ -65,10 +66,12 @@ lib/data/{network}/{k1|x1}/{hash}/
   update/input.json, update/output.json       # update/NN/ for more than one update
   resolve/input.json, resolve/output.json     # resolve/NN/ for a sub-vector
   other.json                                  # keys and genesis document
-  scenario.json, funding.json                 # pipeline state
+  signals.json                                # the Beacon Signals on the chain (anchored sets)
 ```
 
-`update/input.json` keeps `signingMaterial`: an implementation needs the key to produce its own signed update. `resolve/output.json` is the DID Resolution result that the api returns: `didResolutionMetadata` (`contentType: application/did`, or `error`), `didDocument`, and `didDocumentMetadata` (`versionId`, `confirmations`, `updated`, `deactivated`). The generator writes the result as far as it is known offline; `scenario:verify:live --record` writes the live result.
+The corpus holds the files a consumer needs and no pipeline state ([ADR 115](../../../docs/adr/115-vector-corpus-holds-no-pipeline-state-and-signals-json-records-the-anchored-signals.md)). `update/input.json` keeps `signingMaterial`: an implementation needs the key to produce its own signed update. `resolve/output.json` is the DID Resolution result that the api returns: `didResolutionMetadata` (`contentType: application/did`, or `error`), `didDocument`, and `didDocumentMetadata` (`versionId`, `confirmations`, `updated`, `deactivated`). The generator writes the result as far as it is known offline; `scenario:verify:live --record` writes the live result.
+
+`signals.json` is written by `scenario:verify:live --record` for every set that has a Beacon Signal on the chain. It is an array with one entry per signal: `update` (the `update/NN/` number of the signed update the signal commits to), `duplicate` (set on a second signal of the same update, in a later block), `beaconId`, `address`, `txid`, `blockHeight`, `blockHash`, `blockTime`, `mediantime`, and `signalBytes`. A cohort member records the shared signal with `cohort: { id, members }`. A consumer checks its own signal discovery against the file, or takes the signals from it when it reads no chain.
 
 ## Networks
 
