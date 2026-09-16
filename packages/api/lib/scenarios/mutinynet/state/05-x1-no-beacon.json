@@ -1,0 +1,9 @@
+{
+    "scenarioId": "05-x1-no-beacon",
+    "network": "mutinynet",
+    "did": "did:btcr2:x1q5rlsadqkdafrsmpp67y5uvpw277ydjj4sujj8g2489m7dp3n7y0s2nwxlz",
+    "needsFunding": false,
+    "cohort": null,
+    "anchors": [],
+    "allBeacons": []
+}

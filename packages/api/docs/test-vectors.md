@@ -27,6 +27,8 @@ pnpm scenario:verify --network regtest
 pnpm scenario:publish --network regtest
 pnpm scenario:publish --network regtest --publish
 IPFS_RPC_URL=http://host:5001 pnpm scenario:publish --network mutinynet --publish
+# A node behind HTTP Basic auth also takes IPFS_RPC_USER and IPFS_RPC_PASSWORD
+# (both or none). Bun loads them from packages/api/.env, which git ignores.
 
 # 6. Fund the beacon addresses. After the confirmation, anchor the signals,
 #    one round per command. Run the anchor command again after each block,
@@ -89,7 +91,7 @@ The corpus holds the files a consumer needs and no pipeline state ([ADR 115](../
 ## Networks
 
 - **regtest:** a Polar network with auto-mine on (30 seconds) that runs for the whole pass. The stack has three services: Bitcoin Core (`localhost:18443` RPC with `polaruser` / `polarpass`), Esplora (`localhost:3000`), and Kubo (`127.0.0.1:5001` RPC, `127.0.0.1:8080` gateway). `scenario:fund` sends over RPC from the wallet of the node. A coinbase output is spendable after 100 confirmations, so let the network mine 100 blocks before `scenario:fund`. The 100 blocks also give the rising block `mediantime` that the `versionTime` forms need. No script mines a block. The auto-miner confirms the funding and each anchor round. `scenario:publish --publish` pins the CAS objects to the Kubo node, and `scenario:verify:live` reads them from its gateway ([ADR 117](../../../docs/adr/117-regtest-vectors-publish-cas-objects-to-a-kubo-node-in-the-polar-stack.md)). Export the Polar network to `lib/data/regtest/did-btcr2.polar.zip` after the pass. The export holds the chain, the Esplora index, and the Kubo repository.
-- **mutinynet, testnet4, signet:** the wallet funding key pays the beacons (`pnpm wallet init`, `pnpm wallet status`, faucet the P2WPKH address; see `lib/wallet/README.md`). One anchor round per block: about 30 seconds on mutinynet, about 10 minutes on testnet4 and signet. `IPFS_RPC_URL` names the IPFS node of the publish step. `CAS_GATEWAY` selects the IPFS gateway of the live verify (default: the api gateway).
+- **mutinynet, testnet4, signet:** the wallet funding key pays the beacons (`pnpm wallet init`, `pnpm wallet status`, faucet the P2WPKH address; see `lib/wallet/README.md`). One anchor round per block: about 30 seconds on mutinynet, about 10 minutes on testnet4 and signet. The scripts send the indexer requests one at a time, 500 ms apart, and retry a 429 answer, because the mutinynet.com indexer limits the request rate. `IPFS_RPC_URL` names the IPFS node of the publish step, with `IPFS_RPC_USER` and `IPFS_RPC_PASSWORD` if the node needs HTTP Basic auth. `CAS_GATEWAY` selects the IPFS gateway of the live verify (default: the api gateway).
 
 ### Kubo service of the regtest stack
 

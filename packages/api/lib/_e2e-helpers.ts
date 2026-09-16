@@ -11,7 +11,8 @@
  *       confirms 1+ block, then presses Y; everything else (queries, broadcast,
  *       discovery) goes through Esplora/REST.
  */
-import type { BitcoinConnection } from '@did-btcr2/bitcoin';
+import type { BitcoinConnection, HttpExecutor } from '@did-btcr2/bitcoin';
+import { defaultHttpExecutor } from '@did-btcr2/bitcoin';
 import { BitcoinApi, NETWORK_PRESETS, explorerAddressUrl, faucetUrl, type BitcoinApiConfig } from '../src/index.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve as resolvePath } from 'node:path';
@@ -66,11 +67,55 @@ export function parseNetworkEnv(): E2ENetwork {
 }
 
 /**
+ * Minimum spacing between two indexer requests on a public network. The
+ * mutinynet.com indexer answers 429 above about two requests per second
+ * (measured 2026-09-16: 45 of 45 pass at 500 ms, 31 of 45 at 250 ms).
+ */
+const PUBLIC_REQUEST_INTERVAL_MS = 500;
+
+/** The pause before each retry of a 429 answer. After the last pause the answer goes back as it is. */
+const RETRY_AFTER_429_MS: ReadonlyArray<number> = [1000, 2000, 4000, 8000];
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * An HTTP executor that sends one request at a time, at least `intervalMs`
+ * apart, and retries a 429 answer after a pause. A public indexer limits the
+ * request rate; a script that reads 45 addresses in a burst gets an HTML error
+ * page that the REST client cannot parse.
+ */
+export function pacedHttpExecutor(intervalMs: number): HttpExecutor {
+  let queue: Promise<unknown> = Promise.resolve();
+  let lastSentAt = 0;
+  return (request) => {
+    const send = async (): Promise<Response> => {
+      for (let attempt = 0; ; attempt++) {
+        const wait = lastSentAt + intervalMs - Date.now();
+        if (wait > 0) await sleep(wait);
+        lastSentAt = Date.now();
+        const response = await defaultHttpExecutor(request);
+        const pause = RETRY_AFTER_429_MS[attempt];
+        if (response.status !== 429 || pause === undefined) return response;
+        await response.arrayBuffer().catch(() => undefined);
+        await sleep(pause);
+      }
+    };
+    const result = queue.then(send, send);
+    queue = result.catch(() => undefined);
+    return result;
+  };
+}
+
+/** One shared executor for every public-network connection of the process, so the spacing holds across connections. */
+const publicHttpExecutor = pacedHttpExecutor(PUBLIC_REQUEST_INTERVAL_MS);
+
+/**
  * The api Bitcoin config for the given network. RPC credentials are wired only
- * for regtest (no public network has callable RPC).
+ * for regtest (no public network has callable RPC). A public network gets the
+ * shared paced executor.
  */
 export function bitcoinConfigFor(network: E2ENetwork): BitcoinApiConfig {
-  return network === 'regtest' ? { network, rpc: REGTEST_RPC } : { network };
+  return network === 'regtest' ? { network, rpc: REGTEST_RPC } : { network, executor: publicHttpExecutor };
 }
 
 /** Build a `BitcoinConnection` for the given network. See {@link bitcoinConfigFor}. */
