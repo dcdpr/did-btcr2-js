@@ -47,7 +47,7 @@ import { bech32m, hex } from '@scure/base';
 import { Address, p2pkh, p2tr, p2wpkh } from '@scure/btc-signer';
 
 import {
-  errorEnvelope, findCohort, isDuplicate, loadCohorts, loadRecipes, networkDataDir, okEnvelope, parseNetworkArg,
+  cohortsOutDir, errorEnvelope, findCohort, isDuplicate, loadCohorts, loadRecipes, networkDataDir, okEnvelope, parseNetworkArg,
   realUpdates, resolveCaseDir, stateDir, updateDir, writeJSON, writeState,
   type AddrType, type AnchorEntry, type CohortDef, type IdentifierTamper, type KeySpec,
   type OtherFile, type Scenario, type ScenarioBeacon, type ScenarioState, type ScenarioUpdate, type TamperKind,
@@ -585,7 +585,7 @@ const selected = onlyIds.length > 0
   : [...recipes.values()];
 
 if (clean) {
-  for (const dir of [join(networkDataDir(network), 'k1'), join(networkDataDir(network), 'x1'), stateDir(network)]) {
+  for (const dir of [join(networkDataDir(network), 'k1'), join(networkDataDir(network), 'x1'), stateDir(network), cohortsOutDir(network)]) {
     if (existsSync(dir)) {
       rmSync(dir, { recursive: true, force: true });
       console.log(`[clean] removed ${dir}`);

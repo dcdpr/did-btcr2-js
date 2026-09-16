@@ -17,6 +17,10 @@
  *     node of the Polar stack (ADR 117). The other networks take the endpoint
  *     from `IPFS_RPC_URL`. This repository records no public endpoint.
  *
+ * Authentication: a node behind a reverse proxy with HTTP Basic auth takes
+ * `IPFS_RPC_USER` and `IPFS_RPC_PASSWORD`. Both or none. Bun loads them from
+ * a `.env` file in `packages/api` (gitignored).
+ *
  * The content bytes are the canonical JSON of the object, byte for byte what
  * the resolver parses after retrieval.
  *
@@ -24,6 +28,7 @@
  *   pnpm scenario:publish --network regtest              # dry-run
  *   pnpm scenario:publish --network regtest --publish    # pins to the Kubo node of the Polar stack
  *   IPFS_RPC_URL=http://host:5001 pnpm scenario:publish --network mutinynet --publish
+ *   IPFS_RPC_URL=https://host IPFS_RPC_USER=u IPFS_RPC_PASSWORD=p pnpm scenario:publish --network mutinynet --publish
  */
 
 import { existsSync } from 'node:fs';
@@ -53,12 +58,25 @@ function cidForHashB64(hashB64: string): CID {
   return CID.create(1, raw.code, createDigest(sha256.code, decodeHash(hashB64, 'base64urlnopad')));
 }
 
+/** `Authorization` header for a node behind HTTP Basic auth; empty when no credentials are set. */
+function rpcAuthHeaders(): Record<string, string> {
+  const user = process.env.IPFS_RPC_USER;
+  const password = process.env.IPFS_RPC_PASSWORD;
+  if (!user && !password) return {};
+  if (!user || !password) {
+    console.error('IPFS_RPC_USER and IPFS_RPC_PASSWORD go together: set both or none.');
+    process.exit(1);
+  }
+  return { Authorization: `Basic ${Buffer.from(`${user}:${password}`).toString('base64')}` };
+}
+
 /** Pin one raw block to a Kubo-compatible IPFS RPC endpoint. Returns the server CID. */
-async function publishBlock(rpcUrl: string, bytes: Uint8Array, expectedCid: CID): Promise<string> {
+async function publishBlock(rpcUrl: string, headers: Record<string, string>, bytes: Uint8Array, expectedCid: CID): Promise<string> {
   const form = new FormData();
   form.append('data', new Blob([Uint8Array.from(bytes)]));
   const putRes = await fetch(`${rpcUrl}/api/v0/block/put?cid-codec=raw&mhtype=sha2-256&pin=true`, {
     method : 'POST',
+    headers,
     body   : form,
   });
   if (!putRes.ok) throw new Error(`block/put failed: ${putRes.status} ${await putRes.text()}`);
@@ -81,6 +99,7 @@ async function run(): Promise<void> {
     process.exit(1);
   }
 
+  const headers = live ? rpcAuthHeaders() : {};
   const { items } = readJSON<{ items: ManifestItem[] }>(manifestPath);
   console.log(`=== ${live ? 'publishing' : 'dry-run'} ${items.length} CAS objects (${network})${live ? ` to ${rpcUrl}` : ''} ===`);
 
@@ -101,7 +120,7 @@ async function run(): Promise<void> {
 
     if (live) {
       try {
-        await publishBlock(rpcUrl!, bytes, cid);
+        await publishBlock(rpcUrl!, headers, bytes, cid);
       } catch (e) {
         console.log(`  ERR  ${item.kind.padEnd(15)} ${cid.toString()}  ${(e as Error).message}`);
         bad++;
@@ -119,7 +138,7 @@ async function run(): Promise<void> {
   writeJSON(cidPath, {
     note      : 'CIDv1 (raw codec, sha2-256) for every CAS object a resolver will fetch. Derived from the content hash exactly as the resolver derives it; pin these CIDs to make the CAS-delivered scenarios resolvable.',
     network,
-    published : live,
+    published : live && bad === 0,
     items     : cidEntries,
   });
 

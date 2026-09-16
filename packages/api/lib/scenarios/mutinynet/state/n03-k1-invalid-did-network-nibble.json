@@ -1,0 +1,25 @@
+{
+    "scenarioId": "n03-k1-invalid-did-network-nibble",
+    "network": "mutinynet",
+    "did": "did:btcr2:k1q5pqm8pmwacx2590xjkaj727dcc8z9gmp7jlrgc2u4duehqa8rvrpfq08jhds",
+    "needsFunding": false,
+    "cohort": null,
+    "anchors": [],
+    "allBeacons": [
+        {
+            "id": "did:btcr2:k1q5pqm8pmwacx2590xjkaj727dcc8z9gmp7jlrgc2u4duehqa8rvrpfq08jhds#initialP2PKH",
+            "type": "SingletonBeacon",
+            "address": "mvhUehxuXyM56FjTcvscM4wFf7j6ZUS2M4"
+        },
+        {
+            "id": "did:btcr2:k1q5pqm8pmwacx2590xjkaj727dcc8z9gmp7jlrgc2u4duehqa8rvrpfq08jhds#initialP2WPKH",
+            "type": "SingletonBeacon",
+            "address": "tb1q56rk96yqhdvx2pwx4ayltungssf8k6ycvprldg"
+        },
+        {
+            "id": "did:btcr2:k1q5pqm8pmwacx2590xjkaj727dcc8z9gmp7jlrgc2u4duehqa8rvrpfq08jhds#initialP2TR",
+            "type": "SingletonBeacon",
+            "address": "tb1p9na8n2rvem4rxkw3cvzyqshf9wu86dhe2087m3zhhawrtfts23kqv803zm"
+        }
+    ]
+}
