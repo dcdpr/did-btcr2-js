@@ -1,0 +1,25 @@
+{
+    "scenarioId": "01-k1-base",
+    "network": "testnet4",
+    "did": "did:btcr2:k1qsprrscrk9fsazdegjtc7p6lups88ms3ee2hq2afaycvnmvqt2p9y9qatcxd5",
+    "needsFunding": false,
+    "cohort": null,
+    "anchors": [],
+    "allBeacons": [
+        {
+            "id": "did:btcr2:k1qsprrscrk9fsazdegjtc7p6lups88ms3ee2hq2afaycvnmvqt2p9y9qatcxd5#initialP2PKH",
+            "type": "SingletonBeacon",
+            "address": "mouUUJ2yiKxkaXHezTZhY8QPq9dGyLjCLW"
+        },
+        {
+            "id": "did:btcr2:k1qsprrscrk9fsazdegjtc7p6lups88ms3ee2hq2afaycvnmvqt2p9y9qatcxd5#initialP2WPKH",
+            "type": "SingletonBeacon",
+            "address": "tb1qtsp4372zny669pa78ckr0lm0qfvk85te9qf3q4"
+        },
+        {
+            "id": "did:btcr2:k1qsprrscrk9fsazdegjtc7p6lups88ms3ee2hq2afaycvnmvqt2p9y9qatcxd5#initialP2TR",
+            "type": "SingletonBeacon",
+            "address": "tb1p5ugvzj9c5atz5q6qd982anhljp0wvkg456yg2r2x6alpkfd4ae7qfd0q2y"
+        }
+    ]
+}

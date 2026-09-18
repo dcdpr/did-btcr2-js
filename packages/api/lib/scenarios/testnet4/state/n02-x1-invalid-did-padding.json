@@ -1,0 +1,25 @@
+{
+    "scenarioId": "n02-x1-invalid-did-padding",
+    "network": "testnet4",
+    "did": "did:btcr2:x1qjkr5uknj298edvf46n4y9jskf5w02wwc7lz9vvw5twpssflz8khchjwd5e",
+    "needsFunding": false,
+    "cohort": null,
+    "anchors": [],
+    "allBeacons": [
+        {
+            "id": "did:btcr2:x1qjkr5uknj298edvf46n4y9jskf5w02wwc7lz9vvw5twpssflz8khchjwd5e#initialP2PKH",
+            "type": "SingletonBeacon",
+            "address": "muFc1Ze92rbwETv35YiTZGgNktnPpWaTyq"
+        },
+        {
+            "id": "did:btcr2:x1qjkr5uknj298edvf46n4y9jskf5w02wwc7lz9vvw5twpssflz8khchjwd5e#initialP2WPKH",
+            "type": "SingletonBeacon",
+            "address": "tb1qj64fdjlanpa6hgf27g3lsywx3kjerg4vufrlhs"
+        },
+        {
+            "id": "did:btcr2:x1qjkr5uknj298edvf46n4y9jskf5w02wwc7lz9vvw5twpssflz8khchjwd5e#initialP2TR",
+            "type": "SingletonBeacon",
+            "address": "tb1pzha32lxrest7zu2q03vyv7vmq0kq6tlcttxwgft4uxmy3c0pt6vs95flpw"
+        }
+    ]
+}
