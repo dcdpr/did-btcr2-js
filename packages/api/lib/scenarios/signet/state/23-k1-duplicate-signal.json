@@ -1,0 +1,54 @@
+{
+    "scenarioId": "23-k1-duplicate-signal",
+    "network": "signet",
+    "did": "did:btcr2:k1qypjcajtptruvwylxszx20zmgw3350p5vxh360e0hq48v7g539uq5ncr7fm29",
+    "needsFunding": true,
+    "cohort": null,
+    "anchors": [
+        {
+            "update": 1,
+            "signalOf": 1,
+            "beaconId": "did:btcr2:k1qypjcajtptruvwylxszx20zmgw3350p5vxh360e0hq48v7g539uq5ncr7fm29#initialP2WPKH",
+            "address": "tb1qpxanl8t3nkq6ttfpe54eudd06v5660x2ppfdm4",
+            "kind": "p2wpkh",
+            "key": "genesis",
+            "txid": "9d3a6886e7d7006fb900665c343f234e9aa0c412d78b6ea382228cfdcc57e490"
+        },
+        {
+            "update": 2,
+            "signalOf": 2,
+            "beaconId": "did:btcr2:k1qypjcajtptruvwylxszx20zmgw3350p5vxh360e0hq48v7g539uq5ncr7fm29#initialP2WPKH",
+            "address": "tb1qpxanl8t3nkq6ttfpe54eudd06v5660x2ppfdm4",
+            "kind": "p2wpkh",
+            "key": "genesis",
+            "txid": "dbc8439cf7871654bbe6eaef0d17daf0e22e9361ce3a080ed03eb81eeef15a58"
+        },
+        {
+            "update": 3,
+            "signalOf": 1,
+            "beaconId": "did:btcr2:k1qypjcajtptruvwylxszx20zmgw3350p5vxh360e0hq48v7g539uq5ncr7fm29#initialP2WPKH",
+            "address": "tb1qpxanl8t3nkq6ttfpe54eudd06v5660x2ppfdm4",
+            "kind": "p2wpkh",
+            "key": "genesis",
+            "duplicateOf": 1,
+            "txid": "1e61746bbe8c6ea34b35455d92c18bcce7388b35b7e2a7268d7152383cf60c7a"
+        }
+    ],
+    "allBeacons": [
+        {
+            "id": "did:btcr2:k1qypjcajtptruvwylxszx20zmgw3350p5vxh360e0hq48v7g539uq5ncr7fm29#initialP2PKH",
+            "type": "SingletonBeacon",
+            "address": "mgQQh2vwWy1ESyaX91o1xFpzeji5seJxqz"
+        },
+        {
+            "id": "did:btcr2:k1qypjcajtptruvwylxszx20zmgw3350p5vxh360e0hq48v7g539uq5ncr7fm29#initialP2WPKH",
+            "type": "SingletonBeacon",
+            "address": "tb1qpxanl8t3nkq6ttfpe54eudd06v5660x2ppfdm4"
+        },
+        {
+            "id": "did:btcr2:k1qypjcajtptruvwylxszx20zmgw3350p5vxh360e0hq48v7g539uq5ncr7fm29#initialP2TR",
+            "type": "SingletonBeacon",
+            "address": "tb1p3kd2rqyjturcvzkzts2q45w7kwvsgtzhdheqw9v86j9m2am6mm6sceafcn"
+        }
+    ]
+}
