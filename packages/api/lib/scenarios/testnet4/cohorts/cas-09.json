@@ -1,0 +1,25 @@
+{
+    "id": "cas-09",
+    "beaconType": "CASBeacon",
+    "network": "testnet4",
+    "serviceId": "#cohortBeacon",
+    "anchorAddress": "tb1qef7ssyzssusktlzx7jk6vhvsucn28u8xppl5w9",
+    "signalHex": "34fbffc921f279279c35d4dc4a6fd416065ffe3a936442d1b6baefaf06d99881",
+    "members": [
+        {
+            "scenarioId": "09a-x1-cas-update-announcement",
+            "did": "did:btcr2:x1qjg3rvgledjrugvv0snk7xg80chyywfpyfss27pw99h5kug03u46qnmqqy6",
+            "updateId": "6d7ca1b385295aae32b0b819ddeaed8afd74d9a02170699becc9596adec7240c"
+        },
+        {
+            "scenarioId": "09b-x1-cas-update-announcement-paired",
+            "did": "did:btcr2:x1qny5xjfv5cl4veelkpvrdv2qjrwxh6mzdqdwvak90adymzh79pmdskwad2c",
+            "updateId": "2c13e6a5830170e275251696b4f8afcdb97ffa831d0d075fadcd0a453d1fc855"
+        }
+    ],
+    "artifact": {
+        "did:btcr2:x1qjg3rvgledjrugvv0snk7xg80chyywfpyfss27pw99h5kug03u46qnmqqy6": "bXyhs4UpWq4ysLgZ3ertiv102aAhcGmb7MlZat7HJAw",
+        "did:btcr2:x1qny5xjfv5cl4veelkpvrdv2qjrwxh6mzdqdwvak90adymzh79pmdskwad2c": "LBPmpYMBcOJ1JRaWtPivzbl_-oMdDQdfrc0KRT0fyFU"
+    },
+    "txid": "b402f190f858120929bed39acf360b159c9b08092dab90231adda82ffa4648e1"
+}

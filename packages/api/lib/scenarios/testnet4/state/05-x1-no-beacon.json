@@ -1,0 +1,9 @@
+{
+    "scenarioId": "05-x1-no-beacon",
+    "network": "testnet4",
+    "did": "did:btcr2:x1qnh3j3xa57gnf6lkshvztp4tngeqhsy3n7qhfc9n995ww99q6ne2qyr97z7",
+    "needsFunding": false,
+    "cohort": null,
+    "anchors": [],
+    "allBeacons": []
+}
