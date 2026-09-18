@@ -1,0 +1,179 @@
+{
+    "note": "CIDv1 (raw codec, sha2-256) for every CAS object a resolver will fetch. Derived from the content hash exactly as the resolver derives it; pin these CIDs to make the CAS-delivered scenarios resolvable.",
+    "network": "signet",
+    "published": true,
+    "items": [
+        {
+            "cid": "bafkreiaezskwerpuu3pue46sbhx5nfsyf77mk2fjfi32xtoabuuz5q3wf4",
+            "kind": "casAnnouncement",
+            "hashB64": "BMyVYkX0pt9Cc9IJ79aWWC_-xWipKjerzcANKZ7Ddi8",
+            "hashHex": "04cc956245f4a6df4273d209efd696582ffec568a92a37abcdc00d299ec3762f",
+            "usedBy": [
+                {
+                    "scenarioId": "09a-x1-cas-update-announcement",
+                    "did": "did:btcr2:x1qxs3zu4mmjtjgtjtrx3a08e4fcj3m7ylewy7yv7x60lunltt50vtgzsc57a"
+                },
+                {
+                    "scenarioId": "09b-x1-cas-update-announcement-paired",
+                    "did": "did:btcr2:x1qxunyl8237vshu9mz0vakss2nvskdxvhytknzu675hq9s6rj6ruljhqpr8n"
+                }
+            ]
+        },
+        {
+            "cid": "bafkreigvywiczusyc6tdwkk235nlqyxujfk6iuntlpjektp6kgctwnu2se",
+            "kind": "genesis",
+            "hashB64": "1cWQLNJYF6Y7KVrfWrhi9ElV5FGzW9JFTf5RhTs2mpE",
+            "hashHex": "d5c5902cd25817a63b295adf5ab862f44955e451b35bd2454dfe51853b369a91",
+            "usedBy": [
+                {
+                    "scenarioId": "06-x1-cas-3-updates",
+                    "did": "did:btcr2:x1q82utypv6fvp0f3m99dd7k4cvt6yj40y2xe4h5j9fhl9rpfmx6dfzy7jg2z"
+                }
+            ]
+        },
+        {
+            "cid": "bafkreihc35qhp3vkka5h74udqjigaseuwcjzvxsn6hnw7kohkonjstdjd4",
+            "kind": "genesis",
+            "hashB64": "4t9gd-6qUDp_8oOCUGBIlLCTmt5N8dtvqcdTmplMaR8",
+            "hashHex": "e2df6077eeaa503a7ff2838250604894b0939ade4df1db6fa9c7539a994c691f",
+            "usedBy": [
+                {
+                    "scenarioId": "05-x1-no-beacon",
+                    "did": "did:btcr2:x1q83d7crha649qwnl72pcy5rqfz2tpyu6mexlrkm048r48x5ef3537jckd5m"
+                }
+            ]
+        },
+        {
+            "cid": "bafkreiewcbtbqxinpup3i33dtgsljuowxvjfz5mg6yu57ipyd6gd7dz7r4",
+            "kind": "genesis",
+            "hashB64": "lhBmGF0NfR-0b2OZpLTR1r1SXPWG9infofgfjD-PP48",
+            "hashHex": "961066185d0d7d1fb46f6399a4b4d1d6bd525cf586f629dfa1f81f8c3f8f3f8f",
+            "usedBy": [
+                {
+                    "scenarioId": "08-x1-cas-update-deactivate",
+                    "did": "did:btcr2:x1qxtpqesct5xh68a5da3enf9568tt65ju7kr0v2wl58uplrpl3ulc7rrsney"
+                }
+            ]
+        },
+        {
+            "cid": "bafkreifbcfzlxxexeqxewgnd26ptktrfdx4j7s4j4iz4nu77zh6wxi6ywq",
+            "kind": "genesis",
+            "hashB64": "oRFyu9yXJC5LGaPXnzVOJR34n8uJ4jPG0__J_Wuj2LQ",
+            "hashHex": "a11172bbdc97242e4b19a3d79f354e251df89fcb89e233c6d3ffc9fd6ba3d8b4",
+            "usedBy": [
+                {
+                    "scenarioId": "09a-x1-cas-update-announcement",
+                    "did": "did:btcr2:x1qxs3zu4mmjtjgtjtrx3a08e4fcj3m7ylewy7yv7x60lunltt50vtgzsc57a"
+                }
+            ]
+        },
+        {
+            "cid": "bafkreifzgj6ovd4zbpylwe6z3nbavgzbm2mzoixngfzv5joalbuhfuhz7e",
+            "kind": "genesis",
+            "hashB64": "uTJ86o-ZC_C7E9nbQgqbIWaZlyLtMXNepcBYaHLQ-fk",
+            "hashHex": "b9327cea8f990bf0bb13d9db420a9b2166999722ed31735ea5c0586872d0f9f9",
+            "usedBy": [
+                {
+                    "scenarioId": "09b-x1-cas-update-announcement-paired",
+                    "did": "did:btcr2:x1qxunyl8237vshu9mz0vakss2nvskdxvhytknzu675hq9s6rj6ruljhqpr8n"
+                }
+            ]
+        },
+        {
+            "cid": "bafkreidl6gyt6ca3hi2yh5jskj745ulwviwvv7vgvz3sltbuzpgnbcgj5y",
+            "kind": "signedUpdate",
+            "hashB64": "a_GxPwgbOjWD9TJSf87RdqotWv6mrnclzDTLzNCIye4",
+            "hashHex": "6bf1b13f081b3a3583f532527fced176aa2d5afea6ae7725cc34cbccd088c9ee",
+            "usedBy": [
+                {
+                    "scenarioId": "09b-x1-cas-update-announcement-paired",
+                    "did": "did:btcr2:x1qxunyl8237vshu9mz0vakss2nvskdxvhytknzu675hq9s6rj6ruljhqpr8n"
+                }
+            ]
+        },
+        {
+            "cid": "bafkreieajstodlkuqenwhsnot3rulkj5ez7ulr2rq5afqikqkdlpkm4a4u",
+            "kind": "signedUpdate",
+            "hashB64": "gEym4a1UgRtjya6e40WpPSZ_RcdRh0BYIVBQ1vUzgOU",
+            "hashHex": "804ca6e1ad54811b63c9ae9ee345a93d267f45c751874058215050d6f53380e5",
+            "usedBy": [
+                {
+                    "scenarioId": "06-x1-cas-3-updates",
+                    "did": "did:btcr2:x1q82utypv6fvp0f3m99dd7k4cvt6yj40y2xe4h5j9fhl9rpfmx6dfzy7jg2z"
+                }
+            ]
+        },
+        {
+            "cid": "bafkreibcbzj4d446vpts7xbs7hiydyszvh2ogq2inygfmw3j32boxlkjmm",
+            "kind": "signedUpdate",
+            "hashB64": "Ig5TwfOeq-cv3DL50YHiWan040NIbgxWW2neguutSWM",
+            "hashHex": "220e53c1f39eabe72fdc32f9d181e259a9f4e343486e0c565b69de82ebad4963",
+            "usedBy": [
+                {
+                    "scenarioId": "06-x1-cas-3-updates",
+                    "did": "did:btcr2:x1q82utypv6fvp0f3m99dd7k4cvt6yj40y2xe4h5j9fhl9rpfmx6dfzy7jg2z"
+                }
+            ]
+        },
+        {
+            "cid": "bafkreieuxy5b3l6mtuyktrqqdy2zbog473wyn225lhmv6vbrh5b3y2ygk4",
+            "kind": "signedUpdate",
+            "hashB64": "lL46Ha_MnTCpxhAeNZC43P7thutdWdlfVDE_Q7xrBlc",
+            "hashHex": "94be3a1dafcc9d30a9c6101e3590b8dcfeed86eb5d59d95f54313f43bc6b0657",
+            "usedBy": [
+                {
+                    "scenarioId": "06-x1-cas-3-updates",
+                    "did": "did:btcr2:x1q82utypv6fvp0f3m99dd7k4cvt6yj40y2xe4h5j9fhl9rpfmx6dfzy7jg2z"
+                }
+            ]
+        },
+        {
+            "cid": "bafkreifkfglpgri2roza5jwndoszxhm337wci35exiyqkgslco6fgyyrxq",
+            "kind": "signedUpdate",
+            "hashB64": "qimW80Uai7IOps0bpZudm9_sJG-kujEFGksTvFNjEbw",
+            "hashHex": "aa2996f3451a8bb20ea6cd1ba59b9d9bdfec246fa4ba31051a4b13bc536311bc",
+            "usedBy": [
+                {
+                    "scenarioId": "08-x1-cas-update-deactivate",
+                    "did": "did:btcr2:x1qxtpqesct5xh68a5da3enf9568tt65ju7kr0v2wl58uplrpl3ulc7rrsney"
+                }
+            ]
+        },
+        {
+            "cid": "bafkreicl3bza4yerqawxhnzqm3kre6efky6eqe5ui44cx5bf672gvzbfym",
+            "kind": "signedUpdate",
+            "hashB64": "S9hyDmCRgC1ztzBm1RJ4hVY8SBO0Rzgr9CX39GrkJcM",
+            "hashHex": "4bd8720e6091802d73b73066d5127885563c4813b447382bf425f7f46ae425c3",
+            "usedBy": [
+                {
+                    "scenarioId": "20-k1-cas-update",
+                    "did": "did:btcr2:k1qypda5tj07vn65yhyly00t8879laup7dgf8nm52mahnax38ke939srs7wthpd"
+                }
+            ]
+        },
+        {
+            "cid": "bafkreigobfl7fmdcyjpq2azm3ya6qiyzph5g7ozgn4zlf3y73kqzlpqluq",
+            "kind": "signedUpdate",
+            "hashB64": "zglX8rBiwl8NAyzeAegjGXn6b7smbzKy7x_aoZW-C6Q",
+            "hashHex": "ce0957f2b062c25f0d032cde01e8231979fa6fbb266f32b2ef1fdaa195be0ba4",
+            "usedBy": [
+                {
+                    "scenarioId": "09a-x1-cas-update-announcement",
+                    "did": "did:btcr2:x1qxs3zu4mmjtjgtjtrx3a08e4fcj3m7ylewy7yv7x60lunltt50vtgzsc57a"
+                }
+            ]
+        },
+        {
+            "cid": "bafkreidgcgxqzzlguls6mahucl3lsgqbbv6dbiio7napqfsncl7kqdoofu",
+            "kind": "signedUpdate",
+            "hashB64": "ZhGvDOVmouXmAPQS9rkaAQ18MKEO-0D4Fk0S_qgNzi0",
+            "hashHex": "6611af0ce566a2e5e600f412f6b91a010d7c30a10efb40f8164d12fea80dce2d",
+            "usedBy": [
+                {
+                    "scenarioId": "08-x1-cas-update-deactivate",
+                    "did": "did:btcr2:x1qxtpqesct5xh68a5da3enf9568tt65ju7kr0v2wl58uplrpl3ulc7rrsney"
+                }
+            ]
+        }
+    ]
+}

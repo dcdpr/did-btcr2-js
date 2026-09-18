@@ -1,0 +1,35 @@
+{
+    "scenarioId": "n22-k1-invalid-update-patch-missing-path",
+    "network": "signet",
+    "did": "did:btcr2:k1qypljzfnqdv343t0zufeyfphpumav2tmxvzu87pm5jca4ly00gs0n4g0tsvq4",
+    "needsFunding": true,
+    "cohort": null,
+    "anchors": [
+        {
+            "update": 1,
+            "signalOf": 1,
+            "beaconId": "did:btcr2:k1qypljzfnqdv343t0zufeyfphpumav2tmxvzu87pm5jca4ly00gs0n4g0tsvq4#initialP2WPKH",
+            "address": "tb1qt8396h7r79c2lmj226h44huhxe6tyd0mjavhr5",
+            "kind": "p2wpkh",
+            "key": "genesis",
+            "txid": "3dd7fa73d93a8ceedce1e58595add55467417475ce1f9e0468564aba9b4239f6"
+        }
+    ],
+    "allBeacons": [
+        {
+            "id": "did:btcr2:k1qypljzfnqdv343t0zufeyfphpumav2tmxvzu87pm5jca4ly00gs0n4g0tsvq4#initialP2PKH",
+            "type": "SingletonBeacon",
+            "address": "moiDcE145ApDoL4kzQpaQZXzM9vhQrvEph"
+        },
+        {
+            "id": "did:btcr2:k1qypljzfnqdv343t0zufeyfphpumav2tmxvzu87pm5jca4ly00gs0n4g0tsvq4#initialP2WPKH",
+            "type": "SingletonBeacon",
+            "address": "tb1qt8396h7r79c2lmj226h44huhxe6tyd0mjavhr5"
+        },
+        {
+            "id": "did:btcr2:k1qypljzfnqdv343t0zufeyfphpumav2tmxvzu87pm5jca4ly00gs0n4g0tsvq4#initialP2TR",
+            "type": "SingletonBeacon",
+            "address": "tb1pudmhrsqjkm7ywzgzjm66cknxek4j5sfju8prjfyc9mfajhct2kfqrwgkjn"
+        }
+    ]
+}

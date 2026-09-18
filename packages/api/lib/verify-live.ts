@@ -29,9 +29,12 @@
  * case with its own `minConf` keeps it.
  *
  * Env:
- *   CAS_GATEWAY   IPFS gateway base (default: the Kubo gateway of the Polar
- *                 stack on regtest, ADR 117; the api DEFAULT_CAS_GATEWAY on
- *                 the other networks)
+ *   CAS_GATEWAY   IPFS gateways of the CAS reads, comma-separated, in order
+ *                 (default: the Kubo gateway of the Polar stack on regtest,
+ *                 ADR 117; on the other networks the nodes that hold the pins,
+ *                 then the public gateways as fallbacks). The verify asks the
+ *                 gateways in order and takes the first block found. Each
+ *                 gateway gets 20 seconds per object.
  *
  * Usage:
  *   pnpm scenario:verify:live --network regtest
@@ -41,11 +44,11 @@
 
 import { join } from 'node:path';
 
-import { createApi, DEFAULT_CAS_GATEWAY, type DidBtcr2Api } from '@did-btcr2/api';
+import { createApi, type DidBtcr2Api } from '@did-btcr2/api';
 import { canonicalHash, canonicalize } from '@did-btcr2/common';
 import { BeaconSignalDiscovery, DEFAULT_MIN_CONF, type BeaconService, type BeaconSignal } from '@did-btcr2/method';
 
-import { bitcoinConfigFor, REGTEST_IPFS } from './_e2e-helpers.js';
+import { bitcoinConfigFor, CAS_GATEWAY_TIMEOUT_MS, casGatewaysFor, GatewayChainCasExecutor } from './_e2e-helpers.js';
 import {
   cohortsOutDir, findCohort, indexScenarioDirs, isVersionTimeForm, loadCohorts, loadRecipes, parseNetworkArg,
   readExpected, readJSON, readSignedUpdates, readState, realUpdates, resolveCaseDir, resolveVersionTime, takeOption,
@@ -58,7 +61,7 @@ const record = rest.includes('--record');
 const minConfOpt = takeOption(rest, 'min-conf').value;
 const minConf = minConfOpt === undefined ? DEFAULT_MIN_CONF : Number(minConfOpt);
 if (!Number.isInteger(minConf) || minConf < 1) throw new Error(`--min-conf must be a positive integer, got "${minConfOpt}"`);
-const gateway = (process.env.CAS_GATEWAY ?? (network === 'regtest' ? REGTEST_IPFS.gateway : DEFAULT_CAS_GATEWAY)).replace(/\/+$/, '');
+const gateways = casGatewaysFor(network);
 
 type Outcome = { kind: 'ok'; didDocument: object; versionId: string; deactivated: boolean } | { kind: 'error'; error: string };
 type ResolveInput = { did: string; resolutionOptions: Record<string, unknown> };
@@ -177,11 +180,11 @@ async function resolveLive(api: DidBtcr2Api, did: string, options: Record<string
 }
 
 async function run(): Promise<void> {
-  const api = createApi({ btc: bitcoinConfigFor(network), cas: { gateway, timeoutMs: 30_000 } });
+  const api = createApi({ btc: bitcoinConfigFor(network), cas: { executor: new GatewayChainCasExecutor(gateways), timeoutMs: CAS_GATEWAY_TIMEOUT_MS * gateways.length } });
   const recipes = loadRecipes(network);
   const idx = indexScenarioDirs(network);
   const cohorts = loadCohorts(network);
-  console.log(`=== scenario:verify:live (${network}, minConf ${minConf}, CAS ${gateway})${record ? ' RECORD' : ''} ===`);
+  console.log(`=== scenario:verify:live (${network}, minConf ${minConf}, CAS ${gateways.join(', ')})${record ? ' RECORD' : ''} ===`);
 
   let pass = 0, fail = 0;
   for (const id of [...recipes.keys()].sort()) {

@@ -13,7 +13,7 @@
  */
 import type { BitcoinConnection, HttpExecutor } from '@did-btcr2/bitcoin';
 import { defaultHttpExecutor } from '@did-btcr2/bitcoin';
-import { BitcoinApi, NETWORK_PRESETS, explorerAddressUrl, faucetUrl, type BitcoinApiConfig } from '../src/index.js';
+import { BitcoinApi, HttpGatewayCasExecutor, NETWORK_PRESETS, explorerAddressUrl, faucetUrl, type BitcoinApiConfig, type CasExecutor } from '../src/index.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -34,6 +34,69 @@ const REGTEST_RPC = { username: 'polaruser', password: 'polarpass' } as const;
  * the loopback of the host.
  */
 export const REGTEST_IPFS = { rpc: 'http://127.0.0.1:5001', gateway: 'http://127.0.0.1:8080' } as const;
+
+/**
+ * The IPFS gateways of the CAS reads on the public networks, in order: the
+ * nodes that hold the pins first, the public gateways as fallbacks.
+ */
+export const PUBLIC_CAS_GATEWAYS: ReadonlyArray<string> = [
+  'https://ipfs.jintek.co',
+  'https://ipfs.danubetech.com',
+  'https://ipfs.io',
+  'https://dweb.link',
+];
+
+/** The time one gateway gets per object. A gateway that does not answer must not hold the chain. */
+export const CAS_GATEWAY_TIMEOUT_MS = 20_000;
+
+/**
+ * The IPFS gateways of the live verify, in order. `CAS_GATEWAY` (comma-separated)
+ * overrides the default: the Kubo gateway of the Polar stack on regtest (ADR 117),
+ * `PUBLIC_CAS_GATEWAYS` on the other networks.
+ * @throws {Error} if `CAS_GATEWAY` names no gateway.
+ */
+export function casGatewaysFor(network: E2ENetwork): string[] {
+  const raw = process.env.CAS_GATEWAY ?? (network === 'regtest' ? REGTEST_IPFS.gateway : PUBLIC_CAS_GATEWAYS.join(','));
+  const urls = raw.split(',').map((u) => u.trim().replace(/\/+$/, '')).filter((u) => u !== '');
+  if (urls.length === 0) throw new Error('CAS_GATEWAY names no gateway');
+  return urls;
+}
+
+/**
+ * A read-only CAS executor that asks the gateways in order and returns the
+ * first block found. Each gateway gets `CAS_GATEWAY_TIMEOUT_MS` per object.
+ */
+export class GatewayChainCasExecutor implements CasExecutor {
+  readonly canPublish = false;
+  readonly #gateways: HttpGatewayCasExecutor[];
+
+  constructor(urls: ReadonlyArray<string>) {
+    this.#gateways = urls.map((u) => new HttpGatewayCasExecutor(u));
+  }
+
+  async retrieve(hash: string): Promise<Uint8Array | null> {
+    for (const gateway of this.#gateways) {
+      const bytes = await valueOrNull(gateway.retrieve(hash), CAS_GATEWAY_TIMEOUT_MS);
+      if (bytes) return bytes;
+    }
+    return null;
+  }
+
+  publish(): Promise<string> {
+    return Promise.reject(new Error('GatewayChainCasExecutor is read-only.'));
+  }
+}
+
+/** The value of `promise`, or `null` if `promise` rejects or does not settle in `ms` milliseconds. */
+function valueOrNull<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), ms);
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      () => { clearTimeout(timer); resolve(null); },
+    );
+  });
+}
 
 /**
  * Read `E2E_MIN_CONF`: the `minConf` the e2e resolves pass, and the confirmation
