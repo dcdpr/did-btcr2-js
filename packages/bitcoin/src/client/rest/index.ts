@@ -6,6 +6,15 @@ import { EsploraProtocol } from './protocol.js';
 import type { RestConfig } from '../../types.js';
 import type { HttpExecutor, HttpRequest} from '../http.js';
 import { defaultHttpExecutor } from '../http.js';
+import { safeText } from '../utils.js';
+
+/** The number of body characters that an error carries. */
+const BODY_EXCERPT_LENGTH = 200;
+
+/** The body of an error response: the JSON value if the body parses, else an excerpt. */
+function errorBody(text: string): unknown {
+  try { return JSON.parse(text); } catch { return text.slice(0, BODY_EXCERPT_LENGTH); }
+}
 
 /**
  * Esplora REST API client for Bitcoin.
@@ -50,25 +59,37 @@ export class BitcoinRestClient {
   }
 
   /**
-   * Execute an {@link HttpRequest} built by the protocol layer,
-   * parse the response, and throw on HTTP errors.
+   * Execute an {@link HttpRequest} built by the protocol layer, check the status,
+   * then parse the body. The body is read as text first, so an HTML error page
+   * never reaches the JSON parser.
+   * @throws {MethodError} `FAILED_HTTP_REQUEST` for a non-OK status, with the
+   *   status, the URL, and the body (JSON if it parses, else an excerpt).
+   * @throws {MethodError} `INVALID_HTTP_RESPONSE` for an OK status with a body
+   *   that is not JSON.
    */
   private async executeRequest(request: HttpRequest): Promise<any> {
     const response = await this.executor(request);
-
-    const contentType = response.headers.get('Content-Type') ?? '';
-    const data = contentType.includes('text/plain')
-      ? await response.text()
-      : await response.json();
+    const text = await safeText(response);
 
     if (!response.ok) {
       throw new MethodError(
         `Request to ${request.url} failed: ${response.status} - ${response.statusText}`,
         'FAILED_HTTP_REQUEST',
-        { data }
+        { status: response.status, url: request.url, data: errorBody(text) }
       );
     }
 
-    return data;
+    const contentType = response.headers.get('Content-Type') ?? '';
+    if (contentType.includes('text/plain')) return text;
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new MethodError(
+        `Request to ${request.url} returned a body that is not JSON (status ${response.status})`,
+        'INVALID_HTTP_RESPONSE',
+        { status: response.status, url: request.url, data: text.slice(0, BODY_EXCERPT_LENGTH) }
+      );
+    }
   }
 }

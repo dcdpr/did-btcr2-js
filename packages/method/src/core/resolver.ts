@@ -301,7 +301,12 @@ export class Resolver {
   #currentDocument: DidDocument | null;
   #providedGenesisDocument: object | null = null;
   #beaconServicesSignals: Map<BeaconService, Array<BeaconSignal>> = new Map();
-  #processedServices: Set<string> = new Set();
+  /**
+   * The beacon addresses whose signals became update tuples. Keyed by address, not by
+   * service id: a rotation keeps the id and changes the address, and the specification
+   * has no per-service state (ADR 118).
+   */
+  #processedAddresses: Set<string> = new Set();
   /** The beacon addresses the resolver requested signals for: `scanned_beacons` of the specification. */
   #requestCache: Set<string> = new Set();
   /**
@@ -865,8 +870,9 @@ export class Resolver {
           const allNeeds: Array<DataNeed> = [];
 
           for(const [service, signals] of this.#beaconServicesSignals) {
-            // Skip already-processed services and services with no signals
-            if(this.#processedServices.has(service.id) || !signals.length) continue;
+            // Skip a processed address and a service with no signals
+            const address = BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string);
+            if(this.#processedAddresses.has(address) || !signals.length) continue;
 
             // Keep only the signals at or above the confirmation threshold. A
             // service whose signals are all below it is treated like a service
@@ -884,13 +890,12 @@ export class Resolver {
               // This service has unmet data needs, collect them
               allNeeds.push(...result.needs);
             } else {
-              // All signals for this service resolved: collect the updates with the
-              // beacon address of the service, mark the service processed.
-              const address = BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string);
+              // All signals of this address resolved: collect the updates with the
+              // beacon address, mark the address processed.
               this.#unsortedUpdates.push(...result.updates.map(
                 ([update, block]): UpdateTuple => [update, block, address]
               ));
-              this.#processedServices.add(service.id);
+              this.#processedAddresses.add(address);
             }
           }
 

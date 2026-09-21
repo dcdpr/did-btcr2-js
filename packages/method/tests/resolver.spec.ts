@@ -162,6 +162,92 @@ function buildUpdateChain(
   return signed;
 }
 
+/** One signal to deliver at an address: the announced update and its block. */
+interface AddressSignal { update: SignedBTCR2Update; block?: Partial<BlockMetadata> }
+
+/** The beacon address of service `index` of the document. */
+function addressOf(document: DidDocument, index: number): string {
+  return BeaconUtils.parseBitcoinAddress(
+    BeaconUtils.getBeaconServices(document)[index]!.serviceEndpoint as string
+  );
+}
+
+/** The patch that removes service `index`. */
+function removeService(index: number): PatchOperation[] {
+  return [{ op: 'remove' as const, path: `/service/${index}` }];
+}
+
+/** The patch that appends `service` to the service list. */
+function addService(service: BeaconService): PatchOperation[] {
+  return [{ op: 'add' as const, path: '/service/-', value: service }];
+}
+
+/** The patch that moves service `index` to `address` and keeps its id. */
+function rotateService(index: number, address: string): PatchOperation[] {
+  return [{ op: 'replace' as const, path: `/service/${index}/serviceEndpoint`, value: `bitcoin:${address}` }];
+}
+
+/** A regtest P2WPKH address of a random key: an address that no genesis document holds. */
+function freshAddress(): string {
+  return p2wpkh(secp256k1.getPublicKey(randomBytes(32), true), getNetwork('regtest')).address!;
+}
+
+/**
+ * Drive resolution with explicit signals per beacon address. Each address the
+ * resolver asks for receives its signals in order. The block of a signal defaults
+ * to height 100 plus its position across all addresses, six confirmations; an
+ * explicit `block` overrides any field. Returns the resolved response or
+ * propagates whatever the resolver throws.
+ */
+function driveAddresses(
+  did: string,
+  updates: Array<SignedBTCR2Update>,
+  signalsByAddress: Map<string, Array<AddressSignal>>,
+  options: { versionId?: string } = {}
+): DidResolutionResponse {
+  const resolver = DidBtcr2.resolve(did, { sidecar: { updates }, ...options });
+  let position = 0;
+  let state = resolver.resolve();
+  while(state.status === 'action-required') {
+    const need = state.needs[0]!;
+    if(need.kind !== 'NeedBeaconSignals') throw new Error(`unexpected need: ${need.kind}`);
+    const signals = new Map<BeaconService, Array<BeaconSignal>>();
+    for(const service of need.beaconServices) {
+      const address = BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string);
+      signals.set(service, (signalsByAddress.get(address) ?? []).map(({ update, block }) => ({
+        tx            : {} as any,
+        signalBytes   : canonicalHash(update, { encoding: 'hex' }),
+        blockMetadata : {
+          height        : 100 + position++,
+          time          : 1700000000,
+          mediantime    : 1700000000,
+          confirmations : 6,
+          ...block
+        }
+      })));
+    }
+    resolver.provide(need, signals);
+    state = resolver.resolve();
+  }
+  if(state.status !== 'resolved') throw new Error('expected resolved');
+  return state.result;
+}
+
+/** Resolve with explicit signals per beacon address and return the thrown error, if any. */
+function thrownByAddresses(
+  did: string,
+  updates: Array<SignedBTCR2Update>,
+  signalsByAddress: Map<string, Array<AddressSignal>>,
+  options: { versionId?: string } = {}
+): any {
+  try {
+    driveAddresses(did, updates, signalsByAddress, options);
+  } catch(error) {
+    return error;
+  }
+  return undefined;
+}
+
 /**
  * Drive a resolver delivering every update as a signal on the single genesis beacon in one
  * discovery pass (the updates add no beacons). Optional versionId/versionTime limits and
@@ -1258,7 +1344,7 @@ describe('Resolver', () => {
     // and a stale need fulfilled a discovery round late. provide() is idempotent by
     // construction: the three hash-bound needs (CAS, SignedUpdate, SMTProof) write
     // hash-keyed sidecar maps, and NeedBeaconSignals is gated downstream by
-    // #processedServices (keyed on service id). None of these tests deliver one
+    // #processedAddresses (keyed on beacon address). None of these tests deliver one
     // update as two signals; that duplicate-handling path lives in Resolver.updates()
     // and is tracked separately (finding-resolver-duplicate-handling).
     const fixture = deterministicData[2]; // regtest - has a known secretKey
@@ -1480,8 +1566,8 @@ describe('Resolver', () => {
       const round2Need = state.needs[0] as NeedBeaconSignals;
 
       // Stale fulfillment: re-provide the round-1 need with FRESH service objects of
-      // the same ids, re-delivering hop0. Every round-1 service id is already in
-      // #processedServices, so the stale signals must be skipped (no re-collection, no
+      // the same ids, re-delivering hop0. Every round-1 beacon address is already in
+      // #processedAddresses, so the stale signals must be skipped (no re-collection, no
       // version inflation), even though the map is keyed by object reference.
       const staleSignals = new Map<BeaconService, Array<BeaconSignal>>();
       for(const [ service, sig ] of signalsFor(round1Need)) {
@@ -2685,80 +2771,6 @@ describe('Resolver', () => {
     // addresses A (#initialP2PKH), B (#initialP2WPKH), and C (#initialP2TR).
     const fixture = deterministicData[2]; // regtest - has a known secretKey
 
-    /** One signal to deliver at an address: the announced update and its block. */
-    interface AddressSignal { update: SignedBTCR2Update; block?: Partial<BlockMetadata> }
-
-    /** The beacon address of service `index` of the document. */
-    function addressOf(document: DidDocument, index: number): string {
-      return BeaconUtils.parseBitcoinAddress(
-        BeaconUtils.getBeaconServices(document)[index]!.serviceEndpoint as string
-      );
-    }
-
-    /** The patch that removes service `index`. */
-    function removeService(index: number): PatchOperation[] {
-      return [{ op: 'remove' as const, path: `/service/${index}` }];
-    }
-
-    /** The patch that appends `service` to the service list. */
-    function addService(service: BeaconService): PatchOperation[] {
-      return [{ op: 'add' as const, path: '/service/-', value: service }];
-    }
-
-    /**
-     * Drive resolution with explicit signals per beacon address. Each address the
-     * resolver asks for receives its signals in order. The block of a signal defaults
-     * to height 100 plus its position across all addresses, six confirmations; an
-     * explicit `block` overrides any field. Returns the resolved response or
-     * propagates whatever the resolver throws.
-     */
-    function driveAddresses(
-      updates: Array<SignedBTCR2Update>,
-      signalsByAddress: Map<string, Array<AddressSignal>>,
-      options: { versionId?: string } = {}
-    ): DidResolutionResponse {
-      const resolver = DidBtcr2.resolve(fixture.did, { sidecar: { updates }, ...options });
-      let position = 0;
-      let state = resolver.resolve();
-      while(state.status === 'action-required') {
-        const need = state.needs[0]!;
-        if(need.kind !== 'NeedBeaconSignals') throw new Error(`unexpected need: ${need.kind}`);
-        const signals = new Map<BeaconService, Array<BeaconSignal>>();
-        for(const service of need.beaconServices) {
-          const address = BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string);
-          signals.set(service, (signalsByAddress.get(address) ?? []).map(({ update, block }) => ({
-            tx            : {} as any,
-            signalBytes   : canonicalHash(update, { encoding: 'hex' }),
-            blockMetadata : {
-              height        : 100 + position++,
-              time          : 1700000000,
-              mediantime    : 1700000000,
-              confirmations : 6,
-              ...block
-            }
-          })));
-        }
-        resolver.provide(need, signals);
-        state = resolver.resolve();
-      }
-      if(state.status !== 'resolved') throw new Error('expected resolved');
-      return state.result;
-    }
-
-    /** Resolve and return the thrown error, if any. */
-    function thrownBy(
-      updates: Array<SignedBTCR2Update>,
-      signalsByAddress: Map<string, Array<AddressSignal>>,
-      options: { versionId?: string } = {}
-    ): any {
-      try {
-        driveAddresses(updates, signalsByAddress, options);
-      } catch(error) {
-        return error;
-      }
-      return undefined;
-    }
-
     it('ignores a later update announced at an address that an applied update removed', () => {
       const source = resolveDeterministic(fixture.did);
       const [A, B] = [addressOf(source, 0), addressOf(source, 1)];
@@ -2766,7 +2778,7 @@ describe('Resolver', () => {
         removeService(0),         // v2 at B removes A
         benignPatch(fixture.did)  // v3 at A is ignored
       ]);
-      const { didDocument, metadata } = driveAddresses([v2, v3], new Map([
+      const { didDocument, metadata } = driveAddresses(fixture.did, [v2, v3], new Map([
         [B, [{ update: v2, block: { confirmations: 9 } }]],
         [A, [{ update: v3, block: { confirmations: 7 } }]]
       ]));
@@ -2784,7 +2796,7 @@ describe('Resolver', () => {
         benignPatch(fixture.did),  // v3 at B applies
         benignPatch(fixture.did)   // v4 at A is ignored
       ]);
-      const { didDocument, metadata } = driveAddresses([v2, v3, v4], new Map([
+      const { didDocument, metadata } = driveAddresses(fixture.did, [v2, v3, v4], new Map([
         [B, [{ update: v2, block: { confirmations: 9 } }, { update: v3, block: { confirmations: 8 } }]],
         [A, [{ update: v4, block: { confirmations: 7 } }]]
       ]));
@@ -2799,7 +2811,7 @@ describe('Resolver', () => {
       const [v2, v3] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
         removeService(0), benignPatch(fixture.did)
       ]);
-      const thrown = thrownBy([v2, v3], new Map([[B, [{ update: v2 }]], [A, [{ update: v3 }]]]), { versionId: '3' });
+      const thrown = thrownByAddresses(fixture.did, [v2, v3], new Map([[B, [{ update: v2 }]], [A, [{ update: v3 }]]]), { versionId: '3' });
       expect(thrown).to.be.instanceOf(ResolveError);
       expect(thrown.type).to.equal(NOT_FOUND);
       expect(thrown.message).to.match(/ends at version 2/);
@@ -2815,7 +2827,7 @@ describe('Resolver', () => {
         benignPatch(fixture.did)   // v4 at A applies
       ]);
       // A is in the scanned set from the first pass, so its signal arrives in that pass.
-      const { didDocument, metadata } = driveAddresses([v2, v3, v4], new Map([
+      const { didDocument, metadata } = driveAddresses(fixture.did, [v2, v3, v4], new Map([
         [B, [{ update: v2 }, { update: v3 }]],
         [A, [{ update: v4 }]]
       ]));
@@ -2828,7 +2840,7 @@ describe('Resolver', () => {
       const source = resolveDeterministic(fixture.did);
       const A = addressOf(source, 0);
       const [v2] = buildUpdateChain(fixture.did, source, fixture.secretKey, [removeService(0)]);
-      const { didDocument, metadata } = driveAddresses([v2], new Map([[A, [{ update: v2 }]]]));
+      const { didDocument, metadata } = driveAddresses(fixture.did, [v2], new Map([[A, [{ update: v2 }]]]));
       expect(metadata.versionId).to.equal('2');
       expect(didDocument.service.length).to.equal(source.service.length - 1);
     });
@@ -2839,7 +2851,7 @@ describe('Resolver', () => {
       const [v2] = buildUpdateChain(fixture.did, source, fixture.secretKey, [removeService(0)]);
       const [conflict] = buildUpdateChain(fixture.did, source, fixture.secretKey, [benignPatch(fixture.did)]);
       // The conflict is in a later block, so the sort processes v2 first.
-      const { metadata } = driveAddresses([v2, conflict], new Map([
+      const { metadata } = driveAddresses(fixture.did, [v2, conflict], new Map([
         [B, [{ update: v2, block: { height: 100 } }]],
         [A, [{ update: conflict, block: { height: 200 } }]]
       ]));
@@ -2851,11 +2863,64 @@ describe('Resolver', () => {
       const [B, C] = [addressOf(source, 1), addressOf(source, 2)];
       const [v2] = buildUpdateChain(fixture.did, source, fixture.secretKey, [removeService(0)]);
       const [conflict] = buildUpdateChain(fixture.did, source, fixture.secretKey, [benignPatch(fixture.did)]);
-      const thrown = thrownBy([v2, conflict], new Map([
+      const thrown = thrownByAddresses(fixture.did, [v2, conflict], new Map([
         [B, [{ update: v2, block: { height: 100 } }]],
         [C, [{ update: conflict, block: { height: 200 } }]]
       ]));
       expect(thrown?.type).to.equal(LATE_PUBLISHING_ERROR);
+    });
+  });
+
+  describe('the signals of a rotated beacon address (ADR 118)', () => {
+    // A rotation replaces the serviceEndpoint of a beacon service and keeps its id. The
+    // resolver marks the beacon addresses it processed, not the service ids, so the
+    // signals at the new address of a rotated service become update tuples in the next
+    // discovery round. The genesis beacon of service 0 is the address A (#initialP2PKH).
+    const fixture = deterministicData[2]; // regtest - has a known secretKey
+
+    it('applies the update at the new address of a beacon that an update at the old address rotated', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [A, A2] = [addressOf(source, 0), freshAddress()];
+      const [v2, v3] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        rotateService(0, A2),     // v2 at A moves service 0 to A2
+        benignPatch(fixture.did)  // v3 at A2 applies
+      ]);
+      const { didDocument, metadata } = driveAddresses(fixture.did, [v2, v3], new Map([
+        [A, [{ update: v2 }]],
+        [A2, [{ update: v3 }]]
+      ]));
+      expect(metadata.versionId).to.equal('3');
+      expect(didDocument.service[0]!.serviceEndpoint).to.equal(`bitcoin:${A2}`);
+      expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 1);
+    });
+
+    it('control: applies the update at the new address when another beacon announced the rotation', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [B, A2] = [addressOf(source, 1), freshAddress()];
+      const [v2, v3] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        rotateService(0, A2),     // v2 at B moves service 0 to A2
+        benignPatch(fixture.did)  // v3 at A2 applies
+      ]);
+      const { metadata } = driveAddresses(fixture.did, [v2, v3], new Map([
+        [B, [{ update: v2 }]],
+        [A2, [{ update: v3 }]]
+      ]));
+      expect(metadata.versionId).to.equal('3');
+    });
+
+    it('ignores a later update at the old address of a rotated beacon and applies the one at the new address', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [A, A2] = [addressOf(source, 0), freshAddress()];
+      const [v2, v3, v4] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        rotateService(0, A2),      // v2 at A moves service 0 to A2
+        benignPatch(fixture.did),  // v3 at A2 applies
+        benignPatch(fixture.did)   // v4 at A is ignored (ADR 114, step 4)
+      ]);
+      const { metadata } = driveAddresses(fixture.did, [v2, v3, v4], new Map([
+        [A, [{ update: v2 }, { update: v4 }]],
+        [A2, [{ update: v3 }]]
+      ]));
+      expect(metadata.versionId).to.equal('3');
     });
   });
 });

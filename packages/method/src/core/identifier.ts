@@ -150,8 +150,10 @@ export class Identifier {
     if (typeof network !== 'string') {
       throw new IdentifierError('Expected "network" to be a known network name', INVALID_DID, { network });
     }
-    const networkValue = BitcoinNetworkNames[network as keyof typeof BitcoinNetworkNames] as number | undefined;
-    if (networkValue === undefined) {
+    // The numeric enum also maps a value string to a name: '5' reads as 'mutinynet', and
+    // the low nibble becomes 0 (bitcoin). Only a name maps to a number.
+    const networkValue: unknown = BitcoinNetworkNames[network as keyof typeof BitcoinNetworkNames];
+    if (typeof networkValue !== 'number') {
       throw new IdentifierError('Invalid "network" name', INVALID_DID, { network });
     }
 
