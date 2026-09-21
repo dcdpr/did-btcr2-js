@@ -1,5 +1,14 @@
 # @did-btcr2/api
 
+## 0.26.0
+
+### Minor Changes
+
+- The api takes a separate signer for the beacon transaction input (ADR 119).
+
+  - api: `beaconSigner?: Signer` on `update`, `deactivate`, `updateDid`, `deactivateDid`, and `UpdateBuilder.beaconSigner()`. It signs the beacon transaction input and defaults to `signer`. A beacon at a key other than the DID key is now usable through the api.
+  - cli: dependency uptake.
+
 ## 0.25.2
 
 ### Patch Changes

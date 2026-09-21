@@ -240,7 +240,8 @@ export class DidBtcr2Api {
    *   controls whether update artifacts are published to the configured CAS
    *   before the on-chain broadcast; publication is opt-in and never required.
    *   `broadcastOptions` passes fee estimator / change address through to the
-   *   beacon transaction.
+   *   beacon transaction. `beaconSigner` signs the beacon transaction input
+   *   and defaults to `signer`.
    * @returns The broadcast artifacts: signed update, signal txid, per-beacon-type
    *   sidecar data, and which artifacts were published to CAS.
    */
@@ -250,6 +251,7 @@ export class DidBtcr2Api {
     verificationMethodId,
     beaconId,
     signer,
+    beaconSigner,
     sourceDocument,
     sourceVersionId,
     resolutionOptions,
@@ -261,6 +263,7 @@ export class DidBtcr2Api {
     verificationMethodId?: string;
     beaconId?: string;
     signer: Signer;
+    beaconSigner?: Signer;
     sourceDocument?: Btcr2DidDocument;
     sourceVersionId?: number;
     resolutionOptions?: ResolutionOptions;
@@ -279,6 +282,7 @@ export class DidBtcr2Api {
       verificationMethodId,
       beaconId,
       signer,
+      beaconSigner,
       publishToCas,
       broadcastOptions,
     });
@@ -305,6 +309,7 @@ export class DidBtcr2Api {
     verificationMethodId,
     beaconId,
     signer,
+    beaconSigner,
     sourceDocument,
     sourceVersionId,
     resolutionOptions,
@@ -315,6 +320,7 @@ export class DidBtcr2Api {
     verificationMethodId?: string;
     beaconId?: string;
     signer: Signer;
+    beaconSigner?: Signer;
     sourceDocument?: Btcr2DidDocument;
     sourceVersionId?: number;
     resolutionOptions?: ResolutionOptions;
@@ -332,6 +338,7 @@ export class DidBtcr2Api {
       verificationMethodId,
       beaconId,
       signer,
+      beaconSigner,
       publishToCas,
       broadcastOptions,
     });

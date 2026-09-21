@@ -480,6 +480,9 @@ export class DidMethodApi {
    * Update an existing DID document by driving the sans-I/O {@link Updater} state
    * machine (from @did-btcr2/method). This method handles the I/O side:
    * - Signing: supplies the {@link Signer} to `NeedSigningKey`.
+   * - Beacon input: `beaconSigner` signs the beacon transaction input. It
+   *   defaults to `signer`. Pass a separate signer when the beacon address
+   *   belongs to a key other than the verification method key.
    * - Funding: reads the UTXOs at the beacon address and refuses the update if
    *   none is spendable. A spendable UTXO is confirmed and above the dust
    *   limit. The beacon applies the same rule at broadcast.
@@ -525,6 +528,7 @@ export class DidMethodApi {
     verificationMethodId,
     beaconId,
     signer,
+    beaconSigner = signer,
     bitcoin,
     publishToCas = 'never',
     broadcastOptions,
@@ -535,6 +539,7 @@ export class DidMethodApi {
     verificationMethodId?: string;
     beaconId?: string;
     signer: Signer;
+    beaconSigner?: Signer;
     bitcoin?: BitcoinConnection;
     publishToCas?: PublishToCasMode;
     broadcastOptions?: BroadcastOptions;
@@ -673,7 +678,7 @@ export class DidMethodApi {
             );
             const beacon = BeaconFactory.establish(need.beaconService, need.did);
             broadcastResult = await beacon.broadcastSignal(
-              need.signedUpdate, signer, btcConnection, options
+              need.signedUpdate, beaconSigner, btcConnection, options
             );
             updater.provide(need);
             break;
@@ -902,6 +907,7 @@ export class DidMethodApi {
     verificationMethodId?: string;
     beaconId?: string;
     signer: Signer;
+    beaconSigner?: Signer;
     bitcoin?: BitcoinConnection;
     publishToCas?: PublishToCasMode;
     broadcastOptions?: BroadcastOptions;
@@ -936,6 +942,7 @@ export class UpdateBuilder {
   #verificationMethodId?: string;
   #beaconId?: string;
   #signer?: Signer;
+  #beaconSigner?: Signer;
   #bitcoin?: BitcoinConnection;
   #publishToCas?: PublishToCasMode;
   #broadcastOptions?: BroadcastOptions;
@@ -977,14 +984,24 @@ export class UpdateBuilder {
   }
 
   /**
-   * Set the {@link Signer} that produces the update's BIP-340 Schnorr proof
-   * and the beacon transaction's ECDSA input signature. Use `LocalSigner`
-   * for in-process secret keys, `KeyManagerSigner` for KMS-managed keys
-   * (AWS, Vault, HSM, etc.), or any custom adapter implementing the `Signer`
-   * interface.
+   * Set the {@link Signer} that produces the update's BIP-340 Schnorr proof.
+   * The same signer signs the beacon transaction input, unless
+   * `.beaconSigner()` sets a separate one. Use `LocalSigner` for in-process
+   * secret keys, `KeyManagerSigner` for KMS-managed keys (AWS, Vault, HSM,
+   * etc.), or any custom adapter implementing the `Signer` interface.
    */
   signer(s: Signer): this {
     this.#signer = s;
+    return this;
+  }
+
+  /**
+   * Set the {@link Signer} that signs the beacon transaction input. Defaults to
+   * the signer of `.signer()`. Use it when the beacon address belongs to a key
+   * other than the verification method key.
+   */
+  beaconSigner(s: Signer): this {
+    this.#beaconSigner = s;
     return this;
   }
 
@@ -1034,6 +1051,7 @@ export class UpdateBuilder {
       verificationMethodId : this.#verificationMethodId,
       beaconId             : this.#beaconId,
       signer               : this.#signer,
+      beaconSigner         : this.#beaconSigner,
       bitcoin              : this.#bitcoin,
       publishToCas         : this.#publishToCas,
       broadcastOptions     : this.#broadcastOptions,
