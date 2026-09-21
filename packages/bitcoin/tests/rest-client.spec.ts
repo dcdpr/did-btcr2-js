@@ -241,6 +241,36 @@ describe('BitcoinRestClient', () => {
       }
     });
 
+    it('throws FAILED_HTTP_REQUEST on a 429 HTML page, not SyntaxError', async () => {
+      const html = '<html><body>Too Many Requests</body></html>';
+      const { executor } = mockExecutor({ status: 429, body: html, contentType: 'text/html' });
+      const rest = new BitcoinRestClient({ host: 'http://example.com' }, executor);
+      try {
+        await rest.block.count();
+        expect.fail('Expected to throw');
+      } catch (err: any) {
+        expect(err).to.not.be.instanceOf(SyntaxError);
+        expect(err.type).to.equal('FAILED_HTTP_REQUEST');
+        expect(err.message).to.include('429');
+        expect(err.data.status).to.equal(429);
+        expect(err.data.url).to.include('/blocks/tip/height');
+        expect(err.data.data).to.equal(html);
+      }
+    });
+
+    it('throws INVALID_HTTP_RESPONSE on an OK response whose body is not JSON', async () => {
+      const { executor } = mockExecutor({ status: 200, body: '<html>proxy</html>', contentType: 'text/html' });
+      const rest = new BitcoinRestClient({ host: 'http://example.com' }, executor);
+      try {
+        await rest.block.count();
+        expect.fail('Expected to throw');
+      } catch (err: any) {
+        expect(err.type).to.equal('INVALID_HTTP_RESPONSE');
+        expect(err.data.status).to.equal(200);
+        expect(err.data.data).to.equal('<html>proxy</html>');
+      }
+    });
+
     it('handles response with no Content-Type header', async () => {
       const seen: HttpRequest[] = [];
       const executor: HttpExecutor = async (req) => {

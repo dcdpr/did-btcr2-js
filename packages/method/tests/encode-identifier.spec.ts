@@ -96,6 +96,13 @@ describe('Encode Identifier', () => {
         idType : 'KEY', version : 1, network : '' as never
       })).to.throw(/network/i);
     });
+
+    it('rejects a numeric-string network', () => {
+      // The numeric enum maps '5' to the name 'mutinynet'. The encoder must not read it as a network.
+      expect(() => Identifier.encode(validKeyBytes, {
+        idType : 'KEY', version : 1, network : '5' as never
+      })).to.throw(/network/i);
+    });
   });
 
   describe('genesisBytes validation', () => {

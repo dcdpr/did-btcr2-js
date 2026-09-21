@@ -1,5 +1,18 @@
 # @did-btcr2/aggregation
 
+## 0.6.3
+
+### Patch Changes
+
+- The resolver keys the processed beacon signals by beacon address (ADR 118).
+
+  - method: the processed set of BeaconProcess is keyed by beacon address, not by service id. A rotated beacon whose old address carried a signal now resolves past the rotation. `Identifier.encode` rejects a numeric-string network such as `'5'`, which the numeric enum read as a network name and minted as a mainnet identifier.
+  - bitcoin: the REST client reads the status before it parses the body. A non-OK status raises `FAILED_HTTP_REQUEST` with the status, the URL, and the body. An OK status with a body that is not JSON raises `INVALID_HTTP_RESPONSE`.
+  - aggregation, api, cli: dependency uptake.
+
+- Updated dependencies []:
+  - @did-btcr2/bitcoin@0.11.1
+
 ## 0.6.2
 
 ### Patch Changes

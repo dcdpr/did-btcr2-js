@@ -195,3 +195,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 115 | 2026-09-15 | [The Vector Corpus Holds No Pipeline State, signals.json Records the Anchored Signals, and Two Recipes Cover a Duplicate Signal and a Removed Beacon Address](115-vector-corpus-holds-no-pipeline-state-and-signals-json-records-the-anchored-signals.md) |
 | 116 | 2026-09-15 | [The Anchor Step Broadcasts One Round per Command, and No Pipeline Script Mines a Block](116-anchor-step-broadcasts-one-round-per-command-and-no-script-mines.md) |
 | 117 | 2026-09-15 | [The Regtest Vectors Publish the CAS Objects to a Kubo Node in the Polar Stack, and the Public Networks Use an External IPFS Node](117-regtest-vectors-publish-cas-objects-to-a-kubo-node-in-the-polar-stack.md) |
+| 118 | 2026-09-21 | [The Resolver Keys the Processed Beacon Signals by Beacon Address, Not by Service Id](118-resolver-keys-processed-signals-by-beacon-address.md) |
