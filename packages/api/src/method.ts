@@ -436,13 +436,16 @@ export class DidMethodApi {
               break;
             }
             case 'NeedSMTProof': {
-              // SMT proofs are nonce-blinded, so they are not content-addressed
-              // by anything on-chain and cannot be fetched from a CAS. Sidecar
-              // is the only channel; without it the need is unfulfillable.
-              throw new Error(
+              // An SMT proof has no content address on chain: the signal is the
+              // tree root, and the proof of one DID is not derivable from it. Sidecar
+              // is the only channel. Without it the need is unfulfillable. The
+              // specification raises MISSING_UPDATE_DATA when the proof table has
+              // no entry for the signal root.
+              throw new ResolveError(
                 `SMT proof required but not in sidecar (root hash: ${need.smtRootHash}). `
                 + 'SMT proofs cannot be fetched from a CAS; provide the proof via '
-                + 'options.sidecar.smtProofs.'
+                + 'options.sidecar.smtProofs.',
+                MISSING_UPDATE_DATA, { smtRootHash: need.smtRootHash }
               );
             }
             default: {

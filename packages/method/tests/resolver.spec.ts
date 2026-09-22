@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { randomBytes } from 'crypto';
-import { canonicalHash, encode, hash, canonicalize, INTERNAL_ERROR, INVALID_DID_UPDATE, INVALID_OPTIONS, JSONPatch, LATE_PUBLISHING_ERROR, NOT_FOUND, ResolveError } from '@did-btcr2/common';
+import { canonicalHash, canonicalHashBytes, encode, hash, canonicalize, INTERNAL_ERROR, INVALID_DID_UPDATE, INVALID_OPTIONS, INVALID_SIGNAL_DATA, JSONPatch, LATE_PUBLISHING_ERROR, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError } from '@did-btcr2/common';
 import type { PatchOperation } from '@did-btcr2/common';
 import { getNetwork } from '@did-btcr2/bitcoin';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
@@ -695,9 +695,8 @@ describe('Resolver', () => {
 
       // Build a real SMT tree containing this DID's update
       const nonce = randomBytes(32);
-      const signedUpdateBytes = new TextEncoder().encode(canonicalize(fakeUpdate));
       const tree = new BTCR2MerkleTree();
-      tree.addEntries([{ did: smtDid, nonce, signedUpdate: signedUpdateBytes }]);
+      tree.addEntries([{ did: smtDid, nonce, updateId: canonicalHashBytes(fakeUpdate) }]);
       tree.finalize();
 
       // Get the root hash (for signal bytes) and proof (for sidecar)
@@ -754,7 +753,7 @@ describe('Resolver', () => {
       const smtGenesisBytes = hash(canonicalize(smtGenesisDoc));
       const smtDid = DidBtcr2.create(smtGenesisBytes, { idType: 'EXTERNAL', version: 1, network: 'regtest' });
 
-      // Build a tree with a non-inclusion entry (no signedUpdate)
+      // Build a tree with a nonce non-update entry (no updateId)
       const nonce = randomBytes(32);
       const tree = new BTCR2MerkleTree();
       tree.addEntries([{ did: smtDid, nonce }]);
@@ -763,7 +762,7 @@ describe('Resolver', () => {
       const rootHashHex = hashToHex(tree.rootHash);
       const smtProof = tree.proof(smtDid);
 
-      // Non-inclusion proof should have no updateId
+      // A non-update proof has no updateId
       expect(smtProof.updateId).to.be.undefined;
 
       const resolver = DidBtcr2.resolve(smtDid, {
@@ -785,7 +784,7 @@ describe('Resolver', () => {
       }]);
       resolver.provide(beaconNeed, fakeSignals);
 
-      // Should resolve (non-inclusion skipped, no updates, no needs)
+      // Should resolve (no update announced, no updates, no needs)
       state = resolver.resolve();
       expect(state.status).to.equal('resolved');
     });
@@ -1230,7 +1229,40 @@ describe('Resolver', () => {
       return { resolver, need: state.needs[0] as NeedSignedUpdate };
     }
 
-    it('rejects a NeedSignedUpdate payload whose hash does not match the signal', () => {
+    // Drive an SMT-beacon DID to the NeedSMTProof phase via a signal whose root is
+    // absent from the (empty) sidecar.
+    function reachNeedSMTProof(rootHex: string): { resolver: ReturnType<typeof DidBtcr2.resolve>; need: NeedSMTProof } {
+      const { genesisDocument } = externalData[2];
+      const smtGenesisDoc = JSON.parse(JSON.stringify(genesisDocument));
+      smtGenesisDoc.service[0].type = 'SMTBeacon';
+      const smtDid = DidBtcr2.create(hash(canonicalize(smtGenesisDoc)), { idType: 'EXTERNAL', version: 1, network: 'regtest' });
+      const resolver = DidBtcr2.resolve(smtDid, { sidecar: { genesisDocument: smtGenesisDoc } });
+      let state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected action-required');
+      const beaconNeed = state.needs[0] as NeedBeaconSignals;
+      const signals = new Map<BeaconService, Array<BeaconSignal>>();
+      signals.set(beaconNeed.beaconServices[0] as BeaconService, [{
+        tx            : {} as any,
+        signalBytes   : rootHex,
+        blockMetadata : { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
+      }]);
+      resolver.provide(beaconNeed, signals);
+      state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected NeedSMTProof');
+      return { resolver, need: state.needs[0] as NeedSMTProof };
+    }
+
+    /** The error that `fn` throws. Fails if it does not throw. */
+    function caught(fn: () => unknown): any {
+      try {
+        fn();
+      } catch(error) {
+        return error;
+      }
+      throw new Error('expected a throw');
+    }
+
+    it('rejects a NeedSignedUpdate payload whose hash does not match the signal with INVALID_SIGNAL_DATA', () => {
       const { resolver, need } = reachNeedSignedUpdate();
       // Well-formed signed-update shape, but not the update the signal asked for.
       const wellFormedButWrong = {
@@ -1247,15 +1279,19 @@ describe('Resolver', () => {
           proofValue         : 'zz'
         }
       };
-      expect(() => resolver.provide(need, wellFormedButWrong as any)).to.throw(/hash mismatch/i);
+      const thrown = caught(() => resolver.provide(need, wellFormedButWrong as any));
+      expect(thrown.message).to.match(/hash mismatch/i);
+      expect(thrown.type).to.equal(INVALID_SIGNAL_DATA);
     });
 
-    it('rejects a NeedSignedUpdate payload that is not a signed update', () => {
+    it('rejects a NeedSignedUpdate payload that is not a signed update with INVALID_DID_UPDATE', () => {
       const { resolver, need } = reachNeedSignedUpdate();
-      expect(() => resolver.provide(need, { not: 'an update' } as any)).to.throw(/not a signed BTCR2 update/i);
+      const thrown = caught(() => resolver.provide(need, { not: 'an update' } as any));
+      expect(thrown.message).to.match(/not a signed BTCR2 update/i);
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
     });
 
-    it('rejects a NeedCASAnnouncement payload whose hash does not match the signal', () => {
+    it('rejects a NeedCASAnnouncement payload whose hash does not match the signal with MISSING_UPDATE_DATA', () => {
       const { genesisDocument } = externalData[2];
       const casGenesisDoc = JSON.parse(JSON.stringify(genesisDocument));
       casGenesisDoc.service[0].type = 'CASBeacon';
@@ -1276,8 +1312,61 @@ describe('Resolver', () => {
       state = resolver.resolve();
       if(state.status !== 'action-required') throw new Error('expected NeedCASAnnouncement');
       const casNeed = state.needs[0] as NeedCASAnnouncement;
-      // Valid announcement shape (record of string hashes), wrong hash.
-      expect(() => resolver.provide(casNeed, { someUpdate: 'someHash' } as any)).to.throw(/hash mismatch/i);
+      // Valid announcement shape (record of string hashes), wrong hash: the
+      // announcement is "not available from CAS".
+      const thrown = caught(() => resolver.provide(casNeed, { someUpdate: 'someHash' } as any));
+      expect(thrown.message).to.match(/hash mismatch/i);
+      expect(thrown.type).to.equal(MISSING_UPDATE_DATA);
+    });
+
+    it('rejects a NeedCASAnnouncement payload that is not an announcement with INVALID_DID_UPDATE', () => {
+      const { genesisDocument } = externalData[2];
+      const casGenesisDoc = JSON.parse(JSON.stringify(genesisDocument));
+      casGenesisDoc.service[0].type = 'CASBeacon';
+      const casDid = DidBtcr2.create(hash(canonicalize(casGenesisDoc)), { idType: 'EXTERNAL', version: 1, network: 'regtest' });
+      const resolver = DidBtcr2.resolve(casDid, { sidecar: { genesisDocument: casGenesisDoc } });
+
+      let state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+      const beaconNeed = state.needs[0] as NeedBeaconSignals;
+      const signals = new Map<BeaconService, Array<BeaconSignal>>();
+      signals.set(beaconNeed.beaconServices[0] as BeaconService, [{
+        tx            : {} as any,
+        signalBytes   : 'abcdef01'.repeat(8),
+        blockMetadata : { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
+      }]);
+      resolver.provide(beaconNeed, signals);
+
+      state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected NeedCASAnnouncement');
+      const casNeed = state.needs[0] as NeedCASAnnouncement;
+      const thrown = caught(() => resolver.provide(casNeed, { someUpdate: 42 } as any));
+      expect(thrown.message).to.match(/not a CAS announcement/i);
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+    });
+
+    it('rejects a NeedSMTProof payload whose id is another root with INVALID_SIGNAL_DATA', () => {
+      const tree = new BTCR2MerkleTree();
+      tree.addEntries([{ did: 'did:btcr2:k1qsomeone', nonce: randomBytes(32), updateId: randomBytes(32) }]);
+      tree.finalize();
+      const { resolver, need } = reachNeedSMTProof('cafe'.repeat(16));
+      const thrown = caught(() => resolver.provide(need, tree.proof('did:btcr2:k1qsomeone')));
+      expect(thrown.message).to.match(/root hash mismatch/i);
+      expect(thrown.type).to.equal(INVALID_SIGNAL_DATA);
+    });
+
+    it('rejects a NeedSMTProof payload whose id does not decode with INVALID_SIGNAL_DATA', () => {
+      const { resolver, need } = reachNeedSMTProof('cafe'.repeat(16));
+      const thrown = caught(() => resolver.provide(need, { id: '!!!', collapsed: 'A'.repeat(43), hashes: [] }));
+      expect(thrown.message).to.match(/does not decode/i);
+      expect(thrown.type).to.equal(INVALID_SIGNAL_DATA);
+    });
+
+    it('rejects a NeedSMTProof payload that is not an SMT proof with INVALID_SIGNAL_DATA', () => {
+      const { resolver, need } = reachNeedSMTProof('cafe'.repeat(16));
+      const thrown = caught(() => resolver.provide(need, { id: 'x', collapsed: 'y', hashes: [1] } as any));
+      expect(thrown.message).to.match(/not an SMT proof/i);
+      expect(thrown.type).to.equal(INVALID_SIGNAL_DATA);
     });
 
     it('rejects a non-Map payload for NeedBeaconSignals', () => {
@@ -1435,9 +1524,8 @@ describe('Resolver', () => {
 
       const fakeUpdate = { '@context': [ 'test' ], patch: [], targetHash: 'fake', targetVersionId: 2, sourceHash: 'fake' };
       const nonce = randomBytes(32);
-      const signedUpdateBytes = new TextEncoder().encode(canonicalize(fakeUpdate));
       const tree = new BTCR2MerkleTree();
-      tree.addEntries([{ did: smtDid, nonce, signedUpdate: signedUpdateBytes }]);
+      tree.addEntries([{ did: smtDid, nonce, updateId: canonicalHashBytes(fakeUpdate) }]);
       tree.finalize();
       const rootHashHex = hashToHex(tree.rootHash);
       const smtProof = tree.proof(smtDid);
@@ -2919,6 +3007,56 @@ describe('Resolver', () => {
       const { metadata } = driveAddresses(fixture.did, [v2, v3, v4], new Map([
         [A, [{ update: v2 }, { update: v4 }]],
         [A2, [{ update: v3 }]]
+      ]));
+      expect(metadata.versionId).to.equal('3');
+    });
+  });
+
+  describe('the signals before the block that added a beacon address (ADR 120)', () => {
+    // "Find Beacon Signals" finds only the transactions at or above current_block_height,
+    // the height of the block of the most recently applied update. A beacon address that
+    // an update added has no signals for this DID before the block of that update. The
+    // genesis beacon of service 0 is the address A; v2 at A adds the address C.
+    const fixture = deterministicData[2]; // regtest - has a known secretKey
+
+    it('ignores a signal at an added address whose block is before the block of the update that added it', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [A, C] = [addressOf(source, 0), freshAddress()];
+      const [v2, v3] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        addService({ id: `${fixture.did}#beacon-c`, type: 'SingletonBeacon', serviceEndpoint: `bitcoin:${C}` }),
+        benignPatch(fixture.did)
+      ]);
+      const { metadata } = driveAddresses(fixture.did, [v2, v3], new Map([
+        [A, [{ update: v2, block: { height: 100 } }]],
+        [C, [{ update: v3, block: { height: 99 } }]]   // before the block of v2: not a signal of this DID
+      ]));
+      expect(metadata.versionId).to.equal('2');
+    });
+
+    it('applies a signal at an added address whose block equals the block of the update that added it', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [A, C] = [addressOf(source, 0), freshAddress()];
+      const [v2, v3] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        addService({ id: `${fixture.did}#beacon-c`, type: 'SingletonBeacon', serviceEndpoint: `bitcoin:${C}` }),
+        benignPatch(fixture.did)
+      ]);
+      const { metadata } = driveAddresses(fixture.did, [v2, v3], new Map([
+        [A, [{ update: v2, block: { height: 100 } }]],
+        [C, [{ update: v3, block: { height: 100 } }]]  // the same block: at or above, applies
+      ]));
+      expect(metadata.versionId).to.equal('3');
+    });
+
+    it('control: applies a signal at an added address in a later block', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [A, C] = [addressOf(source, 0), freshAddress()];
+      const [v2, v3] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        addService({ id: `${fixture.did}#beacon-c`, type: 'SingletonBeacon', serviceEndpoint: `bitcoin:${C}` }),
+        benignPatch(fixture.did)
+      ]);
+      const { metadata } = driveAddresses(fixture.did, [v2, v3], new Map([
+        [A, [{ update: v2, block: { height: 100 } }]],
+        [C, [{ update: v3, block: { height: 101 } }]]
       ]));
       expect(metadata.versionId).to.equal('3');
     });

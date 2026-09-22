@@ -1,8 +1,7 @@
 import { expect } from 'chai';
 import {
   BTCR2MerkleTree, type TreeEntry,
-  didToIndex, inclusionLeafHash, nonInclusionLeafHash,
-  verifySerializedProof,
+  verifyProof,
   HASH_BYTE_LENGTH,
 } from '../src/index.js';
 import { randomBytes } from '@noble/curves/utils.js';
@@ -11,27 +10,26 @@ function randomHash(): Uint8Array {
   return randomBytes(HASH_BYTE_LENGTH);
 }
 
+/** An entry in nonce mode: an update (`include`) or a nonce non-update. */
 function makeEntry(did: string, include = true): TreeEntry {
   return {
     did,
-    nonce        : randomHash(),
-    signedUpdate : include ? randomHash() : undefined,
+    nonce    : randomHash(),
+    updateId : include ? randomHash() : undefined,
   };
 }
 
 describe('BTCR2MerkleTree', () => {
 
-  it('builds and verifies a single inclusion entry', () => {
+  it('builds and verifies a single nonce-mode update entry', () => {
     const tree = new BTCR2MerkleTree();
-    const entry = makeEntry('did:btcr2:k1qsingle');
-    tree.addEntries([entry]);
+    tree.addEntries([makeEntry('did:btcr2:k1qsingle')]);
     tree.finalize();
 
     const proof = tree.proof('did:btcr2:k1qsingle');
-    const index = didToIndex('did:btcr2:k1qsingle');
-    const leafHash = inclusionLeafHash(entry.nonce, entry.signedUpdate!);
-
-    expect(verifySerializedProof(proof, index, leafHash)).to.be.true;
+    expect(proof.nonce).to.be.a('string');
+    expect(proof.updateId).to.be.a('string');
+    expect(verifyProof(proof, 'did:btcr2:k1qsingle')).to.be.true;
   });
 
   it('builds and verifies multiple entries', () => {
@@ -48,51 +46,93 @@ describe('BTCR2MerkleTree', () => {
     tree.finalize();
 
     for (const entry of entries) {
-      const proof = tree.proof(entry.did);
-      const index = didToIndex(entry.did);
-      const leafHash = inclusionLeafHash(entry.nonce, entry.signedUpdate!);
-      expect(verifySerializedProof(proof, index, leafHash)).to.be.true;
+      expect(verifyProof(tree.proof(entry.did), entry.did)).to.be.true;
     }
   });
 
-  it('builds and verifies non-inclusion entries', () => {
-    const tree = new BTCR2MerkleTree(true);
-    const entry = makeEntry('did:btcr2:k1qmissing', false);
-    tree.addEntries([entry]);
+  it('builds and verifies a nonce non-update entry (nonce only)', () => {
+    const tree = new BTCR2MerkleTree();
+    tree.addEntries([makeEntry('did:btcr2:k1qmissing', false)]);
     tree.finalize();
 
     const proof = tree.proof('did:btcr2:k1qmissing');
-    const index = didToIndex('did:btcr2:k1qmissing');
-    const leafHash = nonInclusionLeafHash(entry.nonce);
-
-    expect(verifySerializedProof(proof, index, leafHash)).to.be.true;
+    expect(proof.nonce).to.be.a('string');
+    expect(proof.updateId).to.be.undefined;
+    expect(verifyProof(proof, 'did:btcr2:k1qmissing')).to.be.true;
   });
 
-  it('handles mixed inclusion and non-inclusion entries', () => {
-    const tree = new BTCR2MerkleTree(true);
-    const included  = makeEntry('did:btcr2:k1qincl', true);
-    const excluded  = makeEntry('did:btcr2:k1qexcl', false);
-    tree.addEntries([included, excluded]);
+  it('builds and verifies a no-nonce update entry (updateId only)', () => {
+    const tree = new BTCR2MerkleTree();
+    tree.addEntries([{ did: 'did:btcr2:k1qnononce', updateId: randomHash() }]);
     tree.finalize();
 
-    // Inclusion proof
-    const inclProof = tree.proof('did:btcr2:k1qincl');
-    const inclHash  = inclusionLeafHash(included.nonce, included.signedUpdate!);
-    expect(verifySerializedProof(inclProof, didToIndex('did:btcr2:k1qincl'), inclHash)).to.be.true;
+    const proof = tree.proof('did:btcr2:k1qnononce');
+    expect(proof.nonce).to.be.undefined;
+    expect(proof.updateId).to.be.a('string');
+    expect(verifyProof(proof, 'did:btcr2:k1qnononce')).to.be.true;
+  });
 
-    // Non-inclusion proof
-    const exclProof = tree.proof('did:btcr2:k1qexcl');
-    const exclHash  = nonInclusionLeafHash(excluded.nonce);
-    expect(verifySerializedProof(exclProof, didToIndex('did:btcr2:k1qexcl'), exclHash)).to.be.true;
+  it('handles mixed update and non-update entries', () => {
+    const tree = new BTCR2MerkleTree();
+    tree.addEntries([
+      makeEntry('did:btcr2:k1qincl', true),
+      makeEntry('did:btcr2:k1qexcl', false),
+      { did: 'did:btcr2:k1qplain', updateId: randomHash() },
+    ]);
+    tree.finalize();
+
+    expect(verifyProof(tree.proof('did:btcr2:k1qincl'), 'did:btcr2:k1qincl')).to.be.true;
+    expect(verifyProof(tree.proof('did:btcr2:k1qexcl'), 'did:btcr2:k1qexcl')).to.be.true;
+    expect(verifyProof(tree.proof('did:btcr2:k1qplain'), 'did:btcr2:k1qplain')).to.be.true;
+  });
+
+  it('an entry with neither field stays an empty index', () => {
+    const member = makeEntry('did:btcr2:k1qmember');
+
+    const withEmpty = new BTCR2MerkleTree();
+    withEmpty.addEntries([member, { did: 'did:btcr2:k1qempty' }]);
+    withEmpty.finalize();
+
+    const without = new BTCR2MerkleTree();
+    without.addEntries([member]);
+    without.finalize();
+
+    expect(withEmpty.rootHash).to.deep.equal(without.rootHash);
+
+    const proof = withEmpty.proof('did:btcr2:k1qempty');
+    expect(proof.nonce).to.be.undefined;
+    expect(proof.updateId).to.be.undefined;
+    expect(verifyProof(proof, 'did:btcr2:k1qempty')).to.be.true;
+  });
+
+  it('returns a verifiable empty-index proof for a DID that is not in the tree', () => {
+    const tree = new BTCR2MerkleTree();
+    tree.addEntries([makeEntry('did:btcr2:k1qknown')]);
+    tree.finalize();
+
+    const proof = tree.proof('did:btcr2:k1qunknown');
+    expect(proof.id).to.equal(tree.proof('did:btcr2:k1qknown').id);
+    expect(proof.nonce).to.be.undefined;
+    expect(proof.updateId).to.be.undefined;
+    expect(verifyProof(proof, 'did:btcr2:k1qunknown')).to.be.true;
+  });
+
+  it('a proof of a member does not verify for another DID', () => {
+    const tree = new BTCR2MerkleTree();
+    tree.addEntries([makeEntry('did:btcr2:k1qmine'), makeEntry('did:btcr2:k1qyours')]);
+    tree.finalize();
+
+    const proof = tree.proof('did:btcr2:k1qmine');
+    expect(verifyProof(proof, 'did:btcr2:k1qyours')).to.be.false;
+    expect(verifyProof(proof, 'did:btcr2:k1qnobody')).to.be.false;
   });
 
   it('root hash is deterministic for same entries', () => {
-    const entry = makeEntry('did:btcr2:k1qdeterm');
-    // Fix nonce and update for reproducibility.
-    const nonce  = new Uint8Array(HASH_BYTE_LENGTH).fill(0x42);
-    const update = new Uint8Array(HASH_BYTE_LENGTH).fill(0x99);
-    entry.nonce = nonce;
-    entry.signedUpdate = update;
+    const entry: TreeEntry = {
+      did      : 'did:btcr2:k1qdeterm',
+      nonce    : new Uint8Array(HASH_BYTE_LENGTH).fill(0x42),
+      updateId : new Uint8Array(HASH_BYTE_LENGTH).fill(0x99),
+    };
 
     const tree1 = new BTCR2MerkleTree();
     tree1.addEntries([{ ...entry }]);
@@ -107,22 +147,19 @@ describe('BTCR2MerkleTree', () => {
 
   it('reset allows rebuilding with new data', () => {
     const tree = new BTCR2MerkleTree();
-    const entry1 = makeEntry('did:btcr2:k1qfirst');
-    tree.addEntries([entry1]);
+    tree.addEntries([makeEntry('did:btcr2:k1qfirst')]);
     tree.finalize();
     const root1 = new Uint8Array(tree.rootHash);
 
     tree.reset();
-    // After reset, need new hashes (entries are preserved, tree structure reused).
-    // Since entry nonce/update haven't changed, re-finalize produces same root.
+    // The entries are kept, so a second finalize produces the same root.
     tree.finalize();
     expect(tree.rootHash).to.deep.equal(root1);
   });
 
   it('serialized proof has correct metadata fields', () => {
     const tree = new BTCR2MerkleTree();
-    const entry = makeEntry('did:btcr2:k1qmeta');
-    tree.addEntries([entry]);
+    tree.addEntries([makeEntry('did:btcr2:k1qmeta')]);
     tree.finalize();
 
     const proof = tree.proof('did:btcr2:k1qmeta');
@@ -140,11 +177,15 @@ describe('BTCR2MerkleTree', () => {
     expect(() => tree.addEntries([makeEntry('did:btcr2:k1qdup')])).to.throw(RangeError, /Duplicate/i);
   });
 
-  it('throws on proof for unknown DID', () => {
+  it('throws on an updateId that is not 32 bytes', () => {
     const tree = new BTCR2MerkleTree();
-    tree.addEntries([makeEntry('did:btcr2:k1qknown')]);
-    tree.finalize();
-    expect(() => tree.proof('did:btcr2:k1qunknown')).to.throw(RangeError);
+    expect(() => tree.addEntries([{ did: 'did:btcr2:k1qshort', updateId: new Uint8Array(31) }])).to.throw(RangeError);
+  });
+
+  it('throws on proof before finalize', () => {
+    const tree = new BTCR2MerkleTree();
+    tree.addEntries([makeEntry('did:btcr2:k1qearly')]);
+    expect(() => tree.proof('did:btcr2:k1qearly')).to.throw(Error, /not finalized/i);
   });
 
   it('throws on rootHash before finalize', () => {

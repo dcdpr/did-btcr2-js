@@ -1,10 +1,11 @@
-import { canonicalize, canonicalHash, decode, encode, hash } from '@did-btcr2/common';
+import { canonicalHashBytes, canonicalize, canonicalHash, decode, encode, hash, INVALID_SIGNAL_DATA } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '@did-btcr2/method';
-import { BTCR2MerkleTree } from '@did-btcr2/smt';
+import { BTCR2MerkleTree, hashToHex, type TreeEntry } from '@did-btcr2/smt';
 import { bytesToHex, randomBytes } from '@noble/hashes/utils';
 import { expect } from 'chai';
 import { SinglePartyBeacon } from '../src/core/beacon/beacon.js';
 import { CASBeacon } from '../src/core/beacon/cas-beacon.js';
+import { SMTBeaconError } from '../src/core/beacon/error.js';
 import { BeaconFactory } from '../src/core/beacon/factory.js';
 import type { BeaconService, BeaconSignal, BlockMetadata } from '../src/core/beacon/interfaces.js';
 import { SingletonBeacon } from '../src/core/beacon/singleton-beacon.js';
@@ -164,21 +165,49 @@ describe('SinglePartyBeacon.processSignals', () => {
     };
     const beacon = new SMTBeacon(service, DID);
 
+    /** A finalized single-entry tree for DID: the hex root (the signal bytes) and the proof. */
+    function treeOf(entry: Omit<TreeEntry, 'did'>): { rootHex: string; proof: SMTProof } {
+      const tree = new BTCR2MerkleTree();
+      tree.addEntries([{ did: DID, ...entry }]);
+      tree.finalize();
+      return { rootHex: hashToHex(tree.rootHash), proof: tree.proof(DID) };
+    }
+
+    /** The error that `fn` throws, or undefined. */
+    function thrownBy(fn: () => unknown): any {
+      try {
+        fn();
+      } catch(error) {
+        return error;
+      }
+      return undefined;
+    }
+
     it('returns update when SMT proof and signed update are in sidecar', () => {
       const update = fakeUpdate('smt-happy');
-      const canonicalBytes = new TextEncoder().encode(canonicalize(update));
-      const nonce = randomBytes(32);
-      const tree = new BTCR2MerkleTree();
-      tree.addEntries([{ did: DID, nonce, signedUpdate: canonicalBytes }]);
-      tree.finalize();
-      const proof = tree.proof(DID);
+      const { rootHex, proof } = treeOf({ nonce: randomBytes(32), updateId: canonicalHashBytes(update) });
 
-      const updateHashHex = bytesToHex(hash(canonicalize(update)));
       const sidecar = emptySidecar();
-      sidecar.smtMap.set(proof.id, proof);
-      sidecar.updateMap.set(updateHashHex, update);
+      sidecar.smtMap.set(rootHex, proof);
+      sidecar.updateMap.set(bytesToHex(canonicalHashBytes(update)), update);
 
-      const result = beacon.processSignals([fakeSignal(proof.id)], sidecar);
+      const result = beacon.processSignals([fakeSignal(rootHex)], sidecar);
+
+      expect(result.updates).to.have.length(1);
+      expect(result.updates[0]![0]).to.deep.equal(update);
+      expect(result.needs).to.be.empty;
+    });
+
+    it('returns the update for a no-nonce proof (updateId only)', () => {
+      const update = fakeUpdate('smt-no-nonce');
+      const { rootHex, proof } = treeOf({ updateId: canonicalHashBytes(update) });
+      expect(proof.nonce).to.be.undefined;
+
+      const sidecar = emptySidecar();
+      sidecar.smtMap.set(rootHex, proof);
+      sidecar.updateMap.set(bytesToHex(canonicalHashBytes(update)), update);
+
+      const result = beacon.processSignals([fakeSignal(rootHex)], sidecar);
 
       expect(result.updates).to.have.length(1);
       expect(result.updates[0]![0]).to.deep.equal(update);
@@ -195,92 +224,104 @@ describe('SinglePartyBeacon.processSignals', () => {
       expect((result.needs[0] as { smtRootHash: string }).smtRootHash).to.equal(rootHex);
     });
 
-    it('skips non-inclusion proofs (no updateId)', () => {
-      // A non-inclusion proof has nonce but no updateId
-      const nonce = randomBytes(32);
-      const tree = new BTCR2MerkleTree();
-      tree.addEntries([{ did: DID, nonce }]); // no signedUpdate, non-inclusion
-      tree.finalize();
-      const proof = tree.proof(DID);
+    it('skips a nonce non-update proof (nonce, no updateId)', () => {
+      const { rootHex, proof } = treeOf({ nonce: randomBytes(32) });
       expect(proof.updateId).to.be.undefined;
 
       const sidecar = emptySidecar();
-      sidecar.smtMap.set(proof.id, proof);
+      sidecar.smtMap.set(rootHex, proof);
 
-      const result = beacon.processSignals([fakeSignal(proof.id)], sidecar);
+      const result = beacon.processSignals([fakeSignal(rootHex)], sidecar);
 
-      // Non-inclusion: no updates, no needs emitted - this beacon has nothing for this DID
+      // The signal announces no update for this DID: no updates, no needs.
       expect(result.updates).to.be.empty;
       expect(result.needs).to.be.empty;
     });
 
-    it('throws when proof is missing the required nonce', () => {
-      const update = fakeUpdate('smt-no-nonce');
-      const updateHashHex = bytesToHex(hash(canonicalize(update)));
-      const rootHex = '1111111111111111111111111111111111111111111111111111111111111111';
-
-      // Malformed proof - has updateId but no nonce
-      const badProof: SMTProof = {
-        id        : rootHex,
-        updateId  : updateHashHex,
-        collapsed : '0',
-        hashes    : [],
-      };
+    it('skips an empty-index proof (no nonce, no updateId) without a need', () => {
+      // The tree holds another DID only: the proof of DID is the proof of an empty index.
+      const tree = new BTCR2MerkleTree();
+      tree.addEntries([{ did: 'did:btcr2:k1qother', nonce: randomBytes(32), updateId: randomBytes(32) }]);
+      tree.finalize();
+      const rootHex = hashToHex(tree.rootHash);
+      const proof = tree.proof(DID);
+      expect(proof.nonce).to.be.undefined;
+      expect(proof.updateId).to.be.undefined;
 
       const sidecar = emptySidecar();
-      sidecar.smtMap.set(rootHex, badProof);
+      sidecar.smtMap.set(rootHex, proof);
 
-      expect(() => beacon.processSignals([fakeSignal(rootHex)], sidecar)).to.throw(
-        'SMT proof missing required nonce field.'
-      );
+      const result = beacon.processSignals([fakeSignal(rootHex)], sidecar);
+
+      expect(result.updates).to.be.empty;
+      expect(result.needs).to.be.empty;
     });
 
-    it('throws when Merkle inclusion proof fails verification', () => {
-      // Build a valid tree & proof, then tamper with the proof's nonce
+    it('throws INVALID_SIGNAL_DATA when the id of the proof is not the signal root', () => {
+      const update = fakeUpdate('smt-wrong-root');
+      const { proof } = treeOf({ nonce: randomBytes(32), updateId: canonicalHashBytes(update) });
+      const otherRoot = '11'.repeat(32);
+
+      // A caller-built map that files the proof under another root.
+      const sidecar = emptySidecar();
+      sidecar.smtMap.set(otherRoot, proof);
+
+      const thrown = thrownBy(() => beacon.processSignals([fakeSignal(otherRoot)], sidecar));
+      expect(thrown).to.be.instanceOf(SMTBeaconError);
+      expect(thrown.type).to.equal(INVALID_SIGNAL_DATA);
+      expect(thrown.message).to.match(/id does not equal the signal root/);
+      expect(thrown.data.smtRootHash).to.equal(otherRoot);
+    });
+
+    it('throws INVALID_SIGNAL_DATA for a proof that does not verify', () => {
+      // Build a valid tree and proof, then tamper with the nonce of the proof.
       const update = fakeUpdate('smt-tampered');
-      const canonicalBytes = new TextEncoder().encode(canonicalize(update));
-      const nonce = randomBytes(32);
-      const tree = new BTCR2MerkleTree();
-      tree.addEntries([{ did: DID, nonce, signedUpdate: canonicalBytes }]);
-      tree.finalize();
-      const proof = tree.proof(DID);
+      const { rootHex, proof } = treeOf({ nonce: randomBytes(32), updateId: canonicalHashBytes(update) });
 
       // Tamper: replace the nonce with a valid-but-wrong (all-zero) base64url
-      // value, so decoding succeeds but the Merkle proof no longer verifies.
-      const tampered: SMTProof = {
-        ...proof,
-        nonce : 'A'.repeat(43), // base64url no-pad of 32 zero bytes
-      };
+      // value, so decoding succeeds but the proof no longer walks to the root.
+      const tampered: SMTProof = { ...proof, nonce: 'A'.repeat(43) };
 
       const sidecar = emptySidecar();
-      sidecar.smtMap.set(tampered.id, tampered);
+      sidecar.smtMap.set(rootHex, tampered);
 
-      expect(() => beacon.processSignals([fakeSignal(tampered.id)], sidecar)).to.throw(
-        'SMT proof verification failed.'
-      );
+      const thrown = thrownBy(() => beacon.processSignals([fakeSignal(rootHex)], sidecar));
+      expect(thrown).to.be.instanceOf(SMTBeaconError);
+      expect(thrown.type).to.equal(INVALID_SIGNAL_DATA);
+      expect(thrown.message).to.match(/verification failed/);
+      expect(thrown.data.did).to.equal(DID);
+    });
+
+    it('throws INVALID_SIGNAL_DATA, not RangeError, for a proof whose updateId is not 32 bytes', () => {
+      const update = fakeUpdate('smt-short-update-id');
+      const { rootHex, proof } = treeOf({ nonce: randomBytes(32), updateId: canonicalHashBytes(update) });
+      const short: SMTProof = { ...proof, updateId: encode(randomBytes(31), 'base64urlnopad') };
+
+      const sidecar = emptySidecar();
+      sidecar.smtMap.set(rootHex, short);
+
+      const thrown = thrownBy(() => beacon.processSignals([fakeSignal(rootHex)], sidecar));
+      expect(thrown).to.not.be.instanceOf(RangeError);
+      expect(thrown).to.be.instanceOf(SMTBeaconError);
+      expect(thrown.type).to.equal(INVALID_SIGNAL_DATA);
     });
 
     it('emits NeedSignedUpdate when proof is valid but update is missing', () => {
       const update = fakeUpdate('smt-update-missing');
-      const canonicalBytes = new TextEncoder().encode(canonicalize(update));
-      const nonce = randomBytes(32);
-      const tree = new BTCR2MerkleTree();
-      tree.addEntries([{ did: DID, nonce, signedUpdate: canonicalBytes }]);
-      tree.finalize();
-      const proof = tree.proof(DID);
+      const { rootHex, proof } = treeOf({ nonce: randomBytes(32), updateId: canonicalHashBytes(update) });
 
       const sidecar = emptySidecar();
-      sidecar.smtMap.set(proof.id, proof);
+      sidecar.smtMap.set(rootHex, proof);
       // updateMap intentionally empty
 
-      const result = beacon.processSignals([fakeSignal(proof.id)], sidecar);
+      const result = beacon.processSignals([fakeSignal(rootHex)], sidecar);
 
       expect(result.updates).to.be.empty;
       expect(result.needs).to.have.length(1);
       expect(result.needs[0]!.kind).to.equal('NeedSignedUpdate');
       // updateHash emitted is the hex canonical hash of the update (updateMap is
       // hex-keyed; proof.updateId is the same hash encoded as base64url).
-      expect((result.needs[0] as { updateHash: string }).updateHash).to.equal(bytesToHex(hash(canonicalize(update))));
+      expect((result.needs[0] as { updateHash: string }).updateHash).to.equal(bytesToHex(canonicalHashBytes(update)));
     });
   });
 });

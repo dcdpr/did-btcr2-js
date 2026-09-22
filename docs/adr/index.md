@@ -197,3 +197,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 117 | 2026-09-15 | [The Regtest Vectors Publish the CAS Objects to a Kubo Node in the Polar Stack, and the Public Networks Use an External IPFS Node](117-regtest-vectors-publish-cas-objects-to-a-kubo-node-in-the-polar-stack.md) |
 | 118 | 2026-09-21 | [The Resolver Keys the Processed Beacon Signals by Beacon Address, Not by Service Id](118-resolver-keys-processed-signals-by-beacon-address.md) |
 | 119 | 2026-09-21 | [The api Takes a Separate Signer for the Beacon Transaction Input](119-api-takes-a-separate-signer-for-the-beacon-transaction-input.md) |
+| 120 | 2026-09-22 | [The SMT Follows the Leaf Values, the Proof Bit Sequence, and the Signal Results of Spec PR 365](120-smt-leaf-values-proof-bit-sequence-and-signal-results.md) |

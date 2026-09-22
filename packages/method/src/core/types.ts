@@ -49,8 +49,10 @@ export type Sidecar = {
   casUpdates?: Array<CASAnnouncement>;
 
   /**
-   * Optional array of SMT Proofs. Required if the DID being resolved has used
-   * an SMT Beacon to publish a BTCR2 Update.
+   * Optional array of SMT Proofs: one proof for each SMT beacon signal that the
+   * resolver finds for the DID, with an update announced or not. The DID
+   * controller keeps every proof for the life of the DID. Sidecar is the only
+   * channel for a proof.
    */
   smtProofs?: Array<SMTProof>;
 };

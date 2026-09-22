@@ -1,15 +1,25 @@
 import type { BitcoinConnection } from '@did-btcr2/bitcoin';
-import { canonicalize } from '@did-btcr2/common';
+import { canonicalHashBytes, INVALID_SIGNAL_DATA } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '../btcr2-update.js';
 import type { Signer } from '@did-btcr2/keypair';
-import { base64UrlToHash, blockHash, BTCR2MerkleTree, didToIndex, hashToHex, verifySerializedProof } from '@did-btcr2/smt';
+import { base64UrlToHash, BTCR2MerkleTree, hashToHex, verifyProof } from '@did-btcr2/smt';
 import { randomBytes } from '@noble/hashes/utils';
 import type { BeaconProcessResult, DataNeed } from '../resolver.js';
+import type { SMTProof } from '../interfaces.js';
 import type { SidecarData } from '../types.js';
 import type { BroadcastOptions, BroadcastResult } from './beacon.js';
 import { SinglePartyBeacon } from './beacon.js';
 import { SMTBeaconError } from './error.js';
 import type { BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js';
+
+/** The hex of the base64url `id` of a proof, or `undefined` if the id does not decode to 32 bytes. */
+function proofIdHex(proof: SMTProof): string | undefined {
+  try {
+    return hashToHex(base64UrlToHash(proof.id));
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/terminology.html#smt-beacon | SMT Beacon}.
@@ -36,15 +46,17 @@ export class SMTBeacon extends SinglePartyBeacon {
   /**
    * Implements {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process-smt-beacon | 7.2.e.1 Process SMT Beacon}.
    *
-   * For each signal, the signalBytes contain the hex-encoded SMT root hash.
-   * This method looks up the SMT Proof from the sidecar by root hash,
-   * validates the Merkle inclusion proof, and retrieves the corresponding
-   * signed update using the proof's updateId.
+   * For each signal, the signalBytes contain the hex-encoded SMT root hash
+   * (`smt_root`). This method looks up the SMT Proof from the sidecar by root
+   * hash, checks that the id of the proof is the root, verifies the proof with
+   * the SMT Proof Verification algorithm, and retrieves the signed update by the
+   * proof's updateId. A proof with no updateId announces no update for the DID.
    *
    * @param {Array<BeaconSignal>} signals The array of Beacon Signals to process.
    * @param {SidecarData} sidecar The sidecar data associated with the SMT Beacon.
    * @returns {BeaconProcessResult} Successfully resolved updates and any data needs.
-   * @throws {SMTBeaconError} if proof verification fails or proof is malformed.
+   * @throws {SMTBeaconError} `INVALID_SIGNAL_DATA` if the id of the proof is not the
+   *   signal root, or if the proof does not verify.
    */
   processSignals(
     signals: Array<BeaconSignal>,
@@ -57,7 +69,8 @@ export class SMTBeacon extends SinglePartyBeacon {
     const did = this.did;
 
     for(const signal of signals) {
-      // Signal bytes are the hex-encoded SMT root hash; smtMap is keyed by proof.id (also hex)
+      // "Process SMT Beacon": the signal bytes are smt_root, the hex SMT root hash.
+      // The smtMap is keyed by the hex of proof.id. No entry = a need for the proof.
       const smtProof = sidecar.smtMap.get(signal.signalBytes);
 
       if(!smtProof) {
@@ -70,39 +83,32 @@ export class SMTBeacon extends SinglePartyBeacon {
         continue;
       }
 
-      // Nonce is required for proof verification (inclusion and non-inclusion).
-      if(!smtProof.nonce) {
+      // The id of the proof must equal smt_root. The resolver keys the map by the
+      // hex of the id, so its entries pass. A caller-built map is checked here too.
+      if(proofIdHex(smtProof) !== signal.signalBytes) {
         throw new SMTBeaconError(
-          'SMT proof missing required nonce field.',
-          'INVALID_SMT_PROOF', { smtProof, did }
+          `SMT proof id does not equal the signal root ${signal.signalBytes}.`,
+          INVALID_SIGNAL_DATA, { smtProof, did, smtRootHash: signal.signalBytes }
         );
       }
 
-      // Verify the SMT proof against the on-chain root. Leaf value per spec:
-      // inclusion = hash(hash(nonce) || updateId); non-inclusion = hash(hash(nonce)).
-      // Hash fields are base64url (no padding) per the SMT Proof spec. A
-      // non-inclusion proof (absent updateId) is verified too, not trusted.
-      const index = didToIndex(did);
-      const nonceHash = base64UrlToHash(smtProof.nonce);
-      const candidateHash = smtProof.updateId
-        ? blockHash(blockHash(nonceHash), base64UrlToHash(smtProof.updateId))
-        : blockHash(blockHash(nonceHash));
-      const valid = verifySerializedProof(smtProof, index, candidateHash);
-
-      if(!valid) {
+      // Verify the proof with the SMT Proof Verification algorithm. The nonce and
+      // updateId fields of the proof select the leaf value (four arms). A proof that
+      // does not decode, or that does not walk to the root, is INVALID_SIGNAL_DATA.
+      if(!verifyProof(smtProof, did)) {
         throw new SMTBeaconError(
-          'SMT proof verification failed.',
-          'INVALID_SMT_PROOF', { smtProof, did }
+          `SMT proof verification failed for the signal root ${signal.signalBytes}.`,
+          INVALID_SIGNAL_DATA, { smtProof, did, smtRootHash: signal.signalBytes }
         );
       }
 
-      // Non-inclusion proof verified: no update for this DID this epoch, skip.
-      if(!smtProof.updateId) {
+      // No updateId: the signal announces no update for this DID. No tuple.
+      if(smtProof.updateId === undefined) {
         continue;
       }
 
       // Look up the signed update in sidecar updateMap (keyed by hex canonical
-      // hash). The proof's updateId is base64url, so convert to hex to match.
+      // hash). The proof's updateId is the same hash in base64url.
       const updateHashHex = hashToHex(base64UrlToHash(smtProof.updateId));
       const signedUpdate = sidecar.updateMap.get(updateHashHex);
 
@@ -135,7 +141,7 @@ export class SMTBeacon extends SinglePartyBeacon {
    * @param {BitcoinConnection} bitcoin The Bitcoin network connection.
    * @param {BroadcastOptions} [options] Optional broadcast configuration (e.g. fee estimator).
    * @return {Promise<BroadcastResult>} The signed update, the signal txid, and the SMT
-   *   inclusion proof (with the leaf nonce embedded). The proof MUST be captured for sidecar
+   *   proof (with the leaf nonce embedded). The proof MUST be captured for sidecar
    *   distribution: the nonce exists only here, so the on-chain signal is unresolvable without it.
    * @throws {BeaconError} if the bitcoin address is invalid, unfunded, or UTXO cannot cover the fee.
    */
@@ -148,14 +154,14 @@ export class SMTBeacon extends SinglePartyBeacon {
     // The DID keys this beacon's leaf index in the tree.
     const did = this.did;
 
-    // Build a single-entry SMT from the signed update
-    const canonicalBytes = new TextEncoder().encode(canonicalize(signedUpdate));
+    // Build a single-entry SMT in nonce mode: the leaf value is
+    // hash(hash(nonce) + updateId), with updateId the JSON Document Hash of the update.
     const nonce = randomBytes(32);
     const tree = new BTCR2MerkleTree();
-    tree.addEntries([{ did, nonce, signedUpdate: canonicalBytes }]);
+    tree.addEntries([{ did, nonce, updateId: canonicalHashBytes(signedUpdate) }]);
     tree.finalize();
 
-    // Serialize the inclusion proof (carrying the nonce and updateId) before
+    // Serialize the proof (carrying the nonce and updateId) before
     // broadcasting: it is the only artifact that can link the on-chain root back
     // to the update, and the nonce it embeds is irrecoverable once dropped.
     const proof = tree.proof(did);

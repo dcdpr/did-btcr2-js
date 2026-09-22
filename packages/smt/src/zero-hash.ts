@@ -8,24 +8,27 @@ import { blockHash, hashesEqual } from './hash.js';
  * This is a full-depth (256-level) SMT where empty siblings contribute a
  * precomputed "zero" subtree hash and EVERY level is hashed, distinct from a
  * collapsing/path-compressing SMT, which skips empty siblings and yields a
- * different root. The authoritative verifier walks MSB-first (`i = 255 - n`),
- * selecting `cachedZero[n]` for a set `collapsed[i]` bit or the next provided
- * sibling otherwise.
+ * different root. The authoritative verifier walks from the leaf (`n = 0`,
+ * `i = 255`) to the root (`n = 255`, `i = 0`), selecting `cachedZero[n]` for a set
+ * `collapsed` bit `i` or the next provided sibling otherwise.
  *
- * Spec ambiguity (flagged for the spec owner): the spec's `cachedZero` seed is
- * written `z = 0` with no byte width, and the page gives the verification but not
- * the tree-construction algorithm. We seed `z` with 32 zero bytes (matching the
- * project's {@link NULL_HASH} convention) and derive a build that is provably
- * consistent with the authoritative verifier (round-trip validated). If the spec
- * later pins a different seed/encoding, only {@link CACHED_ZERO}'s seed changes.
+ * The specification pins the seed and the bit sequence: `0` is 32 zero bytes,
+ * `cachedZero[0] = hash(0 + 0)` is the value of an empty leaf, and `bitAt(i)` of a
+ * 256-bit value counts from the left. `bitAt(0)` is the most significant bit of the
+ * first byte and selects the child of the root. `bitAt(255)` is the least significant
+ * bit of the last byte and selects the leaf.
  */
 
 /** Tree depth: 256 levels, one per SHA-256 bit. */
 const TREE_DEPTH = HASH_BIT_LENGTH;
 
-/** Bit `position` (LSB = 0) of a 256-bit index. */
-function bitAt(index: bigint, position: number): number {
-  return Number((index >> BigInt(position)) & 1n);
+/**
+ * Bit `i` of a 256-bit value, counted from the left as the specification counts it:
+ * `bitAt(0)` is the most significant bit of the first byte, `bitAt(255)` is the least
+ * significant bit of the last byte. Level `i = 0` is the root level, `i = 255` the leaf level.
+ */
+function bitAt(value: bigint, i: number): number {
+  return Number((value >> BigInt(TREE_DEPTH - 1 - i)) & 1n);
 }
 
 /**
@@ -50,9 +53,9 @@ export interface ZeroHashEntry {
   readonly leaf: Uint8Array;
 }
 
-/** A zero-hash inclusion proof: the empty-sibling bitmap plus the real siblings. */
+/** A zero-hash proof of an index, a member or not: the empty-sibling bitmap plus the real siblings. */
 export interface ZeroHashProof {
-  /** Bit `i` set = the sibling at level `i` is empty (use `cachedZero`). */
+  /** Bit `i`, counted from the left, set = the sibling at level `i` is empty (use `cachedZero`). */
   readonly collapsed: bigint;
   /** Real sibling hashes, in leaf-to-root order (one per clear `collapsed` bit). */
   readonly hashes: readonly Uint8Array[];
@@ -79,9 +82,11 @@ export function zeroHashRoot(leaves: ZeroHashEntry[]): Uint8Array {
 }
 
 /**
- * Generate the inclusion proof for `targetIndex`. At each level the sibling is
- * the subtree of leaves sharing the target's lower-bit path but diverging at this
- * level; an empty sibling sets the `collapsed` bit, a non-empty one emits a hash.
+ * Generate the proof for `targetIndex`, a member of `leaves` or not. At each level
+ * the sibling is the subtree of leaves that share the target's path above this
+ * level and diverge at this level; an empty sibling sets the `collapsed` bit, a
+ * non-empty one emits a hash. An index with no leaf gets the proof of an empty
+ * leaf: the walk starts at `cachedZero[0]`.
  */
 export function generateZeroHashProof(leaves: ZeroHashEntry[], targetIndex: bigint): ZeroHashProof {
   let collapsed = 0n;
@@ -91,14 +96,14 @@ export function generateZeroHashProof(leaves: ZeroHashEntry[], targetIndex: bigi
     const siblingLeaves: ZeroHashEntry[] = [];
     for (const e of leaves) {
       if (e.index === targetIndex) continue;
-      let sharesLowerPath = true;
-      for (let lower = 0; lower < bit; lower++) {
-        if (bitAt(e.index, lower) !== bitAt(targetIndex, lower)) { sharesLowerPath = false; break; }
+      let sharesPathAbove = true;
+      for (let above = 0; above < bit; above++) {
+        if (bitAt(e.index, above) !== bitAt(targetIndex, above)) { sharesPathAbove = false; break; }
       }
-      if (sharesLowerPath && bitAt(e.index, bit) !== bitAt(targetIndex, bit)) siblingLeaves.push(e);
+      if (sharesPathAbove && bitAt(e.index, bit) !== bitAt(targetIndex, bit)) siblingLeaves.push(e);
     }
     if (siblingLeaves.length === 0) {
-      collapsed |= (1n << BigInt(bit));
+      collapsed |= (1n << BigInt(TREE_DEPTH - 1 - bit));
     } else {
       hashes.push(subtreeHash(siblingLeaves, height - 1));
     }
@@ -107,11 +112,14 @@ export function generateZeroHashProof(leaves: ZeroHashEntry[], targetIndex: bigi
 }
 
 /**
- * Verify an inclusion proof, exactly per the spec's SMT Proof Verification
- * pseudocode: walk `n` from 0 to 255 (`i = 255 - n`), take `cachedZero[n]` for a
- * set `collapsed[i]` or the next provided sibling, and combine by `index[i]`.
+ * Verify a proof, exactly per the spec's SMT Proof Verification pseudocode: walk
+ * `n` from 0 to 255 (`i = 255 - n`), take `cachedZero[n]` for a set `collapsed`
+ * bit `i` or the next provided sibling, and combine by bit `i` of `index`. The
+ * result is `false` when `hashes` runs out or has entries left: that is the rule
+ * "the number of entries in `hashes` plus the number of set bits in `collapsed`
+ * is 256".
  *
- * @param candidate The leaf hash `hash(hash(nonce) || updateId)`.
+ * @param candidate The leaf value (see `leafValue`).
  */
 export function verifyZeroHash(
   collapsed: bigint,
@@ -125,7 +133,7 @@ export function verifyZeroHash(
   for (let n = 0; n < TREE_DEPTH; n++) {
     const i = TREE_DEPTH - 1 - n;
     let sibling: Uint8Array;
-    if (((collapsed >> BigInt(i)) & 1n) === 1n) {
+    if (bitAt(collapsed, i) === 1) {
       sibling = CACHED_ZERO[n]!;
     } else {
       if (hashPtr >= hashes.length) return false;

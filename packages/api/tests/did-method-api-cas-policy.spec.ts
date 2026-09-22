@@ -1,5 +1,5 @@
 import type { AddressUtxo, BitcoinConnection } from '@did-btcr2/bitcoin';
-import { canonicalHash, canonicalHashBytes, encode, hash, INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/common';
+import { canonicalHash, canonicalHashBytes, encode, hash, INVALID_DID_UPDATE, MISSING_UPDATE_DATA, UpdateError } from '@did-btcr2/common';
 import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { ID_PLACEHOLDER_VALUE } from '@did-btcr2/method';
 import { p2wpkh } from '@scure/btc-signer';
@@ -646,6 +646,7 @@ describe('DidMethodApi resolve() SMT proof handling', () => {
       expect(err.message).to.include('Failed to resolve DID');
       expect(String(err.cause?.message)).to.match(/SMT proof required/);
       expect(String(err.cause?.message)).to.match(/sidecar\.smtProofs/);
+      expect(err.cause?.type).to.equal(MISSING_UPDATE_DATA);
     }
   });
 });

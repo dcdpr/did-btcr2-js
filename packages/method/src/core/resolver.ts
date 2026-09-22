@@ -10,9 +10,11 @@ import {
   INVALID_DID,
   INVALID_DID_UPDATE,
   INVALID_OPTIONS,
+  INVALID_SIGNAL_DATA,
   JSONPatch,
   JSONUtils,
   LATE_PUBLISHING_ERROR,
+  MISSING_UPDATE_DATA,
   NOT_FOUND,
   ResolveError
 } from '@did-btcr2/common';
@@ -173,12 +175,15 @@ function isSignedBTCR2Update(value: unknown): value is SignedBTCR2Update {
     && isRecord(value.proof);
 }
 
-/** True if `value` has the shape of an SMT inclusion / non-inclusion proof. */
+/** True if `value` has the shape of an SMT proof: string fields, `hashes` an array of strings. */
 function isSMTProof(value: unknown): value is SMTProof {
   if(!isRecord(value)) return false;
   return typeof value.id === 'string'
     && typeof value.collapsed === 'string'
-    && Array.isArray(value.hashes);
+    && Array.isArray(value.hashes)
+    && value.hashes.every(h => typeof h === 'string')
+    && (value.nonce === undefined || typeof value.nonce === 'string')
+    && (value.updateId === undefined || typeof value.updateId === 'string');
 }
 
 /**
@@ -322,15 +327,24 @@ export class Resolver {
    * The state of the specification loop, carried across every pass: the version counter
    * (`current_version_id`), the update-hash history that backs duplicate confirmation
    * (`update_hash_history`), the confirmations of the block that contains the most
-   * recently applied unique update (`block_confirmations`), and the header time of that
-   * block as `updated`. A pass that finds a new beacon address returns to discovery, so
-   * the state must not restart: a restart would reject a linear history whose later
-   * updates are announced on beacons that earlier updates added.
+   * recently applied unique update (`block_confirmations`), the height of that block
+   * (`current_block_height`), and the header time of that block as `updated`. A pass
+   * that finds a new beacon address returns to discovery, so the state must not
+   * restart: a restart would reject a linear history whose later updates are
+   * announced on beacons that earlier updates added.
    */
   #currentVersionId = 1;
   #updateHashHistory: HashBytes[] = [];
   #blockConfirmations = 0;
   #updated?: string;
+
+  /**
+   * The height of the block that contains the most recently applied update
+   * (`current_block_height`). "Find Beacon Signals" keeps only the signals at or above
+   * it: a beacon address that an update added has no signals for this DID before the
+   * block of that update.
+   */
+  #currentBlockHeight = 0;
 
   /**
    * Opt-in upper bound on multi-round beacon-discovery passes. `Infinity` (the
@@ -958,7 +972,7 @@ export class Resolver {
           );
           if(removed) continue;
 
-          // Step 7, "Check targetVersionId", first arm: targetVersionId <= currentVersionId
+          // Step 6, "Check targetVersionId", first arm: targetVersionId <= currentVersionId
           // re-announces an applied version. Confirm that it is a true duplicate, then
           // skip it. A duplicate does not advance the version counter, does not append
           // to the history (the slot already holds the applied update, ADR 067), and
@@ -980,7 +994,7 @@ export class Resolver {
             continue;
           }
 
-          // Step 7, third arm: a version was skipped, so raise LATE_PUBLISHING.
+          // Step 6, third arm: a version was skipped, so raise LATE_PUBLISHING.
           if(update.targetVersionId !== this.#currentVersionId + 1) {
             throw new ResolveError(
               `Version Id Mismatch: targetVersionId cannot be > currentVersionId + 1`,
@@ -991,16 +1005,18 @@ export class Resolver {
             );
           }
 
-          // Step 7, second arm: targetVersionId == currentVersionId + 1. Apply the update,
+          // Step 6, second arm: targetVersionId == currentVersionId + 1. Apply the update,
           // append the unsigned update hash to the history, increment the version.
           this.#currentDocument = Resolver.applyUpdate(document, update, block);
           const unsignedUpdate = JSONUtils.deleteKeys(update, ['proof']) as UnsignedBTCR2Update;
           this.#updateHashHistory.push(canonicalHashBytes(unsignedUpdate));
           this.#currentVersionId++;
 
-          // Step 6: block_confirmations, and the header time as `updated`. On the apply
-          // path only: the stop above and the duplicate branch stamp nothing.
+          // "Apply Update": block_confirmations, current_block_height, and the header time
+          // as `updated`. On the apply path only: the stop above and the duplicate branch
+          // stamp nothing.
           this.#blockConfirmations = block.confirmations;
+          this.#currentBlockHeight = block.height;
           this.#updated = DateUtils.toISOStringNonFractional(DateUtils.blocktimeToTimestamp(block.time));
 
           // The applied update can add a beacon service. "Find Beacon Signals" runs at
@@ -1068,8 +1084,12 @@ export class Resolver {
    * malformed. It fails fast here with a typed error, in the style of the
    * {@link provide} guards, and not later with an invalid date or a false
    * `versionTime` comparison in the ProcessUpdate phase.
+   *
+   * "Find Beacon Signals" finds only the transactions at or above
+   * `current_block_height`, the height of the block of the most recently applied
+   * update. A signal below it is excluded: it emits no data need and applies no update.
    * @param {Array<BeaconSignal>} signals The signals the caller provided for one service.
-   * @returns {Array<BeaconSignal>} The signals at or above the threshold, in the given order.
+   * @returns {Array<BeaconSignal>} The signals at or above the threshold and the height, in the given order.
    * @throws {ResolveError} `INVALID_DID_UPDATE` for an eligible signal with no valid block metadata.
    */
   #eligibleSignals(signals: Array<BeaconSignal>): Array<BeaconSignal> {
@@ -1094,6 +1114,10 @@ export class Resolver {
           }
         );
       }
+      // "Find Beacon Signals" finds only the transactions at or above current_block_height.
+      // A signal before the block of the update that added the address is not a signal
+      // of this DID.
+      if((block!.height as number) < this.#currentBlockHeight) continue;
       eligible.push(signal);
     }
     return eligible;
@@ -1147,12 +1171,14 @@ export class Resolver {
           );
         }
         // Fail fast if the provided announcement is not the one the on-chain
-        // signal requested: its canonical hash must equal the need's hash.
+        // signal requested: its canonical hash must equal the need's hash. The
+        // specification ("Process CAS Beacon") treats an announcement whose hash is
+        // not map_update_hash as not available from CAS: MISSING_UPDATE_DATA.
         const announcementHash = canonicalHash(data, { encoding: 'hex' });
         if(announcementHash !== need.announcementHash) {
           throw new ResolveError(
             `CAS announcement hash mismatch: expected ${need.announcementHash}, got ${announcementHash}.`,
-            INVALID_DID_UPDATE, { expected: need.announcementHash, actual: announcementHash }
+            MISSING_UPDATE_DATA, { expected: need.announcementHash, actual: announcementHash }
           );
         }
         this.#sidecarData.casMap.set(announcementHash, data);
@@ -1167,12 +1193,13 @@ export class Resolver {
           );
         }
         // Fail fast if the provided update is not the one the on-chain signal
-        // requested: its canonical hash must equal the need's hash.
+        // requested: the specification compares the JSON Document Hash of a
+        // retrieved update to update_hash, and a mismatch is INVALID_SIGNAL_DATA.
         const updateHash = canonicalHash(data, { encoding: 'hex' });
         if(updateHash !== need.updateHash) {
           throw new ResolveError(
             `Signed update hash mismatch: expected ${need.updateHash}, got ${updateHash}.`,
-            INVALID_DID_UPDATE, { expected: need.updateHash, actual: updateHash }
+            INVALID_SIGNAL_DATA, { expected: need.updateHash, actual: updateHash }
           );
         }
         this.#sidecarData.updateMap.set(updateHash, data);
@@ -1180,18 +1207,27 @@ export class Resolver {
       }
 
       case 'NeedSMTProof': {
+        // A proof of another shape is data for the signal that does not agree with
+        // its Signal Bytes: INVALID_SIGNAL_DATA, as for the id and the walk below.
         if(!isSMTProof(data)) {
           throw new ResolveError(
             'Provided data for NeedSMTProof is not an SMT proof.',
-            INVALID_DID_UPDATE, { kind: need.kind }
+            INVALID_SIGNAL_DATA, { kind: need.kind }
           );
         }
-        // proof.id is base64url per spec; smtRootHash is the hex on-chain signal.
-        const proofIdHex = encodeHash(decodeHash(data.id, 'base64urlnopad'), 'hex');
+        // proof.id is base64url per spec; smtRootHash is the hex on-chain signal. The
+        // specification ("Process SMT Beacon") compares the id of smt_proof to
+        // smt_root: a mismatch, or an id that does not decode, is INVALID_SIGNAL_DATA.
+        let proofIdHex: string | undefined;
+        try {
+          proofIdHex = encodeHash(decodeHash(data.id, 'base64urlnopad'), 'hex');
+        } catch {
+          proofIdHex = undefined;
+        }
         if(proofIdHex !== need.smtRootHash) {
           throw new ResolveError(
-            `SMT proof root hash mismatch: expected ${need.smtRootHash}, got ${proofIdHex}`,
-            INVALID_DID_UPDATE, { expected: need.smtRootHash, actual: proofIdHex }
+            `SMT proof root hash mismatch: expected ${need.smtRootHash}, got ${proofIdHex ?? 'an id that does not decode'}.`,
+            INVALID_SIGNAL_DATA, { expected: need.smtRootHash, actual: proofIdHex }
           );
         }
         this.#sidecarData.smtMap.set(need.smtRootHash, data);

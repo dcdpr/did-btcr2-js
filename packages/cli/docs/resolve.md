@@ -52,12 +52,12 @@ The `sidecar` fields:
 | `genesisDocument` | object | The genesis document. An `x` identifier needs it, unless the api can fetch the document from the configured CAS by its hash. |
 | `updates` | array of SignedBTCR2Update | The signed updates. Necessary if the identifier has published updates that the api cannot fetch from the CAS. |
 | `casUpdates` | array of CASAnnouncement | The CAS announcements (maps of identifier to signed update hash). Necessary for CAS beacon updates that the api cannot fetch from the CAS. |
-| `smtProofs` | array of SMTProof | The SMT inclusion proofs (`id`, `collapsed`, `hashes`, optional `nonce` and `updateId`, all base64url without padding). **Sidecar data is the only channel for an SMT proof.** A proof has a nonce blind, so the api cannot fetch it from a CAS. A missing proof fails resolution with `SMT proof required but not in sidecar (root hash: ...)`. |
+| `smtProofs` | array of SMTProof | The SMT proofs (`id`, `collapsed`, `hashes`, optional `nonce` and `updateId`, all base64url without padding). **Sidecar data is the only channel for an SMT proof.** A proof has no content address on chain, so the api cannot fetch it from a CAS. A missing proof fails resolution with `MISSING_UPDATE_DATA`: `SMT proof required but not in sidecar (root hash: ...)`. |
 
 How the `@did-btcr2/api` layer satisfies each data need:
 
 - The api fetches the beacon signals from the Bitcoin endpoint of the signal discovery mode. `indexer` (the default) reads them from the REST endpoint of the network of the identifier. `fullnode` scans blocks over Bitcoin Core RPC.
-- The api takes a genesis document, a CAS announcement, or a signed update from `sidecar` if present. Otherwise it fetches the item from the configured CAS by its hex hash. If the CAS lookup returns nothing, resolution fails with a typed error: `NOT_FOUND` for the genesis document (for example `Genesis document not found in CAS (hash: ...)`), `MISSING_UPDATE_DATA` for a signed update or a CAS announcement (for example `Signed update not found in CAS (hash: ...)`). The api hashes the bytes that the CAS returns and refuses content that does not hash to the requested address.
+- The api takes a genesis document, a CAS announcement, or a signed update from `sidecar` if present. Otherwise it fetches the item from the configured CAS by its hex hash. If the CAS lookup returns nothing, resolution fails with a typed error: `NOT_FOUND` for the genesis document (for example `Genesis document not found in CAS (hash: ...)`), `MISSING_UPDATE_DATA` for a signed update, a CAS announcement, or an SMT proof (for example `Signed update not found in CAS (hash: ...)`). The api hashes the bytes that the CAS returns and refuses content that does not hash to the requested address.
 - An SMT proof comes from `sidecar.smtProofs` only (see above).
 
 ### Output
