@@ -1,0 +1,78 @@
+{
+  "id": "26-k1-signal-below-current-height",
+  "description": "k1 DID; update 1 adds the beacon #lateBeacon and is anchored in round 2. Update 2 is anchored at #lateBeacon in round 1, one block before update 1. The signal is below current_block_height, so a resolver ignores it. The sub-vector asks for version 3 and expects NOT_FOUND.",
+  "network": "signet",
+  "idType": "KEY",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "14b2bdca730295a5cb9186477663c4647db02d04d4c2a54eca780eebe7cae701"
+  },
+  "extraKeys": {
+    "lateBeacon": {
+      "source": "fixed",
+      "secretHex": "aa04695e82364cf83846c1a2503a25cee5805179c110843a39e82699aa41da9a"
+    }
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#lateBeacon",
+            "type": "SingletonBeacon",
+            "serviceEndpoint": "bitcoin:$address(lateBeacon,p2wpkh)"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar",
+      "round": 2
+    },
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/4",
+          "value": {
+            "id": "#dwn",
+            "type": "DecentralizedWebNode",
+            "serviceEndpoint": "http://example.com/dwn"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#lateBeacon",
+      "delivery": "sidecar",
+      "round": 1,
+      "belowCurrentHeight": true
+    }
+  ],
+  "resolves": [
+    {
+      "id": "01",
+      "options": {
+        "versionId": "3"
+      },
+      "expect": {
+        "error": "NOT_FOUND"
+      }
+    }
+  ],
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

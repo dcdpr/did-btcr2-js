@@ -41,6 +41,5 @@
       "beaconId": "#cohortBeacon",
       "delivery": "cas"
     }
-  ],
-  "skip": "SMT vectors wait for specification pull request 365 (ADR 113)."
+  ]
 }

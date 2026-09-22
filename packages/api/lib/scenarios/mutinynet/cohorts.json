@@ -60,6 +60,25 @@
         "12a-x1-sidecar-update-smt-proof",
         "12b-x1-sidecar-update-smt-proof-paired"
       ]
+    },
+    {
+      "id": "smt-25",
+      "beaconType": "SMTBeacon",
+      "addressType": "P2WPKH",
+      "serviceId": "#cohortBeacon",
+      "network": "mutinynet",
+      "keys": {
+        "source": "fixed",
+        "secretHex": "17f733abc91f0a9f47b3b62f62ce8ab8baa7ca409076b6a598f64d32e99dbec4"
+      },
+      "members": [
+        "25a-x1-smt-update-no-nonce",
+        "25b-x1-smt-nonce-no-update",
+        "25c-x1-smt-empty-index",
+        "n29-x1-smt-proof-hash",
+        "n30-x1-smt-proof-root-id",
+        "n31-x1-smt-proof-withheld"
+      ]
     }
   ]
 }

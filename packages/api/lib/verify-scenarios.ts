@@ -9,7 +9,8 @@
  *   - NeedBeaconSignals    : a SYNTHETIC on-chain signal with the commitment the
  *                            anchor step broadcasts (the update hash of a solo
  *                            scenario, the cohort signal of a cohort member).
- *                            Update N sits in synthetic block N.
+ *                            The anchor of round N sits in synthetic block N,
+ *                            and a deeper block has more confirmations.
  *   - NeedGenesisDocument  } fulfilled from the publish manifest
  *   - NeedCASAnnouncement   } (lib/scenarios/<network>/publish-manifest.json),
  *   - NeedSignedUpdate      } keyed by the content hash the resolver asks for.
@@ -18,8 +19,10 @@
  *                            document, MISSING_UPDATE_DATA for the rest).
  *
  * A `versionTime` form (`before:N`, `at:N`, `after:N`) resolves against the
- * synthetic block times. SMT proofs ride in the sidecar, so NeedSMTProof never
- * fires. A negative vector passes when the resolver raises the expected error
+ * synthetic block times, and a `minConf` form (`depth:N`) against the synthetic
+ * confirmation counts. SMT proofs ride in the sidecar. NeedSMTProof fires only
+ * for a sidecar with no proof, and it yields `MISSING_UPDATE_DATA`, as the api
+ * raises. A negative vector passes when the resolver raises the expected error
  * code.
  *
  * Run order: generate -> artifacts -> route -> verify.
@@ -37,8 +40,8 @@ import type { BeaconService, BeaconSignal, SignedBTCR2Update } from '@did-btcr2/
 import { DidBtcr2 } from '@did-btcr2/method';
 
 import {
-  cohortsOutDir, findCohort, indexScenarioDirs, loadCohorts, loadRecipes, parseNetworkArg, publishManifestFile,
-  readExpected, readJSON, readSignedUpdates, readState, realUpdates, resolveCaseDir, resolveVersionTime,
+  anchorRound, cohortsOutDir, findCohort, indexScenarioDirs, loadCohorts, loadRecipes, parseNetworkArg, publishManifestFile,
+  readExpected, readJSON, readSignedUpdates, readState, realUpdates, resolveCaseDir, resolveMinConf, resolveVersionTime,
   type CohortDef, type Expected, type Scenario,
 } from './_scenario-helpers.js';
 
@@ -56,44 +59,62 @@ function loadManifest(): Map<string, unknown> {
   return byHex;
 }
 
-/** Synthetic block metadata of update N: ten minutes per block, the header time one minute after the mediantime. */
+/**
+ * Synthetic block metadata of block N: ten minutes per block, the header time
+ * one minute after the mediantime. The synthetic tip is block 50, so block N
+ * has 51 - N confirmations, above the default `minConf` of 6.
+ */
 const BASE_TIME = 1_700_000_000;
+const SYNTHETIC_TIP = 50;
 function syntheticBlock(n: number): BeaconSignal['blockMetadata'] {
-  return { height: 100_000 + n, time: BASE_TIME + n * 600 + 60, mediantime: BASE_TIME + n * 600, confirmations: 6 };
+  return { height: 100_000 + n, time: BASE_TIME + n * 600 + 60, mediantime: BASE_TIME + n * 600, confirmations: SYNTHETIC_TIP - n + 1 };
 }
 
 function syntheticSignal(signalBytes: string, n: number): BeaconSignal {
   return { tx: {} as unknown as BeaconSignal['tx'], signalBytes, blockMetadata: syntheticBlock(n) };
 }
 
+/** The synthetic signals of a vector set, and the synthetic block of the anchor of each recipe entry. */
+type SignalPlan = { byAddress: Map<string, BeaconSignal[]>; blockOf: (entry: number) => number };
+
 /**
  * The signals per beacon address, as a chain holds them: a cohort member anchors
- * the shared signal at the cohort address (as entry 1); a solo scenario anchors
- * the signal of entry N (the hash of its signed update, or of the update that a
- * duplicate entry repeats) in synthetic block N. The key is the address, not the
- * service id: a beacon rotation keeps the id and changes the address, and the
- * resolver scans the new address in a later discovery round.
+ * the shared signal at the cohort address (as entry 1, in block 1); a solo
+ * scenario anchors the signal of each entry (the hash of its signed update, or
+ * of the update that a duplicate entry repeats) in the block of its round. The
+ * key is the address, not the service id: a beacon rotation keeps the id and
+ * changes the address, and the resolver scans the new address in a later
+ * discovery round.
  */
-function buildSignalPlan(dir: string, recipe: Scenario, cohort: CohortDef | undefined): Map<string, BeaconSignal[]> {
-  const plan = new Map<string, BeaconSignal[]>();
+function buildSignalPlan(dir: string, recipe: Scenario, cohort: CohortDef | undefined): SignalPlan {
+  const byAddress = new Map<string, BeaconSignal[]>();
+  const blocks = new Map<number, number>();
+  const blockOf = (entry: number): number => {
+    const block = blocks.get(entry);
+    if (block === undefined) throw new Error(`no anchor of entry ${entry}`);
+    return block;
+  };
   if (cohort) {
     const { anchorAddress, signalHex } = readJSON<{ anchorAddress: string; signalHex: string }>(join(cohortsOutDir(network), `${cohort.id}.json`));
-    plan.set(anchorAddress, [syntheticSignal(signalHex, 1)]);
-    return plan;
+    byAddress.set(anchorAddress, [syntheticSignal(signalHex, 1)]);
+    blocks.set(1, 1);
+    return { byAddress, blockOf };
   }
   const count = realUpdates(recipe).length;
-  if (count === 0) return plan;
+  if (count === 0) return { byAddress, blockOf };
   const state = readState(network, recipe.id);
   if (!state) throw new Error(`no pipeline state for ${recipe.id}; run generate:scenario`);
   const signed = readSignedUpdates(dir, count);
-  for (const a of state.anchors) {
+  state.anchors.forEach((a, i) => {
+    const block = anchorRound(a, i);
+    blocks.set(a.update, block);
     const hashHex = canonicalHash(signed[a.signalOf - 1] as Record<string, unknown>, { encoding: 'hex' });
-    (plan.get(a.address) ?? plan.set(a.address, []).get(a.address)!).push(syntheticSignal(hashHex, a.update));
-  }
-  return plan;
+    (byAddress.get(a.address) ?? byAddress.set(a.address, []).get(a.address)!).push(syntheticSignal(hashHex, block));
+  });
+  return { byAddress, blockOf };
 }
 
-function resolveOffline(did: string, options: object, plan: Map<string, BeaconSignal[]>, manifest: Map<string, unknown>): Outcome {
+function resolveOffline(did: string, options: object, plan: SignalPlan, manifest: Map<string, unknown>): Outcome {
   try {
     const resolver = DidBtcr2.resolve(did, options);
     let state = resolver.resolve();
@@ -106,7 +127,7 @@ function resolveOffline(did: string, options: object, plan: Map<string, BeaconSi
             const map = new Map<BeaconService, BeaconSignal[]>();
             for (const svc of need.beaconServices) {
               const address = String(svc.serviceEndpoint).slice('bitcoin:'.length);
-              map.set(svc, plan.get(address) ?? []);
+              map.set(svc, plan.byAddress.get(address) ?? []);
             }
             resolver.provide(need, map);
             break;
@@ -130,7 +151,8 @@ function resolveOffline(did: string, options: object, plan: Map<string, BeaconSi
             break;
           }
           case 'NeedSMTProof':
-            return { kind: 'error', error: 'UNEXPECTED_NEED_SMT_PROOF' };
+            // The sidecar holds no proof: the api raises MISSING_UPDATE_DATA (ADR 120).
+            return { kind: 'error', error: 'MISSING_UPDATE_DATA' };
         }
       }
       state = resolver.resolve();
@@ -187,7 +209,10 @@ function run(): void {
       for (const c of recipe.resolves ?? []) {
         const options: Record<string, unknown> = { ...input.resolutionOptions, ...c.options };
         if (typeof c.options.versionTime === 'string') {
-          options.versionTime = resolveVersionTime(c.options.versionTime, (n) => syntheticBlock(n).mediantime);
+          options.versionTime = resolveVersionTime(c.options.versionTime, (n) => syntheticBlock(plan.blockOf(n)).mediantime);
+        }
+        if (c.options.minConf !== undefined) {
+          options.minConf = resolveMinConf(c.options.minConf, (n) => syntheticBlock(plan.blockOf(n)).confirmations);
         }
         cases.push({ label: `${id} resolve/${c.id}`, options, expected: readExpected(join(resolveCaseDir(dir, c.id), 'output.json')) });
       }

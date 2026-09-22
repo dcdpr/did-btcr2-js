@@ -1,0 +1,48 @@
+{
+  "id": "n30-x1-smt-proof-root-id",
+  "description": "Negative: x1 DID in the SMT cohort smt-25 with 1 sidecar update; the id of the sidecar proof is not the signal root. A resolver finds proofs by id, so the sidecar has no proof for the signal.",
+  "network": "mutinynet",
+  "idType": "EXTERNAL",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "de26a8287202de0d02e755be9ed2c9155ec3ce7487c91be7fe4961752a944484"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ],
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/4",
+          "value": {
+            "id": "#dwn",
+            "type": "DecentralizedWebNode",
+            "serviceEndpoint": "http://example.com/dwn"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#cohortBeacon",
+      "delivery": "sidecar"
+    }
+  ],
+  "smt": {
+    "proof": "id"
+  },
+  "expect": {
+    "error": "MISSING_UPDATE_DATA"
+  }
+}

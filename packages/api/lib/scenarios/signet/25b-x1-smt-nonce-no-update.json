@@ -1,0 +1,25 @@
+{
+  "id": "25b-x1-smt-nonce-no-update",
+  "description": "x1 DID in the SMT cohort smt-25 with no update. The tree entry has a nonce and no updateId, so the leaf value is hash(hash(nonce)). The proof announces no update, so the DID resolves to version 1.",
+  "network": "signet",
+  "idType": "EXTERNAL",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "12045b6522afd896c0d527ddf2fd7cfa34fc49148461a2eab8e68812ba3267be"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ],
+  "updates": []
+}

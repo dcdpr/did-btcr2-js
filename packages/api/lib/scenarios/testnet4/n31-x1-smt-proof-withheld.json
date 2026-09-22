@@ -1,0 +1,48 @@
+{
+  "id": "n31-x1-smt-proof-withheld",
+  "description": "Negative: x1 DID in the SMT cohort smt-25 with 1 sidecar update; the sidecar holds no SMT proof.",
+  "network": "testnet4",
+  "idType": "EXTERNAL",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "4cec155da4ba23d9c7602e7ffb5a6bce1ed983a2dd72c7b17bbdcffec664d03e"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ],
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/4",
+          "value": {
+            "id": "#dwn",
+            "type": "DecentralizedWebNode",
+            "serviceEndpoint": "http://example.com/dwn"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#cohortBeacon",
+      "delivery": "sidecar"
+    }
+  ],
+  "smt": {
+    "proof": "withhold"
+  },
+  "expect": {
+    "error": "MISSING_UPDATE_DATA"
+  }
+}

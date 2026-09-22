@@ -1,0 +1,44 @@
+{
+    "id": "smt-12",
+    "beaconType": "SMTBeacon",
+    "network": "testnet4",
+    "serviceId": "#cohortBeacon",
+    "anchorAddress": "tb1qs6nv73u59ntf9j6tuvrg40nregfl4l2szt50fa",
+    "signalHex": "29c342738e3f8cbd1a252bcd28da45abbf88c972a32552e743c9b816a11b6e2a",
+    "members": [
+        {
+            "scenarioId": "12a-x1-sidecar-update-smt-proof",
+            "did": "did:btcr2:x1q3kwecw9ahm2y6smrm4kca8sn5srah2pfe93hpclngl0shxknr7d79ngxaz",
+            "updateId": "8be5fbd3e53d8d00a6e19ac4e7ebd11ae1b0d39b9fcc33acfed3fffcb11f5851"
+        },
+        {
+            "scenarioId": "12b-x1-sidecar-update-smt-proof-paired",
+            "did": "did:btcr2:x1qj7t8rscjdaf2dgzyw2v77r6hhjemqjr8vfr8p8fhev0a9p8pmzzcjwylva",
+            "updateId": "4bb274556578d86d5a9ab06e7f411a7e17b797dcc3caa833a8a1e9bdbb17d9a4"
+        }
+    ],
+    "artifact": {
+        "rootHex": "29c342738e3f8cbd1a252bcd28da45abbf88c972a32552e743c9b816a11b6e2a",
+        "proofs": {
+            "did:btcr2:x1q3kwecw9ahm2y6smrm4kca8sn5srah2pfe93hpclngl0shxknr7d79ngxaz": {
+                "id": "KcNCc44_jL0aJSvNKNpFq7-IyXKjJVLnQ8m4FqEbbio",
+                "collapsed": "f_________________________________________8",
+                "hashes": [
+                    "iNdqW3YsjIgK3Da6HQLNlDHxcJmn6ApVhTEu4UgwOMk"
+                ],
+                "nonce": "1FNETX6hcQpbNAVkEKmehl1QBGQ2d_AaqGwjxEkRsm4",
+                "updateId": "i-X70-U9jQCm4ZrE5-vRGuGw05ufzDOs_tP__LEfWFE"
+            },
+            "did:btcr2:x1qj7t8rscjdaf2dgzyw2v77r6hhjemqjr8vfr8p8fhev0a9p8pmzzcjwylva": {
+                "id": "KcNCc44_jL0aJSvNKNpFq7-IyXKjJVLnQ8m4FqEbbio",
+                "collapsed": "f_________________________________________8",
+                "hashes": [
+                    "KimgzpQswfM2RVW6RiCRipLVkvpGI990F6tx4kmdFxs"
+                ],
+                "nonce": "L_vg116Kg4We5RIPR2ZgSrYPoaTEvZI2oS6q4rLgN54",
+                "updateId": "S7J0VWV42G1amrBuf0Eafhe3l9zDyqgzqKHpvbsX2aQ"
+            }
+        }
+    },
+    "txid": "b0c69b42cf05bdb01d7382719445e80cece77a03639a101b1039d393ac31fb88"
+}

@@ -21,10 +21,18 @@ export class BitcoinBlock {
 
   /**
    * Returns the blockheight of the most-work fully-validated chain.
+   * Esplora sends the height as a `text/plain` body, so this method converts the
+   * body to a number.
    * @returns {Promise<number>} The current block height.
+   * @throws {BitcoinRestError} If the body is not a non-negative integer.
    */
   public async count(): Promise<number> {
-    return await this.exec(this.protocol.getBlockTipHeight());
+    const body = await this.exec(this.protocol.getBlockTipHeight());
+    const height = typeof body === 'string' && /^\d+$/.test(body.trim()) ? Number(body.trim()) : body;
+    if (!Number.isSafeInteger(height) || height < 0) {
+      throw new BitcoinRestError('block tip height is not a non-negative integer', { body });
+    }
+    return height;
   }
 
   /**

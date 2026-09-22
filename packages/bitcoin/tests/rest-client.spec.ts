@@ -209,11 +209,38 @@ describe('BitcoinRestClient', () => {
 
   describe('response handling', () => {
     it('returns text for text/plain content type', async () => {
-      const { executor } = mockExecutor({ body: '12345', contentType: 'text/plain' });
+      const { executor } = mockExecutor({ body: VALID_TXID, contentType: 'text/plain' });
+      const rest = new BitcoinRestClient({ host: 'http://example.com' }, executor);
+      const txid = await rest.transaction.send('00');
+      expect(txid).to.equal(VALID_TXID);
+    });
+
+    it('block count converts a text/plain height to a number', async () => {
+      const { executor } = mockExecutor({ body: '12345\n', contentType: 'text/plain' });
       const rest = new BitcoinRestClient({ host: 'http://example.com' }, executor);
       const height = await rest.block.count();
-      expect(height).to.equal('12345');
+      expect(height).to.equal(12345);
     });
+
+    it('block count accepts a JSON number height', async () => {
+      const { executor } = mockExecutor({ body: '12345' });
+      const rest = new BitcoinRestClient({ host: 'http://example.com' }, executor);
+      expect(await rest.block.count()).to.equal(12345);
+    });
+
+    for (const body of ['12a', '-1', '1.5', '']) {
+      it(`block count throws BitcoinRestError on the text/plain body '${body}'`, async () => {
+        const { executor } = mockExecutor({ body, contentType: 'text/plain' });
+        const rest = new BitcoinRestClient({ host: 'http://example.com' }, executor);
+        try {
+          await rest.block.count();
+          expect.fail('Expected to throw');
+        } catch (err: any) {
+          expect(err).to.be.instanceOf(BitcoinRestError);
+          expect(err.data.body).to.equal(body);
+        }
+      });
+    }
 
     it('throws MethodError on non-OK responses', async () => {
       const { executor } = mockExecutor({ status: 500, body: { error: 'internal' } });
@@ -289,7 +316,7 @@ describe('BitcoinRestClient', () => {
     });
 
     it('merges config headers into requests', async () => {
-      const { executor, seen } = mockExecutor({ body: {} });
+      const { executor, seen } = mockExecutor({ body: '1' });
       const rest = new BitcoinRestClient(
         { host: 'http://example.com', headers: { 'X-Api-Key': 'secret' } },
         executor

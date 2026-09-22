@@ -182,6 +182,17 @@ export type ScenarioUpdate = {
    * ignores the signal, so the update does not advance the expected document.
    */
   removedBeacon?: boolean;
+  /**
+   * The anchor round of this entry. The default is the position of the entry.
+   * The anchors of one scenario must use different rounds.
+   */
+  round?: number;
+  /**
+   * The anchor of this update is in an earlier round than the anchor of the
+   * update before it. The signal is below `current_block_height`, so a resolver
+   * ignores it, and the update does not advance the expected document.
+   */
+  belowCurrentHeight?: boolean;
 };
 
 /**
@@ -225,15 +236,39 @@ export type GenesisOptions = {
 export type IdentifierTamper = 'checksum' | 'padding' | 'network-nibble';
 
 /**
+ * How the SMT proof in the sidecar of a cohort member is made invalid.
+ *
+ * - `hash`: one byte of the first entry of `hashes` differs. `INVALID_SIGNAL_DATA`.
+ * - `id`: `id` is not the signal root. A resolver finds a sidecar proof by its
+ *   `id`, so the sidecar has no proof for the signal: `MISSING_UPDATE_DATA`.
+ * - `withhold`: the sidecar holds no proof. `MISSING_UPDATE_DATA`.
+ */
+export type SmtProofTamper = 'hash' | 'id' | 'withhold';
+
+/**
+ * The SMT tree entry of a cohort member. The default entry has a nonce, and an
+ * `updateId` if the member has an update. With `nonce: false` and no update,
+ * the tree has no entry for the DID, and the proof is the proof of an empty index.
+ */
+export type SmtMemberOptions = {
+  /** `false`: the entry has no nonce. */
+  nonce?: boolean;
+  /** Make the proof in the sidecar invalid. */
+  proof?: SmtProofTamper;
+};
+
+/**
  * A resolve sub-vector (`resolve/<id>/`) with resolution options. A `versionTime`
  * of the form `before:N`, `at:N`, or `after:N` names the `mediantime` of the block
  * that anchors entry N of `updates` (a duplicate entry counts), minus one second,
- * exactly, or plus one second. The verifiers resolve the form against the chain
- * they read; the record step writes the timestamp into the committed input.
+ * exactly, or plus one second. A `minConf` of the form `depth:N` names the
+ * confirmation count of the anchor of entry N. The verifiers resolve a form
+ * against the chain they read; the record step writes the value into the
+ * committed input.
  */
 export type ResolveCase = {
   id: string;
-  options: { versionId?: string; versionTime?: string; minConf?: number };
+  options: { versionId?: string; versionTime?: string; minConf?: number | string };
   expect: { versionId: string } | { error: string };
 };
 
@@ -253,6 +288,8 @@ export type Scenario = {
   resolves?: ResolveCase[];
   /** The expected result of the main resolve when it is an error. */
   expect?: { error: string };
+  /** The SMT tree entry and the proof of a member of an SMT cohort. */
+  smt?: SmtMemberOptions;
   /** The reason the pipeline skips this recipe (for example a pending specification change). */
   skip?: string;
 };
@@ -283,6 +320,8 @@ export type AnchorEntry = {
   signalOf: number;
   /** Set on the anchor of a duplicate entry: the entry whose signal it repeats. */
   duplicateOf?: number;
+  /** The anchor round, if the recipe sets it. The default is the position of the anchor, from 1. */
+  round?: number;
   beaconId: string;
   address: string;
   kind: AddrType;
@@ -439,6 +478,34 @@ export function resolveVersionTime(value: string, mediantimeOf: (update: number)
   const base = mediantimeOf(Number(m[2]));
   const seconds = m[1] === 'before' ? base - 1 : m[1] === 'after' ? base + 1 : base;
   return new Date(seconds * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+// ─── minConf forms ───────────────────────────────────────────────────────────
+
+const MIN_CONF_FORM = /^depth:(\d+)$/;
+
+/** True if `value` is a `depth:N` form. */
+export function isMinConfForm(value: unknown): value is string {
+  return typeof value === 'string' && MIN_CONF_FORM.test(value);
+}
+
+/**
+ * Resolve a `minConf` form against the confirmation count of the anchor of
+ * entry N. A number is returned as is.
+ * @throws {Error} if the value is neither a number nor a form.
+ */
+export function resolveMinConf(value: number | string, confirmationsOf: (update: number) => number): number {
+  if (typeof value === 'number') return value;
+  const m = MIN_CONF_FORM.exec(value);
+  if (!m) throw new Error(`minConf "${value}" is neither a number nor a depth:N form`);
+  return confirmationsOf(Number(m[1]));
+}
+
+// ─── Anchor rounds ───────────────────────────────────────────────────────────
+
+/** The round of anchor `index` (from 0) of a scenario: the round the recipe sets, or the position of the anchor. */
+export function anchorRound(anchor: AnchorEntry, index: number): number {
+  return anchor.round ?? index + 1;
 }
 
 // ─── Expected results ────────────────────────────────────────────────────────

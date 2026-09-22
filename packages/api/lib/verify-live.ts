@@ -14,14 +14,21 @@
  * `didDocumentMetadata` with `versionId`, `confirmations`, `updated`,
  * `deactivated`). A `versionTime` form (`before:N`, `at:N`, `after:N`) in a
  * sub-vector recipe resolves against the block `mediantime` of the anchor of
- * entry N; `--record` writes the timestamp into the sub-vector input.
+ * entry N, and a `minConf` form (`depth:N`) against the confirmation count of
+ * that anchor; `--record` writes the value into the sub-vector input.
  *
  * `--record` also writes `signals.json` next to `other.json` for every set
  * that has a Beacon Signal on the chain: one entry per signal with the update
- * it commits to, the beacon, the address, the txid, the block height, hash,
- * time, and `mediantime`, and the signal bytes. A consumer checks its own
- * signal discovery against it, or fulfills the signals of a sans-I/O resolver
- * from it.
+ * it commits to (none for a cohort member with no update), the beacon, the
+ * address, the txid, the block height, hash, time, and `mediantime`, the signal
+ * bytes, and `recordedTip`: the chain tip after the resolves of the set. At
+ * that tip, every recorded `confirmations` is at least the recorded value. A
+ * consumer checks its own signal discovery against the file, or fulfills the
+ * signals of a sans-I/O resolver from it.
+ *
+ * On regtest, `--record` stops with an error if the tip moves during the run.
+ * The `minConf` form holds only at the recorded tip, and the Polar export must
+ * carry that tip: turn off auto-mine before the record, and export after it.
  *
  * Prerequisites: generate -> artifacts -> route -> publish (--publish) -> fund ->
  * anchor, with the anchors at `minConf` confirmations and the CAS objects pinned.
@@ -50,9 +57,9 @@ import { BeaconSignalDiscovery, DEFAULT_MIN_CONF, type BeaconService, type Beaco
 
 import { bitcoinConfigFor, CAS_GATEWAY_TIMEOUT_MS, casGatewaysFor, GatewayChainCasExecutor } from './_e2e-helpers.js';
 import {
-  cohortsOutDir, findCohort, indexScenarioDirs, isVersionTimeForm, loadCohorts, loadRecipes, parseNetworkArg,
-  readExpected, readJSON, readSignedUpdates, readState, realUpdates, resolveCaseDir, resolveVersionTime, takeOption,
-  writeJSON,
+  cohortsOutDir, findCohort, indexScenarioDirs, isMinConfForm, isVersionTimeForm, loadCohorts, loadRecipes, parseNetworkArg,
+  readExpected, readJSON, readSignedUpdates, readState, realUpdates, resolveCaseDir, resolveMinConf, resolveVersionTime,
+  takeOption, writeJSON,
   type CohortDef, type Expected, type Scenario, type ScenarioState,
 } from './_scenario-helpers.js';
 
@@ -80,8 +87,12 @@ function compare(got: Outcome, want: Expected): string | undefined {
 
 /** One recorded Beacon Signal of a vector set: an entry of `signals.json`. */
 type SignalRecord = {
-  /** The update directory (`update/NN/`) whose signed update the signal commits to. */
-  update: number;
+  /**
+   * The update directory (`update/NN/`) whose signed update the signal commits
+   * to. A cohort member with no update has none: the signal commits to no update
+   * of the DID.
+   */
+  update?: number;
   /** The signal repeats an earlier signal of the same update, in a later block. */
   duplicate?: true;
   beaconId: string;
@@ -94,10 +105,12 @@ type SignalRecord = {
   signalBytes: string;
   /** Set for a cohort member: the signal is the shared signal of the cohort. */
   cohort?: { id: string; members: string[] };
+  /** The chain tip height after the resolves of the set. */
+  recordedTip?: number;
 };
 
-/** A recorded signal with the recipe entry that anchored it (the N of a `versionTime` form). */
-type AnchorSignal = { entry: number; record: SignalRecord };
+/** A recorded signal with the recipe entry that anchored it (the N of a form) and its confirmation count at the read. */
+type AnchorSignal = { entry: number; confirmations: number; record: SignalRecord };
 
 /**
  * The Beacon Signals of a vector set, read from the chain: the signal of every
@@ -111,12 +124,11 @@ async function readAnchorSignals(api: DidBtcr2Api, dir: string, recipe: Scenario
   type Lookup = Omit<SignalRecord, 'txid' | 'blockHeight' | 'blockHash' | 'blockTime' | 'mediantime' | 'signalBytes'> & { entry: number; signalHex: string };
   const lookups: Lookup[] = [];
   if (cohort) {
-    if (realUpdates(recipe).length === 0) return [];
     const cohortPath = join(cohortsOutDir(network), `${cohort.id}.json`);
     const { anchorAddress, signalHex } = readJSON<{ anchorAddress: string; signalHex: string }>(cohortPath);
     lookups.push({
       entry    : 1,
-      update   : 1,
+      ...(realUpdates(recipe).length > 0 ? { update: 1 } : {}),
       beaconId : `${state.did}${cohort.serviceId}`,
       address  : anchorAddress,
       signalHex,
@@ -164,7 +176,7 @@ async function readAnchorSignals(api: DidBtcr2Api, dir: string, recipe: Scenario
       signalBytes : hit.signalBytes,
       ...(member ? { cohort: member } : {}),
     };
-    return { entry, record };
+    return { entry, confirmations: hit.blockMetadata.confirmations, record };
   });
 }
 
@@ -184,7 +196,9 @@ async function run(): Promise<void> {
   const recipes = loadRecipes(network);
   const idx = indexScenarioDirs(network);
   const cohorts = loadCohorts(network);
-  console.log(`=== scenario:verify:live (${network}, minConf ${minConf}, CAS ${gateways.join(', ')})${record ? ' RECORD' : ''} ===`);
+  const tip = (): Promise<number> => api.btc.connection.rest.block.count();
+  const startTip = await tip();
+  console.log(`=== scenario:verify:live (${network}, minConf ${minConf}, CAS ${gateways.join(', ')}, tip ${startTip})${record ? ' RECORD' : ''} ===`);
 
   let pass = 0, fail = 0;
   for (const id of [...recipes.keys()].sort()) {
@@ -200,23 +214,25 @@ async function run(): Promise<void> {
       const cases: Array<{ label: string; inputPath: string; outputPath: string; options: Record<string, unknown>; inputOptions?: Record<string, unknown> }> = [
         { label: id, inputPath: mainPath, outputPath: join(dir, 'resolve', 'output.json'), options: input.resolutionOptions },
       ];
-      // The chain signals: for the versionTime forms, and for signals.json on --record.
-      const forms = (recipe.resolves ?? []).some((c) => isVersionTimeForm(c.options.versionTime));
+      // The chain signals: for the versionTime and minConf forms, and for signals.json on --record.
+      const forms = (recipe.resolves ?? []).some((c) => isVersionTimeForm(c.options.versionTime) || isMinConfForm(c.options.minConf));
       const anchorSignals = forms || record ? await readAnchorSignals(api, dir, recipe, cohort, state) : [];
-      const mediantimeOf = (n: number): number => {
+      const anchorOf = (n: number): AnchorSignal => {
         const hit = anchorSignals.find((s) => s.entry === n);
         if (!hit) throw new Error(`no confirmed anchor of entry ${n} on the chain`);
-        return hit.record.mediantime;
+        return hit;
       };
       for (const c of recipe.resolves ?? []) {
         const caseDir = resolveCaseDir(dir, c.id);
         const options: Record<string, unknown> = { ...input.resolutionOptions, ...c.options };
         if (typeof c.options.versionTime === 'string') {
-          options.versionTime = resolveVersionTime(c.options.versionTime, mediantimeOf);
+          options.versionTime = resolveVersionTime(c.options.versionTime, (n) => anchorOf(n).record.mediantime);
+        }
+        if (c.options.minConf !== undefined) {
+          options.minConf = resolveMinConf(c.options.minConf, (n) => anchorOf(n).confirmations);
         }
         cases.push({ label: `${id} resolve/${c.id}`, inputPath: join(caseDir, 'input.json'), outputPath: join(caseDir, 'output.json'), options });
       }
-      if (record && anchorSignals.length > 0) writeJSON(join(dir, 'signals.json'), anchorSignals.map((s) => s.record));
       for (const c of cases) {
         const expected = readExpected(c.outputPath);
         const { outcome, raw } = await resolveLive(api, input.did, c.options);
@@ -232,13 +248,24 @@ async function run(): Promise<void> {
           writeJSON(c.inputPath, current);
         }
       }
+      // The tip after the resolves: every recorded confirmation count holds at it, or grows.
+      if (record && anchorSignals.length > 0) {
+        const recordedTip = await tip();
+        writeJSON(join(dir, 'signals.json'), anchorSignals.map((s) => ({ ...s.record, recordedTip })));
+      }
     } catch (e) {
       console.log(`  FAIL ${id.padEnd(52)} ${(e as Error).message}`);
       fail++;
     }
   }
+  // A regtest record must hold one tip: the minConf form and the Polar export depend on it.
+  const endTip = await tip();
   api.dispose();
-  console.log(`\n=== live verify PASS=${pass} FAIL=${fail}${record ? ' (outputs recorded)' : ''} ===`);
+  if (record && network === 'regtest' && endTip !== startTip) {
+    console.log(`\n  FAIL the tip moved from ${startTip} to ${endTip} during the record. Turn off auto-mine in Polar, then run the record again.`);
+    fail++;
+  }
+  console.log(`\n=== live verify PASS=${pass} FAIL=${fail}${record ? ` (outputs recorded, tip ${endTip})` : ''} ===`);
   if (record && fail === 0) console.log(`  Next: pnpm scenario:readme --network ${network}`);
   process.exit(fail ? 1 : 0);
 }
