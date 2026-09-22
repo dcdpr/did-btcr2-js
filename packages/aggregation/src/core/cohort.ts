@@ -1,5 +1,5 @@
 import { getNetwork } from '@did-btcr2/bitcoin';
-import { canonicalHash, canonicalize, hash } from '@did-btcr2/common';
+import { canonicalHash, canonicalHashBytes, canonicalize, hash } from '@did-btcr2/common';
 import type { SecuredDocument } from '@did-btcr2/cryptosuite';
 import type { SerializedSMTProof, TreeEntry } from '@did-btcr2/smt';
 import { BTCR2MerkleTree } from '@did-btcr2/smt';
@@ -382,15 +382,16 @@ export class AggregationCohort {
   }
 
   /**
-   * Builds an SMT tree with one leaf per participant.
+   * Builds an SMT tree with one leaf per participant, in nonce mode.
    *
-   * A member who submitted an update gets an inclusion leaf
-   * (SHA-256(SHA-256(nonce) || SHA-256(update))); a member who declined gets a
-   * non-inclusion leaf (SHA-256(SHA-256(nonce)), the `signedUpdate` entry field
-   * omitted). The cohort mints each member's nonce and returns it inside that
-   * member's serialized proof, so a decliner can self-validate its own
-   * non-inclusion slot and the resolver can recompute the leaf. Stores
-   * per-participant proofs and the SMT root as signalBytes.
+   * A member who submitted an update gets an update leaf
+   * (SHA-256(SHA-256(nonce) || updateId), with updateId the JSON Document Hash
+   * of the update). A member who declined gets a non-update leaf
+   * (SHA-256(SHA-256(nonce)), the `updateId` entry field omitted). The cohort
+   * mints each member's nonce and returns it inside that member's serialized
+   * proof, so a decliner can self-validate its own non-update slot and the
+   * resolver can recompute the leaf. Stores per-participant proofs and the SMT
+   * root as signalBytes.
    */
   public buildSMTTree(): Map<string, SerializedSMTProof> {
     if(!this.hasAllResponses()) {
@@ -401,15 +402,14 @@ export class AggregationCohort {
     }
     const tree = new BTCR2MerkleTree();
     const entries: TreeEntry[] = [];
-    const encoder = new TextEncoder();
 
-    // Slot every participant: an inclusion leaf for submitters, a non-inclusion
-    // leaf (signedUpdate omitted) for decliners.
+    // Slot every participant: an update leaf for submitters, a non-update leaf
+    // (updateId omitted) for decliners.
     for(const did of this.participants) {
       const nonce = randomBytes(32);
       const signedUpdate = this.pendingUpdates.get(did);
       if(signedUpdate) {
-        entries.push({ did, nonce, signedUpdate: encoder.encode(canonicalize(signedUpdate)) });
+        entries.push({ did, nonce, updateId: canonicalHashBytes(signedUpdate) });
       } else {
         entries.push({ did, nonce });
       }

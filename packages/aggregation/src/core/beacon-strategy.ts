@@ -1,7 +1,7 @@
 import { canonicalize, hash } from '@did-btcr2/common';
 import type { SecuredDocument } from '@did-btcr2/cryptosuite';
 import type { SerializedSMTProof } from '@did-btcr2/smt';
-import { base64UrlToHash, blockHash, didToIndex, hashToBase64Url, verifySerializedProof } from '@did-btcr2/smt';
+import { base64UrlToHash, blockHash, hashToBase64Url, verifyProof } from '@did-btcr2/smt';
 import type { AggregationCohort } from './cohort.js';
 import type { BaseBody } from './messages/base.js';
 
@@ -118,35 +118,32 @@ const SMT_STRATEGY: AggregateBeaconStrategy = {
 
   validateParticipantView({ participantDid, included, submittedUpdate, body }) {
     const smtProof = body.smtProof as unknown as SerializedSMTProof | undefined;
-    const index = didToIndex(participantDid);
 
     if(!included) {
-      // Cooperative non-inclusion: the proof has a nonce but no updateId by
-      // construction. The leaf is SHA-256(SHA-256(nonce)); do NOT run the
-      // inclusion-only updateId guard (a missing updateId is correct here).
+      // Cooperative non-update: the cohort builds the leaf in nonce mode, so the
+      // proof has a nonce but no updateId by construction. The leaf is
+      // SHA-256(SHA-256(nonce)). A missing updateId is correct here.
       if(!smtProof?.nonce || smtProof?.updateId) return { matches: false, smtProof };
-      const candidateHash = blockHash(blockHash(base64UrlToHash(smtProof.nonce)));
-      return { matches: verifySerializedProof(smtProof, index, candidateHash), smtProof };
+      return { matches: verifyProof(smtProof, participantDid), smtProof };
     }
 
     if(!smtProof?.updateId || !smtProof?.nonce || !submittedUpdate) return { matches: false, smtProof };
-    // Verify updateId matches the canonicalized update hash. Proof hash fields
-    // are base64url (no padding) per the SMT Proof spec.
+    // Verify updateId matches the JSON Document Hash of the update. Proof hash
+    // fields are base64url (no padding) per the SMT Proof spec.
     const canonicalBytes = new TextEncoder().encode(canonicalize(submittedUpdate as unknown as Record<string, unknown>));
     const expectedUpdateId = hashToBase64Url(blockHash(canonicalBytes));
     if(smtProof.updateId !== expectedUpdateId) {
       return { matches: false, smtProof };
     }
-    // Verify Merkle inclusion. The leaf is SHA-256(SHA-256(nonce) || SHA-256(update)).
-    const candidateHash = blockHash(blockHash(base64UrlToHash(smtProof.nonce)), base64UrlToHash(smtProof.updateId));
+    // Verify the proof. The leaf is SHA-256(SHA-256(nonce) || updateId).
     return {
-      matches : verifySerializedProof(smtProof, index, candidateHash),
+      matches : verifyProof(smtProof, participantDid),
       smtProof,
     };
   },
 
-  // The signal is the SMT root, which is the very root `verifySerializedProof`
-  // checked the member's leaf against (the proof's `id`). Binding to it makes
+  // The signal is the SMT root, which is the very root `verifyProof` checked
+  // the member's leaf against (the proof's `id`). Binding to it makes
   // "my proof is valid" and "my root is what gets anchored" one statement.
   deriveSignal({ smtProof }) {
     if(!smtProof?.id) return undefined;

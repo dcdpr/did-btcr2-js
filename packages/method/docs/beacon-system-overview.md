@@ -13,7 +13,7 @@ Each beacon type differs in what it commits to the blockchain and how many DIDs 
 | **Scope** | 1 DID per TX | N DIDs per TX | N DIDs per TX |
 | **OP_RETURN** | `hash(canonicalize(signedUpdate))` | `hash(canonicalize(announcement))` | `tree.rootHash` |
 | **Sidecar** | `SignedBTCR2Update` | CAS Announcement + updates | SMT Proof + updates |
-| **Verification** | Hash match | Hash match | Merkle inclusion proof |
+| **Verification** | Hash match | Hash match | SMT proof |
 | **Signing** | Single-party PSBT | Single-party PSBT | MuSig2 multi-party |
 
 The on-chain footprint is always the same: one OP_RETURN output with 32 bytes. The difference is in how many DID updates those 32 bytes commit to.
@@ -75,7 +75,7 @@ Coordinator                          Participant
 
 For CAS: `buildCASAnnouncement()` creates a `{ did -> canonicalHash(signedUpdate) }` map, then sets `signalBytes = hash(canonicalize(announcement))`.
 
-For SMT: `buildSMTTree()` creates a `BTCR2MerkleTree` with one entry per participant `{ did, nonce, signedUpdate }`, calls `tree.finalize()`, generates per-participant serialized proofs, and sets `signalBytes = tree.rootHash`.
+For SMT: `buildSMTTree()` creates a `BTCR2MerkleTree` with one entry per participant `{ did, nonce, updateId }` (the `updateId` is the JSON Document Hash of the submitted update; a decliner has none), calls `tree.finalize()`, generates per-participant serialized proofs, and sets `signalBytes = tree.rootHash`.
 
 ### Phase 3 -- Validation
 
@@ -168,9 +168,9 @@ Each beacon's `processSignals()` follows the same contract -- returns `{ updates
 
 **CAS:** Signal bytes (hex) -> decode to base64url -> `casMap` lookup -> extract `announcement[did]` -> `updateMap` lookup. Two indirections.
 
-**SMT:** Signal bytes (hex) -> `smtMap` lookup by root hash -> verify Merkle proof (`verifySerializedProof(proof, didToIndex(did), candidateHash)`) -> decode `proof.updateId` to base64url -> `updateMap` lookup. Two indirections plus cryptographic verification.
+**SMT:** Signal bytes (hex) -> `smtMap` lookup by root hash -> the `id` of the proof must equal the root -> verify the proof (`verifyProof(proof, did)`) -> a proof with no `updateId` announces no update -> decode `proof.updateId` to hex -> `updateMap` lookup. Two indirections plus cryptographic verification.
 
-The SMT proof verification (spec section SMT Proof Verification) computes the candidate leaf hash as `hash(hash(nonce) || updateId)` and walks the sparse Merkle tree path to confirm it produces the on-chain root. This is the only beacon type that requires cryptographic verification at resolve time -- Singleton and CAS rely on the hash commitment being unforgeable.
+The SMT proof verification (spec section SMT Proof Verification) selects the leaf value from the `nonce` and `updateId` fields of the proof: `hash(hash(nonce) || updateId)`, `hash(hash(nonce))`, `updateId`, or the value of an empty leaf. It walks the sparse Merkle tree path from the leaf to confirm that it produces the on-chain root. A proof whose `id` is not the root, a proof that does not decode, and a proof that does not verify raise `INVALID_SIGNAL_DATA`. This is the only beacon type that requires cryptographic verification at resolve time -- Singleton and CAS rely on the hash commitment being unforgeable.
 
 ---
 

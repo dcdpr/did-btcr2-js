@@ -78,6 +78,9 @@ export enum MethodErrorCode {
   /** The update data required for resolution is missing. */
   MISSING_UPDATE_DATA = 'MISSING_UPDATE_DATA',
 
+  /** The data for a Beacon Signal does not agree with its Signal Bytes. */
+  INVALID_SIGNAL_DATA = 'INVALID_SIGNAL_DATA',
+
   /** The update is missing or has a malformed field(s). */
   INVALID_UPDATE = 'INVALID_UPDATE',
 
@@ -117,6 +120,7 @@ export const {
   LATE_PUBLISHING_ERROR,
   INVALID_SIDECAR_DATA,
   MISSING_UPDATE_DATA,
+  INVALID_SIGNAL_DATA,
   MISSING_RESOLUTION_OPTIONS,
   INVALID_OPTIONS
 } = MethodErrorCode;

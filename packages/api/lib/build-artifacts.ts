@@ -9,7 +9,7 @@
  *   - CAS cohorts: one CAS Announcement Map { did -> updateHash } for all members.
  *     The OP_RETURN signal is SHA-256(canonicalize(announcement)).
  *   - SMT cohorts: one BTCR2MerkleTree with one leaf per member. The OP_RETURN
- *     signal is the tree root. Each member gets its own inclusion proof.
+ *     signal is the tree root. Each member gets its own proof.
  *
  * Output per cohort: `lib/scenarios/<network>/cohorts/<id>.json` records the
  * anchor address, the signal, and the member artifacts for the anchor step.
@@ -31,7 +31,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { getNetwork } from '@did-btcr2/bitcoin';
-import { canonicalHash, canonicalize, encode } from '@did-btcr2/common';
+import { canonicalHash, canonicalHashBytes, encode } from '@did-btcr2/common';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import type { SignedBTCR2Update } from '@did-btcr2/method';
 import { blockHash, BTCR2MerkleTree, type SerializedSMTProof } from '@did-btcr2/smt';
@@ -106,8 +106,7 @@ function buildSmtCohort(cohort: CohortDef, members: Member[]): { artifact: unkno
   const tree = new BTCR2MerkleTree();
   for (const m of members) {
     const nonce = smtNonce(cohort.keys.secretHex, m.did);
-    const signedUpdateBytes = new TextEncoder().encode(canonicalize(m.signedUpdate));
-    tree.addEntries([{ did: m.did, nonce, signedUpdate: signedUpdateBytes }]);
+    tree.addEntries([{ did: m.did, nonce, updateId: canonicalHashBytes(m.signedUpdate) }]);
   }
   tree.finalize();
   const signalHex = encode(tree.rootHash, 'hex');

@@ -76,22 +76,26 @@ export interface ResolutionOptions extends DidResolutionOptions {
 /**
  * {@link https://dcdpr.github.io/did-btcr2/terminology.html#smt-proof | SMT Proof}
  * a set of SHA-256 hashes for nodes in a Sparse Merkle Tree that together form
- * a path from a leaf in the tree to the Merkle root, proving that the leaf is in the tree.
+ * a path from a leaf in the tree to the Merkle root. The proof shows the value of
+ * the leaf at the index of the DID: an update, no update, or an empty index.
  * See {@link https://dcdpr.github.io/did-btcr2/data-structures.html#smt-proof | SMT Proof (data structure)}.
  *
- * All SHA-256 hash fields (`id`, `nonce`, `updateId`, `hashes`) are "base64url"
- * [RFC4648] encoded without padding (43 chars each). `collapsed` is the 256-bit
- * zero-node bitmap, also base64url no-pad (43 chars).
+ * All fields are "base64url" [RFC4648] encoded without padding. `id`, `updateId`,
+ * `collapsed`, and the entries of `hashes` decode to 32 bytes (43 chars each).
+ * `nonce` has any length. The presence of `nonce` and `updateId` selects the leaf
+ * value that the SMT Proof Verification algorithm walks from:
+ * `hash(hash(nonce) + updateId)`, `hash(hash(nonce))`, `updateId`, or the value of
+ * an empty leaf.
  *
  * @example
  * ```json
  * {
- *   "id": "q1H_iaYG0Oq6gbrycYL-r7FjUsJLnIpHDn49TLeONNA",
- *   "nonce": "99jndCBWHpZfmObXlIvRGHaPMgoQKXIETdD4H-XqryE",
- *   "updateId": "njYNViJq2OmhSw1fLfARPCj12RY3VXKGWdS3-7OQ2BE",
- *   "collapsed": "v_________________________________________8",
+ *   "id": "ZSN-lAyRpXG72aK1xLC9sAuRhFGsILupaQXxpkITJuo",
+ *   "nonce": "WYVxNuwz3RBEhnJKM4LvVh2tOdXI9WRUPYqA_qa0klM",
+ *   "updateId": "_YDKmjcnIkHDY6rnRwrO86id5H1Onycy7Bz62jYq6GA",
+ *   "collapsed": "-_________________________________________8",
  *   "hashes": [
- *     "8JWXL7chPKJXwg-i9O1EFTHan_oOO_RmglDpu_ugax0"
+ *     "s-2LV-dfS-x___DBpNeH4KaBBSJj0xCSpn8ZlusZwLo"
  *   ]
  * }
  * ```
@@ -99,23 +103,32 @@ export interface ResolutionOptions extends DidResolutionOptions {
 export interface SMTProof {
   /**
    * base64url (no padding) SHA-256 hash of the root node of the Sparse Merkle Tree.
+   * The resolver compares it to the Signal Bytes of the SMT beacon signal.
    */
   id: string;
   /**
-   * Optional 256-bit nonce generated for each update. base64url, no padding (43 chars).
+   * Optional nonce, one for each index in each Beacon Signal, of any length.
+   * base64url, no padding. Without the nonce that the DID controller used, the
+   * proof of that signal cannot be verified. Absent in no-nonce mode.
    */
   nonce?: string;
   /**
-   * Optional base64url (no padding) canonical hash of the BTCR2 Signed Update.
+   * Optional base64url (no padding) JSON Document Hash of the BTCR2 Signed Update.
+   * Present when the signal announces an update for the DID. Absent when it does not.
    */
   updateId?: string;
   /**
-   * base64url (no padding) bitmap of zero nodes within the path (see: collapsed
-   * leaves). Bit set = empty/zero sibling; bit clear = a sibling hash is present.
+   * base64url (no padding) 256-bit bitmap of the empty siblings on the path from
+   * the leaf to the root. Bit `i` set = the sibling at level `i` is an empty subtree;
+   * bit `i` clear = the next entry of `hashes` is the sibling. Bit `i` is `bitAt(i)`
+   * of the decoded value, counted from the left: bit `0` is the root level, bit
+   * `255` the leaf level. The number of entries in `hashes` plus the number of set
+   * bits is `256`.
    */
   collapsed: string;
   /**
-   * Array of SHA-256 hashes representing the sibling SMT nodes from the leaf, containing the SHA-256 hash of the BTCR2 Signed Update or the “zero identity”, to the root.
+   * Array of the SHA-256 hashes of the non-empty sibling nodes on the path from the
+   * leaf to the root, in that order.
    */
   hashes: string[];
 }

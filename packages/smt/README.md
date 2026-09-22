@@ -6,7 +6,7 @@ Part of the [`did-btcr2-js`](https://github.com/dcdpr/did-btcr2-js) monorepo.
 
 ## Summary
 
-This package implements the [zero-hash Sparse Merkle Tree (SMT)](https://dcdpr.github.io/did-btcr2/algorithms.html#smt-proof-verification) defined by the did:btcr2 specification. It powers the `@did-btcr2/method` aggregate SMT beacon: the mechanism that lets many DID updates share a single on-chain transaction while each DID controller can still prove, with a compact inclusion or non-inclusion proof, exactly which update (if any) was aggregated for them in a given epoch.
+This package implements the [zero-hash Sparse Merkle Tree (SMT)](https://dcdpr.github.io/did-btcr2/algorithms.html#smt-proof-verification) defined by the did:btcr2 specification. It powers the `@did-btcr2/method` aggregate SMT beacon: the mechanism that lets many DID updates share a single on-chain transaction while each DID controller can still prove, with a compact proof, exactly which update (if any) was aggregated for them in a given signal.
 
 The tree operates over a 256-bit key space (a DID maps to a leaf at index `SHA-256(did)`). It is a full-depth (256-level) tree: empty subtrees contribute a precomputed "zero" subtree hash and every level is hashed. Proofs carry a `collapsed` bitmap marking which sibling levels are empty, so only the non-empty siblings travel in the proof, keeping proof size proportional to the number of populated leaves rather than the depth of the tree.
 
@@ -38,14 +38,19 @@ const tree = new BTCR2MerkleTree();
 
 tree.addEntries([
   {
-    did          : 'did:btcr2:k1qexample1',
-    nonce        : randomBytes(32),
-    signedUpdate : new Uint8Array(/* canonical bytes of a signed BTCR2 update */),
+    did      : 'did:btcr2:k1qexample1',
+    nonce    : randomBytes(32),
+    updateId : new Uint8Array(/* the 32-byte JSON Document Hash of the signed BTCR2 update */),
   },
   {
     did   : 'did:btcr2:k1qexample2',
     nonce : randomBytes(32),
-    // no signedUpdate: this DID has no update this epoch (non-inclusion)
+    // no updateId: this DID announces no update in this signal (nonce mode)
+  },
+  {
+    did      : 'did:btcr2:k1qexample3',
+    updateId : new Uint8Array(/* the 32-byte JSON Document Hash of the signed BTCR2 update */),
+    // no nonce: an update in no-nonce mode, the leaf value is the updateId itself
   },
 ]);
 
@@ -56,31 +61,21 @@ const proof = tree.proof('did:btcr2:k1qexample1');
 // SerializedSMTProof: { id, collapsed, hashes, nonce?, updateId? }: all base64url, no padding
 ```
 
-`addEntries()` may be called multiple times before `finalize()`. Adding two DIDs that collide on the same index throws. Call `reset()` to drop the computed root/proofs while keeping the entries.
+`addEntries()` may be called multiple times before `finalize()`. Adding two DIDs that collide on the same index throws. An entry with neither `nonce` nor `updateId` records the DID and adds no leaf: the index stays empty. `proof(did)` serves a member of the tree or not: a DID with no leaf gets the proof of an empty index. Call `reset()` to drop the computed root/proofs while keeping the entries.
 
 ## Verifying a proof
 
-A relying party verifies a serialized proof against the on-chain root using only the DID, the proof, and the canonical update bytes:
+A relying party verifies a serialized proof against the on-chain root using only the DID and the proof:
 
 ```typescript
-import {
-  verifySerializedProof,
-  didToIndex,
-  inclusionLeafHash,
-  nonInclusionLeafHash,
-} from '@did-btcr2/smt';
+import { verifyProof } from '@did-btcr2/smt';
 
-const index = didToIndex(did);
-
-// Inclusion: the controller has the signed update bytes the proof commits to.
-const candidate = inclusionLeafHash(nonce, signedUpdateBytes);
-// Non-inclusion: no update this epoch.
-// const candidate = nonInclusionLeafHash(nonce);
-
-const ok = verifySerializedProof(proof, index, candidate); // boolean
+const ok = verifyProof(proof, did); // boolean, never throws
 ```
 
-`verifySerializedProof` is a thin wrapper over the spec's verification algorithm: it deserializes the proof and calls `verifyZeroHash` internally.
+`verifyProof` is the SMT Proof Verification algorithm of the specification. The `nonce` and `updateId` fields of the proof select the leaf value (see `leafValue`). The result is `false` for a proof that does not decode, for an `updateId`, `collapsed`, or `hashes` entry that is not 32 bytes, for a `hashes` count that does not agree with `collapsed`, and for a walk that does not end at `id`. The root of the proof is `id`: compare it to the on-chain signal bytes before you trust the proof.
+
+`verifySerializedProof(proof, index, candidate)` runs the same walk against a caller-supplied leaf value.
 
 ## Wire format
 
@@ -88,17 +83,17 @@ Serialized proofs follow the did:btcr2 [SMT Proof data structure](https://dcdpr.
 
 ```json
 {
-  "id":        "q1H_iaYG0Oq6gbrycYL-r7FjUsJLnIpHDn49TLeONNA",
-  "nonce":     "99jndCBWHpZfmObXlIvRGHaPMgoQKXIETdD4H-XqryE",
-  "updateId":  "njYNViJq2OmhSw1fLfARPCj12RY3VXKGWdS3-7OQ2BE",
-  "collapsed": "v_________________________________________8",
-  "hashes":    [ "8JWXL7chPKJXwg-i9O1EFTHan_oOO_RmglDpu_ugax0" ]
+  "id":        "ZSN-lAyRpXG72aK1xLC9sAuRhFGsILupaQXxpkITJuo",
+  "nonce":     "WYVxNuwz3RBEhnJKM4LvVh2tOdXI9WRUPYqA_qa0klM",
+  "updateId":  "_YDKmjcnIkHDY6rnRwrO86id5H1Onycy7Bz62jYq6GA",
+  "collapsed": "-_________________________________________8",
+  "hashes":    [ "s-2LV-dfS-x___DBpNeH4KaBBSJj0xCSpn8ZlusZwLo" ]
 }
 ```
 
 - `id` is the SMT root (what the beacon transaction commits to).
-- `nonce` and `updateId` are optional metadata. `updateId` is `SHA-256(signedUpdate)`; it is absent on a non-inclusion proof.
-- In `collapsed`, bit `i` set means the sibling at tree level `i` is empty (the verifier substitutes the precomputed `cachedZero[255 - i]`); bit `i` clear means the next entry in `hashes` is the sibling at that level. Level `i = 255` is the leaf level, `i = 0` is the root level.
+- `nonce` and `updateId` are optional. Their presence selects the leaf value. `updateId` is the JSON Document Hash of the signed update (32 bytes). `nonce` has any length.
+- In `collapsed`, bit `i` set means the sibling at tree level `i` is empty (the verifier substitutes the precomputed `cachedZero[255 - i]`); bit `i` clear means the next entry in `hashes` is the sibling at that level. Bit `i` is `bitAt(i)` of the decoded value, counted from the left: bit `0` is the most significant bit of the first byte, the root level; bit `255` is the least significant bit of the last byte, the leaf level. The number of entries in `hashes` plus the number of set bits in `collapsed` is `256`.
 
 ## Low-level: zero-hash API
 
@@ -111,12 +106,12 @@ import {
   verifyZeroHash,
   serializeProof,
   didToIndex,
-  inclusionLeafHash,
+  leafValue,
 } from '@did-btcr2/smt';
 
 const leaves = [
-  { index: didToIndex('did:btcr2:k1qexample1'), leaf: inclusionLeafHash(nonce1, update1) },
-  { index: didToIndex('did:btcr2:k1qexample2'), leaf: inclusionLeafHash(nonce2, update2) },
+  { index: didToIndex('did:btcr2:k1qexample1'), leaf: leafValue(nonce1, updateId1) },
+  { index: didToIndex('did:btcr2:k1qexample2'), leaf: leafValue(nonce2, updateId2) },
 ];
 
 const root  = zeroHashRoot(leaves);                       // Uint8Array(32)
@@ -135,14 +130,14 @@ const wire = serializeProof(root, proof, { nonce: nonce1, updateId });
 | Export | Description |
 |---|---|
 | `BTCR2MerkleTree` | High-level aggregate-beacon tree. Lifecycle: `addEntries()` to `finalize()` to `proof(did)`. |
-| `TreeEntry` | Entry shape: `{ did, nonce, signedUpdate? }`. Omit `signedUpdate` for a non-inclusion entry. |
+| `TreeEntry` | Entry shape: `{ did, nonce?, updateId? }`. The presence of `nonce` and `updateId` selects the leaf value. |
 | `SerializedSMTProof` | Wire proof: `{ id, collapsed, hashes, nonce?, updateId? }`, all base64url no-pad. |
-| `didToIndex(did)` | Leaf index: `bigint(SHA-256(did))`, big-endian. |
-| `inclusionLeafHash(nonce, signedUpdate)` | `SHA-256(SHA-256(nonce) \|\| SHA-256(signedUpdate))`. |
-| `nonInclusionLeafHash(nonce)` | `SHA-256(SHA-256(nonce))`. |
+| `didToIndex(did)` | Leaf index: `bigint(SHA-256(did))`, big-endian. The most significant bit selects the child of the root. |
+| `leafValue(nonce?, updateId?)` | The four leaf values: `SHA-256(SHA-256(nonce) \|\| updateId)`, `SHA-256(SHA-256(nonce))`, `updateId`, or `cachedZero[0]`. |
 | `serializeProof(rootHash, proof, opts?)` | Convert a `ZeroHashProof` (plus optional `nonce`/`updateId`) to `SerializedSMTProof`. |
-| `deserializeProof(serialized)` | Parse a wire proof back to `{ rootHash, collapsed, hashes, nonce?, updateId? }`. |
-| `verifySerializedProof(serialized, index, candidateHash)` | Verify a wire proof in one step. |
+| `deserializeProof(serialized)` | Parse a wire proof back to `{ rootHash, collapsed, hashes, nonce?, updateId? }`. Throws on a field that does not decode. |
+| `verifyProof(serialized, did)` | SMT Proof Verification of the specification. `false` on any malformed field, never throws. |
+| `verifySerializedProof(serialized, index, candidateHash)` | The same walk against a caller-supplied leaf value. |
 
 ### Zero-hash core
 
@@ -150,7 +145,7 @@ const wire = serializeProof(root, proof, { nonce: nonce1, updateId });
 |---|---|
 | `zeroHashRoot(leaves)` | Compute the root over `ZeroHashEntry[]`. |
 | `generateZeroHashProof(leaves, index)` | Inclusion proof `{ collapsed, hashes }` for one index. |
-| `verifyZeroHash(collapsed, hashes, index, candidate, root)` | The spec's verification algorithm (MSB-first walk). |
+| `verifyZeroHash(collapsed, hashes, index, candidate, root)` | The spec's verification walk, from the leaf (`bitAt(255)`) to the root (`bitAt(0)`). |
 | `CACHED_ZERO` | Precomputed empty-subtree hashes by height, indices `[0, 256]`. |
 | `ZeroHashEntry` | `{ index: bigint, leaf: Uint8Array }`. |
 | `ZeroHashProof` | `{ collapsed: bigint, hashes: Uint8Array[] }`. |
@@ -184,17 +179,17 @@ A naive Merkle tree over 256-bit keys would have 2^256 leaves. A Sparse Merkle T
 
 **Full-depth hashing.** Unlike a path-compressing SMT, every one of the 256 levels is hashed: a non-leaf node is `SHA-256(left \|\| right)`, where an empty child is its `cachedZero` value. This makes the root a function purely of the populated leaves and their indexes, and it is what the spec's verifier reconstructs.
 
-**Privacy-preserving leaves.** Each leaf folds in a per-update 32-byte nonce. An inclusion leaf is `SHA-256(SHA-256(nonce) \|\| SHA-256(update))`; a non-inclusion leaf is `SHA-256(SHA-256(nonce))`. Without the nonce, an observer cannot tell whether a given DID has an update in a given epoch, nor link a leaf to its update.
+**Four leaf values.** The DID controller selects the value of its leaf for each signal. With a `nonce`, an update is `SHA-256(SHA-256(nonce) \|\| updateId)` and a non-update is `SHA-256(SHA-256(nonce))`: an observer cannot tell whether a given DID has an update in a given signal, nor link a leaf to its update. Without a `nonce`, an update is the `updateId` itself, and a non-update leaves the index empty at `cachedZero[0]`: all parties can see whether there is an update.
 
-**Compact proofs.** A proof is the `collapsed` bitmap plus only the non-empty sibling hashes. The verifier walks the path most-significant-bit first (`n` from 0 to 255, level `i = 255 - n`), taking `cachedZero[n]` wherever `collapsed` bit `i` is set and the next supplied sibling otherwise, combining by the index bit at level `i`, and finally checks that every supplied sibling was consumed and the reconstructed value equals the root.
+**Compact proofs.** A proof is the `collapsed` bitmap plus only the non-empty sibling hashes. The verifier walks the path from the leaf to the root (`n` from 0 to 255, level `i = 255 - n`, bit `i` counted from the left), taking `cachedZero[n]` wherever `collapsed` bit `i` is set and the next supplied sibling otherwise, combining by bit `i` of the index (`0`: the candidate goes left, `1`: right), and finally checks that every supplied sibling was consumed and the reconstructed value equals the root. The most significant bit of `hash(did)` selects the child of the root.
 
 > Note on cross-implementation compatibility: the zero-hash model produces a **different root** than a collapsing / path-compressing SMT for the same leaves. Roots and proofs from this package are only interoperable with implementations that follow the did:btcr2 [SMT Proof Verification](https://dcdpr.github.io/did-btcr2/algorithms.html#smt-proof-verification) algorithm.
 
 ## Spec conformance
 
-This package targets the did:btcr2 [SMT Proof Verification](https://dcdpr.github.io/did-btcr2/algorithms.html#smt-proof-verification) algorithm and [SMT Proof data structure](https://dcdpr.github.io/did-btcr2/data-structures.html#smt-proof) as the source of truth. `verifyZeroHash` is a line-for-line implementation of the specified verifier.
+This package targets the did:btcr2 [SMT Proof Verification](https://dcdpr.github.io/did-btcr2/algorithms.html#smt-proof-verification) algorithm and [SMT Proof data structure](https://dcdpr.github.io/did-btcr2/data-structures.html#smt-proof) as the source of truth. `verifyZeroHash` is a line-for-line implementation of the specified verifier, and `verifyProof` adds the leaf-value selection and the malformed-proof rules of the algorithm.
 
-The specification pins the verification algorithm and the wire format, but does not currently pin two build-side details: the `cachedZero` seed byte width (written `z = 0`) and the tree-construction algorithm. This package seeds `z` with 32 zero bytes (matching `NULL_HASH`) and uses a construction that is round-trip validated against the authoritative verifier. If the spec later pins a different seed or encoding, only `CACHED_ZERO`'s seed changes. See the monorepo ADRs [035 (proof wire format)](https://github.com/dcdpr/did-btcr2-js/blob/main/docs/adr/035-smt-proof-base64url-wire-format.md) and [036 (zero-hash model)](https://github.com/dcdpr/did-btcr2-js/blob/main/docs/adr/036-zero-hash-smt-model.md).
+The specification pins the seed of the hashed-zero cache (`0` is 32 zero bytes, `cachedZero[0] = hash(0 + 0)`), the bit sequence of the walk (`bitAt(i)` counts from the left), the four leaf values, and the conditions under which the result is `false`. This package follows them (specification pull request 365, 2026-09-22). See the monorepo ADRs [035 (proof wire format)](https://github.com/dcdpr/did-btcr2-js/blob/main/docs/adr/035-smt-proof-base64url-wire-format.md), [036 (zero-hash model)](https://github.com/dcdpr/did-btcr2-js/blob/main/docs/adr/036-zero-hash-smt-model.md), and [120 (leaf values, bit sequence, signal results)](https://github.com/dcdpr/did-btcr2-js/blob/main/docs/adr/120-smt-leaf-values-proof-bit-sequence-and-signal-results.md).
 
 ## Legacy exports
 

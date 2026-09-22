@@ -1,4 +1,4 @@
-import { canonicalize, encode } from '@did-btcr2/common';
+import { canonicalHashBytes, canonicalize, encode } from '@did-btcr2/common';
 import { base64UrlToHash, blockHash, BTCR2MerkleTree, hashToHex } from '@did-btcr2/smt';
 import { randomBytes } from '@noble/hashes/utils';
 import { expect } from 'chai';
@@ -70,9 +70,8 @@ describe('beacons take the DID by injection, not from service.id', () => {
   describe('SMTBeacon', () => {
     it('verifies a proof for a relative service id, indexing on the injected DID', () => {
       const signedUpdate = update('didcomm');
-      const canonicalBytes = new TextEncoder().encode(canonicalize(signedUpdate));
       const tree = new BTCR2MerkleTree();
-      tree.addEntries([{ did: DID, nonce: randomBytes(32), signedUpdate: canonicalBytes }]);
+      tree.addEntries([{ did: DID, nonce: randomBytes(32), updateId: canonicalHashBytes(signedUpdate) }]);
       tree.finalize();
       const proof = tree.proof(DID);
 
@@ -95,9 +94,9 @@ describe('beacons take the DID by injection, not from service.id', () => {
       const signedUpdate = update('didcomm');
       const tree = new BTCR2MerkleTree();
       tree.addEntries([{
-        did          : 'did:btcr2:x1qh9vyxphx0rhgpmwpa0p3u0qd5m8kf9lnya2tutsyfsf7z27jt09kargft7',
-        nonce        : randomBytes(32),
-        signedUpdate : new TextEncoder().encode(canonicalize(signedUpdate)),
+        did      : 'did:btcr2:x1qh9vyxphx0rhgpmwpa0p3u0qd5m8kf9lnya2tutsyfsf7z27jt09kargft7',
+        nonce    : randomBytes(32),
+        updateId : canonicalHashBytes(signedUpdate),
       }]);
       tree.finalize();
       const proof = tree.proof('did:btcr2:x1qh9vyxphx0rhgpmwpa0p3u0qd5m8kf9lnya2tutsyfsf7z27jt09kargft7');
