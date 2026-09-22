@@ -9,6 +9,12 @@
  * (a multi-update scenario anchors once per update and chains the change), so
  * one funding UTXO per address covers the whole chain.
  *
+ * The step funds only the anchors that are not broadcast yet: it skips an
+ * anchor with a txid, a cohort with a txid, and a cohort with no artifact (its
+ * members are skipped recipes). It reads the UTXOs of each address one time and
+ * skips an address that already holds the amount. So a second run pays nothing,
+ * and a pass that adds recipes funds only the new addresses.
+ *
  *   - regtest: `sendtoaddress` over the Bitcoin Core RPC of the local Polar
  *     stack, one send per address. No wallet.
  *   - other networks: ONE batch transaction from the wallet funding key (one
@@ -22,12 +28,15 @@
  *   pnpm scenario:fund --network mutinynet --dry     # list targets, no broadcast
  */
 
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { hex } from '@scure/base';
 
 import { bitcoinFor } from './_e2e-helpers.js';
 import {
-  indexScenarioDirs, loadCohorts, parseNetworkArg, readState,
+  cohortsOutDir, indexScenarioDirs, loadCohorts, parseNetworkArg, readJSON, readState,
   type AddrType,
 } from './_scenario-helpers.js';
 import { loadWallet, requireFunding } from './wallet/store.js';
@@ -42,13 +51,14 @@ const PER_ANCHOR_SATS = 1000n;
 
 type Target = { address: string; kind: AddrType; anchors: number; labels: string[] };
 
-/** Every address that needs funding, with the number of anchors it carries. */
+/** Every address that carries an anchor that is not broadcast yet, with the number of those anchors. */
 function collectTargets(): Target[] {
   const targets = new Map<string, Target>();
   for (const [id] of indexScenarioDirs(network)) {
     const f = readState(network, id);
     if (!f) continue;
     for (const a of f.anchors) {
+      if (a.txid) continue;
       const t = targets.get(a.address) ?? { address: a.address, kind: a.kind, anchors: 0, labels: [] };
       t.anchors++;
       if (!t.labels.includes(f.scenarioId)) t.labels.push(f.scenarioId);
@@ -57,6 +67,8 @@ function collectTargets(): Target[] {
   }
   for (const cohort of loadCohorts(network)) {
     if (cohort.keys.source !== 'fixed') continue;
+    const artifactPath = join(cohortsOutDir(network), `${cohort.id}.json`);
+    if (!existsSync(artifactPath) || readJSON<{ txid?: string }>(artifactPath).txid) continue;
     const kp = SchnorrKeyPair.fromSecret(hex.decode(cohort.keys.secretHex));
     const address = addressForKind(kp.publicKey.compressed, 'p2wpkh', network);
     targets.set(address, { address, kind: 'p2wpkh', anchors: 1, labels: [cohort.id] });
@@ -73,8 +85,24 @@ async function fundRegtest(targets: Array<Target & { amountSats: bigint }>): Pro
   }
 }
 
+/** The targets whose address does not hold the amount yet. One indexer read per address. */
+async function unfunded(targets: Array<Target & { amountSats: bigint }>): Promise<Array<Target & { amountSats: bigint }>> {
+  const btc = bitcoinFor(network);
+  const out: Array<Target & { amountSats: bigint }> = [];
+  for (const t of targets) {
+    const utxos = await btc.rest.address.getUtxos(t.address);
+    const held = utxos.reduce((sum, u) => sum + BigInt(u.value), 0n);
+    if (held >= t.amountSats) {
+      console.log(`  skip   ${t.address} holds ${held} sats [${t.labels.join(', ')}]`);
+      continue;
+    }
+    out.push(t);
+  }
+  return out;
+}
+
 async function run(): Promise<void> {
-  const targets = collectTargets().map((t) => ({ ...t, amountSats: BASE_SATS + PER_ANCHOR_SATS * BigInt(t.anchors) }));
+  const targets = await unfunded(collectTargets().map((t) => ({ ...t, amountSats: BASE_SATS + PER_ANCHOR_SATS * BigInt(t.anchors) })));
   const total = targets.reduce((s, t) => s + t.amountSats, 0n);
   console.log(`=== scenario:fund (${network}): ${targets.length} addresses, ${total} sats total ===`);
   for (const t of targets) {

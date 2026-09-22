@@ -1,0 +1,44 @@
+{
+    "id": "smt-11",
+    "beaconType": "SMTBeacon",
+    "network": "mutinynet",
+    "serviceId": "#cohortBeacon",
+    "anchorAddress": "tb1qs8rz5j2htw20g2yf85cr82n707elaedx48jja6",
+    "signalHex": "b0bcd9b60e238046c0de78ab0d9b33b4622b5e910c85c7ce14b4cf66079b25be",
+    "members": [
+        {
+            "scenarioId": "11a-x1-cas-update-smt-proof",
+            "did": "did:btcr2:x1q4as9ul0mh4p6r49gk8lghyw4xp4zgtc03ap79d5cpuqk6m3dqyx6e9s8cv",
+            "updateId": "6514304f5d98f3a417c6dbbb7e801662f61835b44d7c063e17345775a497ba17"
+        },
+        {
+            "scenarioId": "11b-x1-cas-update-smt-proof-paired",
+            "did": "did:btcr2:x1qklrxhg4xckgt5sjpxlrzjy9yz36gr9adn3u00g04wqcy3ac74swvm4kkf4",
+            "updateId": "b8e81f8e4f5cf5084f5e580245e71aa05f1adbca984510e9fa6fffb4ed637b19"
+        }
+    ],
+    "artifact": {
+        "rootHex": "b0bcd9b60e238046c0de78ab0d9b33b4622b5e910c85c7ce14b4cf66079b25be",
+        "proofs": {
+            "did:btcr2:x1q4as9ul0mh4p6r49gk8lghyw4xp4zgtc03ap79d5cpuqk6m3dqyx6e9s8cv": {
+                "id": "sLzZtg4jgEbA3nirDZsztGIrXpEMhcfOFLTPZgebJb4",
+                "collapsed": "f_________________________________________8",
+                "hashes": [
+                    "uGJY9kWqxbrJ9OAucOVsusTqrDXb4ZF1gH5XhY57tY0"
+                ],
+                "nonce": "ViALhGRiYXzy3kcyFInnNOsryhMDq0hXg8mDC49_h1s",
+                "updateId": "ZRQwT12Y86QXxtu7foAWYvYYNbRNfAY-FzRXdaSXuhc"
+            },
+            "did:btcr2:x1qklrxhg4xckgt5sjpxlrzjy9yz36gr9adn3u00g04wqcy3ac74swvm4kkf4": {
+                "id": "sLzZtg4jgEbA3nirDZsztGIrXpEMhcfOFLTPZgebJb4",
+                "collapsed": "f_________________________________________8",
+                "hashes": [
+                    "Mr8VrWxjR79XnY2kaVS4uvkF-WHrLLNM5MnVviL1Vio"
+                ],
+                "nonce": "5w3cCpI2I3Y8MuUQ5FyVlHL9GqQeIx6aUW2GX_tbtT4",
+                "updateId": "uOgfjk9c9QhPXlgCRecaoF8a28qYRRDp-m__tO1jexk"
+            }
+        }
+    },
+    "txid": "336e45e3888314758cda1e2096f976271e43a39981d7214049c1a126ec9ba7dd"
+}

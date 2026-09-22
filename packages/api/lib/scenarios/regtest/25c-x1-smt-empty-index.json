@@ -1,0 +1,28 @@
+{
+  "id": "25c-x1-smt-empty-index",
+  "description": "x1 DID in the SMT cohort smt-25 with no update and no nonce. The tree has no entry for the DID, so the proof is the proof of an empty index. The DID resolves to version 1.",
+  "network": "regtest",
+  "idType": "EXTERNAL",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "50771ffc32014ef38668ccbb3dd61feaed1897713afc7287d7b6281c183329cd"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ],
+  "updates": [],
+  "smt": {
+    "nonce": false
+  }
+}

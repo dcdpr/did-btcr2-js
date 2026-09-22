@@ -44,6 +44,18 @@
             ]
         },
         {
+            "cid": "bafkreid3alz67xpkduhkkrmp6roi5kmdkeqxq7d2d4k3jqdybnvxc2ainu",
+            "kind": "genesis",
+            "hashB64": "ewLz793qHQ6lRY_0XI6pg1EheHx6HxW0wHgLa3FoCG0",
+            "hashHex": "7b02f3efddea1d0ea5458ff45c8ea9835121787c7a1f15b4c0780b6b7168086d",
+            "usedBy": [
+                {
+                    "scenarioId": "11a-x1-cas-update-smt-proof",
+                    "did": "did:btcr2:x1q4as9ul0mh4p6r49gk8lghyw4xp4zgtc03ap79d5cpuqk6m3dqyx6e9s8cv"
+                }
+            ]
+        },
+        {
             "cid": "bafkreibnbaapzc65jtz36klbbulrng26iubta3sixp7iwr3rmqip5hz6ea",
             "kind": "genesis",
             "hashB64": "LQgA_IvdTPO_KWENFxabXkUDMG5Iu_6LR3FkEP6fPiA",
@@ -76,6 +88,18 @@
                 {
                     "scenarioId": "06-x1-cas-3-updates",
                     "did": "did:btcr2:x1q5mp6cxq4avt6mapnutxyelfuvyg2gxt46hxpkfq236kxskp9ss7c3sz6gg"
+                }
+            ]
+        },
+        {
+            "cid": "bafkreif6gnorknrmqxjbecn6gfeikifduqgl23hdy66q7k4bqjd3r5la4y",
+            "kind": "genesis",
+            "hashB64": "vjNdFTYshdISCb4xSIUgo6QMvWzjx70Pq4GCR7j1YOY",
+            "hashHex": "be335d15362c85d21209be31488520a3a40cbd6ce3c7bd0fab818247b8f560e6",
+            "usedBy": [
+                {
+                    "scenarioId": "11b-x1-cas-update-smt-proof-paired",
+                    "did": "did:btcr2:x1qklrxhg4xckgt5sjpxlrzjy9yz36gr9adn3u00g04wqcy3ac74swvm4kkf4"
                 }
             ]
         },
@@ -128,6 +152,18 @@
             ]
         },
         {
+            "cid": "bafkreify5apy4t246uee6xsyajc6ogval4nnxsuyiuiot6tp762o2y33de",
+            "kind": "signedUpdate",
+            "hashB64": "uOgfjk9c9QhPXlgCRecaoF8a28qYRRDp-m__tO1jexk",
+            "hashHex": "b8e81f8e4f5cf5084f5e580245e71aa05f1adbca984510e9fa6fffb4ed637b19",
+            "usedBy": [
+                {
+                    "scenarioId": "11b-x1-cas-update-smt-proof-paired",
+                    "did": "did:btcr2:x1qklrxhg4xckgt5sjpxlrzjy9yz36gr9adn3u00g04wqcy3ac74swvm4kkf4"
+                }
+            ]
+        },
+        {
             "cid": "bafkreicvlw2tf4kdppdky2472jfkqxwokykals2rdufjkhmisdu42i4ije",
             "kind": "signedUpdate",
             "hashB64": "VV21MvFDe8asa5_SSqhezlYUBctRHQqVHYiQ6c0jiEk",
@@ -172,6 +208,18 @@
                 {
                     "scenarioId": "06-x1-cas-3-updates",
                     "did": "did:btcr2:x1q5mp6cxq4avt6mapnutxyelfuvyg2gxt46hxpkfq236kxskp9ss7c3sz6gg"
+                }
+            ]
+        },
+        {
+            "cid": "bafkreidfcqye6xmy6osbprw3xn7iaftc6ymdlncnpqdd4fzuk522jf52c4",
+            "kind": "signedUpdate",
+            "hashB64": "ZRQwT12Y86QXxtu7foAWYvYYNbRNfAY-FzRXdaSXuhc",
+            "hashHex": "6514304f5d98f3a417c6dbbb7e801662f61835b44d7c063e17345775a497ba17",
+            "usedBy": [
+                {
+                    "scenarioId": "11a-x1-cas-update-smt-proof",
+                    "did": "did:btcr2:x1q4as9ul0mh4p6r49gk8lghyw4xp4zgtc03ap79d5cpuqk6m3dqyx6e9s8cv"
                 }
             ]
         }

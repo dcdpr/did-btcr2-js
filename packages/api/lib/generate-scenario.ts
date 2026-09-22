@@ -24,9 +24,15 @@
  * signed bytes. Run generate, artifacts, route, publish, fund, and anchor as one
  * pass per network.
  *
+ * `--add-resolves` writes only the `resolve/NN/` sub-vectors that a generated
+ * set does not have yet. It writes no other file, so the signed updates and the
+ * anchors of the set stay as they are. The sub-vector input has no sidecar:
+ * `scenario:route` adds it.
+ *
  * Usage:
  *   pnpm generate:scenario --network regtest --clean        # every recipe of the network
  *   pnpm generate:scenario --network regtest 01-k1-base     # one or more recipe ids
+ *   pnpm generate:scenario --network regtest --add-resolves 22-x1-three-updates-resolution-options
  */
 
 import { existsSync, rmSync } from 'node:fs';
@@ -47,8 +53,8 @@ import { bech32m, hex } from '@scure/base';
 import { Address, p2pkh, p2tr, p2wpkh } from '@scure/btc-signer';
 
 import {
-  cohortsOutDir, errorEnvelope, findCohort, isDuplicate, loadCohorts, loadRecipes, networkDataDir, okEnvelope, parseNetworkArg,
-  realUpdates, resolveCaseDir, stateDir, updateDir, writeJSON, writeState,
+  anchorRound, cohortsOutDir, errorEnvelope, findCohort, isDuplicate, loadCohorts, loadRecipes, networkDataDir, okEnvelope,
+  parseNetworkArg, readJSON, realUpdates, resolveCaseDir, stateDir, updateDir, writeJSON, writeState,
   type AddrType, type AnchorEntry, type CohortDef, type IdentifierTamper, type KeySpec,
   type OtherFile, type Scenario, type ScenarioBeacon, type ScenarioState, type ScenarioUpdate, type TamperKind,
   type VectorNetwork,
@@ -56,7 +62,11 @@ import {
 
 const { network, rest } = parseNetworkArg();
 const clean = rest.includes('--clean');
+const addResolves = rest.includes('--add-resolves');
 const onlyIds = rest.filter((a) => !a.startsWith('--'));
+if (addResolves && (clean || onlyIds.length === 0)) {
+  throw new Error('--add-resolves needs one or more recipe ids and no --clean');
+}
 
 // ─── Keys and addresses ──────────────────────────────────────────────────────
 
@@ -402,14 +412,23 @@ function runScenario(scenario: Scenario, cohorts: CohortDef[]): void {
   if (resolveDid !== did) console.log(`  resolve as: ${resolveDid} (${scenario.identifier!.tamper})`);
   console.log(`  output dir: ${outDir}`);
 
-  writeJSON(join(outDir, 'other.json'), other);
-  writeJSON(join(outDir, 'create', 'input.json'), {
+  // With --add-resolves, the set must exist with the same DID, and only new sub-vectors are written.
+  if (addResolves) {
+    const createOutput = join(outDir, 'create', 'output.json');
+    if (!existsSync(createOutput) || readJSON<{ did: string }>(createOutput).did !== did) {
+      throw new Error(`--add-resolves: no generated set with the DID ${did}. The keys changed, or the set was never generated.`);
+    }
+  }
+  const write: typeof writeJSON = addResolves ? () => undefined : writeJSON;
+
+  write(join(outDir, 'other.json'), other);
+  write(join(outDir, 'create', 'input.json'), {
     idType       : scenario.idType,
     version      : 1,
     network      : scenario.network,
     genesisBytes : hex.encode(genesisBytes),
   });
-  writeJSON(join(outDir, 'create', 'output.json'), { did });
+  write(join(outDir, 'create', 'output.json'), { did });
 
   // The initial document, in pure-data mode.
   const components = Identifier.decode(did);
@@ -485,11 +504,14 @@ function runScenario(scenario: Scenario, cohorts: CohortDef[]): void {
       : Updater.sign(did, unsigned, vm, signer);
     tamperSigned(signed, u.tamper);
 
-    const flags = [u.fork && 'fork', u.tamper, u.withhold && 'withhold', u.removedBeacon && 'removedBeacon', u.signWith && `signWith=${u.signWith}`].filter(Boolean).join(' ');
+    const flags = [
+      u.fork && 'fork', u.tamper, u.withhold && 'withhold', u.removedBeacon && 'removedBeacon',
+      u.belowCurrentHeight && 'belowCurrentHeight', u.round && `round=${u.round}`, u.signWith && `signWith=${u.signWith}`,
+    ].filter(Boolean).join(' ');
     console.log(`  [update ${stepNum}/${count}] v${source.version} -> v${unsigned.targetVersionId} vm=${fragmentOf(vmId)} beacon=${fragmentOf(beaconId)} ${u.delivery}${flags ? ` (${flags})` : ''}`);
 
     const dir = updateDir(outDir, realCount, ordinal);
-    writeJSON(join(dir, 'input.json'), {
+    write(join(dir, 'input.json'), {
       sourceDocument       : source.document,
       patches,
       sourceVersionId      : source.version,
@@ -497,17 +519,32 @@ function runScenario(scenario: Scenario, cohorts: CohortDef[]): void {
       beaconId,
       signingMaterial      : hex.encode(signerKp.secretKey.bytes),
     });
-    writeJSON(join(dir, 'output.json'), { signedUpdate: signed });
+    write(join(dir, 'output.json'), { signedUpdate: signed });
 
     // The anchor of a solo scenario: the beacon of the source document at beaconId.
     // With removedBeacon, the beacon of the genesis document: an earlier update
     // removed it, so the source document must not carry it.
+    if (cohort && (u.round !== undefined || u.belowCurrentHeight)) {
+      throw new Error(`${scenario.id} update ${stepNum}: a cohort member anchors in round 1; round and belowCurrentHeight need a solo scenario`);
+    }
     if (!cohort) {
       const inSource = (source.document.service ?? []).some((s) => absolutize(did, s.id) === beaconId);
       if (u.removedBeacon && inSource) {
         throw new Error(`${scenario.id} update ${stepNum}: removedBeacon is set, but the source document still carries ${beaconId}`);
       }
-      anchors.push(anchorAt(u.removedBeacon ? baseDocument : source.document, beaconId, stepNum, ordinal));
+      const anchor = anchorAt(u.removedBeacon ? baseDocument : source.document, beaconId, stepNum, ordinal);
+      if (u.round !== undefined) {
+        if (!Number.isInteger(u.round) || u.round < 1) throw new Error(`${scenario.id} update ${stepNum}: round must be a positive integer, got ${u.round}`);
+        anchor.round = u.round;
+      }
+      anchors.push(anchor);
+      // The signal must sit in an earlier block than the signal of the update before it.
+      if (u.belowCurrentHeight) {
+        const previous = anchors.length - 2;
+        if (previous < 0 || anchorRound(anchor, anchors.length - 1) >= anchorRound(anchors[previous]!, previous)) {
+          throw new Error(`${scenario.id} update ${stepNum}: belowCurrentHeight needs a round before the round of the previous anchor`);
+        }
+      }
     }
 
     if (!u.withhold) signedUpdates.push(signed);
@@ -515,10 +552,11 @@ function runScenario(scenario: Scenario, cohorts: CohortDef[]): void {
     // A valid update advances the document. A resolver applies no update after a
     // deactivation, so an update that follows one is signed and anchored but does
     // not advance the expected document. A resolver ignores the signal of a
-    // removed beacon address, so that update does not advance it either.
+    // removed beacon address and a signal below current_block_height, so those
+    // updates do not advance it either.
     previousSource = source;
     const deactivatedNow = (currentDocument as { deactivated?: boolean }).deactivated === true;
-    if (!u.tamper && !u.fork && !deactivatedNow && !u.removedBeacon) {
+    if (!u.tamper && !u.fork && !deactivatedNow && !u.removedBeacon && !u.belowCurrentHeight) {
       currentDocument = JSONPatch.apply(source.document, patches, { strict: true }) as Btcr2DidDocument;
       currentVersion = unsigned.targetVersionId;
       documents[currentVersion - 1] = currentDocument;
@@ -532,14 +570,16 @@ function runScenario(scenario: Scenario, cohorts: CohortDef[]): void {
   const sidecarOptions = Object.keys(sidecar).length === 0 ? {} : { sidecar };
 
   const deactivated = (currentDocument as { deactivated?: boolean }).deactivated === true;
-  writeJSON(join(outDir, 'resolve', 'input.json'), { did: resolveDid, resolutionOptions: sidecarOptions });
-  writeJSON(join(outDir, 'resolve', 'output.json'), scenario.expect
+  write(join(outDir, 'resolve', 'input.json'), { did: resolveDid, resolutionOptions: sidecarOptions });
+  write(join(outDir, 'resolve', 'output.json'), scenario.expect
     ? errorEnvelope(scenario.expect.error)
     : okEnvelope(currentDocument, currentVersion, deactivated));
 
   for (const c of scenario.resolves ?? []) {
     const dir = resolveCaseDir(outDir, c.id);
-    writeJSON(join(dir, 'input.json'), { did: resolveDid, resolutionOptions: { ...sidecarOptions, ...c.options } });
+    if (addResolves && existsSync(dir)) continue;
+    // With --add-resolves, the signed updates of this run are not the anchored ones: scenario:route adds the sidecar.
+    writeJSON(join(dir, 'input.json'), { did: resolveDid, resolutionOptions: addResolves ? { ...c.options } : { ...sidecarOptions, ...c.options } });
     if ('error' in c.expect) {
       writeJSON(join(dir, 'output.json'), errorEnvelope(c.expect.error));
     } else {
@@ -566,7 +606,11 @@ function runScenario(scenario: Scenario, cohorts: CohortDef[]): void {
       address : String(s.serviceEndpoint).slice('bitcoin:'.length),
     })),
   };
-  writeState(state);
+  // Two anchors of one scenario in one round would sit in one block.
+  if (new Set(anchors.map(anchorRound)).size !== anchors.length) {
+    throw new Error(`${scenario.id}: two anchors use the same round`);
+  }
+  if (!addResolves) writeState(state);
 
   const expectText = scenario.expect ? `error ${scenario.expect.error}` : `versionId ${currentVersion}${deactivated ? ' deactivated' : ''}`;
   console.log(`[scenario] ${scenario.id} done: hash=${hash} expect ${expectText}${anchors.length ? `, ${anchors.length} anchor(s)` : ''}`);
@@ -602,6 +646,6 @@ for (const scenario of selected) {
     console.log(`[scenario] ${scenario.id} FAILED: ${(e as Error).message}`);
   }
 }
-console.log(`\n=== generated ${selected.length - failed}/${selected.length} scenarios on ${network} ===`);
-if (failed === 0) console.log(`  Next: pnpm scenario:artifacts --network ${network}`);
+console.log(`\n=== ${addResolves ? 'added the new sub-vectors of' : 'generated'} ${selected.length - failed}/${selected.length} scenarios on ${network} ===`);
+if (failed === 0) console.log(`  Next: pnpm scenario:${addResolves ? 'route' : 'artifacts'} --network ${network}`);
 process.exit(failed ? 1 : 0);

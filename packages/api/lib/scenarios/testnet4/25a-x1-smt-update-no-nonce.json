@@ -1,0 +1,45 @@
+{
+  "id": "25a-x1-smt-update-no-nonce",
+  "description": "x1 DID in the SMT cohort smt-25 with 1 sidecar update. The tree entry has no nonce, so the leaf value is the updateId.",
+  "network": "testnet4",
+  "idType": "EXTERNAL",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "3c55b5060c6140553857d756031159323a16491814012bb586baa2931208089a"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ],
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/4",
+          "value": {
+            "id": "#dwn",
+            "type": "DecentralizedWebNode",
+            "serviceEndpoint": "http://example.com/dwn"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#cohortBeacon",
+      "delivery": "sidecar"
+    }
+  ],
+  "smt": {
+    "nonce": false
+  }
+}

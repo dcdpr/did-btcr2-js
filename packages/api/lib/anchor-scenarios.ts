@@ -13,8 +13,8 @@
  *     A duplicate entry anchors the hash of an earlier update again. Anchors at
  *     one address chain the change UTXO.
  *
- * One round per command. Round k broadcasts the k-th anchor of every scenario.
- * The cohort anchors are round 1. The txid of each broadcast anchor goes into
+ * One round per command. Round k broadcasts the k-th anchor of every scenario,
+ * or the anchor that the recipe puts in round k. The cohort anchors are round 1. The txid of each broadcast anchor goes into
  * the state file of the scenario (`state/<id>.json`) or into the cohort
  * artifact. A second run skips an anchor that has a txid.
  *
@@ -43,8 +43,8 @@ import { BeaconSignalDiscovery, type BeaconService } from '@did-btcr2/method';
 
 import { bitcoinFor } from './_e2e-helpers.js';
 import {
-  cohortsOutDir, indexScenarioDirs, loadCohorts, loadRecipes, parseNetworkArg, readJSON, readSignedUpdates, readState,
-  realUpdates, writeJSON, writeState,
+  anchorRound, cohortsOutDir, indexScenarioDirs, loadCohorts, loadRecipes, parseNetworkArg, readJSON, readSignedUpdates,
+  readState, realUpdates, writeJSON, writeState,
   type AddrType, type OtherFile,
 } from './_scenario-helpers.js';
 import { anchorSignal, explorerHint } from './wallet/tx-builder.js';
@@ -54,7 +54,7 @@ const dry = rest.includes('--dry');
 
 type Anchor = {
   label: string;
-  /** The round that broadcasts the anchor: its position in the scenario, or 1 for a cohort. */
+  /** The round that broadcasts the anchor: the round of the recipe, else its position in the scenario, or 1 for a cohort. */
   round: number;
   address: string;
   secretHex: string;
@@ -104,7 +104,7 @@ function collectAnchors(): Anchor[] {
       const again = a.duplicateOf ? ` (update ${a.duplicateOf} again)` : '';
       anchors.push({
         label     : `${state.scenarioId} entry ${a.update}/${recipe.updates.length}${again} @${a.beaconId.slice(a.beaconId.indexOf('#'))}`,
-        round     : i + 1,
+        round     : anchorRound(a, i),
         address   : a.address,
         secretHex,
         signalHex : canonicalHash(update as Record<string, unknown>, { encoding: 'hex' }),

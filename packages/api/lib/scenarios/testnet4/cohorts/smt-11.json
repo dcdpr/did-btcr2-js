@@ -1,0 +1,44 @@
+{
+    "id": "smt-11",
+    "beaconType": "SMTBeacon",
+    "network": "testnet4",
+    "serviceId": "#cohortBeacon",
+    "anchorAddress": "tb1qx3ejjdkjwthsstvxjtmyp6w7m6rvvdqlrx8hjv",
+    "signalHex": "3d3d56bd14def47aadb77b59208e3bc516ff7d9d24fde001c32f5a03e915caf6",
+    "members": [
+        {
+            "scenarioId": "11a-x1-cas-update-smt-proof",
+            "did": "did:btcr2:x1qsvhmpzpn6sj23e327lklrc5jvkwc75dwwte60974h98er67ge9tx0ahh9x",
+            "updateId": "de86e3f8de1c0e186f0e7202e34ea4e00a5965195d8df63621d036d59f0b5657"
+        },
+        {
+            "scenarioId": "11b-x1-cas-update-smt-proof-paired",
+            "did": "did:btcr2:x1qsk6l5407kmzdxuy9cu7hsyqjsmlluqfcv94qaazc0l8v7qv2d5027zsr8f",
+            "updateId": "9147a1331e3873b9f76026a5bdfbbe6ad40d9559bc8353f181910fe51d220199"
+        }
+    ],
+    "artifact": {
+        "rootHex": "3d3d56bd14def47aadb77b59208e3bc516ff7d9d24fde001c32f5a03e915caf6",
+        "proofs": {
+            "did:btcr2:x1qsvhmpzpn6sj23e327lklrc5jvkwc75dwwte60974h98er67ge9tx0ahh9x": {
+                "id": "PT1WvRTe9Hqtt3tZII47xRb_fZ0k_eABwy9aA-kVyvY",
+                "collapsed": "f_________________________________________8",
+                "hashes": [
+                    "b9jT_bSWOmgaKm4PafFVCn7EoZGPJcPwNNC8gt4PqjA"
+                ],
+                "nonce": "-cJ90eCEyjHApJgQbBgna7cuWRaWrdtqfBxEt__zoe8",
+                "updateId": "3obj-N4cDhhvDnIC406k4ApZZRldjfY2IdA21Z8LVlc"
+            },
+            "did:btcr2:x1qsk6l5407kmzdxuy9cu7hsyqjsmlluqfcv94qaazc0l8v7qv2d5027zsr8f": {
+                "id": "PT1WvRTe9Hqtt3tZII47xRb_fZ0k_eABwy9aA-kVyvY",
+                "collapsed": "f_________________________________________8",
+                "hashes": [
+                    "1-flo5IP-97TQGxkJQZxYaJ1INrQ6_g2cunMSdIeS1E"
+                ],
+                "nonce": "gpkwo-fzJ1-xStRcFq23w88e8bm13LYd0omguN_BaOI",
+                "updateId": "kUehMx44c7n3YCalvfu-atQNlVm8g1PxgZEP5R0iAZk"
+            }
+        }
+    },
+    "txid": "bea5b45a44889d84447823cc8e037d94651b24bc3bbc296455964001118bbb8e"
+}

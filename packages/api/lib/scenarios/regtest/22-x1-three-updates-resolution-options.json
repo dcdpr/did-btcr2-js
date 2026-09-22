@@ -1,6 +1,6 @@
 {
   "id": "22-x1-three-updates-resolution-options",
-  "description": "x1 DID with 3 sidecar updates, each anchored in its own block. The sub-vectors cover versionId, versionTime (before the first update, between the first and the second, at the second), an unreachable versionId, both options, and minConf above the chain depth.",
+  "description": "x1 DID with 3 sidecar updates, each anchored in its own block. The sub-vectors cover versionId, versionTime (before the first update, between the first and the second, at the second), an unreachable versionId, both options, minConf above the chain depth, and minConf equal to the confirmation count of the second anchor (regtest only: the case holds at the recorded tip).",
   "network": "regtest",
   "idType": "EXTERNAL",
   "keys": {
@@ -136,6 +136,15 @@
       },
       "expect": {
         "versionId": "1"
+      }
+    },
+    {
+      "id": "10",
+      "options": {
+        "minConf": "depth:2"
+      },
+      "expect": {
+        "versionId": "3"
       }
     }
   ],

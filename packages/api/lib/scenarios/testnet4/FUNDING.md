@@ -1,6 +1,6 @@
 # Test Vector Funding Targets (testnet4)
 
-Generated from 48 scenarios: 37 anchor their own beacons, 4 are cohort members (one shared anchor per cohort), 7 need no funding.
+Generated from 59 scenarios: 38 anchor their own beacons, 12 are cohort members (one shared anchor per cohort), 9 need no funding.
 
 ## Solo beacon addresses
 
@@ -28,6 +28,8 @@ Each address carries one OP_RETURN per anchor. Fund each address once; the ancho
 | `tb1qejynvzv27lm3fx50rsp6psdkvgczurr8qypu20` | p2wpkh | 3 | 23-k1-duplicate-signal |
 | `tb1q72hq0hzexmutcclhgqrmkj9xz8a5z65e7mhvev` | p2wpkh | 1 | 24-k1-removed-beacon-signal |
 | `n3e8JLp9wvkgqNfC1yGyL2eYSRYxqK9Rnp` | p2pkh | 1 | 24-k1-removed-beacon-signal |
+| `tb1qs674r3xfljrwaug4ptv9xgp58u843xktx9dqe7` | p2wpkh | 1 | 26-k1-signal-below-current-height |
+| `tb1q74tywvrarmmeq3y2j8ejt0g5nsfjl0xzm05a5z` | p2wpkh | 1 | 26-k1-signal-below-current-height |
 | `tb1qrmjs09uhnshva596ngd6h22yuz8vupd7tnvddn` | p2wpkh | 1 | n05-x1-missing-update-data |
 | `tb1q0rt8v302ruzz3m4f0yrf3sl2ntlnamzc9ysa0k` | p2wpkh | 1 | n10-k1-invalid-update-context-member |
 | `tb1q5hljzuzt92rtx9jc9lpe9yuln56ps4qud4x2t5` | p2wpkh | 1 | n11-k1-invalid-update-context-order |
@@ -60,8 +62,9 @@ One shared address per cohort, funded once, one OP_RETURN for every member.
 | cas-10 | CASBeacon | 10a-x1-sidecar-update-cas-announcement, 10b-x1-sidecar-update-cas-announcement-paired |
 | smt-11 | SMTBeacon | 11a-x1-cas-update-smt-proof, 11b-x1-cas-update-smt-proof-paired |
 | smt-12 | SMTBeacon | 12a-x1-sidecar-update-smt-proof, 12b-x1-sidecar-update-smt-proof-paired |
+| smt-25 | SMTBeacon | 25a-x1-smt-update-no-nonce, 25b-x1-smt-nonce-no-update, 25c-x1-smt-empty-index, n29-x1-smt-proof-hash, n30-x1-smt-proof-root-id, n31-x1-smt-proof-withheld |
 
-### Plain list (41 solo addresses, one per line)
+### Plain list (43 solo addresses, one per line)
 
 ```
 mqPxvdqG4K6fBA7zXtHUg6u7bYAHZcQHF2
@@ -84,6 +87,8 @@ tb1qqq0h4gxsr2aepshkzll8c47ekmpq853d4yv7fa
 tb1qejynvzv27lm3fx50rsp6psdkvgczurr8qypu20
 tb1q72hq0hzexmutcclhgqrmkj9xz8a5z65e7mhvev
 n3e8JLp9wvkgqNfC1yGyL2eYSRYxqK9Rnp
+tb1qs674r3xfljrwaug4ptv9xgp58u843xktx9dqe7
+tb1q74tywvrarmmeq3y2j8ejt0g5nsfjl0xzm05a5z
 tb1qrmjs09uhnshva596ngd6h22yuz8vupd7tnvddn
 tb1q0rt8v302ruzz3m4f0yrf3sl2ntlnamzc9ysa0k
 tb1q5hljzuzt92rtx9jc9lpe9yuln56ps4qud4x2t5
@@ -223,6 +228,46 @@ n4PLRwPMjoYdQpYqiWqWDffVUe2PKDectr
   - `initialP2TR` (SingletonBeacon): `tb1pkcj5c885rvpuc5gkss4kkjl2fmn0l79j2uqhaj4ars9a2d77e2ese7vwm2`
   - `cohortBeacon` (CASBeacon): `tb1qsstmwrwhvltfvkqd8csqj5dp862phwwwcjav4n`
 
+### 11a-x1-cas-update-smt-proof
+
+- **DID:** `did:btcr2:x1qsvhmpzpn6sj23e327lklrc5jvkwc75dwwte60974h98er67ge9tx0ahh9x`
+- **Cohort:** smt-11
+- Beacons:
+  - `initialP2PKH` (SingletonBeacon): `mxbjrcBtEdaGZmK5yhoLxPXjccSP8qzAUq`
+  - `initialP2WPKH` (SingletonBeacon): `tb1qhdsatdv0cwpn8qum45tjyhku449569e7xdc29l`
+  - `initialP2TR` (SingletonBeacon): `tb1pdl3w2tzwapasc9esqdw4yp7lvr4rvvn35nwaexzt7h246l4crjsshlsn2k`
+  - `cohortBeacon` (SMTBeacon): `tb1qx3ejjdkjwthsstvxjtmyp6w7m6rvvdqlrx8hjv`
+
+### 11b-x1-cas-update-smt-proof-paired
+
+- **DID:** `did:btcr2:x1qsk6l5407kmzdxuy9cu7hsyqjsmlluqfcv94qaazc0l8v7qv2d5027zsr8f`
+- **Cohort:** smt-11
+- Beacons:
+  - `initialP2PKH` (SingletonBeacon): `mh5R9zdwUFjvug1YnZ9jHVZdznffyUF4d2`
+  - `initialP2WPKH` (SingletonBeacon): `tb1qzydah6tkmnlx8g9tvd8nrcjx9xfazw03qjvy2y`
+  - `initialP2TR` (SingletonBeacon): `tb1p608w26jcpxj4pm3dvutl8thtrazfwsn5d2fsxn338pvqwz0gu3hswq9kc8`
+  - `cohortBeacon` (SMTBeacon): `tb1qx3ejjdkjwthsstvxjtmyp6w7m6rvvdqlrx8hjv`
+
+### 12a-x1-sidecar-update-smt-proof
+
+- **DID:** `did:btcr2:x1q3kwecw9ahm2y6smrm4kca8sn5srah2pfe93hpclngl0shxknr7d79ngxaz`
+- **Cohort:** smt-12
+- Beacons:
+  - `initialP2PKH` (SingletonBeacon): `mrjbcmk4b6nJNPZPDcd6gn76zZDregLBgh`
+  - `initialP2WPKH` (SingletonBeacon): `tb1q0vxc040pqq2gmqudglhr6n30gaczf6ghefh4q7`
+  - `initialP2TR` (SingletonBeacon): `tb1pzs8dswyghlr0egh66xpe85lzcxj5w8g7vvnkakkxj9ef5q0qttmq059zu8`
+  - `cohortBeacon` (SMTBeacon): `tb1qs6nv73u59ntf9j6tuvrg40nregfl4l2szt50fa`
+
+### 12b-x1-sidecar-update-smt-proof-paired
+
+- **DID:** `did:btcr2:x1qj7t8rscjdaf2dgzyw2v77r6hhjemqjr8vfr8p8fhev0a9p8pmzzcjwylva`
+- **Cohort:** smt-12
+- Beacons:
+  - `initialP2PKH` (SingletonBeacon): `mpAYPdv2KW5QmfBY6jfQpP7mR5XfeXVr5V`
+  - `initialP2WPKH` (SingletonBeacon): `tb1qtmwdhej57rta04gjxy32xg2yjg53w8htauapce`
+  - `initialP2TR` (SingletonBeacon): `tb1pea5wpmj3pvpwdly6rfsjqh8hmrwerhxy0a9k2sagv986xy23e86snwtc4n`
+  - `cohortBeacon` (SMTBeacon): `tb1qs6nv73u59ntf9j6tuvrg40nregfl4l2szt50fa`
+
 ### 13-k1-update-p2wpkh
 
 - **DID:** `did:btcr2:k1qspxpjr0xd97l92kqrh8pl4pjgjqvdxr6pyaxxqyr7g0t9h648kct5q7uqvsz`
@@ -351,6 +396,47 @@ n4PLRwPMjoYdQpYqiWqWDffVUe2PKDectr
 - Anchors:
   - update 1 at `initialP2WPKH` (p2wpkh, key genesis): `tb1q72hq0hzexmutcclhgqrmkj9xz8a5z65e7mhvev`
   - update 2 at `initialP2PKH` (p2pkh, key genesis): `n3e8JLp9wvkgqNfC1yGyL2eYSRYxqK9Rnp`
+
+### 25a-x1-smt-update-no-nonce
+
+- **DID:** `did:btcr2:x1q3wj7wpqgwzuyjye5r5dmgvk2cram267he34kqtum7n5syrvdphrxtlnqyn`
+- **Cohort:** smt-25
+- Beacons:
+  - `initialP2PKH` (SingletonBeacon): `mp6syUjDCErHzwCzxnhJC937gZeNE8es3G`
+  - `initialP2WPKH` (SingletonBeacon): `tb1qtc4c4e7qhraayqejtv7eva5s3fwcdgjtxnk6xx`
+  - `initialP2TR` (SingletonBeacon): `tb1patqmt9m4krx2vcxy9qpgy50et7w9fw7z0jlqjfxnsucw4gs2t6zss4ndg3`
+  - `cohortBeacon` (SMTBeacon): `tb1q6kdy7g4s8l5hdphumuqm634r0fm8twm9lk2lch`
+
+### 25b-x1-smt-nonce-no-update
+
+- **DID:** `did:btcr2:x1qsp4ahzqm0aal4thjy6624kzvt90fxutss3tnjkfaqezvaeqt6l5yxyzmxx`
+- **Cohort:** smt-25
+- Beacons:
+  - `initialP2PKH` (SingletonBeacon): `mtiNpcKeJGdCjCSwNDWV57NgQudfiZkkHi`
+  - `initialP2WPKH` (SingletonBeacon): `tb1qjrp27jnudghku7elutz2nz4ax77c7g736jsll2`
+  - `initialP2TR` (SingletonBeacon): `tb1p79ypv7xyxrs2nu57x5e4vrr76ncg6h8mwm9gaz5zy4vyq46ncx7q3a697f`
+  - `cohortBeacon` (SMTBeacon): `tb1q6kdy7g4s8l5hdphumuqm634r0fm8twm9lk2lch`
+
+### 25c-x1-smt-empty-index
+
+- **DID:** `did:btcr2:x1qn7jezztzuhgtkfug2taevwe5pr7es3ctffkv0r93ewy6s24r8ekc54fxwk`
+- **Cohort:** smt-25
+- Beacons:
+  - `initialP2PKH` (SingletonBeacon): `mjBoMdnSERXtV35RCgxBC5AwTPRjoVnChJ`
+  - `initialP2WPKH` (SingletonBeacon): `tb1q9pqjx70q0tay0svrx89pmpwr0afyzwel7848se`
+  - `initialP2TR` (SingletonBeacon): `tb1pjkt72stent25kexnm4uyddf8m0tw940lfnrtk45x7vkac96z427szftaje`
+  - `cohortBeacon` (SMTBeacon): `tb1q6kdy7g4s8l5hdphumuqm634r0fm8twm9lk2lch`
+
+### 26-k1-signal-below-current-height
+
+- **DID:** `did:btcr2:k1qspn3pvrjemg66qm6n3nxavk49lxa2ylk84w0g85afxc7rfx4g4vwqqfz9ws6`
+- Beacons:
+  - `initialP2PKH` (SingletonBeacon): `msoPduJ58ExNoPmNCDZtRHv47bXTAQt2qW`
+  - `initialP2WPKH` (SingletonBeacon): `tb1qs674r3xfljrwaug4ptv9xgp58u843xktx9dqe7`
+  - `initialP2TR` (SingletonBeacon): `tb1p3esukck6ptkzs3a0nwxykya6ms97c06lcd9pvmv6tawwfxcp2l7snkvnnf`
+- Anchors:
+  - update 1 at `initialP2WPKH` (p2wpkh, key genesis): `tb1qs674r3xfljrwaug4ptv9xgp58u843xktx9dqe7`
+  - update 2 at `lateBeacon` (p2wpkh, key lateBeacon): `tb1q74tywvrarmmeq3y2j8ejt0g5nsfjl0xzm05a5z`
 
 ### n01-k1-invalid-did-checksum
 
@@ -584,4 +670,34 @@ n4PLRwPMjoYdQpYqiWqWDffVUe2PKDectr
 - Anchors:
   - update 1 at `initialP2WPKH` (p2wpkh, key genesis): `tb1qltdqkgwxydt52v5t34s756x66m5k2wsvq5mqdv`
   - update 2 at `initialP2PKH` (p2pkh, key genesis): `n4PLRwPMjoYdQpYqiWqWDffVUe2PKDectr`
+
+### n29-x1-smt-proof-hash
+
+- **DID:** `did:btcr2:x1qs3ep4v7fqft6rw94rrfd7uq7nmjn2yacx99sfcktzms3veq8fx55mm88ru`
+- **Cohort:** smt-25
+- Beacons:
+  - `initialP2PKH` (SingletonBeacon): `mqR7bftPGCH5bviFFdMpZ8ixvuue3B6AUq`
+  - `initialP2WPKH` (SingletonBeacon): `tb1qdjtgwjq9hn3ssu2pzha06dwhly68a8vnlxpflp`
+  - `initialP2TR` (SingletonBeacon): `tb1p0pv9kkuldm3ww8vtagc0ezmuxza3scy7a902e3pw50j3aucqfdhsju4y3n`
+  - `cohortBeacon` (SMTBeacon): `tb1q6kdy7g4s8l5hdphumuqm634r0fm8twm9lk2lch`
+
+### n30-x1-smt-proof-root-id
+
+- **DID:** `did:btcr2:x1qsjx2r7dsl52xul9seyveqqhp5ddpfj70hxra47deuu4uqch4r2egtq9gsp`
+- **Cohort:** smt-25
+- Beacons:
+  - `initialP2PKH` (SingletonBeacon): `mpua1n8zP6jZtRS1UGUg9ZLkszvAMt52CS`
+  - `initialP2WPKH` (SingletonBeacon): `tb1qvuqpn2h0yf9apl67vxjxx7wty5raj8vtsn5mq4`
+  - `initialP2TR` (SingletonBeacon): `tb1ppmaxtsl06kgay8z46cxtagpeq7e8h4dqhvp9cd9r7quy5wn5ff0smgv6su`
+  - `cohortBeacon` (SMTBeacon): `tb1q6kdy7g4s8l5hdphumuqm634r0fm8twm9lk2lch`
+
+### n31-x1-smt-proof-withheld
+
+- **DID:** `did:btcr2:x1qj0ku5u9006h309k5jasq0kazwv47duz50uv7mzx7x3akxy6aawagc5wjg7`
+- **Cohort:** smt-25
+- Beacons:
+  - `initialP2PKH` (SingletonBeacon): `mtsoBYbnUPEMS2TJadoxBBJ2JJ7KT658br`
+  - `initialP2WPKH` (SingletonBeacon): `tb1qj29v8r5d34h9waux5q6y2u0tkywn4e486x8ptn`
+  - `initialP2TR` (SingletonBeacon): `tb1pxtk3avmsr34fzjwvf4c47jgwh8uuqwjtzln6zrj889xychkfvqdsegr7k3`
+  - `cohortBeacon` (SMTBeacon): `tb1q6kdy7g4s8l5hdphumuqm634r0fm8twm9lk2lch`
 

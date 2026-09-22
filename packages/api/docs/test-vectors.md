@@ -46,9 +46,32 @@ pnpm scenario:readme --network regtest
 
 Run the steps 1 to 6 as one pass. BIP340 signing uses random auxiliary data, so every generation produces different signed bytes, and the artifacts, the manifest, and the anchored signals belong to one generation.
 
+### A pass that adds recipes
+
+A later pass adds recipes to a network that already has anchored sets. It generates the new recipes only. The anchored sets stay as they are, because a new signature needs a new anchor, and a second signal at an address makes the DID unresolvable.
+
+```bash
+# 0. Fix the keys of the new recipes. The command prints the ids to generate.
+pnpm scenario:keys --network regtest
+
+# 1. Generate the new recipes only. Do not use --clean: it deletes the anchored sets.
+pnpm generate:scenario --network regtest 25a-x1-smt-update-no-nonce 26-k1-signal-below-current-height
+
+# 1a. Add a new resolve sub-vector to an anchored set. The command signs nothing.
+pnpm generate:scenario --network regtest --add-resolves 22-x1-three-updates-resolution-options
+```
+
+Then run the steps 2 to 8. The steps are safe for the anchored sets:
+
+- `scenario:artifacts` keeps the `txid` of an anchored cohort. It stops if the signal of an anchored cohort changes.
+- `scenario:route` builds the sidecars again from the committed files. The anchored sets do not change.
+- `scenario:fund` pays only the addresses of the anchors that have no `txid`. It skips an address that already holds the amount.
+- `scenario:anchor` skips an anchor that has a `txid`.
+- `scenario:verify:live --record` records every set of the network again, with the new `recordedTip`.
+
 ### Anchor rounds
 
-`scenario:anchor` broadcasts one round per command ([ADR 116](../../../docs/adr/116-anchor-step-broadcasts-one-round-per-command-and-no-script-mines.md)). Round k broadcasts the k-th anchor of every scenario. The cohort anchors are round 1. The anchors of one scenario then sit in different blocks. The block `mediantime` rises from one anchor to the next, as the `versionTime` forms need.
+`scenario:anchor` broadcasts one round per command ([ADR 116](../../../docs/adr/116-anchor-step-broadcasts-one-round-per-command-and-no-script-mines.md)). Round k broadcasts the k-th anchor of every scenario, or the anchor that the recipe puts in round k (`round`). The cohort anchors are round 1. The anchors of one scenario then sit in different blocks. The block `mediantime` rises from one anchor to the next, as the `versionTime` forms need.
 
 The command writes the `txid` of each broadcast anchor into `state/<scenario-id>.json` (the `anchors` entry) or into `cohorts/<cohort-id>.json`. A second run skips an anchor that has a `txid`. Before it broadcasts round k, the command reads the indexer one time. It stops if an anchor of round k-1 is not confirmed. At round 1 it stops if an address already carries a Beacon Signal. Then roll the keys (`pnpm scenario:keys --network <name> --force`) or use a fresh chain.
 
@@ -66,12 +89,13 @@ A recipe names:
 - `genesis` (x1 only): `verificationMethods` (extra methods with their relationships), `embedInvocationKey` (the initial key is an embedded object in `capabilityInvocation`), `relativeIds` (every id is a relative DID URL), `tamper: hash-mismatch` (the sidecar genesis document does not hash to the identifier).
 - `identifier.tamper`: `checksum`, `padding`, or `network-nibble` makes the identifier of the resolve input invalid.
 - `delivery`: `genesis` and `announcement` as `sidecar` or `cas`.
-- `updates`: each with `patches`, `verificationMethodId`, `beaconId`, and `delivery` (`sidecar`, `cas`, `smt`). Options: `signWith` (a named key), `fork` (a second update from the same source version), `tamper` (an invalid update, see the kinds in `lib/_scenario-helpers.ts`), `withhold` (the update is in neither the sidecar nor the CAS), `removedBeacon` (the update is announced at a beacon that an earlier update removed; a resolver ignores the signal, so the expected document does not advance).
+- `updates`: each with `patches`, `verificationMethodId`, `beaconId`, and `delivery` (`sidecar`, `cas`, `smt`). Options: `signWith` (a named key), `fork` (a second update from the same source version), `tamper` (an invalid update, see the kinds in `lib/_scenario-helpers.ts`), `withhold` (the update is in neither the sidecar nor the CAS), `removedBeacon` (the update is announced at a beacon that an earlier update removed; a resolver ignores the signal, so the expected document does not advance), `round` (the anchor round of the entry; the default is the position of the entry), `belowCurrentHeight` (the anchor is in an earlier round than the anchor of the update before it; the signal is below `current_block_height`, so a resolver ignores it, and the expected document does not advance).
 - A duplicate entry in `updates`: `{ "duplicateOf": N, "beaconId": "#..." }` announces the signed update of entry N again, in a later block. The entry has no `update/NN/` directory and no sidecar entry. The update directories count the update entries only.
 - Patch values take the forms `$did`, `$address(name,kind)`, and `$multibase(name)`.
-- `resolves`: sub-vectors with resolution options (`versionId`, `versionTime`, `minConf`) and the expected version or error. A `versionTime` of the form `before:N`, `at:N`, or `after:N` names the `mediantime` of the block that anchors entry N of `updates` (a duplicate entry counts); the record step writes the timestamp.
+- `resolves`: sub-vectors with resolution options (`versionId`, `versionTime`, `minConf`) and the expected version or error. A `versionTime` of the form `before:N`, `at:N`, or `after:N` names the `mediantime` of the block that anchors entry N of `updates` (a duplicate entry counts). A `minConf` of the form `depth:N` names the confirmation count of the anchor of entry N. The record step writes the value. A `depth:N` case holds only at the recorded tip, so only the regtest recipes use it.
+- `smt` (a member of an SMT cohort): `nonce: false` builds the tree entry without a nonce. A member with no update and no nonce has no tree entry, and its proof is the proof of an empty index. `proof` makes the sidecar proof invalid: `hash` (one byte of a sibling hash differs), `id` (the `id` is not the signal root), or `withhold` (no proof in the sidecar).
 - `expect.error`: the DID Resolution error code of a negative vector.
-- `skip`: a reason to leave the recipe out of the pass (the SMT recipes wait for a specification change).
+- `skip`: a reason to leave the recipe out of the pass.
 
 ## Vector layout
 
@@ -86,11 +110,11 @@ lib/data/{network}/{k1|x1}/{hash}/
 
 The corpus holds the files a consumer needs and no pipeline state ([ADR 115](../../../docs/adr/115-vector-corpus-holds-no-pipeline-state-and-signals-json-records-the-anchored-signals.md)). `update/input.json` keeps `signingMaterial`: an implementation needs the key to produce its own signed update. `resolve/output.json` is the DID Resolution result that the api returns: `didResolutionMetadata` (`contentType: application/did`, or `error`), `didDocument`, and `didDocumentMetadata` (`versionId`, `confirmations`, `updated`, `deactivated`). The generator writes the result as far as it is known offline; `scenario:verify:live --record` writes the live result.
 
-`signals.json` is written by `scenario:verify:live --record` for every set that has a Beacon Signal on the chain. It is an array with one entry per signal: `update` (the `update/NN/` number of the signed update the signal commits to), `duplicate` (set on a second signal of the same update, in a later block), `beaconId`, `address`, `txid`, `blockHeight`, `blockHash`, `blockTime`, `mediantime`, and `signalBytes`. A cohort member records the shared signal with `cohort: { id, members }`. A consumer checks its own signal discovery against the file, or takes the signals from it when it reads no chain.
+`signals.json` is written by `scenario:verify:live --record` for every set that has a Beacon Signal on the chain. It is an array with one entry per signal: `update` (the `update/NN/` number of the signed update the signal commits to), `duplicate` (set on a second signal of the same update, in a later block), `beaconId`, `address`, `txid`, `blockHeight`, `blockHash`, `blockTime`, `mediantime`, `signalBytes`, and `recordedTip`. A cohort member records the shared signal with `cohort: { id, members }`. A cohort member with no update has no `update` member: the signal commits to no update of the DID. `recordedTip` is the chain tip height after the resolves of the set. At that tip, each recorded `confirmations` is at least the recorded value. A consumer checks its own signal discovery against the file, or takes the signals from it when it reads no chain.
 
 ## Networks
 
-- **regtest:** a Polar network with auto-mine on (30 seconds) that runs for the whole pass. The stack has three services: Bitcoin Core (`localhost:18443` RPC with `polaruser` / `polarpass`), Esplora (`localhost:3000`), and Kubo (`127.0.0.1:5001` RPC, `127.0.0.1:8080` gateway). `scenario:fund` sends over RPC from the wallet of the node. A coinbase output is spendable after 100 confirmations, so let the network mine 100 blocks before `scenario:fund`. The 100 blocks also give the rising block `mediantime` that the `versionTime` forms need. No script mines a block. The auto-miner confirms the funding and each anchor round. `scenario:publish --publish` pins the CAS objects to the Kubo node, and `scenario:verify:live` reads them from its gateway ([ADR 117](../../../docs/adr/117-regtest-vectors-publish-cas-objects-to-a-kubo-node-in-the-polar-stack.md)). Export the Polar network to `lib/data/regtest/did-btcr2.polar.zip` after the pass. The export holds the chain, the Esplora index, and the Kubo repository.
+- **regtest:** a Polar network with auto-mine on (30 seconds) that runs for the whole pass. The stack has three services: Bitcoin Core (`localhost:18443` RPC with `polaruser` / `polarpass`), Esplora (`localhost:3000`), and Kubo (`127.0.0.1:5001` RPC, `127.0.0.1:8080` gateway). `scenario:fund` sends over RPC from the wallet of the node. A coinbase output is spendable after 100 confirmations, so let the network mine 100 blocks before `scenario:fund`. The 100 blocks also give the rising block `mediantime` that the `versionTime` forms need. No script mines a block. The auto-miner confirms the funding and each anchor round. `scenario:publish --publish` pins the CAS objects to the Kubo node, and `scenario:verify:live` reads them from its gateway ([ADR 117](../../../docs/adr/117-regtest-vectors-publish-cas-objects-to-a-kubo-node-in-the-polar-stack.md)). Turn off auto-mine before `scenario:verify:live --record`. The record stops with an error if the tip moves during the run, because a `minConf` case of the form `depth:N` holds only at the recorded tip. Then export the Polar network to `lib/data/regtest/did-btcr2.polar.zip`, with no block between the record and the export. The export holds the chain at `recordedTip`, the Esplora index, and the Kubo repository.
 - **mutinynet, testnet4, signet:** the wallet funding key pays the beacons (`pnpm wallet init`, `pnpm wallet status`, faucet the P2WPKH address; see `lib/wallet/README.md`). One anchor round per block: about 30 seconds on mutinynet and about 10 minutes on signet. On testnet4, a block with transactions comes every 1 to 3 hours (September 2026), so one pass takes 10 to 30 hours. Run signet in parallel while testnet4 waits. The scripts send the indexer requests one at a time, 500 ms apart, and retry a 429 answer, because the mutinynet.com indexer limits the request rate. `IPFS_RPC_URL` names the IPFS node of the publish step, with `IPFS_RPC_USER` and `IPFS_RPC_PASSWORD` if the node needs HTTP Basic auth. `CAS_GATEWAY` lists the IPFS gateways of the live verify, comma-separated, in order. The default list is the jintek node, the Danubetech node, then `ipfs.io` and `dweb.link` as fallbacks. The verify asks the gateways in order and takes the first block found. Each gateway gets 20 seconds per object.
 
 ### Kubo service of the regtest stack

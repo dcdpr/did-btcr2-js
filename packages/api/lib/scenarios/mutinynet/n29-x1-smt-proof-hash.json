@@ -1,0 +1,48 @@
+{
+  "id": "n29-x1-smt-proof-hash",
+  "description": "Negative: x1 DID in the SMT cohort smt-25 with 1 sidecar update; one byte of the first entry of hashes in the sidecar proof differs.",
+  "network": "mutinynet",
+  "idType": "EXTERNAL",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "541be1b213e50fa0cd2a144d3f7301fcc34823f2ae9dee11a4635de5acd1b828"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ],
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/4",
+          "value": {
+            "id": "#dwn",
+            "type": "DecentralizedWebNode",
+            "serviceEndpoint": "http://example.com/dwn"
+          }
+        }
+      ],
+      "verificationMethodId": "#initialKey",
+      "beaconId": "#cohortBeacon",
+      "delivery": "sidecar"
+    }
+  ],
+  "smt": {
+    "proof": "hash"
+  },
+  "expect": {
+    "error": "INVALID_SIGNAL_DATA"
+  }
+}

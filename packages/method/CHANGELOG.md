@@ -1,5 +1,17 @@
 # @did-btcr2/method
 
+## 0.66.2
+
+### Patch Changes
+
+- The REST client returns the block height as a number.
+
+  - bitcoin: `BitcoinBlock.count()` converts the `text/plain` body of the Esplora tip height to a number. Before, it returned the body as a string, for example `'601'`. A body that is not a non-negative integer raises `BitcoinRestError`.
+  - method, aggregation, api, cli: dependency uptake.
+
+- Updated dependencies []:
+  - @did-btcr2/bitcoin@0.11.2
+
 ## 0.66.1
 
 ### Patch Changes

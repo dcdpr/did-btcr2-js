@@ -1,0 +1,30 @@
+{
+    "scenarioId": "n31-x1-smt-proof-withheld",
+    "network": "mutinynet",
+    "did": "did:btcr2:x1q5x8n94l7ygjc7rmz2hd5y76ln4eq5mra6fuxyc7z5gsy57fj7kewka4sga",
+    "needsFunding": true,
+    "cohort": "smt-25",
+    "anchors": [],
+    "allBeacons": [
+        {
+            "id": "did:btcr2:x1q5x8n94l7ygjc7rmz2hd5y76ln4eq5mra6fuxyc7z5gsy57fj7kewka4sga#initialP2PKH",
+            "type": "SingletonBeacon",
+            "address": "mrkM6P649Yy7xWeB6MFZVvcvpmraLwixnf"
+        },
+        {
+            "id": "did:btcr2:x1q5x8n94l7ygjc7rmz2hd5y76ln4eq5mra6fuxyc7z5gsy57fj7kewka4sga#initialP2WPKH",
+            "type": "SingletonBeacon",
+            "address": "tb1q0vca9yu4jl98q6ampa58nqp5p44lfa5nt6mt4t"
+        },
+        {
+            "id": "did:btcr2:x1q5x8n94l7ygjc7rmz2hd5y76ln4eq5mra6fuxyc7z5gsy57fj7kewka4sga#initialP2TR",
+            "type": "SingletonBeacon",
+            "address": "tb1psg2ju0ynryr8upq8wm0dw5qgjrfcqdpkk6ygz6cks82aemstqf6qu4vc74"
+        },
+        {
+            "id": "did:btcr2:x1q5x8n94l7ygjc7rmz2hd5y76ln4eq5mra6fuxyc7z5gsy57fj7kewka4sga#cohortBeacon",
+            "type": "SMTBeacon",
+            "address": "tb1qvmfyta8vyxs4gadxu5pqqwlztsp6df44rpqk5h"
+        }
+    ]
+}

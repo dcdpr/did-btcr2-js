@@ -116,6 +116,66 @@
             }
         },
         {
+            "hashB64": "GX2EQZ6hJUcxV79vjxSTLOx6jXOXnTy-rcp8j15GSrM",
+            "hashHex": "197d84419ea125473157bf6f8f14932cec7a8d73979d3cbeadca7c8f5e464ab3",
+            "kind": "genesis",
+            "usedBy": [
+                {
+                    "scenarioId": "11a-x1-cas-update-smt-proof",
+                    "did": "did:btcr2:x1qsvhmpzpn6sj23e327lklrc5jvkwc75dwwte60974h98er67ge9tx0ahh9x"
+                }
+            ],
+            "object": {
+                "id": "did:btcr2:_",
+                "@context": [
+                    "https://www.w3.org/ns/did/v1.1",
+                    "https://btcr2.dev/context/v1"
+                ],
+                "verificationMethod": [
+                    {
+                        "id": "did:btcr2:_#initialKey",
+                        "type": "Multikey",
+                        "controller": "did:btcr2:_",
+                        "publicKeyMultibase": "zQ3shjG9sGEdmcmCaRwtC9rqSc4YpM4ojLPaxKt23FGjhwzhW"
+                    }
+                ],
+                "authentication": [
+                    "did:btcr2:_#initialKey"
+                ],
+                "assertionMethod": [
+                    "did:btcr2:_#initialKey"
+                ],
+                "capabilityInvocation": [
+                    "did:btcr2:_#initialKey"
+                ],
+                "capabilityDelegation": [
+                    "did:btcr2:_#initialKey"
+                ],
+                "service": [
+                    {
+                        "id": "did:btcr2:_#initialP2PKH",
+                        "type": "SingletonBeacon",
+                        "serviceEndpoint": "bitcoin:mxbjrcBtEdaGZmK5yhoLxPXjccSP8qzAUq"
+                    },
+                    {
+                        "id": "did:btcr2:_#initialP2WPKH",
+                        "type": "SingletonBeacon",
+                        "serviceEndpoint": "bitcoin:tb1qhdsatdv0cwpn8qum45tjyhku449569e7xdc29l"
+                    },
+                    {
+                        "id": "did:btcr2:_#initialP2TR",
+                        "type": "SingletonBeacon",
+                        "serviceEndpoint": "bitcoin:tb1pdl3w2tzwapasc9esqdw4yp7lvr4rvvn35nwaexzt7h246l4crjsshlsn2k"
+                    },
+                    {
+                        "id": "did:btcr2:_#cohortBeacon",
+                        "type": "SMTBeacon",
+                        "serviceEndpoint": "bitcoin:tb1qx3ejjdkjwthsstvxjtmyp6w7m6rvvdqlrx8hjv"
+                    }
+                ]
+            }
+        },
+        {
             "hashB64": "kRGxH8tkPiGMfCdvGQd-LkI5ISJhBXguKW9LcQ-PK6A",
             "hashHex": "9111b11fcb643e218c7c276f19077e2e423921226105782e296f4b710f8f2ba0",
             "kind": "genesis",
@@ -171,6 +231,66 @@
                         "id": "did:btcr2:_#cohortBeacon",
                         "type": "CASBeacon",
                         "serviceEndpoint": "bitcoin:tb1qef7ssyzssusktlzx7jk6vhvsucn28u8xppl5w9"
+                    }
+                ]
+            }
+        },
+        {
+            "hashB64": "La_Sr_W2JpuELjnrwICUN__wCcMLUHeiw_52eAxTaPU",
+            "hashHex": "2dafd2aff5b6269b842e39ebc0809437fff009c30b5077a2c3fe76780c5368f5",
+            "kind": "genesis",
+            "usedBy": [
+                {
+                    "scenarioId": "11b-x1-cas-update-smt-proof-paired",
+                    "did": "did:btcr2:x1qsk6l5407kmzdxuy9cu7hsyqjsmlluqfcv94qaazc0l8v7qv2d5027zsr8f"
+                }
+            ],
+            "object": {
+                "id": "did:btcr2:_",
+                "@context": [
+                    "https://www.w3.org/ns/did/v1.1",
+                    "https://btcr2.dev/context/v1"
+                ],
+                "verificationMethod": [
+                    {
+                        "id": "did:btcr2:_#initialKey",
+                        "type": "Multikey",
+                        "controller": "did:btcr2:_",
+                        "publicKeyMultibase": "zQ3shNBHMyUWvcaV4Qf1vMU5LwosJpsCk6y8EdgDemUj6HafJ"
+                    }
+                ],
+                "authentication": [
+                    "did:btcr2:_#initialKey"
+                ],
+                "assertionMethod": [
+                    "did:btcr2:_#initialKey"
+                ],
+                "capabilityInvocation": [
+                    "did:btcr2:_#initialKey"
+                ],
+                "capabilityDelegation": [
+                    "did:btcr2:_#initialKey"
+                ],
+                "service": [
+                    {
+                        "id": "did:btcr2:_#initialP2PKH",
+                        "type": "SingletonBeacon",
+                        "serviceEndpoint": "bitcoin:mh5R9zdwUFjvug1YnZ9jHVZdznffyUF4d2"
+                    },
+                    {
+                        "id": "did:btcr2:_#initialP2WPKH",
+                        "type": "SingletonBeacon",
+                        "serviceEndpoint": "bitcoin:tb1qzydah6tkmnlx8g9tvd8nrcjx9xfazw03qjvy2y"
+                    },
+                    {
+                        "id": "did:btcr2:_#initialP2TR",
+                        "type": "SingletonBeacon",
+                        "serviceEndpoint": "bitcoin:tb1p608w26jcpxj4pm3dvutl8thtrazfwsn5d2fsxn338pvqwz0gu3hswq9kc8"
+                    },
+                    {
+                        "id": "did:btcr2:_#cohortBeacon",
+                        "type": "SMTBeacon",
+                        "serviceEndpoint": "bitcoin:tb1qx3ejjdkjwthsstvxjtmyp6w7m6rvvdqlrx8hjv"
                     }
                 ]
             }
@@ -288,6 +408,54 @@
                         "serviceEndpoint": "bitcoin:tb1qef7ssyzssusktlzx7jk6vhvsucn28u8xppl5w9"
                     }
                 ]
+            }
+        },
+        {
+            "hashB64": "3obj-N4cDhhvDnIC406k4ApZZRldjfY2IdA21Z8LVlc",
+            "hashHex": "de86e3f8de1c0e186f0e7202e34ea4e00a5965195d8df63621d036d59f0b5657",
+            "kind": "signedUpdate",
+            "usedBy": [
+                {
+                    "scenarioId": "11a-x1-cas-update-smt-proof",
+                    "did": "did:btcr2:x1qsvhmpzpn6sj23e327lklrc5jvkwc75dwwte60974h98er67ge9tx0ahh9x"
+                }
+            ],
+            "object": {
+                "@context": [
+                    "https://w3id.org/json-ld-patch/v1",
+                    "https://w3id.org/zcap/v1",
+                    "https://w3id.org/security/data-integrity/v2",
+                    "https://btcr2.dev/context/v1"
+                ],
+                "patch": [
+                    {
+                        "op": "add",
+                        "path": "/service/4",
+                        "value": {
+                            "id": "#didcomm",
+                            "type": "DIDCommMessaging",
+                            "serviceEndpoint": "http://example.com/didcomm"
+                        }
+                    }
+                ],
+                "targetHash": "RztVLzENHii_LejGXOWo2vueEbfhhXbO1TxR-aRn8fk",
+                "targetVersionId": 2,
+                "sourceHash": "BrDdl4vyjScPggXRguQ5QGIQ0h0CP1JWDvnQvUUXja4",
+                "proof": {
+                    "@context": [
+                        "https://w3id.org/json-ld-patch/v1",
+                        "https://w3id.org/zcap/v1",
+                        "https://w3id.org/security/data-integrity/v2",
+                        "https://btcr2.dev/context/v1"
+                    ],
+                    "cryptosuite": "bip340-jcs-2025",
+                    "type": "DataIntegrityProof",
+                    "verificationMethod": "did:btcr2:x1qsvhmpzpn6sj23e327lklrc5jvkwc75dwwte60974h98er67ge9tx0ahh9x#initialKey",
+                    "proofPurpose": "capabilityInvocation",
+                    "capability": "urn:zcap:root:did%3Abtcr2%3Ax1qsvhmpzpn6sj23e327lklrc5jvkwc75dwwte60974h98er67ge9tx0ahh9x",
+                    "capabilityAction": "Write",
+                    "proofValue": "z2Rpbb8nUFPVYhwxJYXZUMn3SbUVALpbaLCKJqWNisjNS62GSsDXK8Kp8ZFzqW5y2g8stt3kmcrQ8nkqgcm1x9Ysp"
+                }
             }
         },
         {
@@ -427,6 +595,54 @@
                     "capability": "urn:zcap:root:did%3Abtcr2%3Ax1qjdupajytz9csrtz3tjnaql06tg7jq80yv45vj36kj70pmf7ycz0z9js25l",
                     "capabilityAction": "Write",
                     "proofValue": "z39kRmPhL9hzvA7cAt5KU2pc2tpXoSCBN4Tnn4hpet7ZvC4eECFdfJqkk1mFCqKgQL13dThjKBUQQMTiyurUJAqgM"
+                }
+            }
+        },
+        {
+            "hashB64": "kUehMx44c7n3YCalvfu-atQNlVm8g1PxgZEP5R0iAZk",
+            "hashHex": "9147a1331e3873b9f76026a5bdfbbe6ad40d9559bc8353f181910fe51d220199",
+            "kind": "signedUpdate",
+            "usedBy": [
+                {
+                    "scenarioId": "11b-x1-cas-update-smt-proof-paired",
+                    "did": "did:btcr2:x1qsk6l5407kmzdxuy9cu7hsyqjsmlluqfcv94qaazc0l8v7qv2d5027zsr8f"
+                }
+            ],
+            "object": {
+                "@context": [
+                    "https://w3id.org/json-ld-patch/v1",
+                    "https://w3id.org/zcap/v1",
+                    "https://w3id.org/security/data-integrity/v2",
+                    "https://btcr2.dev/context/v1"
+                ],
+                "patch": [
+                    {
+                        "op": "add",
+                        "path": "/service/4",
+                        "value": {
+                            "id": "#dwn",
+                            "type": "DecentralizedWebNode",
+                            "serviceEndpoint": "http://example.com/dwn"
+                        }
+                    }
+                ],
+                "targetHash": "6_h6Tje4J2E-YunGR2Zo0BE03VVcXIbVmgvnPBe0sio",
+                "targetVersionId": 2,
+                "sourceHash": "Jm1f0cuTlgQwUTVGF5roIwhw0c8MYsWtarkLPSnBICg",
+                "proof": {
+                    "@context": [
+                        "https://w3id.org/json-ld-patch/v1",
+                        "https://w3id.org/zcap/v1",
+                        "https://w3id.org/security/data-integrity/v2",
+                        "https://btcr2.dev/context/v1"
+                    ],
+                    "cryptosuite": "bip340-jcs-2025",
+                    "type": "DataIntegrityProof",
+                    "verificationMethod": "did:btcr2:x1qsk6l5407kmzdxuy9cu7hsyqjsmlluqfcv94qaazc0l8v7qv2d5027zsr8f#initialKey",
+                    "proofPurpose": "capabilityInvocation",
+                    "capability": "urn:zcap:root:did%3Abtcr2%3Ax1qsk6l5407kmzdxuy9cu7hsyqjsmlluqfcv94qaazc0l8v7qv2d5027zsr8f",
+                    "capabilityAction": "Write",
+                    "proofValue": "z34Y631WBiJEENuYpBm7n5berZbiiyNbW91H9K2weCgzN6ewVt7noD967J3RoX9sM8FDvHPA8RAXaZhdgX97hMTBE"
                 }
             }
         },

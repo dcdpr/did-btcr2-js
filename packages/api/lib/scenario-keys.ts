@@ -40,6 +40,7 @@ function fix(spec: KeySpec | undefined): { spec: KeySpec; changed: boolean } {
 
 let changed = 0;
 let skipped = 0;
+const fixedIds: string[] = [];
 
 for (const path of recipeFiles(network)) {
   const recipe = readJSON<Scenario>(path);
@@ -63,6 +64,7 @@ for (const path of recipeFiles(network)) {
   }
   writeRecipeJSON(path, recipe);
   changed++;
+  fixedIds.push(recipe.id);
   console.log(`  fixed  ${recipe.id}`);
 }
 
@@ -86,4 +88,7 @@ if (existsSync(cohortsPath)) {
 }
 
 console.log(`\n${network}: ${changed} scenarios updated, ${skipped} skipped; ${cohortChanged} cohorts updated, ${cohortSkipped} skipped.`);
-console.log(`Next: pnpm generate:scenario --network ${network} --clean`);
+// Without --force, only new recipes change: generate them alone. --clean deletes the anchored sets.
+console.log(force || skipped === 0
+  ? `Next: pnpm generate:scenario --network ${network} --clean`
+  : `Next: pnpm generate:scenario --network ${network} ${fixedIds.join(' ')}`);
