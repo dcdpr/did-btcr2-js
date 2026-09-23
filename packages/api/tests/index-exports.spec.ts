@@ -1,13 +1,16 @@
 import { expect } from 'chai';
 import {
+  Appendix,
   BEACON_ADDRESS_TYPES,
   BEACON_TYPES,
   BeaconFactory,
   BeaconUtils,
   BitcoinConnection,
   buildGenesisDocument,
+  canonicalHash,
   DEFAULT_BEACON_ADDRESS_TYPE,
   DidBtcr2,
+  JSONPatch,
   KeyManagerSigner,
   LocalKeyManager,
   LocalSigner,
@@ -146,5 +149,23 @@ describe('index re-exports', () => {
   it('exports rootCauseMessage as a value', () => {
     expect(rootCauseMessage).to.be.a('function');
     expect(rootCauseMessage(new Error('outer', { cause: new Error('inner') }))).to.equal('inner');
+  });
+
+  it('exports canonicalHash, JSONPatch, and Appendix as values for a vector tool', () => {
+    // JSON Document Hashing is independent of the property order, and the default encoding is base64url.
+    expect(canonicalHash({ b: 1, a: 2 })).to.equal(canonicalHash({ a: 2, b: 1 }));
+    expect(canonicalHash({ a: 2, b: 1 })).to.match(/^[A-Za-z0-9_-]{43}$/);
+
+    const source = { a: 1 };
+    expect(JSONPatch.apply(source, [{ op: 'add', path: '/b', value: 2 }])).to.deep.equal({ a: 1, b: 2 });
+    expect(source).to.deep.equal({ a: 1 });
+
+    const did = 'did:btcr2:k1qqp8n0nx0muaewav2ksx99wwsu9swq5mlndjmn3gm9vl9q2mzmup0xqhmkf96';
+    expect(Appendix.deriveRootCapability(did)).to.deep.equal({
+      '@context'       : 'https://w3id.org/zcap/v1',
+      id               : `urn:zcap:root:${encodeURIComponent(did)}`,
+      controller       : did,
+      invocationTarget : did,
+    });
   });
 });

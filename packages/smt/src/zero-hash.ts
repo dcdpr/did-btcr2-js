@@ -117,7 +117,9 @@ export function generateZeroHashProof(leaves: ZeroHashEntry[], targetIndex: bigi
  * bit `i` or the next provided sibling, and combine by bit `i` of `index`. The
  * result is `false` when `hashes` runs out or has entries left: that is the rule
  * "the number of entries in `hashes` plus the number of set bits in `collapsed`
- * is 256".
+ * is 256". The result is also `false` when a clear `collapsed` bit selects an
+ * entry of `hashes` that is equal to `cachedZero[n]`: the proof must set the bit
+ * of each empty sibling.
  *
  * @param candidate The leaf value (see `leafValue`).
  */
@@ -138,6 +140,7 @@ export function verifyZeroHash(
     } else {
       if (hashPtr >= hashes.length) return false;
       sibling = hashes[hashPtr++]!;
+      if (hashesEqual(sibling, CACHED_ZERO[n]!)) return false;
     }
     acc = bitAt(index, i) === 1 ? blockHash(sibling, acc) : blockHash(acc, sibling);
   }

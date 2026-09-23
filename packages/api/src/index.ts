@@ -55,6 +55,13 @@ export type {
 export type { MultikeyObject } from '@did-btcr2/cryptosuite';
 export type { DidResolutionResult, DidService, DidVerificationMethod } from '@web5/dids';
 
+// Implementation steps for a tool that builds specification examples or test
+// vectors from signed parts: JSON Document Hashing, the target document of a
+// JSON Patch, and the root capability of a DID. With these, such a tool needs
+// only this package and `@did-btcr2/smt`.
+export { canonicalHash, JSONPatch } from '@did-btcr2/common';
+export { Appendix } from '@did-btcr2/method';
+
 // Signers. `Signer` is in the signature of every write on this facade, so the
 // interface and both bundled implementations ship here: completing a CRUD
 // cycle must not require a second package to obtain or type a signer.

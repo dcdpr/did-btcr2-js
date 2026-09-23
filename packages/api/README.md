@@ -64,6 +64,7 @@ pnpm add @did-btcr2/api
 | Write results | `DidUpdateResult`, `BeaconInfo`, `PublishToCasMode` |
 | Re-exports from method/common | `Btcr2DidDocument`, `DidDocument`, `DidDocumentBuilder`, `Identifier`, `IdentifierTypes`, `ResolutionOptions`, `Sidecar`, `PatchOperation` |
 | Identifier validation | `DidComponents`, `IdentifierReport`, `IdentifierCheck`, `IdentifierCheckName`, `IdentifierValidateOptions` |
+| Vector tool steps | `canonicalHash` (JSON Document Hashing), `JSONPatch` (the target document of an update), `Appendix` (`deriveRootCapability`) |
 
 ## Quick Start
 
@@ -236,6 +237,7 @@ The `lib/` directory contains end-to-end scripts that exercise the full update p
 - **[ADR-071](../../docs/adr/071-api-cas-publication-policy.md)** CAS publication policy on the update path (default corrected by ADR-073)
 - **[ADR-073](../../docs/adr/073-cas-publication-is-opt-in.md)** CAS publication is opt-in: `publishToCas` defaults to `'never'` and `'auto'` never blocks
 - **[ADR-093 to ADR-104](../../docs/adr/index.md)** The api CRUD surface: network inheritance and the regtest fallback, `deactivateDid`, offline beacon addresses, the signer factory and the write-path re-exports, root causes, resolution options, the four write-path refusals, derived ids
+- **[ADR-122](../../docs/adr/122-api-exports-vector-tool-steps-and-smt-rejects-empty-sibling-in-hashes.md)** The exports for a tool that builds specification examples or test vectors
 - **Source reference** See JSDoc on `DidBtcr2Api`, `DidMethodApi`, and the sub-facade classes.
 
 ## License
