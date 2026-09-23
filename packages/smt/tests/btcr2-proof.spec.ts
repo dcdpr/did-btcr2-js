@@ -2,6 +2,8 @@ import { randomBytes } from '@noble/curves/utils.js';
 import { base64urlnopad } from '@scure/base';
 import { expect } from 'chai';
 import {
+  base64UrlToHash,
+  bigIntToHash,
   blockHash,
   BTCR2MerkleTree,
   CACHED_ZERO,
@@ -51,6 +53,29 @@ function foldLeft(leaf: Uint8Array): Uint8Array {
   let acc = leaf;
   for (let h = 0; h <= 254; h++) acc = blockHash(acc, CACHED_ZERO[h]!);
   return acc;
+}
+
+/** The levels `n` whose `collapsed` bit `255 - n` is set: the levels with an empty sibling. */
+function collapsedLevels(proof: SerializedSMTProof): number[] {
+  const collapsed = hashToBigInt(base64UrlToHash(proof.collapsed));
+  const levels: number[] = [];
+  for (let n = 0; n < 256; n++) if ((collapsed >> BigInt(n)) & 1n) levels.push(n);
+  return levels;
+}
+
+/**
+ * The proof with the empty sibling of level `n` in `hashes`: bit `255 - n` of
+ * `collapsed` clear, and `cachedZero[n]` at its leaf-to-root position.
+ */
+function uncollapse(proof: SerializedSMTProof, n: number): SerializedSMTProof {
+  const levels = collapsedLevels(proof);
+  if (!levels.includes(n)) throw new Error(`level ${n} has no empty sibling`);
+  // The entries of `hashes` below level n: one for each level without an empty sibling.
+  const position = n - levels.filter(level => level < n).length;
+  const hashes = [...proof.hashes];
+  hashes.splice(position, 0, hashToBase64Url(CACHED_ZERO[n]!));
+  const collapsed = hashToBigInt(base64UrlToHash(proof.collapsed)) & ~(1n << BigInt(n));
+  return { ...proof, collapsed: hashToBase64Url(bigIntToHash(collapsed)), hashes };
 }
 
 describe('btcr2-proof (zero-hash)', () => {
@@ -132,6 +157,14 @@ describe('btcr2-proof (zero-hash)', () => {
       expect(serialized.nonce).to.have.lengthOf(HASH_B64URL_LENGTH);
       expect(serialized.updateId).to.have.lengthOf(HASH_B64URL_LENGTH);
     });
+
+    it('properties come in the order of the SMT Proof data structure', () => {
+      const { entries, root } = buildTree();
+      const proof = generateZeroHashProof(entries, entries[0]!.index);
+      const full = serializeProof(root, proof, { nonce: randomHash(), updateId: randomHash() });
+      expect(Object.keys(full)).to.deep.equal(['id', 'nonce', 'updateId', 'collapsed', 'hashes']);
+      expect(Object.keys(serializeProof(root, proof))).to.deep.equal(['id', 'collapsed', 'hashes']);
+    });
   });
 
   describe('the bit sequence of the specification', () => {
@@ -201,6 +234,16 @@ describe('btcr2-proof (zero-hash)', () => {
       expect(serialized.id).to.have.lengthOf(42);
       expect(verifySerializedProof(serialized, entries[0]!.index, entries[0]!.leaf)).to.be.false;
     });
+
+    it('returns false for an empty sibling in hashes at each level', () => {
+      const { entries, root } = buildTree();
+      const serialized = serializeProof(root, generateZeroHashProof(entries, entries[0]!.index));
+      const levels = collapsedLevels(serialized);
+      expect(levels).to.not.be.empty;
+      for (const n of levels) {
+        expect(verifySerializedProof(uncollapse(serialized, n), entries[0]!.index, entries[0]!.leaf), `level ${n}`).to.be.false;
+      }
+    });
   });
 
   describe('verifyProof (SMT Proof Verification for a DID)', () => {
@@ -232,6 +275,13 @@ describe('btcr2-proof (zero-hash)', () => {
       const proof = memberProof();
       delete proof.updateId;
       expect(verifyProof(proof, DID)).to.be.false;
+    });
+
+    it('returns false for an empty leaf-level sibling in hashes', () => {
+      const proof = memberProof();
+      expect(verifyProof(proof, DID)).to.be.true;
+      // The same tree and root: only the encoding of the empty sibling changes.
+      expect(verifyProof(uncollapse(proof, 0), DID)).to.be.false;
     });
 
     describe('returns false, never throws', () => {

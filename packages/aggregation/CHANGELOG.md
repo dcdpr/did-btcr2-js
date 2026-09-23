@@ -1,5 +1,19 @@
 # @did-btcr2/aggregation
 
+## 0.7.1
+
+### Patch Changes
+
+- The api exports the steps of a vector tool, and the SMT verifier rejects an empty sibling in `hashes` (ADR 122).
+
+  - smt: the result of `verifyZeroHash`, `verifyProof`, and `verifySerializedProof` is `false` if a `0` bit of `collapsed` selects an entry of `hashes` that is equal to the cached zero of its level. This follows specification pull request 370. `serializeProof` writes the properties in the order of the SMT Proof data structure: `id`, `nonce`, `updateId`, `collapsed`, `hashes`. No root or hash changes.
+  - method: `DidDocument.fromKeyIdentifier` sets the document `id` to the DID and the verification method id to `<did>#initialKey`. Before, the constructor threw `INVALID_DID_DOCUMENT` for each input.
+  - api: the package root exports `canonicalHash`, `JSONPatch`, and `Appendix`.
+  - aggregation, cli: dependency uptake.
+
+- Updated dependencies []:
+  - @did-btcr2/smt@0.4.1
+
 ## 0.7.0
 
 ### Minor Changes

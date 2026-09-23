@@ -273,32 +273,28 @@ export class DidDocument implements Btcr2DidDocument {
   }
 
   /**
-   * Create a minimal DidDocument from "k1" btcr2 identifier.
+   * Create a minimal DidDocument from "k1" btcr2 identifier. The document `id` is
+   * the DID, and the one verification method is `<did>#initialKey`.
+   * @param {string} id The k1 DID, without a fragment.
    * @param {string} publicKeyMultibase The public key in multibase format.
    * @param {Array<BeaconService>} service The beacon services to be included in the document.
-   * @returns {DidDocument} A new DidDocument with the placeholder ID.
+   * @returns {DidDocument} A new DidDocument.
    */
   public static fromKeyIdentifier(
     id: string,
     publicKeyMultibase: string,
     service: Array<BeaconService>
   ): DidDocument {
-    // Ensure the ID is in the correct format
-    id = id.includes('#') ? id : `${id}#initialKey`;
-    // Create the verification method and the DidDocument
-    const document = {
+    return new DidDocument({
       id,
-      verificationMethod : [
-        new DidVerificationMethod({
-          id,
-          type       : 'Multikey',
-          controller : id,
-          publicKeyMultibase
-        })
-      ],
+      verificationMethod : [{
+        id         : `${id}#initialKey`,
+        type       : 'Multikey',
+        controller : id,
+        publicKeyMultibase
+      }],
       service
-    } as Btcr2DidDocument;
-    return new DidDocument(document);
+    });
   }
 
   /**

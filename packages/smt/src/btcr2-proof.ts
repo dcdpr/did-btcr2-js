@@ -30,7 +30,8 @@ export interface SerializedSMTProof {
    * from the left as the verification algorithm counts it, set = the sibling at
    * tree level `i` is empty (use the precomputed `cachedZero[255 - i]`); bit `i`
    * clear = the next sibling hash from {@link SerializedSMTProof.hashes} applies.
-   * Bit 0 is the root level, bit 255 the leaf level.
+   * Bit 0 is the root level, bit 255 the leaf level. The bit must be set at each
+   * level where the sibling is empty.
    */
   collapsed: string;
   /** base64url (no padding) sibling SHA-256 hashes (43 chars each), leaf-to-root. */
@@ -46,7 +47,9 @@ export interface SerializeProofOptions {
 }
 
 /**
- * Serialize a zero-hash proof to the did:btcr2 wire format.
+ * Serialize a zero-hash proof to the did:btcr2 wire format. The properties come
+ * in the order of the SMT Proof data structure: `id`, `nonce`, `updateId`,
+ * `collapsed`, `hashes`.
  *
  * @param rootHash The SMT root (becomes `id`).
  * @param proof    The {@link ZeroHashProof} (collapsed bitmap + sibling hashes).
@@ -58,14 +61,13 @@ export function serializeProof(
   proof: ZeroHashProof,
   options?: SerializeProofOptions
 ): SerializedSMTProof {
-  const result: SerializedSMTProof = {
+  return {
     id        : hashToBase64Url(rootHash),
+    ...(options?.nonce === undefined ? {} : { nonce: base64urlnopad.encode(options.nonce) }),
+    ...(options?.updateId === undefined ? {} : { updateId: hashToBase64Url(options.updateId) }),
     collapsed : hashToBase64Url(bigIntToHash(proof.collapsed)),
     hashes    : proof.hashes.map(h => hashToBase64Url(h)),
   };
-  if (options?.nonce !== undefined)    result.nonce    = base64urlnopad.encode(options.nonce);
-  if (options?.updateId !== undefined) result.updateId = hashToBase64Url(options.updateId);
-  return result;
 }
 
 /** Result of {@link deserializeProof}. */
@@ -122,7 +124,9 @@ export function verifySerializedProof(
  * The leaf value comes from the `nonce` and `updateId` fields of the proof
  * ({@link leafValue}). The result is `false` for a proof that does not decode, for an
  * `updateId`, `collapsed`, or `hashes` entry that is not 32 bytes, for a `hashes`
- * count that does not agree with `collapsed`, and for a root that is not `id`.
+ * count that does not agree with `collapsed`, for a `hashes` entry at a clear
+ * `collapsed` bit that is equal to the cached zero of its level, and for a root
+ * that is not `id`.
  * Never throws: every error of the decoder, also a type error from a field that
  * is not a string or an array, is `false`.
  */

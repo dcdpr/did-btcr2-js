@@ -1,4 +1,6 @@
 import { expect } from 'chai';
+import { Identifier } from '../src/core/identifier.js';
+import { Resolver } from '../src/core/resolver.js';
 import {
   BTCR2_DID_DOCUMENT_CONTEXT,
   DidDocument,
@@ -6,6 +8,7 @@ import {
   isMultikeyVerificationMethod,
   MULTIKEY_PUBLIC_KEY_MULTIBASE_PREFIX,
 } from '../src/utils/did-document.js';
+import deterministicData from './data/deterministic-data.js';
 import externalData from './data/external-data.js';
 
 /**
@@ -146,5 +149,18 @@ describe('DidDocument.isValid verificationMethod array (STD-2: enforce at the do
     const vms = doc.verificationMethod as Array<Record<string, unknown>>;
     vms[0]!.publicKeyMultibase = 'z6MkhaXgBZD';
     expect(() => DidDocument.isValid(doc)).to.throw('Invalid "verificationMethod"');
+  });
+});
+
+describe('DidDocument.fromKeyIdentifier', () => {
+  it('makes the deterministic document of a k1 DID', () => {
+    const did = deterministicData[0]!.did;
+    const deterministic = Resolver.deterministic(Identifier.decode(did));
+    const document = DidDocument.fromKeyIdentifier(
+      did, deterministic.verificationMethod[0]!.publicKeyMultibase!, deterministic.service
+    );
+    expect(document.id).to.equal(did);
+    expect(document.verificationMethod[0]!.id).to.equal(`${did}#initialKey`);
+    expect(document.toJSON()).to.deep.equal(deterministic.toJSON());
   });
 });
