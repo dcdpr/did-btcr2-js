@@ -4,7 +4,7 @@ import { INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/common';
 import type { Signer } from '@did-btcr2/keypair';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import type { KeyIdentifier } from '@did-btcr2/key-manager';
-import type { BroadcastOptions, Btcr2DidDocument, DidCreateOptions, ResolutionOptions } from '@did-btcr2/method';
+import type { Btcr2DidDocument, DidCreateOptions, ResolutionOptions } from '@did-btcr2/method';
 import type { DidResolutionResult } from '@web5/dids';
 import { BitcoinApi } from './bitcoin.js';
 import { CasApi, DEFAULT_CAS_GATEWAY, type CasConfig } from './cas.js';
@@ -12,7 +12,7 @@ import { CryptoApi } from './crypto.js';
 import { DidApi } from './did.js';
 import { assertString, NOOP_LOGGER, resolutionErrorCode, rootCauseMessage } from './helpers.js';
 import { KeyManagerApi } from './key-manager.js';
-import { DidMethodApi, type DidUpdateResult, type PublishToCasMode } from './method.js';
+import { DidMethodApi, type DidUpdateOptions, type DidUpdateResult, type SourceState, type UpdateSource } from './method.js';
 import type { ApiConfig, BitcoinApiConfig, Logger, ResolutionResult } from './types.js';
 
 /**
@@ -209,177 +209,97 @@ export class DidBtcr2Api {
   }
 
   /**
-   * Update a DID document: resolve the current state, apply patches, sign, and announce.
-   * Automatically injects the configured Bitcoin connection.
+   * Update a DID document. The arguments follow the update operation of the
+   * specification: the source, the JSON Patch document, and the signer.
+   * `options.verificationMethodId` is the fourth input of the specification;
+   * `options.announce` configures the announcement.
    *
-   * The facade accepts the source pair, `sourceDocument` and
-   * `sourceVersionId`, together or not at all. If you supply both, the
-   * facade skips resolution, ignores `resolutionOptions`, and requires
-   * `sourceDocument.id` to equal `did`. If you supply one without the other,
-   * the facade refuses the call before any resolution. A document from one
-   * source and a version number from another describe a state that no
-   * resolver holds. If you supply neither, the facade resolves the DID first
-   * to obtain both.
+   * The source is a DID or a resolved state. If it is a DID, the facade
+   * resolves the DID first, with `options.resolutionOptions`, to get the
+   * source document and its `versionId`. Supply sidecar data there if no
+   * party published the prior updates of the DID to a CAS. Without it, the
+   * source state past version 1 is unreachable and the update fails. If the
+   * source is a {@link SourceState}, the facade does not resolve and ignores
+   * `resolutionOptions`. The `versionId` of the state must come from the
+   * resolution that returned its document.
    *
-   * In that case `resolutionOptions` passes through to the resolution.
-   * Supply sidecar data there if no party published the DID's prior updates
-   * to a CAS. Without it, the source state past version 1 is
-   * unreachable and the update fails. Leave `versionId`/`versionTime` unset;
-   * an update built on a historical version can never be applied.
+   * A deactivated source document is refused before signing: resolution
+   * halts at the deactivation, so no later update is ever applied.
    *
-   * A deactivated source document, whether supplied or resolved, is refused
-   * before signing: resolution halts at the deactivation, so no later update
-   * is ever applied.
-   *
-   * The caller can omit `verificationMethodId` and `beaconId`. The method
-   * facade then derives them. The verification method is the one that
+   * The caller can omit `verificationMethodId` and `announce.beaconId`. The
+   * method facade then derives them. The verification method is the one that
    * publishes the signer's key. The beacon is the one that holds the only
    * spendable UTXO. If none or several match, the method facade refuses the
    * update and names the candidates. See {@link DidMethodApi.update}.
-   * @param params The update parameters. `publishToCas` (default `'never'`)
-   *   controls whether update artifacts are published to the configured CAS
-   *   before the on-chain broadcast; publication is opt-in and never required.
-   *   `broadcastOptions` passes fee estimator / change address through to the
-   *   beacon transaction. `beaconSigner` signs the beacon transaction input
-   *   and defaults to `signer`.
+   * @param source The DID, or a resolved {@link SourceState}.
+   * @param patch The JSON Patch document: the operations that change the source document.
+   * @param signer The signer of the update proof, with the key of the verification method.
+   * @param options The verification method id, the resolution options, and
+   *   the announcement options (beacon, beacon input signer, fee, change
+   *   address, and the CAS publication policy, default `'never'`).
    * @returns The broadcast artifacts: signed update, signal txid, per-beacon-type
    *   sidecar data, and which artifacts were published to CAS.
    */
-  async updateDid({
-    did,
-    patches,
-    verificationMethodId,
-    beaconId,
-    signer,
-    beaconSigner,
-    sourceDocument,
-    sourceVersionId,
-    resolutionOptions,
-    publishToCas,
-    broadcastOptions,
-  }: {
-    did: string;
-    patches: PatchOperation[];
-    verificationMethodId?: string;
-    beaconId?: string;
-    signer: Signer;
-    beaconSigner?: Signer;
-    sourceDocument?: Btcr2DidDocument;
-    sourceVersionId?: number;
-    resolutionOptions?: ResolutionOptions;
-    publishToCas?: PublishToCasMode;
-    broadcastOptions?: BroadcastOptions;
-  }): Promise<DidUpdateResult> {
+  async updateDid(
+    source: UpdateSource,
+    patch: PatchOperation[],
+    signer: Signer,
+    options: DidUpdateOptions = {},
+  ): Promise<DidUpdateResult> {
     this.#assertNotDisposed();
-    assertString(did, 'did');
-
-    const { doc, versionId } = await this.#resolveUpdateSource(did, sourceDocument, sourceVersionId, resolutionOptions);
-
-    return await this.btcr2.update({
-      sourceDocument    : doc,
-      patches,
-      sourceVersionId   : versionId,
-      verificationMethodId,
-      beaconId,
-      signer,
-      beaconSigner,
-      publishToCas,
-      broadcastOptions,
-    });
+    const { resolutionOptions, ...updateOptions } = options;
+    const state = await this.#resolveUpdateSource(source, resolutionOptions);
+    return await this.btcr2.update(state, patch, signer, updateOptions);
   }
 
   /**
-   * Deactivate a DID permanently: resolve the current state (unless
-   * `sourceDocument` and `sourceVersionId` are provided), sign an update
-   * carrying the deactivation patch, and announce it. Automatically injects
-   * the configured Bitcoin connection.
+   * Deactivate a DID permanently: sign an update that carries the
+   * deactivation patch, and announce it. The arguments follow the deactivate
+   * operation of the specification: the source and the signer.
    *
    * Deactivation is irreversible; an already-deactivated document is refused.
-   * The source pair and `resolutionOptions` follow the rules of
-   * {@link DidBtcr2Api.updateDid}. Supply both fields or neither. A supplied
-   * document must describe `did`.
-   * The caller can omit `verificationMethodId` and `beaconId`, as in
+   * The source and the options follow the rules of
    * {@link DidBtcr2Api.updateDid}.
-   * @param params The deactivation parameters: {@link DidBtcr2Api.updateDid}'s
-   *   minus `patches` (the deactivation patch is supplied for you).
+   * @param source The DID, or a resolved {@link SourceState}.
+   * @param signer The signer of the update proof, with the key of the verification method.
+   * @param options The options of {@link DidBtcr2Api.updateDid}.
    * @returns The broadcast artifacts, exactly as {@link DidBtcr2Api.updateDid}.
    */
-  async deactivateDid({
-    did,
-    verificationMethodId,
-    beaconId,
-    signer,
-    beaconSigner,
-    sourceDocument,
-    sourceVersionId,
-    resolutionOptions,
-    publishToCas,
-    broadcastOptions,
-  }: {
-    did: string;
-    verificationMethodId?: string;
-    beaconId?: string;
-    signer: Signer;
-    beaconSigner?: Signer;
-    sourceDocument?: Btcr2DidDocument;
-    sourceVersionId?: number;
-    resolutionOptions?: ResolutionOptions;
-    publishToCas?: PublishToCasMode;
-    broadcastOptions?: BroadcastOptions;
-  }): Promise<DidUpdateResult> {
+  async deactivateDid(
+    source: UpdateSource,
+    signer: Signer,
+    options: DidUpdateOptions = {},
+  ): Promise<DidUpdateResult> {
     this.#assertNotDisposed();
-    assertString(did, 'did');
-
-    const { doc, versionId } = await this.#resolveUpdateSource(did, sourceDocument, sourceVersionId, resolutionOptions);
-
-    return await this.btcr2.deactivate({
-      sourceDocument    : doc,
-      sourceVersionId   : versionId,
-      verificationMethodId,
-      beaconId,
-      signer,
-      beaconSigner,
-      publishToCas,
-      broadcastOptions,
-    });
+    const { resolutionOptions, ...updateOptions } = options;
+    const state = await this.#resolveUpdateSource(source, resolutionOptions);
+    return await this.btcr2.deactivate(state, signer, updateOptions);
   }
 
   /**
-   * Obtain the source document and version for a write operation. If the
-   * caller supplies the pair whole, the helper returns it after it confirms
-   * that the document's id is `did`. If the caller supplies neither, the
-   * helper resolves the DID with the caller's resolution options and takes
-   * both values from the resolution. The helper refuses a half-supplied pair
-   * before any resolution. {@link DidBtcr2Api.updateDid} and
+   * Get the source state of a write operation. If the source is a DID, the
+   * helper resolves it with the caller's resolution options and takes the
+   * document and its `versionId` from the resolution. If the source is a
+   * state, the helper returns it. {@link DidBtcr2Api.updateDid} and
    * {@link DidBtcr2Api.deactivateDid} share this helper.
    */
   async #resolveUpdateSource(
-    did: string,
-    sourceDocument?: Btcr2DidDocument,
-    sourceVersionId?: number,
+    source: UpdateSource,
     resolutionOptions?: ResolutionOptions,
-  ): Promise<{ doc: Btcr2DidDocument; versionId: number }> {
-    if ((sourceDocument == null) !== (sourceVersionId == null)) {
-      throw new UpdateError(
-        `Provide both sourceDocument and sourceVersionId for DID ${did}, or neither. `
-        + 'A document from one source and a version number from another describe a state '
-        + 'no resolver holds. A resolver rejects an update built on that state.',
-        INVALID_DID_UPDATE,
-        { did }
-      );
-    }
-
-    if (sourceDocument != null && sourceVersionId != null) {
-      if (sourceDocument.id !== did) {
+  ): Promise<SourceState> {
+    if (typeof source !== 'string') {
+      if (source == null || typeof source !== 'object') {
         throw new UpdateError(
-          `sourceDocument.id ${sourceDocument.id} does not match the DID under update, ${did}.`,
+          'The update source must be a DID or a resolved state { document, versionId }.',
           INVALID_DID_UPDATE,
-          { did, sourceDocumentId: sourceDocument.id }
+          { source }
         );
       }
-      return { doc: sourceDocument, versionId: sourceVersionId };
+      return source;
     }
 
+    const did = source;
+    assertString(did, 'source');
     const resolution = await this.resolveDid(did, resolutionOptions);
     if (!resolution.didDocument) {
       const meta = resolution.didResolutionMetadata;
@@ -395,7 +315,7 @@ export class DidBtcr2Api {
     if (rawVersionId === undefined || rawVersionId === null) {
       throw new Error(
         `Resolution of DID ${did} succeeded but returned no versionId in metadata. `
-        + 'Provide sourceDocument and sourceVersionId explicitly.'
+        + 'Pass a resolved state { document, versionId } as the source.'
       );
     }
     const versionId = Number(rawVersionId);
@@ -405,7 +325,7 @@ export class DidBtcr2Api {
       );
     }
 
-    return { doc: resolution.didDocument as Btcr2DidDocument, versionId };
+    return { document: resolution.didDocument as Btcr2DidDocument, versionId };
   }
 
   /**

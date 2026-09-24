@@ -24,12 +24,12 @@ export function registerUpdateCommand(
     .action(async (options: WriteFlags & { patches: unknown }) => {
       const g = globals();
       const { network, api, params } = await prepareWrite(options, factory, g);
-      // The api resolves the source document if the source pair is absent,
+      // The api resolves the source document if the source is the DID,
       // derives an omitted verification method and beacon, and publishes to
       // the CAS only under --publish-to-cas auto|always. The returned
       // artifacts (txid, signed update, announcement, proof) are printed for
       // sidecar distribution in every case.
-      const data = await api.updateDid({ ...params, patches: options.patches as PatchOperation[] });
+      const data = await api.updateDid(params.source, options.patches as PatchOperation[], params.signer, params.options);
       console.log(formatResult({ action: 'update', data }, g));
       printWatchHint(g, network, data.txid);
     });

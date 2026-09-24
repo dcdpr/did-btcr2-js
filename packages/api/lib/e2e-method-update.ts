@@ -1,22 +1,23 @@
 /**
- * E2E: DidBtcr2Api.buildUpdate(...).signer(...).execute() against a live Bitcoin node.
+ * E2E: DidMethodApi.update(source, patch, signer, options) against a live Bitcoin node.
  *
- * Drives the full high-level api facade end-to-end:
+ * Drives the method facade end-to-end, for one beacon kind per run:
  *   - `DidBtcr2Api` configured with a live Bitcoin connection
- *   - `UpdateBuilder` fluent chain ending in `.signer(LocalSigner).execute()`
+ *   - `api.btcr2.update` with an explicit source state, verification method,
+ *     and beacon
  *   - The Updater state machine + Beacon broadcast wired together via the api
  *
- * This catches wiring bugs between UpdateBuilder, DidMethodApi.update, the
- * Updater state machine, and the Beacon broadcast pipeline that the unit-level
- * tests can't see.
+ * This catches wiring bugs between DidMethodApi.update, the Updater state
+ * machine, and the Beacon broadcast pipeline that the unit-level tests can't
+ * see.
  *
  * Env:
  *   BITCOIN_NETWORK   default: regtest
  *   BEACON_KIND       default: p2pkh - one of p2pkh|p2wpkh|p2tr
  *
  * Usage:
- *   npx tsx packages/api/lib/e2e-update-builder.ts
- *   BEACON_KIND=p2tr npx tsx packages/api/lib/e2e-update-builder.ts
+ *   npx tsx packages/api/lib/e2e-method-update.ts
+ *   BEACON_KIND=p2tr npx tsx packages/api/lib/e2e-method-update.ts
  *
  * Exit code: 0 on success, non-zero on any assertion failure.
  */
@@ -37,7 +38,7 @@ if(!(KIND in KIND_INDEX)) {
   throw new Error(`BEACON_KIND must be one of p2pkh|p2wpkh|p2tr; got "${KIND}".`);
 }
 
-console.log(`E2E: UpdateBuilder / ${KIND.toUpperCase()} against ${NETWORK}\n`);
+console.log(`E2E: api.btcr2.update / ${KIND.toUpperCase()} against ${NETWORK}\n`);
 
 // ─── Step 1: Build the api with a live Bitcoin connection ───────────────────
 
@@ -74,7 +75,7 @@ persistKey({
   secretKeyBytes : kp.raw.secret!,
   pubkeyBytes    : kp.publicKey.compressed,
   beaconAddress,
-  label          : `update-builder-${KIND}`,
+  label          : `method-update-${KIND}`,
 });
 
 // ─── Step 4: Fund the beacon address ────────────────────────────────────────
@@ -83,12 +84,12 @@ console.log(`\n[4] Funding ${beaconAddress} ...`);
 const { minerAddr } = await fundBeacon({ beaconAddress, bitcoin, network: NETWORK });
 console.log(`    funded + confirmed + indexed`);
 
-// ─── Step 5: Drive the UpdateBuilder fluent chain ───────────────────────────
+// ─── Step 5: Update through the method facade ───────────────────────────────
 
-console.log(`\n[5] Calling api.btcr2.buildUpdate(...).signer(LocalSigner).execute() ...`);
-const { signedUpdate: signed, txid } = await api.btcr2
-  .buildUpdate(sourceDocument)
-  .patch({
+console.log(`\n[5] Calling api.btcr2.update(source, patch, signer, options) ...`);
+const { signedUpdate: signed, txid } = await api.btcr2.update(
+  { document: sourceDocument, versionId: 1 },
+  [{
     op    : 'add',
     path  : '/service/3',
     value : {
@@ -96,12 +97,13 @@ const { signedUpdate: signed, txid } = await api.btcr2
       type            : 'DecentralizedWebNode',
       serviceEndpoint : 'http://example.com/dwn',
     },
-  })
-  .version(1)
-  .verificationMethodId(sourceDocument.verificationMethod![0]!.id)
-  .beacon(beaconService.id)
-  .signer(signer)
-  .execute();
+  }],
+  signer,
+  {
+    verificationMethodId : sourceDocument.verificationMethod![0]!.id,
+    announce             : { beaconId: beaconService.id },
+  },
+);
 
 console.log(`    update broadcast (targetVersionId: ${signed.targetVersionId}, txid: ${txid})`);
 

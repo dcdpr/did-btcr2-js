@@ -1,5 +1,14 @@
 # @did-btcr2/api
 
+## 0.28.0
+
+### Minor Changes
+
+- `updateDid` and `deactivateDid` follow the signatures of the specification (ADR 123).
+
+  - api: `updateDid(source, patch, signer, options?)` and `deactivateDid(source, signer, options?)` replace the single objects with eleven and ten fields. `source` is a DID, which the api resolves, or a resolved `SourceState` `{ document, versionId }`. `options` holds `verificationMethodId`, `resolutionOptions`, and `announce`. `announce` holds `beaconId`, `signer` (the beacon input signer, the old `beaconSigner`), `feeEstimator`, `changeAddress`, `publishToCas`, and `bitcoin`. `DidMethodApi.update(source, patch, signer, options?)` and `DidMethodApi.deactivate(source, signer, options?)` take the same shape with a `SourceState`. New exported types: `SourceState`, `UpdateSource`, `UpdateOptions`, `DidUpdateOptions`, `AnnounceOptions`. Breaking: `UpdateBuilder` and `DidMethodApi.buildUpdate` are removed, and the half-supplied source pair refusal is replaced by the `SourceState` type.
+  - cli: `UpdateCommandOptions` is `{ source, signer, options }`. `update` and `deactivate` refuse a `--source-document` whose `id` is not the identifier. No flag changes.
+
 ## 0.27.2
 
 ### Patch Changes

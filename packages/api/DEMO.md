@@ -183,11 +183,11 @@ import { explorerTxUrl } from '@did-btcr2/api';
 
 const signer = api.kms.signer(keyId);
 
-const update1 = await api.updateDid({
+const update1 = await api.updateDid(
   did,
-  patches : [{ op: 'add', path: '/alsoKnownAs', value: ['https://example.com/demo'] }],
+  [{ op: 'add', path: '/alsoKnownAs', value: ['https://example.com/demo'] }],
   signer,
-});
+);
 
 console.log(update1.txid);
 console.log(`Watch: ${explorerTxUrl('mutinynet', update1.txid)}`);
@@ -196,11 +196,11 @@ console.log(`Watch: ${explorerTxUrl('mutinynet', update1.txid)}`);
 const signedUpdate = update1.signedUpdate;
 ```
 
-- `verificationMethodId` and `beaconId` were omitted: the api derives them. The verification method is the one that publishes the signer's key. The beacon is the one whose address holds a spendable UTXO: `#initialP2WPKH`, the one you funded. Pass both ids to choose explicitly.
+- The arguments follow the update operation of the specification: the source, the JSON Patch document, and the signer. A fourth argument holds the options.
+- `verificationMethodId` and `announce.beaconId` were omitted: the api derives them. The verification method is the one that publishes the signer's key. The beacon is the one whose address holds a spendable UTXO: `#initialP2WPKH`, the one you funded. Pass both ids to choose explicitly.
 - `signer` came from `api.kms.signer(keyId)`. The same call works with an external `KeyManager` passed to `createApi({ kms })`.
-- `sourceDocument` and `sourceVersionId` were omitted: `updateDid` resolves them itself, which works here because a fresh `k` DID resolves deterministically with no sidecar.
-- `publishToCas` defaults to `'never'`: nothing about this update leaves your machine except the 32-byte hash in the transaction. That default is the privacy story of Step D.
-- Prefer fluent chains? The same call is available as `api.btcr2.buildUpdate(...)`: see the Appendix.
+- The source is the DID: `updateDid` resolves it, which works here because a fresh `k` DID resolves deterministically with no sidecar.
+- `announce.publishToCas` defaults to `'never'`: nothing about this update leaves your machine except the 32-byte hash in the transaction. That default is the privacy story of Step D.
 
 ### Step C - wait for the signal to confirm
 
@@ -249,15 +249,13 @@ Deactivation **is** an update: `deactivateDid` broadcasts an update that carries
 No second faucet trip is needed: the update transaction in Part 4 returned its change to the beacon address, so the beacon still holds a confirmed UTXO.
 
 ```typescript
-const update2 = await api.deactivateDid({
-  did,
-  signer,
+const update2 = await api.deactivateDid(did, signer, {
   resolutionOptions : { sidecar: { updates: [signedUpdate] }, minConf: 1 },
 });
 console.log(update2.txid);
 ```
 
-This time the auto-resolution needs the sidecar: without it the api cannot see version 2. `resolutionOptions` hands the sidecar to that resolution, and the same `minConf: 1` as Step D, so a one-deep update counts. You hold the history, so you are the source of truth for it: that is the model. As an alternative, pass `sourceDocument` and `sourceVersionId` together to skip the resolution. The api refuses one without the other.
+This time the auto-resolution needs the sidecar: without it the api cannot see version 2. `resolutionOptions` hands the sidecar to that resolution, and the same `minConf: 1` as Step D, so a one-deep update counts. You hold the history, so you are the source of truth for it: that is the model. As an alternative, pass a resolved state `{ document, versionId }` as the source to skip the resolution.
 
 Wait one block, then resolve with the **full** update history in the sidecar:
 
@@ -278,7 +276,7 @@ The DID takes no further update. The api refuses one before any signature:
 
 ```typescript
 if (final.ok) {
-  await api.updateDid({ did, patches: [], signer, sourceDocument: final.document, sourceVersionId: 3 })
+  await api.updateDid({ document: final.document, versionId: 3 }, [], signer)
     .catch((err) => console.log((err as Error).message));
   // DID document did:btcr2:k1q5p8rn...qy2kh3v is deactivated and cannot be updated. Deactivation is irreversible: ...
 }
@@ -317,19 +315,20 @@ npx tsx packages/api/lib/e2e-full-lifecycle.ts
 
 Rough Mutinynet wall-clock: 3-5 minutes, dominated by three block confirmations (funding, update, deactivation) and the faucet trip. On public networks the script persists the generated secret key to `lib/.e2e-keys/` (gitignored, mode 0600) so funds at the beacon address are recoverable.
 
-### The fluent builder alternative
+### Explicit ids and a resolved source
 
-`UpdateBuilder` is the chainable form of `updateDid`. Unlike `updateDid`, it does not auto-resolve and does not derive ids: version, verification method, beacon, and signer are explicit.
+`api.btcr2.update` takes the same arguments as `updateDid`, but it does not resolve: the source must be a resolved state. Pass the ids to choose them explicitly:
 
 ```typescript
-const { signedUpdate, txid } = await api.btcr2
-  .buildUpdate(sourceDocument)
-  .patch({ op: 'add', path: '/alsoKnownAs', value: ['https://example.com/demo'] })
-  .version(1)
-  .verificationMethodId(`${did}#initialKey`)
-  .beacon(`${did}#initialP2WPKH`)
-  .signer(signer)
-  .execute();
+const { signedUpdate, txid } = await api.btcr2.update(
+  { document: sourceDocument, versionId: 1 },
+  [{ op: 'add', path: '/alsoKnownAs', value: ['https://example.com/demo'] }],
+  signer,
+  {
+    verificationMethodId : `${did}#initialKey`,
+    announce             : { beaconId: `${did}#initialP2WPKH` },
+  },
+);
 ```
 
 ### Publishing to a CAS instead of carrying sidecars
@@ -342,7 +341,8 @@ const api = createApi({
   cas : { rpcUrl: 'http://127.0.0.1:5001' },   // Kubo RPC: read-write
 });
 
-await api.updateDid({ /* ...as in Part 4... */ publishToCas: 'always' });
+const patch = [{ op: 'add', path: '/alsoKnownAs', value: ['https://example.com/demo'] }];
+await api.updateDid(did, patch, signer, { announce: { publishToCas: 'always' } });
 ```
 
 Modes: `'never'` (default: maximum privacy, sidecar-only), `'auto'` (best-effort: publishes when a writable CAS is configured, never blocks the broadcast), `'always'` (throws up-front if no writable CAS). Publication happens **before** the on-chain broadcast, so a published hash never dangles. Anyone can then resolve your DID without a sidecar, which is exactly the privacy trade you are opting into.
@@ -354,11 +354,10 @@ Modes: `'never'` (default: maximum privacy, sidecar-only), `'auto'` (best-effort
 | `api.btc` throws `Bitcoin not configured` | Pass a `btc` config to `createApi()`, e.g. `createApi({ btc: { network: 'mutinynet' } })`. |
 | `Beacon address ... is unfunded. Send BTC to this address before broadcasting the update.` | The faucet step was skipped or the funding tx has not landed. Fund the beacon and wait for it to be indexed. |
 | `Beacon address ... cannot fund this update. No spendable UTXO at beacon address: all N UTXO(s) are unconfirmed. ...` | The api spends only a confirmed UTXO, for reorg and RBF safety. It refuses before it publishes or broadcasts. Wait one block (~30s on Mutinynet) and retry. The same wrapper reports a UTXO at or below the 546-sat dust limit. |
-| `No beacon of DID ... holds a spendable UTXO. The api cannot derive beaconId.` | You omitted `beaconId`, and no beacon address holds a confirmed UTXO above the dust limit. Fund one (Part 4, Step A), or pass `beaconId`. |
-| `N beacons of DID ... hold a spendable UTXO: ... Pass beaconId to choose which one spends.` | You funded more than one beacon address. Pass `beaconId`. The api never picks one for you. |
+| `No beacon of DID ... holds a spendable UTXO. The api cannot derive beaconId.` | You omitted `announce.beaconId`, and no beacon address holds a confirmed UTXO above the dust limit. Fund one (Part 4, Step A), or pass `announce.beaconId`. |
+| `N beacons of DID ... hold a spendable UTXO: ... Pass beaconId to choose which one spends.` | You funded more than one beacon address. Pass `announce.beaconId`. The api never picks one for you. |
 | `No verification method on DID ... publishes the signer's key.` | The signer's key is not on the document. Sign with the key from Part 1, or pass `verificationMethodId`. |
 | `No key id given and no active key set.` | `api.kms.signer()` with no id needs an active key. Part 1 sets one with `setActive: true`. Or pass the key id. |
-| `Provide both sourceDocument and sourceVersionId for DID ..., or neither.` | You passed one half of the source pair. Pass both, or omit both and pass `resolutionOptions` with the sidecar. |
 | `Failed to resolve DID <did>: Signed update not found in CAS (hash: ...)` | You resolved a DID that has an on-chain update without the sidecar. Pass `{ sidecar: { updates: [...] } }`: that is the privacy feature, not a bug. `tryResolveDid` returns the same text in `errorMessage`. |
 | A resolve returns the old version, with no error | The update transaction has fewer than six confirmations, and resolution excludes it under the default `minConf`. Wait for six blocks, or pass `{ minConf: 1 }` as this walkthrough does. |
 | `Failed to resolve DID <did>: Invalid resolution option minConf: ...` | `minConf` is not a positive integer. Pass `1` or more, or omit it for the default of `6`. |

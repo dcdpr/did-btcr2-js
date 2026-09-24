@@ -111,7 +111,7 @@ export class KeyManagerApi {
 
   /**
    * A {@link Signer} backed by this key manager, accepted by every write on
-   * the facade (`updateDid`, `deactivateDid`, `UpdateBuilder.signer`).
+   * the facade (`updateDid`, `deactivateDid`, `btcr2.update`, `btcr2.deactivate`).
    * Completes the `generateDid` chain: the returned `keyId` is the only
    * handle needed to sign that DID's updates.
    *

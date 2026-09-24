@@ -80,6 +80,80 @@ export interface DidUpdateResult {
 }
 
 /**
+ * The source state of an update: a DID document and the `versionId` that a
+ * resolution of the DID returned for it. The update targets `versionId + 1`.
+ * The specification requires that `targetVersionId` comes from a fresh
+ * resolution, not from a local count. An update on an old version can never
+ * be applied.
+ * @public
+ */
+export interface SourceState {
+  /** The source DID document: the `didSourceDocument` of the specification. */
+  document: Btcr2DidDocument;
+  /** The `versionId` of `document`, from the resolution that returned it. */
+  versionId: number;
+}
+
+/**
+ * The source of an update on the top facade: a DID, which the api resolves
+ * at call time, or a {@link SourceState} that the caller resolved.
+ * @public
+ */
+export type UpdateSource = string | SourceState;
+
+/**
+ * Options of the "Announce DID Update" step of the specification: the beacon
+ * that announces the update and the Bitcoin transaction of the Beacon Signal.
+ * The fee and change fields come from {@link BroadcastOptions}.
+ * @public
+ */
+export interface AnnounceOptions extends BroadcastOptions {
+  /**
+   * The id of the beacon service that announces the update. If absent, the
+   * api uses the only beacon service of the source document. If the document
+   * has several, the api uses the one whose address holds a spendable UTXO.
+   */
+  beaconId?: string;
+  /**
+   * The signer of the beacon transaction input. Default: the update signer.
+   * Supply a separate signer if a key other than the verification method key
+   * controls the beacon address.
+   */
+  signer?: Signer;
+  /** The CAS publication policy. Default: `'never'`. See {@link PublishToCasMode}. */
+  publishToCas?: PublishToCasMode;
+  /** The Bitcoin connection of the announcement. Default: the connection of the api. */
+  bitcoin?: BitcoinConnection;
+}
+
+/**
+ * Options of an update or a deactivation.
+ * @public
+ */
+export interface UpdateOptions {
+  /**
+   * The id of the verification method that signs the update. If absent, the
+   * api uses the one verification method that publishes the key of the signer.
+   */
+  verificationMethodId?: string;
+  /** Options of the announcement. */
+  announce?: AnnounceOptions;
+}
+
+/**
+ * Options of {@link DidBtcr2Api.updateDid} and {@link DidBtcr2Api.deactivateDid}.
+ * @public
+ */
+export interface DidUpdateOptions extends UpdateOptions {
+  /**
+   * Options of the resolution of the source. They apply only if the source is
+   * a DID. Supply sidecar data here if no party published the prior updates
+   * of the DID to a CAS. Leave `versionId` and `versionTime` unset.
+   */
+  resolutionOptions?: ResolutionOptions;
+}
+
+/**
  * A beacon service on a DID document, reduced to what a caller funding the
  * beacon needs: the service id, the beacon type, and the bare Bitcoin address.
  * @public
@@ -481,9 +555,14 @@ export class DidMethodApi {
 
   /**
    * Update an existing DID document by driving the sans-I/O {@link Updater} state
-   * machine (from @did-btcr2/method). This method handles the I/O side:
+   * machine (from @did-btcr2/method). The arguments follow the update operation
+   * of the specification: the source document with its version, the JSON Patch
+   * document, and the signer. `options.verificationMethodId` is the fourth
+   * input of the specification; `options.announce` configures the announcement.
+   *
+   * This method handles the I/O side:
    * - Signing: supplies the {@link Signer} to `NeedSigningKey`.
-   * - Beacon input: `beaconSigner` signs the beacon transaction input. It
+   * - Beacon input: `announce.signer` signs the beacon transaction input. It
    *   defaults to `signer`. Pass a separate signer when the beacon address
    *   belongs to a key other than the verification method key.
    * - Funding: reads the UTXOs at the beacon address and refuses the update if
@@ -501,12 +580,12 @@ export class DidMethodApi {
    * A deactivated source document is refused before anything else runs.
    * Resolution halts at the deactivation, so an update signed on top of it
    * would spend a beacon UTXO on an announcement no resolver ever reads.
-   * Every write path (`updateDid`, `UpdateBuilder.execute`, `deactivate`)
-   * passes through here, so the refusal holds for all of them.
+   * Every write path (`updateDid`, `deactivateDid`, `deactivate`) passes
+   * through here, so the refusal holds for all of them.
    *
-   * The caller can omit `verificationMethodId` and `beaconId`. The api then
-   * derives them, after the guards above and before any signature. The
-   * verification method is the one method on the source document that
+   * The caller can omit `verificationMethodId` and `announce.beaconId`. The
+   * api then derives them, after the guards above and before any signature.
+   * The verification method is the one method on the source document that
    * publishes the signer's key. The Updater refuses every other method, so
    * the signer's key identifies the method.
    *
@@ -520,37 +599,34 @@ export class DidMethodApi {
    * Updater directly and delegate `NeedBroadcast` to the aggregation runner
    * rather than using this high-level method.
    *
-   * @param params The update parameters.
+   * @param source The source document and the `versionId` that its resolution returned.
+   * @param patch The JSON Patch document: the operations that change the source document.
+   * @param signer The signer of the update proof, with the key of the verification method.
+   * @param options The verification method id and the announcement options.
    * @returns The broadcast artifacts: signed update, signal txid, per-beacon-type
    *   sidecar data, and which artifacts were published to CAS.
    */
-  async update({
-    sourceDocument,
-    patches,
-    sourceVersionId,
-    verificationMethodId,
-    beaconId,
-    signer,
-    beaconSigner = signer,
-    bitcoin,
-    publishToCas = 'never',
-    broadcastOptions,
-  }: {
-    sourceDocument: Btcr2DidDocument;
-    patches: PatchOperation[];
-    sourceVersionId: number;
-    verificationMethodId?: string;
-    beaconId?: string;
-    signer: Signer;
-    beaconSigner?: Signer;
-    bitcoin?: BitcoinConnection;
-    publishToCas?: PublishToCasMode;
-    broadcastOptions?: BroadcastOptions;
-  }): Promise<DidUpdateResult> {
+  async update(
+    source: SourceState,
+    patch: PatchOperation[],
+    signer: Signer,
+    options: UpdateOptions = {},
+  ): Promise<DidUpdateResult> {
+    const { document: sourceDocument, versionId: sourceVersionId } = source;
+    const {
+      beaconId: announceBeaconId,
+      signer: beaconSigner = signer,
+      publishToCas = 'never',
+      bitcoin,
+      ...broadcastOptions
+    } = options.announce ?? {};
+    let beaconId = announceBeaconId;
+    let verificationMethodId = options.verificationMethodId;
+
     // A deactivated document takes no further update: resolution halts at the
     // deactivation, so anything signed and broadcast on top of it spends a
     // beacon UTXO on an announcement no resolver will ever read. Refused here,
-    // at the single chokepoint every write path (updateDid, the builder,
+    // at the single chokepoint every write path (updateDid, deactivateDid,
     // deactivate) passes through, before any connection is touched.
     if(sourceDocument?.deactivated) {
       throw new UpdateError(
@@ -561,13 +637,13 @@ export class DidMethodApi {
       );
     }
 
-    // Bitcoin connection resolution order: per-call `bitcoin` param wins over the
-    // BitcoinApi injected at DidBtcr2Api construction time. One of the two must
+    // Bitcoin connection resolution order: the per-call `announce.bitcoin` wins
+    // over the BitcoinApi injected at DidBtcr2Api construction time. One of the two must
     // be present; this can't be encoded in the type system, so it's a runtime check.
     const btcConnection = bitcoin ?? this.#btc?.connection;
     if(!btcConnection) {
       throw new UpdateError(
-        'Bitcoin connection required for update. Pass a configured `bitcoin` parameter '
+        'Bitcoin connection required for update. Pass `announce.bitcoin` '
         + 'or configure a BitcoinApi on the DidBtcr2Api instance.',
         INVALID_DID_UPDATE, { beaconId }
       );
@@ -600,7 +676,7 @@ export class DidMethodApi {
     // Factory validates and returns a sans-I/O state machine
     const updater = DidBtcr2.update({
       sourceDocument,
-      patches,
+      patches : patch,
       sourceVersionId,
       verificationMethodId,
       beaconId,
@@ -865,27 +941,6 @@ export class DidMethodApi {
   }
 
   /**
-   * Create a fluent builder for a DID update operation.
-   * @param sourceDocument The current DID document to update.
-   * @returns An {@link UpdateBuilder} for chaining update parameters.
-   *
-   * @example
-   * ```ts
-   * const { signedUpdate, txid } = await api.btcr2
-   *   .buildUpdate(currentDoc)
-   *   .patch({ op: 'add', path: '/service/1', value: newService })
-   *   .version(2)
-   *   .verificationMethodId(`${currentDoc.id}#initialKey`)
-   *   .beacon(currentDoc.service[0].id)
-   *   .signer(new LocalSigner(secretKey))
-   *   .execute();
-   * ```
-   */
-  buildUpdate(sourceDocument: Btcr2DidDocument): UpdateBuilder {
-    return new UpdateBuilder(this, sourceDocument);
-  }
-
-  /**
    * Deactivate a DID by broadcasting an update that sets the `deactivated`
    * flag ({@link DidMethodApi.DEACTIVATION_PATCH}). Deactivation is an
    * ordinary update in did:btcr2: it rides the same sign / CAS-publication /
@@ -897,167 +952,29 @@ export class DidMethodApi {
    * well-formed update that no resolver can ever read back, because
    * resolution stops at the first deactivation.
    *
-   * The caller can omit `verificationMethodId` and `beaconId`.
-   * {@link DidMethodApi.update} derives them.
+   * The operation follows the deactivate operation of the specification: the
+   * update operation with a fixed patch. The caller can omit
+   * `verificationMethodId` and `announce.beaconId`, as in
+   * {@link DidMethodApi.update}.
    *
-   * @param params The update parameters minus `patches` (the deactivation
-   *   patch is supplied for you).
+   * @param source The source document and the `versionId` that its resolution returned.
+   * @param signer The signer of the update proof, with the key of the verification method.
+   * @param options The verification method id and the announcement options.
    * @returns The broadcast artifacts, exactly as {@link DidMethodApi.update}.
    */
-  async deactivate(params: {
-    sourceDocument: Btcr2DidDocument;
-    sourceVersionId: number;
-    verificationMethodId?: string;
-    beaconId?: string;
-    signer: Signer;
-    beaconSigner?: Signer;
-    bitcoin?: BitcoinConnection;
-    publishToCas?: PublishToCasMode;
-    broadcastOptions?: BroadcastOptions;
-  }): Promise<DidUpdateResult> {
-    if(params.sourceDocument?.deactivated) {
+  async deactivate(
+    source: SourceState,
+    signer: Signer,
+    options: UpdateOptions = {},
+  ): Promise<DidUpdateResult> {
+    if(source.document?.deactivated) {
       throw new UpdateError(
-        `DID document ${params.sourceDocument.id} is already deactivated. `
+        `DID document ${source.document.id} is already deactivated. `
         + 'Deactivation is irreversible: a further deactivation update could '
         + 'never be read back, because resolution halts at the first.',
-        INVALID_DID_UPDATE, { did: params.sourceDocument.id }
+        INVALID_DID_UPDATE, { did: source.document.id }
       );
     }
-    return this.update({
-      ...params,
-      patches : [{ ...DidMethodApi.DEACTIVATION_PATCH }],
-    });
-  }
-}
-
-/**
- * Fluent builder for DID update operations. Reduces the cognitive load of
- * the 7-parameter `update()` call by letting callers chain named steps.
- *
- * Created via {@link DidMethodApi.buildUpdate}.
- * @public
- */
-export class UpdateBuilder {
-  #methodApi: DidMethodApi;
-  #sourceDocument: Btcr2DidDocument;
-  #patches: PatchOperation[] = [];
-  #sourceVersionId?: number;
-  #verificationMethodId?: string;
-  #beaconId?: string;
-  #signer?: Signer;
-  #beaconSigner?: Signer;
-  #bitcoin?: BitcoinConnection;
-  #publishToCas?: PublishToCasMode;
-  #broadcastOptions?: BroadcastOptions;
-
-  /** @internal */
-  constructor(methodApi: DidMethodApi, sourceDocument: Btcr2DidDocument) {
-    this.#methodApi = methodApi;
-    this.#sourceDocument = sourceDocument;
-  }
-
-  /** Add a single JSON Patch operation. Can be called multiple times. */
-  patch(op: PatchOperation): this {
-    this.#patches.push(op);
-    return this;
-  }
-
-  /** Set all patches at once (replaces any previously added). */
-  patches(ops: PatchOperation[]): this {
-    this.#patches = [...ops];
-    return this;
-  }
-
-  /** Set the source version ID. */
-  version(id: number): this {
-    this.#sourceVersionId = id;
-    return this;
-  }
-
-  /** Set the verification method ID used for signing the update. */
-  verificationMethodId(methodId: string): this {
-    this.#verificationMethodId = methodId;
-    return this;
-  }
-
-  /** Set the beacon ID for the update announcement. */
-  beacon(beaconId: string): this {
-    this.#beaconId = beaconId;
-    return this;
-  }
-
-  /**
-   * Set the {@link Signer} that produces the update's BIP-340 Schnorr proof.
-   * The same signer signs the beacon transaction input, unless
-   * `.beaconSigner()` sets a separate one. Use `LocalSigner` for in-process
-   * secret keys, `KeyManagerSigner` for KMS-managed keys (AWS, Vault, HSM,
-   * etc.), or any custom adapter implementing the `Signer` interface.
-   */
-  signer(s: Signer): this {
-    this.#signer = s;
-    return this;
-  }
-
-  /**
-   * Set the {@link Signer} that signs the beacon transaction input. Defaults to
-   * the signer of `.signer()`. Use it when the beacon address belongs to a key
-   * other than the verification method key.
-   */
-  beaconSigner(s: Signer): this {
-    this.#beaconSigner = s;
-    return this;
-  }
-
-  /** Override the Bitcoin connection for this update. */
-  bitcoin(connection: BitcoinConnection): this {
-    this.#bitcoin = connection;
-    return this;
-  }
-
-  /** Set the CAS publication policy for this update (default `'never'`; opt-in). */
-  publishToCas(mode: PublishToCasMode): this {
-    this.#publishToCas = mode;
-    return this;
-  }
-
-  /** Set beacon broadcast options (fee estimator, change address). */
-  broadcastOptions(options: BroadcastOptions): this {
-    this.#broadcastOptions = options;
-    return this;
-  }
-
-  /**
-   * Execute the update.
-   * @throws {Error} If required fields (version, verificationMethodId, beacon, signer) are missing.
-   */
-  async execute(): Promise<DidUpdateResult> {
-    if (this.#sourceVersionId === undefined) {
-      throw new Error('UpdateBuilder: sourceVersionId is required. Call .version(id) before .execute().');
-    }
-    if (!this.#verificationMethodId) {
-      throw new Error(
-        'UpdateBuilder: verificationMethodId is required. '
-        + 'Call .verificationMethodId(id) before .execute().'
-      );
-    }
-    if (!this.#beaconId) {
-      throw new Error('UpdateBuilder: beaconId is required. Call .beacon(id) before .execute().');
-    }
-    if (!this.#signer) {
-      throw new Error('UpdateBuilder: signer is required. Call .signer(s) before .execute().');
-    }
-
-    return this.#methodApi.update({
-      sourceDocument       : this.#sourceDocument,
-      patches              : this.#patches,
-      sourceVersionId      : this.#sourceVersionId,
-      verificationMethodId : this.#verificationMethodId,
-      beaconId             : this.#beaconId,
-      signer               : this.#signer,
-      beaconSigner         : this.#beaconSigner,
-      bitcoin              : this.#bitcoin,
-      publishToCas         : this.#publishToCas,
-      broadcastOptions     : this.#broadcastOptions,
-    });
+    return this.update(source, [{ ...DidMethodApi.DEACTIVATION_PATCH }], signer, options);
   }
 }

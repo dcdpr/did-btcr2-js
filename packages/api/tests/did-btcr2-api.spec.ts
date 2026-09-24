@@ -197,46 +197,33 @@ describe('DidBtcr2Api', () => {
   });
 
   describe('updateDid()', () => {
+    const patch = [{ op: 'add' as const, path: '/test', value: 'x' }];
+    const ids = { verificationMethodId: '#initialKey', announce: { beaconId: '#beacon-0' } };
+
     it('should throw when resolution fails (no btc config)', async () => {
       const api = createApi();
       const { did } = api.did.generate();
-      await expect(
-        api.updateDid({
-          did,
-          patches              : [{ op: 'add', path: '/test', value: 'x' }],
-          verificationMethodId : '#initialKey',
-          beaconId             : '#beacon-0',
-          signer               : stubSigner,
-        })
-      ).to.be.rejected;
+      await expect(api.updateDid(did, patch, stubSigner, ids)).to.be.rejected;
     });
 
     it('should reject empty DID string', async () => {
       const api = createApi();
-      await expect(
-        api.updateDid({
-          did                  : '',
-          patches              : [{ op: 'add', path: '/test', value: 'x' }],
-          verificationMethodId : '#initialKey',
-          beaconId             : '#beacon-0',
-          signer               : stubSigner,
-        })
-      ).to.be.rejectedWith('did must be a non-empty string');
+      await expect(api.updateDid('', patch, stubSigner, ids))
+        .to.be.rejectedWith('source must be a non-empty string');
     });
 
-    it('should skip resolution when sourceDocument and sourceVersionId provided', async () => {
+    it('refuses a source that is neither a DID nor a state', async () => {
       const api = createApi();
-      await expect(
-        api.updateDid({
-          did                    : 'did:btcr2:test',
-          patches                : [{ op: 'add', path: '/test', value: 'x' }],
-          verificationMethodId   : '#initialKey',
-          beaconId               : '#beacon-0',
-          signer                 : stubSigner,
-          sourceDocument         : { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any,
-          sourceVersionId        : 1,
-        })
-      ).to.be.rejected;
+      const err: unknown = await api.updateDid(null as any, patch, stubSigner, ids).catch((e: unknown) => e);
+      expect(err).to.be.instanceOf(UpdateError);
+      expect((err as UpdateError).message).to.include('must be a DID or a resolved state');
+      expect((err as UpdateError).type).to.equal(INVALID_DID_UPDATE);
+    });
+
+    it('should skip resolution when the source is a state', async () => {
+      const api = createApi();
+      const source = { document: { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any, versionId: 1 };
+      await expect(api.updateDid(source, patch, stubSigner, ids)).to.be.rejected;
     });
 
     it('should throw when resolution fails', async () => {
@@ -244,15 +231,7 @@ describe('DidBtcr2Api', () => {
       const { did } = api.did.generate();
       // Resolution will fail (no Bitcoin node running); the error may come
       // from the network layer or from our "Failed to resolve" guard.
-      await expect(
-        api.updateDid({
-          did,
-          patches              : [{ op: 'add', path: '/test', value: 'x' }],
-          verificationMethodId : '#initialKey',
-          beaconId             : '#beacon-0',
-          signer               : stubSigner,
-        })
-      ).to.be.rejected;
+      await expect(api.updateDid(did, patch, stubSigner, ids)).to.be.rejected;
     });
 
     it('threads resolutionOptions through to resolution (sidecar-only update #2)', async () => {
@@ -273,183 +252,42 @@ describe('DidBtcr2Api', () => {
           didResolutionMetadata : {},
         };
       };
-      let captured: any;
-      (api.btcr2 as any).update = async (params: any) => {
-        captured = params;
+      let captured: any[] = [];
+      (api.btcr2 as any).update = async (...args: any[]) => {
+        captured = args;
         return { signedUpdate: {}, txid: 'txid', publishedToCas: [] };
       };
 
-      await api.updateDid({
-        did,
-        patches              : [{ op: 'add', path: '/test', value: 'x' }],
-        verificationMethodId : '#initialKey',
-        beaconId             : '#beacon-0',
-        signer               : stubSigner,
-        resolutionOptions,
-      });
+      await api.updateDid(did, patch, stubSigner, { ...ids, resolutionOptions });
 
       expect(seenOptions).to.equal(resolutionOptions);
-      expect(captured.sourceDocument.id).to.equal(did);
-      expect(captured.sourceVersionId).to.equal(2);
+      const [source, forwardedPatch, signer, options] = captured;
+      expect(source.document.id).to.equal(did);
+      expect(source.versionId).to.equal(2);
+      expect(forwardedPatch).to.equal(patch);
+      expect(signer).to.equal(stubSigner);
+      // The facade consumes resolutionOptions. The method facade gets the rest.
+      expect(options).to.deep.equal(ids);
     });
 
-    it('ignores resolutionOptions when sourceDocument and sourceVersionId are supplied', async () => {
+    it('ignores resolutionOptions when the source is a state', async () => {
       const api = createApi();
       let resolveCalls = 0;
       (api.btcr2 as any).resolve = async () => {
         resolveCalls++;
         throw new Error('resolution must be skipped');
       };
-      let captured: any;
-      (api.btcr2 as any).update = async (params: any) => {
-        captured = params;
+      let captured: any[] = [];
+      (api.btcr2 as any).update = async (...args: any[]) => {
+        captured = args;
         return { signedUpdate: {}, txid: 'txid', publishedToCas: [] };
       };
+      const source = { document: { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any, versionId: 1 };
 
-      await api.updateDid({
-        did                  : 'did:btcr2:test',
-        patches              : [{ op: 'add', path: '/test', value: 'x' }],
-        verificationMethodId : '#initialKey',
-        beaconId             : '#beacon-0',
-        signer               : stubSigner,
-        sourceDocument       : { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any,
-        sourceVersionId      : 1,
-        resolutionOptions    : { sidecar: {} },
-      });
+      await api.updateDid(source, patch, stubSigner, { ...ids, resolutionOptions: { sidecar: {} } });
 
       expect(resolveCalls).to.equal(0);
-      expect(captured.sourceVersionId).to.equal(1);
-    });
-
-    it('refuses a sourceDocument without a sourceVersionId before resolving', async () => {
-      const api = createApi();
-      let resolveCalls = 0;
-      (api.btcr2 as any).resolve = async () => {
-        resolveCalls++;
-        throw new Error('resolution must not run');
-      };
-
-      const err: unknown = await api.updateDid({
-        did                  : 'did:btcr2:test',
-        patches              : [{ op: 'add', path: '/test', value: 'x' }],
-        verificationMethodId : '#initialKey',
-        beaconId             : '#beacon-0',
-        signer               : stubSigner,
-        sourceDocument       : { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any,
-      }).catch((e: unknown) => e);
-
-      expect(err).to.be.instanceOf(UpdateError);
-      expect((err as UpdateError).message).to.include('both sourceDocument and sourceVersionId');
-      expect((err as UpdateError).type).to.equal(INVALID_DID_UPDATE);
-      expect((err as UpdateError).data).to.deep.equal({ did: 'did:btcr2:test' });
-      expect(resolveCalls).to.equal(0);
-    });
-
-    it('refuses a sourceVersionId without a sourceDocument before resolving', async () => {
-      const api = createApi();
-      let resolveCalls = 0;
-      (api.btcr2 as any).resolve = async () => {
-        resolveCalls++;
-        throw new Error('resolution must not run');
-      };
-
-      await expect(
-        api.updateDid({
-          did                  : 'did:btcr2:test',
-          patches              : [{ op: 'add', path: '/test', value: 'x' }],
-          verificationMethodId : '#initialKey',
-          beaconId             : '#beacon-0',
-          signer               : stubSigner,
-          sourceVersionId      : 1,
-        })
-      ).to.be.rejectedWith(UpdateError, 'both sourceDocument and sourceVersionId');
-      expect(resolveCalls).to.equal(0);
-    });
-
-    it('refuses a sourceDocument that describes a different DID', async () => {
-      const api = createApi();
-      let resolveCalls = 0;
-      let updateCalls = 0;
-      (api.btcr2 as any).resolve = async () => {
-        resolveCalls++;
-        throw new Error('resolution must not run');
-      };
-      (api.btcr2 as any).update = async () => {
-        updateCalls++;
-        return { signedUpdate: {}, txid: 'txid', publishedToCas: [] };
-      };
-
-      const err: unknown = await api.updateDid({
-        did                  : 'did:btcr2:test',
-        patches              : [{ op: 'add', path: '/test', value: 'x' }],
-        verificationMethodId : '#initialKey',
-        beaconId             : '#beacon-0',
-        signer               : stubSigner,
-        sourceDocument       : { id: 'did:btcr2:other', verificationMethod: [], service: [] } as any,
-        sourceVersionId      : 1,
-      }).catch((e: unknown) => e);
-
-      expect(err).to.be.instanceOf(UpdateError);
-      expect((err as UpdateError).message).to.include('does not match the DID under update');
-      expect((err as UpdateError).type).to.equal(INVALID_DID_UPDATE);
-      expect((err as UpdateError).data).to.deep.equal({ did: 'did:btcr2:test', sourceDocumentId: 'did:btcr2:other' });
-      expect(resolveCalls).to.equal(0);
-      expect(updateCalls).to.equal(0);
-    });
-
-    it('treats a null sourceVersionId as not supplied', async () => {
-      const api = createApi();
-      let resolveCalls = 0;
-      (api.btcr2 as any).resolve = async () => {
-        resolveCalls++;
-        throw new Error('resolution must not run');
-      };
-
-      await expect(
-        api.updateDid({
-          did                  : 'did:btcr2:test',
-          patches              : [{ op: 'add', path: '/test', value: 'x' }],
-          verificationMethodId : '#initialKey',
-          beaconId             : '#beacon-0',
-          signer               : stubSigner,
-          sourceDocument       : { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any,
-          sourceVersionId      : null as any,
-        })
-      ).to.be.rejectedWith(UpdateError, 'both sourceDocument and sourceVersionId');
-      expect(resolveCalls).to.equal(0);
-    });
-
-    it('treats a null source pair as neither supplied and takes both values from the resolution', async () => {
-      const api = createApi();
-      const { did } = api.did.generate();
-      let resolveCalls = 0;
-      (api.btcr2 as any).resolve = async () => {
-        resolveCalls++;
-        return {
-          didDocument           : { id: did, verificationMethod: [], service: [] },
-          didDocumentMetadata   : { versionId: '2' },
-          didResolutionMetadata : {},
-        };
-      };
-      let captured: any;
-      (api.btcr2 as any).update = async (params: any) => {
-        captured = params;
-        return { signedUpdate: {}, txid: 'txid', publishedToCas: [] };
-      };
-
-      await api.updateDid({
-        did,
-        patches              : [{ op: 'add', path: '/test', value: 'x' }],
-        verificationMethodId : '#initialKey',
-        beaconId             : '#beacon-0',
-        signer               : stubSigner,
-        sourceDocument       : null as any,
-        sourceVersionId      : null as any,
-      });
-
-      expect(resolveCalls).to.equal(1);
-      expect(captured.sourceDocument.id).to.equal(did);
-      expect(captured.sourceVersionId).to.equal(2);
+      expect(captured[0]).to.equal(source);
     });
 
     it('passes omitted verificationMethodId and beaconId through for derivation', async () => {
@@ -460,18 +298,17 @@ describe('DidBtcr2Api', () => {
         didDocumentMetadata   : { versionId: '1' },
         didResolutionMetadata : {},
       });
-      let captured: any;
-      (api.btcr2 as any).update = async (params: any) => {
-        captured = params;
+      let captured: any[] = [];
+      (api.btcr2 as any).update = async (...args: any[]) => {
+        captured = args;
         return { signedUpdate: {}, txid: 'txid', publishedToCas: [] };
       };
 
-      await api.updateDid({ did, patches: [], signer: stubSigner });
+      await api.updateDid(did, [], stubSigner);
 
       // The facade adds nothing. The method facade derives both ids.
-      expect(captured.verificationMethodId).to.equal(undefined);
-      expect(captured.beaconId).to.equal(undefined);
-      expect(captured.signer).to.equal(stubSigner);
+      expect(captured[2]).to.equal(stubSigner);
+      expect(captured[3]).to.deep.equal({});
     });
 
     it('refuses an auto-resolved deactivated document before signing', async () => {
@@ -489,69 +326,48 @@ describe('DidBtcr2Api', () => {
 
       // No Bitcoin connection is configured, so a "connection required"
       // rejection would mean the resolved document reached the write path.
-      await expect(
-        api.updateDid({
-          did,
-          patches              : [{ op: 'add', path: '/test', value: 'x' }],
-          verificationMethodId : '#initialKey',
-          beaconId             : '#beacon-0',
-          signer               : stubSigner,
-        })
-      ).to.be.rejectedWith(UpdateError, 'is deactivated and cannot be updated');
+      await expect(api.updateDid(did, patch, stubSigner, ids))
+        .to.be.rejectedWith(UpdateError, 'is deactivated and cannot be updated');
       expect(resolveCalls).to.equal(1);
     });
 
     it('refuses a supplied deactivated document', async () => {
       const api = createApi();
-      await expect(
-        api.updateDid({
-          did                  : 'did:btcr2:test',
-          patches              : [{ op: 'add', path: '/test', value: 'x' }],
-          verificationMethodId : '#initialKey',
-          beaconId             : '#beacon-0',
-          signer               : stubSigner,
-          sourceVersionId      : 2,
-          sourceDocument       : {
-            id                 : 'did:btcr2:test',
-            deactivated        : true,
-            verificationMethod : [],
-            service            : [],
-          } as any,
-        })
-      ).to.be.rejectedWith(UpdateError, 'is deactivated and cannot be updated');
+      const source = {
+        document : {
+          id                 : 'did:btcr2:test',
+          deactivated        : true,
+          verificationMethod : [],
+          service            : [],
+        } as any,
+        versionId : 2,
+      };
+      await expect(api.updateDid(source, patch, stubSigner, ids))
+        .to.be.rejectedWith(UpdateError, 'is deactivated and cannot be updated');
     });
   });
 
   describe('deactivateDid()', () => {
+    const ids = { verificationMethodId: '#initialKey', announce: { beaconId: '#beacon-0' } };
+
     it('should reject empty DID string', async () => {
       const api = createApi();
-      await expect(
-        api.deactivateDid({
-          did                  : '',
-          verificationMethodId : '#initialKey',
-          beaconId             : '#beacon-0',
-          signer               : stubSigner,
-        })
-      ).to.be.rejectedWith('did must be a non-empty string');
+      await expect(api.deactivateDid('', stubSigner, ids))
+        .to.be.rejectedWith('source must be a non-empty string');
     });
 
     it('refuses an already-deactivated document', async () => {
       const api = createApi({ btc: { network: 'regtest' } });
-      await expect(
-        api.deactivateDid({
-          did                  : 'did:btcr2:test',
-          verificationMethodId : '#initialKey',
-          beaconId             : '#beacon-0',
-          signer               : stubSigner,
-          sourceDocument       : {
-            id                 : 'did:btcr2:test',
-            deactivated        : true,
-            verificationMethod : [],
-            service            : [],
-          } as any,
-          sourceVersionId : 2,
-        })
-      ).to.be.rejectedWith('already deactivated');
+      const source = {
+        document : {
+          id                 : 'did:btcr2:test',
+          deactivated        : true,
+          verificationMethod : [],
+          service            : [],
+        } as any,
+        versionId : 2,
+      };
+      await expect(api.deactivateDid(source, stubSigner, ids)).to.be.rejectedWith('already deactivated');
     });
 
     it('threads resolutionOptions through to resolution', async () => {
@@ -568,22 +384,19 @@ describe('DidBtcr2Api', () => {
           didResolutionMetadata : {},
         };
       };
-      let captured: any;
-      (api.btcr2 as any).deactivate = async (params: any) => {
-        captured = params;
+      let captured: any[] = [];
+      (api.btcr2 as any).deactivate = async (...args: any[]) => {
+        captured = args;
         return { signedUpdate: {}, txid: 'txid', publishedToCas: [] };
       };
 
-      await api.deactivateDid({
-        did,
-        verificationMethodId : '#initialKey',
-        beaconId             : '#beacon-0',
-        signer               : stubSigner,
-        resolutionOptions,
-      });
+      await api.deactivateDid(did, stubSigner, { ...ids, resolutionOptions });
 
       expect(seenOptions).to.equal(resolutionOptions);
-      expect(captured.sourceVersionId).to.equal(3);
+      const [source, signer, options] = captured;
+      expect(source.versionId).to.equal(3);
+      expect(signer).to.equal(stubSigner);
+      expect(options).to.deep.equal(ids);
     });
 
     it('passes omitted verificationMethodId and beaconId through for derivation', async () => {
@@ -594,59 +407,17 @@ describe('DidBtcr2Api', () => {
         didDocumentMetadata   : { versionId: '1' },
         didResolutionMetadata : {},
       });
-      let captured: any;
-      (api.btcr2 as any).deactivate = async (params: any) => {
-        captured = params;
+      let captured: any[] = [];
+      (api.btcr2 as any).deactivate = async (...args: any[]) => {
+        captured = args;
         return { signedUpdate: {}, txid: 'txid', publishedToCas: [] };
       };
 
-      await api.deactivateDid({ did, signer: stubSigner });
+      await api.deactivateDid(did, stubSigner);
 
       // The facade adds nothing. The method facade derives both ids.
-      expect(captured.verificationMethodId).to.equal(undefined);
-      expect(captured.beaconId).to.equal(undefined);
-      expect(captured.signer).to.equal(stubSigner);
-    });
-
-    it('refuses a half-supplied source before resolving', async () => {
-      const api = createApi();
-      let resolveCalls = 0;
-      (api.btcr2 as any).resolve = async () => {
-        resolveCalls++;
-        throw new Error('resolution must not run');
-      };
-
-      await expect(
-        api.deactivateDid({
-          did                  : 'did:btcr2:test',
-          verificationMethodId : '#initialKey',
-          beaconId             : '#beacon-0',
-          signer               : stubSigner,
-          sourceVersionId      : 2,
-        })
-      ).to.be.rejectedWith(UpdateError, 'both sourceDocument and sourceVersionId');
-      expect(resolveCalls).to.equal(0);
-    });
-
-    it('refuses a sourceDocument that describes a different DID', async () => {
-      const api = createApi();
-      let deactivateCalls = 0;
-      (api.btcr2 as any).deactivate = async () => {
-        deactivateCalls++;
-        return { signedUpdate: {}, txid: 'txid', publishedToCas: [] };
-      };
-
-      await expect(
-        api.deactivateDid({
-          did                  : 'did:btcr2:test',
-          verificationMethodId : '#initialKey',
-          beaconId             : '#beacon-0',
-          signer               : stubSigner,
-          sourceDocument       : { id: 'did:btcr2:other', verificationMethod: [], service: [] } as any,
-          sourceVersionId      : 2,
-        })
-      ).to.be.rejectedWith(UpdateError, 'does not match the DID under update');
-      expect(deactivateCalls).to.equal(0);
+      expect(captured[1]).to.equal(stubSigner);
+      expect(captured[2]).to.deep.equal({});
     });
   });
 
@@ -774,28 +545,13 @@ describe('DidBtcr2Api', () => {
     it('should throw on updateDid after dispose', async () => {
       const api = createApi();
       api.dispose();
-      await expect(
-        api.updateDid({
-          did                  : 'did:btcr2:test',
-          patches              : [],
-          verificationMethodId : '#key',
-          beaconId             : '#beacon',
-          signer               : stubSigner,
-        })
-      ).to.be.rejectedWith('disposed');
+      await expect(api.updateDid('did:btcr2:test', [], stubSigner)).to.be.rejectedWith('disposed');
     });
 
     it('should throw on deactivateDid after dispose', async () => {
       const api = createApi();
       api.dispose();
-      await expect(
-        api.deactivateDid({
-          did                  : 'did:btcr2:test',
-          verificationMethodId : '#key',
-          beaconId             : '#beacon',
-          signer               : stubSigner,
-        })
-      ).to.be.rejectedWith('disposed');
+      await expect(api.deactivateDid('did:btcr2:test', stubSigner)).to.be.rejectedWith('disposed');
     });
 
     it('should throw on createDid after dispose', () => {
