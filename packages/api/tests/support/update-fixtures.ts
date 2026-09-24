@@ -1,5 +1,8 @@
+import type { AnnounceOptions, SourceState, UpdateOptions } from '../../src/index.js';
 import type { AddressUtxo, BitcoinConnection } from '@did-btcr2/bitcoin';
+import type { PatchOperation } from '@did-btcr2/common';
 import { getNetwork } from '@did-btcr2/bitcoin';
+import type { Signer } from '@did-btcr2/keypair';
 import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import type { Btcr2DidDocument, NeedBeaconSignals } from '@did-btcr2/method';
 import { DidBtcr2 } from '@did-btcr2/method';
@@ -96,22 +99,40 @@ export function updateFixture(
   };
 }
 
-/** Common update() args for a fixture, wired to fresh recorders. */
+/**
+ * Overrides of the common update() arguments. `utxosAt` shapes the UTXO list
+ * of the mock connection (see {@link mockBitcoin}). `verificationMethodId`
+ * replaces the fixture's method id, and `announce` merges over the fixture's
+ * beacon and the mock connection. An explicit `undefined` clears a value.
+ */
+export interface UpdateOverrides {
+  utxosAt?: (funded: AddressUtxo, address: string) => AddressUtxo[];
+  verificationMethodId?: string;
+  announce?: AnnounceOptions;
+}
+
+/** Common update() arguments for a fixture, wired to fresh recorders. */
 export function updateArgs(
   fixture: ReturnType<typeof updateFixture>,
   order: string[],
   counters: { utxoCalls: number; sent: string[] },
-  utxosAt?: (funded: AddressUtxo, address: string) => AddressUtxo[],
-) {
-  return {
-    sourceDocument       : fixture.sourceDocument,
-    patches              : [],
-    sourceVersionId      : 1,
-    verificationMethodId : fixture.verificationMethodId,
-    beaconId             : fixture.beaconId,
-    signer               : fixture.signer,
-    bitcoin              : mockBitcoin(fixture.beaconAddress, order, counters, utxosAt),
-  };
+  overrides: UpdateOverrides = {},
+): [SourceState, PatchOperation[], Signer, UpdateOptions] {
+  const { utxosAt, announce, ...rest } = overrides;
+  return [
+    { document: fixture.sourceDocument, versionId: 1 },
+    [],
+    fixture.signer,
+    {
+      verificationMethodId : fixture.verificationMethodId,
+      ...rest,
+      announce             : {
+        beaconId : fixture.beaconId,
+        bitcoin  : mockBitcoin(fixture.beaconAddress, order, counters, utxosAt),
+        ...announce,
+      },
+    },
+  ];
 }
 
 /** Fresh recorders for the broadcast order and the connection counters. */

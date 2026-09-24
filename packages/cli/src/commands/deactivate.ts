@@ -21,7 +21,7 @@ export function registerDeactivateCommand(
       const { network, api, params } = await prepareWrite(options, factory, g);
       // The api supplies the deactivation patch (ADR 094) and refuses a
       // document that is deactivated already (ADR 100).
-      const data = await api.deactivateDid(params);
+      const data = await api.deactivateDid(params.source, params.signer, params.options);
       console.log(formatResult({ action: 'deactivate', data }, g));
       printWatchHint(g, network, data.txid);
     });

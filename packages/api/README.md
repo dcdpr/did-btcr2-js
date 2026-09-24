@@ -12,30 +12,29 @@ If you're integrating did:btcr2 into an app, start here. If you're customizing t
 
 - **`DidBtcr2Api`** is the main facade. Sub-facades for crypto, did, key manager, bitcoin, CAS, and the DID method itself; the bitcoin, CAS, and DID method facades initialize lazily on first access.
 - **`createApi(config?)`** is the factory. Pass `btc`, `cas`, `kms`, and `logger` overrides.
-- **`UpdateBuilder`** is a fluent chain over `DidMethodApi.update()` for callers who prefer named steps over a positional argument bag.
+- **`updateDid(source, patch, signer, options?)`** and **`deactivateDid(source, signer, options?)`** follow the update and deactivate operations of the specification. `source` is a DID or a resolved `SourceState`. `options.announce` holds the beacon, the beacon input signer, the fee, the change address, and the CAS policy.
 - **`tryResolveDid(did)`** returns `{ ok: true, document, metadata }` or `{ ok: false, error, errorMessage, cause }` instead of a throw. `error` is the DID Resolution error code of the nearest typed failure in the cause chain, for example `NOT_FOUND` (an EXTERNAL DID whose genesis document is not in the sidecar and not in the CAS), `INVALID_DID`, `INVALID_OPTIONS`, or `MISSING_UPDATE_DATA` (a signed update or a CAS announcement that neither the sidecar nor the CAS returns); every other failure is `INTERNAL_ERROR`. `errorMessage` is the root cause. `cause` is the original error.
 - **`resolveDid(did)`** returns the `DidResolutionResult`. `didResolutionMetadata.contentType` is `application/did`, the media type of a bare DID document. `didDocumentMetadata` always carries `versionId`, `confirmations`, and `deactivated`; `updated` is present after an update. `CasApi.retrieve` hashes the bytes that the CAS returns and refuses content that does not hash to the requested address, as the specification requires.
-- **`updateDid` / `deactivateDid`** resolve the source state for you. Pass `resolutionOptions` to hand sidecar data to that resolution. Omit `verificationMethodId` and `beaconId`: the api derives them.
-- **`beaconSigner`** on `updateDid`, `deactivateDid`, and `UpdateBuilder.beaconSigner()` signs the beacon transaction input. It defaults to `signer`. Pass it when the beacon address belongs to a key other than the verification method key.
+- **`updateDid` / `deactivateDid`** resolve a DID source for you. Pass `options.resolutionOptions` to hand sidecar data to that resolution. Omit `verificationMethodId` and `announce.beaconId`: the api derives them.
+- **`announce.signer`** signs the beacon transaction input. It defaults to `signer`. Pass it if a key other than the verification method key controls the beacon address.
 - **`api.kms.signer(id?)`** returns the `Signer` for a KMS key. The write path needs no second package.
 - **`api.btcr2.getInitialDocument(did)`** and **`api.btcr2.getBeacons(document)`** give the beacon addresses to fund with no chain read.
 - **`api.btcr2.buildGenesisDocument(spec)`** builds the Genesis Document of an EXTERNAL (`x`) DID from public keys, relationships, beacons, and services, with no I/O. **`api.btcr2.createExternalFromDocument(document, { network })`** checks the document, hashes it as given, and returns `{ did, genesisBytes, didDocument }`. Keep the document: an EXTERNAL DID resolves only with it.
 - **`api.did.validate(did, { genesisBytes?, genesisDocument? })`** returns a conformance report of an identifier: the checks of the decoding algorithm in run order, `valid`, and the failed check with its detail. `genesisBytes` adds the check that the identifier encodes these bytes. It does not throw on an invalid identifier. `api.did.decode(did)` returns `DidComponents`, with the Bech32m `hrp`, and refuses an uppercase id and a custom network.
-- **`minConf`** on `ResolutionOptions` sets the confirmations a beacon signal needs before resolution applies it. Default `6` (`DEFAULT_MIN_CONF`), the specification value. Pass `{ minConf: 1 }` to see a fresh update after one block. `updateDid` and `deactivateDid` inherit it through `resolutionOptions`.
+- **`minConf`** on `ResolutionOptions` sets the confirmations a beacon signal needs before resolution applies it. Default `6` (`DEFAULT_MIN_CONF`), the specification value. Pass `{ minConf: 1 }` to see a fresh update after one block. `updateDid` and `deactivateDid` inherit it through `options.resolutionOptions`.
 - **`versionId`** and **`versionTime`** on `ResolutionOptions` select a version, as the specification defines them. `versionId` is an ASCII string of an integer; the resolver stops before the update that yields the next version, so `"1"` returns the genesis document. `versionTime` is an XML Datetime in UTC without a fraction, for example `"2026-07-01T00:00:00Z"`; the resolver applies each update whose block `mediantime` is at or before it. The two options are mutually exclusive. A request with both, or with a value that does not parse, fails with `INVALID_OPTIONS`. A version that the history does not reach fails with `NOT_FOUND`. `tryResolveDid` reports both codes in `error`.
 
 The api wires the configured `BitcoinApi` into the sans-I/O Resolver and Updater state machines, fulfilling `NeedBeaconSignals`, `NeedFunding`, `NeedBroadcast`, and CAS-related needs (`NeedGenesisDocument`, `NeedCASAnnouncement`, `NeedSignedUpdate`) automatically. How `NeedBeaconSignals` is fulfilled follows the connection's `btc.signalDiscovery` mode: `'indexer'` (the default) reads beacon-address transaction listings from the Esplora-compatible REST backend, while `'fullnode'` scans every block from genesis over Bitcoin Core RPC and needs an `rpc` config (rejected at construction without one), a node with `-txindex=1`, and Bitcoin Core >= 25; the linear scan makes it practical only on regtest. `NeedSMTProof` is not auto-fulfilled by the facade: an SMT proof has no content address on chain (the signal is the tree root, and the proof of one DID is not derivable from it), so it must be provided upfront via `options.sidecar.smtProofs`; resolution fails with `MISSING_UPDATE_DATA` and that pointer otherwise. Multi-party aggregation is out of scope here; drive the Updater directly and hand `NeedBroadcast` to the aggregation runner from `@did-btcr2/aggregation`. On the read path, a signal below `minConf` confirmations is excluded before any fetch: the api requests no update, announcement, or proof for it, and the resolved document does not show it until the transaction reaches the depth.
 
-On the write path, `publishToCas` (`'never'` | `'auto'` | `'always'`, default `'never'`) controls whether update artifacts are published to the configured CAS **before** the on-chain broadcast. CAS publication is optional and never required: every update, for every beacon type, completes and is distributable via sidecar regardless. Publishing is opt-in: pass `'auto'` (best-effort - publishes when a writable CAS is configured, otherwise skips silently and never blocks the update) or `'always'` (requires a writable CAS and throws up-front when none is available). When publication happens, the canonical signed update (all beacon types) plus the CAS Announcement (CAS beacons) reach the CAS, so resolvers can fetch every OP_RETURN update hash from the CAS with no sidecar. Update calls return a `DidUpdateResult` carrying the signal `txid` and the per-beacon-type sidecar artifacts (announcement, SMT proof).
+On the write path, `announce.publishToCas` (`'never'` | `'auto'` | `'always'`, default `'never'`) controls whether update artifacts are published to the configured CAS **before** the on-chain broadcast. CAS publication is optional and never required: every update, for every beacon type, completes and is distributable via sidecar regardless. Publishing is opt-in: pass `'auto'` (best-effort - publishes when a writable CAS is configured, otherwise skips silently and never blocks the update) or `'always'` (requires a writable CAS and throws up-front when none is available). When publication happens, the canonical signed update (all beacon types) plus the CAS Announcement (CAS beacons) reach the CAS, so resolvers can fetch every OP_RETURN update hash from the CAS with no sidecar. Update calls return a `DidUpdateResult` carrying the signal `txid` and the per-beacon-type sidecar artifacts (announcement, SMT proof).
 
 The write path refuses these inputs before any CAS publication or broadcast:
 
 - a deactivated source document (ADR 100)
-- a half-supplied source pair, or a `sourceDocument` whose `id` is not the DID (ADR 101)
 - a DID whose network differs from the network of the Bitcoin connection (ADR 103)
 - a beacon with no spendable UTXO, which is a confirmed UTXO above the dust limit (ADR 102)
 
-The first three refusals run before the signature. Each refusal is an `UpdateError` with type `INVALID_DID_UPDATE`. `resolve()` refuses the network mismatch too, with a `ResolveError`.
+The first two refusals run before the signature. Each refusal is an `UpdateError` with type `INVALID_DID_UPDATE`. `resolve()` refuses the network mismatch too, with a `ResolveError`.
 
 ## Install
 
@@ -57,11 +56,11 @@ pnpm add @did-btcr2/api
 |---|---|
 | Main facade | `DidBtcr2Api`, `createApi(config?)` |
 | Sub-facades | `BitcoinApi`, `CasApi`, `CryptoApi`, `DidApi`, `KeyManagerApi`, `DidMethodApi` |
-| Fluent update | `UpdateBuilder` (from `api.btcr2.buildUpdate(...)`) |
 | Config types | `ApiConfig`, `BitcoinApiConfig`, `SignalDiscoveryMode`, `CasConfig`, `Logger` |
 | Resolution result | `ResolutionResult` (`tryResolveDid` return type) |
 | Signers | `Signer`, `LocalSigner`, `KeyManagerSigner`, `LocalKeyManager`, `KeyManager`, `SchnorrKeyPair` |
-| Write results | `DidUpdateResult`, `BeaconInfo`, `PublishToCasMode` |
+| Write inputs | `UpdateSource`, `SourceState`, `UpdateOptions`, `DidUpdateOptions`, `AnnounceOptions`, `PublishToCasMode` |
+| Write results | `DidUpdateResult`, `BeaconInfo` |
 | Re-exports from method/common | `Btcr2DidDocument`, `DidDocument`, `DidDocumentBuilder`, `Identifier`, `IdentifierTypes`, `ResolutionOptions`, `Sidecar`, `PatchOperation` |
 | Identifier validation | `DidComponents`, `IdentifierReport`, `IdentifierCheck`, `IdentifierCheckName`, `IdentifierValidateOptions` |
 | Vector tool steps | `canonicalHash` (JSON Document Hashing), `JSONPatch` (the target document of an update), `Appendix` (`deriveRootCapability`) |
@@ -112,24 +111,41 @@ console.log(did, beacon.address); // fund this address before the first update
 
 A spec can name several keys with chosen relationships, a `CASBeacon` or `SMTBeacon` with the address of a cohort, and other services. The builder refuses a spec with no `capabilityInvocation` method or no beacon.
 
-### Update via the fluent builder
+### Update
+
+The update arguments follow the update operation of the specification:
 
 ```typescript
-import { LocalSigner } from '@did-btcr2/api';
-
-// Ids are resolved against the document before matching, so a full DID URL
-// (`${did}#initialKey`) and a bare fragment (`#initialKey`) both work.
-const { signedUpdate, txid, announcement, publishedToCas } = await api.btcr2
-  .buildUpdate(currentDoc)
-  .patch({ op: 'add', path: '/service/-', value: newService })
-  .version(2)
-  .verificationMethodId(`${did}#initialKey`)
-  .beacon(currentDoc.service[0].id)
-  .signer(new LocalSigner(secretKey))
-  .execute();
+// spec: update(didSourceDocument, jsonPatch, targetVersionId, verificationMethodId, signer)
+api.updateDid(source, patch, signer, options?)
+// spec: deactivate(didSourceDocument, targetVersionId, verificationMethodId, signer)
+api.deactivateDid(source, signer, options?)
 ```
 
-The builder takes every id explicitly. `updateDid` derives `verificationMethodId` and `beaconId` if you omit them.
+```typescript
+// The source is the DID: the api resolves it and takes the document and its
+// versionId from the resolution. The api derives the verification method from
+// the signer's key and the beacon from the one funded beacon.
+const { signedUpdate, txid } = await api.updateDid(
+  did,
+  [{ op: 'add', path: '/service/-', value: newService }],
+  api.kms.signer(keyId),
+);
+```
+
+If you resolved the DID already, pass the state as the source. The api then does not resolve. The `versionId` must come from the resolution that returned the document:
+
+```typescript
+const source = { document: currentDoc, versionId: 2 };
+await api.updateDid(source, patch, signer, {
+  // Ids are resolved against the document before matching, so a full DID URL
+  // (`${did}#initialKey`) and a bare fragment (`#initialKey`) both work.
+  verificationMethodId : `${did}#initialKey`,
+  announce             : { beaconId: `${did}#initialP2WPKH` },
+});
+```
+
+`api.btcr2.update(source, patch, signer, options?)` takes the same arguments, but the source must be a `SourceState`.
 
 ### Publish update artifacts to a CAS before broadcasting
 
@@ -142,21 +158,17 @@ const api = createApi({
   cas : { rpcUrl: 'http://127.0.0.1:5001' },
 });
 
-const first = await api.updateDid({
+const first = await api.updateDid(
   did,
-  patches              : [{ op: 'add', path: '/service/-', value: newService }],
-  // Both ids are optional. If you omit them, the api derives the verification
-  // method from the signer's key and the beacon from the one funded beacon.
-  verificationMethodId : `${did}#initialKey`,
-  beaconId             : `${did}#initialP2WPKH`,
-  signer               : api.kms.signer(keyId),
+  [{ op: 'add', path: '/service/-', value: newService }],
+  api.kms.signer(keyId),
   // publishToCas defaults to 'never' (opt-in): update artifacts are returned
   // for sidecar distribution and nothing is published. Opt in with 'auto' to
   // publish to the writable CAS configured above. Note 'auto'/'always' publish
   // canonical signed updates to the configured (possibly public) CAS before the
   // on-chain anchor, so keep the 'never' default for sidecar-only privacy.
-  publishToCas         : 'auto',
-});
+  { announce: { publishToCas: 'auto' } },
+);
 console.log(first.txid, first.publishedToCas); // e.g. { update: true, announcement: false }
 ```
 
@@ -181,10 +193,7 @@ const signer = api.kms.signer(keyId);
 
 // A DID with prior updates resolves only with its sidecar. resolutionOptions
 // hands the sidecar to the auto-resolution. The api derives the two ids.
-const second = await api.updateDid({
-  did,
-  patches           : [{ op: 'add', path: '/service/-', value: newService }],
-  signer,
+const second = await api.updateDid(did, [{ op: 'add', path: '/service/-', value: newService }], signer, {
   resolutionOptions : { sidecar: { updates: [first.signedUpdate] } },
 });
 ```
@@ -194,9 +203,7 @@ const second = await api.updateDid({
 ```typescript
 // Deactivation is permanent. It is an ordinary update that carries the
 // deactivation patch. Pass the full update history in the sidecar.
-const { txid } = await api.deactivateDid({
-  did,
-  signer,
+const { txid } = await api.deactivateDid(did, signer, {
   resolutionOptions : { sidecar: { updates: [first.signedUpdate, second.signedUpdate] } },
 });
 ```
@@ -210,9 +217,9 @@ Every update failure that the specification names is an `UpdateError` of type `I
 - **Lazy sub-facades.** `api.btc` / `api.cas` / `api.btcr2` instantiate on first access. Creating an api without a Bitcoin config and never touching the chain costs nothing.
 - **Layered config.** Constructor config is applied first, then per-call overrides win. Bitcoin endpoint defaults come from this package's `DEFAULT_BITCOIN_NETWORK_CONFIG` (the sans-I/O `@did-btcr2/bitcoin` transport holds no service URLs).
 - **CAS has a sensible default.** If no `cas` config is passed, `api.cas` defaults to a read-only HTTP gateway against `https://ipfs.io`. Configure `cas.rpcUrl`, `cas.blockstore`, or a custom `cas.executor` for write capability; `api.cas.writable` reports whether the configured backend accepts publishes (executors declare it via `CasExecutor.canPublish`; undefined means writable).
-- **Driver injection.** `api.btcr2.update(...)` (and `UpdateBuilder.bitcoin(...)`) accept a per-call `BitcoinConnection` override; the api uses its own connection automatically when none is provided. Resolution always reads the chain through the configured `BitcoinApi`.
+- **Driver injection.** `announce.bitcoin` is a per-call `BitcoinConnection` override for the announcement; the api uses its own connection automatically when none is provided. Resolution always reads the chain through the configured `BitcoinApi`.
 - **The network is inherited, then enforced.** A new DID inherits the network of the configured connection, else `regtest`. The api never mints a mainnet DID by omission. `resolve()` and `update()` refuse a DID whose network differs from the network of the connection.
-- **Source pair: both or neither.** `updateDid` and `deactivateDid` take `sourceDocument` and `sourceVersionId` together, or resolve both. A half pair is refused.
+- **One source value.** `updateDid` and `deactivateDid` take a DID, which they resolve, or a `SourceState` `{ document, versionId }`. A document without its version cannot occur.
 
 ## Build & Test
 
@@ -238,6 +245,7 @@ The `lib/` directory contains end-to-end scripts that exercise the full update p
 - **[ADR-073](../../docs/adr/073-cas-publication-is-opt-in.md)** CAS publication is opt-in: `publishToCas` defaults to `'never'` and `'auto'` never blocks
 - **[ADR-093 to ADR-104](../../docs/adr/index.md)** The api CRUD surface: network inheritance and the regtest fallback, `deactivateDid`, offline beacon addresses, the signer factory and the write-path re-exports, root causes, resolution options, the four write-path refusals, derived ids
 - **[ADR-122](../../docs/adr/122-api-exports-vector-tool-steps-and-smt-rejects-empty-sibling-in-hashes.md)** The exports for a tool that builds specification examples or test vectors
+- **[ADR-123](../../docs/adr/123-update-and-deactivate-follow-the-specification-signatures.md)** `updateDid` and `deactivateDid` follow the specification signatures
 - **Source reference** See JSDoc on `DidBtcr2Api`, `DidMethodApi`, and the sub-facade classes.
 
 ## License

@@ -111,16 +111,16 @@ console.log('    funded + confirmed + indexed');
 
 // ─── Step 6: Update on-chain (add an alsoKnownAs) ────────────────────────────
 
-// sourceDocument/sourceVersionId omitted: updateDid resolves them itself, which
-// works here because a fresh KEY DID resolves deterministically (no sidecar).
-// verificationMethodId/beaconId omitted: the api derives the method from the
-// signer's key and the beacon from the one funded address.
+// The source is the DID: updateDid resolves it itself, which works here
+// because a fresh KEY DID resolves deterministically (no sidecar). No options:
+// the api derives the verification method from the signer's key and the
+// beacon from the one funded address.
 console.log('\n[6] Broadcasting update v1 -> v2 ...');
-const update1 = await api.updateDid({
+const update1 = await api.updateDid(
   did,
-  patches : [{ op: 'add', path: '/alsoKnownAs', value: ['https://example.com/demo'] }],
+  [{ op: 'add', path: '/alsoKnownAs', value: ['https://example.com/demo'] }],
   signer,
-});
+);
 console.log(`    broadcast (targetVersionId: ${update1.signedUpdate.targetVersionId}, txid: ${update1.txid})`);
 const watch = explorerTxUrl(NETWORK, update1.txid);
 if (watch) console.log(`    watch: ${watch}`);
@@ -160,9 +160,7 @@ await waitForUtxo(beaconAddress, api.btc.connection, {
 // the broadcast waited for. resolutionOptions hands both over. The api derives
 // the verification method and the beacon again.
 console.log('\n[8] Broadcasting deactivation v2 -> v3 ...');
-const update2 = await api.deactivateDid({
-  did,
-  signer,
+const update2 = await api.deactivateDid(did, signer, {
   resolutionOptions : { sidecar: { updates: [update1.signedUpdate] }, minConf: MIN_CONF },
 });
 console.log(`    broadcast (targetVersionId: ${update2.signedUpdate.targetVersionId}, txid: ${update2.txid})`);
@@ -183,7 +181,7 @@ console.log('\n[9] Resolved v3: deactivated ✓');
 // A deactivated DID takes no further update. The api refuses before any
 // signature or broadcast: no UTXO is spent.
 await assert.rejects(
-  api.updateDid({ did, patches: [], signer, sourceDocument: final.document, sourceVersionId: 3 }),
+  api.updateDid({ document: final.document, versionId: 3 }, [], signer),
   /is deactivated and cannot be updated/,
 );
 console.log('    a later update is refused ✓');

@@ -11,7 +11,6 @@ import {
   DidApi,
   DidMethodApi,
   MultikeyApi,
-  UpdateBuilder,
 } from '../src/index.js';
 import type { CasExecutor } from '../src/index.js';
 
@@ -494,30 +493,28 @@ describe('DidMethodApi', () => {
       const btc = new BitcoinApi({ network: 'regtest' });
       const methodApi = new DidMethodApi(btc);
       await expect(
-        methodApi.update({
-          sourceDocument       : { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any,
-          patches              : [],
-          sourceVersionId      : 1,
-          verificationMethodId : '#initialKey',
-          beaconId             : '#beacon-0',
-          signer               : stubSigner,
-        })
+        methodApi.update(
+          { document: { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any, versionId: 1 },
+          [],
+          stubSigner,
+          { verificationMethodId: '#initialKey', announce: { beaconId: '#beacon-0' } },
+        )
       ).to.be.rejected;
     });
 
-    it('uses explicit bitcoin param over constructor', async () => {
+    it('uses announce.bitcoin over the constructor connection', async () => {
       const btc = new BitcoinApi({ network: 'regtest' });
       const methodApi = new DidMethodApi();
       await expect(
-        methodApi.update({
-          sourceDocument       : { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any,
-          patches              : [],
-          sourceVersionId      : 1,
-          verificationMethodId : '#initialKey',
-          beaconId             : '#beacon-0',
-          signer               : stubSigner,
-          bitcoin              : btc.connection,
-        })
+        methodApi.update(
+          { document: { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any, versionId: 1 },
+          [],
+          stubSigner,
+          {
+            verificationMethodId : '#initialKey',
+            announce             : { beaconId: '#beacon-0', bitcoin: btc.connection },
+          },
+        )
       ).to.be.rejected;
     });
 
@@ -526,19 +523,20 @@ describe('DidMethodApi', () => {
       // would mean the deactivated document got past the guard.
       const methodApi = new DidMethodApi();
       await expect(
-        methodApi.update({
-          patches              : [{ op: 'add', path: '/test', value: 'x' }],
-          sourceVersionId      : 2,
-          verificationMethodId : '#initialKey',
-          beaconId             : '#beacon-0',
-          signer               : stubSigner,
-          sourceDocument       : {
-            id                 : 'did:btcr2:test',
-            deactivated        : true,
-            verificationMethod : [],
-            service            : [],
-          } as any,
-        })
+        methodApi.update(
+          {
+            document : {
+              id                 : 'did:btcr2:test',
+              deactivated        : true,
+              verificationMethod : [],
+              service            : [],
+            } as any,
+            versionId : 2,
+          },
+          [{ op: 'add', path: '/test', value: 'x' }],
+          stubSigner,
+          { verificationMethodId: '#initialKey', announce: { beaconId: '#beacon-0' } },
+        )
       ).to.be.rejectedWith(UpdateError, 'is deactivated and cannot be updated');
     });
 
@@ -555,15 +553,15 @@ describe('DidMethodApi', () => {
       const did = methodApi.createDeterministic(kp.publicKey.compressed, { network: 'testnet4' });
 
       try {
-        await methodApi.update({
-          sourceDocument       : methodApi.getInitialDocument(did),
-          patches              : [],
-          sourceVersionId      : 1,
-          verificationMethodId : `${did}#initialKey`,
-          beaconId             : `${did}#initialP2WPKH`,
-          signer               : new LocalSigner(kp.secretKey.bytes),
-          bitcoin              : connection,
-        });
+        await methodApi.update(
+          { document: methodApi.getInitialDocument(did), versionId: 1 },
+          [],
+          new LocalSigner(kp.secretKey.bytes),
+          {
+            verificationMethodId : `${did}#initialKey`,
+            announce             : { beaconId: `${did}#initialP2WPKH`, bitcoin: connection },
+          },
+        );
         expect.fail('should have thrown');
       } catch (e: any) {
         expect(e).to.be.instanceOf(UpdateError);
@@ -580,14 +578,12 @@ describe('DidMethodApi', () => {
       const methodApi = new DidMethodApi(new BitcoinApi({ network: 'regtest' }));
 
       try {
-        await methodApi.update({
-          sourceDocument       : { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any,
-          patches              : [],
-          sourceVersionId      : 1,
-          verificationMethodId : '#initialKey',
-          beaconId             : '#beacon-0',
-          signer               : stubSigner,
-        });
+        await methodApi.update(
+          { document: { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any, versionId: 1 },
+          [],
+          stubSigner,
+          { verificationMethodId: '#initialKey', announce: { beaconId: '#beacon-0' } },
+        );
         expect.fail('should have thrown');
       } catch (e: any) {
         expect(e.message).to.not.include('names the network');
@@ -608,14 +604,12 @@ describe('DidMethodApi', () => {
       const did = methodApi.createDeterministic(kp.publicKey.compressed, { network: 'regtest' });
       const foreign = new LocalSigner(SchnorrKeyPair.generate().secretKey.bytes);
 
-      const err: unknown = await methodApi.update({
-        sourceDocument  : methodApi.getInitialDocument(did),
-        patches         : [],
-        sourceVersionId : 1,
-        beaconId        : `${did}#initialP2WPKH`,
-        signer          : foreign,
-        bitcoin         : connection,
-      }).catch((e: unknown) => e);
+      const err: unknown = await methodApi.update(
+        { document: methodApi.getInitialDocument(did), versionId: 1 },
+        [],
+        foreign,
+        { announce: { beaconId: `${did}#initialP2WPKH`, bitcoin: connection } },
+      ).catch((e: unknown) => e);
 
       expect(err).to.be.instanceOf(UpdateError);
       expect((err as UpdateError).message).to.include('cannot derive verificationMethodId');
@@ -640,14 +634,12 @@ describe('DidMethodApi', () => {
       const initialKey = document.verificationMethod[0]!;
       document.verificationMethod = [initialKey, { ...initialKey, id: `${did}#second` }];
 
-      const err: unknown = await methodApi.update({
-        sourceDocument  : document,
-        patches         : [],
-        sourceVersionId : 1,
-        beaconId        : `${did}#initialP2WPKH`,
-        signer          : new LocalSigner(kp.secretKey.bytes),
-        bitcoin         : connection,
-      }).catch((e: unknown) => e);
+      const err: unknown = await methodApi.update(
+        { document, versionId: 1 },
+        [],
+        new LocalSigner(kp.secretKey.bytes),
+        { announce: { beaconId: `${did}#initialP2WPKH`, bitcoin: connection } },
+      ).catch((e: unknown) => e);
 
       expect(err).to.be.instanceOf(UpdateError);
       expect((err as UpdateError).message).to.include('Pass verificationMethodId to choose one');
@@ -673,13 +665,12 @@ describe('DidMethodApi', () => {
       const kp = SchnorrKeyPair.generate();
       const did = methodApi.createDeterministic(kp.publicKey.compressed, { network: 'testnet4' });
 
-      await expect(methodApi.update({
-        sourceDocument  : methodApi.getInitialDocument(did),
-        patches         : [],
-        sourceVersionId : 1,
-        signer          : new LocalSigner(kp.secretKey.bytes),
-        bitcoin         : connection,
-      })).to.be.rejectedWith(UpdateError, 'names the network "testnet4"');
+      await expect(methodApi.update(
+        { document: methodApi.getInitialDocument(did), versionId: 1 },
+        [],
+        new LocalSigner(kp.secretKey.bytes),
+        { announce: { bitcoin: connection } },
+      )).to.be.rejectedWith(UpdateError, 'names the network "testnet4"');
       expect(events).to.deep.equal([]);
     });
   });
@@ -711,124 +702,6 @@ describe('DidMethodApi', () => {
     });
   });
 
-  describe('buildUpdate()', () => {
-    it('returns an UpdateBuilder', () => {
-      const methodApi = new DidMethodApi();
-      const doc = { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any;
-      const builder = methodApi.buildUpdate(doc);
-      expect(builder).to.be.instanceOf(UpdateBuilder);
-    });
-
-    it('builder validates required fields before execute', async () => {
-      const methodApi = new DidMethodApi();
-      const doc = { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any;
-
-      // Missing version
-      await expect(
-        methodApi.buildUpdate(doc)
-          .verificationMethodId('#key')
-          .beacon('#beacon')
-          .execute()
-      ).to.be.rejectedWith('sourceVersionId is required');
-
-      // Missing verificationMethodId
-      await expect(
-        methodApi.buildUpdate(doc)
-          .version(1)
-          .beacon('#beacon')
-          .execute()
-      ).to.be.rejectedWith('verificationMethodId is required');
-
-      // Missing beacon
-      await expect(
-        methodApi.buildUpdate(doc)
-          .version(1)
-          .verificationMethodId('#key')
-          .execute()
-      ).to.be.rejectedWith('beaconId is required');
-
-      // Missing signer
-      await expect(
-        methodApi.buildUpdate(doc)
-          .version(1)
-          .verificationMethodId('#key')
-          .beacon('#beacon')
-          .execute()
-      ).to.be.rejectedWith('signer is required');
-    });
-
-    it('builder chains fluently and calls update', async () => {
-      const btc = new BitcoinApi({ network: 'regtest' });
-      const methodApi = new DidMethodApi(btc);
-      const doc = { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any;
-
-      // Will fail at the method layer (no real keys) but proves wiring works
-      await expect(
-        methodApi.buildUpdate(doc)
-          .patch({ op: 'add', path: '/test', value: 'x' })
-          .version(1)
-          .verificationMethodId('#initialKey')
-          .beacon('#beacon-0')
-          .signer(new LocalSigner(new Uint8Array(32).fill(0x01)))
-          .execute()
-      ).to.be.rejected;
-    });
-
-    it('builder patches() replaces previously added patches', async () => {
-      const btc = new BitcoinApi({ network: 'regtest' });
-      const methodApi = new DidMethodApi(btc);
-      const doc = { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any;
-
-      await expect(
-        methodApi.buildUpdate(doc)
-          .patch({ op: 'add', path: '/a', value: 1 })
-          .patches([{ op: 'add', path: '/b', value: 2 }])
-          .version(1)
-          .verificationMethodId('#key')
-          .beacon('#beacon')
-          .signer(new LocalSigner(new Uint8Array(32).fill(0x01)))
-          .execute()
-      ).to.be.rejected;
-    });
-
-    it('builder supports signer and bitcoin', async () => {
-      const btc = new BitcoinApi({ network: 'regtest' });
-      const methodApi = new DidMethodApi();
-      const doc = { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any;
-
-      await expect(
-        methodApi.buildUpdate(doc)
-          .patch({ op: 'add', path: '/a', value: 1 })
-          .version(1)
-          .verificationMethodId('#key')
-          .beacon('#beacon')
-          .signer(new LocalSigner(new Uint8Array(32).fill(0x01)))
-          .bitcoin(btc.connection)
-          .execute()
-      ).to.be.rejected;
-    });
-
-    it('builder refuses a deactivated document', async () => {
-      const methodApi = new DidMethodApi();
-      const doc = {
-        id                 : 'did:btcr2:test',
-        deactivated        : true,
-        verificationMethod : [],
-        service            : [],
-      } as any;
-
-      await expect(
-        methodApi.buildUpdate(doc)
-          .patch({ op: 'add', path: '/test', value: 'x' })
-          .version(2)
-          .verificationMethodId('#initialKey')
-          .beacon('#beacon-0')
-          .signer(new LocalSigner(new Uint8Array(32).fill(0x01)))
-          .execute()
-      ).to.be.rejectedWith(UpdateError, 'is deactivated and cannot be updated');
-    });
-  });
-
   describe('deactivate()', () => {
     const stubSigner = new LocalSigner(SchnorrKeyPair.generate().secretKey.bytes);
 
@@ -850,51 +723,42 @@ describe('DidMethodApi', () => {
         service            : [],
       } as any;
       await expect(
-        methodApi.deactivate({
-          sourceDocument       : doc,
-          sourceVersionId      : 2,
-          verificationMethodId : '#initialKey',
-          beaconId             : '#beacon-0',
-          signer               : stubSigner,
-        })
+        methodApi.deactivate(
+          { document: doc, versionId: 2 },
+          stubSigner,
+          { verificationMethodId: '#initialKey', announce: { beaconId: '#beacon-0' } },
+        )
       ).to.be.rejectedWith('already deactivated');
     });
 
     it('delegates to update() with the deactivation patch', async () => {
       const methodApi = new DidMethodApi();
-      let captured: any;
-      (methodApi as any).update = async (params: any) => {
-        captured = params;
+      let captured: any[] = [];
+      (methodApi as any).update = async (...args: any[]) => {
+        captured = args;
         throw new Error('stop-after-capture');
       };
-      const doc = { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any;
+      const source = { document: { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any, versionId: 1 };
+      const options = { verificationMethodId: '#initialKey', announce: { beaconId: '#beacon-0' } };
       await expect(
-        methodApi.deactivate({
-          sourceDocument       : doc,
-          sourceVersionId      : 1,
-          verificationMethodId : '#initialKey',
-          beaconId             : '#beacon-0',
-          signer               : stubSigner,
-        })
+        methodApi.deactivate(source, stubSigner, options)
       ).to.be.rejectedWith('stop-after-capture');
-      expect(captured.patches).to.deep.equal([DidMethodApi.DEACTIVATION_PATCH]);
-      expect(captured.sourceDocument).to.equal(doc);
-      expect(captured.sourceVersionId).to.equal(1);
+      expect(captured).to.deep.equal([source, [DidMethodApi.DEACTIVATION_PATCH], stubSigner, options]);
+      expect(captured[0]).to.equal(source);
     });
 
     it('passes omitted ids through to update() for derivation', async () => {
       const methodApi = new DidMethodApi();
-      let captured: any;
-      (methodApi as any).update = async (params: any) => {
-        captured = params;
+      let captured: any[] = [];
+      (methodApi as any).update = async (...args: any[]) => {
+        captured = args;
         throw new Error('stop-after-capture');
       };
       const doc = { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any;
       await expect(
-        methodApi.deactivate({ sourceDocument: doc, sourceVersionId: 1, signer: stubSigner })
+        methodApi.deactivate({ document: doc, versionId: 1 }, stubSigner)
       ).to.be.rejectedWith('stop-after-capture');
-      expect(captured.verificationMethodId).to.equal(undefined);
-      expect(captured.beaconId).to.equal(undefined);
+      expect(captured[3]).to.deep.equal({});
     });
   });
 });

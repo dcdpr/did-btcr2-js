@@ -7,7 +7,7 @@ import { expect, use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import type { BitcoinApi, CasExecutor, DidUpdateResult } from '../src/index.js';
 import { CasApi, createApi, DidMethodApi, MultikeyApi } from '../src/index.js';
-import { mockBitcoin, network, recorders, TXID, updateArgs, updateFixture } from './support/update-fixtures.js';
+import { network, recorders, TXID, updateArgs, updateFixture } from './support/update-fixtures.js';
 
 use(chaiAsPromised);
 
@@ -65,10 +65,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
       const executor = new MemCasExecutor(order);
       const methodApi = new DidMethodApi(undefined, new CasApi({ executor }));
 
-      const result = await methodApi.update({
-        ...updateArgs(fixture, order, counters),
-        publishToCas : 'auto',
-      });
+      const result = await methodApi.update(...updateArgs(fixture, order, counters, { announce: { publishToCas: 'auto' } }));
 
       expect(order).to.deep.equal(['cas:update', 'cas:announcement', 'tx-broadcast']);
       expect(result.txid).to.equal(TXID);
@@ -88,7 +85,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
       // No publishToCas passed -> the default 'never'. Even a CAS beacon with a
       // writable CAS configured must publish nothing: CAS publication is opt-in
       // and never required, and the update completes sidecar-only.
-      const result = await methodApi.update(updateArgs(fixture, order, counters));
+      const result = await methodApi.update(...updateArgs(fixture, order, counters));
 
       expect(order).to.deep.equal(['tx-broadcast']);
       expect(executor.store.size, 'nothing may reach the CAS by default').to.equal(0);
@@ -105,10 +102,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
 
       // 'auto' is best-effort and never blocks: with no writable CAS it skips
       // publication for CAS beacons too, and hands back the announcement.
-      const result = await methodApi.update({
-        ...updateArgs(fixture, order, counters),
-        publishToCas : 'auto',
-      });
+      const result = await methodApi.update(...updateArgs(fixture, order, counters, { announce: { publishToCas: 'auto' } }));
 
       expect(order).to.deep.equal(['tx-broadcast']);
       expect(counters.utxoCalls, 'the update proceeds to funding/broadcast rather than aborting up-front').to.be.greaterThan(0);
@@ -121,10 +115,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
       const { order, counters } = recorders();
       const methodApi = new DidMethodApi();
 
-      const result = await methodApi.update({
-        ...updateArgs(fixture, order, counters),
-        publishToCas : 'auto',
-      });
+      const result = await methodApi.update(...updateArgs(fixture, order, counters, { announce: { publishToCas: 'auto' } }));
 
       expect(order).to.deep.equal(['tx-broadcast']);
       expect(result.publishedToCas).to.deep.equal({ update: false, announcement: false });
@@ -140,10 +131,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
 
       // 'always' is the opt-in hard-guarantee mode: it fails up-front for every
       // beacon type (including CAS) when no writable CAS is available.
-      await expect(methodApi.update({
-        ...updateArgs(fixture, order, counters),
-        publishToCas : 'always',
-      })).to.be.rejectedWith(/'always'.*read-only/s);
+      await expect(methodApi.update(...updateArgs(fixture, order, counters, { announce: { publishToCas: 'always' } }))).to.be.rejectedWith(/'always'.*read-only/s);
       expect(counters.utxoCalls, 'must fail before the funding phase').to.equal(0);
       expect(order).to.deep.equal([]);
     });
@@ -155,10 +143,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
         undefined, new CasApi({ executor: new MemCasExecutor(order, false) })
       );
 
-      const result = await methodApi.update({
-        ...updateArgs(fixture, order, counters),
-        publishToCas : 'never',
-      });
+      const result = await methodApi.update(...updateArgs(fixture, order, counters, { announce: { publishToCas: 'never' } }));
 
       expect(order).to.deep.equal(['tx-broadcast']);
       expect(result.publishedToCas).to.deep.equal({ update: false, announcement: false });
@@ -171,10 +156,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
       const executor = new MemCasExecutor(order);
       const methodApi = new DidMethodApi(undefined, new CasApi({ executor }));
 
-      const result = await methodApi.update({
-        ...updateArgs(fixture, order, counters),
-        publishToCas : 'never',
-      });
+      const result = await methodApi.update(...updateArgs(fixture, order, counters, { announce: { publishToCas: 'never' } }));
 
       expect(order).to.deep.equal(['tx-broadcast']);
       expect(executor.store.size, 'nothing may reach the CAS under never').to.equal(0);
@@ -189,10 +171,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
         undefined, new CasApi({ executor: new FlakyCasExecutor(order, 1) })
       );
 
-      await expect(methodApi.update({
-        ...updateArgs(fixture, order, counters),
-        publishToCas : 'auto',
-      })).to.be.rejectedWith(/cas publish unavailable/);
+      await expect(methodApi.update(...updateArgs(fixture, order, counters, { announce: { publishToCas: 'auto' } }))).to.be.rejectedWith(/cas publish unavailable/);
       expect(order, 'no publish label, no tx broadcast').to.deep.equal([]);
       expect(counters.sent, 'the beacon UTXO must not be spent').to.have.length(0);
     });
@@ -204,10 +183,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
         undefined, new CasApi({ executor: new FlakyCasExecutor(order, 2) })
       );
 
-      await expect(methodApi.update({
-        ...updateArgs(fixture, order, counters),
-        publishToCas : 'auto',
-      })).to.be.rejectedWith(/cas publish unavailable/);
+      await expect(methodApi.update(...updateArgs(fixture, order, counters, { announce: { publishToCas: 'auto' } }))).to.be.rejectedWith(/cas publish unavailable/);
       // Partial-publish state: the update reached the CAS (harmless, content-
       // addressed), the announcement did not, and no transaction was broadcast.
       expect(order).to.deep.equal(['cas:update']);
@@ -223,10 +199,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
         undefined, new CasApi({ executor: new MemCasExecutor(order, false) })
       );
 
-      const result = await methodApi.update({
-        ...updateArgs(fixture, order, counters),
-        publishToCas : 'auto',
-      });
+      const result = await methodApi.update(...updateArgs(fixture, order, counters, { announce: { publishToCas: 'auto' } }));
 
       expect(order).to.deep.equal(['tx-broadcast']);
       expect(result.publishedToCas).to.deep.equal({ update: false, announcement: false });
@@ -241,10 +214,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
       const executor = new MemCasExecutor(order);
       const methodApi = new DidMethodApi(undefined, new CasApi({ executor }));
 
-      const result = await methodApi.update({
-        ...updateArgs(fixture, order, counters),
-        publishToCas : 'auto',
-      });
+      const result = await methodApi.update(...updateArgs(fixture, order, counters, { announce: { publishToCas: 'auto' } }));
 
       expect(order).to.deep.equal(['cas:update', 'tx-broadcast']);
       expect(result.publishedToCas).to.deep.equal({ update: true, announcement: false });
@@ -258,10 +228,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
         undefined, new CasApi({ executor: new MemCasExecutor(order, false) })
       );
 
-      await expect(methodApi.update({
-        ...updateArgs(fixture, order, counters),
-        publishToCas : 'always',
-      })).to.be.rejectedWith(/'always'.*read-only/s);
+      await expect(methodApi.update(...updateArgs(fixture, order, counters, { announce: { publishToCas: 'always' } }))).to.be.rejectedWith(/'always'.*read-only/s);
       expect(counters.utxoCalls).to.equal(0);
     });
 
@@ -271,10 +238,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
       const executor = new MemCasExecutor(order);
       const methodApi = new DidMethodApi(undefined, new CasApi({ executor }));
 
-      const result = await methodApi.update({
-        ...updateArgs(fixture, order, counters),
-        publishToCas : 'always',
-      });
+      const result = await methodApi.update(...updateArgs(fixture, order, counters, { announce: { publishToCas: 'always' } }));
 
       expect(order).to.deep.equal(['cas:update', 'tx-broadcast']);
       expect(result.publishedToCas).to.deep.equal({ update: true, announcement: false });
@@ -288,7 +252,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
 
       // No publishToCas and no CAS: the out-of-box default 'never' completes the
       // update sidecar-only, publishing nothing.
-      const result = await methodApi.update(updateArgs(fixture, order, counters));
+      const result = await methodApi.update(...updateArgs(fixture, order, counters));
 
       expect(order).to.deep.equal(['tx-broadcast']);
       expect(result.txid).to.equal(TXID);
@@ -303,10 +267,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
       const executor = new MemCasExecutor(order);
       const methodApi = new DidMethodApi(undefined, new CasApi({ executor }));
 
-      const result = await methodApi.update({
-        ...updateArgs(fixture, order, counters),
-        publishToCas : 'auto',
-      });
+      const result = await methodApi.update(...updateArgs(fixture, order, counters, { announce: { publishToCas: 'auto' } }));
 
       expect(order).to.deep.equal(['cas:update', 'tx-broadcast']);
       expect(result.publishedToCas).to.deep.equal({ update: true, announcement: false });
@@ -329,10 +290,9 @@ describe('DidMethodApi update() CAS publication policy', () => {
       // The beacon spends only a confirmed UTXO. The guard applies that rule at
       // NeedFunding, so the refusal lands before the signed update or the
       // announcement reaches the CAS, and before the beacon UTXO is spent.
-      const err: unknown = await methodApi.update({
-        ...updateArgs(fixture, order, counters, unconfirmed),
-        publishToCas : 'always',
-      }).catch((e: unknown) => e);
+      const err: unknown = await methodApi.update(
+        ...updateArgs(fixture, order, counters, { utxosAt: unconfirmed, announce: { publishToCas: 'always' } })
+      ).catch((e: unknown) => e);
 
       expect(err).to.be.instanceOf(UpdateError);
       expect((err as UpdateError).message).to.include('are unconfirmed');
@@ -351,7 +311,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
 
       // 546 sats is the boundary: a UTXO at or below it is not spendable.
       await expect(methodApi.update(
-        updateArgs(fixture, order, counters, funded => [{ ...funded, value: 546 }])
+        ...updateArgs(fixture, order, counters, { utxosAt: funded => [{ ...funded, value: 546 }] })
       )).to.be.rejectedWith(UpdateError, '546-sat dust limit');
       expect(order).to.deep.equal([]);
       expect(counters.sent).to.have.length(0);
@@ -363,7 +323,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
       const methodApi = new DidMethodApi();
 
       await expect(methodApi.update(
-        updateArgs(fixture, order, counters, () => [])
+        ...updateArgs(fixture, order, counters, { utxosAt: () => [] })
       )).to.be.rejectedWith(UpdateError, 'is unfunded');
       expect(order).to.deep.equal([]);
     });
@@ -374,10 +334,12 @@ describe('DidMethodApi update() CAS publication policy', () => {
       const methodApi = new DidMethodApi();
 
       // The listing order must not matter: the unconfirmed UTXO comes first.
-      const result = await methodApi.update(updateArgs(fixture, order, counters, funded => [
-        { ...funded, txid: 'f'.repeat(64), status: { confirmed: false } as never },
-        funded,
-      ]));
+      const result = await methodApi.update(...updateArgs(fixture, order, counters, {
+        utxosAt : funded => [
+          { ...funded, txid: 'f'.repeat(64), status: { confirmed: false } as never },
+          funded,
+        ],
+      }));
 
       expect(result.txid).to.equal(TXID);
       expect(order).to.deep.equal(['tx-broadcast']);
@@ -398,10 +360,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
       const { order, counters } = recorders();
       const methodApi = new DidMethodApi();
 
-      const result = await methodApi.update({
-        ...updateArgs(fixture, order, counters),
-        verificationMethodId : undefined,
-      });
+      const result = await methodApi.update(...updateArgs(fixture, order, counters, { verificationMethodId: undefined }));
 
       // The proof names the method that signed the update.
       expect(result.signedUpdate.proof.verificationMethod).to.equal(`${fixture.did}#initialKey`);
@@ -413,10 +372,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
       const { order, counters } = recorders();
       const methodApi = new DidMethodApi();
 
-      const result = await methodApi.update({
-        ...updateArgs(fixture, order, counters),
-        beaconId : undefined,
-      });
+      const result = await methodApi.update(...updateArgs(fixture, order, counters, { announce: { beaconId: undefined } }));
 
       expect(result.txid).to.equal(TXID);
       // The funding guard made one read, and the broadcast made one. The
@@ -432,13 +388,13 @@ describe('DidMethodApi update() CAS publication policy', () => {
 
       // The other beacon holds an unconfirmed UTXO. It is not spendable, so it
       // is not a candidate.
-      const result = await methodApi.update({
-        ...updateArgs(fixture, order, counters, (funded, address) => address === other.address
+      const result = await methodApi.update(...updateArgs(fixture, order, counters, {
+        utxosAt              : (funded, address) => address === other.address
           ? [{ ...funded, status: { confirmed: false } as never }]
-          : [funded]),
+          : [funded],
         verificationMethodId : undefined,
-        beaconId             : undefined,
-      });
+        announce             : { beaconId: undefined },
+      }));
 
       expect(result.txid).to.equal(TXID);
       expect(order).to.deep.equal(['tx-broadcast']);
@@ -453,10 +409,9 @@ describe('DidMethodApi update() CAS publication policy', () => {
       const { order, counters } = recorders();
       const methodApi = new DidMethodApi();
 
-      const err: unknown = await methodApi.update({
-        ...updateArgs(fixture, order, counters, () => []),
-        beaconId : undefined,
-      }).catch((e: unknown) => e);
+      const err: unknown = await methodApi.update(
+        ...updateArgs(fixture, order, counters, { utxosAt: () => [], announce: { beaconId: undefined } })
+      ).catch((e: unknown) => e);
 
       expect(err).to.be.instanceOf(UpdateError);
       expect((err as UpdateError).message).to.include('cannot derive beaconId');
@@ -481,10 +436,9 @@ describe('DidMethodApi update() CAS publication policy', () => {
       const methodApi = new DidMethodApi();
 
       // The default UTXO list holds the confirmed UTXO at every address.
-      const err: unknown = await methodApi.update({
-        ...updateArgs(fixture, order, counters),
-        beaconId : undefined,
-      }).catch((e: unknown) => e);
+      const err: unknown = await methodApi.update(
+        ...updateArgs(fixture, order, counters, { announce: { beaconId: undefined } })
+      ).catch((e: unknown) => e);
 
       expect(err).to.be.instanceOf(UpdateError);
       expect((err as UpdateError).message).to.include('Pass beaconId to choose which one spends');
@@ -499,10 +453,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
       const { order, counters } = recorders();
       const methodApi = new DidMethodApi();
 
-      await expect(methodApi.update({
-        ...updateArgs(fixture, order, counters),
-        beaconId : undefined,
-      })).to.be.rejectedWith(UpdateError, 'has no beacon service');
+      await expect(methodApi.update(...updateArgs(fixture, order, counters, { announce: { beaconId: undefined } }))).to.be.rejectedWith(UpdateError, 'has no beacon service');
       expect(counters.utxoCalls).to.equal(0);
     });
   });
@@ -514,44 +465,21 @@ describe('DidMethodApi update() CAS publication policy', () => {
       const feeCalls: number[] = [];
       const methodApi = new DidMethodApi();
 
-      await methodApi.update({
-        ...updateArgs(fixture, order, counters),
-        publishToCas     : 'never',
-        broadcastOptions : { feeEstimator: { estimateFee: async (vsize: number) => { feeCalls.push(vsize); return 1000n; } } },
-      });
+      await methodApi.update(...updateArgs(fixture, order, counters, {
+        announce : {
+          publishToCas : 'never',
+          feeEstimator : { estimateFee: async (vsize: number) => { feeCalls.push(vsize); return 1000n; } },
+        },
+      }));
 
       expect(feeCalls.length, 'the custom estimator must be consulted').to.be.greaterThan(0);
     });
   });
 
-  describe('UpdateBuilder passthrough', () => {
-    it('chains publishToCas and broadcastOptions into update()', async () => {
-      const fixture = updateFixture('CASBeacon');
-      const { order, counters } = recorders();
-      const methodApi = new DidMethodApi(
-        undefined, new CasApi({ executor: new MemCasExecutor(order, false) })
-      );
-
-      const result = await methodApi.buildUpdate(fixture.sourceDocument)
-        .version(1)
-        .verificationMethodId(fixture.verificationMethodId)
-        .beacon(fixture.beaconId)
-        .signer(fixture.signer)
-        .bitcoin(mockBitcoin(fixture.beaconAddress, order, counters))
-        .publishToCas('never')
-        .broadcastOptions({})
-        .execute();
-
-      expect(result.txid).to.equal(TXID);
-      expect(result.announcement).to.exist;
-      expect(result.publishedToCas).to.deep.equal({ update: false, announcement: false });
-    });
-  });
-
   describe('DidBtcr2Api.updateDid passthrough', () => {
-    it('forwards publishToCas and broadcastOptions to the method facade', async () => {
+    it('forwards the source, patch, signer, and options to the method facade', async () => {
       const api = createApi();
-      const captured: { params?: any } = {};
+      const captured: { args?: any[] } = {};
       const canned: DidUpdateResult = {
         signedUpdate   : {} as DidUpdateResult['signedUpdate'],
         txid           : TXID,
@@ -560,24 +488,25 @@ describe('DidMethodApi update() CAS publication policy', () => {
       // Shadow the lazy btcr2 getter with a capturing stub so the forwarding
       // is observable without real signing or Bitcoin I/O.
       Object.defineProperty(api, 'btcr2', {
-        value : { update: async (params: unknown) => { captured.params = params; return canned; } },
+        value : { update: async (...args: unknown[]) => { captured.args = args; return canned; } },
       });
 
       const feeEstimator = { estimateFee: async () => 1000n };
-      const result = await api.updateDid({
-        did                  : 'did:btcr2:k1qtest',
-        patches              : [],
+      const source = { document: { id: 'did:btcr2:k1qtest' } as never, versionId: 1 };
+      const signer = {} as never;
+      const result = await api.updateDid(source, [], signer, {
         verificationMethodId : '#k',
-        beaconId             : '#b',
-        signer               : {} as never,
-        sourceDocument       : { id: 'did:btcr2:k1qtest' } as never,
-        sourceVersionId      : 1,
-        publishToCas         : 'never',
-        broadcastOptions     : { feeEstimator },
+        announce             : { beaconId: '#b', publishToCas: 'never', feeEstimator },
       });
 
-      expect(captured.params.publishToCas).to.equal('never');
-      expect(captured.params.broadcastOptions.feeEstimator).to.equal(feeEstimator);
+      const [forwardedSource, patch, forwardedSigner, options] = captured.args!;
+      expect(forwardedSource).to.equal(source);
+      expect(patch).to.deep.equal([]);
+      expect(forwardedSigner).to.equal(signer);
+      expect(options).to.deep.equal({
+        verificationMethodId : '#k',
+        announce             : { beaconId: '#b', publishToCas: 'never', feeEstimator },
+      });
       expect(result).to.equal(canned);
     });
   });

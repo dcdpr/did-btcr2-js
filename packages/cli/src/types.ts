@@ -1,4 +1,4 @@
-import type { BeaconInfo, BroadcastOptions, DidUpdateResult, IdentifierReport, PublishToCasMode, Signer } from '@did-btcr2/api';
+import type { BeaconInfo, DidUpdateOptions, DidUpdateResult, IdentifierReport, Signer, UpdateSource } from '@did-btcr2/api';
 import type { Btcr2DidDocument, ResolutionOptions } from '@did-btcr2/method';
 import type { DidResolutionResult } from '@web5/dids';
 import type { DoctorReport, EffectiveConfig } from './config.js';
@@ -36,22 +36,16 @@ export interface ResolveCommandOptions {
 }
 
 /**
- * The parameters that `update` and `deactivate` hand to the api's `updateDid`
- * and `deactivateDid`. `update` adds `patches`. An absent source pair lets the
- * api resolve the current document with `resolutionOptions` (ADR 098, ADR
- * 101). An absent `verificationMethodId` or `beaconId` lets the api derive it
- * (ADR 104).
+ * The arguments that `update` and `deactivate` hand to the api's `updateDid`
+ * and `deactivateDid`. `update` adds the patch. A DID as the source lets the
+ * api resolve the current document with `options.resolutionOptions` (ADR 098,
+ * ADR 101). An absent `verificationMethodId` or `announce.beaconId` lets the
+ * api derive it (ADR 104).
  */
 export interface UpdateCommandOptions {
-  did                   : string;
-  signer                : Signer;
-  sourceDocument?       : Btcr2DidDocument;
-  sourceVersionId?      : number;
-  verificationMethodId? : string;
-  beaconId?             : string;
-  resolutionOptions?    : ResolutionOptions;
-  publishToCas          : PublishToCasMode;
-  broadcastOptions?     : BroadcastOptions;
+  source  : UpdateSource;
+  signer  : Signer;
+  options : DidUpdateOptions;
 }
 
 /**

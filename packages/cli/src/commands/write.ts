@@ -93,12 +93,14 @@ export function registerWriteOptions(command: Command): Command {
  * The checks run in this order, before any key material is read:
  * 1. The identifier decodes and names a supported network.
  * 2. `--source-document` and `--source-version-id` come together or not at
- *    all (ADR 101). The api refuses a half pair too; the cli names the flags.
- * 3. The resolution flags come only without the source pair. The api ignores
+ *    all (ADR 101). The api takes the pair as one source state, so the cli
+ *    names the flags.
+ * 3. A supplied `--source-document` describes the identifier.
+ * 4. The resolution flags come only without the source pair. The api ignores
  *    `resolutionOptions` when the pair is supplied (ADR 098). A silent ignore
  *    of `--min-conf` would mislead.
- * 4. `--genesis-document` comes only with an external (x) identifier.
- * 5. A mainnet write is refused with an unencrypted dev keystore (ADR 080).
+ * 5. `--genesis-document` comes only with an external (x) identifier.
+ * 6. A mainnet write is refused with an unencrypted dev keystore (ADR 080).
  */
 export async function prepareWrite(
   options : WriteFlags,
@@ -115,6 +117,14 @@ export async function prepareWrite(
         + 'Omit both to resolve the current document first.',
       'INVALID_ARGUMENT_ERROR',
       { did },
+    );
+  }
+  const sourceDocument = options.sourceDocument as Btcr2DidDocument | undefined;
+  if (hasDocument && sourceDocument?.id !== did) {
+    throw new CLIError(
+      `--source-document has the id ${String(sourceDocument?.id)}, but the identifier under update is ${did}.`,
+      'INVALID_ARGUMENT_ERROR',
+      { did, sourceDocumentId: sourceDocument?.id },
     );
   }
   if (hasDocument && hasResolutionFlags(options)) {
@@ -142,15 +152,19 @@ export async function prepareWrite(
     network,
     api,
     params : {
-      did,
+      source  : sourceDocument && options.sourceVersionId !== undefined
+        ? { document: sourceDocument, versionId: options.sourceVersionId }
+        : did,
       signer,
-      sourceDocument       : options.sourceDocument as Btcr2DidDocument | undefined,
-      sourceVersionId      : options.sourceVersionId,
-      verificationMethodId : options.verificationMethodId,
-      beaconId             : options.beaconId,
-      resolutionOptions,
-      publishToCas         : options.publishToCas,
-      broadcastOptions,
+      options : {
+        verificationMethodId : options.verificationMethodId,
+        resolutionOptions,
+        announce             : {
+          beaconId     : options.beaconId,
+          publishToCas : options.publishToCas,
+          ...broadcastOptions,
+        },
+      },
     },
   };
 }
