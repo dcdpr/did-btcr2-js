@@ -57,9 +57,11 @@ If the run creates an encrypted keystore (no `--dev`), the command gets the pass
 
 The probe resolves the endpoints through the standard CLI precedence chain (the flags, then the environment variables, then the config profile, then the SDK defaults of the network). It checks:
 
-- `btc-rest`: `GET <rest-host>/blocks/tip/height` (for the default mutinynet setup, the host is `https://mutinynet.com/api`).
-- `btc-rpc`: a `getblockchaininfo` call, only if an RPC endpoint is configured. Regtest has the default `http://localhost:18443`. A public network has none unless you configure one.
-- `cas`: `POST <cas-rpc-url>/api/v0/version` if a writable CAS RPC endpoint is configured, else `GET` on the resolved read-only gateway (default `https://trustless-gateway.link`).
+- `btc-rest`: `GET <rest-host>/block-height/<height>` (for the default mutinynet setup, the host is `https://mutinynet.com/api`). The answer must be the hash of a block that only the chain of the network has.
+- `btc-rpc`: a `getblockhash <height>` call with the same test, only if an RPC endpoint is configured. Regtest has the default `http://localhost:18443`. A public network has none unless you configure one.
+- `cas`: a read of a fixed identity block through `POST <cas-rpc-url>/api/v0/block/get` if a writable CAS RPC endpoint is configured, else through `GET <gateway>/ipfs/<cid>?format=raw` on the resolved read-only gateway (default `https://trustless-gateway.link`). The answer must hold the block bytes.
+
+Each check uses the request path of the commands, so a web page or an endpoint of another chain fails it. See [config.md](./config.md#config-doctor) for the detail.
 
 Each probe has a 5000 ms timeout. The report also carries a `coherence` warning if the active profile declares a network that differs from the recorded network. Each finding is advisory: the exit code stays 0, and text mode adds a stderr warning that suggests `btcr2 config doctor`.
 
@@ -95,7 +97,7 @@ The stderr hint lines, in this order, each with its condition (ADR 082 and 083):
 1. `btcr2 home ready at <home> on <network>.` (always)
 2. `Session cached until <ISO-8601 UTC>; signing will not re-prompt until it expires.` (only if a session is live)
 3. `Dev keystore: keys are stored in plaintext; mainnet operations are refused.` (only with a dev keystore)
-4. `Warning: one or more endpoints were unreachable (see the doctor report). Re-run "btcr2 config doctor" for detail.` (only if a probe failed)
+4. `Warning: one or more endpoint checks failed (see the doctor report). Re-run "btcr2 config doctor" for detail.` (only if a check failed)
 5. `Next: btcr2 key generate --name demo --set-active` (always)
 6. `Faucet (fund your beacon after "btcr2 create"): <url>` (only on a network with a faucet: `mutinynet` `https://faucet.mutinynet.com/`, `signet` `https://signetfaucet.com/`, `testnet4` `https://mempool.space/testnet4/faucet`, `testnet3` `https://coinfaucet.eu/en/btc-testnet/`. Never for `bitcoin` or `regtest`.)
 

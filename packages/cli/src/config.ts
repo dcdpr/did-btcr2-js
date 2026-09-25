@@ -958,7 +958,7 @@ export function resolveEffectiveConfig(network: NetworkOption, overrides?: Conne
   };
 }
 
-/** One endpoint reachability check produced by `config doctor`. */
+/** One endpoint check produced by `config doctor`. */
 export interface DoctorCheck {
   endpoint : 'btc-rest' | 'btc-rpc' | 'cas';
   target   : string;
@@ -966,81 +966,82 @@ export interface DoctorCheck {
   detail?  : string;
 }
 
-/** Result of `config doctor`: per-endpoint reachability and any coherence warning. */
+/** Result of `config doctor`: one check per endpoint, and any coherence warning. */
 export interface DoctorReport {
   checks     : DoctorCheck[];
   coherence? : { profile: string; declared: NetworkOption; encoding: NetworkOption };
 }
 
-/** Default per-probe timeout (ms) for `config doctor`. */
+/** The timeout (ms) of each `config doctor` check. */
 const DOCTOR_PROBE_TIMEOUT_MS = 5000;
 
-/** Fetches a URL with a bounded timeout, reporting reachability rather than throwing. */
-async function probeEndpoint(
-  endpoint : DoctorCheck['endpoint'],
-  target   : string,
-  url      : string,
-  opts?    : { method?: 'GET' | 'POST'; headers?: Record<string, string> },
-): Promise<DoctorCheck> {
+/**
+ * A block that only the chain of each network has: the genesis block, or block 1 on
+ * signet and mutinynet, because all signets share one genesis block. A `config doctor`
+ * check reads the hash at this height, to prove that an endpoint serves the chain of
+ * the network.
+ */
+const CHAIN_MARKER: Record<NetworkOption, { height: number; hash: string }> = {
+  bitcoin   : { height: 0, hash: '000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f' },
+  testnet3  : { height: 0, hash: '000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943' },
+  testnet4  : { height: 0, hash: '00000000da84f2bafbbc53dee25a72ae507ff4914b867c565be350b0da8bf043' },
+  signet    : { height: 1, hash: '00000086d6b2636cb2a392d45edc4ec544a10024d30141c9adf4bfd9de533b53' },
+  mutinynet : { height: 1, hash: '000002855893a0a9b24eaffc5efc770558a326fee4fc10c9da22fc19cd2954f9' },
+  regtest   : { height: 0, hash: '0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206' },
+};
+
+/** Runs one check. A rejection gives a failed check with the error message as the detail. */
+async function runCheck(endpoint: DoctorCheck['endpoint'], target: string, check: () => Promise<void>): Promise<DoctorCheck> {
   try {
-    const res = await fetch(url, {
-      method  : opts?.method ?? 'GET',
-      headers : opts?.headers,
-      signal  : AbortSignal.timeout(DOCTOR_PROBE_TIMEOUT_MS),
-    });
-    return res.ok
-      ? { endpoint, target, ok: true }
-      : { endpoint, target, ok: false, detail: `HTTP ${res.status}` };
+    await check();
+    return { endpoint, target, ok: true };
   } catch (error) {
     return { endpoint, target, ok: false, detail: (error as Error).message };
   }
 }
 
-/** Races a promise against a timeout so a stalled RPC call cannot hang `doctor`. */
-function withProbeTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
-  });
-  return Promise.race([ promise, timeout ]).finally(() => clearTimeout(timer));
+/** Throws if a block hash is not the hash of the chain marker of the network. */
+function assertChainMarker(network: NetworkOption, hash: unknown): void {
+  const marker = CHAIN_MARKER[network];
+  if (hash === marker.hash) return;
+  const got = (typeof hash === 'string' ? hash : JSON.stringify(hash) ?? String(hash)).slice(0, 80);
+  throw new Error(`block ${marker.height} is ${got}, not the ${network} block ${marker.hash}: the endpoint serves another chain`);
 }
 
 /**
- * Probes reachability of the resolved endpoints for `config doctor`: a
- * lightweight REST call against btc-rest, a `getblockchaininfo` against btc-rpc
- * when configured, and a reachability check against the resolved CAS. Also
- * surfaces the profile/network coherence warning. Reads and touches the network;
- * never writes.
+ * Checks the resolved endpoints of one network for `config doctor`. Each check uses
+ * the api client of the commands (with a 5-second abort), so it tests the request
+ * path of the commands, not only a connection:
+ * - `btc-rest` and `btc-rpc`: read the hash of the {@link CHAIN_MARKER} block. A pass
+ *   proves an Esplora or a Bitcoin Core endpoint for the chain of the network.
+ * - `cas`: `CasApi.probe` reads a fixed identity block through the resolved backend
+ *   (the RPC endpoint if one is set, else the gateway) and compares the bytes.
+ * Also surfaces the profile/network coherence warning. Reads the network; never writes.
  */
 export async function runDoctor(network: NetworkOption, overrides?: ConnectionOverrides): Promise<DoctorReport> {
-  const api = defaultApiFactory(network, overrides);
+  const conn = resolveConnectionConfig(network, overrides);
+  const api = createApi({
+    btc : { ...conn.btc, network, timeoutMs: DOCTOR_PROBE_TIMEOUT_MS },
+    cas : { ...(conn.cas ?? { gateway: DEFAULT_CAS_GATEWAY }), timeoutMs: DOCTOR_PROBE_TIMEOUT_MS },
+  });
+  const height = CHAIN_MARKER[network].height;
   const checks: DoctorCheck[] = [];
 
-  const restHost = api.btc.connection.rest.config.host.replace(/\/+$/, '');
-  checks.push(await probeEndpoint('btc-rest', restHost, `${restHost}/blocks/tip/height`, { headers: api.btc.connection.rest.config.headers }));
+  const rest = api.btc.connection.rest;
+  checks.push(await runCheck('btc-rest', rest.config.host.replace(/\/+$/, ''), async () => {
+    assertChainMarker(network, await rest.block.getHash(height));
+  }));
 
   const rpc = api.btc.connection.rpc;
   if (rpc) {
-    const target = rpc.config.host ?? '(default rpc)';
-    try {
-      await withProbeTimeout(rpc.getBlockchainInfo(), DOCTOR_PROBE_TIMEOUT_MS);
-      checks.push({ endpoint: 'btc-rpc', target, ok: true });
-    } catch (error) {
-      checks.push({ endpoint: 'btc-rpc', target, ok: false, detail: (error as Error).message });
-    }
+    checks.push(await runCheck('btc-rpc', rpc.config.host ?? '(default rpc)', async () => {
+      assertChainMarker(network, await rpc.getBlockHash(height));
+    }));
   }
 
-  // A writable IPFS RPC (Kubo) answers only POST, so a bare GET would falsely
-  // report a healthy node as down; probe its version endpoint with POST. A
-  // read-only gateway answers a plain GET on its base URL.
-  const conn = resolveConnectionConfig(network, overrides);
-  if (conn.cas?.rpcUrl) {
-    const base = conn.cas.rpcUrl.replace(/\/+$/, '');
-    checks.push(await probeEndpoint('cas', conn.cas.rpcUrl, `${base}/api/v0/version`, { method: 'POST' }));
-  } else {
-    const gateway = (conn.cas?.gateway ?? DEFAULT_CAS_GATEWAY).replace(/\/+$/, '');
-    checks.push(await probeEndpoint('cas', gateway, gateway));
-  }
+  // The api selects the RPC endpoint over the gateway, so the check names that target.
+  const casTarget = (conn.cas?.rpcUrl ?? conn.cas?.gateway ?? DEFAULT_CAS_GATEWAY).replace(/\/+$/, '');
+  checks.push(await runCheck('cas', casTarget, () => api.cas.probe()));
 
   const mismatch = profileNetworkMismatch(network, overrides);
   return {

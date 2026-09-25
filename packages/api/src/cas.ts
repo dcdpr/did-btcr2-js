@@ -4,6 +4,7 @@ import { equals as equalBytes } from 'multiformats/bytes';
 import { CID } from 'multiformats/cid';
 import * as raw from 'multiformats/codecs/raw';
 import { create as createDigest } from 'multiformats/hashes/digest';
+import { identity } from 'multiformats/hashes/identity';
 import { sha256 } from 'multiformats/hashes/sha2';
 
 /**
@@ -35,6 +36,32 @@ export interface CasExecutor {
    * as a thrown error mid-operation.
    */
   readonly canPublish?: boolean;
+  /**
+   * Optional check of the backend, for a health report. It reads a fixed identity
+   * block through the same request as {@link CasExecutor.retrieve} and compares the
+   * bytes. The backend answers that block from the CID itself, with no network
+   * retrieval, and the check writes nothing. Resolves if the backend answers with the
+   * block. Rejects with the reason otherwise.
+   * @param signal Aborts the check.
+   */
+  probe?(signal?: AbortSignal): Promise<void>;
+}
+
+/** The bytes of {@link PROBE_CID}. */
+const PROBE_BYTES = new TextEncoder().encode('did:btcr2');
+
+/**
+ * The block that a probe reads: an identity CID (raw codec) that holds
+ * {@link PROBE_BYTES} in its digest. An IPFS node or gateway answers it from the CID
+ * itself. So a probe tests the endpoint, and not the availability of content.
+ */
+const PROBE_CID = CID.create(1, raw.code, identity.digest(PROBE_BYTES));
+
+/** Throw if the bytes of a probe response are not the probe block. */
+function assertProbeBlock(bytes: Uint8Array): void {
+  if (!equalBytes(bytes, PROBE_BYTES)) {
+    throw new Error(`The response is not the probe block ${PROBE_CID.toString()} (${bytes.length} bytes).`);
+  }
 }
 
 /**
@@ -121,17 +148,31 @@ export class IpfsRpcCasExecutor implements CasExecutor {
   }
 
   async retrieve(hash: string): Promise<Uint8Array | null> {
-    const cid = cidForHash(hash);
     try {
-      // The RPC API accepts POST only.
-      const res = await fetch(`${this.#rpcUrl}/api/v0/block/get?arg=${cid.toString()}`, {
-        method : 'POST',
-      });
-      if (!res.ok) return null;
-      return new Uint8Array(await res.arrayBuffer());
+      return await this.#blockGet(cidForHash(hash));
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Read the probe block with `block/get`, the request of {@link retrieve}.
+   * The check does not call `block/put`, so it does not prove that a write works.
+   * @throws {Error} If the node does not answer with the probe block.
+   */
+  async probe(signal?: AbortSignal): Promise<void> {
+    assertProbeBlock(await this.#blockGet(PROBE_CID, signal));
+  }
+
+  /** Get a raw block with `block/get`. Throws on a status that is not OK. */
+  async #blockGet(cid: CID, signal?: AbortSignal): Promise<Uint8Array> {
+    // The RPC API accepts POST only.
+    const res = await fetch(`${this.#rpcUrl}/api/v0/block/get?arg=${cid.toString()}`, {
+      method : 'POST',
+      signal,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return new Uint8Array(await res.arrayBuffer());
   }
 
   async publish(data: Uint8Array): Promise<string> {
@@ -178,16 +219,29 @@ export class HttpGatewayCasExecutor implements CasExecutor {
   }
 
   async retrieve(hash: string): Promise<Uint8Array | null> {
-    const cid = cidForHash(hash);
     try {
-      const res = await fetch(`${this.#gatewayUrl}/ipfs/${cid.toString()}?format=raw`, {
-        headers : { Accept: 'application/vnd.ipld.raw' },
-      });
-      if (!res.ok) return null;
-      return new Uint8Array(await res.arrayBuffer());
+      return await this.#getBlock(cidForHash(hash));
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Read the probe block through the request of {@link retrieve}.
+   * @throws {Error} If the gateway does not answer with the probe block.
+   */
+  async probe(signal?: AbortSignal): Promise<void> {
+    assertProbeBlock(await this.#getBlock(PROBE_CID, signal));
+  }
+
+  /** Get a raw block by the Trustless Gateway protocol. Throws on a status that is not OK. */
+  async #getBlock(cid: CID, signal?: AbortSignal): Promise<Uint8Array> {
+    const res = await fetch(`${this.#gatewayUrl}/ipfs/${cid.toString()}?format=raw`, {
+      headers : { Accept: 'application/vnd.ipld.raw' },
+      signal,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return new Uint8Array(await res.arrayBuffer());
   }
 
   async publish(): Promise<string> {
@@ -302,6 +356,20 @@ export class CasApi {
       throw new ResolveError(`CAS content for ${hash} is not a JSON object.`, MISSING_UPDATE_DATA, { hash });
     }
     return parsed;
+  }
+
+  /**
+   * Check that the CAS backend answers a read, for a health report (for example
+   * `btcr2 config doctor`). The executor reads a fixed identity block and compares
+   * the bytes. The check aborts at the CAS timeout, and it writes nothing.
+   * @throws {Error} If the executor has no `probe` method, if the backend does not
+   *   answer with the block, or at the timeout.
+   */
+  async probe(): Promise<void> {
+    if (!this.#executor.probe) {
+      throw new Error('The CAS executor has no probe method.');
+    }
+    await this.#executor.probe(this.#timeoutMs ? AbortSignal.timeout(this.#timeoutMs) : undefined);
   }
 
   /**

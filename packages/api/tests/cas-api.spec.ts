@@ -100,7 +100,27 @@ describe('CasApi', () => {
     });
   });
 
+  /** The identity CID (raw codec) of the bytes `did:btcr2`: the block that a probe reads. */
+  const PROBE_CID = 'bafkqaclenfsduytumnzde';
+  const probeBytes = new TextEncoder().encode('did:btcr2');
+  const rejection = (p: Promise<unknown>): Promise<Error | undefined> => p.then(() => undefined, (e: Error) => e);
+
   describe('IpfsRpcCasExecutor', () => {
+    it('probe reads the probe block with block/get', async () => {
+      stubFetch(() => new Response(Uint8Array.from(probeBytes)));
+      const signal = new AbortController().signal;
+      await new IpfsRpcCasExecutor('http://node:5001').probe(signal);
+      expect(fetchCalls[0].url).to.equal(`http://node:5001/api/v0/block/get?arg=${PROBE_CID}`);
+      expect(fetchCalls[0].init?.method).to.equal('POST');
+      expect(fetchCalls[0].init?.signal).to.equal(signal);
+    });
+
+    it('probe rejects a status that is not OK', async () => {
+      stubFetch(() => new Response('Unauthorized', { status: 401 }));
+      const error = await rejection(new IpfsRpcCasExecutor('http://node:5001').probe());
+      expect(error?.message).to.equal('HTTP 401');
+    });
+
     it('publish POSTs to block/put (raw codec, sha2-256, pinned) and returns the content hash', async () => {
       const expectedCid = await cidForData(data);
       stubFetch(() => new Response(JSON.stringify({ Key: expectedCid, Size: data.length })));
@@ -182,6 +202,27 @@ describe('CasApi', () => {
       expect(await executor.retrieve(dataHash)).to.be.null;
     });
 
+    it('probe reads the probe block through the retrieve request', async () => {
+      stubFetch(() => new Response(Uint8Array.from(probeBytes)));
+      const signal = new AbortController().signal;
+      await new HttpGatewayCasExecutor('https://gateway.example/').probe(signal);
+      expect(fetchCalls[0].url).to.equal(`https://gateway.example/ipfs/${PROBE_CID}?format=raw`);
+      expect((fetchCalls[0].init?.headers as Record<string, string>).Accept).to.equal('application/vnd.ipld.raw');
+      expect(fetchCalls[0].init?.signal).to.equal(signal);
+    });
+
+    it('probe rejects a web page that answers 200', async () => {
+      stubFetch(() => new Response('<!doctype html><html></html>', { headers: { 'Content-Type': 'text/html' } }));
+      const error = await rejection(new HttpGatewayCasExecutor('https://gateway.example').probe());
+      expect(error?.message).to.match(/not the probe block bafkqaclenfsduytumnzde/);
+    });
+
+    it('probe rejects a status that is not OK', async () => {
+      stubFetch(() => new Response('nope', { status: 404 }));
+      const error = await rejection(new HttpGatewayCasExecutor('https://gateway.example').probe());
+      expect(error?.message).to.equal('HTTP 404');
+    });
+
     it('publish rejects: the gateway protocol is read-only', async () => {
       const executor = new HttpGatewayCasExecutor('https://gateway.example');
       let error: Error | undefined;
@@ -256,6 +297,38 @@ describe('CasApi', () => {
       });
       await cas.publish(object);
       expect(fetchCalls[0].url).to.match(/^http:\/\/node:5001\/api\/v0\/block\/put/);
+    });
+  });
+
+  describe('probe', () => {
+    const probingExecutor = (): CasExecutor & { signals: (AbortSignal | undefined)[] } => ({
+      signals : [] as (AbortSignal | undefined)[],
+      async retrieve() { return null; },
+      async publish() { return dataHash; },
+      async probe(signal?: AbortSignal) { this.signals.push(signal); },
+    });
+
+    it('passes an abort signal for the CAS timeout', async () => {
+      const executor = probingExecutor();
+      await new CasApi({ executor, timeoutMs: 1000 }).probe();
+      expect(executor.signals[0]).to.be.instanceOf(AbortSignal);
+    });
+
+    it('passes no signal if the timeout is 0', async () => {
+      const executor = probingExecutor();
+      await new CasApi({ executor, timeoutMs: 0 }).probe();
+      expect(executor.signals[0]).to.be.undefined;
+    });
+
+    it('rejects an executor with no probe method', async () => {
+      const error = await rejection(new CasApi({ blockstore: new FakeBlockstore() }).probe());
+      expect(error?.message).to.match(/no probe method/);
+    });
+
+    it('probes the default gateway if no CAS config is given', async () => {
+      stubFetch(() => new Response(Uint8Array.from(probeBytes)));
+      await createApi().cas.probe();
+      expect(fetchCalls[0].url).to.equal(`https://trustless-gateway.link/ipfs/${PROBE_CID}?format=raw`);
     });
   });
 

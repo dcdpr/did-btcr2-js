@@ -42,7 +42,7 @@ export function registerQuickstartCommand(program: Command, globals: () => Globa
     .option('--dev', 'Establish an UNENCRYPTED dev keystore: plaintext keys, no passphrase. Testnet only.', false)
     .option('--unlock', 'Cache the passphrase for the session so later commands do not re-prompt (ADR 081).', false)
     .option('--ttl <duration>', `Session lifetime with --unlock: bare seconds or an s/m/h suffix (default 1h, max 24h). Also $${ENV_KEYSTORE_TTL}.`)
-    .option('--no-doctor', 'Skip the endpoint reachability probe.')
+    .option('--no-doctor', 'Skip the endpoint checks.')
     .option('--allow-mainnet', 'Permit -n bitcoin (records mainnet as the default; dev keystores are still refused).', false)
     .option('--force', 'Re-create the config even if it already exists (never the keystore).', false)
     .action(async (options: {
@@ -200,7 +200,7 @@ function printNextSteps(
     lines.push('Dev keystore: keys are stored in plaintext; mainnet operations are refused.');
   }
   if (doctor && doctor.checks.some((c) => !c.ok)) {
-    lines.push('Warning: one or more endpoints were unreachable (see the doctor report). Re-run "btcr2 config doctor" for detail.');
+    lines.push('Warning: one or more endpoint checks failed (see the doctor report). Re-run "btcr2 config doctor" for detail.');
   }
   lines.push('Next: btcr2 key generate --name demo --set-active');
   const faucet = faucetUrl(init.network);
