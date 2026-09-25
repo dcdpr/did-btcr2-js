@@ -140,11 +140,11 @@ BTCR2_HOME=/tmp/btcr2-demo btcr2 config path
 
 ### config doctor
 
-Probes the resolved endpoints of one network (the same network selection and connection resolution as `config effective`). The command is read-only: it fetches status endpoints, and it never writes or broadcasts. Each probe has a 5000 ms timeout. The checks:
+Checks the resolved endpoints of one network (the same network selection and connection resolution as `config effective`). Each check sends a request of the commands through the same client, and tests the answer. So a pass means that the commands can use the endpoint, not only that the host answers. The command is read-only: it never writes or broadcasts. Each check stops after 5000 ms. The checks:
 
-- `btc-rest`: `GET <rest-host>/blocks/tip/height`, with the configured REST headers.
-- `btc-rpc`: a `getblockchaininfo` RPC call, only if an RPC client exists. An RPC client exists if a layer supplies an RPC URL, or on regtest (its default host `http://localhost:18443` always creates one, so the probe always runs there). On another network, credentials, a wallet name, or headers alone without an RPC URL create no RPC client, and the command skips the check.
-- `cas`: if a writable CAS RPC is configured, `POST <cas-rpc-url>/api/v0/version` (a Kubo node answers a POST only). Otherwise `GET` on the resolved gateway base URL (default `https://trustless-gateway.link`).
+- `btc-rest`: `GET <rest-host>/block-height/<height>`, with the configured REST headers. The check passes if the answer is the hash of a block that only the chain of the network has: the genesis block, or block 1 on `signet` and `mutinynet` (all signets share one genesis block). A web page, an endpoint of another chain, or an error status fails the check.
+- `btc-rpc`: a `getblockhash <height>` RPC call with the same hash test, only if an RPC client exists. An RPC client exists if a layer supplies an RPC URL, or on regtest (its default host `http://localhost:18443` always creates one, so the probe always runs there). On another network, credentials, a wallet name, or headers alone without an RPC URL create no RPC client, and the command skips the check.
+- `cas`: a read of the fixed block `bafkqaclenfsduytumnzde` through the backend that the commands use. If a CAS RPC is configured: `POST <cas-rpc-url>/api/v0/block/get`. Otherwise: `GET <gateway>/ipfs/<cid>?format=raw` with `Accept: application/vnd.ipld.raw` on the resolved gateway (default `https://trustless-gateway.link`). The check passes if the answer holds the block bytes (`did:btcr2`). The CID is an identity CID: it holds the bytes itself, so the check does not depend on content in the IPFS network. The check does not write, so it cannot prove that the RPC endpoint accepts a `block/put`.
 
 Prints `{ "checks": [ { "endpoint", "target", "ok", "detail"? }, ... ] }`. `detail` carries the HTTP status or the error message of a failed check. If the active profile declares a network that differs from the probed network, the output includes a `coherence` object (`{ "profile", "declared", "encoding" }`). The exit code is 1 if a check fails.
 

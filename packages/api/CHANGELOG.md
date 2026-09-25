@@ -1,5 +1,14 @@
 # @did-btcr2/api
 
+## 0.28.2
+
+### Patch Changes
+
+- `btcr2 config doctor` checks the request path of the commands (ADR 125).
+
+  - api: `CasExecutor` gets the optional method `probe(signal?)`. The gateway and the RPC executors read the identity CID `bafkqaclenfsduytumnzde` (the bytes `did:btcr2`) through the request of `retrieve` and compare the bytes. The check needs no content in the IPFS network, and it writes nothing. The new method `CasApi.probe()` aborts at the CAS timeout.
+  - cli: the `btc-rest` and `btc-rpc` checks read the hash of a block that only the chain of the network has (the genesis block, or block 1 on signet and mutinynet). The `cas` check calls `CasApi.probe`. Each check uses the api client of the commands with a 5-second abort. A web page, an endpoint of another chain, or a gateway base URL no longer passes.
+
 ## 0.28.1
 
 ### Patch Changes

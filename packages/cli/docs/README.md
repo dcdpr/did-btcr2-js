@@ -2,7 +2,7 @@
 
 Reference documentation for `btcr2`, the command-line tool of the `did:btcr2` method. This page lists the commands, the global flags, the environment variables, and the precedence of each value. One page per command follows the links in the table.
 
-The text matches `@did-btcr2/cli` v0.25.1.
+The text matches `@did-btcr2/cli` v0.25.2.
 
 ## Commands
 
@@ -139,7 +139,7 @@ btcr2 config set defaults.network mutinynet                # the default for a c
 btcr2 config set profiles.mutinynet.btc.feeRate 2          # a profile value
 btcr2 config validate                                      # schema check, exit code 1 on a finding
 btcr2 config effective -n mutinynet                        # the merged values with their source
-btcr2 config doctor -n mutinynet                           # endpoint reachability probe
+btcr2 config doctor -n mutinynet                           # endpoint checks
 ```
 
 ### Profiles and network presets

@@ -137,7 +137,7 @@ export function registerConfigCommand(program: Command, globals: () => GlobalOpt
 
   config
     .command('doctor')
-    .description('Probe reachability of the resolved endpoints (read-only; touches the network).')
+    .description('Check that the commands can use the resolved endpoints (read-only; touches the network).')
     .option('-n, --network <network>', 'Network to resolve for (default: config default network)')
     .action(async (opts: { network?: string }) => {
       const network = resolveIntrospectionNetwork(opts.network, globals());

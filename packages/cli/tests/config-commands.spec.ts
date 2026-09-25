@@ -1,4 +1,6 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer, type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DidBtcr2Cli } from '../src/cli.js';
@@ -217,6 +219,82 @@ describe('config and profile commands', () => {
     const rest = parsed.checks.find((c: { endpoint: string }) => c.endpoint === 'btc-rest');
     expect(rest.ok).to.equal(false);
     expect(parsed.checks.every((c: { ok: boolean }) => c.ok === false)).to.equal(true);
+  });
+
+  describe('config doctor checks the request path of the commands', () => {
+    const REGTEST_GENESIS = '0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206';
+    const PROBE_PATH = '/ipfs/bafkqaclenfsduytumnzde?format=raw';
+    let server: Server;
+    let base: string;
+    let seen: string[];
+
+    /** Start a stub server. `mode` 'node' answers as Esplora, Core RPC, and an IPFS gateway and RPC; 'page' answers each path with a web page. */
+    async function start(mode: 'node' | 'page'): Promise<void> {
+      seen = [];
+      server = createServer((req, res) => {
+        let body = '';
+        req.on('data', (c) => { body += c; });
+        req.on('end', () => {
+          seen.push(`${req.method} ${req.url}`);
+          if (mode === 'page') {
+            res.writeHead(200, { 'Content-Type': 'text/html' }).end('<!doctype html><html></html>');
+          } else if (req.method === 'GET' && req.url?.startsWith('/block-height/0?_=')) {
+            res.writeHead(200, { 'Content-Type': 'text/plain' }).end(REGTEST_GENESIS);
+          } else if (req.method === 'GET' && req.url === PROBE_PATH) {
+            res.writeHead(200, { 'Content-Type': 'application/vnd.ipld.raw' }).end('did:btcr2');
+          } else if (req.method === 'POST' && req.url === '/api/v0/block/get?arg=bafkqaclenfsduytumnzde') {
+            res.writeHead(200, { 'Content-Type': 'application/octet-stream' }).end('did:btcr2');
+          } else if (req.method === 'POST' && req.url === '/') {
+            const { id } = JSON.parse(body);
+            res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ result: REGTEST_GENESIS, error: null, id }));
+          } else {
+            res.writeHead(404).end();
+          }
+        });
+      });
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    }
+
+    afterEach(async () => {
+      await new Promise((resolve) => server.close(resolve));
+    });
+
+    async function doctor(...args: string[]): Promise<{ endpoint: string; ok: boolean; detail?: string }[]> {
+      out = [];
+      await run(...args, '-o', 'json');
+      const parsed = JSON.parse(out.join('\n'));
+      return (parsed.data ?? parsed).checks;
+    }
+
+    it('passes endpoints that serve the chain of the network', async () => {
+      await start('node');
+      const checks = await doctor('--btc-rest', base, '--btc-rpc-url', base, '--cas-gateway', base, 'config', 'doctor', '-n', 'regtest');
+      expect(checks.map((c) => [c.endpoint, c.ok])).to.deep.equal([['btc-rest', true], ['btc-rpc', true], ['cas', true]]);
+      expect(seen).to.include(`GET ${PROBE_PATH}`);
+    });
+
+    it('fails a server that answers each path with a web page', async () => {
+      await start('page');
+      const checks = await doctor('--btc-rest', base, '--btc-rpc-url', base, '--cas-gateway', base, 'config', 'doctor', '-n', 'regtest');
+      expect(checks.every((c) => !c.ok)).to.equal(true);
+      expect(checks.find((c) => c.endpoint === 'btc-rest')?.detail).to.match(/not JSON/);
+      expect(checks.find((c) => c.endpoint === 'cas')?.detail).to.match(/not the probe block/);
+    });
+
+    it('fails a REST endpoint of another chain', async () => {
+      await start('node');
+      const checks = await doctor('--btc-rest', base, '--cas-gateway', base, 'config', 'doctor', '-n', 'testnet4');
+      expect(checks.find((c) => c.endpoint === 'btc-rest')?.detail).to.match(/block 0 is 0f9188f1.*not the testnet4 block.*serves another chain/);
+      expect(checks.find((c) => c.endpoint === 'cas')?.ok).to.equal(true);
+    });
+
+    it('reads through the CAS RPC endpoint if one is set', async () => {
+      await start('node');
+      const checks = await doctor('--btc-rest', base, '--cas-gateway', 'http://127.0.0.1:1', '--cas-rpc-url', base, 'config', 'doctor', '-n', 'regtest');
+      expect(checks.find((c) => c.endpoint === 'cas')).to.include({ ok: true, target: base });
+      expect(seen).to.include('POST /api/v0/block/get?arg=bafkqaclenfsduytumnzde');
+    });
   });
 
   it('config get redacts the rpc password by default', async () => {
