@@ -112,7 +112,7 @@ Resolution notes:
 
 - The RPC endpoint resolves as one credential unit: `rpcUrl`, `rpcUser`, and `rpcPass` come together from the highest precedence layer that supplies a URL (else the highest that supplies a credential). A host from one layer never gets the password of another layer.
 - The command resolves an RPC password that is a secret reference (`env:<VAR>` or `file:<path>`, from the environment or from a profile) to its literal value. A password from the file that `BTCR2_BTC_RPC_PASS_FILE` names reports `source: "env"`.
-- An endpoint value with `source: "default"` is the SDK default of the network. REST: `https://mempool.space/api` (bitcoin), `https://mempool.space/testnet/api` (testnet3), `https://mempool.space/testnet4/api` (testnet4), `https://mempool.space/signet/api` (signet), `https://mutinynet.com/api` (mutinynet), `http://localhost:3000` (regtest). RPC: `http://localhost:18443` (regtest only, no default credentials). CAS gateway: `https://ipfs.io`.
+- An endpoint value with `source: "default"` is the SDK default of the network. REST: `https://mempool.space/api` (bitcoin), `https://mempool.space/testnet/api` (testnet3), `https://mempool.space/testnet4/api` (testnet4), `https://mempool.space/signet/api` (signet), `https://mutinynet.com/api` (mutinynet), `http://localhost:3000` (regtest). RPC: `http://localhost:18443` (regtest only, no default credentials). CAS gateway: `https://trustless-gateway.link`.
 - A timeout has no default. `btc.timeoutMs` must be 1 ms or more, and `cas.timeoutMs` must be 0 ms or more (`0` disables the CAS timeout). An invalid `--btc-timeout` or `--cas-timeout` value stops the command.
 - The command reads `btc.signalDiscovery` back from the constructed api, so it always carries a value: `indexer` with `source: "default"` if no layer sets it. `fullnode` resolves only on a network that ends up with an RPC client. A request for it without one stops the subcommand at the api construction. The command does not report an unusable mode.
 
@@ -144,7 +144,7 @@ Probes the resolved endpoints of one network (the same network selection and con
 
 - `btc-rest`: `GET <rest-host>/blocks/tip/height`, with the configured REST headers.
 - `btc-rpc`: a `getblockchaininfo` RPC call, only if an RPC client exists. An RPC client exists if a layer supplies an RPC URL, or on regtest (its default host `http://localhost:18443` always creates one, so the probe always runs there). On another network, credentials, a wallet name, or headers alone without an RPC URL create no RPC client, and the command skips the check.
-- `cas`: if a writable CAS RPC is configured, `POST <cas-rpc-url>/api/v0/version` (a Kubo node answers a POST only). Otherwise `GET` on the resolved gateway base URL (default `https://ipfs.io`).
+- `cas`: if a writable CAS RPC is configured, `POST <cas-rpc-url>/api/v0/version` (a Kubo node answers a POST only). Otherwise `GET` on the resolved gateway base URL (default `https://trustless-gateway.link`).
 
 Prints `{ "checks": [ { "endpoint", "target", "ok", "detail"? }, ... ] }`. `detail` carries the HTTP status or the error message of a failed check. If the active profile declares a network that differs from the probed network, the output includes a `coherence` object (`{ "profile", "declared", "encoding" }`). The exit code is 1 if a check fails.
 

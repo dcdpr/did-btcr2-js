@@ -66,7 +66,7 @@ describe('EsploraProtocol', () => {
       expect(req.url).to.equal(`https://mempool.space/api/tx/${VALID_TXID}`);
       expect(req.method).to.equal('GET');
       expect(req.body).to.be.undefined;
-      expect(req.headers['Content-Type']).to.equal('application/json');
+      expect(req.headers).to.not.have.property('Content-Type');
     });
 
     it('builds GET /tx/:txid/hex', () => {
@@ -160,6 +160,60 @@ describe('EsploraProtocol', () => {
     });
   });
 
+  describe('headers and freshness', () => {
+    const address = 'addr1';
+    /** Each GET builder, and whether its response can change over time. */
+    const gets: Array<[string, (p: EsploraProtocol) => HttpRequest, boolean]> = [
+      ['getTx',                  (p) => p.getTx(VALID_TXID),                      true],
+      ['getTxHex',               (p) => p.getTxHex(VALID_TXID),                   false],
+      ['getTxRaw',               (p) => p.getTxRaw(VALID_TXID),                   false],
+      ['getBlockTipHeight',      (p) => p.getBlockTipHeight(),                    true],
+      ['getBlock',               (p) => p.getBlock(VALID_HASH),                   false],
+      ['getBlockHeight',         (p) => p.getBlockHeight(100),                    true],
+      ['getAddressTxs',          (p) => p.getAddressTxs(address),                 true],
+      ['getAddressTxsMempool',   (p) => p.getAddressTxsMempool(address),          true],
+      ['getAddressTxsChain',     (p) => p.getAddressTxsChain(address),            true],
+      ['getAddressTxsChain(id)', (p) => p.getAddressTxsChain(address, VALID_TXID), true],
+      ['getAddressInfo',         (p) => p.getAddressInfo(address),                true],
+      ['getAddressUtxos',        (p) => p.getAddressUtxos(address),               true],
+    ];
+
+    for (const [name, build, fresh] of gets) {
+      it(`${name}: no Content-Type, ${fresh ? 'fresh' : 'not fresh'}`, () => {
+        const req = build(protocol);
+        expect(req.method).to.equal('GET');
+        const names = Object.keys(req.headers).map((h) => h.toLowerCase());
+        expect(names).to.not.include('content-type');
+        if (fresh) expect(req.fresh).to.equal(true);
+        else expect(req).to.not.have.property('fresh');
+      });
+    }
+
+    it('POST /tx is not fresh', () => {
+      expect(protocol.postTx('deadbeef')).to.not.have.property('fresh');
+    });
+
+    it('config headers reach each GET and POST /tx', () => {
+      const p = new EsploraProtocol({
+        host    : 'https://example.com',
+        headers : { 'X-Api-Key': 'secret' },
+      });
+      for (const [, build] of gets) {
+        expect(build(p).headers).to.deep.equal({ 'X-Api-Key': 'secret' });
+      }
+      expect(p.postTx('deadbeef').headers).to.deep.equal({ 'X-Api-Key': 'secret', 'Content-Type': 'text/plain' });
+    });
+
+    it('ignores a configured Content-Type in any letter case', () => {
+      const p = new EsploraProtocol({
+        host    : 'https://example.com',
+        headers : { 'content-type': 'application/json', 'CONTENT-TYPE': 'x', 'X-Api-Key': 'secret' },
+      });
+      expect(p.getBlockTipHeight().headers).to.deep.equal({ 'X-Api-Key': 'secret' });
+      expect(p.postTx('deadbeef').headers).to.deep.equal({ 'X-Api-Key': 'secret', 'Content-Type': 'text/plain' });
+    });
+  });
+
   describe('config handling', () => {
     it('strips trailing slash from host', () => {
       const p = new EsploraProtocol({ host: 'https://example.com/' });
@@ -173,7 +227,7 @@ describe('EsploraProtocol', () => {
       });
       const req = p.getTx(VALID_TXID);
       expect(req.headers['X-Custom']).to.equal('value');
-      expect(req.headers['Content-Type']).to.equal('application/json');
+      expect(req.headers).to.not.have.property('Content-Type');
     });
 
     it('returns independent header objects per request', () => {
@@ -324,7 +378,11 @@ describe('BitcoinRestClient', () => {
 
       await rest.block.count();
       expect(seen[0].headers['X-Api-Key']).to.equal('secret');
-      expect(seen[0].headers['Content-Type']).to.equal('application/json');
+      expect(seen[0].headers).to.not.have.property('Content-Type');
+      expect(seen[0].fresh).to.equal(true);
+
+      await rest.transaction.send('deadbeef');
+      expect(seen[1].headers).to.deep.equal({ 'X-Api-Key': 'secret', 'Content-Type': 'text/plain' });
     });
   });
 });

@@ -118,14 +118,16 @@ export type BitcoinApiConfig = {
    */
   signalDiscovery?: SignalDiscoveryMode;
   /**
-   * Optional HTTP executor for sans-I/O usage. Defaults to global `fetch`.
-   * Inject a custom executor to intercept requests in tests or route through
-   * a proxy without monkey-patching globals.
+   * Optional HTTP executor for sans-I/O usage. Defaults to `createFetchExecutor`
+   * of `@did-btcr2/bitcoin`, which uses the global `fetch` and works in a browser
+   * with no proxy. Inject a custom executor to intercept requests in tests or route
+   * through a proxy without monkey-patching globals. A custom executor must honor
+   * `HttpRequest.fresh`.
    */
   executor?: HttpExecutor;
   /**
-   * Optional request timeout in milliseconds for REST calls.
-   * When set, wraps the HTTP executor with an `AbortSignal.timeout()`.
+   * Optional request timeout in milliseconds for REST and RPC calls.
+   * When set, the default executor aborts a request with `AbortSignal.timeout()`.
    * Has no effect when a custom `executor` is provided (the custom
    * executor is responsible for its own timeouts).
    */

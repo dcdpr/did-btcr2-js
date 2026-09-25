@@ -71,7 +71,7 @@ export class DidBtcr2Api {
    *
    * When no `cas` config was provided to the constructor, defaults to a
    * read-only {@link HttpGatewayCasExecutor} backed by the public IPFS
-   * gateway (`https://ipfs.io`). Override via `createApi({ cas: { ... } })`.
+   * Trustless Gateway ({@link DEFAULT_CAS_GATEWAY}). Override via `createApi({ cas: { ... } })`.
    * @throws {Error} If the instance has been disposed.
    */
   get cas(): CasApi {

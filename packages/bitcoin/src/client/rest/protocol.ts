@@ -4,6 +4,11 @@ import type { HttpRequest } from '../http.js';
 
 const HEX64_RE = /^[0-9a-f]{64}$/i;
 
+/** Copy the headers without a `Content-Type` entry. The header name is case-insensitive. */
+function withoutContentType(headers: Record<string, string> = {}): Record<string, string> {
+  return Object.fromEntries(Object.entries(headers).filter(([name]) => name.toLowerCase() !== 'content-type'));
+}
+
 /**
  * Sans-I/O Esplora REST API protocol.
  *
@@ -15,6 +20,14 @@ const HEX64_RE = /^[0-9a-f]{64}$/i;
  * This mirrors the pattern used by the Rust `esploda` crate where
  * `Esplora` methods return `http::Request<()>` objects.
  *
+ * Headers: a GET request has no body, so it carries no `Content-Type`. A browser
+ * then sends a GET with no CORS preflight. `POST /tx` carries `text/plain`, which
+ * also needs no preflight. Each request carries the {@link RestConfig.headers}.
+ *
+ * Freshness: a request for a response that can change over time (the chain tip, a
+ * transaction status, the data of an address) has {@link HttpRequest.fresh} set.
+ * A request for a fixed response (a transaction or a block by its hash) does not.
+ *
  * @example
  * ```ts
  * const protocol = new EsploraProtocol({ host: 'https://mempool.space/api' });
@@ -22,21 +35,19 @@ const HEX64_RE = /^[0-9a-f]{64}$/i;
  * // Build a request descriptor (no I/O)
  * const req = protocol.getTx('abc123...');
  *
- * // Execute with any HTTP client
- * const res = await fetch(req.url, req);
+ * // Execute with an executor that honors `fresh`
+ * const res = await defaultHttpExecutor(req);
  * const tx: RawTransactionRest = await res.json();
  * ```
  */
 export class EsploraProtocol {
   private readonly baseUrl: string;
-  private readonly defaultHeaders: Record<string, string>;
+  private readonly headers: Record<string, string>;
 
   constructor(config: RestConfig) {
     this.baseUrl = StringUtils.replaceEnd(config.host, '/');
-    this.defaultHeaders = {
-      'Content-Type' : 'application/json',
-      ...config.headers,
-    };
+    // The protocol sets Content-Type from the request body.
+    this.headers = withoutContentType(config.headers);
   }
 
   private static assertHex64(value: string, label: string): void {
@@ -51,27 +62,33 @@ export class EsploraProtocol {
     }
   }
 
+  /** A GET for a fixed response: a cache can keep it. */
   private get(path: string): HttpRequest {
     return {
       url     : `${this.baseUrl}${path}`,
       method  : 'GET',
-      headers : { ...this.defaultHeaders },
+      headers : { ...this.headers },
     };
   }
 
-  private post(path: string, body: string, headers?: Record<string, string>): HttpRequest {
+  /** A GET for a response that can change: the executor must get it from the origin server. */
+  private getFresh(path: string): HttpRequest {
+    return { ...this.get(path), fresh: true };
+  }
+
+  private post(path: string, body: string, contentType: string): HttpRequest {
     return {
       url     : `${this.baseUrl}${path}`,
       method  : 'POST',
-      headers : headers ?? { ...this.defaultHeaders },
+      headers : { ...this.headers, 'Content-Type': contentType },
       body,
     };
   }
 
-  /** GET /tx/:txid */
+  /** GET /tx/:txid (fresh: the `status` changes when the transaction confirms) */
   getTx(txid: string): HttpRequest {
     EsploraProtocol.assertHex64(txid, 'txid');
-    return this.get(`/tx/${txid}`);
+    return this.getFresh(`/tx/${txid}`);
   }
 
   /** GET /tx/:txid/hex */
@@ -88,12 +105,12 @@ export class EsploraProtocol {
 
   /** POST /tx */
   postTx(hex: string): HttpRequest {
-    return this.post('/tx', hex, { 'Content-Type': 'text/plain' });
+    return this.post('/tx', hex, 'text/plain');
   }
 
-  /** GET /blocks/tip/height */
+  /** GET /blocks/tip/height (fresh: the tip moves with each block) */
   getBlockTipHeight(): HttpRequest {
-    return this.get('/blocks/tip/height');
+    return this.getFresh('/blocks/tip/height');
   }
 
   /** GET /block/:blockhash */
@@ -102,42 +119,42 @@ export class EsploraProtocol {
     return this.get(`/block/${blockhash}`);
   }
 
-  /** GET /block-height/:height */
+  /** GET /block-height/:height (fresh: a reorg changes the hash, and a future height has none) */
   getBlockHeight(height: number): HttpRequest {
-    return this.get(`/block-height/${height}`);
+    return this.getFresh(`/block-height/${height}`);
   }
 
-  /** GET /address/:address/txs */
+  /** GET /address/:address/txs (fresh) */
   getAddressTxs(address: string): HttpRequest {
     EsploraProtocol.assertAddress(address);
-    return this.get(`/address/${address}/txs`);
+    return this.getFresh(`/address/${address}/txs`);
   }
 
-  /** GET /address/:address/txs/mempool */
+  /** GET /address/:address/txs/mempool (fresh) */
   getAddressTxsMempool(address: string): HttpRequest {
     EsploraProtocol.assertAddress(address);
-    return this.get(`/address/${address}/txs/mempool`);
+    return this.getFresh(`/address/${address}/txs/mempool`);
   }
 
-  /** GET /address/:address/txs/chain[/:last_seen_txid] */
+  /** GET /address/:address/txs/chain[/:last_seen_txid] (fresh: a new confirmation or a reorg changes a page) */
   getAddressTxsChain(address: string, lastSeenTxId?: string): HttpRequest {
     EsploraProtocol.assertAddress(address);
     if (lastSeenTxId) EsploraProtocol.assertHex64(lastSeenTxId, 'lastSeenTxId');
     const path = lastSeenTxId
       ? `/address/${address}/txs/chain/${lastSeenTxId}`
       : `/address/${address}/txs/chain`;
-    return this.get(path);
+    return this.getFresh(path);
   }
 
-  /** GET /address/:address */
+  /** GET /address/:address (fresh) */
   getAddressInfo(address: string): HttpRequest {
     EsploraProtocol.assertAddress(address);
-    return this.get(`/address/${address}`);
+    return this.getFresh(`/address/${address}`);
   }
 
-  /** GET /address/:address/utxo */
+  /** GET /address/:address/utxo (fresh) */
   getAddressUtxos(address: string): HttpRequest {
     EsploraProtocol.assertAddress(address);
-    return this.get(`/address/${address}/utxo`);
+    return this.getFresh(`/address/${address}/utxo`);
   }
 }

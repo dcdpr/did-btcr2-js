@@ -1,6 +1,6 @@
 # btcr2 resolve
 
-Resolves the DID document of a `did:btcr2` identifier and prints the resolution result on stdout. The command is read-only and needs no keystore: it never touches the keystore, never asks for a passphrase, and never reads the session. The identifier encodes the network. So `resolve` works with no config against the public defaults of each network: the mempool.space Esplora REST endpoints and the public `https://ipfs.io` IPFS gateway for CAS reads.
+Resolves the DID document of a `did:btcr2` identifier and prints the resolution result on stdout. The command is read-only and needs no keystore: it never touches the keystore, never asks for a passphrase, and never reads the session. The identifier encodes the network. So `resolve` works with no config against the public defaults of each network: the mempool.space Esplora REST endpoints and the public `https://trustless-gateway.link` IPFS gateway for CAS reads.
 
 The CLI drives the sans-I/O `Resolver` state machine through `@did-btcr2/api`. The api fetches the beacon signals from the Bitcoin REST endpoint. With `--btc-signal-discovery fullnode`, it scans blocks over Bitcoin Core RPC instead. The api fetches a genesis document, a CAS announcement, or a signed update from the configured CAS by hash, if the sidecar data does not supply it. Use `-r` or `-p` to pass resolution options (a version pin, sidecar data, a discovery limit).
 
@@ -99,7 +99,7 @@ The settings that feed this command:
 | Extra RPC headers | `--btc-rpc-header <header>` (repeatable, `'Key: Value'`) | none | `profiles.<name>.btc.rpcHeaders` | none |
 | Beacon signal discovery | `--btc-signal-discovery <mode>` (`indexer` \| `fullnode`) | `BTCR2_BTC_SIGNAL_DISCOVERY` | `profiles.<name>.btc.signalDiscovery` | `indexer` |
 | Bitcoin timeout (ms) | `--btc-timeout <ms>` (finite number, 1 or more) | `BTCR2_BTC_TIMEOUT` | `profiles.<name>.btc.timeoutMs` | no limit |
-| CAS gateway (read-only) | `--cas-gateway <url>` | `BTCR2_CAS_GATEWAY` | `profiles.<name>.cas.gateway` | `https://ipfs.io` |
+| CAS gateway (read-only) | `--cas-gateway <url>` | `BTCR2_CAS_GATEWAY` | `profiles.<name>.cas.gateway` | `https://trustless-gateway.link` |
 | CAS RPC endpoint (writable) | `--cas-rpc-url <url>` | `BTCR2_CAS_RPC_URL` | `profiles.<name>.cas.rpcUrl` | none |
 | CAS timeout (ms) | `--cas-timeout <ms>` (finite number, 0 or more. `0` disables the timeout) | `BTCR2_CAS_TIMEOUT` | `profiles.<name>.cas.timeoutMs` | `30000` |
 

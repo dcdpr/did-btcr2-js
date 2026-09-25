@@ -6,6 +6,7 @@ import type {
   RpcConfig} from '@did-btcr2/bitcoin';
 import {
   BitcoinConnection,
+  createFetchExecutor,
   type RawTransactionRest
 } from '@did-btcr2/bitcoin';
 import { assertString } from './helpers.js';
@@ -148,18 +149,9 @@ export class BitcoinApi {
    * @param cfg The network and optional REST/RPC overrides.
    */
   constructor(cfg: BitcoinApiConfig) {
-    let executor = cfg.executor;
-    // Wrap the default fetch with a timeout if configured and no custom
-    // executor was provided.
-    if (!executor && cfg.timeoutMs !== undefined) {
-      const ms = cfg.timeoutMs;
-      executor = (req) => fetch(req.url, {
-        method  : req.method,
-        headers : req.headers,
-        body    : req.body,
-        signal  : AbortSignal.timeout(ms),
-      });
-    }
+    // The fetch executor of the bitcoin package applies the timeout and the
+    // freshness rules of `HttpRequest.fresh`, so the api has no fetch call of its own.
+    const executor = cfg.executor ?? createFetchExecutor({ timeoutMs: cfg.timeoutMs });
     this.connection = new BitcoinConnection(resolveConnectionOptions(cfg, executor));
 
     this.signalDiscovery = cfg.signalDiscovery ?? 'indexer';

@@ -6,8 +6,13 @@ import * as raw from 'multiformats/codecs/raw';
 import { create as createDigest } from 'multiformats/hashes/digest';
 import { sha256 } from 'multiformats/hashes/sha2';
 
-/** Default IPFS HTTP gateway used for CAS reads when no CAS config is provided. */
-export const DEFAULT_CAS_GATEWAY = 'https://ipfs.io';
+/**
+ * Default IPFS HTTP gateway used for CAS reads when no CAS config is provided.
+ * It is a public {@link https://specs.ipfs.tech/http-gateways/trustless-gateway/ | Trustless Gateway}:
+ * it serves the raw blocks that {@link HttpGatewayCasExecutor} requests, with CORS
+ * headers, so a browser can read from it. `CasApi.retrieve` verifies the hash of each block.
+ */
+export const DEFAULT_CAS_GATEWAY = 'https://trustless-gateway.link';
 
 /**
  * Executor interface for content-addressed storage.
@@ -210,7 +215,7 @@ export type CasConfig = {
   blockstore?: BlockstoreLike | BlockstoreProviderLike;
   /** IPFS HTTP RPC API endpoint for read-write CAS access (e.g. `'http://127.0.0.1:5001'`). */
   rpcUrl?: string;
-  /** IPFS HTTP gateway URL for read-only CAS access (e.g. `'https://ipfs.io'`). */
+  /** IPFS HTTP gateway URL for read-only CAS access (e.g. `'https://trustless-gateway.link'`). */
   gateway?: string;
   /**
    * Timeout in milliseconds for CAS operations. Prevents indefinite hangs
@@ -249,7 +254,7 @@ export class CasApi {
     } else {
       throw new Error(
         'CAS configuration requires an executor, blockstore, RPC URL, or gateway URL. '
-        + 'Example: createApi({ cas: { gateway: \'https://ipfs.io\' } })'
+        + 'Example: createApi({ cas: { gateway: \'https://trustless-gateway.link\' } })'
       );
     }
     this.#timeoutMs = config.timeoutMs ?? DEFAULT_CAS_TIMEOUT_MS;

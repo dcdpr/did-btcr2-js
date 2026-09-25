@@ -2,7 +2,7 @@
 
 Reference documentation for `btcr2`, the command-line tool of the `did:btcr2` method. This page lists the commands, the global flags, the environment variables, and the precedence of each value. One page per command follows the links in the table.
 
-The text matches `@did-btcr2/cli` v0.25.0.
+The text matches `@did-btcr2/cli` v0.25.1.
 
 ## Commands
 
@@ -39,7 +39,7 @@ A global flag goes before the command word. Every command accepts every global f
 | `--btc-rest <url>` | URL | the SDK default of the network (mempool.space endpoints, listed in [resolve.md](./resolve.md#environment-and-configuration)) | The Bitcoin REST (Esplora) endpoint. |
 | `--btc-rpc-url <url>` | URL | `http://localhost:18443` on regtest, none on the other networks | The Bitcoin Core RPC endpoint. |
 | `--btc-rpc-user <user>` | string | none | The Bitcoin Core RPC username. |
-| `--cas-gateway <url>` | URL | `https://ipfs.io` | The IPFS HTTP gateway for CAS reads (read-only). |
+| `--cas-gateway <url>` | URL | `https://trustless-gateway.link` | The IPFS HTTP gateway for CAS reads (read-only). |
 | `--cas-rpc-url <url>` | URL | none | The IPFS HTTP RPC endpoint of a writable CAS (reads and writes). `--publish-to-cas auto` and `always` on `update` and `deactivate` need it. |
 | `--btc-timeout <ms>` | finite number, 1 or more | none (no limit) | The Bitcoin REST and RPC request timeout in milliseconds. |
 | `--cas-timeout <ms>` | finite number, 0 or more. `0` disables the timeout. | none. The api then applies 30000 ms. | The CAS request timeout in milliseconds. |

@@ -59,7 +59,7 @@ The probe resolves the endpoints through the standard CLI precedence chain (the 
 
 - `btc-rest`: `GET <rest-host>/blocks/tip/height` (for the default mutinynet setup, the host is `https://mutinynet.com/api`).
 - `btc-rpc`: a `getblockchaininfo` call, only if an RPC endpoint is configured. Regtest has the default `http://localhost:18443`. A public network has none unless you configure one.
-- `cas`: `POST <cas-rpc-url>/api/v0/version` if a writable CAS RPC endpoint is configured, else `GET` on the resolved read-only gateway (default `https://ipfs.io`).
+- `cas`: `POST <cas-rpc-url>/api/v0/version` if a writable CAS RPC endpoint is configured, else `GET` on the resolved read-only gateway (default `https://trustless-gateway.link`).
 
 Each probe has a 5000 ms timeout. The report also carries a `coherence` warning if the active profile declares a network that differs from the recorded network. Each finding is advisory: the exit code stays 0, and text mode adds a stderr warning that suggests `btcr2 config doctor`.
 

@@ -9,9 +9,9 @@ import * as raw from 'multiformats/codecs/raw';
 import { create as createDigest } from 'multiformats/hashes/digest';
 import { sha256 } from 'multiformats/hashes/sha2';
 import { decode as decodeHash } from '@did-btcr2/common';
-import { HttpGatewayCasExecutor } from '../src/cas.js';
+import { DEFAULT_CAS_GATEWAY, HttpGatewayCasExecutor } from '../src/cas.js';
 
-const gateway = process.argv[2] ?? 'https://ipfs.io';
+const gateway = process.argv[2] ?? DEFAULT_CAS_GATEWAY;
 
 // Hash from a real did:btcr2 resolution failure: the signed update the
 // resolver needed but couldn't fetch without CAS.

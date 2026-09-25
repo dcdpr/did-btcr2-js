@@ -4,7 +4,7 @@ This walkthrough shows the `btcr2` command-line tool from the setup to an on-cha
 
 **How to use this document:** run the commands from top to bottom in one terminal session. A later command reuses the shell variables of an earlier command, so keep the same session open. Each output block is an example. Your keys, identifiers, and Bitcoin addresses differ, but the shape is the same.
 
-The text matches `@did-btcr2/cli` v0.25.0.
+The text matches `@did-btcr2/cli` v0.25.1.
 
 ---
 
@@ -44,7 +44,7 @@ btcr2 --version
 ```
 
 ```
-btcr2 0.25.0
+btcr2 0.25.1
 ```
 
 ### Set up in one command
@@ -77,7 +77,7 @@ btcr2 quickstart -n mutinynet --dev
   "protection": "encrypted",
   "unlocked": true,
   "session": { "expiresAt": 1760000000000, "ttlSeconds": 7200 },
-  "doctor": { "checks": [ { "endpoint": "btc-rest", "target": "https://mutinynet.com/api", "ok": true }, { "endpoint": "cas", "target": "https://ipfs.io", "ok": true } ] }
+  "doctor": { "checks": [ { "endpoint": "btc-rest", "target": "https://mutinynet.com/api", "ok": true }, { "endpoint": "cas", "target": "https://trustless-gateway.link", "ok": true } ] }
 }
 ```
 

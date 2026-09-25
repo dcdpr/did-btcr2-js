@@ -34,7 +34,7 @@ Requires Node >= 22. Ships both ESM and CJS; pick whichever your bundler needs.
 | Per-network connection | `BitcoinConnection`, `BitcoinConnectionOptions` |
 | REST client (Esplora) | `BitcoinRestClient`, sub-clients `BitcoinAddress`, `BitcoinBlock`, `BitcoinTransaction` |
 | RPC client (Bitcoin Core) | `BitcoinCoreRpcClient`, `JsonRpcTransport`, `RpcMethodMap`, `TypedRpcMethod` |
-| Sans-I/O protocol layer | `EsploraProtocol`, `JsonRpcProtocol`, `HttpRequest`, `HttpExecutor`, `defaultHttpExecutor` |
+| Sans-I/O protocol layer | `EsploraProtocol`, `JsonRpcProtocol`, `HttpRequest`, `HttpExecutor`, `defaultHttpExecutor`, `createFetchExecutor`, `FetchExecutorOptions` |
 | Fee estimation | `FeeEstimator`, `StaticFeeEstimator` |
 | Network params | `getNetwork(name)`, `BTCNetwork`, `NetworkName` |
 | Errors | `BitcoinRpcError`, `BitcoinRestError`, `RpcErrorType` |
@@ -64,20 +64,37 @@ const regtest = new BitcoinConnection({
 await regtest.rpc!.generateToAddress(6, await regtest.rpc!.getNewAddress('bech32'));
 ```
 
+### Fresh responses and browsers
+
+`EsploraProtocol` sets `fresh: true` on each request whose response can change over time: the chain tip, a transaction with its `status`, a block hash by height, and the data of an address. A request for a transaction or a block by its hash has no `fresh` field, so a cache can keep the response.
+
+The default executor gets a fresh response from the origin server. It sets the fetch option `cache: 'no-store'` and adds a random `_` query parameter, so that no browser cache and no CDN cache answers the request. It adds no request header. A GET request carries no `Content-Type`, and `POST /tx` carries `text/plain`. So a browser sends no CORS preflight, and the default config works in a web app.
+
 ### Injecting a custom executor
 
-For tests, sandboxes, or rate-limited fetchers, pass your own `HttpExecutor`:
+For a request timeout, use `createFetchExecutor`:
 
 ```typescript
+import { BitcoinConnection, createFetchExecutor } from '@did-btcr2/bitcoin';
+
 const btc = new BitcoinConnection({
   network  : 'mutinynet',
   rest     : { host: 'https://mutinynet.com/api' },
-  executor : (req) => fetch(req.url, {
-    method  : req.method,
-    headers : req.headers,
-    body    : req.body,
-    signal  : AbortSignal.timeout(5_000),
-  }),
+  executor : createFetchExecutor({ timeoutMs: 5_000 }),
+});
+```
+
+For tests, sandboxes, or rate-limited fetchers, pass your own `HttpExecutor`. It must honor `req.fresh`. To keep the default rules, wrap an executor from `createFetchExecutor`:
+
+```typescript
+const fetchExecutor = createFetchExecutor({ timeoutMs: 5_000 });
+const btc = new BitcoinConnection({
+  network  : 'mutinynet',
+  rest     : { host: 'https://mutinynet.com/api' },
+  executor : async (req) => {
+    await rateLimiter.acquire();
+    return fetchExecutor(req);
+  },
 });
 ```
 

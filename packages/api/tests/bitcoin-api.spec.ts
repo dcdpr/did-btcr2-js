@@ -164,6 +164,44 @@ describe('BitcoinApi', () => {
     expect(btc.connection).to.exist;
   });
 
+  // --- default executor: browser-safe requests ---
+
+  describe('default executor', () => {
+    const originalFetch = globalThis.fetch;
+    let calls: { url: string; init: any }[] = [];
+
+    beforeEach(() => {
+      calls = [];
+      globalThis.fetch = (async (url: string, init?: any) => {
+        calls.push({ url, init });
+        return new Response('100', { status: 200, headers: { 'Content-Type': 'text/plain' } });
+      }) as typeof fetch;
+    });
+
+    afterEach(() => {
+      globalThis.fetch = originalFetch;
+    });
+
+    for (const timeoutMs of [undefined, 5000]) {
+      it(`gets a fresh chain tip with no Content-Type (timeoutMs ${timeoutMs})`, async () => {
+        const btc = new BitcoinApi({ network: 'mutinynet', timeoutMs });
+        expect(await btc.rest.block.count()).to.equal(100);
+        expect(calls[0].url).to.match(/^https:\/\/mutinynet\.com\/api\/blocks\/tip\/height\?_=[0-9a-f]{16}$/);
+        expect(calls[0].init.cache).to.equal('no-store');
+        expect(calls[0].init.headers).to.deep.equal({});
+        expect(calls[0].init.signal !== undefined).to.equal(timeoutMs !== undefined);
+      });
+    }
+
+    it('sends POST /tx as text/plain with the config headers', async () => {
+      const btc = new BitcoinApi({ network: 'mutinynet', rest: { headers: { 'X-Api-Key': 'k' } } });
+      await btc.send('00');
+      expect(calls[0].url).to.equal('https://mutinynet.com/api/tx');
+      expect(calls[0].init.headers).to.deep.equal({ 'X-Api-Key': 'k', 'Content-Type': 'text/plain' });
+      expect(calls[0].init).to.not.have.property('cache');
+    });
+  });
+
   // --- HttpExecutor injection ---
 
   it('getTransaction() sends request to correct URL via injected executor', async () => {

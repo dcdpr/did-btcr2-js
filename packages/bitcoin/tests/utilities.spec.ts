@@ -1,7 +1,7 @@
 import { NETWORK, TEST_NETWORK } from '@scure/btc-signer';
 import { expect } from 'chai';
 import type { HttpRequest } from '../src/client/http.js';
-import { defaultHttpExecutor } from '../src/client/http.js';
+import { createFetchExecutor, defaultHttpExecutor } from '../src/client/http.js';
 import { safeText, toBase64 } from '../src/client/utils.js';
 import { BitcoinRestError, BitcoinRpcError } from '../src/errors.js';
 import { getNetwork } from '../src/network.js';
@@ -91,6 +91,81 @@ describe('defaultHttpExecutor', () => {
 
     await defaultHttpExecutor(req);
     expect(seen[0].init.body).to.be.undefined;
+  });
+
+  it('keeps the URL and sets no cache option for a request that is not fresh', async () => {
+    const seen: any[] = [];
+    global.fetch = async (url: any, init?: any) => {
+      seen.push({ url, init });
+      return new Response('{}', { status: 200 });
+    };
+
+    await defaultHttpExecutor({ url: 'http://example.com/tx/abc/hex', method: 'GET', headers: {} });
+    expect(seen[0].url).to.equal('http://example.com/tx/abc/hex');
+    expect(seen[0].init).to.not.have.property('cache');
+    expect(seen[0].init).to.not.have.property('signal');
+  });
+
+  it('sets no-store and a unique query for a fresh request, with no added header', async () => {
+    const seen: any[] = [];
+    global.fetch = async (url: any, init?: any) => {
+      seen.push({ url, init });
+      return new Response('1', { status: 200 });
+    };
+
+    const req: HttpRequest = { url: 'http://example.com/blocks/tip/height', method: 'GET', headers: { 'X-Api-Key': 'k' }, fresh: true };
+    await defaultHttpExecutor(req);
+    await defaultHttpExecutor(req);
+    expect(seen[0].url).to.match(/^http:\/\/example\.com\/blocks\/tip\/height\?_=[0-9a-f]{16}$/);
+    expect(seen[1].url).to.match(/^http:\/\/example\.com\/blocks\/tip\/height\?_=[0-9a-f]{16}$/);
+    expect(seen[0].url).to.not.equal(seen[1].url);
+    expect(seen[0].init.cache).to.equal('no-store');
+    expect(seen[0].init.headers).to.deep.equal({ 'X-Api-Key': 'k' });
+    expect(req.url).to.equal('http://example.com/blocks/tip/height');
+  });
+
+  it('appends the unique query with & if the URL has a query', async () => {
+    const seen: any[] = [];
+    global.fetch = async (url: any) => {
+      seen.push(url);
+      return new Response('{}', { status: 200 });
+    };
+
+    await defaultHttpExecutor({ url: '/esplora/address/a/txs?after_txid=b', method: 'GET', headers: {}, fresh: true });
+    expect(seen[0]).to.match(/^\/esplora\/address\/a\/txs\?after_txid=b&_=[0-9a-f]{16}$/);
+  });
+});
+
+describe('createFetchExecutor', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('sets an abort signal if timeoutMs is set', async () => {
+    const seen: any[] = [];
+    global.fetch = async (url: any, init?: any) => {
+      seen.push({ url, init });
+      return new Response('{}', { status: 200 });
+    };
+
+    await createFetchExecutor({ timeoutMs: 5_000 })({ url: 'http://example.com/x', method: 'GET', headers: {}, fresh: true });
+    expect(seen[0].init.signal).to.be.instanceOf(AbortSignal);
+    expect(seen[0].init.signal.aborted).to.equal(false);
+    expect(seen[0].init.cache).to.equal('no-store');
+    expect(seen[0].url).to.match(/^http:\/\/example\.com\/x\?_=[0-9a-f]{16}$/);
+  });
+
+  it('sets no abort signal if timeoutMs is absent', async () => {
+    const seen: any[] = [];
+    global.fetch = async (url: any, init?: any) => {
+      seen.push({ url, init });
+      return new Response('{}', { status: 200 });
+    };
+
+    await createFetchExecutor()({ url: 'http://example.com/x', method: 'GET', headers: {} });
+    expect(seen[0].init).to.not.have.property('signal');
   });
 });
 

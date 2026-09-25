@@ -115,7 +115,13 @@ export interface EsploraBlock {
 }
 
 export interface RestConfig {
+  /** The base URL of the Esplora REST API, for example `https://mempool.space/api`. */
   host: string;
+  /**
+   * Headers for each request, for example an API key. The protocol sets `Content-Type`
+   * from the request body, so it ignores a `Content-Type` entry here. In a browser, a
+   * header that is not CORS-safelisted causes a preflight request.
+   */
   headers?: Record<string, string>;
 }
 
