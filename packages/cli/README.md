@@ -10,7 +10,7 @@ The `btcr2` command creates, resolves, updates, and deactivates did:btcr2 identi
 
 The CLI wraps the `@did-btcr2/api` SDK. It parses the arguments with [commander.js](https://github.com/tj/commander.js/).
 
-`btcr2 resolve` works with no config. The identifier names its network, and the CLI uses public endpoints (mempool.space, ipfs.io) by default. A flag, an environment variable, or the config file can override each endpoint.
+`btcr2 resolve` works with no config. The identifier names its network, and the CLI uses public endpoints (mempool.space, trustless-gateway.link) by default. A flag, an environment variable, or the config file can override each endpoint.
 
 `update` and `deactivate` read the signing key from the keystore. Select a key with `--signing-key <ref>`, or set the active key with `btcr2 key use <ref>`.
 

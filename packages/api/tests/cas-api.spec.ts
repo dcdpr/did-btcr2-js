@@ -6,6 +6,8 @@ import { sha256 } from 'multiformats/hashes/sha2';
 import {
   BlockstoreCasExecutor,
   CasApi,
+  createApi,
+  DEFAULT_CAS_GATEWAY,
   HttpGatewayCasExecutor,
   IpfsRpcCasExecutor,
 } from '../src/index.js';
@@ -207,6 +209,15 @@ describe('CasApi', () => {
 
     it('requires at least one backend', () => {
       expect(() => new CasApi({})).to.throw(/executor, blockstore, RPC URL, or gateway/);
+    });
+
+    it('reads from the public Trustless Gateway if no CAS config is given', async () => {
+      expect(DEFAULT_CAS_GATEWAY).to.equal('https://trustless-gateway.link');
+      stubFetch(() => new Response(Uint8Array.from(data)));
+      const api = createApi();
+      expect(await api.cas.retrieve(canonicalHashBytes(object))).to.deep.equal(object);
+      expect(fetchCalls[0].url).to.equal(`https://trustless-gateway.link/ipfs/${await cidForData(data)}?format=raw`);
+      expect((fetchCalls[0].init?.headers as Record<string, string>).Accept).to.equal('application/vnd.ipld.raw');
     });
 
     it('prefers a custom executor over all other backends', async () => {

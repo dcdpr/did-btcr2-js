@@ -1,5 +1,20 @@
 # @did-btcr2/api
 
+## 0.28.1
+
+### Patch Changes
+
+- The default config works in a browser with no proxy and no custom executor (ADR 124).
+
+  - bitcoin: a GET request carries no `Content-Type`, so a browser sends no CORS preflight. `POST /tx` sends `text/plain` and the `RestConfig` headers, and the protocol ignores a `Content-Type` entry in `RestConfig.headers`. `HttpRequest` gets the optional field `fresh`, which `EsploraProtocol` sets on each endpoint whose response can change. The new export `createFetchExecutor({ timeoutMs? })` sends a fresh request with `cache: 'no-store'` and a random `_` query parameter. `defaultHttpExecutor` is `createFetchExecutor()`.
+  - api: `BitcoinApi` uses `createFetchExecutor` for the default executor and for the `timeoutMs` executor. `DEFAULT_CAS_GATEWAY` is `https://trustless-gateway.link`, because `ipfs.io` redirects a raw-block read there with no CORS header.
+  - cli: the docs and the config file example name the new default CAS gateway.
+  - method, aggregation: dependency uptake.
+
+- Updated dependencies []:
+  - @did-btcr2/bitcoin@0.11.3
+  - @did-btcr2/method@0.66.3
+
 ## 0.28.0
 
 ### Minor Changes

@@ -201,3 +201,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 121 | 2026-09-22 | [A Vector Pass Adds Recipes to Anchored Sets, the SMT Recipes Cover the Four Leaf Values, and signals.json Records the Chain Tip](121-vector-pass-adds-recipes-smt-leaf-values-and-recorded-tip.md) |
 | 122 | 2026-09-23 | [The api Exports the Steps of a Vector Tool, and the SMT Verifier Rejects an Empty Sibling in `hashes`](122-api-exports-vector-tool-steps-and-smt-rejects-empty-sibling-in-hashes.md) |
 | 123 | 2026-09-24 | [updateDid and deactivateDid Follow the Signatures of the Specification](123-update-and-deactivate-follow-the-specification-signatures.md) |
+| 124 | 2026-09-25 | [The Default Config Works in a Browser: No Preflight, Fresh Chain Data, and a CORS Gateway](124-default-config-works-in-a-browser.md) |

@@ -74,7 +74,7 @@ export type ConnectionOverrides = {
  *     },
  *     "bitcoin": {
  *       "btc": { "rest": "https://my-mempool/api" },
- *       "cas": { "gateway": "https://ipfs.io", "rpcUrl": "http://127.0.0.1:5001" }
+ *       "cas": { "gateway": "https://trustless-gateway.link", "rpcUrl": "http://127.0.0.1:5001" }
  *     }
  *   }
  * }
