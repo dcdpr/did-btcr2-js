@@ -456,8 +456,7 @@ export class FileKeyStore implements KeyValueStore<KeyIdentifier, KeyEntry> {
         } else if (this.#verifier !== undefined && passphrase !== undefined) {
           // A verifier exists: it pre-existed, was established concurrently while we
           // sealed, or was rotated by a concurrent change-passphrase. If it was
-          // rotated out from under our seal, abort with a clear message; otherwise
-          // assert our passphrase still opens it before persisting the key.
+          // rotated out from under our seal, abort with a clear message.
           if (verifierAtSeal !== undefined && !sameEnvelope(this.#verifier, verifierAtSeal)) {
             throw new KeyStoreError(
               `The keystore passphrase at ${this.#path} changed concurrently; re-run the command.`,
@@ -465,7 +464,11 @@ export class FileKeyStore implements KeyValueStore<KeyIdentifier, KeyEntry> {
               { path: this.#path },
             );
           }
-          this.#assertPassphrase(passphrase);
+          // #sealPassphrase already checked the passphrase against verifierAtSeal,
+          // and the verifier on disk is the same envelope. A second argon2id call
+          // in the lock gives the same result, so only a verifier from a concurrent
+          // establishment gets a check here (ADR 126).
+          if (verifierAtSeal === undefined) this.#assertPassphrase(passphrase);
         }
       }
       this.#cache.set(id, {

@@ -85,7 +85,7 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=24.7.0"
   },
   "devDependencies": {
     "@changesets/changelog-github": "^0.5.1",

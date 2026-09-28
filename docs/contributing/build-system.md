@@ -18,7 +18,7 @@ The build system uses:
 - **[esbuild](https://esbuild.github.io/)**: direct invocation for browser bundles (via `build/bundles.js`)
 - **[ESLint](https://eslint.org/)**: flat-config linter with `@typescript-eslint` + `eslint-plugin-mocha`
 - **[mocha](https://mochajs.org/) + [chai](https://www.chaijs.com/) + [c8](https://github.com/bcoe/c8)**: test runner, assertion library, and V8 coverage
-- **Node.js ≥ 22**: minimum runtime for development and for installed consumers
+- **Node.js ≥ 24.7**: minimum runtime for development and for the `@did-btcr2/cli` package (ADR 126). The library packages need Node.js ≥ 22.
 
 ## Package dependency graph
 

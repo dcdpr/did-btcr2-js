@@ -28,7 +28,7 @@ Or with pnpm:
 pnpm add -g @did-btcr2/cli
 ```
 
-The CLI needs Node.js 22 or newer.
+The CLI needs Node.js 24.7 or newer.
 
 To run the CLI without a global install, use npx:
 

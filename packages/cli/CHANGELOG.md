@@ -1,5 +1,15 @@
 # @did-btcr2/cli
 
+## 0.26.0
+
+### Minor Changes
+
+- The cli requires Node.js 24.7 or later, and the key commands are faster (ADR 126).
+
+  - BREAKING: `engines.node` is `>=24.7.0`. On an older Node.js, `btcr2` writes `btcr2 needs Node.js 24.7 or later.` to stderr and exits with code 1.
+  - The keystore derives each key with `crypto.argon2Sync` of Node.js. The output is the same as the output of `argon2id` from `@noble/hashes`, so an existing keystore opens with no migration. `key generate` takes 0.42 s, not 5.2 s.
+  - `FileKeyStore.set()` checks the passphrase once against the verifier for each seal, not twice.
+
 ## 0.25.2
 
 ### Patch Changes
