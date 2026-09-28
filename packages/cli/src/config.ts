@@ -33,6 +33,10 @@ export type ConnectionOverrides = {
   casGateway?     : string;
   /** IPFS HTTP RPC endpoint for a writable CAS (reads + writes). */
   casRpcUrl?      : string;
+  /** HTTP Basic user of the IPFS HTTP RPC endpoint. */
+  casRpcUser?     : string;
+  /** HTTP Basic password of the IPFS HTTP RPC endpoint (raw, may be an `env:`/`file:` reference). */
+  casRpcPass?     : string;
   /** Bitcoin REST/RPC request timeout in milliseconds (raw flag/env string). */
   btcTimeout?     : string;
   /** CAS request timeout in milliseconds (raw flag/env string; `0` disables). */
@@ -86,6 +90,12 @@ export type ConfigFile = {
     profile?: string;
     network?: NetworkOption;
     output?: OutputFormat;
+    /**
+     * CAS values for all networks. A profile `cas` value wins over the value
+     * here. CAS data does not belong to one network, so one IPFS node can serve
+     * all profiles (ADR 129).
+     */
+    cas?: CasSettings;
   };
   profiles?: Record<string, {
     /**
@@ -119,20 +129,27 @@ export type ConfigFile = {
        */
       signalDiscovery? : SignalDiscoveryMode;
     };
-    cas?: {
-      /** IPFS HTTP gateway for CAS reads (read-only). */
-      gateway?: string;
-      /** IPFS HTTP RPC endpoint for a writable CAS (reads + writes). */
-      rpcUrl?: string;
-      /** Request timeout in milliseconds for CAS operations. Default 30000; `0` disables. */
-      timeoutMs?: number;
-    };
+    cas?: CasSettings;
     /** Signing identity references. Never embeds key material; the secret lives in the keystore. */
     identity?: {
       keystore?: string;
       default?: string;
     };
   }>;
+};
+
+/** The CAS keys of a profile `cas` block and of `defaults.cas`. */
+export type CasSettings = {
+  /** IPFS HTTP gateway for CAS reads (read-only). */
+  gateway?: string;
+  /** IPFS HTTP RPC endpoint for a writable CAS (reads + writes). */
+  rpcUrl?: string;
+  /** HTTP Basic user of `rpcUrl`. */
+  rpcUser?: string;
+  /** HTTP Basic password of `rpcUrl`. Use an `env:`/`file:` secret reference. */
+  rpcPass?: string;
+  /** Request timeout in milliseconds for CAS operations. Default 30000; `0` disables. */
+  timeoutMs?: number;
 };
 
 /** Current config-file schema version, stamped on every write. */
@@ -240,6 +257,8 @@ export type ApiFactory = (network?: NetworkOption, overrides?: ConnectionOverrid
  * | `BTCR2_BTC_RPC_PASS`  | (no flag: never argv) |
  * | `BTCR2_CAS_GATEWAY`   | `--cas-gateway`    |
  * | `BTCR2_CAS_RPC_URL`   | `--cas-rpc-url`    |
+ * | `BTCR2_CAS_RPC_USER`  | `--cas-rpc-user`   |
+ * | `BTCR2_CAS_RPC_PASS`  | (no flag: never argv) |
  * | `BTCR2_BTC_TIMEOUT`   | `--btc-timeout`    |
  * | `BTCR2_CAS_TIMEOUT`   | `--cas-timeout`    |
  * | `BTCR2_FEE_RATE`      | `--fee-rate`       |
@@ -252,6 +271,8 @@ export const ENV_VARS = {
   BTC_RPC_PASS         : 'BTCR2_BTC_RPC_PASS',
   CAS_GATEWAY          : 'BTCR2_CAS_GATEWAY',
   CAS_RPC_URL          : 'BTCR2_CAS_RPC_URL',
+  CAS_RPC_USER         : 'BTCR2_CAS_RPC_USER',
+  CAS_RPC_PASS         : 'BTCR2_CAS_RPC_PASS',
   BTC_TIMEOUT          : 'BTCR2_BTC_TIMEOUT',
   CAS_TIMEOUT          : 'BTCR2_CAS_TIMEOUT',
   FEE_RATE             : 'BTCR2_FEE_RATE',
@@ -271,6 +292,8 @@ export function readEnvOverrides(): ConnectionOverrides {
     btcRpcPass         : env(ENV_VARS.BTC_RPC_PASS),
     casGateway         : env(ENV_VARS.CAS_GATEWAY),
     casRpcUrl          : env(ENV_VARS.CAS_RPC_URL),
+    casRpcUser         : env(ENV_VARS.CAS_RPC_USER),
+    casRpcPass         : env(ENV_VARS.CAS_RPC_PASS),
     btcSignalDiscovery : env(ENV_VARS.BTC_SIGNAL_DISCOVERY),
   };
 }
@@ -358,7 +381,25 @@ export function profileToOverrides(
     btcRpcPass         : profile.btc?.rpcPass,
     casGateway         : profile.cas?.gateway,
     casRpcUrl          : profile.cas?.rpcUrl,
+    casRpcUser         : profile.cas?.rpcUser,
+    casRpcPass         : profile.cas?.rpcPass,
     btcSignalDiscovery : profile.btc?.signalDiscovery,
+  };
+}
+
+/**
+ * Extracts the CAS {@link ConnectionOverrides} of `defaults.cas` in a
+ * {@link ConfigFile}: the config-file layer below the profile `cas` block (ADR
+ * 129). Returns an empty object if the file has no `defaults.cas`.
+ */
+export function defaultsToOverrides(config: ConfigFile): ConnectionOverrides {
+  const cas = config.defaults?.cas;
+  if (!cas) return {};
+  return {
+    casGateway : cas.gateway,
+    casRpcUrl  : cas.rpcUrl,
+    casRpcUser : cas.rpcUser,
+    casRpcPass : cas.rpcPass,
   };
 }
 
@@ -389,21 +430,23 @@ export function resolveActiveProfile(
 
 /**
  * Resolves the default Bitcoin network for offline identifier creation when no
- * `--network` flag is given. Resolution order: the config file's
- * `defaults.network`, then the active profile's network (its explicit `network`
- * field, else its network-derived name), then `regtest` as the development
- * fallback. Generation itself is offline; this only fixes which network the
+ * `--network` flag is given. Resolution order: the active profile's network (its
+ * explicit `network` field, else its network-derived name), then the config
+ * file's `defaults.network`, then `regtest` as the development fallback. The
+ * active profile wins because it also supplies the endpoints, so a new
+ * identifier and the endpoints of its later operations target one network
+ * (ADR 131). Generation itself is offline; this only fixes which network the
  * identifier encodes.
  */
 export function resolveDefaultNetwork(overrides?: ConnectionOverrides): NetworkOption {
   const configPath = overrides?.config ?? defaultConfigPath(overrides);
   const file = readConfigFile(configPath);
 
-  const explicit = file?.defaults?.network;
-  if (explicit && SUPPORTED_NETWORKS.includes(explicit)) return explicit;
-
   const { network } = resolveActiveProfile(file, overrides);
   if (network) return network;
+
+  const recorded = file?.defaults?.network;
+  if (recorded && SUPPORTED_NETWORKS.includes(recorded)) return recorded;
 
   return 'regtest';
 }
@@ -484,11 +527,13 @@ export function assertSupportedNetwork(value: string): NetworkOption {
 }
 
 /**
- * Reports a coherence conflict between the network a `create` run is about to
- * encode and the network the active profile declares, so the CLI can warn
- * instead of silently minting an identifier on one network while wiring
- * endpoints for another. Returns `undefined` when the active profile declares
- * no network or agrees with the one being encoded.
+ * Reports a coherence conflict between the network of an identifier and the
+ * network the active profile declares, so the CLI can warn instead of silently
+ * pairing an identifier on one network with endpoints for another. The
+ * identifier is the one that `create` or `genesis build` is about to encode, or
+ * the one that `resolve`, `update`, or `deactivate` operates on (ADR 131).
+ * Returns `undefined` when the active profile declares no network or agrees
+ * with the identifier.
  */
 export function profileNetworkMismatch(
   network   : NetworkOption,
@@ -534,7 +579,8 @@ export function resolveOutputFormat(options: { output?: string; config?: string;
 /**
  * The resolved RPC credential unit: url, user, and pass drawn from a single
  * precedence layer, tagged with that layer's provenance. `pass` is kept raw so a
- * secret-ref (`env:`/`file:`) can be resolved by the caller.
+ * secret-ref (`env:`/`file:`) can be resolved by the caller. The Bitcoin Core RPC
+ * has one unit. The CAS endpoint unit adds the gateway ({@link CasEndpointUnit}).
  */
 interface RpcUnit {
   src   : Provenance;
@@ -543,34 +589,83 @@ interface RpcUnit {
   pass? : string;
 }
 
+/** The resolved CAS endpoint unit: the gateway plus the RPC url, user, and pass of one layer. */
+interface CasEndpointUnit extends RpcUnit {
+  gateway? : string;
+}
+
+/** One precedence layer of connection values and the provenance that it reports. */
+interface ConnectionLayer {
+  src     : Provenance;
+  values? : ConnectionOverrides;
+}
+
 /**
- * Resolves the RPC credential unit atomically: the highest-precedence layer that
- * supplies a url, else the highest that supplies a username or password. url,
- * user, and pass therefore always come from one layer, so a host from one layer
- * is never handed another layer's credentials (ADR 074). When no layer supplies a
- * url, the credentials still resolve (so they reach the SDK's per-network default
- * host, e.g. regtest's, without the url being restated). Returns `undefined` when
- * no layer supplies a url or a credential.
+ * The override layers of a connection value, in precedence order: the flag, the
+ * environment, the profile, then `defaults.cas` (ADR 129). `defaults.cas` holds
+ * CAS values only, so it adds nothing to a Bitcoin value.
  */
-function resolveRpcUnit(
-  overrides?    : ConnectionOverrides,
-  env?          : ConnectionOverrides,
-  fileOverrides?: ConnectionOverrides,
-): RpcUnit | undefined {
-  const layers: Array<{ src: Provenance; url?: string; user?: string; pass?: string }> = [
-    { src: 'flag', url: overrides?.btcRpcUrl,     user: overrides?.btcRpcUser,     pass: overrides?.btcRpcPass },
-    { src: 'env',  url: env?.btcRpcUrl,           user: env?.btcRpcUser,           pass: env?.btcRpcPass },
-    { src: 'file', url: fileOverrides?.btcRpcUrl, user: fileOverrides?.btcRpcUser, pass: fileOverrides?.btcRpcPass },
+function connectionLayers(
+  overrides?        : ConnectionOverrides,
+  env?              : ConnectionOverrides,
+  fileOverrides?    : ConnectionOverrides,
+  defaultsOverrides?: ConnectionOverrides,
+): ConnectionLayer[] {
+  return [
+    { src: 'flag', values: overrides },
+    { src: 'env',  values: env },
+    { src: 'file', values: fileOverrides },
+    { src: 'file', values: defaultsOverrides },
   ];
-  const withUrl = layers.find(l => blankToUndef(l.url) !== undefined);
+}
+
+/**
+ * Resolves the Bitcoin Core RPC credential unit atomically: the highest-precedence
+ * layer that supplies a url, else the highest that supplies a username or password.
+ * url, user, and pass therefore always come from one layer, so a host from one
+ * layer is never handed another layer's credentials (ADR 074). When no layer
+ * supplies a url, the credentials still resolve, so they reach the SDK's
+ * per-network default host (e.g. regtest's) without the url being restated.
+ * Returns `undefined` when no layer supplies a url or a credential.
+ */
+function resolveRpcUnit(layers: ConnectionLayer[]): RpcUnit | undefined {
+  const units = layers.map(({ src, values }) => ({
+    src,
+    url  : values?.btcRpcUrl,
+    user : values?.btcRpcUser,
+    pass : values?.btcRpcPass,
+  }));
+  const withUrl = units.find(l => blankToUndef(l.url) !== undefined);
   if (withUrl) {
     return { src: withUrl.src, url: blankToUndef(withUrl.url), user: blankToUndef(withUrl.user), pass: blankToUndef(withUrl.pass) };
   }
-  const withCreds = layers.find(l => blankToUndef(l.user) !== undefined || blankToUndef(l.pass) !== undefined);
+  const withCreds = units.find(l => blankToUndef(l.user) !== undefined || blankToUndef(l.pass) !== undefined);
   if (withCreds) {
     return { src: withCreds.src, url: undefined, user: blankToUndef(withCreds.user), pass: blankToUndef(withCreds.pass) };
   }
   return undefined;
+}
+
+/**
+ * Resolves the CAS endpoint as one unit: the highest-precedence layer that sets a
+ * gateway or an RPC url gives the gateway, the RPC url, and the RPC user and
+ * password (ADR 129). A lower layer never adds an endpoint: its RPC url would win
+ * over the gateway of a higher layer in the api (rpcUrl > gateway). The RPC url,
+ * user, and pass therefore come from one layer, as for the Bitcoin Core RPC (ADR
+ * 128). The CAS has no default RPC host, so a layer with only credentials sets no
+ * endpoint. Returns `undefined` when no layer sets a gateway or an RPC url.
+ */
+function resolveCasEndpoint(layers: ConnectionLayer[]): CasEndpointUnit | undefined {
+  const layer = layers.find(({ values }) =>
+    blankToUndef(values?.casGateway) !== undefined || blankToUndef(values?.casRpcUrl) !== undefined);
+  if (!layer) return undefined;
+  return {
+    src     : layer.src,
+    gateway : blankToUndef(layer.values?.casGateway),
+    url     : blankToUndef(layer.values?.casRpcUrl),
+    user    : blankToUndef(layer.values?.casRpcUser),
+    pass    : blankToUndef(layer.values?.casRpcPass),
+  };
 }
 
 /** The accepted `--btc-signal-discovery` values, in help/error order. */
@@ -596,8 +691,9 @@ function resolveSignalDiscovery(value?: string): SignalDiscoveryMode | undefined
 
 /**
  * Resolves the Bitcoin and CAS connection config for a network by merging,
- * in precedence order, CLI flags, environment variables, and the config-file
- * profile on top of the per-network defaults (handled by `BitcoinConnection`).
+ * in precedence order, CLI flags, environment variables, the config-file
+ * profile, and (for the CAS only) the config-file `defaults.cas` on top of the
+ * per-network defaults (handled by `BitcoinConnection`).
  *
  * Returns an empty config when no network is given, since offline operations
  * (create, key management) need no connection.
@@ -611,17 +707,20 @@ export function resolveConnectionConfig(
 ): { btc?: BitcoinApiConfig; cas?: CasConfig } {
   if (!network) return {};
 
-  // Layer 1: Config file profile (lowest precedence of the three override layers).
-  // The active-profile name is resolved through the same shared helper as
-  // resolveDefaultNetwork so the two cannot disagree about which profile is live.
+  // Layer 1: Config file profile, and below it `defaults.cas` for the CAS values
+  // (the lowest override layers). The active-profile name is resolved through the
+  // same shared helper as resolveDefaultNetwork so the two cannot disagree about
+  // which profile is live.
   const configPath = overrides?.config ?? defaultConfigPath(overrides);
   const file = readConfigFile(configPath);
   const { name: activeProfile } = resolveActiveProfile(file, overrides);
   const profileName = activeProfile ?? network;
   const fileOverrides = file ? profileToOverrides(file, profileName) : {};
+  const defaultsOverrides = file ? defaultsToOverrides(file) : {};
 
   // Layer 2: Environment variables
   const env = readEnvOverrides();
+  const layers = connectionLayers(overrides, env, fileOverrides, defaultsOverrides);
 
   // Blank-aware precedence merge: CLI flag -> env var -> config file. A blank at
   // any layer defers to the next instead of masking it (mirrors the env layer's
@@ -632,6 +731,7 @@ export function resolveConnectionConfig(
 
   const profileBtc = file?.profiles?.[profileName]?.btc;
   const profileCas = file?.profiles?.[profileName]?.cas;
+  const defaultsCas = file?.defaults?.cas;
 
   const btc: BitcoinApiConfig = { network };
 
@@ -646,7 +746,7 @@ export function resolveConnectionConfig(
 
   // Resolve the RPC endpoint as one atomic credential unit (url + user + pass from
   // one layer), plus the orthogonal wallet and header augmentations.
-  const rpcUnit = resolveRpcUnit(overrides, env, fileOverrides);
+  const rpcUnit = resolveRpcUnit(layers);
   const rpcWallet = pick(overrides?.btcRpcWallet, undefined, profileBtc?.wallet);
   const rpcHeaders = mergeHeaders(profileBtc?.rpcHeaders, parseHeaderList(overrides?.btcRpcHeader, '--btc-rpc-header'));
 
@@ -662,7 +762,7 @@ export function resolveConnectionConfig(
   const wantsRpc = rpcUnit !== undefined || rpcWallet !== undefined || rpcHeaders !== undefined;
   const hasRpcHost = rpcUnit?.url !== undefined || networkHasDefaultRpc;
   if (wantsRpc && hasRpcHost) {
-    const password = resolveSecretRef(rpcUnit?.pass) ?? readRpcPassFile();
+    const password = resolveSecretRef(rpcUnit?.pass) ?? readRpcPassFile(ENV_RPC_PASS_FILE);
     btc.rpc = {
       ...(rpcUnit?.url  !== undefined ? { host: rpcUnit.url } : {}),
       ...(rpcUnit?.user !== undefined ? { username: rpcUnit.user } : {}),
@@ -685,15 +785,26 @@ export function resolveConnectionConfig(
   const btcTimeout = resolveTimeout(overrides?.btcTimeout, process.env[ENV_VARS.BTC_TIMEOUT], profileBtc?.timeoutMs, '--btc-timeout', 1);
   if (btcTimeout !== undefined) btc.timeoutMs = btcTimeout;
 
-  // A configured RPC endpoint is writable and takes precedence over the
-  // read-only gateway (matching the api's CasConfig priority: rpcUrl > gateway).
-  // Both may be set; the api selects one executor from them.
-  const casGateway = pick(overrides?.casGateway, env.casGateway, fileOverrides.casGateway);
-  const casRpcUrl  = pick(overrides?.casRpcUrl,  env.casRpcUrl,  fileOverrides.casRpcUrl);
-  const casTimeout = resolveTimeout(overrides?.casTimeout, process.env[ENV_VARS.CAS_TIMEOUT], profileCas?.timeoutMs, '--cas-timeout');
+  // The CAS endpoint (gateway, RPC url, user, and pass) comes from one layer
+  // (ADR 129). In that layer, a configured RPC endpoint is writable and takes
+  // precedence over the read-only gateway (matching the api's CasConfig priority:
+  // rpcUrl > gateway). `defaults.cas` is the lowest layer of each CAS value.
+  const casEndpoint = resolveCasEndpoint(layers);
+  const casGateway = casEndpoint?.gateway;
+  const casRpcUrl  = casEndpoint?.url;
+  const casTimeout = resolveTimeout(
+    overrides?.casTimeout,
+    process.env[ENV_VARS.CAS_TIMEOUT],
+    profileCas?.timeoutMs ?? defaultsCas?.timeoutMs,
+    '--cas-timeout',
+  );
   const cas: CasConfig = {};
   if (casGateway) cas.gateway = casGateway;
-  if (casRpcUrl)  cas.rpcUrl  = casRpcUrl;
+  if (casRpcUrl) {
+    cas.rpcUrl = casRpcUrl;
+    const rpcAuth = resolveCasRpcAuth(casRpcUrl, casEndpoint);
+    if (rpcAuth) cas.rpcAuth = rpcAuth;
+  }
   if (casTimeout !== undefined) {
     cas.timeoutMs = casTimeout;
     // A timeout needs an endpoint to attach to. When none is configured, fall
@@ -768,6 +879,9 @@ function mergeHeaders(
 /** Environment variable naming a file whose contents are the Bitcoin Core RPC password. */
 export const ENV_RPC_PASS_FILE = 'BTCR2_BTC_RPC_PASS_FILE';
 
+/** Environment variable naming a file whose contents are the IPFS HTTP RPC password. */
+export const ENV_CAS_RPC_PASS_FILE = 'BTCR2_CAS_RPC_PASS_FILE';
+
 /** Removes at most one trailing newline, matching the keystore-passphrase normalization. */
 function trimTrailingNewline(value: string): string {
   return value.replace(/\r?\n$/, '');
@@ -804,11 +918,33 @@ export function resolveSecretRef(value?: string): string | undefined {
   return value;
 }
 
-/** Reads the RPC password from an {@link ENV_RPC_PASS_FILE}-named file, if set. */
-function readRpcPassFile(): string | undefined {
-  const path = process.env[ENV_RPC_PASS_FILE];
+/** Reads an RPC password from the file that the environment variable `envName` names, if set. */
+function readRpcPassFile(envName: string): string | undefined {
+  const path = process.env[envName];
   if (!path) return undefined;
-  return readSecretFile(path, `file named by ${ENV_RPC_PASS_FILE}`);
+  return readSecretFile(path, `file named by ${envName}`);
+}
+
+/**
+ * Resolves the HTTP Basic credentials of the IPFS HTTP RPC endpoint from its
+ * credential unit. The password is the unit's `pass` (a secret reference resolves
+ * here), else the file that {@link ENV_CAS_RPC_PASS_FILE} names. Returns
+ * `undefined` if the unit has no user and no password. Throws a {@link CLIError}
+ * if only one of the two is set: a request with no credentials would fail with
+ * HTTP 401, and a failed read looks like missing content.
+ */
+function resolveCasRpcAuth(url: string, unit?: RpcUnit): { username: string; password: string } | undefined {
+  const username = unit?.user;
+  const password = resolveSecretRef(unit?.pass) ?? readRpcPassFile(ENV_CAS_RPC_PASS_FILE);
+  if (username === undefined && password === undefined) return undefined;
+  if (username === undefined || password === undefined) {
+    throw new CLIError(
+      `The CAS RPC credentials need a user and a password. Only the ${username === undefined ? 'password' : 'user'} is set for ${url}.`,
+      'INVALID_ARGUMENT_ERROR',
+      { url },
+    );
+  }
+  return { username, password };
 }
 
 /**
@@ -889,6 +1025,8 @@ export interface EffectiveConfig {
   cas : {
     gateway   : EffectiveEntry;
     rpcUrl    : EffectiveEntry;
+    rpcUser   : EffectiveEntry;
+    rpcPass   : EffectiveEntry;
     timeoutMs : EffectiveEntry;
   };
 }
@@ -904,9 +1042,11 @@ export function resolveEffectiveConfig(network: NetworkOption, overrides?: Conne
   const { name: activeProfile } = resolveActiveProfile(file, overrides);
   const profileName = activeProfile ?? network;
   const fileOv = file ? profileToOverrides(file, profileName) : {};
+  const defaultsOv = file ? defaultsToOverrides(file) : {};
   const profileBtc = file?.profiles?.[profileName]?.btc;
   const profileCas = file?.profiles?.[profileName]?.cas;
   const env = readEnvOverrides();
+  const layers = connectionLayers(overrides, env, fileOv, defaultsOv);
 
   const api = defaultApiFactory(network, overrides);
   const restCfg = api.btc.connection.rest.config;
@@ -927,11 +1067,20 @@ export function resolveEffectiveConfig(network: NetworkOption, overrides?: Conne
   // reported source is the layer the merge actually bound it to (never an
   // independent per-field guess that could disagree with the resolver). A password
   // taken from BTCR2_BTC_RPC_PASS_FILE when the unit supplied none is env-sourced.
-  const rpcUnit = resolveRpcUnit(overrides, env, fileOv);
+  const rpcUnit = resolveRpcUnit(layers);
   const rpcSrc = rpcUnit?.src ?? 'default';
   const passFromFile = rpcUnit?.pass === undefined
     && process.env[ENV_RPC_PASS_FILE] !== undefined
     && rpcCfg?.password !== undefined;
+
+  // The CAS endpoint unit follows the same rule. Credentials exist only with a
+  // url, and a password that the unit does not supply came from
+  // BTCR2_CAS_RPC_PASS_FILE. A CAS value from `defaults.cas` has the provenance
+  // `file`, as a profile value.
+  const casEndpoint = resolveCasEndpoint(layers);
+  const casSrc = casEndpoint?.src ?? 'default';
+  const casAuth = conn.cas?.rpcAuth;
+  const fileCasTimeout = profileCas?.timeoutMs ?? file?.defaults?.cas?.timeoutMs;
 
   return {
     network,
@@ -949,9 +1098,11 @@ export function resolveEffectiveConfig(network: NetworkOption, overrides?: Conne
       timeoutMs       : { value: conn.btc?.timeoutMs, source: src(overrides?.btcTimeout, process.env[ENV_VARS.BTC_TIMEOUT], profileBtc?.timeoutMs) },
     },
     cas : {
-      gateway   : { value: casGatewayVal,       source: src(overrides?.casGateway, env.casGateway,                    fileOv.casGateway) },
-      rpcUrl    : { value: conn.cas?.rpcUrl,     source: src(overrides?.casRpcUrl,  env.casRpcUrl,                     fileOv.casRpcUrl) },
-      timeoutMs : { value: conn.cas?.timeoutMs,  source: src(overrides?.casTimeout, process.env[ENV_VARS.CAS_TIMEOUT], profileCas?.timeoutMs) },
+      gateway   : { value: casGatewayVal,       source: conn.cas?.gateway !== undefined ? casSrc : 'default' },
+      rpcUrl    : { value: conn.cas?.rpcUrl,     source: conn.cas?.rpcUrl !== undefined ? casSrc : 'default' },
+      rpcUser   : { value: casAuth?.username,    source: casAuth ? casSrc : 'default' },
+      rpcPass   : { value: casAuth?.password,    source: casAuth ? (casEndpoint?.pass !== undefined ? casSrc : 'env') : 'default' },
+      timeoutMs : { value: conn.cas?.timeoutMs,  source: src(overrides?.casTimeout, process.env[ENV_VARS.CAS_TIMEOUT], fileCasTimeout) },
     },
   };
 }
@@ -1055,7 +1206,8 @@ export async function runDoctor(network: NetworkOption, overrides?: ConnectionOv
  * `resolve`, which never need a signing identity.
  *
  * Override precedence (highest wins):
- * CLI flags -> env vars -> config file profile -> network defaults.
+ * CLI flags -> env vars -> config file profile -> config file `defaults.cas`
+ * (CAS values only) -> network defaults.
  */
 export function defaultApiFactory(network?: NetworkOption, overrides?: ConnectionOverrides): DidBtcr2Api {
   return createApi(resolveConnectionConfig(network, overrides));

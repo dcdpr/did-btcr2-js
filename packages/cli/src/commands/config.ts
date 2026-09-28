@@ -17,7 +17,7 @@ import {
 } from '../config.js';
 import { findConfigIssues, validateConfigSet } from '../config-schema.js';
 import { CLIError } from '../error.js';
-import { formatResult, REDACTED, redactSecrets, scrubUrlUserinfo } from '../output.js';
+import { formatCheckResult, formatResult, REDACTED, redactSecrets, scrubUrlUserinfo } from '../output.js';
 import { resolveHome } from '../paths.js';
 import type { CommandResult, GlobalOptions, NetworkOption } from '../types.js';
 import { SUPPORTED_NETWORKS } from '../types.js';
@@ -95,23 +95,29 @@ export function registerConfigCommand(program: Command, globals: () => GlobalOpt
       const file = parseConfigFileRaw(path()) ?? {};
       const issues = findConfigIssues(file, CONFIG_SCHEMA_VERSION);
       if (issues.length > 0) process.exitCode ??= 1;
-      print({ action: 'config-validate', data: { ok: issues.length === 0, issues } });
+      // Text mode prints the full result. `-q/--quiet` prints OK, or one line for
+      // each issue (ADR 130).
+      const failures = issues.map(({ path: dotted, issue }) => `${dotted}: ${issue}`);
+      console.log(formatCheckResult({ action: 'config-validate', data: { ok: issues.length === 0, issues } }, globals(), failures));
     });
 
   config
     .command('effective')
     .description('Print the resolved connection config with per-value provenance (flag|env|file|default).')
     .option('-n, --network <network>', 'Network to resolve for (default: config default network)')
-    .option('--show-secrets', 'Reveal secret values (RPC password) instead of redacting them.', false)
+    .option('--show-secrets', 'Reveal secret values (RPC passwords) instead of redacting them.', false)
     .action((opts: { network?: string; showSecrets?: boolean }) => {
       const network = resolveIntrospectionNetwork(opts.network, globals());
       const data = resolveEffectiveConfig(network, globals());
-      // Redact the resolved RPC password and any password embedded in an endpoint
+      // Redact the resolved RPC passwords and any password embedded in an endpoint
       // URL by default; provenance still shows where each value came from.
       // --show-secrets reveals them for deliberate debugging.
       if (!opts.showSecrets) {
         if (data.btc.rpcPass.value !== undefined) {
           data.btc.rpcPass = { ...data.btc.rpcPass, value: REDACTED };
+        }
+        if (data.cas.rpcPass.value !== undefined) {
+          data.cas.rpcPass = { ...data.cas.rpcPass, value: REDACTED };
         }
         for (const entry of [ data.btc.rest, data.btc.rpcUrl, data.cas.gateway, data.cas.rpcUrl ]) {
           if (typeof entry.value === 'string') entry.value = scrubUrlUserinfo(entry.value);
@@ -181,6 +187,9 @@ function parseValue(dotted: string, value: string): unknown {
   }
 }
 
+/** The string keys of a profile `cas` block and of `defaults.cas`. */
+const CAS_STRING_KEYS = [ 'gateway', 'rpcUrl', 'rpcUser', 'rpcPass' ];
+
 /**
  * Whether a dotted config path addresses a leaf that must be stored as a string
  * (an endpoint URL, a credential, a network/profile/output name), so JSON
@@ -193,6 +202,10 @@ function isStringScalarPath(dotted: string): boolean {
     return [ 'profile', 'network', 'output' ].includes(segments[1]);
   }
 
+  if (segments.length === 3 && segments[0] === 'defaults' && segments[1] === 'cas') {
+    return CAS_STRING_KEYS.includes(segments[2]);
+  }
+
   if (segments.length === 3 && segments[0] === 'profiles' && segments[2] === 'network') {
     return true;
   }
@@ -201,7 +214,7 @@ function isStringScalarPath(dotted: string): boolean {
     const group = segments[2];
     const leaf = segments[3];
     if (group === 'btc') return [ 'rest', 'rpcUrl', 'rpcUser', 'rpcPass', 'changeAddress', 'wallet' ].includes(leaf);
-    if (group === 'cas') return [ 'gateway', 'rpcUrl' ].includes(leaf);
+    if (group === 'cas') return CAS_STRING_KEYS.includes(leaf);
     if (group === 'identity') return [ 'keystore', 'default' ].includes(leaf);
   }
 

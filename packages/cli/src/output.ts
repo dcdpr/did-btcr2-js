@@ -68,3 +68,18 @@ export function formatResult(result: CommandResult, options: GlobalOptions): str
   const { data } = result;
   return typeof data === 'string' ? data : JSON.stringify(data, null, 2);
 }
+
+/**
+ * Formats the result of a check command (`config validate`, `identifier
+ * validate`). By default, the result is formatted as {@link formatResult} does.
+ * In 'text' mode under `-q/--quiet`, the output is `OK` if the check passed,
+ * else one line for each failure (ADR 130).
+ * @param {CommandResult} result - The result to format.
+ * @param {GlobalOptions} options - The global options to determine output format.
+ * @param {string[]} failures - One line for each failure. Empty if the check passed.
+ * @returns {string} - The formatted output string.
+ */
+export function formatCheckResult(result: CommandResult, options: GlobalOptions, failures: string[]): string {
+  if (options.output === 'json' || !options.quiet) return formatResult(result, options);
+  return failures.length === 0 ? 'OK' : failures.join('\n');
+}

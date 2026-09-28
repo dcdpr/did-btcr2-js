@@ -109,7 +109,7 @@ The environment variables that the command group reads:
 - `BTCR2_HOME`: the default home directory (see above). `--home` wins.
 - `BTCR2_OUTPUT`: the output format if `-o/--output` is absent. The full precedence of the printed format: the `-o/--output` flag, then `BTCR2_OUTPUT`, then config `defaults.output`, then `text`.
 
-The `profile` group reads none of the Bitcoin and CAS connection variables (`BTCR2_BTC_REST`, `BTCR2_BTC_RPC_URL`, `BTCR2_BTC_RPC_USER`, `BTCR2_BTC_RPC_PASS`, `BTCR2_BTC_RPC_PASS_FILE`, `BTCR2_BTC_SIGNAL_DISCOVERY`, `BTCR2_CAS_GATEWAY`, `BTCR2_CAS_RPC_URL`, `BTCR2_BTC_TIMEOUT`, `BTCR2_CAS_TIMEOUT`, `BTCR2_FEE_RATE`). It manages the profiles that those settings merge with later. It has no keystore, passphrase, or session interaction, and it prints no network hint (no faucet or explorer URL).
+The `profile` group reads none of the Bitcoin and CAS connection variables (`BTCR2_BTC_REST`, `BTCR2_BTC_RPC_URL`, `BTCR2_BTC_RPC_USER`, `BTCR2_BTC_RPC_PASS`, `BTCR2_BTC_RPC_PASS_FILE`, `BTCR2_BTC_SIGNAL_DISCOVERY`, `BTCR2_CAS_GATEWAY`, `BTCR2_CAS_RPC_URL`, `BTCR2_CAS_RPC_USER`, `BTCR2_CAS_RPC_PASS`, `BTCR2_CAS_RPC_PASS_FILE`, `BTCR2_BTC_TIMEOUT`, `BTCR2_CAS_TIMEOUT`, `BTCR2_FEE_RATE`). It manages the profiles that those settings merge with later. It has no keystore, passphrase, or session interaction, and it prints no network hint (no faucet or explorer URL).
 
 The keys that a profile can hold (`btcr2 config set` and `btcr2 config validate` validate them, and `profile show` prints what is stored):
 
@@ -120,11 +120,11 @@ The keys that a profile can hold (`btcr2 config set` and `btcr2 config validate`
 | `btc.feeRate` (sats/vByte), `btc.timeoutMs` | number |
 | `btc.headers`, `btc.rpcHeaders` | object (a header map) |
 | `btc.signalDiscovery` | `"indexer"` or `"fullnode"` (the source of the beacon signals. `fullnode` scans blocks over Bitcoin Core RPC) |
-| `cas.gateway`, `cas.rpcUrl` | string |
+| `cas.gateway`, `cas.rpcUrl`, `cas.rpcUser`, `cas.rpcPass` | string |
 | `cas.timeoutMs` | number (`0` disables the timeout) |
 | `identity.keystore`, `identity.default` | string (the keystore path, the default key reference of `create`, `update`, and `deactivate`) |
 
-How the other commands use the active profile: the connection resolution takes the profile that the global `--profile` flag names, else `defaults.profile`, else the profile with the name of the network of the operation. A profile value sits at the bottom of the override chain: the flag, then the environment variable, then the profile, then the built-in default of the network.
+How the other commands use the active profile: the connection resolution takes the profile that the global `--profile` flag names, else `defaults.profile`, else the profile with the name of the network of the operation. A profile value sits at the bottom of the override chain: the flag, then the environment variable, then the profile, then the built-in default of the network. The network of the active profile is also the default network of a command with no identifier, above `defaults.network` (ADR 131). A command that takes an identifier of another network prints a warning.
 
 The output modes: in `text` mode, each subcommand prints its data payload as pretty JSON (each payload is an object, so text and JSON mode differ in the wrapper only). In `json` mode, the command prints the full `{ "action": "profile-<sub>", "data": ... }` result. An error goes to stderr as a bare message with exit code 1. The global `--verbose` flag prints the full error object instead. `--quiet` does not change the `profile` output.
 

@@ -115,7 +115,7 @@ The command reads these environment variables:
 | `BTCR2_KEYSTORE_PASSPHRASE` | The keystore passphrase for unattended use. The command reads it before `--passphrase-file` and the prompt, at the creation step and for the `--unlock` verification. |
 | `BTCR2_KEYSTORE_TTL` | The default session TTL if `--ttl` is absent (the same value format as the flag). |
 | `BTCR2_OUTPUT` | The output format (`json` or `text`) if `-o/--output` is absent. |
-| `BTCR2_BTC_REST`, `BTCR2_BTC_RPC_URL`, `BTCR2_BTC_RPC_USER`, `BTCR2_BTC_RPC_PASS`, `BTCR2_BTC_RPC_PASS_FILE`, `BTCR2_CAS_GATEWAY`, `BTCR2_CAS_RPC_URL`, `BTCR2_BTC_SIGNAL_DISCOVERY`, `BTCR2_BTC_TIMEOUT`, `BTCR2_CAS_TIMEOUT` | The endpoint overrides. Only the endpoint probe reads them. They select the endpoints that the probe checks. |
+| `BTCR2_BTC_REST`, `BTCR2_BTC_RPC_URL`, `BTCR2_BTC_RPC_USER`, `BTCR2_BTC_RPC_PASS`, `BTCR2_BTC_RPC_PASS_FILE`, `BTCR2_CAS_GATEWAY`, `BTCR2_CAS_RPC_URL`, `BTCR2_CAS_RPC_USER`, `BTCR2_CAS_RPC_PASS`, `BTCR2_CAS_RPC_PASS_FILE`, `BTCR2_BTC_SIGNAL_DISCOVERY`, `BTCR2_BTC_TIMEOUT`, `BTCR2_CAS_TIMEOUT` | The endpoint overrides. Only the endpoint probe reads them. They select the endpoints that the probe checks. |
 
 The config file keys that feed the command (in `<home>/config.json`, or the file that `-c/--config` names):
 
@@ -126,7 +126,7 @@ The config file keys that feed the command (in `<home>/config.json`, or the file
 | `defaults.profile` | The active profile if `--profile` is absent. It affects the keystore path and the endpoint probe. |
 | `profiles.<name>.identity.keystore` | The keystore path of the active profile. `--keystore` wins over it, and `<home>/keystore.json` is the fallback. |
 | `profiles.<name>.network` | The network that a profile declares. A mismatch with the recorded network shows as the `coherence` warning of the doctor report. |
-| `profiles.<name>.btc.*` (`rest`, `rpcUrl`, `rpcUser`, `rpcPass`, `timeoutMs`, `headers`, `wallet`, `rpcHeaders`, `signalDiscovery`) and `profiles.<name>.cas.*` (`gateway`, `rpcUrl`, `timeoutMs`) | The endpoint config that the endpoint probe reads. |
+| `profiles.<name>.btc.*` (`rest`, `rpcUrl`, `rpcUser`, `rpcPass`, `timeoutMs`, `headers`, `wallet`, `rpcHeaders`, `signalDiscovery`) `profiles.<name>.cas.*` (`gateway`, `rpcUrl`, `rpcUser`, `rpcPass`, `timeoutMs`), and `defaults.cas.*` (the same keys) | The endpoint config that the endpoint probe reads. |
 
 A fresh scaffold contains `schemaVersion: 1`, `defaults.output: "text"`, and one empty profile per supported network. The network step adds `defaults.network`.
 

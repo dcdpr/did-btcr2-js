@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApi } from '@did-btcr2/api';
@@ -169,6 +169,53 @@ describe('DidBtcr2Cli', () => {
         ).to.be.rejectedWith(CLIError, /--min-conf must be a positive integer/);
         expect(calls).to.deep.equal([]);
       }
+    });
+
+    describe('profile network warning (ADR 131)', () => {
+      // The identifier is on bitcoin. The active profile declares signet.
+      const validDid = 'did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47';
+      let dir: string;
+      let cfg: string;
+      let err: string[];
+      let originalStderrWrite: typeof process.stderr.write;
+
+      beforeEach(async () => {
+        dir = await mkdtemp(join(tmpdir(), 'btcr2-resolve-warn-'));
+        cfg = join(dir, 'config.json');
+        await writeFile(cfg, JSON.stringify({
+          schemaVersion : 1,
+          defaults      : { profile: 'staging' },
+          profiles      : { staging: { network: 'signet' } },
+        }));
+        err = [];
+        originalStderrWrite = process.stderr.write;
+        process.stderr.write = ((chunk: unknown) => { err.push(String(chunk)); return true; }) as typeof process.stderr.write;
+        console.log = () => undefined;
+        process.exitCode = undefined;
+      });
+
+      afterEach(async () => {
+        process.stderr.write = originalStderrWrite;
+        process.exitCode = 0;
+        await rm(dir, { recursive: true, force: true });
+      });
+
+      it('warns if the identifier network is not the network of the active profile', async () => {
+        const { api, calls } = recordingApi(validDid);
+        await new DidBtcr2Cli(() => api).run(['node', 'btcr2', '--config', cfg, 'resolve', '-i', validDid]);
+        expect(calls).to.have.length(1);
+        expect(process.exitCode).to.equal(undefined);
+        expect(err.join('')).to.include(
+          'Warning: the identifier network is "bitcoin", but the active profile "staging" declares network "signet".'
+        );
+      });
+
+      it('prints no warning under -q', async () => {
+        const { api, calls } = recordingApi(validDid);
+        await new DidBtcr2Cli(() => api).run(['node', 'btcr2', '-q', '--config', cfg, 'resolve', '-i', validDid]);
+        expect(calls).to.have.length(1);
+        expect(err.join('')).to.not.include('Warning:');
+      });
     });
   });
 

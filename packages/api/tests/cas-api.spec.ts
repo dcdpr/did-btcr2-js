@@ -184,6 +184,27 @@ describe('CasApi', () => {
       await executor.retrieve(dataHash);
       expect(fetchCalls[0].url).to.match(/^http:\/\/node:5001\/api\/v0\/block\/get/);
     });
+
+    it('sends the Basic credentials with block/get, block/put, and the probe', async () => {
+      const expectedCid = await cidForData(data);
+      const executor = new IpfsRpcCasExecutor('http://node:5001', { auth: { username: 'alice', password: 's3cret' } });
+      stubFetch(() => new Response(Uint8Array.from(data)));
+      await executor.retrieve(dataHash);
+      stubFetch(() => new Response(JSON.stringify({ Key: expectedCid })));
+      await executor.publish(data);
+      stubFetch(() => new Response(Uint8Array.from(probeBytes)));
+      await executor.probe();
+      expect(fetchCalls).to.have.length(3);
+      for (const call of fetchCalls) {
+        expect((call.init?.headers as Record<string, string>).Authorization).to.equal('Basic YWxpY2U6czNjcmV0');
+      }
+    });
+
+    it('sends no Authorization header without credentials', async () => {
+      stubFetch(() => new Response(Uint8Array.from(data)));
+      await new IpfsRpcCasExecutor('http://node:5001').retrieve(dataHash);
+      expect(fetchCalls[0].init?.headers).to.deep.equal({});
+    });
   });
 
   describe('HttpGatewayCasExecutor', () => {
@@ -297,6 +318,13 @@ describe('CasApi', () => {
       });
       await cas.publish(object);
       expect(fetchCalls[0].url).to.match(/^http:\/\/node:5001\/api\/v0\/block\/put/);
+    });
+
+    it('passes rpcAuth to the RPC executor', async () => {
+      stubFetch(() => new Response(Uint8Array.from(probeBytes)));
+      const cas = new CasApi({ rpcUrl: 'http://node:5001', rpcAuth: { username: 'alice', password: 's3cret' } });
+      await cas.probe();
+      expect((fetchCalls[0].init?.headers as Record<string, string>).Authorization).to.equal('Basic YWxpY2U6czNjcmV0');
     });
   });
 

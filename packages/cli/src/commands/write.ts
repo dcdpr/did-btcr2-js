@@ -12,6 +12,7 @@ import { Identifier } from '@did-btcr2/api';
 import { CLIError } from '../error.js';
 import { GENESIS_DOCUMENT_HELP } from '../genesis-document-file.js';
 import { resolveKeyRef } from '../keystore/resolve-key-ref.js';
+import { warnProfileNetworkMismatch } from '../network-option.js';
 import { hasResolutionFlags, MIN_CONF_HELP, parseMinConf, readResolutionOptions, type ResolutionOptionFlags } from '../resolution-options.js';
 import type { GlobalOptions, NetworkOption, UpdateCommandOptions } from '../types.js';
 import { assertGenesisDocumentApplies } from './resolve.js';
@@ -107,6 +108,9 @@ export function registerWriteOptions(command: Command): Command {
  *    of `--min-conf` would mislead.
  * 5. `--genesis-document` comes only with an external (x) identifier.
  * 6. A mainnet write is refused with an unencrypted dev keystore (ADR 080).
+ *
+ * After the checks, a warning names a network of the active profile that is
+ * not the network of the identifier (ADR 131). The warning never blocks.
  */
 export async function prepareWrite(
   options : WriteFlags,
@@ -144,6 +148,7 @@ export async function prepareWrite(
   assertGenesisDocumentApplies(options, Identifier.decode(did).hrp);
   assertKeystoreAllowedForNetwork(network, g);
   const resolutionOptions = await readResolutionOptions(options);
+  warnProfileNetworkMismatch(g, network, g);
   const api = factory(network, g);
   const keyId = resolveKeyRef(api.kms.kms, resolveDefaultKeyRef(options.signingKey, g));
   const signer = new KeyManagerSigner(api.kms.kms, keyId);

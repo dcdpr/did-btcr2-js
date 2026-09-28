@@ -76,10 +76,14 @@ export function registerCreateCommand(
       const network = resolveNetworkOption(options.network, overrides);
       warnProfileNetworkMismatch(g, network, overrides);
 
-      /** Prints the result, plus a stderr provenance line in text mode. */
+      // Text mode prints the identifier only. `--verbose` adds the key note and
+      // the funding hint on stderr. JSON mode prints the full envelope (ADR 130).
       const print = (result: CommandResult, note?: string): void => {
         console.log(formatResult(result, g));
-        if (note && g.output !== 'json') process.stderr.write(`${note}\n`);
+        if (note && g.verbose && g.output !== 'json') process.stderr.write(`${note}\n`);
+      };
+      const fundingHint = (did: string): void => {
+        if (g.verbose) printCreateFundingHint(g, network, did);
       };
 
       // External: the genesis document file, or its hash as raw bytes.
@@ -99,7 +103,7 @@ export function registerCreateCommand(
           const { did, genesisBytes, didDocument } = api.btcr2.createExternalFromDocument(genesisDocument, { network });
           print({ action: 'create', data: did, genesisBytes: bytesToHex(genesisBytes) });
           const beacons = api.btcr2.getBeacons(didDocument);
-          if (beacons.length > 0) printBeaconFundingHint(g, network, beacons[0].address);
+          if (g.verbose && beacons.length > 0) printBeaconFundingHint(g, network, beacons[0].address);
           return;
         }
         if (options.bytes === undefined) {
@@ -132,7 +136,7 @@ export function registerCreateCommand(
         const genesisBytes = parseGenesisBytes(options.bytes, 'k');
         const did = factory().createDid('deterministic', genesisBytes, { network });
         print({ action: 'create', data: did });
-        printCreateFundingHint(g, network, did);
+        fundingHint(did);
         return;
       }
 
@@ -148,7 +152,7 @@ export function registerCreateCommand(
           { action: 'create', data: did, keyId, publicKey: bytesToHex(publicKey) },
           `Using stored key ${keyId}.`,
         );
-        printCreateFundingHint(g, network, did);
+        fundingHint(did);
         return;
       }
 
@@ -162,7 +166,7 @@ export function registerCreateCommand(
         { action: 'create', data: did, keyId, publicKey },
         `Generated and stored key ${keyId} (now the active key).`,
       );
-      printCreateFundingHint(g, network, did);
+      fundingHint(did);
     });
 }
 

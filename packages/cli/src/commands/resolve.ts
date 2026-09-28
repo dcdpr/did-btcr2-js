@@ -3,6 +3,7 @@ import type { Command } from 'commander';
 import { deriveNetwork, type ApiFactory } from '../config.js';
 import { CLIError } from '../error.js';
 import { GENESIS_DOCUMENT_HELP } from '../genesis-document-file.js';
+import { warnProfileNetworkMismatch } from '../network-option.js';
 import { formatResult } from '../output.js';
 import { MIN_CONF_HELP, parseMinConf, readResolutionOptions, type ResolutionOptionFlags } from '../resolution-options.js';
 import type { GlobalOptions, ResolveCommandOptions } from '../types.js';
@@ -24,10 +25,12 @@ export function registerResolveCommand(
     .action(async (options: { identifier: string } & ResolutionOptionFlags) => {
       const parsed = await validateResolveOptions(options);
       const network = deriveNetwork(parsed.identifier);
-      const api = factory(network, globals());
+      const g = globals();
+      warnProfileNetworkMismatch(g, network, g);
+      const api = factory(network, g);
       const data = await api.resolveDid(parsed.identifier, parsed.options);
       const result = { action: 'resolve' as const, data };
-      console.log(formatResult(result, globals()));
+      console.log(formatResult(result, g));
     });
 }
 

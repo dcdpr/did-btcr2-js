@@ -368,10 +368,19 @@ describe('genesis commands', () => {
       expect(result.genesisBytes).to.equal(bytesToHex(canonicalHashBytes(document)));
     });
 
-    it('prints the identifier alone in text mode, with a funding hint on a faucet network', async () => {
+    it('prints the identifier alone in text mode, with no funding hint', async () => {
       const { document } = externalFixture();
       const path = writeJson('genesis.json', document);
       await run('create', '-t', 'x', '-n', 'mutinynet', '--document', path);
+      expect(out).to.have.length(1);
+      expect(out[0]).to.match(/^did:btcr2:x1/);
+      expect(err.join('')).to.not.include('Fund the initial beacon');
+    });
+
+    it('prints a funding hint on a faucet network under --verbose', async () => {
+      const { document } = externalFixture();
+      const path = writeJson('genesis.json', document);
+      await run('--verbose', 'create', '-t', 'x', '-n', 'mutinynet', '--document', path);
       expect(out[0]).to.match(/^did:btcr2:x1/);
       expect(err.join('')).to.include('Fund the initial beacon');
     });

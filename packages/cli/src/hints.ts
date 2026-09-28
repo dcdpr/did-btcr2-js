@@ -16,7 +16,8 @@ import type { GlobalOptions, NetworkOption } from './types.js';
  * faucet (regtest/mainnet), which also keeps mainnet from showing a fund-me
  * affordance. The beacon address is derived from the DID string alone via
  * {@link BeaconUtils.createBeaconService}, so it matches the resolver's
- * `#initialP2WPKH` service rather than a divergent re-derivation.
+ * `#initialP2WPKH` service rather than a divergent re-derivation. `create`
+ * calls it only under `--verbose` (ADR 130).
  */
 export function printCreateFundingHint(g: GlobalOptions, network: NetworkOption, did: string): void {
   if (g.quiet || g.output === 'json') return;

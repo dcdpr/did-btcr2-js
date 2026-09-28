@@ -2,7 +2,7 @@
 
 Reference documentation for `btcr2`, the command-line tool of the `did:btcr2` method. This page lists the commands, the global flags, the environment variables, and the precedence of each value. One page per command follows the links in the table.
 
-The text matches `@did-btcr2/cli` v0.27.0.
+The text matches `@did-btcr2/cli` v0.28.0.
 
 ## Commands
 
@@ -31,9 +31,9 @@ A global flag goes before the command word. Every command accepts every global f
 | Flag | Value | Default | Description |
 |------|-------|---------|-------------|
 | `-v, --version` | none | n/a | Print `btcr2 <version>` and exit. |
-| `-o, --output <format>` | `json` \| `text` | the flag, else `BTCR2_OUTPUT`, else config `defaults.output`, else `text` | The output format. `text` prints the data payload only: an object as pretty JSON, a string as the bare string. `json` prints the full envelope `{ "action": ..., "data": ... }`. The `--help` text omits the `BTCR2_OUTPUT` layer. The source reads the variable between the flag and the config default. |
-| `--verbose` | boolean | `false` | Print the full error object and the stack on a failure, not only the message. |
-| `--quiet` | boolean | `false` | Do not print hints and warnings on stderr. The flag never changes the stdout payload. |
+| `-o, --output <format>` | `json` \| `text` | the flag, else `BTCR2_OUTPUT`, else config `defaults.output`, else `text` | The output format. `text` prints the data payload only: an object as pretty JSON, a string as the bare string. `json` prints the full envelope `{ "action": ..., "data": ... }`. In text mode, `create` prints the identifier only (ADR 130). The `--help` text omits the `BTCR2_OUTPUT` layer. The source reads the variable between the flag and the config default. |
+| `--verbose` | boolean | `false` | Print more detail. `create` prints the key note and the funding hint on stderr. A failure prints the full error object and the stack, not only the message. The flag can also go after the command word, for example `btcr2 create --verbose`. |
+| `-q, --quiet` | boolean | `false` | Do not print hints and warnings on stderr. In text mode, `config validate` and `identifier validate` print only `OK` or one line for each failure (ADR 130). For the other commands, the flag never changes the stdout payload. The flag can also go after the command word, for example `btcr2 config validate -q`. |
 | `--home <dir>` | directory path | `$BTCR2_HOME`, else `~/.btcr2` on Linux and macOS. On Windows: `%LOCALAPPDATA%\btcr2`, else `%APPDATA%\btcr2`, else the user profile. | The home directory that holds `config.json`, `keystore.json`, and `session.json`. A blank value at one layer defers to the next layer. |
 | `-c, --config <path>` | file path | `<home>/config.json` | The config file to read and write. The flag names one file. It does not move the home. |
 | `--profile <name>` | profile name | config `defaults.profile`, else the profile with the name of the network of the operation | The active profile (see [profile.md](./profile.md)). |
@@ -42,6 +42,7 @@ A global flag goes before the command word. Every command accepts every global f
 | `--btc-rpc-user <user>` | string | none | The Bitcoin Core RPC username. |
 | `--cas-gateway <url>` | URL | `https://trustless-gateway.link` | The IPFS HTTP gateway for CAS reads (read-only). |
 | `--cas-rpc-url <url>` | URL | none | The IPFS HTTP RPC endpoint of a writable CAS (reads and writes). `--publish-to-cas auto` and `always` on `update` and `deactivate` need it. |
+| `--cas-rpc-user <user>` | string | none | The HTTP Basic user name of the IPFS RPC endpoint. There is no password flag. |
 | `--btc-timeout <ms>` | finite number, 1 or more | none (no limit) | The Bitcoin REST and RPC request timeout in milliseconds. |
 | `--cas-timeout <ms>` | finite number, 0 or more. `0` disables the timeout. | none. The api then applies 30000 ms. | The CAS request timeout in milliseconds. |
 | `--btc-rest-header <header>` | `'Key: Value'`, repeatable | `[]` | An extra Bitcoin REST header. The flag merges over the profile's `btc.headers`, and the flag wins per key. The CLI refuses a value without a `Key: Value` colon. A header on argv is visible to every local user through `ps`, and it stays in the shell history and the CI logs. Put a credential header (an API key, a bearer token) in the profile's `btc.headers`. `profile show` redacts it there. |
@@ -78,6 +79,9 @@ The CLI reads these `BTCR2_*` variables. The sources are `src/config.ts`, `src/p
 | `BTCR2_BTC_RPC_PASS_FILE` | The path of a file that holds the RPC password. There is no flag. This is the last fallback if no layer supplies a password. The CLI reads the file only if it builds an RPC config. |
 | `BTCR2_CAS_GATEWAY` | `--cas-gateway` |
 | `BTCR2_CAS_RPC_URL` | `--cas-rpc-url` |
+| `BTCR2_CAS_RPC_USER` | `--cas-rpc-user` |
+| `BTCR2_CAS_RPC_PASS` | The HTTP Basic password of the IPFS RPC endpoint. The value can be a secret reference: `env:<VAR>` or `file:<path>`. There is no flag. The CAS RPC URL, user, and password resolve as one unit per precedence layer, like the Bitcoin Core RPC values (ADR 128). |
+| `BTCR2_CAS_RPC_PASS_FILE` | The path of a file that holds the IPFS RPC password. There is no flag. This is the last fallback if no layer supplies a password. The CLI reads the file only if a CAS RPC URL resolves. |
 | `BTCR2_BTC_SIGNAL_DISCOVERY` | `--btc-signal-discovery` |
 | `BTCR2_BTC_TIMEOUT` | `--btc-timeout` |
 | `BTCR2_CAS_TIMEOUT` | `--cas-timeout` |
@@ -89,12 +93,13 @@ There is no environment variable for the network, the change address, the keysto
 
 ### Precedence
 
-The short rule is: flag, then environment variable, then the active profile, then config `defaults.*`, then the built-in default. The source applies the rule per value. The five-layer chain exists only for a value with a `defaults.*` key. `defaults.*` holds `profile`, `network`, and `output` only.
+The short rule is: flag, then environment variable, then the active profile, then config `defaults.*`, then the built-in default. The source applies the rule per value. The five-layer chain exists only for a value with a `defaults.*` key. `defaults.*` holds `profile`, `network`, `output`, and the `cas` block only.
 
-- Connection values (endpoints, credentials, timeouts, headers): flag, then environment variable, then the active profile in the config file, then the SDK default of the network. There is no `defaults.*` layer for a connection value. A blank value at one layer defers to the next layer.
+- Connection values (endpoints, credentials, timeouts, headers): flag, then environment variable, then the active profile in the config file, then the SDK default of the network. A CAS value also has the `defaults.cas` layer below the profile (ADR 129). A Bitcoin value has no `defaults.*` layer, because a Bitcoin endpoint serves one chain only. A blank value at one layer defers to the next layer.
 - Output format: `-o/--output`, then `BTCR2_OUTPUT`, then config `defaults.output`, then `text`.
-- Network, for a command that does not take an identifier: `-n`, then config `defaults.network`, then the network of the active profile, then a built-in fallback. The network of a profile is its `network` field, else its name if the name is a network. The fallback is `regtest`. `quickstart` alone falls back to `mutinynet`. The `defaults.network` layer sits above the profile layer here, and there is no environment variable. A command that takes an identifier or a DID document reads the network from it.
+- Network, for a command that does not take an identifier: `-n`, then the network of the active profile, then config `defaults.network`, then `regtest` (ADR 131). The network of a profile is its `network` field, else its name if the name is a network. `quickstart` reads only `-n` and `defaults.network`, and it falls back to `mutinynet`. There is no environment variable for the network. A command that takes an identifier or a DID document reads the network from it. If that network is not the network of the active profile, the command prints a warning on stderr.
 - RPC endpoint: the URL, the user, and the password come together from the highest layer that supplies a URL. If no layer supplies a URL, they come from the highest layer that supplies a credential. A host from one layer never gets the credentials of another layer. `BTCR2_BTC_RPC_PASS_FILE` is the password fallback below all layers.
+- CAS endpoint: the highest layer that sets a gateway or an RPC URL gives the gateway, the RPC URL, the user, and the password (ADR 129). In that layer, the RPC URL wins over the gateway. So a profile gateway wins over a `defaults.cas` RPC URL. `BTCR2_CAS_RPC_PASS_FILE` is the password fallback below all layers. A CAS RPC user without a password, or a password without a user, stops the command.
 - Home directory: `--home`, then `BTCR2_HOME`, then the platform default. The CLI never reads the home from the config file, because the config file is inside the home.
 - Keystore path: `--keystore`, then the active profile's `identity.keystore`, then `<home>/keystore.json`.
 - Key: the key flag (`create --key`, `update --signing-key`, `deactivate --signing-key`), then the active profile's `identity.default`, then the active key of the keystore. If no key applies, `create` generates a key and `update` and `deactivate` fail.

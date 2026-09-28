@@ -100,7 +100,7 @@ The refusals, in this order, before any cache:
 - An absent keystore: `No keystore at <path>. Run "btcr2 init" or "btcr2 keystore init" first.`
 - A dev keystore: it has no passphrase to cache, so no unlock is necessary.
 - An encrypted keystore with no passphrase yet (no verifier): set one with `btcr2 keystore init` or with the first `btcr2 key generate`.
-- The mainnet gate: if the resolved default network is `bitcoin` and `--allow-mainnet` is absent, the command refuses (`MAINNET_UNLOCK_REFUSED_ERROR`). A cached passphrase suspends the per-use authentication for the whole session. The network here is the configured default: config `defaults.network`, else the network of the active profile, else `regtest`. The authoritative check happens again at the read of the session: a `bitcoin` operation (the network comes from the identifier) does not use a session without `allowMainnet`.
+- The mainnet gate: if the resolved default network is `bitcoin` and `--allow-mainnet` is absent, the command refuses (`MAINNET_UNLOCK_REFUSED_ERROR`). A cached passphrase suspends the per-use authentication for the whole session. The network here is the configured default: the network of the active profile, else config `defaults.network`, else `regtest` (ADR 131). The authoritative check happens again at the read of the session: a `bitcoin` operation (the network comes from the identifier) does not use a session without `allowMainnet`.
 
 The command gets the passphrase directly (`BTCR2_KEYSTORE_PASSPHRASE`, then `--passphrase-file`, then a terminal prompt). It never reads an existing session. It verifies the passphrase against the keystore verifier before the cache. A wrong passphrase fails with `Incorrect passphrase for the keystore at <path>; no session was created.` (`DECRYPT_ERROR`) and writes no session file.
 
@@ -149,8 +149,8 @@ The config file keys (`<home>/config.json`, or the file that `-c/--config` names
 |-----|---------|--------|
 | `defaults.profile` | all subcommands | The active profile if `--profile` is absent. |
 | `profiles.<name>.identity.keystore` | all except `lock` | The keystore path of the active profile. The precedence: the `--keystore` flag, then this key, then `<home>/keystore.json`. The CLI reads the key only if a profile is active (through `--profile` or `defaults.profile`). |
-| `defaults.network` | `unlock` | The resolved default network drives the mainnet unlock gate: `bitcoin` here refuses `unlock` without `--allow-mainnet`. |
-| `profiles.<name>.network` (or a profile with a network name) | `unlock` | The fallback network of the mainnet gate if `defaults.network` is unset. The last fallback is `regtest`. |
+| `profiles.<name>.network` (or a profile with a network name) | `unlock` | The network of the active profile drives the mainnet unlock gate: `bitcoin` here refuses `unlock` without `--allow-mainnet`. |
+| `defaults.network` | `unlock` | The network of the mainnet gate if the active profile has no network. The last fallback is `regtest`. |
 | `defaults.output` | all subcommands | The output format if neither `-o/--output` nor `BTCR2_OUTPUT` is set. |
 
 The behavior with a malformed config file differs per subcommand. `init`, `change-passphrase`, and `unlock` fail with a message on an unparseable config file (the profile could move the keystore path, so they do not guess). `status` falls back to the home default keystore path, so that it can still report. `lock` never reads the config file.

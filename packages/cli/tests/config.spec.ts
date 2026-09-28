@@ -5,6 +5,7 @@ import { StaticFeeEstimator } from '@did-btcr2/method';
 import {
   defaultApiFactory,
   defaultConfigPath,
+  defaultsToOverrides,
   ENV_VARS,
   parseHeaderList,
   profileNetworkMismatch,
@@ -474,10 +475,26 @@ describe('resolveDefaultNetwork / profileNetworkMismatch', () => {
     expect(resolveDefaultNetwork({ config: cfg })).to.equal('bitcoin');
   });
 
-  it('lets defaults.network win over the active profile network', () => {
+  it('lets the active profile network win over defaults.network (ADR 131)', () => {
     const cfg = writeCfg('both.json', {
       defaults : { network: 'signet', profile: 'production' },
       profiles : { production: { network: 'bitcoin' } },
+    });
+    expect(resolveDefaultNetwork({ config: cfg })).to.equal('bitcoin');
+  });
+
+  it('lets the network of a --profile flag win over defaults.network', () => {
+    const cfg = writeCfg('flag.json', {
+      defaults : { network: 'signet' },
+      profiles : { staging: { network: 'testnet4' } },
+    });
+    expect(resolveDefaultNetwork({ config: cfg, profile: 'staging' })).to.equal('testnet4');
+  });
+
+  it('uses defaults.network when the active profile declares no network', () => {
+    const cfg = writeCfg('nonet-default.json', {
+      defaults : { network: 'signet', profile: 'custom' },
+      profiles : { custom: {} },
     });
     expect(resolveDefaultNetwork({ config: cfg })).to.equal('signet');
   });
@@ -965,6 +982,264 @@ describe('resolveSecretRef and RPC password sources', () => {
       btcRpcUser : 'bob',
     });
     expect(api.btc.connection.rpc?.config.password).to.equal('file-secret');
+  });
+});
+
+describe('CAS RPC credentials (ADR 128)', () => {
+  const tempDir = join(tmpdir(), 'btcr2-cas-rpc-auth-test');
+  const envKeys = [ ...Object.values(ENV_VARS), 'BTCR2_CAS_RPC_PASS_FILE', 'MY_CAS_PASS' ];
+  const saved: Record<string, string | undefined> = {};
+  const auth = { username: 'alice', password: 's3cret' };
+
+  before(() => mkdirSync(tempDir, { recursive: true }));
+
+  after(() => rmSync(tempDir, { recursive: true, force: true }));
+
+  beforeEach(() => {
+    for (const k of envKeys) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+  });
+
+  afterEach(() => {
+    for (const k of envKeys) {
+      if (saved[k] !== undefined) process.env[k] = saved[k]; else delete process.env[k];
+    }
+  });
+
+  const writeCfg = (name: string, content: ConfigFile): string => {
+    const p = join(tempDir, name);
+    writeFileSync(p, JSON.stringify(content));
+    return p;
+  };
+
+  it('reads BTCR2_CAS_RPC_USER and BTCR2_CAS_RPC_PASS', () => {
+    process.env[ENV_VARS.CAS_RPC_USER] = 'alice';
+    process.env[ENV_VARS.CAS_RPC_PASS] = 's3cret';
+    const overrides = readEnvOverrides();
+    expect(overrides.casRpcUser).to.equal('alice');
+    expect(overrides.casRpcPass).to.equal('s3cret');
+  });
+
+  it('maps the profile cas.rpcUser and cas.rpcPass', () => {
+    const o = profileToOverrides({ profiles: { p: { cas: { rpcUser: 'alice', rpcPass: 'env:X' } } } }, 'p');
+    expect(o.casRpcUser).to.equal('alice');
+    expect(o.casRpcPass).to.equal('env:X');
+  });
+
+  it('gives the profile url, user, and password to the CAS config', () => {
+    const cfg = writeCfg('profile.json', {
+      profiles : { regtest: { cas: { rpcUrl: 'http://node-a:5001', rpcUser: 'alice', rpcPass: 's3cret' } } },
+    });
+    expect(resolveConnectionConfig('regtest', { config: cfg }).cas)
+      .to.deep.equal({ rpcUrl: 'http://node-a:5001', rpcAuth: auth });
+  });
+
+  it('resolves an env: reference in cas.rpcPass', () => {
+    process.env.MY_CAS_PASS = 's3cret\n';
+    const cfg = writeCfg('ref.json', {
+      profiles : { regtest: { cas: { rpcUrl: 'http://node-a:5001', rpcUser: 'alice', rpcPass: 'env:MY_CAS_PASS' } } },
+    });
+    expect(resolveConnectionConfig('regtest', { config: cfg }).cas?.rpcAuth).to.deep.equal(auth);
+  });
+
+  it('takes the url, user, and password from the environment', () => {
+    process.env[ENV_VARS.CAS_RPC_URL] = 'http://node-e:5001';
+    process.env[ENV_VARS.CAS_RPC_USER] = 'alice';
+    process.env[ENV_VARS.CAS_RPC_PASS] = 's3cret';
+    const cas = resolveConnectionConfig('regtest', { config: join(tempDir, 'none.json') }).cas;
+    expect(cas).to.deep.equal({ rpcUrl: 'http://node-e:5001', rpcAuth: auth });
+  });
+
+  it('never gives the profile credentials to a flag url', () => {
+    const cfg = writeCfg('atomic.json', {
+      profiles : { regtest: { cas: { rpcUrl: 'http://node-a:5001', rpcUser: 'alice', rpcPass: 's3cret' } } },
+    });
+    const cas = resolveConnectionConfig('regtest', { config: cfg, casRpcUrl: 'http://node-b:5001' }).cas;
+    expect(cas).to.deep.equal({ rpcUrl: 'http://node-b:5001' });
+  });
+
+  it('gives a flag url and user the password of BTCR2_CAS_RPC_PASS_FILE, not of BTCR2_CAS_RPC_PASS', () => {
+    const file = join(tempDir, 'passfile.txt');
+    writeFileSync(file, 's3cret\n');
+    process.env.BTCR2_CAS_RPC_PASS_FILE = file;
+    process.env[ENV_VARS.CAS_RPC_PASS] = 'env-secret';
+    const cas = resolveConnectionConfig('regtest', {
+      config     : join(tempDir, 'none.json'),
+      casRpcUrl  : 'http://node-b:5001',
+      casRpcUser : 'alice',
+    }).cas;
+    expect(cas?.rpcAuth).to.deep.equal(auth);
+  });
+
+  it('refuses a user with no password', () => {
+    const cfg = writeCfg('user-only.json', {
+      profiles : { regtest: { cas: { rpcUrl: 'http://node-a:5001', rpcUser: 'alice' } } },
+    });
+    expect(() => resolveConnectionConfig('regtest', { config: cfg }))
+      .to.throw(CLIError, 'The CAS RPC credentials need a user and a password. Only the user is set for http://node-a:5001.');
+  });
+
+  it('refuses a password with no user', () => {
+    const cfg = writeCfg('pass-only.json', {
+      profiles : { regtest: { cas: { rpcUrl: 'http://node-a:5001', rpcPass: 's3cret' } } },
+    });
+    expect(() => resolveConnectionConfig('regtest', { config: cfg }))
+      .to.throw(CLIError, /Only the password is set/);
+  });
+
+  it('ignores credentials if no layer gives a url', () => {
+    const cfg = writeCfg('no-url.json', {
+      profiles : { regtest: { cas: { gateway: 'https://gw.example', rpcUser: 'alice', rpcPass: 's3cret' } } },
+    });
+    expect(resolveConnectionConfig('regtest', { config: cfg }).cas).to.deep.equal({ gateway: 'https://gw.example' });
+  });
+
+  it('sends the credentials in each CAS request of the api', async () => {
+    const cfg = writeCfg('api.json', {
+      profiles : { regtest: { cas: { rpcUrl: 'http://node-a:5001', rpcUser: 'alice', rpcPass: 's3cret' } } },
+    });
+    const original = globalThis.fetch;
+    const headers: unknown[] = [];
+    globalThis.fetch = (async (_input: unknown, init?: Parameters<typeof fetch>[1]) => {
+      headers.push(init?.headers);
+      return new Response('did:btcr2');
+    }) as typeof fetch;
+    try {
+      await defaultApiFactory('regtest', { config: cfg }).cas.probe();
+    } finally {
+      globalThis.fetch = original;
+    }
+    expect(headers).to.deep.equal([{ Authorization: 'Basic YWxpY2U6czNjcmV0' }]);
+  });
+});
+
+describe('defaults.cas (ADR 129)', () => {
+  const tempDir = join(tmpdir(), 'btcr2-defaults-cas-test');
+  const envKeys = [ ...Object.values(ENV_VARS), 'BTCR2_CAS_RPC_PASS_FILE' ];
+  const saved: Record<string, string | undefined> = {};
+  const auth = { username: 'alice', password: 's3cret' };
+  const shared = { rpcUrl: 'https://ipfs.example', rpcUser: 'alice', rpcPass: 's3cret' };
+
+  before(() => mkdirSync(tempDir, { recursive: true }));
+
+  after(() => rmSync(tempDir, { recursive: true, force: true }));
+
+  beforeEach(() => {
+    for (const k of envKeys) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+  });
+
+  afterEach(() => {
+    for (const k of envKeys) {
+      if (saved[k] !== undefined) process.env[k] = saved[k]; else delete process.env[k];
+    }
+  });
+
+  const writeCfg = (name: string, content: ConfigFile): string => {
+    const p = join(tempDir, name);
+    writeFileSync(p, JSON.stringify(content));
+    return p;
+  };
+
+  it('maps defaults.cas to the CAS overrides only', () => {
+    expect(defaultsToOverrides({ defaults: { cas: { gateway: 'https://gw.example', ...shared } } })).to.deep.equal({
+      casGateway : 'https://gw.example',
+      casRpcUrl  : 'https://ipfs.example',
+      casRpcUser : 'alice',
+      casRpcPass : 's3cret',
+    });
+    expect(defaultsToOverrides({ defaults: { network: 'signet' } })).to.deep.equal({});
+  });
+
+  it('gives the url, user, and password of defaults.cas to each network', () => {
+    const cfg = writeCfg('all.json', { defaults: { cas: shared } });
+    for (const network of [ 'bitcoin', 'signet', 'mutinynet', 'regtest' ] as const) {
+      expect(resolveConnectionConfig(network, { config: cfg }).cas)
+        .to.deep.equal({ rpcUrl: 'https://ipfs.example', rpcAuth: auth });
+    }
+  });
+
+  it('gives the gateway and the timeout of defaults.cas to a network with no profile', () => {
+    const cfg = writeCfg('gateway.json', { defaults: { cas: { gateway: 'https://gw.example', timeoutMs: 60000 } } });
+    expect(resolveConnectionConfig('signet', { config: cfg }).cas)
+      .to.deep.equal({ gateway: 'https://gw.example', timeoutMs: 60000 });
+  });
+
+  it('never gives the defaults.cas credentials to a profile url', () => {
+    const cfg = writeCfg('profile-url.json', {
+      defaults : { cas: shared },
+      profiles : { regtest: { cas: { rpcUrl: 'http://127.0.0.1:5001' } } },
+    });
+    expect(resolveConnectionConfig('regtest', { config: cfg }).cas).to.deep.equal({ rpcUrl: 'http://127.0.0.1:5001' });
+    expect(resolveConnectionConfig('signet', { config: cfg }).cas)
+      .to.deep.equal({ rpcUrl: 'https://ipfs.example', rpcAuth: auth });
+  });
+
+  it('lets a profile value win for each key, and a blank profile value defer to defaults.cas', () => {
+    const cfg = writeCfg('per-key.json', {
+      defaults : { cas: { gateway: 'https://gw.example', timeoutMs: 60000 } },
+      profiles : {
+        signet  : { cas: { gateway: 'https://signet-gw.example' } },
+        regtest : { cas: { gateway: '  ', timeoutMs: 0 } },
+      },
+    });
+    expect(resolveConnectionConfig('signet', { config: cfg }).cas)
+      .to.deep.equal({ gateway: 'https://signet-gw.example', timeoutMs: 60000 });
+    expect(resolveConnectionConfig('regtest', { config: cfg }).cas)
+      .to.deep.equal({ gateway: 'https://gw.example', timeoutMs: 0 });
+  });
+
+  it('lets the environment and the flag win over defaults.cas', () => {
+    const cfg = writeCfg('env.json', { defaults: { cas: { gateway: 'https://gw.example', ...shared } } });
+    process.env[ENV_VARS.CAS_GATEWAY] = 'https://env-gw.example';
+    process.env[ENV_VARS.CAS_RPC_URL] = 'http://env-node:5001';
+    expect(resolveConnectionConfig('signet', { config: cfg }).cas)
+      .to.deep.equal({ gateway: 'https://env-gw.example', rpcUrl: 'http://env-node:5001' });
+    expect(resolveConnectionConfig('signet', { config: cfg, casGateway: 'https://flag-gw.example' }).cas)
+      .to.deep.equal({ gateway: 'https://flag-gw.example' });
+  });
+
+  it('lets a profile gateway win over the defaults.cas url', () => {
+    const cfg = writeCfg('profile-gateway.json', {
+      defaults : { cas: shared },
+      profiles : { signet: { cas: { gateway: 'https://signet-gw.example' } } },
+    });
+    const cas = resolveConnectionConfig('signet', { config: cfg }).cas;
+    expect(cas).to.deep.equal({ gateway: 'https://signet-gw.example' });
+    expect(defaultApiFactory('signet', { config: cfg }).cas.writable).to.equal(false);
+  });
+
+  it('lets a flag gateway win over a profile url', () => {
+    const cfg = writeCfg('flag-gateway.json', {
+      profiles : { regtest: { cas: { rpcUrl: 'http://127.0.0.1:5001' } } },
+    });
+    expect(resolveConnectionConfig('regtest', { config: cfg, casGateway: 'https://gw.example' }).cas)
+      .to.deep.equal({ gateway: 'https://gw.example' });
+  });
+
+  it('takes the gateway and the url of one layer together', () => {
+    const cfg = writeCfg('same-layer.json', {
+      defaults : { cas: { gateway: 'https://gw.example', rpcUrl: 'http://127.0.0.1:5001' } },
+    });
+    expect(resolveConnectionConfig('regtest', { config: cfg }).cas)
+      .to.deep.equal({ gateway: 'https://gw.example', rpcUrl: 'http://127.0.0.1:5001' });
+  });
+
+  it('refuses incomplete credentials in defaults.cas', () => {
+    const cfg = writeCfg('user-only.json', { defaults: { cas: { rpcUrl: 'https://ipfs.example', rpcUser: 'alice' } } });
+    expect(() => resolveConnectionConfig('signet', { config: cfg }))
+      .to.throw(CLIError, 'The CAS RPC credentials need a user and a password. Only the user is set for https://ipfs.example.');
+  });
+
+  it('changes no Bitcoin value', () => {
+    const cfg = writeCfg('btc.json', { defaults: { cas: shared } });
+    const plain = writeCfg('plain.json', {});
+    expect(resolveConnectionConfig('regtest', { config: cfg }).btc)
+      .to.deep.equal(resolveConnectionConfig('regtest', { config: plain }).btc);
   });
 });
 

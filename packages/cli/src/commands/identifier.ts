@@ -1,19 +1,19 @@
-import type { IdentifierReport } from '@did-btcr2/api';
+import type { IdentifierCheck, IdentifierReport } from '@did-btcr2/api';
 import { Identifier } from '@did-btcr2/api';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 import type { Command } from 'commander';
 import type { ApiFactory } from '../config.js';
 import { CLIError } from '../error.js';
 import { readGenesisDocumentFile } from '../genesis-document-file.js';
-import { formatResult } from '../output.js';
+import { formatCheckResult, formatResult } from '../output.js';
 import type { CommandResult, GlobalOptions, IdentifierDecodeData } from '../types.js';
 
 /**
  * Registers the `identifier` command group. `decode` prints the components of
  * a did:btcr2 identifier. `validate` checks that an identifier conforms to the
- * specification and prints a report. Both commands are offline and
- * keystore-free: they use the api with no Bitcoin connection, no CAS, and no
- * key material.
+ * specification and prints a report (`OK` or the failed check under `--quiet`).
+ * Both commands are offline and keystore-free: they use the api with no Bitcoin
+ * connection, no CAS, and no key material.
  */
 export function registerIdentifierCommand(
   program : Command,
@@ -103,7 +103,10 @@ export function registerIdentifierCommand(
         genesisDocument = await readGenesisDocumentFile(options.genesisDocument);
       }
       const report: IdentifierReport = factory().did.validate(did, { genesisBytes, genesisDocument });
-      print({ action: 'identifier-validate', data: report });
+      // Text mode prints the full report. `-q/--quiet` prints OK, or the failed
+      // check (ADR 130).
+      const failures = report.checks.filter(check => !check.ok).map(failedCheckMessage);
+      console.log(formatCheckResult({ action: 'identifier-validate', data: report }, globals(), failures));
       if (!report.valid) process.exitCode = 1;
     });
 }
@@ -117,11 +120,12 @@ function assertValidIdentifier(did: string): void {
   const report = Identifier.validate(did);
   if (report.valid) return;
   const failed = report.checks[report.checks.length - 1];
-  throw new CLIError(
-    `Invalid identifier (${failed.name} check): ${failed.detail ?? 'failed'}`,
-    'INVALID_ARGUMENT_ERROR',
-    { did, check: failed.name },
-  );
+  throw new CLIError(failedCheckMessage(failed), 'INVALID_ARGUMENT_ERROR', { did, check: failed.name });
+}
+
+/** The one-line message of a failed identifier check. */
+function failedCheckMessage(check: IdentifierCheck): string {
+  return `Invalid identifier (${check.name} check): ${check.detail ?? 'failed'}`;
 }
 
 /** Parses the `--bytes` hex string. The length is a validation result, not an argument error. */

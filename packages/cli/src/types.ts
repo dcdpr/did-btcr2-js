@@ -138,6 +138,8 @@ export interface GlobalOptions {
   // or a profile secret reference instead (see the flag list in `cli.ts`).
   casGateway?         : string;
   casRpcUrl?          : string;
+  casRpcUser?         : string;
+  // No casRpcPass, for the same reason as btcRpcPass.
   btcTimeout?         : string;
   casTimeout?         : string;
   btcRestHeader?      : string[];

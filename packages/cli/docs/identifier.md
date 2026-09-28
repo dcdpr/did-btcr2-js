@@ -76,7 +76,8 @@ prints the full structured error.
 
 Runs the checks of the identifier decoding algorithm in order and prints a report. The run stops
 at the first failed check. The command never throws on an invalid identifier: the report says
-what failed, and the exit code is `1`.
+what failed, and the exit code is `1`. With `-q/--quiet`, the command prints only `OK`, or the
+failed check.
 
 ### Checks
 
@@ -104,7 +105,9 @@ what failed, and the exit code is `1`.
 ### Output
 
 Text mode (default) prints the report as 2-space-indented JSON. JSON mode (`-o json`) wraps it in
-`{ "action": "identifier-validate", "data": { ... } }`.
+`{ "action": "identifier-validate", "data": { ... } }`. Text mode with `-q/--quiet` prints `OK`
+if the identifier is valid. If a check fails, it prints one line:
+`Invalid identifier (<check> check): <detail>` (ADR 130). The table shows the fields of the report.
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -114,7 +117,13 @@ Text mode (default) prints the report as 2-space-indented JSON. JSON mode (`-o j
 | `network` | string | Present after the `network` check passed. |
 | `checks` | array | The checks that ran, in run order. Each entry is `{ name, ok, detail? }`. A failed report ends with its failed check. |
 
-Example, an uppercase id:
+Example, an uppercase id. With `-q`, text mode prints:
+
+```
+Invalid identifier (lowercase check): The method-specific id must be lowercase.
+```
+
+Without `-q`, text mode prints the report:
 
 ```json
 {
@@ -127,15 +136,16 @@ Example, an uppercase id:
 }
 ```
 
-Exit codes: `0` if the identifier is valid. `1` if the identifier is not valid (the report is on
+Exit codes: `0` if the identifier is valid. `1` if the identifier is not valid (the output is on
 stdout, stderr is empty) and on any error (the message is on stderr).
 
 ## Global flags
 
 See the [docs README](./README.md#global-flags) for the shared global flags. The command group
-uses `-o, --output` (text or the JSON envelope) and `--verbose` (the full structured error).
-The command group accepts the connection overrides, the state location flags, `--quiet`,
-`--keystore`, and `--passphrase-file`, but they have no effect: the command group reads no
+uses `-o, --output` (text or the JSON envelope), `-q, --quiet` (the short result of `validate` in
+text mode), and `--verbose` (the full structured error).
+The command group accepts the connection overrides, the state location flags, `--keystore`, and
+`--passphrase-file`, but they have no effect: the command group reads no
 config, no keystore, and no endpoint.
 
 ## Examples
@@ -161,6 +171,9 @@ btcr2 identifier validate did:btcr2:x1qh... -b be0db3aeee89da24d50112af74f40c6a2
 
 # Validate an EXTERNAL identifier together with its genesis document
 btcr2 identifier validate did:btcr2:x1qh... --genesis-document ./genesis.json
+
+# Print only OK, or the failed check
+btcr2 identifier validate did:btcr2:k1qq... -q
 
 # JSON envelope output
 btcr2 -o json identifier validate did:btcr2:k1qq...

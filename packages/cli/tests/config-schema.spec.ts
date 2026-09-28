@@ -10,12 +10,16 @@ describe('config-schema', () => {
       expect(isKnownConfigPath('profiles.anyname.cas.rpcUrl')).to.equal(true);
       expect(isKnownConfigPath('profiles.anyname.btc')).to.equal(true);
       expect(isKnownConfigPath('profiles.anyname.identity.keystore')).to.equal(true);
+      expect(isKnownConfigPath('defaults.cas')).to.equal(true);
+      expect(isKnownConfigPath('defaults.cas.rpcPass')).to.equal(true);
     });
 
     it('rejects unknown paths', () => {
       expect(isKnownConfigPath('defaults.netwrok')).to.equal(false);
       expect(isKnownConfigPath('profiles.regtest.btc.rset')).to.equal(false);
       expect(isKnownConfigPath('nope')).to.equal(false);
+      expect(isKnownConfigPath('defaults.cas.rpcurl')).to.equal(false);
+      expect(isKnownConfigPath('defaults.btc')).to.equal(false);
     });
   });
 
