@@ -4,7 +4,7 @@ This walkthrough shows the `btcr2` command-line tool from the setup to an on-cha
 
 **How to use this document:** run the commands from top to bottom in one terminal session. A later command reuses the shell variables of an earlier command, so keep the same session open. Each output block is an example. Your keys, identifiers, and Bitcoin addresses differ, but the shape is the same.
 
-The text matches `@did-btcr2/cli` v0.26.0.
+The text matches `@did-btcr2/cli` v0.27.0.
 
 ---
 
@@ -44,7 +44,7 @@ btcr2 --version
 ```
 
 ```
-btcr2 0.26.0
+btcr2 0.27.0
 ```
 
 ### Set up in one command
@@ -186,7 +186,7 @@ The secret key never leaves this machine. On Path A, the keystore is encrypted a
 Turn the key into an identifier. This is a local computation: no network, no transaction. The next commands read the result from `$DID`.
 
 ```bash
-DID=$(btcr2 create --signing-key demo 2>/dev/null)
+DID=$(btcr2 create 2>/dev/null)
 echo "$DID"
 ```
 
@@ -196,7 +196,7 @@ Example output (yours differs):
 did:btcr2:k1q5plyvwt6qw6523ndym6dg8hqdnvk0kxqke37ejl0hc6taffmqdz36qnssf9t
 ```
 
-That string **is** the identifier. The command made it in milliseconds, with no fee. `create --signing-key` reads the **public** key only, so it never needs the passphrase. In text mode, it prints the identifier on stdout and a `Using stored key ...` note on stderr. The `2>/dev/null` redirect keeps the note out of `$DID`.
+That string **is** the identifier. The command made it in milliseconds, with no fee. `demo` is the active key, so `create` uses it. For another stored key, add `--key <ref>`. `create` reads the **public** key only, so it never needs the passphrase. In text mode, it prints the identifier on stdout and a `Using stored key ...` note on stderr. The `2>/dev/null` redirect keeps the note out of `$DID`.
 
 The identifier is on a test network, so `create` also prints a **funding hint** on stderr: the initial beacon address with the faucet and explorer links. You send coins to this address before the on-chain update in Part 4. Run the command without the `2>/dev/null` redirect to see the hint:
 
@@ -214,9 +214,9 @@ The identifier has these properties:
 **The identifier encodes its network.** The same key on a different network gives a different identifier. Look at the characters after `k1`:
 
 ```bash
-btcr2 create --signing-key demo -n bitcoin     # did:btcr2:k1qq...  (mainnet)
-btcr2 create --signing-key demo -n signet      # did:btcr2:k1qyp... (signet)
-btcr2 create --signing-key demo -n mutinynet   # did:btcr2:k1q5p... (mutinynet)
+btcr2 create -n bitcoin     # did:btcr2:k1qq...  (mainnet)
+btcr2 create -n signet      # did:btcr2:k1qyp... (signet)
+btcr2 create -n mutinynet   # did:btcr2:k1q5p... (mutinynet)
 ```
 
 **The identifier decodes offline.** `identifier decode` prints the type, the version, the network, and the genesis bytes (here: the public key). `identifier validate` runs the checks of the specification. It exits with code 1 if one check fails.
@@ -243,7 +243,7 @@ btcr2 identifier validate "$DID"        # prints the check list, exit code 0
 **Machine-readable output** for scripts. With a stored key, the envelope also carries the `keyId` and the `publicKey`:
 
 ```bash
-btcr2 -o json create --signing-key demo
+btcr2 -o json create
 ```
 
 ```json
@@ -255,7 +255,7 @@ btcr2 -o json create --signing-key demo
 }
 ```
 
-For a bare `{action, data}` envelope, pass the public key as raw bytes: `btcr2 -o json create -b <33-byte-pubkey-hex>`. This path needs no keystore. A `k` identifier is deterministic, so the raw path and the `--signing-key` path give the **same** identifier for the same key.
+For a bare `{action, data}` envelope, pass the public key as raw bytes: `btcr2 -o json create -b <33-byte-pubkey-hex>`. This path needs no keystore. A `k` identifier is deterministic, so the raw path and the stored-key path give the **same** identifier for the same key.
 
 **Two identifier types.** The identifier above is a *deterministic* (`k`) identifier. It comes from a public key, so it resolves with no external data. An *external* (`x`) identifier comes from the SHA-256 hash of a genesis document that you write. `btcr2 genesis build` writes that document from your keys, beacons, and services, and prints the identifier. `create -t x --document` makes the same identifier again from the file:
 
@@ -355,7 +355,7 @@ Write the change as a JSON Patch. This example adds an `alsoKnownAs` link. The s
 
 ```bash
 # Sign, spend the funded beacon UTXO, and broadcast. Keep the signed update.
-btcr2 -o json --signing-key demo update \
+btcr2 -o json update --signing-key demo \
   -i "$DID" \
   -p '[{"op":"add","path":"/alsoKnownAs","value":["https://example.com/demo"]}]' \
   | jq '.data.signedUpdate' > signed-update.json
@@ -531,7 +531,7 @@ eval "$(btcr2 completion bash)"           # or: zsh, fish
 `btcr2 deactivate` (alias `delete`) retires an identifier. This is permanent. It uses the same on-chain write path as `update`: the same funded beacon, the same signature (a session or a prompt), and the same `--publish-to-cas`, `--fee-rate`, and `--change-address` flags. Do not run it on an identifier that you want to keep. The command resolves the current state first. It needs the version 2 update as sidecar data and, for a fresh signal, `--min-conf 1`, as in the `resolve` of Step D. The api then derives the verification method and the beacon, and supplies the deactivation patch:
 
 ```bash
-btcr2 --signing-key demo deactivate \
+btcr2 deactivate --signing-key demo \
   -i "$DID" \
   --min-conf 1 \
   -r "$(jq -c '{sidecar:{updates:[.]}}' signed-update.json)"
@@ -586,10 +586,10 @@ btcr2 quickstart [-n <network>] [--dev] [--unlock] [--ttl <dur>] [--no-doctor] [
 btcr2 keystore init [--dev] [--force] | status | change-passphrase|passwd | unlock [--ttl <dur>] [--allow-mainnet] | lock
 btcr2 key generate --name <n> --set-active
 btcr2 key list|ls | show <ref> | use <ref> | import [--secret-file <path> | --public <hex>] | export [--secret --out <path>] <ref> | delete|rm [--force] <ref>
-btcr2 create [-t k|x] [-n <network>] [-b <hex> | --document <path>] [--signing-key <ref>]
+btcr2 create [-t k|x] [-n <network>] [-k <ref> | -b <hex> | --document <path>]
 btcr2 resolve|read -i <did> [-r <json>] [-p <path>] [--min-conf <n>] [--genesis-document <path>]
-btcr2 update -i <did> -p <patches-json> [-s <doc-json> --source-version-id <n>] [-m <vm-id>] [-b <beacon-id>] [-r <json> | --resolution-options-path <path>] [--min-conf <n>] [--genesis-document <path>] [--publish-to-cas <mode>] [--fee-rate <n>] [--change-address <addr>]
-btcr2 deactivate|delete -i <did> [-s <doc-json> --source-version-id <n>] [-m <vm-id>] [-b <beacon-id>] [-r <json> | --resolution-options-path <path>] [--min-conf <n>] [--genesis-document <path>] [--publish-to-cas <mode>] [--fee-rate <n>] [--change-address <addr>]
+btcr2 update -i <did> -p <patches-json> [--signing-key <ref>] [-s <doc-json> --source-version-id <n>] [-m <vm-id>] [-b <beacon-id>] [-r <json> | --resolution-options-path <path>] [--min-conf <n>] [--genesis-document <path>] [--publish-to-cas <mode>] [--fee-rate <n>] [--change-address <addr>]
+btcr2 deactivate|delete -i <did> [--signing-key <ref>] [-s <doc-json> --source-version-id <n>] [-m <vm-id>] [-b <beacon-id>] [-r <json> | --resolution-options-path <path>] [--min-conf <n>] [--genesis-document <path>] [--publish-to-cas <mode>] [--fee-rate <n>] [--change-address <addr>]
 btcr2 identifier decode <did> [--initial-document] [--genesis-document <path>]
 btcr2 identifier validate <did> [-b <hex>] [--genesis-document <path>]
 btcr2 genesis build [-n <network>] [--spec <path>] [--out <path>] [--force]
@@ -599,7 +599,7 @@ btcr2 completion [bash|zsh|fish]
 ```
 ```
 Global flags: -o json|text  --verbose  --quiet  --home <dir>  -c <config>  --profile <name>
-              --keystore <path>  --passphrase-file <path>  --signing-key <ref>
+              --keystore <path>  --passphrase-file <path>
               --btc-rest <url>  --btc-rpc-url <url>  --btc-rpc-user <u>
               --btc-rpc-wallet <name>  --btc-rest-header <h>  --btc-rpc-header <h>
               --btc-signal-discovery <indexer|fullnode>

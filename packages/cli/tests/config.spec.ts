@@ -18,7 +18,7 @@ import {
   resolveKeystorePath,
   resolveOutputFormat,
   resolveSecretRef,
-  resolveSigningKeyRef,
+  resolveDefaultKeyRef,
 } from '../src/config.js';
 import type { ConfigFile } from '../src/config.js';
 import { CLIError } from '../src/error.js';
@@ -1002,25 +1002,25 @@ describe('profile identity wiring (keystore + default signing key)', () => {
     expect(resolveKeystorePath({ config: cfg })).to.match(/btcr2[/\\]keystore\.json$/);
   });
 
-  it('resolveSigningKeyRef falls back to the active profile identity.default', () => {
+  it('resolveDefaultKeyRef falls back to the active profile identity.default', () => {
     const cfg = writeCfg('id-default.json', {
       defaults : { profile: 'custom' },
       profiles : { custom: { identity: { default: 'profile-key' } } },
     });
-    expect(resolveSigningKeyRef({ config: cfg })).to.equal('profile-key');
+    expect(resolveDefaultKeyRef(undefined, { config: cfg })).to.equal('profile-key');
   });
 
-  it('resolveSigningKeyRef lets the --signing-key flag win over identity.default', () => {
+  it('resolveDefaultKeyRef lets the explicit flag value win over identity.default', () => {
     const cfg = writeCfg('id-default-flag.json', {
       defaults : { profile: 'custom' },
       profiles : { custom: { identity: { default: 'profile-key' } } },
     });
-    expect(resolveSigningKeyRef({ config: cfg, signingKey: 'flag-key' })).to.equal('flag-key');
+    expect(resolveDefaultKeyRef('flag-key', { config: cfg })).to.equal('flag-key');
   });
 
-  it('resolveSigningKeyRef returns undefined when neither flag nor identity.default is set', () => {
+  it('resolveDefaultKeyRef returns undefined when neither flag nor identity.default is set', () => {
     const cfg = writeCfg('id-default-none.json', { defaults: { profile: 'custom' }, profiles: { custom: {} } });
-    expect(resolveSigningKeyRef({ config: cfg })).to.be.undefined;
+    expect(resolveDefaultKeyRef(undefined, { config: cfg })).to.be.undefined;
   });
 
   it('resolveKeystorePath aborts loudly on a malformed config by default', () => {
@@ -1050,11 +1050,11 @@ describe('profile identity wiring (keystore + default signing key)', () => {
     expect(resolveKeystorePath({ config: bad, keystore: '/explicit/ks.json' })).to.equal('/explicit/ks.json');
   });
 
-  it('resolveSigningKeyRef aborts loudly on a malformed config', () => {
+  it('resolveDefaultKeyRef aborts loudly on a malformed config', () => {
     // Never silently sign with the default/active key when the configured
     // signing identity cannot be read.
     const bad = join(tempDir, 'id-malformed-sign.json');
     writeFileSync(bad, '{ not valid json ');
-    expect(() => resolveSigningKeyRef({ config: bad })).to.throw(CLIError, /not valid JSON/);
+    expect(() => resolveDefaultKeyRef(undefined, { config: bad })).to.throw(CLIError, /not valid JSON/);
   });
 });

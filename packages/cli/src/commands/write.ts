@@ -5,7 +5,7 @@ import {
   assertKeystoreAllowedForNetwork,
   deriveNetwork,
   resolveBroadcastOptions,
-  resolveSigningKeyRef,
+  resolveDefaultKeyRef,
   type ApiFactory,
 } from '../config.js';
 import { Identifier } from '@did-btcr2/api';
@@ -21,6 +21,7 @@ export type WriteFlags = ResolutionOptionFlags & {
   identifier            : string;
   sourceDocument?       : unknown;
   sourceVersionId?      : number;
+  signingKey?           : string;
   verificationMethodId? : string;
   beaconId?             : string;
   publishToCas          : PublishToCasMode;
@@ -45,6 +46,11 @@ export function registerWriteOptions(command: Command): Command {
       '--source-version-id <number>',
       'Version ID of the source document, a non-negative integer. Requires --source-document',
       parseSourceVersionId,
+    )
+    .option(
+      '--signing-key <ref>',
+      'Key that signs the update: a URN, fingerprint prefix, or name '
+        + '(default: the profile identity.default, else the active key)',
     )
     .option(
       '-m, --verification-method-id <id>',
@@ -139,7 +145,7 @@ export async function prepareWrite(
   assertKeystoreAllowedForNetwork(network, g);
   const resolutionOptions = await readResolutionOptions(options);
   const api = factory(network, g);
-  const keyId = resolveKeyRef(api.kms.kms, resolveSigningKeyRef(g));
+  const keyId = resolveKeyRef(api.kms.kms, resolveDefaultKeyRef(options.signingKey, g));
   const signer = new KeyManagerSigner(api.kms.kms, keyId);
   // Resolve fee-rate/change-address through the flag, env, and profile layers
   // into beacon broadcast options. Undefined when no layer sets one, so the

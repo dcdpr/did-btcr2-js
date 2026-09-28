@@ -96,6 +96,34 @@ describe('update and deactivate (signing)', () => {
     expect(JSON.parse(out[0]).signed).to.equal('mock');
   });
 
+  it('update signs with the key that --signing-key names, not the active key', async () => {
+    const kms = createKeystoreTestApiFactory(keystore, 'pw')().kms;
+    kms.generateKey({ setActive: true });
+    const bob = kms.generateKey({ tags: { name: 'bob' } });
+    const cli = new DidBtcr2Cli(createTestApiFactory(), stubFactory());
+    await sub(cli, 'update').parseAsync(['-i', did, '-p', PATCHES, '--signing-key', 'bob'], { from: 'user' });
+    expect(captured.signer.publicKey).to.deep.equal(kms.getPublicKey(bob));
+  });
+
+  it('deactivate signs with the key that --signing-key names', async () => {
+    const kms = createKeystoreTestApiFactory(keystore, 'pw')().kms;
+    kms.generateKey({ setActive: true });
+    const bob = kms.generateKey({ tags: { name: 'bob' } });
+    const cli = new DidBtcr2Cli(createTestApiFactory(), stubFactory());
+    await sub(cli, 'deactivate').parseAsync(['-i', did, '--signing-key', 'bob'], { from: 'user' });
+    expect(captured.method).to.equal('deactivateDid');
+    expect(captured.signer.publicKey).to.deep.equal(kms.getPublicKey(bob));
+  });
+
+  it('update and deactivate show --signing-key in their help', () => {
+    const cli = new DidBtcr2Cli(createTestApiFactory(), stubFactory());
+    for (const name of ['update', 'deactivate']) {
+      // Commander wraps long help lines, so compare with the whitespace collapsed.
+      const help = sub(cli, name).helpInformation().replace(/\s+/g, ' ');
+      expect(help).to.include('--signing-key <ref> Key that signs the update');
+    }
+  });
+
   it('update forwards the source pair as a source state', async () => {
     seedActiveKey();
     const cli = new DidBtcr2Cli(createTestApiFactory(), stubFactory());

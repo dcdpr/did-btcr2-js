@@ -70,8 +70,7 @@ export class DidBtcr2Cli {
       .option('--btc-rpc-header <header>', 'Extra Bitcoin Core RPC header "Key: Value" (repeatable)', collectHeader, [])
       .option('--btc-signal-discovery <mode>', 'Where beacon signals are read from <indexer|fullnode> (default: indexer; fullnode scans blocks over Bitcoin Core RPC)')
       .option('--keystore <path>', 'Path to the keystore file (default: <home>/keystore.json)')
-      .option('--passphrase-file <path>', 'Read the keystore passphrase from a file (unattended use)')
-      .option('--signing-key <ref>', 'Key for create/update/deactivate signing: a URN, fingerprint prefix, or name');
+      .option('--passphrase-file <path>', 'Read the keystore passphrase from a file (unattended use)');
 
     const globals = (): GlobalOptions => this.program.opts() as GlobalOptions;
 

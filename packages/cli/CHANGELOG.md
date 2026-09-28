@@ -1,5 +1,16 @@
 # @did-btcr2/cli
 
+## 0.27.0
+
+### Minor Changes
+
+- Each key command shows its key flag, and one default key applies to `create`, `update`, and `deactivate` (ADR 127).
+
+  - BREAKING: `--signing-key <ref>` is a flag of `update` and `deactivate`, not a global flag. Put it after the command word: `btcr2 update --signing-key demo ...`.
+  - BREAKING: `create` takes a stored key with `-k, --key <ref>`. Without `--key`, `create` uses the `identity.default` of the active profile, else the active key. It generates a key only if neither exists.
+  - `update` and `deactivate` use the same default key, so the default key can update a new identifier.
+  - The new page `docs/config-file.md` explains each key of the config file.
+
 ## 0.26.0
 
 ### Minor Changes

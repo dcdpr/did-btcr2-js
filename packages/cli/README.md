@@ -63,7 +63,7 @@ Each page lists the flags, the output, the environment variables, and examples o
 # Cache the passphrase for two hours.
 btcr2 quickstart -n mutinynet --unlock --ttl 2h
 
-# Generate a key, store it as the active key, and create an identifier (offline).
+# Create an identifier from the active key (offline). With no key yet, generate one.
 btcr2 create -n mutinynet
 
 # Resolve the DID document from Bitcoin.

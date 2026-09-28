@@ -149,7 +149,7 @@ See the [docs README](./README.md#global-flags) for the shared global flags. The
 `-o, --output`, `--quiet`, `--verbose`, the state location flags (`--home`, `-c, --config`,
 `--profile`), and the keystore flags (`--keystore`, `--passphrase-file`). The keystore opens only
 for a key reference or for the wizard, and only for public reads. The command accepts the
-connection overrides (`--btc-*`, `--cas-*`) and `--signing-key`, but they have no effect.
+connection overrides (`--btc-*`, `--cas-*`), but they have no effect.
 
 ## Examples
 

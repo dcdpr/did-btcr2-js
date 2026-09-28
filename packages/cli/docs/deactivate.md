@@ -7,7 +7,8 @@ The command resolves the current document from the network, or it takes the sour
 ## Synopsis
 
 ```
-btcr2 deactivate -i <did> [-s <doc-json> --source-version-id <n>] [-m <vm-id>] [-b <beacon-id>]
+btcr2 deactivate -i <did> [--signing-key <ref>]
+                 [-s <doc-json> --source-version-id <n>] [-m <vm-id>] [-b <beacon-id>]
                  [-r <json> | --resolution-options-path <path>] [--min-conf <n>]
                  [--genesis-document <path>]
                  [--publish-to-cas <auto|always|never>] [--fee-rate <satsPerVByte>]
@@ -27,6 +28,7 @@ There are no subcommands.
 | `-i, --identifier <identifier>` | A `did:btcr2:...` identifier. The command reads the network from it. An identifier with an unsupported network fails with `Unsupported network "..." in DID.` | (required) | The identifier to deactivate. It drives the network, the mainnet keystore guard, and the resolution of the current document. A supplied `-s` document must carry this identifier as its `id`. The api refuses a mismatch before it signs. |
 | `-s, --source-document <json>` | A JSON object (the current DID document). The command parses it with `JSON.parse` at parse time and refuses invalid JSON (`INVALID_ARGUMENT_ERROR`). It requires `--source-version-id`. | none | The document to deactivate. Omit both `-s` and `--source-version-id`, and the command resolves the current document first. Supply both for an offline source, or if you already hold large sidecar data. |
 | `--source-version-id <number>` | Digits only (`/^\d+$/`): a non-negative integer. The command refuses `-1`, `1.5`, or `2a` at parse time (`INVALID_ARGUMENT_ERROR`). It requires `--source-document`. | none | The version id of the source document. The deactivation becomes version `n + 1`. |
+| `--signing-key <ref>` | A key reference: a key URN (`urn:kms:secp256k1:<32-hex>`), a unique key `name` tag, or a unique fingerprint prefix. | the `identity.default` of the active profile, else the active key | The key that signs the deactivation. The resolution of the reference reads public material only. No match, or more than one match, fails the command before any signature. |
 | `-m, --verification-method-id <id>` | A verification method id that an entry of the `capabilityInvocation` list of the document identifies, as a reference or as an embedded method (ADR 112). The api checks it before it constructs the update. An absolute DID URL (`did:btcr2:...#initialKey`) and a relative DID URL (`#initialKey`) are both valid. The api resolves the id against the source document before the match. | derived | The verification method that signs the deactivation. Its key must be in the keystore. Without the flag, the api selects the one method whose `publicKeyMultibase` is the signing key (ADR 104). The api refuses zero candidates and more than one candidate, and it names them. Pass the flag to select one. |
 | `-b, --beacon-id <id>` | A DID URL that names a beacon service `id` in the source document, in the absolute or the relative form. The value is a plain string, not JSON. | derived | The beacon service whose Bitcoin address broadcasts the deactivation signal. Without the flag, the api selects the only beacon of the document, else the one beacon with a spendable UTXO (ADR 104). The api refuses zero funded beacons and more than one funded beacon, and it names them. Pass the flag to select one. |
 | `-r, --resolution-options <json>` | Resolution options as a JSON string, with the shape of `btcr2 resolve -r`. The command refuses invalid JSON (`INVALID_ARGUMENT_ERROR`). Not valid with the source pair. | none | Feeds the resolution of the current document. Supply sidecar data here if a prior update of the identifier is not in a CAS. |
@@ -118,7 +120,7 @@ A dev (plaintext) keystore needs no passphrase, but the command refuses it for a
 
 ## Global flags
 
-See the [docs README](./README.md#global-flags) for the shared global flags. `deactivate` uses: `--signing-key`, `--keystore`, `--passphrase-file`, `--home`, `-c/--config`, `--profile`, `-o/--output`, `--quiet`, `--verbose`, the Bitcoin connection overrides (`--btc-rest`, `--btc-rpc-url`, `--btc-rpc-user`, `--btc-rpc-wallet`, `--btc-rest-header`, `--btc-rpc-header`, `--btc-signal-discovery`, `--btc-timeout`), and the CAS overrides (`--cas-gateway`, `--cas-rpc-url`, `--cas-timeout`). A writable `--cas-rpc-url` is what `--publish-to-cas auto` and `always` need.
+See the [docs README](./README.md#global-flags) for the shared global flags. `deactivate` uses: `--keystore`, `--passphrase-file`, `--home`, `-c/--config`, `--profile`, `-o/--output`, `--quiet`, `--verbose`, the Bitcoin connection overrides (`--btc-rest`, `--btc-rpc-url`, `--btc-rpc-user`, `--btc-rpc-wallet`, `--btc-rest-header`, `--btc-rpc-header`, `--btc-signal-discovery`, `--btc-timeout`), and the CAS overrides (`--cas-gateway`, `--cas-rpc-url`, `--cas-timeout`). A writable `--cas-rpc-url` is what `--publish-to-cas auto` and `always` need.
 
 ## Examples
 
@@ -126,7 +128,7 @@ Deactivate a mutinynet identifier with the key named `demo`. The version 2 updat
 
 ```bash
 DID='did:btcr2:k1qqp...'
-btcr2 --signing-key demo deactivate \
+btcr2 deactivate --signing-key demo \
   -i "$DID" \
   --min-conf 1 \
   -r "$(jq -c '{sidecar:{updates:[.]}}' signed-update.json)"
@@ -135,7 +137,7 @@ btcr2 --signing-key demo deactivate \
 An external (`x`) identifier whose genesis document is not in a CAS. The file that `btcr2 genesis build` wrote fills the sidecar data:
 
 ```bash
-btcr2 --signing-key alice deactivate \
+btcr2 deactivate --signing-key alice \
   -i did:btcr2:x1q... \
   --genesis-document ./alice.json
 ```
@@ -143,7 +145,7 @@ btcr2 --signing-key alice deactivate \
 An offline source: the current document (version 2) is in `doc-v2.json`. The pair skips the resolution, so the resolution flags are not valid here. The api still derives the verification method and the beacon:
 
 ```bash
-btcr2 --signing-key demo deactivate \
+btcr2 deactivate --signing-key demo \
   -i "$DID" \
   -s "$(cat doc-v2.json)" \
   --source-version-id 2
@@ -152,7 +154,7 @@ btcr2 --signing-key demo deactivate \
 The first example with a higher fee rate on a busy network, and the change sent to a fresh unlinked address:
 
 ```bash
-btcr2 --signing-key demo deactivate \
+btcr2 deactivate --signing-key demo \
   -i "$DID" \
   --min-conf 1 \
   -r "$(jq -c '{sidecar:{updates:[.]}}' signed-update.json)" \
@@ -163,7 +165,7 @@ btcr2 --signing-key demo deactivate \
 Unattended use (CI or a script, no TTY): supply the passphrase from a file, or unlock a session first:
 
 ```bash
-btcr2 --passphrase-file /run/secrets/btcr2-pass --signing-key demo deactivate \
+btcr2 --passphrase-file /run/secrets/btcr2-pass deactivate --signing-key demo \
   -i "$DID" \
   --min-conf 1 \
   -r "$(jq -c '{sidecar:{updates:[.]}}' signed-update.json)"

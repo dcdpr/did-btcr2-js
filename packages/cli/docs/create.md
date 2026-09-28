@@ -2,15 +2,15 @@
 
 Creates a `did:btcr2` identifier and, with it, the initial DID document. Creation is an offline step: the command opens no Bitcoin or CAS connection, and it broadcasts nothing. Two identifier types exist. A `k` identifier (deterministic, KEY) encodes a 33-byte compressed secp256k1 public key. The initial DID document derives from the identifier. An `x` identifier (EXTERNAL) encodes the 32-byte SHA-256 hash of a genesis document. You supply that document as sidecar data at resolution time.
 
-For `-t k`, the command has three input modes, and only one applies per run: generate a new key in the keystore (the default), use the public key of a stored key (`--signing-key`), or supply the public key as hex (`--bytes`, no keystore). For `-t x`, the command has two input modes: the genesis document file (`--document`), which the api hashes, or the hash as hex (`--bytes`). `btcr2 genesis build` writes the document file.
+For `-t k`, the command has three input modes, and only one applies per run: use the public key of a stored key (`--key`, else the default key), generate a new key in the keystore (if no default key exists), or supply the public key as hex (`--bytes`, no keystore). The default key is the same key that `update` and `deactivate` sign with, so the default key can update the new identifier. For `-t x`, the command has two input modes: the genesis document file (`--document`), which the api hashes, or the hash as hex (`--bytes`). `btcr2 genesis build` writes the document file.
 
 ## Synopsis
 
 ```
 btcr2 create [options]
 
-btcr2 create                                  # -t k: generate a key, store it, set it active
-btcr2 create --signing-key <ref>              # -t k: use the public key of a stored key
+btcr2 create                                  # -t k: use the default key, else generate a key
+btcr2 create -k <ref>                         # -t k: use the public key of a stored key
 btcr2 create -b <66-hex-chars>                # -t k: a 33-byte compressed public key
 btcr2 create -t x --document <path>           # -t x: hash the genesis document file
 btcr2 create -t x -b <64-hex-chars>           # -t x: the 32-byte genesis document hash
@@ -22,26 +22,26 @@ There are no subcommands.
 
 | Flag | Value | Default | Description |
 |------|-------|---------|-------------|
+| `-k, --key <ref>` | a key reference: a key URN (`urn:kms:secp256k1:<32-hex>`), a unique keystore `name` tag, or a unique fingerprint prefix | the `identity.default` of the active profile, else the active key | For `-t k`: the stored key whose public key becomes the genesis bytes. The order of the match: an exact URN, then a unique name tag, then a unique fingerprint prefix. An exact name wins over a fingerprint prefix. The command reads public material only, so it never decrypts and never asks for the passphrase. A watch-only key (from `key import --public`) is valid. The command fails with `No key matches reference "<ref>".`, or with an ambiguity error if more than one key matches. An empty value fails with `--key must not be empty.` The flag is not valid with `-t x`, and it is exclusive with `--bytes`. |
 | `-t, --type <type>` | `k` \| `x` | `k` | The identifier type. `k` = a deterministic KEY identifier from a compressed secp256k1 public key. `x` = an external identifier from a genesis document hash. Another value fails with `Invalid type. Must be "k" or "x".` and exit code 1. |
 | `-n, --network <network>` | `bitcoin` \| `testnet3` \| `testnet4` \| `signet` \| `mutinynet` \| `regtest` | from the config (see the precedence below), else `regtest` | The Bitcoin network that the identifier encodes. Creation stays offline. The network only fixes the target of the identifier, and of the later resolution and update traffic. An unsupported value fails with `Invalid network. Must be one of "bitcoin", "testnet3", "testnet4", "signet", "mutinynet", or "regtest".` |
 | `-b, --bytes <bytes>` | a hex string (case-insensitive, the command trims whitespace) | none | The genesis bytes. For `-t k`: exactly 33 bytes (66 hex characters), a valid compressed secp256k1 public key. For `-t x`: exactly 32 bytes (64 hex characters), the SHA-256 hash of the genesis document. Non-hex input fails with `Invalid bytes: not valid hex. ...`. A wrong length fails with `Invalid bytes length for type="<t>": ...`. The method layer refuses a 33-byte value that is not a point on the curve (`Expected "genesisBytes" to be a valid compressed secp256k1 public key`). |
 | `--document <path>` | file path | none | For `-t x` only: the JSON genesis document to hash, for example the file that `btcr2 genesis build` wrote. The api checks the document (the placeholder id `did:btcr2:_`, the two contexts, a placeholder id in each method and service) and hashes it as written. An unreadable path or non-JSON content fails with `Invalid genesis document path. ...`. A document with a wrong shape fails with the reason, for example `The genesis document id must be "did:btcr2:_", ...`. The flag is exclusive with `--bytes` (`Provide at most one of --bytes or --document.`). With `-t k`, the flag fails with `--document applies only to external identifiers (-t x).`. |
-| `--signing-key <ref>` (global flag) | a key URN (`urn:kms:secp256k1:<32-hex>`), a unique keystore `name` tag, or a unique fingerprint prefix | none | Selects the stored-key mode for `-t k`: the public key of the referenced key becomes the genesis bytes. The order of the match: an exact URN, then a unique name tag, then a unique fingerprint prefix. An exact name wins over a fingerprint prefix. The command reads public material only, so it never decrypts and never asks for the passphrase. It fails with `No key matches reference "<ref>".`, or with an ambiguity error if more than one key matches. The flag is not valid with `-t x`, and it is exclusive with `--bytes`. |
 | `-h, --help` | none | n/a | Print the help of the command and exit. |
 
 The `--help` text describes the `-n` default as "config defaults.network, else regtest". The source has one more step between the two: the network of the active profile (see the precedence below). The source behavior applies.
 
 ### Input modes for `-t k`
 
-Exactly one of the three modes runs. The present inputs select the mode. `--bytes` with `--signing-key` fails with `Provide at most one of --bytes or --signing-key.`
+Exactly one of the three modes runs. The present inputs select the mode. `--key` with `--bytes` fails with `Provide at most one of --bytes or --key.`
 
-1. **Generate** (neither `--bytes` nor `--signing-key`). The command makes a new secp256k1 key, imports it into the keystore, and sets it as the active key. The seal of the secret key needs the keystore passphrase (see the passphrase section below). On a keystore that does not exist yet, this step creates an encrypted keystore: an interactive prompt asks twice, and the two entries must match (`Passphrases did not match.` otherwise). The command reads an environment variable or a file source once, without a confirmation. On an existing encrypted keystore, the command verifies the passphrase against the verifier of the keystore. On a dev keystore (from `btcr2 keystore init --dev`), the command stores the secret key in plaintext and never asks for a passphrase. Mainnet guard (ADR 080): the command refuses `-n bitcoin` with a dev keystore up front (`DEV_KEYSTORE_MAINNET_ERROR`), so a plaintext keystore never holds a mainnet key.
-2. **Stored key** (`--signing-key <ref>`). The command resolves the reference against the keystore and uses the public key of that key as the genesis bytes. It never decrypts and never asks for the passphrase. Only the `--signing-key` flag selects this mode. `create` does not read the `identity.default` key of the active profile. That key applies to the signatures of `update` and `deactivate` only.
+1. **Stored key** (`--key <ref>`, else the default key). The key is, in this order: `--key <ref>`, the `identity.default` of the active profile, the active key of the keystore. `update` and `deactivate` use the same order for their signing key. The command resolves the reference against the keystore and uses the public key of that key as the genesis bytes. It never decrypts and never asks for the passphrase.
+2. **Generate** (no `--bytes`, and no key from the order above). The command makes a new secp256k1 key, imports it into the keystore, and sets it as the active key. The seal of the secret key needs the keystore passphrase (see the passphrase section below). On a keystore that does not exist yet, this step creates an encrypted keystore: an interactive prompt asks twice, and the two entries must match (`Passphrases did not match.` otherwise). The command reads an environment variable or a file source once, without a confirmation. On an existing encrypted keystore, the command verifies the passphrase against the verifier of the keystore. On a dev keystore (from `btcr2 keystore init --dev`), the command stores the secret key in plaintext and never asks for a passphrase. Mainnet guard (ADR 080): the command refuses `-n bitcoin` with a dev keystore up front (`DEV_KEYSTORE_MAINNET_ERROR`), so a plaintext keystore never holds a mainnet key.
 3. **Raw bytes** (`--bytes <hex>`). Fully offline, with no keystore. The command does not touch the keystore file, and no passphrase code runs.
 
 ### Input modes for `-t x`
 
-Exactly one of the two modes runs. No input fails with `External identifiers (-t x) require --document <path>, the genesis document, or --bytes <hex>, its 32-byte hash. ...`. Both inputs fail with `Provide at most one of --bytes or --document.` `-t x` with `--signing-key` fails with `--signing-key applies only to deterministic identifiers (-t k).`
+Exactly one of the two modes runs. No input fails with `External identifiers (-t x) require --document <path>, the genesis document, or --bytes <hex>, its 32-byte hash. ...`. Both inputs fail with `Provide at most one of --bytes or --document.` `-t x` with `--key` fails with `--key applies only to deterministic identifiers (-t k).`
 
 1. **Document** (`--document <path>`). The api hashes the file as written (JCS canonical form, SHA-256) and encodes the identifier. The result carries the hash as `genesisBytes`. Keep the file: the identifier resolves only with it. On a network with a faucet, a text-mode funding hint names the first beacon of the document.
 2. **Raw bytes** (`--bytes <hex>`). The 32-byte genesis document hash, computed elsewhere. The command prints no funding hint, because it does not know the beacons.
@@ -90,8 +90,7 @@ The config file keys (`<home>/config.json`, or the file that `-c/--config` names
 | `defaults.output` | The default output format below `BTCR2_OUTPUT`. |
 | `profiles.<name>.network` | The network that the profile declares. It feeds the default network fallback and the mismatch warning. |
 | `profiles.<name>.identity.keystore` | The keystore path for the generate mode and the stored-key mode, below the `--keystore` flag. |
-
-`create` does not read `profiles.<name>.identity.default`. Only `update` and `deactivate` read it.
+| `profiles.<name>.identity.default` | The default key reference, below the `--key` flag and above the active key of the keystore. |
 
 Precedence (the highest wins, and a blank value at one layer defers to the next layer):
 
@@ -100,28 +99,30 @@ Precedence (the highest wins, and a blank value at one layer defers to the next 
 - Home: the `--home` flag, then `BTCR2_HOME`, then the platform default.
 - Config path: the `-c/--config` flag, then `<home>/config.json`.
 - Keystore path: the `--keystore` flag, then the `identity.keystore` of the active profile, then `<home>/keystore.json`.
+- Key: the `--key` flag, then the `identity.default` of the active profile, then the active key of the keystore. If none applies, the command generates a key.
 - Passphrase (generate mode): `BTCR2_KEYSTORE_PASSPHRASE`, then `--passphrase-file`, then a live session (see below), then an interactive prompt with no echo.
 
 Session (ADR 081): a session that `btcr2 keystore unlock` cached in `<home>/session.json` supplies the passphrase of the generate mode instead of a prompt, until it expires or `btcr2 keystore lock` revokes it. The session is bound to the verifier of the keystore, so a changed passphrase invalidates it. The command never reads the session for the first passphrase of a new keystore. You always type a first passphrase twice. The mainnet gate of the session (`unlock --allow-mainnet`) keys on the network that the keystore factory receives. `create` calls the factory without a network, like the `key` commands. A live session therefore supplies the passphrase of `create` on each network, also with `-n bitcoin`. The dev keystore mainnet refusal above is independent of the session and always applies.
 
 ## Global flags
 
-See the [docs README](./README.md#global-flags) for the shared global flags. `create` uses: `--signing-key` (selects the stored-key mode), `--keystore`, `--passphrase-file`, `--home`, `-c/--config`, `--profile`, `-o/--output`, `--quiet` (suppresses the funding hint and the mismatch warning), and `--verbose` (full error objects). The command accepts the `--btc-*` and `--cas-*` endpoint flags, but they have no effect. `create` never opens a connection.
+See the [docs README](./README.md#global-flags) for the shared global flags. `create` uses: `--keystore`, `--passphrase-file`, `--home`, `-c/--config`, `--profile`, `-o/--output`, `--quiet` (suppresses the funding hint and the mismatch warning), and `--verbose` (full error objects). The command accepts the `--btc-*` and `--cas-*` endpoint flags, but they have no effect. `create` never opens a connection.
 
 ## Examples
 
 ```sh
-# Generate a key in the keystore and create a mutinynet identifier
-# (asks for the keystore passphrase, twice on a new keystore)
+# Create a mutinynet identifier from the default key. If the keystore has no
+# default key, the command generates one (and asks for the keystore passphrase,
+# twice on a new keystore)
 btcr2 create -n mutinynet
 
 # The same with JSON output: adds keyId and publicKey, no stderr hints
 btcr2 create -n mutinynet -o json
 
 # Use a stored key by name, by fingerprint prefix, or by full URN (no prompt)
-btcr2 create -n mutinynet --signing-key alice
-btcr2 create -n mutinynet --signing-key 3fa2
-btcr2 create -n mutinynet --signing-key urn:kms:secp256k1:3fa2e1c09b7d54a6880f13cd21e60b47
+btcr2 create -n mutinynet --key alice
+btcr2 create -n mutinynet --key 3fa2
+btcr2 create -n mutinynet --key urn:kms:secp256k1:3fa2e1c09b7d54a6880f13cd21e60b47
 
 # Offline, no keystore: your own 33-byte compressed public key
 btcr2 create -n mutinynet -b 0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798
@@ -133,12 +134,8 @@ btcr2 create -t x -n mutinynet --document ./genesis.json
 btcr2 create -t x -n mutinynet \
   -b 8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4
 
-# Unattended generate (CI): the passphrase from a file, no hints
+# Unattended run (CI): the passphrase from a file if the command generates a key, no hints
 btcr2 create -n mutinynet --passphrase-file /run/secrets/btcr2-pass --quiet
-
-# Cache the passphrase once, then create without a prompt
-btcr2 keystore unlock
-btcr2 create -n mutinynet
 ```
 
 ## See also
@@ -147,7 +144,7 @@ btcr2 create -n mutinynet
 - `btcr2 identifier`: decode and validate the identifier offline.
 - `btcr2 resolve`: resolve the DID document of the identifier.
 - `btcr2 update` and `btcr2 deactivate`: anchor a change through the funded beacon.
-- `btcr2 key`: list, show, import, and activate the keys (`--signing-key` references).
+- `btcr2 key`: list, show, import, and activate the keys that `--key <ref>` names.
 - `btcr2 keystore`: create, inspect, unlock, and lock the keystore.
 - `btcr2 quickstart` and `btcr2 init`: set up the home, the config file, and the keystore in one step.
 - [DEMO.md](./DEMO.md): the full create, fund, resolve, update, and deactivate walkthrough.

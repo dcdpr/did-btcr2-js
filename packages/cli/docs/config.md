@@ -214,7 +214,7 @@ The known config file keys (the schema that `config set` validates against and t
 | `profiles.<name>.cas.rpcUrl` | string | The IPFS HTTP RPC endpoint (a writable CAS). It wins over the gateway. |
 | `profiles.<name>.cas.timeoutMs` | number | The CAS timeout. The api default is 30000 ms. `0` disables it. |
 | `profiles.<name>.identity.keystore` | string | The keystore path of this profile. It feeds `config path`. |
-| `profiles.<name>.identity.default` | string | The default signing key reference (the `config` subcommands do not read it). |
+| `profiles.<name>.identity.default` | string | The default key reference of this profile. `create` uses its public key, and `update` and `deactivate` sign with it, if the key flag is absent. It wins over the active key of the keystore (the `config` subcommands do not read it). |
 
 The precedence of each value that `config effective` and `config doctor` resolve: the CLI flag, then the environment variable, then the profile in the config file, then the built-in (SDK per-network) default. A blank value at one layer defers to the next layer. The RPC URL, username, and password come together from one layer (never mixed across layers). The active profile is `--profile`, else `defaults.profile`. If neither is set, the connection values come from the profile with the name of the resolved network.
 
@@ -261,6 +261,7 @@ BTCR2_HOME=/tmp/btcr2-demo btcr2 config init
 
 ## See also
 
+- [config-file.md](./config-file.md): each key of the config file, with a full example.
 - `btcr2 init`: writes the same config scaffold, and also the keystore and a default network.
 - `btcr2 quickstart`: the setup in one command: the home, the config file, the keystore, the network, an optional session, and the endpoint probe.
 - `btcr2 profile`: add, use, show, and remove profiles (a task layer over the same file).
