@@ -135,8 +135,8 @@ stdout, stderr is empty) and on any error (the message is on stderr).
 See the [docs README](./README.md#global-flags) for the shared global flags. The command group
 uses `-o, --output` (text or the JSON envelope) and `--verbose` (the full structured error).
 The command group accepts the connection overrides, the state location flags, `--quiet`,
-`--keystore`, `--passphrase-file`, and `--signing-key`, but they have no effect: the command
-group reads no config, no keystore, and no endpoint.
+`--keystore`, and `--passphrase-file`, but they have no effect: the command group reads no
+config, no keystore, and no endpoint.
 
 ## Examples
 

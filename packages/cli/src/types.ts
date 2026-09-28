@@ -146,5 +146,4 @@ export interface GlobalOptions {
   btcSignalDiscovery? : string;
   keystore?           : string;
   passphraseFile?     : string;
-  signingKey?         : string;
 }

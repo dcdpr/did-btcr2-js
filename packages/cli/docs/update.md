@@ -7,7 +7,7 @@ Use the command if a published DID document must change: add or remove a service
 ## Synopsis
 
 ```
-btcr2 [global flags] update -i <did> -p <json>
+btcr2 [global flags] update -i <did> -p <json> [--signing-key <ref>]
                             [-s <json> --source-version-id <number>] [-m <id>] [-b <id>]
                             [-r <json> | --resolution-options-path <path>] [--min-conf <n>]
                             [--genesis-document <path>]
@@ -18,7 +18,7 @@ btcr2 [global flags] update -i <did> -p <json>
 btcr2 update --help
 ```
 
-There are no subcommands. A global flag (`-o`, `--signing-key`, an endpoint override, and so on) goes before the `update` word.
+There are no subcommands. A global flag (`-o`, an endpoint override, and so on) goes before the `update` word.
 
 ## Options
 
@@ -28,6 +28,7 @@ There are no subcommands. A global flag (`-o`, `--signing-key`, an endpoint over
 | `-s, --source-document <json>` | A complete DID document as a JSON string. It must parse as JSON, or the command fails at parse time. It requires `--source-version-id`. | none | The document that the patch applies to. Omit both `-s` and `--source-version-id`, and the command resolves the current document first. Supply both for an offline source, or if you already hold large sidecar data. |
 | `--source-version-id <number>` | A non-negative base-10 integer string (digits only, `1` for the first update). The command refuses a negative, decimal, or non-numeric value at parse time with `--source-version-id must be a non-negative integer.` It requires `--source-document`. | none | The version of the source document that the patch applies to. |
 | `-p, --patches <json>` | A JSON string with an array of RFC 6902 JSON Patch operations (`op`, `path`, `value`, ...). It must parse as JSON, or the command fails at parse time. | none (required) | The changes to apply to the source document. |
+| `--signing-key <ref>` | A key reference: a key URN (`urn:kms:secp256k1:<32-hex>`), a unique key `name` tag, or a unique fingerprint prefix. | the `identity.default` of the active profile, else the active key | The key that signs the update. The resolution of the reference reads public material only. No match, or more than one match, fails the command before any signature. |
 | `-m, --verification-method-id <id>` | A DID URL with a fragment, for example `did:btcr2:...#initialKey`. A relative DID URL (`#initialKey`) is also valid. The api resolves it against the source document, so it matches the spelling of that document. An entry of the `capabilityInvocation` list of the document must identify the method, as a reference or as an embedded method (ADR 112). The method must be a `Multikey` verification method, and its `publicKeyMultibase` must start with `zQ3s`. | derived | The verification method whose key signs the update. Without the flag, the api selects the one method whose `publicKeyMultibase` is the signing key (ADR 104). The api refuses zero candidates and more than one candidate, and it names them. Pass the flag to select one. |
 | `-b, --beacon-id <id>` | A DID URL that names a beacon service `id` in the source document, for example `did:btcr2:...#initialP2WPKH`. A relative DID URL (`#initialP2WPKH`) is also valid. The api resolves it against the source document. The value is a plain string, not JSON. An id that names no service fails the factory check `No beacon service found for provided beaconId`. | derived | The beacon service (Singleton, CAS, or SMT) that announces the update on-chain. Without the flag, the api selects the only beacon of the document, else the one beacon with a spendable UTXO (ADR 104). The api refuses zero funded beacons and more than one funded beacon, and it names them. Pass the flag to select one. |
 | `-r, --resolution-options <json>` | Resolution options as a JSON string, with the shape of `btcr2 resolve -r`. Invalid JSON fails with `Invalid resolution options.` Not valid with the source pair. | none | Feeds the resolution of the current document. Supply sidecar data here if a prior update of the identifier is not in a CAS. |
@@ -114,7 +115,7 @@ A dev (plaintext) keystore needs no passphrase, but the command refuses it for a
 
 ## Global flags
 
-See the [docs README](./README.md#global-flags) for the shared global flags. `update` uses: `--signing-key`, `--keystore`, `--passphrase-file`, `--profile`, `--home`, `-c/--config`, `-o/--output`, `--quiet` (suppresses the stderr `Watch:` hint), `--verbose`, the Bitcoin endpoint overrides (`--btc-rest`, `--btc-rpc-url`, `--btc-rpc-user`, `--btc-rpc-wallet`, `--btc-rest-header`, `--btc-rpc-header`, `--btc-signal-discovery`, `--btc-timeout`), and the CAS overrides (`--cas-gateway`, `--cas-rpc-url`, `--cas-timeout`). The CAS overrides gate `--publish-to-cas`.
+See the [docs README](./README.md#global-flags) for the shared global flags. `update` uses: `--keystore`, `--passphrase-file`, `--profile`, `--home`, `-c/--config`, `-o/--output`, `--quiet` (suppresses the stderr `Watch:` hint), `--verbose`, the Bitcoin endpoint overrides (`--btc-rest`, `--btc-rpc-url`, `--btc-rpc-user`, `--btc-rpc-wallet`, `--btc-rest-header`, `--btc-rpc-header`, `--btc-signal-discovery`, `--btc-timeout`), and the CAS overrides (`--cas-gateway`, `--cas-rpc-url`, `--cas-timeout`). The CAS overrides gate `--publish-to-cas`.
 
 ## Examples
 
@@ -123,7 +124,7 @@ Add an `alsoKnownAs` entry to a mutinynet identifier, with the key named `demo`.
 ```bash
 DID='did:btcr2:k1q5p57d2mmjmuczhh9rhnen4ev9weq6ztkkev5hu9n2c0pdcyqav8r2sfy39pm'
 
-btcr2 --signing-key demo update \
+btcr2 update --signing-key demo \
   -i "$DID" \
   -p '[{"op":"add","path":"/alsoKnownAs","value":["https://example.com/demo"]}]'
 ```
@@ -131,7 +132,7 @@ btcr2 --signing-key demo update \
 JSON output. Keep only the signed update for a later sidecar resolution:
 
 ```bash
-btcr2 -o json --signing-key demo update \
+btcr2 -o json update --signing-key demo \
   -i "$DID" \
   -p '[{"op":"add","path":"/service/-","value":{"id":"#svc","type":"X","serviceEndpoint":"https://x"}}]' \
   | jq '.data.signedUpdate' > signed-update.json
@@ -140,7 +141,7 @@ btcr2 -o json --signing-key demo update \
 A second update. The prior update is sidecar data only, so the source resolution needs it. `--min-conf 1` lets a signal with one confirmation count:
 
 ```bash
-btcr2 --signing-key demo update \
+btcr2 update --signing-key demo \
   -i "$DID" \
   --min-conf 1 \
   -r "$(jq -c '{sidecar:{updates:[.]}}' signed-update.json)" \
@@ -150,7 +151,7 @@ btcr2 --signing-key demo update \
 An external (`x`) identifier whose genesis document is not in a CAS. The file that `btcr2 genesis build` wrote fills the sidecar data:
 
 ```bash
-btcr2 --signing-key alice update \
+btcr2 update --signing-key alice \
   -i did:btcr2:x1q... \
   --genesis-document ./alice.json \
   -p '[{"op":"add","path":"/alsoKnownAs","value":["https://example.com/alice"]}]'
@@ -159,7 +160,7 @@ btcr2 --signing-key alice update \
 An offline source. Use this form if the source document is not reachable over the network, or if you already hold large sidecar data. Supply the document and its version, and name the method and the beacon. `doc-v1.json` holds the document as `btcr2 -o json resolve` printed it under `.data.didDocument`:
 
 ```bash
-btcr2 --signing-key demo update \
+btcr2 update --signing-key demo \
   -i "$DID" \
   -s "$(cat doc-v1.json)" \
   --source-version-id 1 \
@@ -192,7 +193,7 @@ btcr2 --cas-rpc-url http://127.0.0.1:5001 update \
 An unattended run (CI or a script), with the keystore passphrase from a file:
 
 ```bash
-btcr2 --passphrase-file /run/secrets/btcr2-pass --signing-key demo update \
+btcr2 --passphrase-file /run/secrets/btcr2-pass update --signing-key demo \
   -i "$DID" \
   -p "$(cat patches.json)"
 ```

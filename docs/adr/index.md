@@ -204,3 +204,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 124 | 2026-09-25 | [The Default Config Works in a Browser: No Preflight, Fresh Chain Data, and a CORS Gateway](124-default-config-works-in-a-browser.md) |
 | 125 | 2026-09-25 | [config doctor Checks the Request Path of the Commands](125-config-doctor-checks-the-request-path-of-the-commands.md) |
 | 126 | 2026-09-28 | [The cli Requires Node.js 24.7 for the Native argon2, and the Keystore Checks the Passphrase Once for Each Seal](126-cli-requires-node-24-7-for-native-argon2-and-checks-the-passphrase-once-for-each-seal.md) |
+| 127 | 2026-09-28 | [The Key Flags of create, update, and deactivate, and One Default Key](127-key-flags-of-create-update-and-deactivate.md) |

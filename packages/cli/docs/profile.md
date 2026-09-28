@@ -122,7 +122,7 @@ The keys that a profile can hold (`btcr2 config set` and `btcr2 config validate`
 | `btc.signalDiscovery` | `"indexer"` or `"fullnode"` (the source of the beacon signals. `fullnode` scans blocks over Bitcoin Core RPC) |
 | `cas.gateway`, `cas.rpcUrl` | string |
 | `cas.timeoutMs` | number (`0` disables the timeout) |
-| `identity.keystore`, `identity.default` | string (the keystore path, the signing key reference) |
+| `identity.keystore`, `identity.default` | string (the keystore path, the default key reference of `create`, `update`, and `deactivate`) |
 
 How the other commands use the active profile: the connection resolution takes the profile that the global `--profile` flag names, else `defaults.profile`, else the profile with the name of the network of the operation. A profile value sits at the bottom of the override chain: the flag, then the environment variable, then the profile, then the built-in default of the network.
 
@@ -161,6 +161,7 @@ btcr2 profile rm demo
 
 ## See also
 
+- [config-file.md](./config-file.md): each key of a profile, with a full example, and the selection of the active profile.
 - `btcr2 config` (`init`, `get`, `set`, `unset`, `list`/`ls`, `validate`, `effective`, `path`, `doctor`): edits and inspects the keys inside a profile, and shows the merged connection config with the source of each value.
 - `btcr2 init` and `btcr2 quickstart`: write a config file that already contains one empty profile per supported network.
 - [DEMO.md](./DEMO.md): the walkthrough that uses profiles in the CLI lifecycle.

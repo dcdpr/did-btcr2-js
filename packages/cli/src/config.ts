@@ -53,8 +53,6 @@ export type ConnectionOverrides = {
   keystore?       : string;
   /** Path to a file holding the keystore passphrase (for unattended use). */
   passphraseFile? : string;
-  /** Signing key reference (URN, fingerprint prefix, or name) from `--signing-key`. */
-  signingKey?     : string;
 };
 
 /**
@@ -1174,13 +1172,15 @@ function activeProfileIdentity(overrides?: ConnectionOverrides): { keystore?: st
 }
 
 /**
- * Resolves the signing-key reference for update/deactivate: the `--signing-key`
- * flag, else the active profile's `identity.default`, else `undefined` (letting
- * the KMS fall back to its active key). The flag always wins over the profile
- * default, consistent with the flag -> profile precedence used elsewhere.
+ * Resolves the key reference of a command: the explicit reference from a flag
+ * (`create --key`, `update`/`deactivate --signing-key`), else the active
+ * profile's `identity.default`, else `undefined` (letting `resolveKeyRef` fall
+ * back to the active key of the keystore). `create` and the write commands use
+ * the same chain, so a new identifier and its updates use the same key by
+ * default. The flag always wins over the profile default.
  */
-export function resolveSigningKeyRef(overrides?: ConnectionOverrides): string | undefined {
-  return blankToUndef(overrides?.signingKey) ?? blankToUndef(activeProfileIdentity(overrides)?.default);
+export function resolveDefaultKeyRef(explicit: string | undefined, overrides?: ConnectionOverrides): string | undefined {
+  return blankToUndef(explicit) ?? blankToUndef(activeProfileIdentity(overrides)?.default);
 }
 
 /**

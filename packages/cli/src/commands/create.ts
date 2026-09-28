@@ -1,7 +1,7 @@
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 import type { Command } from 'commander';
 import type { ApiFactory } from '../config.js';
-import { assertKeystoreAllowedForNetwork } from '../config.js';
+import { assertKeystoreAllowedForNetwork, resolveDefaultKeyRef } from '../config.js';
 import { CLIError } from '../error.js';
 import { readGenesisDocumentFile } from '../genesis-document-file.js';
 import { printBeaconFundingHint, printCreateFundingHint } from '../hints.js';
@@ -19,18 +19,19 @@ const EXPECTED_BYTES: Record<'k' | 'x', { length: number; label: string }> = {
 /**
  * Registers the `create` command.
  *
- * A deterministic (`-t k`) identifier has three mutually-exclusive input modes,
- * selected by which is present:
- * - generate (neither `--bytes` nor `--signing-key`): mint a fresh key, persist
- *   it to the keystore, set it active, and print the identifier. Sealing the
- *   secret prompts for the keystore passphrase.
- * - existing (`--signing-key <ref>`): use a stored key's public key as the
- *   genesis bytes. Reading a public key never decrypts, so this never prompts.
+ * A deterministic (`-t k`) identifier has three input modes:
  * - raw (`--bytes <hex>`): a 33-byte public key as hex. Offline, keystore-free.
+ * - stored key: the public key of a stored key becomes the genesis bytes. The
+ *   key is `--key <ref>`, else the profile `identity.default`, else the active
+ *   key, the same chain that `update` and `deactivate` sign with. Reading a
+ *   public key never decrypts, so this never prompts.
+ * - generate (no `--bytes` and no key from that chain): mint a fresh key,
+ *   persist it to the keystore, set it active, and print the identifier.
+ *   Sealing the secret prompts for the keystore passphrase.
  *
  * An external (`-t x`) identifier has two input modes: the genesis document
  * file (`--document <path>`), which the api hashes, or the 32-byte hash as
- * hex (`--bytes`). Generation and `--signing-key` apply only to `-t k`.
+ * hex (`--bytes`). Generation and `--key` apply only to `-t k`.
  *
  * The keystore-free `factory` serves the raw-bytes and document paths; the
  * keystore-aware `keystoreFactory` serves the generate and existing-key paths.
@@ -47,9 +48,14 @@ export function registerCreateCommand(
     .option('-t, --type <type>', 'Identifier type <k|x>', 'k')
     .option('-n, --network <network>', NETWORK_OPTION_HELP)
     .option(
+      '-k, --key <ref>',
+      'For type=k, a stored key whose public key the identifier encodes: a URN, fingerprint prefix, or name '
+      + '(default: the profile identity.default, else the active key, else a new key). Exclusive with --bytes.'
+    )
+    .option(
       '-b, --bytes <bytes>',
       'Genesis bytes as a hex string. '
-      + 'For type=k, a 33-byte secp256k1 public key (omit to generate a key). '
+      + 'For type=k, a 33-byte secp256k1 public key. '
       + 'For type=x, the 32-byte SHA-256 hash of a genesis document.'
     )
     .option(
@@ -57,15 +63,17 @@ export function registerCreateCommand(
       'For type=x, the path of the JSON genesis document to hash (see "btcr2 genesis build"). '
       + 'Exclusive with --bytes.'
     )
-    .action(async (options: { type: string; network?: string; bytes?: string; document?: string }) => {
+    .action(async (options: { type: string; network?: string; key?: string; bytes?: string; document?: string }) => {
       const g = globals();
       if (options.type !== 'k' && options.type !== 'x') {
         throw new CLIError('Invalid type. Must be "k" or "x".', 'INVALID_ARGUMENT_ERROR', options);
       }
+      if (options.key !== undefined && options.key.trim() === '') {
+        throw new CLIError('--key must not be empty.', 'INVALID_ARGUMENT_ERROR');
+      }
 
       const overrides = overridesFromGlobals(g);
       const network = resolveNetworkOption(options.network, overrides);
-      const signingKey = g.signingKey;
       warnProfileNetworkMismatch(g, network, overrides);
 
       /** Prints the result, plus a stderr provenance line in text mode. */
@@ -76,9 +84,9 @@ export function registerCreateCommand(
 
       // External: the genesis document file, or its hash as raw bytes.
       if (options.type === 'x') {
-        if (signingKey) {
+        if (options.key !== undefined) {
           throw new CLIError(
-            '--signing-key applies only to deterministic identifiers (-t k).',
+            '--key applies only to deterministic identifiers (-t k).',
             'INVALID_ARGUMENT_ERROR',
           );
         }
@@ -112,9 +120,9 @@ export function registerCreateCommand(
       }
 
       // Deterministic (KEY): three mutually-exclusive modes.
-      if (options.bytes !== undefined && signingKey) {
+      if (options.bytes !== undefined && options.key !== undefined) {
         throw new CLIError(
-          'Provide at most one of --bytes or --signing-key.',
+          'Provide at most one of --bytes or --key.',
           'INVALID_ARGUMENT_ERROR',
         );
       }
@@ -128,10 +136,12 @@ export function registerCreateCommand(
         return;
       }
 
-      // Existing key: read its public key from the keystore (no passphrase prompt).
-      if (signingKey) {
-        const api = keystoreFactory(undefined, overrides);
-        const keyId = resolveKeyRef(api.kms.kms, signingKey);
+      // Stored key: --key, else identity.default, else the active key. Reading a
+      // public key never prompts for the passphrase.
+      const api = keystoreFactory(undefined, overrides);
+      const ref = resolveDefaultKeyRef(options.key, overrides);
+      if (ref !== undefined || api.kms.kms.activeKeyId !== undefined) {
+        const keyId = resolveKeyRef(api.kms.kms, ref);
         const publicKey = api.kms.getPublicKey(keyId);
         const did = api.createDid('deterministic', publicKey, { network });
         print(
@@ -142,10 +152,10 @@ export function registerCreateCommand(
         return;
       }
 
-      // Generate: mint a fresh key, persist it, and set it active (passphrase prompt).
-      // Refuse to seal a fresh mainnet key into an unencrypted dev keystore (ADR 080).
+      // Generate: no key to use, so mint a fresh key, persist it, and set it active
+      // (passphrase prompt). Refuse to seal a fresh mainnet key into an unencrypted
+      // dev keystore (ADR 080).
       assertKeystoreAllowedForNetwork(network, overrides);
-      const api = keystoreFactory(undefined, overrides);
       const { did, keyId } = api.generateDid({ network, setActive: true });
       const publicKey = bytesToHex(api.kms.getPublicKey(keyId));
       print(

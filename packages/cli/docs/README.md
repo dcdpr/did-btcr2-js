@@ -2,7 +2,7 @@
 
 Reference documentation for `btcr2`, the command-line tool of the `did:btcr2` method. This page lists the commands, the global flags, the environment variables, and the precedence of each value. One page per command follows the links in the table.
 
-The text matches `@did-btcr2/cli` v0.26.0.
+The text matches `@did-btcr2/cli` v0.27.0.
 
 ## Commands
 
@@ -21,6 +21,7 @@ The text matches `@did-btcr2/cli` v0.26.0.
 | [`config`](./config.md) | Read and write the CLI config. |
 | [`profile`](./profile.md) | Manage the config profiles. |
 | [`completion`](./completion.md) | Print a shell completion script (bash, zsh, or fish). |
+| [config-file.md](./config-file.md) | The config file: each key, the commands that read it, and the selection of the active profile. |
 | [DEMO.md](./DEMO.md) | Walkthrough: create, fund, resolve, update, and deactivate an identifier on mutinynet. |
 
 ## Global flags
@@ -49,19 +50,18 @@ A global flag goes before the command word. Every command accepts every global f
 | `--btc-signal-discovery <mode>` | `indexer` \| `fullnode` | `indexer` | The source of the beacon signals. `fullnode` scans blocks over Bitcoin Core RPC instead of the Esplora indexer. It fails at connection setup on a network with no RPC client. Only regtest has a default RPC host. |
 | `--keystore <path>` | file path | the active profile's `identity.keystore`, else `<home>/keystore.json` | The path of the keystore file. The flag applies before any config read. |
 | `--passphrase-file <path>` | file path | none | Read the keystore passphrase from a file (unattended use). The CLI reads `BTCR2_KEYSTORE_PASSPHRASE` before this file. |
-| `--signing-key <ref>` | a key URN (`urn:kms:secp256k1:<32 hex>`), a unique `name` tag, or a unique fingerprint prefix | the active profile's `identity.default`, else the active key of the keystore | The key that signs in `update` and `deactivate`. In `create`, the flag selects a stored key as the source of the identifier. |
 | `-h, --help` | none | n/a | Print the help of the command. |
 
 ### Per-command flags
 
 These flags are not global. The command page documents them:
 
-- `--publish-to-cas <auto|always|never>`, `--fee-rate <satsPerVByte>`, and `--change-address <address>` on [`update`](./update.md) and [`deactivate`](./deactivate.md).
+- `--signing-key <ref>`, `--publish-to-cas <auto|always|never>`, `--fee-rate <satsPerVByte>`, and `--change-address <address>` on [`update`](./update.md) and [`deactivate`](./deactivate.md).
 - `-r, --resolution-options <json>`, `--resolution-options-path <path>`, `--min-conf <n>`, and `--genesis-document <path>` on [`resolve`](./resolve.md), [`update`](./update.md), and [`deactivate`](./deactivate.md). `resolve` also has the short form `-p` for the path.
 - `-n, --network <network>` on [`create`](./create.md), [`genesis build`](./genesis.md), [`init`](./init.md), [`quickstart`](./quickstart.md), and on `config effective` and `config doctor` ([config.md](./config.md)). A command that takes an identifier or a DID document reads the network from it.
 - `--ttl <duration>` and `--allow-mainnet` on `keystore unlock` ([keystore.md](./keystore.md)) and [`quickstart`](./quickstart.md).
 - `--initial-document` and `--genesis-document <path>` on [`identifier decode`](./identifier.md). `-b, --bytes <hex>` and `--genesis-document <path>` on [`identifier validate`](./identifier.md).
-- `--spec <path>`, `--out <path>`, and `--force` on [`genesis build`](./genesis.md). `--document <path>` on [`create`](./create.md).
+- `--spec <path>`, `--out <path>`, and `--force` on [`genesis build`](./genesis.md). `-k, --key <ref>` and `--document <path>` on [`create`](./create.md).
 
 ### Environment variables
 
@@ -97,7 +97,7 @@ The short rule is: flag, then environment variable, then the active profile, the
 - RPC endpoint: the URL, the user, and the password come together from the highest layer that supplies a URL. If no layer supplies a URL, they come from the highest layer that supplies a credential. A host from one layer never gets the credentials of another layer. `BTCR2_BTC_RPC_PASS_FILE` is the password fallback below all layers.
 - Home directory: `--home`, then `BTCR2_HOME`, then the platform default. The CLI never reads the home from the config file, because the config file is inside the home.
 - Keystore path: `--keystore`, then the active profile's `identity.keystore`, then `<home>/keystore.json`.
-- Signing key: `--signing-key`, then the active profile's `identity.default`, then the active key of the keystore.
+- Key: the key flag (`create --key`, `update --signing-key`, `deactivate --signing-key`), then the active profile's `identity.default`, then the active key of the keystore. If no key applies, `create` generates a key and `update` and `deactivate` fail.
 - Keystore passphrase: `BTCR2_KEYSTORE_PASSPHRASE`, then `--passphrase-file`, then a live session in `<home>/session.json`, then the interactive prompt. This is the one value where the environment variable outranks a flag.
 - Fee rate: `--fee-rate`, then `BTCR2_FEE_RATE`, then profile `btc.feeRate`, then the SDK default (5 sat/vB). Change address: `--change-address`, then profile `btc.changeAddress`. There is no environment variable.
 - Session TTL: `--ttl`, then `BTCR2_KEYSTORE_TTL`, then 1 hour. The cap is 24 hours for every source.
@@ -124,13 +124,13 @@ btcr2 init -n mutinynet
 Both commands are idempotent. A second run never touches an existing keystore. Then create an identifier:
 
 ```sh
-# Generate a key, store it as the active key, and print the identifier.
+# Use the active key, or generate one if none exists, and print the identifier.
 btcr2 create -n mutinynet
 ```
 
 ### Read and edit the config
 
-`btcr2 config` edits one key at a dotted path and shows the values that a live command uses:
+[config-file.md](./config-file.md) explains each key of the config file. `btcr2 config` edits one key at a dotted path and shows the values that a live command uses:
 
 ```sh
 btcr2 config path                                          # the home, config, and keystore paths

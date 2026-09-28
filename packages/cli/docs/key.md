@@ -1,6 +1,6 @@
 # btcr2 key
 
-Manages the keys in the keystore. Each subcommand is offline: it opens no Bitcoin or CAS connection, takes no network flag, and prints no faucet or explorer hint. The command group uses the api factory with a keystore. That factory wraps a file-backed key manager over `<home>/keystore.json` (or a configured keystore path). The keystore seals each secret key with argon2id and XChaCha20-Poly1305 under one shared passphrase. Only a subcommand that seals or opens a secret key asks for that passphrase. Use `btcr2 key` to create, inspect, import, export, delete, and select the signing keys that `btcr2 create`, `btcr2 update`, and `btcr2 deactivate` use.
+Manages the keys in the keystore. Each subcommand is offline: it opens no Bitcoin or CAS connection, takes no network flag, and prints no faucet or explorer hint. The command group uses the api factory with a keystore. That factory wraps a file-backed key manager over `<home>/keystore.json` (or a configured keystore path). The keystore seals each secret key with argon2id and XChaCha20-Poly1305 under one shared passphrase. Only a subcommand that seals or opens a secret key asks for that passphrase. Use `btcr2 key` to create, inspect, import, export, delete, and select the keys that `btcr2 create`, `btcr2 update`, and `btcr2 deactivate` use.
 
 ## Synopsis
 
@@ -17,7 +17,7 @@ btcr2 key help [command]
 
 ### Key ids and the `<ref>` argument
 
-A URN of the form `urn:kms:secp256k1:<fingerprint>` identifies each stored key. The `<fingerprint>` is the first 16 bytes of the SHA-256 hash of the 33-byte compressed public key, as hex (32 hex characters). The `<ref>` argument of `show`, `export`, `delete`, and `use` resolves in this order:
+A URN of the form `urn:kms:secp256k1:<fingerprint>` identifies each stored key. The `<fingerprint>` is the first 16 bytes of the SHA-256 hash of the 33-byte compressed public key, as hex (32 hex characters). The `<ref>` argument of `show`, `export`, `delete`, and `use` resolves in this order. The `--key <ref>` flag of `btcr2 create` uses the same order:
 
 1. An exact URN match (`urn:kms:secp256k1:...`).
 2. A unique exact match on the `name` tag of a key. An exact name wins over a fingerprint prefix, so the fingerprint of another key never hides a hex-like name such as `cafe`.
@@ -101,7 +101,7 @@ btcr2 key delete signing --force
 
 ### use <ref>
 
-Sets the active key and stores the pointer in the keystore file, so that the active key survives across invocations. A signing command without `--signing-key` falls back to the active key if the active profile sets no `identity.default`. The precedence is: the `--signing-key` flag, then `profiles.<name>.identity.default`, then the active key. A key resolution without a reference also falls back to the active key. The command never decrypts and never asks for the passphrase. It prints `{ keyId, active: true }`.
+Sets the active key and stores the pointer in the keystore file, so that the active key survives across invocations. `create`, `update`, and `deactivate` use the active key if their key flag is absent and the active profile sets no `identity.default`. The precedence is: the key flag (`create --key`, `update --signing-key`, `deactivate --signing-key`), then `profiles.<name>.identity.default`, then the active key. A key resolution without a reference also falls back to the active key. The command never decrypts and never asks for the passphrase. It prints `{ keyId, active: true }`.
 
 ```
 btcr2 key use signing
@@ -167,7 +167,7 @@ In `json` mode, the command prints the full result envelope: `{ "action": "key-<
 
 ## Global flags
 
-See the [docs README](./README.md#global-flags) for the shared global flags. The `key` subcommands use `--home`, `-c/--config`, `--profile`, `--keystore`, `--passphrase-file`, `-o/--output`, and `--verbose`. The connection flags (`--btc-*`, `--cas-*`) and `--signing-key` have no effect on the `key` subcommands.
+See the [docs README](./README.md#global-flags) for the shared global flags. The `key` subcommands use `--home`, `-c/--config`, `--profile`, `--keystore`, `--passphrase-file`, `-o/--output`, and `--verbose`. The connection flags (`--btc-*`, `--cas-*`) have no effect on the `key` subcommands.
 
 ## Examples
 
@@ -200,12 +200,13 @@ btcr2 key delete old-key
 
 # A stored key as the source of a mutinynet identifier
 btcr2 key generate --name mutinynet-demo --set-active
-btcr2 create -n mutinynet --signing-key mutinynet-demo
+btcr2 create -n mutinynet --key mutinynet-demo
 ```
 
 ## See also
 
 - `btcr2 keystore` (init, status, change-passphrase, unlock, lock): the keystore lifecycle and the session that the key commands use.
-- `btcr2 create`, `btcr2 update`, `btcr2 deactivate`: the commands that use the active key or `--signing-key <ref>`.
+- `btcr2 create --key <ref>`: make an identifier from the public key of a stored key.
+- `btcr2 update`, `btcr2 deactivate`: the commands that sign with `--signing-key <ref>` or the active key.
 - `btcr2 config` and `btcr2 profile`: manage `defaults.profile` and `profiles.<name>.identity.keystore`.
 - [DEMO.md](./DEMO.md): the CLI walkthrough, with the key setup.
