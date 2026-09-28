@@ -17,12 +17,10 @@ The CLI writes the file atomically with file mode `0600`, in a directory with mo
   "schemaVersion": 1,
   "defaults": {
     "profile": "mutinynet",
-    "network": "mutinynet",
     "output": "text"
   },
   "profiles": {
     "mutinynet": {
-      "network": "mutinynet",
       "btc": {
         "rest": "https://esplora.example.com/api",
         "headers": { "X-Api-Key": "abc123" },
@@ -38,7 +36,6 @@ The CLI writes the file atomically with file mode `0600`, in a directory with mo
       }
     },
     "regtest": {
-      "network": "regtest",
       "btc": {
         "rest": "http://127.0.0.1:3000",
         "rpcUrl": "http://127.0.0.1:18443",
@@ -48,6 +45,15 @@ The CLI writes the file atomically with file mode `0600`, in a directory with mo
       "cas": {
         "rpcUrl": "http://127.0.0.1:5001"
       }
+    },
+    "production": {
+      "network": "bitcoin",
+      "btc": {
+        "rest": "https://mainnet.example.com/api"
+      },
+      "identity": {
+        "default": "prod"
+      }
     }
   }
 }
@@ -55,10 +61,15 @@ The CLI writes the file atomically with file mode `0600`, in a directory with mo
 
 With this file:
 
-- `defaults.profile` selects the `mutinynet` profile for each command. Pass `--profile regtest` to use the local regtest node.
-- `btcr2 create` makes a mutinynet identifier from the key named `demo`. `btcr2 update` signs with the same key.
+- `defaults.profile` selects the `mutinynet` profile for each command. Pass `--profile regtest` to use the local regtest node, or `--profile production` to use mainnet.
+- `btcr2 create` makes a mutinynet identifier from the key named `demo`. The name of the `mutinynet` profile gives the network. `btcr2 update` signs with the same key.
 - `resolve`, `update`, and `deactivate` read the chain through `https://esplora.example.com/api`, with the `X-Api-Key` header.
 - With `--profile regtest`, the RPC password comes from the file `/home/me/.btcr2/regtest-rpc-pass`, and `--publish-to-cas` can write to the local IPFS node.
+- `btcr2 --profile production create` makes a `bitcoin` identifier from the key named `prod`.
+
+The `production` profile shows the case where the `network` key matters. `production` is not a network name, so only the `network` key gives the network of the profile. Without the key, `btcr2 --profile production create` makes a `regtest` identifier and prints no warning. The `mutinynet` and `regtest` profiles do not need the key, because the profile name gives the network.
+
+The file does not set `defaults.network`, because `defaults.network` wins over the `network` key of the active profile. With `defaults.network` set to `mutinynet`, `btcr2 --profile production create` makes a mutinynet identifier and prints a warning. `init -n` and `quickstart -n` write `defaults.network`.
 
 ## Top-level keys
 
@@ -88,7 +99,7 @@ A value that the profile does not set comes from the next layer. See [Precedence
 
 | Key | Type | Used by | Meaning |
 |-----|------|---------|---------|
-| `network` | `bitcoin` \| `testnet3` \| `testnet4` \| `signet` \| `mutinynet` \| `regtest` | `create`, `genesis build`, `config doctor` | The network that the endpoints of the profile serve. If `-n` and `defaults.network` are absent, `create` uses this network. `create` and `genesis build` print a warning if the identifier has another network. A profile with a network name and no `network` key has the network of its name. |
+| `network` | `bitcoin` \| `testnet3` \| `testnet4` \| `signet` \| `mutinynet` \| `regtest` | `create`, `genesis build`, `config doctor` | The network that the endpoints of the profile serve. If `-n` and `defaults.network` are absent, `create` uses this network. `create` and `genesis build` print a warning if the identifier has another network. A profile with a network name and no `network` key has the network of its name. A profile with another name, for example `production`, has no network without the key. |
 
 ### btc: the Bitcoin endpoints and transactions
 
@@ -166,9 +177,13 @@ The [docs README](./README.md#environment-variables) lists all environment varia
 ## Examples
 
 ```sh
-# Make mutinynet the default network and the active profile
-btcr2 config set defaults.network mutinynet
+# Make mutinynet the active profile. The profile name also gives the default network.
 btcr2 config set defaults.profile mutinynet
+
+# Add a mainnet profile. Its name is not a network name, so it needs the network key.
+btcr2 profile add production
+btcr2 config set profiles.production.network bitcoin
+btcr2 config set profiles.production.btc.rest https://mainnet.example.com/api
 
 # Give the mutinynet profile its own default key
 btcr2 config set profiles.mutinynet.identity.default demo
