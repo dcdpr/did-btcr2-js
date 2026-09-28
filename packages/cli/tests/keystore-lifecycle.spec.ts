@@ -201,4 +201,56 @@ describe('keystore lifecycle (ADR 080)', () => {
       expect(keystoreSummary(path).protection).to.equal('absent');
     });
   });
+
+  // set() seals a secret before it takes the write lock. These tests start a
+  // second writer inside getPassphrase, so that the second writer changes the
+  // file after the seal-time check and before the lock (ADR 080, ADR 126).
+  describe('a concurrent writer during a seal', () => {
+    it('refuses the seal if a concurrent change-passphrase rotates the verifier', () => {
+      new FileKeyStore({ path, argonParams: FAST, getPassphrase: () => 'old-pass' })
+        .set(ID, { publicKey: PUBLIC, secretKey: SECRET });
+      const store = new FileKeyStore({
+        path,
+        argonParams   : FAST,
+        getPassphrase : () => {
+          changeKeystorePassphrase(path, 'old-pass', 'new-pass', FAST);
+          return 'old-pass';
+        },
+      });
+      expect(() => store.set(ID2, { publicKey: PUBLIC, secretKey: SECRET }))
+        .to.throw(KeyStoreError).with.property('type', 'KEYSTORE_CONCURRENT_CHANGE_ERROR');
+      const reopened = new FileKeyStore({ path, argonParams: FAST, getPassphrase: () => 'new-pass' });
+      expect(reopened.list()).to.have.length(1);
+      expect(reopened.get(ID)?.secretKey).to.deep.equal(SECRET);
+    });
+
+    it('refuses the seal if a concurrent writer establishes a different passphrase', () => {
+      const store = new FileKeyStore({
+        path,
+        argonParams   : FAST,
+        getPassphrase : () => {
+          initKeystore(path, { protection: 'passphrase', argonParams: FAST, getPassphrase: () => 'theirs' });
+          return 'mine';
+        },
+      });
+      expect(() => store.set(ID, { publicKey: PUBLIC, secretKey: SECRET }))
+        .to.throw(KeyStoreError, /Incorrect passphrase/);
+      const reopened = new FileKeyStore({ path, argonParams: FAST, getPassphrase: () => 'theirs' });
+      expect(reopened.list()).to.have.length(0);
+    });
+
+    it('keeps the seal if a concurrent writer establishes the same passphrase', () => {
+      const store = new FileKeyStore({
+        path,
+        argonParams   : FAST,
+        getPassphrase : () => {
+          initKeystore(path, { protection: 'passphrase', argonParams: FAST, getPassphrase: () => 'shared' });
+          return 'shared';
+        },
+      });
+      store.set(ID, { publicKey: PUBLIC, secretKey: SECRET });
+      const reopened = new FileKeyStore({ path, argonParams: FAST, getPassphrase: () => 'shared' });
+      expect(reopened.get(ID)?.secretKey).to.deep.equal(SECRET);
+    });
+  });
 });

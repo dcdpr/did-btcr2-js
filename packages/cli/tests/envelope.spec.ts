@@ -1,4 +1,5 @@
-import { decryptSecret, encryptSecret } from '../src/keystore/envelope.js';
+import { argon2id } from '@noble/hashes/argon2.js';
+import { argon2idKey, decryptSecret, encryptSecret } from '../src/keystore/envelope.js';
 import type { ArgonParams, SecretEnvelope } from '../src/keystore/envelope.js';
 import { KeyStoreError } from '../src/keystore/error.js';
 import { expect } from './helpers.js';
@@ -80,5 +81,16 @@ describe('keystore envelope', () => {
     expect(a.kdf.salt).to.not.equal(b.kdf.salt);
     expect(a.nonce).to.not.equal(b.nonce);
     expect(a.ciphertext).to.not.equal(b.ciphertext);
+  });
+
+  // ADR 126: the native argon2 of Node.js must give the same bytes as the
+  // argon2id of @noble/hashes. Else a keystore from cli 0.25 or earlier does not open.
+  it('derives the same key bytes as argon2id of @noble/hashes', () => {
+    const password = new TextEncoder().encode(PASS);
+    const salt = Uint8Array.from({ length: 16 }, (_, i) => 255 - i);
+    for (const params of [ FAST, { t: 2, m: 1024, p: 4, dkLen: 32 } ]) {
+      expect(Array.from(argon2idKey(password, salt, params)))
+        .to.deep.equal(Array.from(argon2id(password, salt, params)));
+    }
   });
 });

@@ -1,7 +1,7 @@
 import { xchacha20poly1305 } from '@noble/ciphers/chacha.js';
-import { argon2id } from '@noble/hashes/argon2.js';
 import { randomBytes, utf8ToBytes } from '@noble/hashes/utils.js';
 import { base64urlnopad } from '@scure/base';
+import { argon2Sync } from 'node:crypto';
 import { KeyStoreError } from './error.js';
 
 /** Current keystore secret-envelope format version. */
@@ -82,6 +82,22 @@ function headerAad(header: EnvelopeHeader): Uint8Array {
 }
 
 /**
+ * Runs argon2id over a password with the native argon2 of Node.js (ADR 126).
+ * The output is the same as the output of `argon2id` from `@noble/hashes`, which
+ * sealed the envelopes of cli 0.25 and earlier. A test holds the two equal.
+ */
+export function argon2idKey(password: Uint8Array, salt: Uint8Array, params: ArgonParams): Uint8Array {
+  return argon2Sync('argon2id', {
+    message     : password,
+    nonce       : salt,
+    parallelism : params.p,
+    tagLength   : params.dkLen,
+    memory      : params.m,
+    passes      : params.t,
+  });
+}
+
+/**
  * Stretches a passphrase into the symmetric key. The transient UTF-8 copy of
  * the passphrase is zeroized here; the caller is responsible for zeroizing the
  * returned key after use.
@@ -89,7 +105,7 @@ function headerAad(header: EnvelopeHeader): Uint8Array {
 function deriveKey(passphrase: string, salt: Uint8Array, params: ArgonParams): Uint8Array {
   const password = utf8ToBytes(passphrase);
   try {
-    return argon2id(password, salt, { t: params.t, m: params.m, p: params.p, dkLen: params.dkLen });
+    return argon2idKey(password, salt, params);
   } finally {
     password.fill(0);
   }

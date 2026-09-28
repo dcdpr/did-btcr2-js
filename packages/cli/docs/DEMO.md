@@ -4,7 +4,7 @@ This walkthrough shows the `btcr2` command-line tool from the setup to an on-cha
 
 **How to use this document:** run the commands from top to bottom in one terminal session. A later command reuses the shell variables of an earlier command, so keep the same session open. Each output block is an example. Your keys, identifiers, and Bitcoin addresses differ, but the shape is the same.
 
-The text matches `@did-btcr2/cli` v0.25.2.
+The text matches `@did-btcr2/cli` v0.26.0.
 
 ---
 
@@ -14,7 +14,7 @@ The text matches `@did-btcr2/cli` v0.25.2.
 
 Before the first command, make sure that you have:
 
-- **Node.js 22 or newer** (the CLI runtime).
+- **Node.js 24.7 or newer** (the CLI runtime).
 - **`jq`** (Part 4 uses it to read values out of JSON).
 - **A POSIX shell**: bash or zsh on Linux or macOS. On Windows, use **WSL** or **Git Bash**. The commands use `alias`, `$(...)`, `2>/dev/null`, and single-quoted JSON. PowerShell and cmd do not process them in the same way.
 
@@ -44,7 +44,7 @@ btcr2 --version
 ```
 
 ```
-btcr2 0.25.2
+btcr2 0.26.0
 ```
 
 ### Set up in one command

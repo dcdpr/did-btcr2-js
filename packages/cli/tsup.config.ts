@@ -15,7 +15,7 @@ export default defineConfig({
   entry     : ['src/index.ts'],
   format    : ['cjs'],
   outDir    : 'dist/cjs',
-  target    : 'node22',
+  target    : 'node24',
   platform  : 'node',
   sourcemap : false,
   dts       : false,

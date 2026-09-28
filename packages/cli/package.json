@@ -1,6 +1,6 @@
 {
   "name": "@did-btcr2/cli",
-  "version": "0.25.2",
+  "version": "0.26.0",
   "type": "module",
   "description": "CLI for interacting with did-btcr2-js, the JavaScript/TypeScript reference implementation of the did:btcr2 method. Exposes various parts of multiple packages in the did-btcr2-js monorepo.",
   "main": "./dist/cjs/index.js",
@@ -43,7 +43,7 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=24.7.0"
   },
   "keywords": [
     "did",
@@ -91,7 +91,7 @@
     "@types/chai": "^5.0.1",
     "@types/chai-as-promised": "^8.0.1",
     "@types/mocha": "^10.0.10",
-    "@types/node": "^22.13.8",
+    "@types/node": "^24.19.0",
     "@typescript-eslint/eslint-plugin": "^8.25.0",
     "@typescript-eslint/parser": "^8.25.0",
     "c8": "^10.1.3",
