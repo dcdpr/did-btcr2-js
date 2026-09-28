@@ -54,7 +54,8 @@ Behavior that the `--help` text does not show:
 
 - Text mode (default): the update result payload as pretty JSON on stdout: `signedUpdate` (the full signed update for sidecar distribution), `txid` (the beacon signal transaction), `announcement` (CAS beacons only), `proof` (SMT beacons only, always sidecar data), and `publishedToCas` (`{ update, announcement }` booleans that record what reached the CAS).
 - Text mode also prints a watch hint on stderr on a network with a block explorer (all except regtest): `Watch: <explorer-tx-url>`, for example `https://mutinynet.com/tx/<txid>`. `--quiet` and JSON mode suppress it. This command prints no faucet hint.
-- JSON mode (`-o json`): stdout carries `{ "action": "deactivate", "data": { ...the same payload... } }`, and the command writes nothing on stderr on success.
+- JSON mode (`-o json`): stdout carries `{ "action": "deactivate", "data": { ...the same payload... } }`. On success, the command writes nothing on stderr, except the network warning below.
+- Profile network warning (ADR 131): if the active profile declares a network that is not the network of the identifier, the command prints a warning on stderr: `Warning: the identifier network is "<network>", but the active profile "<name>" declares network "<declared>". The endpoints of the profile can be for another network.` The command then uses the endpoints of the profile. The warning never blocks. `--quiet` suppresses it.
 - An error prints its message only (the full object and the stack under `--verbose`) and exits with code 1.
 
 Keep the printed `signedUpdate` (and the `announcement` or `proof` if present). A resolver needs it as sidecar data to see the deactivated state, unless you published it to a CAS.
@@ -80,6 +81,9 @@ The general precedence for each value: flag, then environment variable, then the
 | `BTCR2_BTC_SIGNAL_DISCOVERY` | The source of the beacon signals (`indexer` \| `fullnode`). An invalid value fails the command. `fullnode` without a connection with RPC fails the command too. | `--btc-signal-discovery` |
 | `BTCR2_CAS_GATEWAY` | The read-only IPFS gateway for CAS reads | `--cas-gateway` |
 | `BTCR2_CAS_RPC_URL` | The writable IPFS RPC endpoint (necessary for `--publish-to-cas auto` and `always`) | `--cas-rpc-url` |
+| `BTCR2_CAS_RPC_USER` | The HTTP Basic user name of the IPFS RPC endpoint | `--cas-rpc-user` |
+| `BTCR2_CAS_RPC_PASS` | The HTTP Basic password of the IPFS RPC endpoint (an `env:<VAR>` or `file:<path>` reference is valid) | none (a password on argv is visible through `ps` and the shell history) |
+| `BTCR2_CAS_RPC_PASS_FILE` | The path of a file with the IPFS RPC password (the fallback if no layer supplies one) | none |
 | `BTCR2_CAS_TIMEOUT` | The CAS timeout in ms (`0` disables it) | `--cas-timeout` |
 
 ### The config.json and profile keys that feed this command
@@ -97,7 +101,8 @@ The config file is at `<home>/config.json` (override it with `-c/--config`). The
 | `profiles.<name>.btc.changeAddress` | The change address (no environment variable for this value: flag, then profile) |
 | `profiles.<name>.btc.timeoutMs`, `.headers`, `.wallet`, `.rpcHeaders` | The timeout, the extra REST headers, the RPC wallet, the extra RPC headers |
 | `profiles.<name>.btc.signalDiscovery` | The source of the beacon signals (`"indexer"` \| `"fullnode"`) |
-| `profiles.<name>.cas.gateway`, `.rpcUrl`, `.timeoutMs` | The CAS endpoints and timeout |
+| `profiles.<name>.cas.gateway`, `.rpcUrl`, `.rpcUser`, `.rpcPass`, `.timeoutMs` | The CAS endpoints, the RPC credentials, and the timeout |
+| `defaults.cas.gateway`, `.rpcUrl`, `.rpcUser`, `.rpcPass`, `.timeoutMs` | The CAS values for all networks, below the profile `cas` values. The CAS endpoint comes from one layer: the highest layer that sets a gateway or an RPC URL gives the gateway, the RPC URL, the user, and the password (ADR 129). |
 | `profiles.<name>.identity.keystore` | The keystore path (below the `--keystore` flag, above `<home>/keystore.json`) |
 | `profiles.<name>.identity.default` | The default signing key reference (below the `--signing-key` flag, above the active key of the keystore) |
 

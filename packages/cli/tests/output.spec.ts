@@ -1,5 +1,5 @@
 import { expect } from './helpers.js';
-import { formatResult, isSecretKey, REDACTED, redactSecrets } from '../src/output.js';
+import { formatCheckResult, formatResult, isSecretKey, REDACTED, redactSecrets } from '../src/output.js';
 import type { CommandResult, GlobalOptions } from '../src/types.js';
 
 const textOpts: GlobalOptions = { output: 'text', verbose: false, quiet: false };
@@ -38,6 +38,27 @@ describe('formatResult', () => {
     const parsed = JSON.parse(output);
     expect(parsed.action).to.equal('create');
     expect(parsed.data).to.equal('did:btcr2:abc');
+  });
+});
+
+describe('formatCheckResult', () => {
+  const result: CommandResult = { action: 'config-validate', data: { ok: true, issues: [] } };
+  const quietOpts: GlobalOptions = { ...textOpts, quiet: true };
+
+  it('prints the payload in text mode', () => {
+    expect(JSON.parse(formatCheckResult(result, textOpts, []))).to.deep.equal(result.data);
+  });
+
+  it('prints OK in text mode under --quiet if there is no failure', () => {
+    expect(formatCheckResult(result, quietOpts, [])).to.equal('OK');
+  });
+
+  it('prints one line for each failure in text mode under --quiet', () => {
+    expect(formatCheckResult(result, quietOpts, [ 'a: unknown key', 'b: unknown key' ])).to.equal('a: unknown key\nb: unknown key');
+  });
+
+  it('prints the full envelope in json mode, also under --quiet', () => {
+    expect(JSON.parse(formatCheckResult(result, { ...jsonOpts, quiet: true }, [ 'a: unknown key' ]))).to.deep.equal(result);
   });
 });
 

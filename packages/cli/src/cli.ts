@@ -47,8 +47,8 @@ export class DidBtcr2Cli {
       .version(`btcr2 ${VERSION}`, '-v, --version', 'Output the current version')
       .description('CLI tool for the did:btcr2 method')
       .option('-o, --output <format>', 'Output format <json|text> (default: config defaults.output, else text)')
-      .option('--verbose', 'Verbose output', false)
-      .option('--quiet', 'Suppress non-essential output', false)
+      .option('--verbose', 'Print the key note and the funding hint of create, and the full error object on a failure', false)
+      .option('-q, --quiet', 'Suppress hints and warnings; config validate and identifier validate print only OK or the failures', false)
       .option('--home <dir>', 'btcr2 home directory holding config.json + keystore.json (default: ~/.btcr2, %LOCALAPPDATA%\\btcr2 on Windows; overrides $BTCR2_HOME)')
       .option('-c, --config <path>', 'Path to config file (default: <home>/config.json)')
       .option('--profile <name>', 'Config profile name (default: auto-detected from network)')
@@ -63,6 +63,10 @@ export class DidBtcr2Cli {
       // keystore passphrase, which is likewise never taken from a flag (ADR 077).
       .option('--cas-gateway <url>', 'IPFS HTTP gateway for CAS reads (read-only)')
       .option('--cas-rpc-url <url>', 'IPFS HTTP RPC endpoint for a writable CAS (reads + writes; enables --publish-to-cas)')
+      .option('--cas-rpc-user <user>', 'IPFS HTTP RPC username (HTTP Basic auth)')
+      // No --cas-rpc-pass flag either, for the same reason as --btc-rpc-pass. The
+      // password comes from BTCR2_CAS_RPC_PASS, BTCR2_CAS_RPC_PASS_FILE, or a
+      // profile `cas.rpcPass` secret reference (ADR 128).
       .option('--btc-timeout <ms>', 'Bitcoin REST/RPC request timeout in milliseconds (default: unbounded)')
       .option('--cas-timeout <ms>', 'CAS request timeout in milliseconds (default: 30000; 0 disables)')
       .option('--btc-rest-header <header>', 'Extra Bitcoin REST header "Key: Value" (repeatable)', collectHeader, [])

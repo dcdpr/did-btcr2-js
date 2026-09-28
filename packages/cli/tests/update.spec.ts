@@ -418,4 +418,48 @@ describe('update/deactivate watch hint (ADR 082)', () => {
     await sub(cli, 'deactivate').parseAsync(['-i', did], { from: 'user' });
     expect(err.join(' ')).to.not.match(/Watch:/);
   });
+
+  describe('profile network warning (ADR 131)', () => {
+    let cfg: string;
+
+    beforeEach(() => {
+      cfg = join(dir, 'config.json');
+      writeFileSync(cfg, JSON.stringify({
+        schemaVersion : 1,
+        defaults      : { profile: 'production' },
+        profiles      : { production: { network: 'bitcoin' } },
+      }));
+      process.exitCode = undefined;
+    });
+
+    afterEach(() => {
+      process.exitCode = 0;
+    });
+
+    it('update warns if the identifier network is not the network of the active profile', async () => {
+      const did = didFor('regtest');
+      const cli = new DidBtcr2Cli(createTestApiFactory(), txidStub('cafe1234'));
+      await cli.run(['node', 'btcr2', '--config', cfg, 'update', '-i', did, '-p', '[]']);
+      expect(process.exitCode).to.equal(undefined);
+      expect(err.join('')).to.include(
+        'Warning: the identifier network is "regtest", but the active profile "production" declares network "bitcoin".'
+      );
+    });
+
+    it('deactivate prints no warning under -q', async () => {
+      const did = didFor('regtest');
+      const cli = new DidBtcr2Cli(createTestApiFactory(), txidStub('cafe1234'));
+      await cli.run(['node', 'btcr2', '-q', '--config', cfg, 'deactivate', '-i', did]);
+      expect(process.exitCode).to.equal(undefined);
+      expect(err.join('')).to.not.include('Warning:');
+    });
+
+    it('update refuses a bad flag before it prints the warning', async () => {
+      const did = didFor('regtest');
+      const cli = new DidBtcr2Cli(createTestApiFactory(), txidStub('cafe1234'));
+      await cli.run(['node', 'btcr2', '--config', cfg, 'update', '-i', did, '-p', '[]', '--source-version-id', '2']);
+      expect(process.exitCode).to.equal(1);
+      expect(err.join('')).to.not.include('Warning:');
+    });
+  });
 });

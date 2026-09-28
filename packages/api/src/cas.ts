@@ -1,3 +1,4 @@
+import { toBase64 } from '@did-btcr2/bitcoin';
 import type { HashBytes } from '@did-btcr2/common';
 import { canonicalize, decode as decodeHash, encode as encodeHash, MISSING_UPDATE_DATA, ResolveError } from '@did-btcr2/common';
 import { equals as equalBytes } from 'multiformats/bytes';
@@ -130,6 +131,25 @@ export class BlockstoreCasExecutor implements CasExecutor {
 }
 
 /**
+ * The HTTP Basic credentials of an IPFS HTTP RPC endpoint, for a node behind a
+ * reverse proxy that requires authentication.
+ * @public
+ */
+export type IpfsRpcAuth = {
+  username: string;
+  password: string;
+};
+
+/**
+ * Options of {@link IpfsRpcCasExecutor}.
+ * @public
+ */
+export type IpfsRpcCasExecutorOptions = {
+  /** The Basic credentials. The executor sends them with each RPC request. */
+  auth?: IpfsRpcAuth;
+};
+
+/**
  * Read-write {@link CasExecutor} backed by the IPFS HTTP RPC API
  * (the interface a Kubo node exposes, default port 5001).
  *
@@ -138,13 +158,20 @@ export class BlockstoreCasExecutor implements CasExecutor {
  * node required. `publish` verifies that the CID returned by the node
  * matches the CID derived locally from the content hash, so a misconfigured
  * node cannot silently store content under a different address.
+ *
+ * With `options.auth`, each request has an HTTP Basic `Authorization` header.
  * @public
  */
 export class IpfsRpcCasExecutor implements CasExecutor {
   readonly #rpcUrl: string;
+  readonly #headers: Record<string, string>;
 
-  constructor(rpcUrl: string) {
+  constructor(rpcUrl: string, options: IpfsRpcCasExecutorOptions = {}) {
     this.#rpcUrl = rpcUrl.replace(/\/+$/, '');
+    const { auth } = options;
+    this.#headers = auth
+      ? { Authorization: `Basic ${toBase64(`${auth.username}:${auth.password}`)}` }
+      : {};
   }
 
   async retrieve(hash: string): Promise<Uint8Array | null> {
@@ -168,7 +195,8 @@ export class IpfsRpcCasExecutor implements CasExecutor {
   async #blockGet(cid: CID, signal?: AbortSignal): Promise<Uint8Array> {
     // The RPC API accepts POST only.
     const res = await fetch(`${this.#rpcUrl}/api/v0/block/get?arg=${cid.toString()}`, {
-      method : 'POST',
+      method  : 'POST',
+      headers : this.#headers,
       signal,
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -181,7 +209,8 @@ export class IpfsRpcCasExecutor implements CasExecutor {
     const body = new FormData();
     body.append('file', new Blob([Uint8Array.from(data)]));
     const res = await fetch(`${this.#rpcUrl}/api/v0/block/put?cid-codec=raw&mhtype=sha2-256&pin=true`, {
-      method : 'POST',
+      method  : 'POST',
+      headers : this.#headers,
       body,
     });
     if (!res.ok) {
@@ -269,6 +298,11 @@ export type CasConfig = {
   blockstore?: BlockstoreLike | BlockstoreProviderLike;
   /** IPFS HTTP RPC API endpoint for read-write CAS access (e.g. `'http://127.0.0.1:5001'`). */
   rpcUrl?: string;
+  /**
+   * The HTTP Basic credentials of `rpcUrl`, for a node behind a reverse proxy
+   * that requires authentication. Only `rpcUrl` uses them.
+   */
+  rpcAuth?: IpfsRpcAuth;
   /** IPFS HTTP gateway URL for read-only CAS access (e.g. `'https://trustless-gateway.link'`). */
   gateway?: string;
   /**
@@ -302,7 +336,7 @@ export class CasApi {
     } else if (config.blockstore) {
       this.#executor = new BlockstoreCasExecutor(config.blockstore);
     } else if (config.rpcUrl) {
-      this.#executor = new IpfsRpcCasExecutor(config.rpcUrl);
+      this.#executor = new IpfsRpcCasExecutor(config.rpcUrl, { auth: config.rpcAuth });
     } else if (config.gateway) {
       this.#executor = new HttpGatewayCasExecutor(config.gateway);
     } else {

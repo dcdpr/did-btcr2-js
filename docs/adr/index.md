@@ -205,3 +205,7 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 125 | 2026-09-25 | [config doctor Checks the Request Path of the Commands](125-config-doctor-checks-the-request-path-of-the-commands.md) |
 | 126 | 2026-09-28 | [The cli Requires Node.js 24.7 for the Native argon2, and the Keystore Checks the Passphrase Once for Each Seal](126-cli-requires-node-24-7-for-native-argon2-and-checks-the-passphrase-once-for-each-seal.md) |
 | 127 | 2026-09-28 | [The Key Flags of create, update, and deactivate, and One Default Key](127-key-flags-of-create-update-and-deactivate.md) |
+| 128 | 2026-09-28 | [HTTP Basic Credentials for the IPFS RPC Endpoint](128-http-basic-credentials-for-the-ipfs-rpc-endpoint.md) |
+| 129 | 2026-09-28 | [defaults.cas, One CAS Endpoint for All Networks](129-defaults-cas-one-cas-endpoint-for-all-networks.md) |
+| 130 | 2026-09-28 | [create Prints Only the Identifier, and validate Has a Quiet Form](130-create-prints-only-the-identifier-and-validate-has-a-quiet-form.md) |
+| 131 | 2026-09-29 | [The Network of the Active Profile Wins over defaults.network](131-network-of-the-active-profile-wins-over-defaults-network.md) |

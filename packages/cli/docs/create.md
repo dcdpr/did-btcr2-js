@@ -29,8 +29,6 @@ There are no subcommands.
 | `--document <path>` | file path | none | For `-t x` only: the JSON genesis document to hash, for example the file that `btcr2 genesis build` wrote. The api checks the document (the placeholder id `did:btcr2:_`, the two contexts, a placeholder id in each method and service) and hashes it as written. An unreadable path or non-JSON content fails with `Invalid genesis document path. ...`. A document with a wrong shape fails with the reason, for example `The genesis document id must be "did:btcr2:_", ...`. The flag is exclusive with `--bytes` (`Provide at most one of --bytes or --document.`). With `-t k`, the flag fails with `--document applies only to external identifiers (-t x).`. |
 | `-h, --help` | none | n/a | Print the help of the command and exit. |
 
-The `--help` text describes the `-n` default as "config defaults.network, else regtest". The source has one more step between the two: the network of the active profile (see the precedence below). The source behavior applies.
-
 ### Input modes for `-t k`
 
 Exactly one of the three modes runs. The present inputs select the mode. `--key` with `--bytes` fails with `Provide at most one of --bytes or --key.`
@@ -43,17 +41,18 @@ Exactly one of the three modes runs. The present inputs select the mode. `--key`
 
 Exactly one of the two modes runs. No input fails with `External identifiers (-t x) require --document <path>, the genesis document, or --bytes <hex>, its 32-byte hash. ...`. Both inputs fail with `Provide at most one of --bytes or --document.` `-t x` with `--key` fails with `--key applies only to deterministic identifiers (-t k).`
 
-1. **Document** (`--document <path>`). The api hashes the file as written (JCS canonical form, SHA-256) and encodes the identifier. The result carries the hash as `genesisBytes`. Keep the file: the identifier resolves only with it. On a network with a faucet, a text-mode funding hint names the first beacon of the document.
+1. **Document** (`--document <path>`). The api hashes the file as written (JCS canonical form, SHA-256) and encodes the identifier. The result carries the hash as `genesisBytes`. Keep the file: the identifier resolves only with it. On a network with a faucet, the funding hint of `--verbose` names the first beacon of the document.
 2. **Raw bytes** (`--bytes <hex>`). The 32-byte genesis document hash, computed elsewhere. The command prints no funding hint, because it does not know the beacons.
 
 ### Output
 
-- **Text mode** (default): stdout carries the identifier string only. The source of the key goes to stderr. The generate mode prints `Generated and stored key <urn> (now the active key).` The stored-key mode prints `Using stored key <urn>.`
+- **Text mode** (default): stdout carries the identifier string only. The command prints no key note and no funding hint (ADR 130).
+- **Text mode with `--verbose`**: stdout carries the identifier string only. The source of the key and the funding hint go to stderr. The generate mode prints `Generated and stored key <urn> (now the active key).` The stored-key mode prints `Using stored key <urn>.` The flag can also go after the command word: `btcr2 create --verbose`.
 - **JSON mode** (`-o json`): stdout carries one JSON object. The command prints no stderr notes and no hints. A raw-bytes run prints `{ "action": "create", "data": "<did>" }`. The generate mode and the stored-key mode add `"keyId"` (the key URN) and `"publicKey"` (hex). The `-t x --document` mode adds `"genesisBytes"` (hex, the hash of the document).
 
 ### Stderr hints and warnings
 
-- **Funding hint** (ADR 082): after a `-t k` run, or a `-t x --document` run, on a network with a public faucet (`testnet3`, `testnet4`, `signet`, `mutinynet`, never `regtest` or `bitcoin`), the command prints a text-mode hint on stderr. The hint holds the beacon address to fund, the faucet URL, and the explorer URL of the address. For `k`, the address is the initial P2WPKH beacon that derives from the identifier. For `x`, it is the first beacon of the genesis document.
+- **Funding hint** (ADR 082): after a `-t k` run, or a `-t x --document` run, on a network with a public faucet (`testnet3`, `testnet4`, `signet`, `mutinynet`, never `regtest` or `bitcoin`), the command prints a hint on stderr in text mode with `--verbose`. The hint holds the beacon address to fund, the faucet URL, and the explorer URL of the address. For `k`, the address is the initial P2WPKH beacon that derives from the identifier. For `x`, it is the first beacon of the genesis document.
 
   ```
   Fund the initial beacon to anchor updates:
@@ -63,7 +62,7 @@ Exactly one of the two modes runs. No input fails with `External identifiers (-t
   ```
 
   The `k` beacon address derives from the identifier string alone (the `#initialP2WPKH` service of the resolver). `--quiet` and `-o json` suppress the hint. The hint is never fatal.
-- **Profile and network mismatch warning**: if the active profile declares a network that differs from the network of the identifier, the command prints a warning on stderr: `Warning: creating a "<network>" identifier while the active profile "<name>" declares network "<declared>". ...`. The declared network is the `network` field of the profile, else its name if the name is a network. The warning never blocks. Only `--quiet` suppresses it. In JSON mode it still prints, on stderr. A malformed config file skips this warning without a failure.
+- **Profile and network mismatch warning**: if the active profile declares a network that differs from the network of the identifier, the command prints a warning on stderr: `Warning: the identifier network is "<network>", but the active profile "<name>" declares network "<declared>". The endpoints of the profile can be for another network.` The network of the active profile is the default of `-n`, so only an explicit `-n` can cause the warning. The declared network is the `network` field of the profile, else its name if the name is a network. The warning never blocks. Only `--quiet` suppresses it. In JSON mode it still prints, on stderr. A malformed config file skips this warning without a failure.
 
 ### Errors
 
@@ -85,16 +84,16 @@ The config file keys (`<home>/config.json`, or the file that `-c/--config` names
 
 | Key | Role |
 |-----|------|
-| `defaults.network` | The default for `-n` if the flag is absent. |
+| `defaults.network` | The default for `-n` if the flag is absent and the active profile has no network. |
 | `defaults.profile` | The active profile if `--profile` is absent. |
 | `defaults.output` | The default output format below `BTCR2_OUTPUT`. |
-| `profiles.<name>.network` | The network that the profile declares. It feeds the default network fallback and the mismatch warning. |
+| `profiles.<name>.network` | The network that the profile declares. It is the default for `-n`, above `defaults.network` (ADR 131). It also feeds the mismatch warning. |
 | `profiles.<name>.identity.keystore` | The keystore path for the generate mode and the stored-key mode, below the `--keystore` flag. |
 | `profiles.<name>.identity.default` | The default key reference, below the `--key` flag and above the active key of the keystore. |
 
 Precedence (the highest wins, and a blank value at one layer defers to the next layer):
 
-- Network: the `-n` flag, then config `defaults.network`, then the network of the active profile, then `regtest`. The network of a profile is its `network` field, else its name if the name is a network. There is no environment variable for the network.
+- Network: the `-n` flag, then the network of the active profile, then config `defaults.network`, then `regtest` (ADR 131). The network of a profile is its `network` field, else its name if the name is a network. There is no environment variable for the network.
 - Output format: the `-o` flag, then `BTCR2_OUTPUT`, then config `defaults.output`, then `text`.
 - Home: the `--home` flag, then `BTCR2_HOME`, then the platform default.
 - Config path: the `-c/--config` flag, then `<home>/config.json`.
@@ -106,7 +105,7 @@ Session (ADR 081): a session that `btcr2 keystore unlock` cached in `<home>/sess
 
 ## Global flags
 
-See the [docs README](./README.md#global-flags) for the shared global flags. `create` uses: `--keystore`, `--passphrase-file`, `--home`, `-c/--config`, `--profile`, `-o/--output`, `--quiet` (suppresses the funding hint and the mismatch warning), and `--verbose` (full error objects). The command accepts the `--btc-*` and `--cas-*` endpoint flags, but they have no effect. `create` never opens a connection.
+See the [docs README](./README.md#global-flags) for the shared global flags. `create` uses: `--keystore`, `--passphrase-file`, `--home`, `-c/--config`, `--profile`, `-o/--output`, `--quiet` (suppresses the mismatch warning and the funding hint), and `--verbose` (the key note and the funding hint on stderr, and the full error objects). The command accepts the `--btc-*` and `--cas-*` endpoint flags, but they have no effect. `create` never opens a connection.
 
 ## Examples
 
@@ -118,6 +117,9 @@ btcr2 create -n mutinynet
 
 # The same with JSON output: adds keyId and publicKey, no stderr hints
 btcr2 create -n mutinynet -o json
+
+# Also print the key note and the funding hint on stderr
+btcr2 create -n mutinynet --verbose
 
 # Use a stored key by name, by fingerprint prefix, or by full URN (no prompt)
 btcr2 create -n mutinynet --key alice
@@ -134,7 +136,7 @@ btcr2 create -t x -n mutinynet --document ./genesis.json
 btcr2 create -t x -n mutinynet \
   -b 8f434346648f6b96df89dda901c5176b10a6d83961dd3c1ac88b59b2dc327aa4
 
-# Unattended run (CI): the passphrase from a file if the command generates a key, no hints
+# Unattended run (CI): the passphrase from a file if the command generates a key, no warnings
 btcr2 create -n mutinynet --passphrase-file /run/secrets/btcr2-pass --quiet
 ```
 

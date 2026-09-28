@@ -37,7 +37,7 @@ btcr2 genesis build --spec ./spec.json --out ./alice.json --force
 
 | Flag | Value | Default | Description |
 |------|-------|---------|-------------|
-| `-n, --network <network>` | `bitcoin` \| `testnet3` \| `testnet4` \| `signet` \| `mutinynet` \| `regtest` | config `defaults.network`, then the network of the active profile, then `regtest` | The network of the beacon addresses and of the identifier. The same precedence as `create -n`. An unsupported value fails with `Invalid network. ...`. |
+| `-n, --network <network>` | `bitcoin` \| `testnet3` \| `testnet4` \| `signet` \| `mutinynet` \| `regtest` | the network of the active profile, then config `defaults.network`, then `regtest` | The network of the beacon addresses and of the identifier. The same precedence as `create -n`. An unsupported value fails with `Invalid network. ...`. If the network is not the network of the active profile, the command prints a warning on stderr (ADR 131). `--quiet` suppresses it. |
 | `--spec <path>` | file path | none | A JSON spec file (see below). The command asks nothing. An unreadable path or a file that is not JSON fails with `Invalid genesis spec path. Must be a valid path to a JSON file.`. A file with the wrong shape fails with `Invalid genesis spec: ...`. |
 | `--out <path>` | file path | `genesis.json` | Where the command writes the genesis document. The printed `path` is the absolute path. |
 | `--force` | boolean | `false` | Overwrite an existing `--out` file. Without it, an existing file fails with `The file <path> exists. Pass --force to overwrite it, or --out <path> for another file.` before any question. |

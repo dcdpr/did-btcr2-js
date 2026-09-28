@@ -4,7 +4,7 @@ This walkthrough shows the `btcr2` command-line tool from the setup to an on-cha
 
 **How to use this document:** run the commands from top to bottom in one terminal session. A later command reuses the shell variables of an earlier command, so keep the same session open. Each output block is an example. Your keys, identifiers, and Bitcoin addresses differ, but the shape is the same.
 
-The text matches `@did-btcr2/cli` v0.27.0.
+The text matches `@did-btcr2/cli` v0.28.0.
 
 ---
 
@@ -16,7 +16,7 @@ Before the first command, make sure that you have:
 
 - **Node.js 24.7 or newer** (the CLI runtime).
 - **`jq`** (Part 4 uses it to read values out of JSON).
-- **A POSIX shell**: bash or zsh on Linux or macOS. On Windows, use **WSL** or **Git Bash**. The commands use `alias`, `$(...)`, `2>/dev/null`, and single-quoted JSON. PowerShell and cmd do not process them in the same way.
+- **A POSIX shell**: bash or zsh on Linux or macOS. On Windows, use **WSL** or **Git Bash**. The commands use `alias`, `$(...)`, and single-quoted JSON. PowerShell and cmd do not process them in the same way.
 
 ```bash
 node --version && jq --version      # both commands must print a version
@@ -44,7 +44,7 @@ btcr2 --version
 ```
 
 ```
-btcr2 0.27.0
+btcr2 0.28.0
 ```
 
 ### Set up in one command
@@ -186,7 +186,7 @@ The secret key never leaves this machine. On Path A, the keystore is encrypted a
 Turn the key into an identifier. This is a local computation: no network, no transaction. The next commands read the result from `$DID`.
 
 ```bash
-DID=$(btcr2 create 2>/dev/null)
+DID=$(btcr2 create)
 echo "$DID"
 ```
 
@@ -196,11 +196,13 @@ Example output (yours differs):
 did:btcr2:k1q5plyvwt6qw6523ndym6dg8hqdnvk0kxqke37ejl0hc6taffmqdz36qnssf9t
 ```
 
-That string **is** the identifier. The command made it in milliseconds, with no fee. `demo` is the active key, so `create` uses it. For another stored key, add `--key <ref>`. `create` reads the **public** key only, so it never needs the passphrase. In text mode, it prints the identifier on stdout and a `Using stored key ...` note on stderr. The `2>/dev/null` redirect keeps the note out of `$DID`.
+That string **is** the identifier. The command made it in milliseconds, with no fee. `demo` is the active key, so `create` uses it. For another stored key, add `--key <ref>`. `create` reads the **public** key only, so it never needs the passphrase. In text mode, it prints the identifier only, so `$DID` gets the identifier.
 
-The identifier is on a test network, so `create` also prints a **funding hint** on stderr: the initial beacon address with the faucet and explorer links. You send coins to this address before the on-chain update in Part 4. Run the command without the `2>/dev/null` redirect to see the hint:
+The identifier is on a test network, so `create --verbose` also prints a **funding hint** on stderr: the initial beacon address with the faucet and explorer links. You send coins to this address before the on-chain update in Part 4. Run `btcr2 create --verbose` to see the identifier, a key note, and the hint:
 
 ```
+did:btcr2:k1q5plyvwt6qw6523ndym6dg8hqdnvk0kxqke37ejl0hc6taffmqdz36qnssf9t
+Using stored key urn:kms:secp256k1:<fingerprint>.
 Fund the initial beacon to anchor updates:
   Beacon:   tb1qme9lfnkgcqcfu2v43k9w0fy0zj43z8gdgp2ank
   Faucet:   https://faucet.mutinynet.com/
@@ -598,12 +600,13 @@ btcr2 profile add <name> | use <name> | show [name] | remove|rm <name>
 btcr2 completion [bash|zsh|fish]
 ```
 ```
-Global flags: -o json|text  --verbose  --quiet  --home <dir>  -c <config>  --profile <name>
+Global flags: -o json|text  --verbose  -q/--quiet  --home <dir>  -c <config>  --profile <name>
               --keystore <path>  --passphrase-file <path>
               --btc-rest <url>  --btc-rpc-url <url>  --btc-rpc-user <u>
               --btc-rpc-wallet <name>  --btc-rest-header <h>  --btc-rpc-header <h>
               --btc-signal-discovery <indexer|fullnode>
-              --cas-gateway <url>  --cas-rpc-url <url>  --btc-timeout <ms>  --cas-timeout <ms>
+              --cas-gateway <url>  --cas-rpc-url <url>  --cas-rpc-user <u>
+              --btc-timeout <ms>  --cas-timeout <ms>
 ```
 
 See `btcr2 --help`, or the [global flags](./README.md#global-flags) and [environment variables](./README.md#environment-variables) tables, for the complete surface.

@@ -19,6 +19,8 @@ describe('config and profile commands', () => {
     err = [];
     console.log = (m?: unknown) => { if (m !== undefined) out.push(String(m)); };
     console.error = (m?: unknown) => { if (m !== undefined) err.push(String(m)); };
+    // Start each test with a clean exit code so that a `??= 1` is observable.
+    process.exitCode = undefined;
   });
 
   afterEach(() => {
@@ -139,23 +141,43 @@ describe('config and profile commands', () => {
     expect(readCfg().profiles.regtest.btc.rset).to.equal('http://typo');
   });
 
-  it('config validate passes on a freshly initialized config', async () => {
+  it('config validate prints the full result for a freshly initialized config', async () => {
     await run('config', 'init');
     out = [];
     await run('config', 'validate');
-    const parsed = JSON.parse(out.join('\n'));
-    expect(parsed.ok).to.equal(true);
-    expect(parsed.issues).to.deep.equal([]);
+    expect(JSON.parse(out.join('\n'))).to.deep.equal({ ok: true, issues: [] });
+    expect(process.exitCode).to.equal(undefined);
   });
 
-  it('config validate reports unknown keys', async () => {
+  it('config validate -q prints OK', async () => {
+    await run('config', 'init');
+    out = [];
+    await run('config', 'validate', '-q');
+    expect(out).to.deep.equal([ 'OK' ]);
+  });
+
+  it('config validate --quiet prints one line for each issue and sets exit code 1', async () => {
+    await run('config', 'init');
+    await run('config', 'set', 'profiles.regtest.btc.rset', 'http://x'); // unknown path (warned)
+    await run('config', 'set', 'profiles.regtest.cas.rpcUrll', 'http://y'); // unknown path (warned)
+    out = [];
+    await run('--quiet', 'config', 'validate');
+    expect(out.join('\n').split('\n')).to.deep.equal([
+      'profiles.regtest.btc.rset: unknown key',
+      'profiles.regtest.cas.rpcUrll: unknown key',
+    ]);
+    expect(process.exitCode).to.equal(1);
+  });
+
+  it('config validate reports unknown keys in the json envelope', async () => {
     await run('config', 'init');
     await run('config', 'set', 'profiles.regtest.btc.rset', 'http://x'); // unknown path (warned)
     out = [];
-    await run('config', 'validate');
+    await run('-o', 'json', 'config', 'validate');
     const parsed = JSON.parse(out.join('\n'));
-    expect(parsed.ok).to.equal(false);
-    expect(parsed.issues.some((i: { path: string }) => i.path === 'profiles.regtest.btc.rset')).to.equal(true);
+    expect(parsed.action).to.equal('config-validate');
+    expect(parsed.data.ok).to.equal(false);
+    expect(parsed.data.issues.some((i: { path: string }) => i.path === 'profiles.regtest.btc.rset')).to.equal(true);
   });
 
   it('config path prints the resolved config and keystore paths', async () => {
@@ -227,15 +249,18 @@ describe('config and profile commands', () => {
     let server: Server;
     let base: string;
     let seen: string[];
+    let auths: (string | undefined)[];
 
     /** Start a stub server. `mode` 'node' answers as Esplora, Core RPC, and an IPFS gateway and RPC; 'page' answers each path with a web page. */
     async function start(mode: 'node' | 'page'): Promise<void> {
       seen = [];
+      auths = [];
       server = createServer((req, res) => {
         let body = '';
         req.on('data', (c) => { body += c; });
         req.on('end', () => {
           seen.push(`${req.method} ${req.url}`);
+          auths.push(req.headers.authorization);
           if (mode === 'page') {
             res.writeHead(200, { 'Content-Type': 'text/html' }).end('<!doctype html><html></html>');
           } else if (req.method === 'GET' && req.url?.startsWith('/block-height/0?_=')) {
@@ -294,6 +319,17 @@ describe('config and profile commands', () => {
       const checks = await doctor('--btc-rest', base, '--cas-gateway', 'http://127.0.0.1:1', '--cas-rpc-url', base, 'config', 'doctor', '-n', 'regtest');
       expect(checks.find((c) => c.endpoint === 'cas')).to.include({ ok: true, target: base });
       expect(seen).to.include('POST /api/v0/block/get?arg=bafkqaclenfsduytumnzde');
+    });
+
+    it('sends the CAS RPC credentials of the profile with the CAS RPC read', async () => {
+      await start('node');
+      writeFileSync(cfg, JSON.stringify({
+        profiles : { regtest: { cas: { rpcUrl: base, rpcUser: 'alice', rpcPass: 's3cret' } } },
+      }));
+      const checks = await doctor('--btc-rest', base, 'config', 'doctor', '-n', 'regtest');
+      expect(checks.find((c) => c.endpoint === 'cas')).to.include({ ok: true, target: base });
+      const casRead = seen.indexOf('POST /api/v0/block/get?arg=bafkqaclenfsduytumnzde');
+      expect(auths[casRead]).to.equal('Basic YWxpY2U6czNjcmV0');
     });
   });
 
@@ -368,6 +404,69 @@ describe('config and profile commands', () => {
     await run('profile', 'show', 'regtest');
     expect(out.join('\n')).to.not.contain('super-secret');
     expect(out.join('\n')).to.contain('********');
+  });
+
+  it('config effective reports the CAS RPC credentials and redacts the password', async () => {
+    writeFileSync(cfg, JSON.stringify({
+      profiles : { regtest: { cas: { rpcUrl: 'http://node:5001', rpcUser: 'alice', rpcPass: 's3cret' } } },
+    }));
+    out = [];
+    await run('config', 'effective', '-n', 'regtest');
+    const parsed = JSON.parse(out.join('\n'));
+    expect(parsed.cas.rpcUrl).to.deep.equal({ value: 'http://node:5001', source: 'file' });
+    expect(parsed.cas.rpcUser).to.deep.equal({ value: 'alice', source: 'file' });
+    expect(parsed.cas.rpcPass).to.deep.equal({ value: '********', source: 'file' });
+    out = [];
+    await run('config', 'effective', '-n', 'regtest', '--show-secrets');
+    expect(JSON.parse(out.join('\n')).cas.rpcPass.value).to.equal('s3cret');
+  });
+
+  it('config set accepts the CAS RPC credential keys with no warning', async () => {
+    await run('config', 'init');
+    await run('config', 'set', 'profiles.regtest.cas.rpcUser', 'alice');
+    await run('config', 'set', 'profiles.regtest.cas.rpcPass', 'env:MY_CAS_PASS');
+    expect(err.join(' ')).to.not.match(/not a known config path/);
+    expect(readCfg().profiles.regtest.cas).to.deep.equal({ rpcUser: 'alice', rpcPass: 'env:MY_CAS_PASS' });
+    out = [];
+    await run('config', 'get', 'profiles.regtest.cas.rpcPass');
+    expect(out.join('\n')).to.contain('********');
+  });
+
+  it('config set stores the defaults.cas keys as strings with no warning, and validate passes', async () => {
+    await run('config', 'init');
+    await run('config', 'set', 'defaults.cas.rpcUrl', '5001');
+    await run('config', 'set', 'defaults.cas.rpcUser', 'alice');
+    await run('config', 'set', 'defaults.cas.timeoutMs', '60000');
+    expect(err.join(' ')).to.not.match(/not a known config path/);
+    expect(readCfg().defaults.cas).to.deep.equal({ rpcUrl: '5001', rpcUser: 'alice', timeoutMs: 60000 });
+    out = [];
+    await run('config', 'validate', '-q');
+    expect(out).to.deep.equal([ 'OK' ]);
+  });
+
+  it('config validate reports an unknown key under defaults.cas', async () => {
+    writeFileSync(cfg, JSON.stringify({ schemaVersion: 1, defaults: { cas: { gatway: 'https://gw.example' } } }));
+    await run('config', 'validate', '-q');
+    expect(out).to.deep.equal([ 'defaults.cas.gatway: unknown key' ]);
+    expect(process.exitCode).to.equal(1);
+  });
+
+  it('config effective reports defaults.cas values as file-sourced and redacts the password', async () => {
+    writeFileSync(cfg, JSON.stringify({
+      defaults : {
+        cas : { gateway: 'https://gw.example', rpcUrl: 'http://node:5001', rpcUser: 'alice', rpcPass: 's3cret', timeoutMs: 60000 },
+      },
+    }));
+    out = [];
+    await run('config', 'effective', '-n', 'signet');
+    const { cas } = JSON.parse(out.join('\n'));
+    expect(cas).to.deep.equal({
+      gateway   : { value: 'https://gw.example', source: 'file' },
+      rpcUrl    : { value: 'http://node:5001', source: 'file' },
+      rpcUser   : { value: 'alice', source: 'file' },
+      rpcPass   : { value: '********', source: 'file' },
+      timeoutMs : { value: 60000, source: 'file' },
+    });
   });
 
   it('config effective scrubs a password embedded in the rpc url', async () => {

@@ -88,13 +88,13 @@ describe('create command', () => {
     expect(Object.keys(readKeystore().keys)).to.have.length(1);
   });
 
-  it('existing-key mode resolves a fingerprint prefix and prints the key provenance', async () => {
+  it('existing-key mode resolves a fingerprint prefix and prints the key provenance under --verbose', async () => {
     await run('-o', 'json', 'create', '-n', 'regtest');
     const first = JSON.parse(out[0]);
     out = [];
     err = [];
     const prefix = first.keyId.slice('urn:kms:secp256k1:'.length, 'urn:kms:secp256k1:'.length + 6);
-    await run('create', '-k', prefix, '-n', 'regtest');
+    await run('--verbose', 'create', '-k', prefix, '-n', 'regtest');
     expect(out[0]).to.equal(first.data);
     expect(err.join(' ')).to.include(`Using stored key ${first.keyId}.`);
   });
@@ -111,8 +111,8 @@ describe('create command', () => {
     out = [];
     err = [];
     await run('create', '-n', 'regtest');
-    expect(out[0]).to.equal(first.data);
-    expect(err.join(' ')).to.include(`Using stored key ${first.keyId}.`);
+    expect(out).to.deep.equal([ first.data ]);
+    expect(err).to.deep.equal([]);
     expect(Object.keys(readKeystore().keys)).to.have.length(1);
   });
 
@@ -181,6 +181,33 @@ describe('create command', () => {
     expect(Identifier.decode(result.data).network).to.equal('mutinynet');
   });
 
+  it('lets the network of the active profile win over defaults.network, with no warning', async () => {
+    writeFileSync(cfg, JSON.stringify({
+      schemaVersion : 1,
+      defaults      : { network: 'mutinynet', profile: 'production' },
+      profiles      : { production: { network: 'signet' } },
+    }));
+    const pk = freshPublicKeyHex();
+    await run('-o', 'json', '--config', cfg, 'create', '-b', pk);
+    const result = JSON.parse(out[0]);
+    expect(Identifier.decode(result.data).network).to.equal('signet');
+    expect(err.join('')).to.not.include('Warning:');
+  });
+
+  it('warns if -n names another network than the active profile', async () => {
+    writeFileSync(cfg, JSON.stringify({
+      schemaVersion : 1,
+      defaults      : { profile: 'production' },
+      profiles      : { production: { network: 'signet' } },
+    }));
+    const pk = freshPublicKeyHex();
+    await run('-o', 'json', '--config', cfg, 'create', '-n', 'regtest', '-b', pk);
+    expect(Identifier.decode(JSON.parse(out[0]).data).network).to.equal('regtest');
+    expect(err.join('')).to.include(
+      'Warning: the identifier network is "regtest", but the active profile "production" declares network "signet".'
+    );
+  });
+
   it('falls back to regtest when no -n and no config default', async () => {
     const pk = freshPublicKeyHex();
     await run('-o', 'json', '--config', cfg, 'create', '-b', pk);
@@ -207,36 +234,58 @@ describe('create command', () => {
     expect(process.exitCode).to.equal(1);
   });
 
-  it('text mode prints the DID on stdout and key provenance on stderr', async () => {
+  it('text mode prints only the identifier', async () => {
     await run('create', '-n', 'regtest');
+    expect(out).to.have.length(1);
+    expect(out[0]).to.match(/^did:btcr2:k1/);
+    expect(err).to.deep.equal([]);
+  });
+
+  it('--verbose after the command word adds the key provenance on stderr', async () => {
+    await run('create', '--verbose', '-n', 'regtest');
+    expect(out).to.have.length(1);
     expect(out[0]).to.match(/^did:btcr2:k1/);
     expect(err.join(' ')).to.match(/Generated and stored key urn:kms:secp256k1:[0-9a-f]{32} \(now the active key\)/);
   });
 
+  it('json mode prints the full envelope without --verbose', async () => {
+    await run('-o', 'json', 'create', '-n', 'regtest');
+    const result = JSON.parse(out[0]);
+    expect(result).to.have.keys('action', 'data', 'keyId', 'publicKey');
+    expect(err).to.deep.equal([]);
+  });
+
   describe('funding hint (ADR 082)', () => {
-    it('text mode on a testnet with a faucet prints the beacon, faucet, and explorer', async () => {
+    it('--verbose on a testnet with a faucet prints the beacon, faucet, and explorer', async () => {
       const pk = freshPublicKeyHex();
-      await run('create', '-t', 'k', '-n', 'mutinynet', '-b', pk);
+      await run('--verbose', 'create', '-t', 'k', '-n', 'mutinynet', '-b', pk);
       const e = err.join(' ');
       expect(e).to.match(/Fund the initial beacon/i);
       expect(e).to.match(/Faucet:\s+https:\/\/faucet\.mutinynet\.com\//);
       expect(e).to.match(/Explorer:\s+https:\/\/mutinynet\.com\/address\/tb1/);
     });
 
+    it('omits the funding hint in text mode without --verbose', async () => {
+      const pk = freshPublicKeyHex();
+      await run('create', '-t', 'k', '-n', 'mutinynet', '-b', pk);
+      expect(out).to.have.length(1);
+      expect(err).to.deep.equal([]);
+    });
+
     it('omits the funding hint under -o json (machine output stays clean)', async () => {
       const pk = freshPublicKeyHex();
-      await run('-o', 'json', 'create', '-t', 'k', '-n', 'mutinynet', '-b', pk);
+      await run('-o', 'json', '--verbose', 'create', '-t', 'k', '-n', 'mutinynet', '-b', pk);
       expect(err.join(' ')).to.not.match(/Fund the initial beacon/i);
     });
 
     it('omits the funding hint on a network without a faucet (regtest)', async () => {
       const pk = freshPublicKeyHex();
-      await run('create', '-t', 'k', '-n', 'regtest', '-b', pk);
+      await run('--verbose', 'create', '-t', 'k', '-n', 'regtest', '-b', pk);
       expect(err.join(' ')).to.not.match(/Fund the initial beacon/i);
     });
 
     it('omits the funding hint for an external (-t x) identifier (no beacon key)', async () => {
-      await run('create', '-t', 'x', '-n', 'mutinynet', '-b', 'ab'.repeat(32));
+      await run('--verbose', 'create', '-t', 'x', '-n', 'mutinynet', '-b', 'ab'.repeat(32));
       expect(err.join(' ')).to.not.match(/Fund the initial beacon/i);
     });
   });

@@ -1,5 +1,28 @@
 # @did-btcr2/cli
 
+## 0.28.0
+
+### Minor Changes
+
+- The cli publishes to an IPFS node behind HTTP Basic auth, takes one CAS endpoint for all networks, and prints only the identifier from `create` (ADRs 128, 129, 130).
+
+  - api: `IpfsRpcCasExecutor` takes `{ auth: { username, password } }` and sends `Authorization: Basic ...` with `block/get`, `block/put`, and the probe. `CasConfig.rpcAuth` gives the credentials to the executor that `CasApi` makes from `rpcUrl` (ADR 128).
+  - cli: `--cas-rpc-user`, `BTCR2_CAS_RPC_USER`, `BTCR2_CAS_RPC_PASS`, `BTCR2_CAS_RPC_PASS_FILE`, and the profile keys `cas.rpcUser` and `cas.rpcPass` give the credentials. There is no password flag (ADR 128).
+  - cli: `defaults.cas` in the config file holds the CAS values for all networks, below the profile `cas` block (ADR 129).
+  - BREAKING: the CAS endpoint comes from one layer. The highest layer that sets a gateway or an RPC URL gives the gateway, the URL, and the credentials. So a flag or environment gateway now wins over a profile `cas.rpcUrl` (ADR 129).
+  - BREAKING: in text mode, `create` prints only the identifier. `--verbose` adds the key note and the funding hint on stderr (ADR 130).
+  - cli: `-q` is the short form of `--quiet`. With it, `config validate` and `identifier validate` print only `OK` or one line for each failure (ADR 130).
+
+- The network of the active profile wins over `defaults.network`, and a network mismatch prints a warning (ADR 131).
+
+  - BREAKING: a command with no identifier takes its network from `-n`, then the active profile, then `defaults.network`, then `regtest`. A config file with `defaults.profile` and a different `defaults.network` now makes identifiers on the network of the profile. `keystore unlock` uses the same order for its mainnet gate.
+  - `resolve`, `update`, and `deactivate` print a warning on stderr if the identifier network is not the network of the active profile. `create` and `genesis build` print the same text. `-q` suppresses it.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/api@0.28.3
+
 ## 0.27.0
 
 ### Minor Changes

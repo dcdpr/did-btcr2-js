@@ -64,8 +64,8 @@ How the `@did-btcr2/api` layer satisfies each data need:
 
 - Text mode (default): the `DidResolutionResult` object as pretty JSON with 2-space indentation on stdout: `{ "didResolutionMetadata": { "contentType": "application/did" }, "didDocument": { ... }, "didDocumentMetadata": { ... } }`. `didResolutionMetadata.contentType` is always `application/did` on success, the media type of a bare DID document. `didDocumentMetadata` always carries `versionId`, `confirmations`, and `deactivated`. `confirmations` is `0` and `versionId` is `"1"` before the first update. `updated` is present after an update.
 - JSON mode (`-o json`): the same payload in the CLI envelope `{ "action": "resolve", "data": { ...DidResolutionResult... } }`, as pretty JSON on stdout.
-- `--quiet` has no effect on this command. The command prints nothing except the result.
 - There are no stderr hints. Unlike `create`, `update`, and `deactivate`, `resolve` prints no faucet or explorer links.
+- **Profile network warning** (ADR 131): if the active profile declares a network that is not the network of the identifier, the command prints a warning on stderr: `Warning: the identifier network is "<network>", but the active profile "<name>" declares network "<declared>". The endpoints of the profile can be for another network.` The command then uses the endpoints of the profile. The warning never blocks. `--quiet` suppresses it. In JSON mode it still prints, on stderr.
 
 Exit codes: `0` on success, `1` on an error. Errors go to stderr. A CLI-typed error (an invalid identifier network, bad `-r` or `-p` input, a config problem) prints the message only, unless `--verbose` is set. Then it prints the full structured error. A resolution failure from the api layer (a network failure, missing sidecar data, an unreachable endpoint) is a plain `Error` with a `cause` chain. It prints with its stack, with or without `--verbose`. An identifier that does not decode, also one with a correct prefix but an invalid Bech32m body, fails as a method error of type `INVALID_DID` and prints as one line (`Invalid did: ...` or `Invalid method-specific id (Bech32m decoding failed: ...)`).
 
@@ -79,7 +79,7 @@ flag  >  environment variable  >  profile in config.json  >  built-in default of
 
 A blank value at one layer defers to the next layer. It does not mask the next layer.
 
-Profile selection: the `--profile <name>` flag, else `defaults.profile` of the config file, else the profile with the name of the network of the identifier. A mutinynet identifier selects `profiles.mutinynet`. `resolve` does **not** read `defaults.network` of the config file. That key steers a command without an identifier, such as `create`, `init`, and `quickstart`. The identifier always fixes the network.
+Profile selection: the `--profile <name>` flag, else `defaults.profile` of the config file, else the profile with the name of the network of the identifier. A mutinynet identifier selects `profiles.mutinynet`. An active profile applies also to an identifier of another network, and then the command prints the warning above. `resolve` does **not** read `defaults.network` of the config file. That key steers a command without an identifier, such as `create`, `init`, and `quickstart`. The identifier always fixes the network.
 
 The settings that feed this command:
 
@@ -99,9 +99,12 @@ The settings that feed this command:
 | Extra RPC headers | `--btc-rpc-header <header>` (repeatable, `'Key: Value'`) | none | `profiles.<name>.btc.rpcHeaders` | none |
 | Beacon signal discovery | `--btc-signal-discovery <mode>` (`indexer` \| `fullnode`) | `BTCR2_BTC_SIGNAL_DISCOVERY` | `profiles.<name>.btc.signalDiscovery` | `indexer` |
 | Bitcoin timeout (ms) | `--btc-timeout <ms>` (finite number, 1 or more) | `BTCR2_BTC_TIMEOUT` | `profiles.<name>.btc.timeoutMs` | no limit |
-| CAS gateway (read-only) | `--cas-gateway <url>` | `BTCR2_CAS_GATEWAY` | `profiles.<name>.cas.gateway` | `https://trustless-gateway.link` |
-| CAS RPC endpoint (writable) | `--cas-rpc-url <url>` | `BTCR2_CAS_RPC_URL` | `profiles.<name>.cas.rpcUrl` | none |
-| CAS timeout (ms) | `--cas-timeout <ms>` (finite number, 0 or more. `0` disables the timeout) | `BTCR2_CAS_TIMEOUT` | `profiles.<name>.cas.timeoutMs` | `30000` |
+| CAS gateway (read-only) | `--cas-gateway <url>` | `BTCR2_CAS_GATEWAY` | `profiles.<name>.cas.gateway`, then `defaults.cas.gateway` | `https://trustless-gateway.link` |
+| CAS RPC endpoint (writable) | `--cas-rpc-url <url>` | `BTCR2_CAS_RPC_URL` | `profiles.<name>.cas.rpcUrl`, then `defaults.cas.rpcUrl` | none |
+| CAS RPC username | `--cas-rpc-user <user>` | `BTCR2_CAS_RPC_USER` | `profiles.<name>.cas.rpcUser`, then `defaults.cas.rpcUser` | none |
+| CAS RPC password | none (never argv) | `BTCR2_CAS_RPC_PASS` | `profiles.<name>.cas.rpcPass`, then `defaults.cas.rpcPass` | none |
+| CAS RPC password file | none | `BTCR2_CAS_RPC_PASS_FILE` | none | none |
+| CAS timeout (ms) | `--cas-timeout <ms>` (finite number, 0 or more. `0` disables the timeout) | `BTCR2_CAS_TIMEOUT` | `profiles.<name>.cas.timeoutMs`, then `defaults.cas.timeoutMs` | `30000` |
 
 The built-in Bitcoin REST defaults per network (from `@did-btcr2/api`):
 
@@ -119,7 +122,7 @@ Behavior details, all checked against the source:
 - **The RPC credentials resolve as one unit** (URL, user, and password from one precedence layer). A URL from one layer never gets the credentials of another layer. The password value can be a secret reference: `env:<VAR>` reads an environment variable, `file:<path>` reads a file (the CLI trims one trailing newline). The CLI uses any other value as it is. If no layer supplies a password, `BTCR2_BTC_RPC_PASS_FILE` (the path of a file with the password) is the last fallback. The CLI reads that file only if it builds an RPC config.
 - **The CLI creates an RPC client only if a host exists**: one layer supplies `--btc-rpc-url` (or its environment or profile equivalent), or the network is `regtest` (which has a default RPC host). RPC credentials, a wallet name, or headers alone on a public network configure nothing. Most `resolve` runs use no RPC at all. The default `indexer` mode reads the beacon signals from the REST endpoint. The `fullnode` mode reads them over the RPC client, so it needs one.
 - **A header flag merges over the profile headers** per key, and the flag wins. The headers apply also without a host override, so an authenticated Esplora or mempool endpoint works with the default host. A header value without a `Key: Value` colon fails with `INVALID_ARGUMENT_ERROR`.
-- **CAS endpoint selection**: a writable `--cas-rpc-url` wins over the read-only gateway for a fetch. If only a CAS timeout is set, the CLI attaches the default gateway so that the timeout applies. The `--cas-rpc-url` help text mentions `--publish-to-cas`. That applies to `update` and `deactivate`. `resolve` only reads from the CAS.
+- **CAS endpoint selection**: The CAS endpoint comes from one layer: the highest layer that sets a gateway or an RPC URL gives the gateway, the RPC URL, the user, and the password (ADR 129). So a lower layer never adds an RPC URL to the gateway of a higher layer. In one layer, a writable RPC URL wins over the read-only gateway for a fetch. A CAS RPC user without a password, or a password without a user, stops the command. If only a CAS timeout is set, the CLI attaches the default gateway so that the timeout applies. The `--cas-rpc-url` help text mentions `--publish-to-cas`. That applies to `update` and `deactivate`. `resolve` only reads from the CAS.
 - **A malformed config file fails the command** with `CONFIG_PARSE_ERROR` and the file name. The CLI refuses a config file from a newer CLI (a higher `schemaVersion`) with `CONFIG_SCHEMA_VERSION_ERROR`. An absent config file is fine: the defaults apply.
 - **Timeout validation**: `--btc-timeout` must be a finite number of 1 or more (`0` would fail each request). `--cas-timeout` must be 0 or more (`0` disables the timeout). A violation fails with `INVALID_ARGUMENT_ERROR`.
 - **Signal discovery validation**: a `--btc-signal-discovery` value other than `indexer` or `fullnode`, from any layer (also a typo in `BTCR2_BTC_SIGNAL_DISCOVERY` or in a profile), fails with `Invalid --btc-signal-discovery value "<value>". Expected indexer or fullnode.` (`INVALID_ARGUMENT_ERROR`). `fullnode` needs a connection with RPC. Without one (a public network with no RPC config), resolution fails with `signalDiscovery: 'fullnode' scans blocks over Bitcoin Core RPC, but no rpc config was resolved for network '<network>' ...`, a plain `Error` with its stack.
@@ -127,7 +130,7 @@ Behavior details, all checked against the source:
 
 ## Global flags
 
-See the [docs README](./README.md#global-flags) for the shared global flags. `resolve` uses: `-o, --output` (text or the JSON envelope), `--verbose` (the full structured error for a CLI-typed error), the connection overrides (`--btc-rest`, `--btc-rpc-url`, `--btc-rpc-user`, `--btc-rpc-wallet`, `--btc-rest-header`, `--btc-rpc-header`, `--btc-signal-discovery`, `--btc-timeout`, `--cas-gateway`, `--cas-rpc-url`, `--cas-timeout`), and the state location flags (`--home`, `-c, --config`, `--profile`). The command accepts `--quiet`, `--keystore`, and `--passphrase-file`, but they have no effect on it.
+See the [docs README](./README.md#global-flags) for the shared global flags. `resolve` uses: `-o, --output` (text or the JSON envelope), `--verbose` (the full structured error for a CLI-typed error), the connection overrides (`--btc-rest`, `--btc-rpc-url`, `--btc-rpc-user`, `--btc-rpc-wallet`, `--btc-rest-header`, `--btc-rpc-header`, `--btc-signal-discovery`, `--btc-timeout`, `--cas-gateway`, `--cas-rpc-url`, `--cas-timeout`), the state location flags (`--home`, `-c, --config`, `--profile`), and `--quiet` (suppresses the network warning). The command accepts `--keystore` and `--passphrase-file`, but they have no effect on it.
 
 ## Examples
 

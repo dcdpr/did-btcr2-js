@@ -170,6 +170,28 @@ describe('identifier commands', () => {
       expect(err).to.have.length(0);
     });
 
+    it('text mode prints the full report', async () => {
+      const did = keyDid();
+      await run('identifier', 'validate', did);
+      const report = JSON.parse(out.join('\n'));
+      expect(report).to.deep.include({ did, valid: true });
+      expect(report.checks.map((check: { name: string }) => check.name)).to.deep.equal(CHECKS);
+    });
+
+    it('-q prints OK for a valid identifier', async () => {
+      await run('identifier', 'validate', keyDid(), '-q');
+      expect(out).to.deep.equal([ 'OK' ]);
+      expect(process.exitCode).to.equal(undefined);
+    });
+
+    it('--quiet prints the failed check and sets exit code 1', async () => {
+      await run('--quiet', 'identifier', 'validate', 'not-a-did');
+      expect(out).to.have.length(1);
+      expect(out[0]).to.match(/^Invalid identifier \(prefix check\): /);
+      expect(err).to.have.length(0);
+      expect(process.exitCode).to.equal(1);
+    });
+
     it('reports a string that is not a DID', async () => {
       await run('-o', 'json', 'identifier', 'validate', 'not-a-did');
       const { data } = JSON.parse(out[0]);

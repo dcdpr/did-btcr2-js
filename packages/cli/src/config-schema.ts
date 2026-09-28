@@ -1,6 +1,15 @@
 import { CLIError } from './error.js';
 import { SUPPORTED_NETWORKS } from './types.js';
 
+/** The CAS keys of a profile `cas` block and of `defaults.cas` (ADR 129). */
+const CAS_SCHEMA: SchemaNode = {
+  gateway   : 'string',
+  rpcUrl    : 'string',
+  rpcUser   : 'string',
+  rpcPass   : 'string',
+  timeoutMs : 'number',
+};
+
 /**
  * Declarative schema of the known config-file paths, used by both the write-time
  * validation in `config set` and the strict `config validate` check so the two
@@ -14,6 +23,7 @@ const CONFIG_SCHEMA: SchemaNode = {
     profile : 'string',
     network : 'enum:network',
     output  : 'enum:output',
+    cas     : CAS_SCHEMA,
   },
   profiles : {
     '*' : {
@@ -31,11 +41,7 @@ const CONFIG_SCHEMA: SchemaNode = {
         rpcHeaders      : 'object',
         signalDiscovery : 'enum:signalDiscovery',
       },
-      cas : {
-        gateway   : 'string',
-        rpcUrl    : 'string',
-        timeoutMs : 'number',
-      },
+      cas      : CAS_SCHEMA,
       identity : {
         keystore : 'string',
         default  : 'string',
