@@ -4,7 +4,7 @@ This walkthrough shows the `btcr2` command-line tool from the setup to an on-cha
 
 **How to use this document:** run the commands from top to bottom in one terminal session. A later command reuses the shell variables of an earlier command, so keep the same session open. Each output block is an example. Your keys, identifiers, and Bitcoin addresses differ, but the shape is the same.
 
-The text matches `@did-btcr2/cli` v0.28.1.
+The text matches `@did-btcr2/cli` v0.29.0.
 
 ---
 
@@ -44,7 +44,7 @@ btcr2 --version
 ```
 
 ```
-btcr2 0.28.1
+btcr2 0.29.0
 ```
 
 ### Set up in one command
@@ -473,7 +473,7 @@ See the [environment variable table](./README.md#environment-variables) for the 
 ```bash
 btcr2 config set defaults.network mutinynet
 btcr2 config list
-btcr2 config path                         # the home, config, and keystore paths
+btcr2 config path                         # the home, config, keystore, and records file paths
 btcr2 profile add client-demo
 btcr2 profile use client-demo
 ```
@@ -557,12 +557,13 @@ A later `resolve` (with the deactivation as sidecar data, like an update) return
 
 ### Where your data lives
 
-All CLI state lives in **one home directory**. It holds `config.json`, `keystore.json`, and (after `keystore unlock`) `session.json`:
+All CLI state lives in **one home directory**. It holds `config.json`, `keystore.json`, `dids.json` (the identifier records, after the first `create`), and (after `keystore unlock`) `session.json`:
 
 - Default: `~/.btcr2` on Linux and macOS, `%LOCALAPPDATA%\btcr2` on Windows.
 - `--home <dir>` (highest priority) or `$BTCR2_HOME` moves the whole home.
 - `--config <path>` and `--keystore <path>` still override each file on its own.
 - `btcr2 config path` prints the resolved locations.
+- `btcr2 identifier list` prints the identifiers that you made, with their keys (see [identifier.md](./identifier.md#identifier-records)).
 
 For a throwaway run that cannot touch your real state, point the home at a scratch directory. Delete the directory to reset:
 

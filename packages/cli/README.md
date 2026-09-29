@@ -78,7 +78,7 @@ An update needs a funded beacon. On a test network, `create` prints the beacon a
 
 ## Configuration
 
-The CLI keeps its state in one home directory: `~/.btcr2` on Linux and macOS, `%LOCALAPPDATA%\btcr2` on Windows. The home holds `config.json`, `keystore.json`, and `session.json`. `--home <dir>` or `BTCR2_HOME` moves the home.
+The CLI keeps its state in one home directory: `~/.btcr2` on Linux and macOS, `%LOCALAPPDATA%\btcr2` on Windows. The home holds `config.json`, `keystore.json`, `session.json`, and `dids.json` (the identifier records). `--home <dir>` or `BTCR2_HOME` moves the home.
 
 A value comes from the first of these sources: a flag, an environment variable, the active profile in the config file, `defaults.cas` in the config file (CAS values only), the built-in default of the network. [`docs/config.md`](./docs/config.md) describes the config file and the `config` subcommands. [`docs/README.md`](./docs/README.md) lists the global flags, the environment variables, and the precedence of each value.
 

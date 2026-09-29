@@ -2,8 +2,10 @@ import type { PatchOperation } from '@did-btcr2/api';
 import type { Command } from 'commander';
 import type { ApiFactory } from '../config.js';
 import { printWatchHint } from '../hints.js';
+import { changeFromUpdate, recordAfterWork } from '../identifier-records.js';
 import { formatResult } from '../output.js';
 import type { GlobalOptions } from '../types.js';
+import { IDENTIFIER_REF_HELP } from './resolve.js';
 import { parseJsonArg, prepareWrite, registerWriteOptions, type WriteFlags } from './write.js';
 
 export function registerUpdateCommand(
@@ -14,7 +16,7 @@ export function registerUpdateCommand(
   const command = program
     .command('update')
     .description('Update a did:btcr2 document.')
-    .requiredOption('-i, --identifier <identifier>', 'did:btcr2 identifier to update')
+    .requiredOption('-i, --identifier <identifier>', `The identifier to update: ${IDENTIFIER_REF_HELP}`)
     .requiredOption(
       '-p, --patches <json>',
       'JSON Patch operations as a JSON string array',
@@ -23,7 +25,7 @@ export function registerUpdateCommand(
   registerWriteOptions(command)
     .action(async (options: WriteFlags & { patches: unknown }) => {
       const g = globals();
-      const { network, api, params } = await prepareWrite(options, factory, g);
+      const { identifier, network, api, params, keyId, records } = await prepareWrite(options, factory, g);
       // The api resolves the source document if the source is the DID,
       // derives an omitted verification method and beacon, and publishes to
       // the CAS only under --publish-to-cas auto|always. The returned
@@ -31,6 +33,9 @@ export function registerUpdateCommand(
       // sidecar distribution in every case.
       const data = await api.updateDid(params.source, options.patches as PatchOperation[], params.signer, params.options);
       console.log(formatResult({ action: 'update', data }, g));
+      // The record keeps the signing key, the transaction, and the sidecar data
+      // for the next resolution (ADR 133).
+      recordAfterWork(records, identifier, () => changeFromUpdate(data, keyId, params.options.resolutionOptions?.sidecar));
       printWatchHint(g, network, data.txid);
     });
 }

@@ -111,7 +111,7 @@ The command reads these environment variables:
 
 | Variable | Role |
 |---|---|
-| `BTCR2_HOME` | The home directory that holds `config.json`, `keystore.json`, and `session.json`. `--home` wins. |
+| `BTCR2_HOME` | The home directory that holds `config.json`, `keystore.json`, `session.json`, and `dids.json`. `--home` wins. |
 | `BTCR2_KEYSTORE_PASSPHRASE` | The keystore passphrase for unattended use. The command reads it before `--passphrase-file` and the prompt, at the creation step and for the `--unlock` verification. |
 | `BTCR2_KEYSTORE_TTL` | The default session TTL if `--ttl` is absent (the same value format as the flag). |
 | `BTCR2_OUTPUT` | The output format (`json` or `text`) if `-o/--output` is absent. |

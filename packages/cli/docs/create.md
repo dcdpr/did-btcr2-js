@@ -4,6 +4,8 @@ Creates a `did:btcr2` identifier and, with it, the initial DID document. Creatio
 
 For `-t k`, the command has three input modes, and only one applies per run: use the public key of a stored key (`--key`, else the default key), generate a new key in the keystore (if no default key exists), or supply the public key as hex (`--bytes`, no keystore). The default key is the same key that `update` and `deactivate` sign with, so the default key can update the new identifier. For `-t x`, the command has two input modes: the genesis document file (`--document`), which the api hashes, or the hash as hex (`--bytes`). `btcr2 genesis build` writes the document file.
 
+Each mode records the identifier in the records file `<home>/dids.json` (ADR 133). The identifier record keeps the key of the identifier and, for `--document`, the genesis document. `update` and `deactivate` then find the signing key and the sidecar data in the record. `btcr2 identifier list` shows the identifiers that you made. See [identifier.md](./identifier.md#identifier-records).
+
 ## Synopsis
 
 ```
@@ -14,6 +16,7 @@ btcr2 create -k <ref>                         # -t k: use the public key of a st
 btcr2 create -b <66-hex-chars>                # -t k: a 33-byte compressed public key
 btcr2 create -t x --document <path>           # -t x: hash the genesis document file
 btcr2 create -t x -b <64-hex-chars>           # -t x: the 32-byte genesis document hash
+btcr2 create --name <name>                    # any mode: also name the identifier record
 ```
 
 There are no subcommands.
@@ -27,6 +30,7 @@ There are no subcommands.
 | `-n, --network <network>` | `bitcoin` \| `testnet3` \| `testnet4` \| `signet` \| `mutinynet` \| `regtest` | from the config (see the precedence below), else `regtest` | The Bitcoin network that the identifier encodes. Creation stays offline. The network only fixes the target of the identifier, and of the later resolution and update traffic. An unsupported value fails with `Invalid network. Must be one of "bitcoin", "testnet3", "testnet4", "signet", "mutinynet", or "regtest".` |
 | `-b, --bytes <bytes>` | a hex string (case-insensitive, the command trims whitespace) | none | The genesis bytes. For `-t k`: exactly 33 bytes (66 hex characters), a valid compressed secp256k1 public key. For `-t x`: exactly 32 bytes (64 hex characters), the SHA-256 hash of the genesis document. Non-hex input fails with `Invalid bytes: not valid hex. ...`. A wrong length fails with `Invalid bytes length for type="<t>": ...`. The method layer refuses a 33-byte value that is not a point on the curve (`Expected "genesisBytes" to be a valid compressed secp256k1 public key`). |
 | `--document <path>` | file path | none | For `-t x` only: the JSON genesis document to hash, for example the file that `btcr2 genesis build` wrote. The api checks the document (the placeholder id `did:btcr2:_`, the two contexts, a placeholder id in each method and service) and hashes it as written. An unreadable path or non-JSON content fails with `Invalid genesis document path. ...`. A document with a wrong shape fails with the reason, for example `The genesis document id must be "did:btcr2:_", ...`. The flag is exclusive with `--bytes` (`Provide at most one of --bytes or --document.`). With `-t k`, the flag fails with `--document applies only to external identifiers (-t x).`. |
+| `--name <name>` | a name: not empty, no `did:` prefix, unique in the records file | none | A name for the identifier record. `resolve -i`, `update -i`, `deactivate -i`, and the `identifier` subcommands accept the name in place of the identifier. The command refuses a name of another identifier before it prints the identifier or generates a key: `The name "<name>" belongs to the identifier <identifier>.` An empty value fails with `--name must not be empty.` A value that starts with `did:` fails with `A name must not start with "did:".` If the identifier has a record, the name replaces the name of the record. |
 | `-h, --help` | none | n/a | Print the help of the command and exit. |
 
 ### Input modes for `-t k`
@@ -43,6 +47,23 @@ Exactly one of the two modes runs. No input fails with `External identifiers (-t
 
 1. **Document** (`--document <path>`). The api hashes the file as written (JCS canonical form, SHA-256) and encodes the identifier. The result carries the hash as `genesisBytes`. Keep the file: the identifier resolves only with it. On a network with a faucet, the funding hint of `--verbose` names the first beacon of the document.
 2. **Raw bytes** (`--bytes <hex>`). The 32-byte genesis document hash, computed elsewhere. The command prints no funding hint, because it does not know the beacons.
+
+### The identifier record
+
+After the command makes the identifier, it records the identifier in `<home>/dids.json` (ADR 133). The data of the record depends on the mode:
+
+| Mode | The record gets |
+|------|-----------------|
+| Stored key (`-t k`, `--key` or the default key) | The key URN in `keys`. The key is the `signingKey`, so `update` and `deactivate` sign with it by default. |
+| Generate (`-t k`) | The URN of the new key in `keys`. The key is the `signingKey`. |
+| Raw bytes (`-t k -b`) | No key. `btcr2 identifier add <did>` links the stored key of the genesis bytes later, if the keystore holds it. |
+| Document (`-t x --document`) | The genesis document in `sidecar.genesisDocument`. `resolve`, `update`, and `deactivate` then need no `--genesis-document` flag. |
+| Raw bytes (`-t x -b`) | No key and no sidecar data. |
+
+- The name of `--name` goes into the record in each mode.
+- If the identifier has a record already, the command adds the new data to it. A second `create` with the same key and network therefore makes no second record.
+- A failed write of the record does not fail the command, because the identifier exists already. The command prints `Warning: the CLI could not write the record of <identifier> to <path>: <reason>` on stderr, and the exit code stays `0`. `--quiet` does not suppress this warning, because the record is then incomplete. Run `btcr2 identifier add <identifier>` to record the identifier again.
+- The record is not the identifier. The identifier and the initial DID document come from the genesis bytes alone, with or without a record.
 
 ### Output
 
@@ -66,7 +87,7 @@ Exactly one of the two modes runs. No input fails with `External identifiers (-t
 
 ### Errors
 
-Each error exits with code 1 and prints the message only, unless `--verbose` is set. In addition to the per-flag checks above: `PASSPHRASE_REQUIRED_ERROR` if the generate mode needs a passphrase, no source (environment variable, file, session) has one, and stdin is not a terminal. The message is `No passphrase available. Set BTCR2_KEYSTORE_PASSPHRASE, pass --passphrase-file, or run in a terminal.` The command also refuses an empty or whitespace-only passphrase. A malformed `config.json`, or one with a `schemaVersion` newer than the CLI supports, fails the command if the command must read the config. The command reads the config for the default network (no `-n`) and for the keystore path (the generate mode and the stored-key mode). A raw-bytes run with an explicit `-n` does not read the config.
+Each error exits with code 1 and prints the message only, unless `--verbose` is set. In addition to the per-flag checks above: `PASSPHRASE_REQUIRED_ERROR` if the generate mode needs a passphrase, no source (environment variable, file, session) has one, and stdin is not a terminal. The message is `No passphrase available. Set BTCR2_KEYSTORE_PASSPHRASE, pass --passphrase-file, or run in a terminal.` The command also refuses an empty or whitespace-only passphrase. A malformed `config.json`, or one with a `schemaVersion` newer than the CLI supports, fails the command if the command must read the config. The command reads the config for the default network (no `-n`) and for the keystore path (the generate mode and the stored-key mode). A raw-bytes run with an explicit `-n` does not read the config. With `--name`, the command reads the records file before any work, so a malformed records file stops it (see [identifier.md](./identifier.md#the-records-file)). Without `--name`, the command makes the identifier and prints the warning of a failed record write.
 
 ## Environment and configuration
 
@@ -74,7 +95,7 @@ The command reads these environment variables:
 
 | Variable | Role |
 |----------|------|
-| `BTCR2_HOME` | The home directory that holds `config.json`, `keystore.json`, and `session.json`. `--home` wins. The platform default: `~/.btcr2` on Linux and macOS. On Windows: `%LOCALAPPDATA%\btcr2`, else `%APPDATA%\btcr2`, else the user profile. |
+| `BTCR2_HOME` | The home directory that holds `config.json`, `keystore.json`, `session.json`, and `dids.json`. `--home` wins. The platform default: `~/.btcr2` on Linux and macOS. On Windows: `%LOCALAPPDATA%\btcr2`, else `%APPDATA%\btcr2`, else the user profile. |
 | `BTCR2_OUTPUT` | The output format (`json` or `text`) if `-o/--output` is absent. |
 | `BTCR2_KEYSTORE_PASSPHRASE` | The keystore passphrase for unattended use. Generate mode only. This is the passphrase source with the highest precedence. The CLI trims at most one trailing newline. |
 
@@ -96,6 +117,7 @@ Precedence (the highest wins, and a blank value at one layer defers to the next 
 - Network: the `-n` flag, then the network of the active profile, then config `defaults.network`, then `regtest` (ADR 131). The network of a profile is its `network` field, else its name if the name is a network. There is no environment variable for the network.
 - Output format: the `-o` flag, then `BTCR2_OUTPUT`, then config `defaults.output`, then `text`.
 - Home: the `--home` flag, then `BTCR2_HOME`, then the platform default.
+- Records file: `<home>/dids.json`. No other flag and no profile key moves it.
 - Config path: the `-c/--config` flag, then `<home>/config.json`.
 - Keystore path: the `--keystore` flag, then the `identity.keystore` of the active profile, then `<home>/keystore.json`.
 - Key: the `--key` flag, then the `identity.default` of the active profile, then the active key of the keystore. If none applies, the command generates a key.
@@ -105,7 +127,7 @@ Session (ADR 081): a session that `btcr2 keystore unlock` cached in `<home>/sess
 
 ## Global flags
 
-See the [docs README](./README.md#global-flags) for the shared global flags. `create` uses: `--keystore`, `--passphrase-file`, `--home`, `-c/--config`, `--profile`, `-o/--output`, `--quiet` (suppresses the mismatch warning and the funding hint), and `--verbose` (the key note and the funding hint on stderr, and the full error objects). The command accepts the `--btc-*` and `--cas-*` endpoint flags, but they have no effect. `create` never opens a connection.
+See the [docs README](./README.md#global-flags) for the shared global flags. `create` uses: `--keystore`, `--passphrase-file`, `--home` (also the home of the records file), `-c/--config`, `--profile`, `-o/--output`, `--quiet` (suppresses the mismatch warning and the funding hint), and `--verbose` (the key note and the funding hint on stderr, and the full error objects). The command accepts the `--btc-*` and `--cas-*` endpoint flags, but they have no effect. `create` never opens a connection.
 
 ## Examples
 
@@ -138,12 +160,17 @@ btcr2 create -t x -n mutinynet \
 
 # Unattended run (CI): the passphrase from a file if the command generates a key, no warnings
 btcr2 create -n mutinynet --passphrase-file /run/secrets/btcr2-pass --quiet
+
+# Name the identifier record. Later commands accept the name in place of the identifier
+btcr2 create -n mutinynet --name alice
+btcr2 identifier show alice
+btcr2 resolve -i alice
 ```
 
 ## See also
 
 - `btcr2 genesis build`: build the genesis document that `-t x --document` hashes.
-- `btcr2 identifier`: decode and validate the identifier offline.
+- `btcr2 identifier`: decode and validate the identifier offline, and list, show, and edit the identifier records.
 - `btcr2 resolve`: resolve the DID document of the identifier.
 - `btcr2 update` and `btcr2 deactivate`: anchor a change through the funded beacon.
 - `btcr2 key`: list, show, import, and activate the keys that `--key <ref>` names.

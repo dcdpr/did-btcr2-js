@@ -167,7 +167,7 @@ export function writeConfigFile(path: string, mutate: (raw: Record<string, unkno
   mutate(raw);
   raw.schemaVersion = CONFIG_SCHEMA_VERSION;
   ensureDir(dirname(path), 0o700);
-  writeFileAtomic(path, `${JSON.stringify(raw, null, 2)}\n`, 0o600);
+  writeFileAtomic(path, `${JSON.stringify(raw, null, 2)}\n`, 0o600, 'config file');
 }
 
 /**
@@ -183,7 +183,7 @@ export function writeDefaultConfigFile(path: string): void {
     profiles      : Object.fromEntries(SUPPORTED_NETWORKS.map(n => [ n, {} ])),
   };
   ensureDir(dirname(path), 0o700);
-  writeFileAtomic(path, `${JSON.stringify(scaffold, null, 2)}\n`, 0o600);
+  writeFileAtomic(path, `${JSON.stringify(scaffold, null, 2)}\n`, 0o600, 'config file');
 }
 
 /** Reads the value at a dotted path (e.g. `profiles.regtest.btc.rest`). */

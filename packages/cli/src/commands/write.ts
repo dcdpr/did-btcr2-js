@@ -10,10 +10,11 @@ import {
 } from '../config.js';
 import { CLIError } from '../error.js';
 import { GENESIS_DOCUMENT_HELP } from '../genesis-document-file.js';
+import { IdentifierRecords, withRecordSidecar } from '../identifier-records.js';
 import { resolveKeyRef } from '../keystore/resolve-key-ref.js';
 import { warnProfileNetworkMismatch } from '../network-option.js';
 import { hasResolutionFlags, MIN_CONF_HELP, parseMinConf, readResolutionOptions, type ResolutionOptionFlags } from '../resolution-options.js';
-import type { GlobalOptions, NetworkOption, UpdateCommandOptions } from '../types.js';
+import { blankToUndef, type GlobalOptions, type NetworkOption, type UpdateCommandOptions } from '../types.js';
 import { assertGenesisDocumentApplies } from './resolve.js';
 
 /** The parsed flags that `update` and `deactivate` share. */
@@ -50,7 +51,7 @@ export function registerWriteOptions(command: Command): Command {
     .option(
       '--signing-key <ref>',
       'Key that signs the update: a URN, fingerprint prefix, or name '
-        + '(default: the profile identity.default, else the active key)',
+        + '(default: the signing key of the identifier record, else the profile identity.default, else the active key)',
     )
     .option(
       '-m, --verification-method-id <id>',
@@ -110,13 +111,27 @@ export function registerWriteOptions(command: Command): Command {
  *
  * After the checks, a warning names a network of the active profile that is
  * not the network of the identifier (ADR 131). The warning never blocks.
+ *
+ * The identifier can be the name of a record (ADR 133). If the identifier has
+ * a record, the sidecar data of the record joins the resolution options of the
+ * source resolution, and the signing key of the record signs if
+ * `--signing-key` is not given.
  */
 export async function prepareWrite(
   options : WriteFlags,
   factory : ApiFactory,
   g       : GlobalOptions,
-): Promise<{ network: NetworkOption; api: DidBtcr2Api; params: UpdateCommandOptions }> {
-  const did = options.identifier;
+): Promise<{
+  identifier : string;
+  network    : NetworkOption;
+  api        : DidBtcr2Api;
+  params     : UpdateCommandOptions;
+  keyId      : string;
+  records    : IdentifierRecords;
+}> {
+  const records = IdentifierRecords.forHome(g);
+  const did = records.resolveRef(options.identifier);
+  const record = records.get(did);
   const network = deriveNetwork(did);
   const hasDocument = options.sourceDocument !== undefined;
   const hasVersion = options.sourceVersionId !== undefined;
@@ -146,10 +161,12 @@ export async function prepareWrite(
   }
   assertGenesisDocumentApplies(options, new DidApi().decode(did).hrp);
   assertKeystoreAllowedForNetwork(network, g);
-  const resolutionOptions = await readResolutionOptions(options);
+  // A supplied source pair skips resolution, so the record sidecar applies only without it.
+  const flagOptions = await readResolutionOptions(options);
+  const resolutionOptions = hasDocument ? flagOptions : withRecordSidecar(flagOptions, record);
   warnProfileNetworkMismatch(g, network, g);
   const api = factory(network, g);
-  const keyId = resolveKeyRef(api.kms.kms, resolveDefaultKeyRef(options.signingKey, g));
+  const keyId = resolveSigningKey(api, options.signingKey, record?.signingKey, did, g);
   const signer = api.kms.signer(keyId);
   // Resolve fee-rate/change-address through the flag, env, and profile layers
   // into beacon broadcast options. Undefined when no layer sets one, so the
@@ -159,9 +176,12 @@ export async function prepareWrite(
     changeAddress : options.changeAddress,
   });
   return {
+    identifier : did,
     network,
     api,
-    params : {
+    keyId,
+    records,
+    params     : {
       source  : sourceDocument && options.sourceVersionId !== undefined
         ? { document: sourceDocument, versionId: options.sourceVersionId }
         : did,
@@ -177,6 +197,35 @@ export async function prepareWrite(
       },
     },
   };
+}
+
+/**
+ * Resolves the signing key of a write (ADR 133): `--signing-key`, else the
+ * signing key of the identifier record, else the profile `identity.default`,
+ * else the active key. Refuses a record key that the keystore does not hold:
+ * a fallback to another key would sign with a key that the DID document does
+ * not name.
+ */
+function resolveSigningKey(
+  api        : DidBtcr2Api,
+  explicit   : string | undefined,
+  recordKey  : string | undefined,
+  identifier : string,
+  g          : GlobalOptions,
+): string {
+  if (blankToUndef(explicit) === undefined && recordKey !== undefined) {
+    if (!api.kms.kms.listKeys().includes(recordKey)) {
+      throw new CLIError(
+        `The record of ${identifier} names the signing key ${recordKey}, but the keystore does not hold it. `
+          + 'Use --signing-key <ref> to select a key. '
+          + `Use "btcr2 identifier add ${identifier} -k <ref>" to change the key of the record.`,
+        'INVALID_ARGUMENT_ERROR',
+        { identifier, keyId: recordKey },
+      );
+    }
+    return recordKey;
+  }
+  return resolveKeyRef(api.kms.kms, resolveDefaultKeyRef(explicit, g));
 }
 
 /** Commander argParser for `--source-version-id`: digits only, a non-negative integer. */

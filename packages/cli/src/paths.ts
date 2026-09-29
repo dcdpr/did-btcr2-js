@@ -25,6 +25,8 @@ export const CONFIG_FILENAME = 'config.json';
 export const KEYSTORE_FILENAME = 'keystore.json';
 /** The session file name, holding the unlock agent's cached passphrase (ADR 081). */
 export const SESSION_FILENAME = 'session.json';
+/** The identifier records file name (ADR 133). */
+export const DIDS_FILENAME = 'dids.json';
 
 /**
  * Resolves the CLI home directory: the single root that holds `config.json` and
@@ -89,4 +91,13 @@ export function defaultKeystorePath(overrides?: PathOverrides): string {
  */
 export function defaultSessionPath(overrides?: PathOverrides): string {
   return join(resolveHome(overrides), SESSION_FILENAME);
+}
+
+/**
+ * Identifier records path: `<home>/dids.json` (ADR 133). Derived from the home
+ * root alone, like the session file. A record holds public data only, so no
+ * profile or flag moves it away from the config file and the keystore.
+ */
+export function defaultDidsPath(overrides?: PathOverrides): string {
+  return join(resolveHome(overrides), DIDS_FILENAME);
 }

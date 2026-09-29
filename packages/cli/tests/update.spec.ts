@@ -56,7 +56,7 @@ describe('update and deactivate (signing)', () => {
         captured.source = source;
         if (method === 'updateDid') [captured.patch, captured.signer, captured.options] = rest;
         else [captured.signer, captured.options] = rest;
-        return { signed: 'mock' };
+        return { signedUpdate: { signed: 'mock' }, txid: 'ab'.repeat(32), publishedToCas: { update: false, announcement: false } };
       };
       return {
         kms           : realApi.kms,
@@ -92,7 +92,7 @@ describe('update and deactivate (signing)', () => {
     // CAS publication is opt-in and never required; with no --publish-to-cas
     // flag the CLI defaults to 'never' so updates complete sidecar-only.
     expect(captured.options.announce.publishToCas).to.equal('never');
-    expect(JSON.parse(out[0]).signed).to.equal('mock');
+    expect(JSON.parse(out[0]).signedUpdate.signed).to.equal('mock');
   });
 
   it('update signs with the key that --signing-key names, not the active key', async () => {
@@ -395,8 +395,8 @@ describe('update/deactivate watch hint (ADR 082)', () => {
       const realApi = createKeystoreTestApiFactory(keystore, 'pw')();
       return {
         kms           : realApi.kms,
-        updateDid     : async () => ({ txid }),
-        deactivateDid : async () => ({ txid }),
+        updateDid     : async () => ({ signedUpdate: { txid }, txid, publishedToCas: { update: false, announcement: false } }),
+        deactivateDid : async () => ({ signedUpdate: { txid }, txid, publishedToCas: { update: false, announcement: false } }),
       } as unknown as DidBtcr2Api;
     };
   }

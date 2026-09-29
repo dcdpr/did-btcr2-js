@@ -9,6 +9,8 @@ export interface LockOptions {
   staleMs?: number;
   /** Poll interval between acquisition attempts while the lock is held. Default 50. */
   retryMs?: number;
+  /** Name of the guarded file in an error message. Default `keystore`. */
+  label?: string;
 }
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -102,6 +104,7 @@ export function withFileLock<T>(lockPath: string, fn: () => T, options: LockOpti
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const staleMs = options.staleMs ?? DEFAULT_STALE_MS;
   const retryMs = options.retryMs ?? DEFAULT_RETRY_MS;
+  const label = options.label ?? 'keystore';
   const token = `${process.pid}.${tokenCounter++}`;
   const deadline = Date.now() + timeoutMs;
 
@@ -117,7 +120,7 @@ export function withFileLock<T>(lockPath: string, fn: () => T, options: LockOpti
     } catch (error) {
       if ((error as { code?: string }).code !== 'EEXIST') {
         throw new KeyStoreError(
-          `Failed to acquire keystore lock at ${lockPath}.`,
+          `Failed to acquire ${label} lock at ${lockPath}.`,
           'KEYSTORE_LOCK_ERROR',
           { lockPath, cause: error instanceof Error ? error.message : String(error) },
         );
@@ -125,7 +128,7 @@ export function withFileLock<T>(lockPath: string, fn: () => T, options: LockOpti
       if (breakIfStale(lockPath, staleMs)) continue;
       if (Date.now() >= deadline) {
         throw new KeyStoreError(
-          `Timed out after ${timeoutMs}ms waiting for the keystore lock at ${lockPath}. `
+          `Timed out after ${timeoutMs}ms waiting for the ${label} lock at ${lockPath}. `
           + 'Another btcr2 process may be writing; retry, or remove the lock file if no other process is running.',
           'KEYSTORE_LOCKED_ERROR',
           { lockPath, timeoutMs },

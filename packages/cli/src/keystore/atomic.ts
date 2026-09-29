@@ -26,8 +26,9 @@ export function ensureDir(dir: string, mode: number): void {
  * Writes a file atomically: serialize to a sibling temporary file, tighten its
  * permissions, then rename over the target so a crash mid-write cannot leave a
  * truncated or partially-written file. The temporary file is removed on failure.
+ * The `label` names the file in the error message.
  */
-export function writeFileAtomic(path: string, data: string, mode: number): void {
+export function writeFileAtomic(path: string, data: string, mode: number, label = 'keystore'): void {
   const tmp = join(dirname(path), `.${basename(path)}.${process.pid}.${tmpCounter++}.tmp`);
   try {
     writeFileSync(tmp, data, { mode });
@@ -40,7 +41,7 @@ export function writeFileAtomic(path: string, data: string, mode: number): void 
       // Ignore cleanup failure; surface the original write error.
     }
     throw new KeyStoreError(
-      `Failed to write keystore at ${path}.`,
+      `Failed to write ${label} at ${path}.`,
       'ATOMIC_WRITE_ERROR',
       { path, cause: error instanceof Error ? error.message : String(error) },
     );

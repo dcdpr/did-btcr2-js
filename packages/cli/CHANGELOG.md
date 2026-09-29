@@ -1,5 +1,11 @@
 # @did-btcr2/cli
 
+## 0.29.0
+
+### Minor Changes
+
+- Identifier records (ADR 133). The CLI keeps a record of each identifier in `<home>/dids.json`: the name, the keys, the signing key, the txids, and the sidecar data. `create`, `update`, and `deactivate` write the record. New subcommands `identifier list`, `show`, `add`, `remove`, and `sidecar`. `resolve`, `update`, and `deactivate` accept a record name in `-i` and use the stored sidecar data (the flags win). Breaking: `update` and `deactivate` now sign with the signing key of the record before `identity.default` and the active key. `config path` also prints `dids`.
+
 ## 0.28.1
 
 ### Patch Changes

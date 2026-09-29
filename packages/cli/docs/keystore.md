@@ -138,7 +138,7 @@ The environment variables that the command group reads:
 
 | Variable | Used by | Meaning |
 |----------|---------|---------|
-| `BTCR2_HOME` | all subcommands | The home directory that holds `config.json`, `keystore.json`, and `session.json`. `--home` wins. The fallback is `~/.btcr2` (Linux and macOS) or `%LOCALAPPDATA%\btcr2` (Windows, then `%APPDATA%\btcr2`, then the user profile). A blank value defers to the next layer. |
+| `BTCR2_HOME` | all subcommands | The home directory that holds `config.json`, `keystore.json`, `session.json`, and `dids.json`. `--home` wins. The fallback is `~/.btcr2` (Linux and macOS) or `%LOCALAPPDATA%\btcr2` (Windows, then `%APPDATA%\btcr2`, then the user profile). A blank value defers to the next layer. |
 | `BTCR2_KEYSTORE_PASSPHRASE` | `init`, `change-passphrase` (the current passphrase only), `unlock` | The keystore passphrase for unattended use. The CLI reads it BEFORE `--passphrase-file`, and it trims a trailing newline. The CLI never uses it for the NEW passphrase in `change-passphrase`. |
 | `BTCR2_KEYSTORE_TTL` | `unlock` | The default session TTL, below the `--ttl` flag. The same value format as `--ttl`. |
 | `BTCR2_OUTPUT` | all subcommands | The output format (`json` or `text`), below the `-o/--output` flag and above `defaults.output` of the config file. |
@@ -199,5 +199,5 @@ btcr2 keystore unlock --allow-mainnet
 - `btcr2 quickstart`: the setup that composes `btcr2 init`, `btcr2 keystore unlock` (through `--unlock`), and `btcr2 config doctor`.
 - `btcr2 key`: manage the keys in the keystore (generate, import, export, use, delete).
 - `btcr2 update` and `btcr2 deactivate`: the signing commands that use the keystore and the session.
-- `btcr2 config path`: print the resolved home, config, and keystore paths.
+- `btcr2 config path`: print the resolved home, config, keystore, and records file paths.
 - [DEMO.md](./DEMO.md): the full walkthrough, with the keystore creation and the session unlock.

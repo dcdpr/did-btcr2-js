@@ -5,6 +5,7 @@ import { assertKeystoreAllowedForNetwork, resolveDefaultKeyRef } from '../config
 import { CLIError } from '../error.js';
 import { readGenesisDocumentFile } from '../genesis-document-file.js';
 import { printBeaconFundingHint, printCreateFundingHint } from '../hints.js';
+import { IdentifierRecords, recordAfterWork, type RecordChange } from '../identifier-records.js';
 import { resolveKeyRef } from '../keystore/resolve-key-ref.js';
 import { NETWORK_OPTION_HELP, overridesFromGlobals, resolveNetworkOption, warnProfileNetworkMismatch } from '../network-option.js';
 import { formatResult } from '../output.js';
@@ -35,6 +36,10 @@ const EXPECTED_BYTES: Record<'k' | 'x', { length: number; label: string }> = {
  *
  * The keystore-free `factory` serves the raw-bytes and document paths; the
  * keystore-aware `keystoreFactory` serves the generate and existing-key paths.
+ *
+ * Each mode records the identifier in `<home>/dids.json` (ADR 133): the name of
+ * `--name`, the key of a stored or generated key, and the genesis document of
+ * `--document`. A name that another identifier has is refused before any work.
  */
 export function registerCreateCommand(
   program         : Command,
@@ -63,7 +68,8 @@ export function registerCreateCommand(
       'For type=x, the path of the JSON genesis document to hash (see "btcr2 genesis build"). '
       + 'Exclusive with --bytes.'
     )
-    .action(async (options: { type: string; network?: string; key?: string; bytes?: string; document?: string }) => {
+    .option('--name <name>', 'A unique name for the identifier record. Other commands accept the name in place of the identifier.')
+    .action(async (options: { type: string; network?: string; key?: string; bytes?: string; document?: string; name?: string }) => {
       const g = globals();
       if (options.type !== 'k' && options.type !== 'x') {
         throw new CLIError('Invalid type. Must be "k" or "x".', 'INVALID_ARGUMENT_ERROR', options);
@@ -75,6 +81,16 @@ export function registerCreateCommand(
       const overrides = overridesFromGlobals(g);
       const network = resolveNetworkOption(options.network, overrides);
       warnProfileNetworkMismatch(g, network, overrides);
+
+      const records = IdentifierRecords.forHome(g);
+      const name = options.name;
+      // Refuses a name that another identifier has, before any work.
+      const checkName = (did?: string): void => {
+        if (name !== undefined) records.assertNameAvailable(name, did);
+      };
+      const record = (did: string, change: RecordChange = {}): void => {
+        recordAfterWork(records, did, { ...(name !== undefined && { name }), ...change });
+      };
 
       // Text mode prints the identifier only. `--verbose` adds the key note and
       // the funding hint on stderr. JSON mode prints the full envelope (ADR 130).
@@ -101,7 +117,9 @@ export function registerCreateCommand(
           const genesisDocument = await readGenesisDocumentFile(options.document);
           const api = factory();
           const { did, genesisBytes, didDocument } = api.btcr2.createExternalFromDocument(genesisDocument, { network });
+          checkName(did);
           print({ action: 'create', data: did, genesisBytes: bytesToHex(genesisBytes) });
+          record(did, { sidecar: { genesisDocument } });
           const beacons = api.btcr2.getBeacons(didDocument);
           if (g.verbose && beacons.length > 0) printBeaconFundingHint(g, network, beacons[0].address);
           return;
@@ -115,7 +133,9 @@ export function registerCreateCommand(
         }
         const genesisBytes = parseGenesisBytes(options.bytes, 'x');
         const did = factory().createDid('external', genesisBytes, { network });
+        checkName(did);
         print({ action: 'create', data: did });
+        record(did);
         return;
       }
 
@@ -135,7 +155,9 @@ export function registerCreateCommand(
       if (options.bytes !== undefined) {
         const genesisBytes = parseGenesisBytes(options.bytes, 'k');
         const did = factory().createDid('deterministic', genesisBytes, { network });
+        checkName(did);
         print({ action: 'create', data: did });
+        record(did);
         fundingHint(did);
         return;
       }
@@ -148,10 +170,12 @@ export function registerCreateCommand(
         const keyId = resolveKeyRef(api.kms.kms, ref);
         const publicKey = api.kms.getPublicKey(keyId);
         const did = api.createDid('deterministic', publicKey, { network });
+        checkName(did);
         print(
           { action: 'create', data: did, keyId, publicKey: bytesToHex(publicKey) },
           `Using stored key ${keyId}.`,
         );
+        record(did, { signingKey: keyId });
         fundingHint(did);
         return;
       }
@@ -160,12 +184,14 @@ export function registerCreateCommand(
       // (passphrase prompt). Refuse to seal a fresh mainnet key into an unencrypted
       // dev keystore (ADR 080).
       assertKeystoreAllowedForNetwork(network, overrides);
+      checkName();
       const { did, keyId } = api.generateDid({ network, setActive: true });
       const publicKey = bytesToHex(api.kms.getPublicKey(keyId));
       print(
         { action: 'create', data: did, keyId, publicKey },
         `Generated and stored key ${keyId} (now the active key).`,
       );
+      record(did, { signingKey: keyId });
       fundingHint(did);
     });
 }

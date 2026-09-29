@@ -49,7 +49,7 @@ export class DidBtcr2Cli {
       .option('-o, --output <format>', 'Output format <json|text> (default: config defaults.output, else text)')
       .option('--verbose', 'Print the key note and the funding hint of create, and the full error object on a failure', false)
       .option('-q, --quiet', 'Suppress hints and warnings; config validate and identifier validate print only OK or the failures', false)
-      .option('--home <dir>', 'btcr2 home directory holding config.json + keystore.json (default: ~/.btcr2, %LOCALAPPDATA%\\btcr2 on Windows; overrides $BTCR2_HOME)')
+      .option('--home <dir>', 'btcr2 home directory holding config.json, keystore.json, and dids.json (default: ~/.btcr2, %LOCALAPPDATA%\\btcr2 on Windows; overrides $BTCR2_HOME)')
       .option('-c, --config <path>', 'Path to config file (default: <home>/config.json)')
       .option('--profile <name>', 'Config profile name (default: auto-detected from network)')
       .option('--btc-rest <url>', 'Override Bitcoin REST endpoint (Esplora API)')
@@ -94,7 +94,7 @@ export class DidBtcr2Cli {
     registerResolveCommand(this.program, factory, globals);
     registerUpdateCommand(this.program, keystoreFactory, globals);
     registerDeactivateCommand(this.program, keystoreFactory, globals);
-    registerIdentifierCommand(this.program, factory, globals);
+    registerIdentifierCommand(this.program, factory, keystoreFactory, globals);
     registerGenesisCommand(this.program, factory, keystoreFactory, globals);
     registerKeyCommand(this.program, keystoreFactory, globals);
     registerKeystoreCommand(this.program, globals);
