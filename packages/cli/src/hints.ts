@@ -1,5 +1,4 @@
-import { explorerAddressUrl, explorerTxUrl, faucetUrl } from '@did-btcr2/api';
-import { BeaconUtils } from '@did-btcr2/method';
+import { DidMethodApi, explorerAddressUrl, explorerTxUrl, faucetUrl } from '@did-btcr2/api';
 import type { GlobalOptions, NetworkOption } from './types.js';
 
 /**
@@ -14,17 +13,19 @@ import type { GlobalOptions, NetworkOption } from './types.js';
  * the derived initial P2WPKH beacon address next to the faucet and explorer
  * links the operator would otherwise hand-copy. A no-op on a network without a
  * faucet (regtest/mainnet), which also keeps mainnet from showing a fund-me
- * affordance. The beacon address is derived from the DID string alone via
- * {@link BeaconUtils.createBeaconService}, so it matches the resolver's
- * `#initialP2WPKH` service rather than a divergent re-derivation. `create`
- * calls it only under `--verbose` (ADR 130).
+ * affordance. The beacon address is the `#initialP2WPKH` service of the
+ * initial document that the api derives from the DID string alone, so it
+ * matches the resolver rather than a divergent re-derivation. `create` calls
+ * it only under `--verbose` (ADR 130).
  */
 export function printCreateFundingHint(g: GlobalOptions, network: NetworkOption, did: string): void {
   if (g.quiet || g.output === 'json') return;
   let beaconAddress: string;
   try {
-    const { serviceEndpoint } = BeaconUtils.createBeaconService(did, 'p2wpkh', 'SingletonBeacon');
-    beaconAddress = serviceEndpoint.replace(/^bitcoin:/, '');
+    const methodApi = new DidMethodApi();
+    const beacon = methodApi.getBeacons(methodApi.getInitialDocument(did)).find(b => b.id.endsWith('#initialP2WPKH'));
+    if (!beacon) return;
+    beaconAddress = beacon.address;
   } catch {
     return;
   }

@@ -1,6 +1,6 @@
 import { DidMethodError, INTERNAL_ERROR, INVALID_DID, NOT_FOUND, ResolveError } from '@did-btcr2/common';
 import { expect } from 'chai';
-import { resolutionErrorCode, rootCauseMessage } from '../src/index.js';
+import { resolutionErrorCode, rootCauseMessage } from '../src/helpers.js';
 
 /**
  * rootCauseMessage unit matrix: the helper must surface the deepest

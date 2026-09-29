@@ -1,5 +1,5 @@
 import type { Btcr2DidDocument, DidBtcr2Api, PublishToCasMode } from '@did-btcr2/api';
-import { KeyManagerSigner } from '@did-btcr2/key-manager';
+import { DidApi } from '@did-btcr2/api';
 import type { Command } from 'commander';
 import {
   assertKeystoreAllowedForNetwork,
@@ -8,7 +8,6 @@ import {
   resolveDefaultKeyRef,
   type ApiFactory,
 } from '../config.js';
-import { Identifier } from '@did-btcr2/api';
 import { CLIError } from '../error.js';
 import { GENESIS_DOCUMENT_HELP } from '../genesis-document-file.js';
 import { resolveKeyRef } from '../keystore/resolve-key-ref.js';
@@ -145,13 +144,13 @@ export async function prepareWrite(
       { did },
     );
   }
-  assertGenesisDocumentApplies(options, Identifier.decode(did).hrp);
+  assertGenesisDocumentApplies(options, new DidApi().decode(did).hrp);
   assertKeystoreAllowedForNetwork(network, g);
   const resolutionOptions = await readResolutionOptions(options);
   warnProfileNetworkMismatch(g, network, g);
   const api = factory(network, g);
   const keyId = resolveKeyRef(api.kms.kms, resolveDefaultKeyRef(options.signingKey, g));
-  const signer = new KeyManagerSigner(api.kms.kms, keyId);
+  const signer = api.kms.signer(keyId);
   // Resolve fee-rate/change-address through the flag, env, and profile layers
   // into beacon broadcast options. Undefined when no layer sets one, so the
   // SDK defaults (5 sat/vB, change back to the beacon address) still apply.

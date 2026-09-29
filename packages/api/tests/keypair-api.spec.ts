@@ -27,6 +27,18 @@ describe('KeyPairApi', () => {
     expect(kpApi.equals(kp, restored)).to.equal(true);
   });
 
+  it('fromPublicKey() creates a watch-only keypair from a compressed public key', () => {
+    const kp = kpApi.generate();
+    const watchOnly = kpApi.fromPublicKey(kp.publicKey.compressed);
+    expect(watchOnly).to.be.instanceOf(SchnorrKeyPair);
+    expect(watchOnly.hasSecretKey).to.equal(false);
+    expect(watchOnly.publicKey.compressed).to.deep.equal(kp.publicKey.compressed);
+  });
+
+  it('fromPublicKey() refuses bytes that are not a 33-byte public key', () => {
+    expect(() => kpApi.fromPublicKey(new Uint8Array(32))).to.throw('33-byte compressed public key');
+  });
+
   it('secretKeyFrom() creates a Secp256k1SecretKey from bytes', () => {
     const kp = kpApi.generate();
     const sk = kpApi.secretKeyFrom(kp.secretKey!.bytes);

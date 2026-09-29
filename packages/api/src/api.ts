@@ -13,13 +13,14 @@ import { DidApi } from './did.js';
 import { assertString, NOOP_LOGGER, resolutionErrorCode, rootCauseMessage } from './helpers.js';
 import { KeyManagerApi } from './key-manager.js';
 import { DidMethodApi, type DidUpdateOptions, type DidUpdateResult, type SourceState, type UpdateSource } from './method.js';
+import { SmtApi } from './smt.js';
 import type { ApiConfig, BitcoinApiConfig, Logger, ResolutionResult } from './types.js';
 
 /**
  * Main DidBtcr2Api facade: the primary entry point for the SDK.
  *
- * Exposes sub-facades for Bitcoin, DID Method, KeyPair, Crypto, and
- * KeyManager operations. Created via the {@link createApi} factory.
+ * Exposes sub-facades for Bitcoin, CAS, DID Method, DID identifier, Crypto,
+ * KeyManager, and Sparse Merkle Tree operations. Created via the {@link createApi} factory.
  * @public
  */
 export class DidBtcr2Api {
@@ -29,6 +30,8 @@ export class DidBtcr2Api {
   readonly did: DidApi;
   /** Key management operations. */
   readonly kms: KeyManagerApi;
+  /** Sparse Merkle Tree operations of the SMT beacon (build, proof, verify). */
+  readonly smt: SmtApi;
 
   #btcConfig?: BitcoinApiConfig;
   #btc?: BitcoinApi;
@@ -45,6 +48,7 @@ export class DidBtcr2Api {
     this.kms = new KeyManagerApi(config?.kms);
     this.did = new DidApi();
     this.crypto = new CryptoApi();
+    this.smt = new SmtApi();
   }
 
   /**

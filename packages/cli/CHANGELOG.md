@@ -1,5 +1,21 @@
 # @did-btcr2/cli
 
+## 0.28.1
+
+### Patch Changes
+
+- The api exports only its facade, and a sub-facade function does each CRUD step (ADR 132).
+
+  - BREAKING: api: the package root does not export the classes of the lower packages as values (`Identifier`, `GenesisDocument`, `Resolver`, `Updater`, `BeaconUtils`, `LocalSigner`, `KeyManagerSigner`, `LocalKeyManager`, `SchnorrKeyPair`, `BitcoinConnection`, `canonicalHash`, `JSONPatch`, `Appendix`, and others), or the internal helpers (`rootCauseMessage`, `resolutionErrorCode`, the free `buildGenesisDocument`). Use the sub-facade functions that ADR 132 names.
+  - api: `api.btcr2.constructUpdate` and `api.btcr2.signUpdate` make a signed update with no broadcast. `api.btcr2.hashDocument`, `applyPatch`, and `rootCapability` give JSON Document Hashing, the target document of a patch, and the root capability of a DID.
+  - api: the `api.smt` sub-facade builds the Sparse Merkle Tree of an SMT beacon signal and verifies an SMT proof.
+  - api: `announce.feeRate` sets a fixed fee rate in sats/vB. `api.crypto.keypair.fromPublicKey` makes a watch-only key pair.
+  - api: the package exports `DidMethodError` and the error classes that the facade throws, and each type that a public signature uses.
+  - cli: the cli imports only `@did-btcr2/api` and `@did-btcr2/key-manager`. The printed output does not change.
+
+- Updated dependencies []:
+  - @did-btcr2/api@0.29.0
+
 ## 0.28.0
 
 ### Minor Changes

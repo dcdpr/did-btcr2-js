@@ -1,4 +1,4 @@
-import type { PatchOperation } from '@did-btcr2/common';
+import type { PatchOperation } from '@did-btcr2/api';
 import type { Command } from 'commander';
 import type { ApiFactory } from '../config.js';
 import { printWatchHint } from '../hints.js';

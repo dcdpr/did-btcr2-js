@@ -1,5 +1,4 @@
 import { createApi } from '@did-btcr2/api';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,7 +13,7 @@ const ENV_KEYS = [ 'BTCR2_HOME', ENV_KEYSTORE_PASSPHRASE ];
 
 /** A valid did:btcr2 identifier on the given network, minted offline. */
 function didFor(network: string): string {
-  const pub = SchnorrKeyPair.generate().publicKey.compressed;
+  const pub = createApi().crypto.keypair.generate().publicKey.compressed;
   return createApi().createDid('deterministic', pub, { network: network as never });
 }
 

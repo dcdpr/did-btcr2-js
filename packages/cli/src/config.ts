@@ -1,7 +1,4 @@
-import { createApi, DEFAULT_BITCOIN_NETWORK_CONFIG, DEFAULT_CAS_GATEWAY, Identifier, type BitcoinApiConfig, type CasConfig, type DidBtcr2Api, type SignalDiscoveryMode } from '@did-btcr2/api';
-import type { KeyManager } from '@did-btcr2/key-manager';
-import { StaticFeeEstimator } from '@did-btcr2/method';
-import type { BroadcastOptions } from '@did-btcr2/method';
+import { createApi, DEFAULT_BITCOIN_NETWORK_CONFIG, DEFAULT_CAS_GATEWAY, DidApi, type AnnounceOptions, type BitcoinApiConfig, type CasConfig, type DidBtcr2Api, type KeyManager, type SignalDiscoveryMode } from '@did-btcr2/api';
 import { readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { CLIError } from './error.js';
@@ -948,11 +945,12 @@ function resolveCasRpcAuth(url: string, unit?: RpcUnit): { username: string; pas
 }
 
 /**
- * Resolves the beacon {@link BroadcastOptions} for an update/deactivate from the
- * fee-rate and change-address knobs, following the CLI precedence chain.
+ * Resolves the fee and change fields of the announce options for an
+ * update/deactivate from the fee-rate and change-address knobs, following the
+ * CLI precedence chain.
  *
  * - Fee rate: `--fee-rate` flag, then `BTCR2_FEE_RATE`, then profile
- *   `btc.feeRate`. A positive sats/vByte value wrapped in a `StaticFeeEstimator`.
+ *   `btc.feeRate`. A positive sats/vByte value, given to the api as `feeRate`.
  * - Change address: `--change-address` flag, then profile `btc.changeAddress`
  *   (no env, since a change address is DID/network-specific). Validated against
  *   the DID network by the beacon at broadcast time.
@@ -964,22 +962,22 @@ export function resolveBroadcastOptions(
   network  : NetworkOption,
   overrides: ConnectionOverrides | undefined,
   flags    : { feeRate?: string; changeAddress?: string },
-): BroadcastOptions | undefined {
+): Pick<AnnounceOptions, 'feeRate' | 'changeAddress'> | undefined {
   const file = readConfigFile(overrides?.config ?? defaultConfigPath(overrides));
   const { name: activeProfile } = resolveActiveProfile(file, overrides);
   const profileBtc = file?.profiles?.[activeProfile ?? network]?.btc;
 
-  const options: BroadcastOptions = {};
+  const options: Pick<AnnounceOptions, 'feeRate' | 'changeAddress'> = {};
 
   const feeRateRaw = blankToUndef(flags.feeRate)
     ?? blankToUndef(process.env[ENV_VARS.FEE_RATE])
     ?? (typeof profileBtc?.feeRate === 'number' ? String(profileBtc.feeRate) : undefined);
-  if (feeRateRaw !== undefined) options.feeEstimator = new StaticFeeEstimator(parseFeeRate(feeRateRaw));
+  if (feeRateRaw !== undefined) options.feeRate = parseFeeRate(feeRateRaw);
 
   const changeAddress = blankToUndef(flags.changeAddress) ?? blankToUndef(profileBtc?.changeAddress);
   if (changeAddress) options.changeAddress = changeAddress;
 
-  return options.feeEstimator || options.changeAddress ? options : undefined;
+  return options.feeRate !== undefined || options.changeAddress ? options : undefined;
 }
 
 /** Parses a positive sats/vByte fee rate, throwing a {@link CLIError} otherwise. */
@@ -1351,7 +1349,7 @@ export function keystoreApiFactory(network?: NetworkOption, overrides?: Connecti
 /**
  * Extracts and validates the Bitcoin network from a DID string.
  *
- * Decodes the DID via {@link Identifier.decode}, then checks that the
+ * Decodes the DID via {@link DidApi.decode}, then checks that the
  * embedded network is one of the supported values.
  *
  * @param did A `did:btcr2:...` identifier string.
@@ -1359,7 +1357,7 @@ export function keystoreApiFactory(network?: NetworkOption, overrides?: Connecti
  * @throws {CLIError} If the network is unsupported.
  */
 export function deriveNetwork(did: string): NetworkOption {
-  const { network } = Identifier.decode(did);
+  const { network } = new DidApi().decode(did);
   if (!SUPPORTED_NETWORKS.includes(network as NetworkOption)) {
     throw new CLIError(
       `Unsupported network "${network}" in DID.`,

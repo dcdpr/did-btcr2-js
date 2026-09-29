@@ -1,4 +1,4 @@
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { createApi } from '@did-btcr2/api';
 import { base64urlnopad } from '@scure/base';
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -60,7 +60,7 @@ describe('FileBackedKeyManager', () => {
 
   it('ignores a dangling persisted active pointer instead of bricking', () => {
     const id = 'urn:kms:secp256k1:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-    const pub = base64urlnopad.encode(SchnorrKeyPair.generate().publicKey.compressed);
+    const pub = base64urlnopad.encode(createApi().crypto.keypair.generate().publicKey.compressed);
     writeFileSync(path, JSON.stringify({
       v          : 1,
       protection : 'passphrase',

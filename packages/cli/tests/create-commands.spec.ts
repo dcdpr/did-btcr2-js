@@ -1,5 +1,4 @@
-import { Identifier } from '@did-btcr2/api';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { createApi } from '@did-btcr2/api';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,9 +12,12 @@ import {
   originalConsoleLog,
 } from './helpers.js';
 
+/** The api of the fixtures: offline, with no connection and no key. */
+const sdk = createApi();
+
 /** A fresh 33-byte compressed public key as hex, for the raw-bytes path. */
 function freshPublicKeyHex(): string {
-  return bytesToHex(SchnorrKeyPair.generate().publicKey.compressed);
+  return bytesToHex(sdk.crypto.keypair.generate().publicKey.compressed);
 }
 
 describe('create command', () => {
@@ -170,7 +172,7 @@ describe('create command', () => {
     const result = JSON.parse(out[0]);
     expect(result.data).to.match(/^did:btcr2:k1/);
     expect(result).to.not.have.property('keyId');
-    expect(Identifier.decode(result.data).network).to.equal('signet');
+    expect(sdk.did.decode(result.data).network).to.equal('signet');
   });
 
   it('defaults the network from config defaults.network when -n is omitted', async () => {
@@ -178,7 +180,7 @@ describe('create command', () => {
     const pk = freshPublicKeyHex();
     await run('-o', 'json', '--config', cfg, 'create', '-b', pk);
     const result = JSON.parse(out[0]);
-    expect(Identifier.decode(result.data).network).to.equal('mutinynet');
+    expect(sdk.did.decode(result.data).network).to.equal('mutinynet');
   });
 
   it('lets the network of the active profile win over defaults.network, with no warning', async () => {
@@ -190,7 +192,7 @@ describe('create command', () => {
     const pk = freshPublicKeyHex();
     await run('-o', 'json', '--config', cfg, 'create', '-b', pk);
     const result = JSON.parse(out[0]);
-    expect(Identifier.decode(result.data).network).to.equal('signet');
+    expect(sdk.did.decode(result.data).network).to.equal('signet');
     expect(err.join('')).to.not.include('Warning:');
   });
 
@@ -202,7 +204,7 @@ describe('create command', () => {
     }));
     const pk = freshPublicKeyHex();
     await run('-o', 'json', '--config', cfg, 'create', '-n', 'regtest', '-b', pk);
-    expect(Identifier.decode(JSON.parse(out[0]).data).network).to.equal('regtest');
+    expect(sdk.did.decode(JSON.parse(out[0]).data).network).to.equal('regtest');
     expect(err.join('')).to.include(
       'Warning: the identifier network is "regtest", but the active profile "production" declares network "signet".'
     );
@@ -212,7 +214,7 @@ describe('create command', () => {
     const pk = freshPublicKeyHex();
     await run('-o', 'json', '--config', cfg, 'create', '-b', pk);
     const result = JSON.parse(out[0]);
-    expect(Identifier.decode(result.data).network).to.equal('regtest');
+    expect(sdk.did.decode(result.data).network).to.equal('regtest');
   });
 
   it('rejects supplying both --key and --bytes', async () => {

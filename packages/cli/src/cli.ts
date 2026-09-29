@@ -1,4 +1,4 @@
-import { DidMethodError } from '@did-btcr2/common';
+import { DidMethodError } from '@did-btcr2/api';
 import { Command, CommanderError } from 'commander';
 import {
   registerCompletionCommand,

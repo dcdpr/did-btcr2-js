@@ -1,7 +1,6 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
-import { StaticFeeEstimator } from '@did-btcr2/method';
 import {
   defaultApiFactory,
   defaultConfigPath,
@@ -866,16 +865,15 @@ describe('resolveBroadcastOptions', () => {
     expect(resolveBroadcastOptions('regtest', { config: cfgPath }, {})).to.be.undefined;
   });
 
-  it('wraps a flag --fee-rate in a StaticFeeEstimator', () => {
+  it('gives a flag --fee-rate to the api as feeRate', () => {
     const opts = resolveBroadcastOptions('regtest', { config: cfgPath }, { feeRate: '9' });
-    expect(opts?.feeEstimator).to.be.instanceOf(StaticFeeEstimator);
-    expect((opts?.feeEstimator as StaticFeeEstimator).satsPerVbyte).to.equal(9);
+    expect(opts?.feeRate).to.equal(9);
   });
 
   it('reads the fee rate from BTCR2_FEE_RATE when no flag is given', () => {
     process.env.BTCR2_FEE_RATE = '15';
     const opts = resolveBroadcastOptions('regtest', { config: cfgPath }, {});
-    expect((opts?.feeEstimator as StaticFeeEstimator).satsPerVbyte).to.equal(15);
+    expect(opts?.feeRate).to.equal(15);
   });
 
   it('reads the fee rate and change address from the config-file profile', () => {
@@ -884,7 +882,7 @@ describe('resolveBroadcastOptions', () => {
       profiles : { regtest: { btc: { feeRate: 21, changeAddress: 'bcrt1qchange' } } },
     }));
     const opts = resolveBroadcastOptions('regtest', { config: cfg }, {});
-    expect((opts?.feeEstimator as StaticFeeEstimator).satsPerVbyte).to.equal(21);
+    expect(opts?.feeRate).to.equal(21);
     expect(opts?.changeAddress).to.equal('bcrt1qchange');
   });
 
@@ -893,7 +891,7 @@ describe('resolveBroadcastOptions', () => {
     writeFileSync(cfg, JSON.stringify({ profiles: { regtest: { btc: { feeRate: 21 } } } }));
     process.env.BTCR2_FEE_RATE = '15';
     const opts = resolveBroadcastOptions('regtest', { config: cfg }, { feeRate: '3' });
-    expect((opts?.feeEstimator as StaticFeeEstimator).satsPerVbyte).to.equal(3);
+    expect(opts?.feeRate).to.equal(3);
   });
 
   it('throws for a non-positive fee rate', () => {

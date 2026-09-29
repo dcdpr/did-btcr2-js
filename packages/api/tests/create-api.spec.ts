@@ -1,8 +1,8 @@
 import { expect } from 'chai';
+import { GenesisDocument } from '@did-btcr2/method';
 import {
   createApi,
   DidBtcr2Api,
-  GenesisDocument,
 } from '../src/index.js';
 
 /**

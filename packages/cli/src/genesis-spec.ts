@@ -1,13 +1,13 @@
 import type {
   BeaconAddressType,
   BeaconType,
+  DidService,
   GenesisBeaconSpec,
   GenesisDocumentSpec,
   GenesisVerificationMethodSpec,
   VerificationRelationship
 } from '@did-btcr2/api';
 import { hexToBytes } from '@noble/hashes/utils.js';
-import type { DidService } from '@web5/dids';
 import { CLIError } from './error.js';
 import type { NetworkOption } from './types.js';
 

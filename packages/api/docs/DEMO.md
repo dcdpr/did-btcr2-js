@@ -6,7 +6,7 @@ The [CLI walkthrough](../../cli/docs/DEMO.md) shows the same lifecycle with the 
 
 **How to use this document:** put the code blocks of Parts 0 to 5 in one file, in the order of this document. The file stops in Part 4 until you fund the beacon address. The blocks of the appendix are alternatives, so do not add them to the file. Each output block is an example. Your keys, identifiers, Bitcoin addresses, and transaction ids differ, but the shape is the same.
 
-The text matches `@did-btcr2/api` v0.28.3.
+The text matches `@did-btcr2/api` v0.29.0.
 
 ---
 

@@ -1,6 +1,14 @@
-import type { BeaconInfo, DidUpdateOptions, DidUpdateResult, IdentifierReport, Signer, UpdateSource } from '@did-btcr2/api';
-import type { Btcr2DidDocument, ResolutionOptions } from '@did-btcr2/method';
-import type { DidResolutionResult } from '@web5/dids';
+import type {
+  BeaconInfo,
+  Btcr2DidDocument,
+  DidResolutionResult,
+  DidUpdateOptions,
+  DidUpdateResult,
+  IdentifierReport,
+  ResolutionOptions,
+  Signer,
+  UpdateSource
+} from '@did-btcr2/api';
 import type { DoctorReport, EffectiveConfig } from './config.js';
 import type { ConfigIssue } from './config-schema.js';
 import type { SessionStatus } from './keystore/session.js';

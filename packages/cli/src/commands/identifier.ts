@@ -1,5 +1,5 @@
 import type { IdentifierCheck, IdentifierReport } from '@did-btcr2/api';
-import { Identifier } from '@did-btcr2/api';
+import { DidApi } from '@did-btcr2/api';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 import type { Command } from 'commander';
 import type { ApiFactory } from '../config.js';
@@ -7,6 +7,9 @@ import { CLIError } from '../error.js';
 import { readGenesisDocumentFile } from '../genesis-document-file.js';
 import { formatCheckResult, formatResult } from '../output.js';
 import type { CommandResult, GlobalOptions, IdentifierDecodeData } from '../types.js';
+
+/** The offline identifier operations of the api. They need no connection and no key. */
+const didApi = new DidApi();
 
 /**
  * Registers the `identifier` command group. `decode` prints the components of
@@ -93,7 +96,7 @@ export function registerIdentifierCommand(
       if (options.genesisDocument !== undefined) {
         // Refuse the flag for a KEY identifier before the file read. An invalid
         // identifier passes through: the report names its failed check.
-        if (Identifier.isValid(did) && Identifier.decode(did).hrp === 'k') {
+        if (didApi.isValid(did) && didApi.decode(did).hrp === 'k') {
           throw new CLIError(
             '--genesis-document applies only to external identifiers (x).',
             'INVALID_ARGUMENT_ERROR',
@@ -117,7 +120,7 @@ export function registerIdentifierCommand(
  * guard gives `decode` one message shape for every failure.
  */
 function assertValidIdentifier(did: string): void {
-  const report = Identifier.validate(did);
+  const report = didApi.validate(did);
   if (report.valid) return;
   const failed = report.checks[report.checks.length - 1];
   throw new CLIError(failedCheckMessage(failed), 'INVALID_ARGUMENT_ERROR', { did, check: failed.name });
