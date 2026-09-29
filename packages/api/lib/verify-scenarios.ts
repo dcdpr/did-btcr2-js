@@ -34,7 +34,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { resolutionErrorCode } from '@did-btcr2/api';
+import { resolutionErrorCode } from '../src/helpers.js';
 import { canonicalHash, canonicalize } from '@did-btcr2/common';
 import type { BeaconService, BeaconSignal, SignedBTCR2Update } from '@did-btcr2/method';
 import { DidBtcr2 } from '@did-btcr2/method';

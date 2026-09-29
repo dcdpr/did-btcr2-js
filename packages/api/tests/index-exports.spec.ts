@@ -1,121 +1,188 @@
 import { expect } from 'chai';
+import * as surface from '../src/index.js';
 import {
-  Appendix,
   BEACON_ADDRESS_TYPES,
   BEACON_TYPES,
-  BeaconFactory,
-  BeaconUtils,
-  BitcoinConnection,
-  buildGenesisDocument,
-  canonicalHash,
+  createApi,
   DEFAULT_BEACON_ADDRESS_TYPE,
-  DidBtcr2,
-  JSONPatch,
-  KeyManagerSigner,
-  LocalKeyManager,
-  LocalSigner,
-  Resolver,
-  rootCauseMessage,
-  SchnorrKeyPair,
-  Updater,
+  DidMethodError,
+  IdentifierError,
   VERIFICATION_RELATIONSHIPS,
 } from '../src/index.js';
 import type {
+  AddressUtxo,
+  AnnounceOptions,
+  ApiConfig,
   BeaconAddressType,
+  BeaconInfo,
   BeaconService,
   BeaconType,
+  BIP340Cryptosuite,
+  BIP340DataIntegrityProof,
+  BitcoinApiConfig,
+  BitcoinConnection,
+  BitcoinCoreRpcClient,
+  BitcoinRestClient,
+  BlockstoreLike,
+  BlockstoreProviderLike,
   BroadcastOptions,
-  BroadcastResult,
+  Btcr2DataIntegrityProof,
   Btcr2DidDocument,
+  Bytes,
   CASAnnouncement,
+  CasConfig,
+  CasExecutor,
+  CID,
+  CompressedSecp256k1PublicKey,
+  DataIntegrityProofObject,
+  DataIntegrityProofOptions,
+  Did,
   DidComponents,
   DidCreateOptions,
+  DidParams,
+  DidResolutionResult,
+  DidService,
+  DidString,
+  DidUpdateOptions,
+  DidUpdateResult,
+  DidVerificationMethod,
+  DocumentBytes,
+  Entropy,
+  EsploraBlock,
   ExternalCreateResult,
+  FeeEstimator,
+  FromPublicKey,
   GenerateKeyOptions,
   GenesisBeaconSpec,
   GenesisDocumentSpec,
   GenesisVerificationMethodSpec,
+  HashBytes,
+  HexString,
+  HttpExecutor,
+  HttpRequest,
   IdentifierCheck,
+  IdentifierCheckName,
   IdentifierComponents,
   IdentifierReport,
   IdentifierValidateOptions,
+  IdType,
   ImportKeyOptions,
+  IpfsRpcAuth,
+  IpfsRpcCasExecutorOptions,
+  JSONObject,
+  KeyBytes,
   KeyIdentifier,
   KeyManager,
   KmsSignOptions,
+  Logger,
+  MultibaseObject,
+  Multikey,
+  NetworkName,
+  NetworkPreset,
+  PatchOpCode,
+  PatchOperation,
+  Point,
+  PublicKeyObject,
+  PublishToCasMode,
+  RawTransactionRest,
   ResolutionOptions,
+  ResolutionResult,
+  RestConfig,
+  RootCapability,
+  RpcConfig,
+  SchnorrKeyPair,
+  SchnorrKeyPairObject,
+  SchnorrMultikey,
+  Secp256k1SecretKey,
+  SecretKeyObject,
+  SecuredDocument,
   Sidecar,
+  SignalDiscoveryMode,
+  SignatureBytes,
   SignedBTCR2Update,
   Signer,
   SigningScheme,
   SignOptions,
+  SmtEntry,
   SMTProof,
+  SmtTree,
+  SourceState,
+  TransactionStatus,
+  TxId,
+  UnsecuredDocument,
+  UnsignedBTCR2Update,
+  UpdateOptions,
+  UpdateSource,
   VerificationRelationship,
+  VerificationResult,
   VerifyOptions,
+  Vin,
+  Vout,
 } from '../src/index.js';
 
 /**
- * The write path and the BYO surface must be importable from the api package
- * alone: no second install to obtain a signer or to name a type that appears
- * in a public signature. Compilation of the type-position usages below is
- * half of the assertion; the value checks are the other half.
+ * Each type that a public signature uses must be nameable from the api
+ * package alone. The compilation of this type is the assertion.
  */
-type SurfaceTypes = {
-  beaconService: BeaconService;
-  broadcastOptions: BroadcastOptions;
-  broadcastResult: BroadcastResult;
-  btcr2DidDocument: Btcr2DidDocument;
-  casAnnouncement: CASAnnouncement;
-  didComponents: DidComponents;
-  didCreateOptions: DidCreateOptions;
-  generateKeyOptions: GenerateKeyOptions;
-  identifierCheck: IdentifierCheck;
-  identifierComponents: IdentifierComponents;
-  identifierReport: IdentifierReport;
-  identifierValidateOptions: IdentifierValidateOptions;
-  importKeyOptions: ImportKeyOptions;
-  keyIdentifier: KeyIdentifier;
-  keyManager: KeyManager;
-  kmsSignOptions: KmsSignOptions;
-  resolutionOptions: ResolutionOptions;
-  sidecar: Sidecar;
-  signedUpdate: SignedBTCR2Update;
-  signer: Signer;
-  signingScheme: SigningScheme;
-  signOptions: SignOptions;
-  smtProof: SMTProof;
-  verifyOptions: VerifyOptions;
-  beaconAddressType: BeaconAddressType;
-  beaconType: BeaconType;
-  externalCreateResult: ExternalCreateResult;
-  genesisBeaconSpec: GenesisBeaconSpec;
-  genesisDocumentSpec: GenesisDocumentSpec;
-  genesisVerificationMethodSpec: GenesisVerificationMethodSpec;
-  verificationRelationship: VerificationRelationship;
-};
+type SurfaceTypes = [
+  AddressUtxo, AnnounceOptions, ApiConfig, BeaconAddressType, BeaconInfo, BeaconService, BeaconType,
+  BIP340Cryptosuite, BIP340DataIntegrityProof, BitcoinApiConfig, BitcoinConnection, BitcoinCoreRpcClient,
+  BitcoinRestClient, BlockstoreLike, BlockstoreProviderLike, BroadcastOptions, Btcr2DataIntegrityProof,
+  Btcr2DidDocument, Bytes, CASAnnouncement, CasConfig, CasExecutor, CID, CompressedSecp256k1PublicKey,
+  DataIntegrityProofObject, DataIntegrityProofOptions, Did, DidComponents, DidCreateOptions, DidParams,
+  DidResolutionResult, DidService, DidString, DidUpdateOptions, DidUpdateResult, DidVerificationMethod,
+  DocumentBytes, Entropy, EsploraBlock, ExternalCreateResult, FeeEstimator, FromPublicKey,
+  GenerateKeyOptions, GenesisBeaconSpec, GenesisDocumentSpec, GenesisVerificationMethodSpec, HashBytes,
+  HexString, HttpExecutor, HttpRequest, IdentifierCheck, IdentifierCheckName, IdentifierComponents,
+  IdentifierReport, IdentifierValidateOptions, IdType, ImportKeyOptions, IpfsRpcAuth,
+  IpfsRpcCasExecutorOptions, JSONObject, KeyBytes, KeyIdentifier, KeyManager, KmsSignOptions, Logger,
+  MultibaseObject, Multikey, NetworkName, NetworkPreset, PatchOpCode, PatchOperation, Point,
+  PublicKeyObject, PublishToCasMode, RawTransactionRest, ResolutionOptions, ResolutionResult, RestConfig,
+  RootCapability, RpcConfig, SchnorrKeyPair, SchnorrKeyPairObject, SchnorrMultikey, Secp256k1SecretKey,
+  SecretKeyObject, SecuredDocument, Sidecar, SignalDiscoveryMode, SignatureBytes, SignedBTCR2Update,
+  Signer, SigningScheme, SignOptions, SmtEntry, SMTProof, SmtTree, SourceState, TransactionStatus, TxId,
+  UnsecuredDocument, UnsignedBTCR2Update, UpdateOptions, UpdateSource, VerificationRelationship,
+  VerificationResult, VerifyOptions, Vin, Vout,
+];
+
+/** The runtime values of the api (ADR 132). A new value must be added here on purpose. */
+const RUNTIME_SURFACE = [
+  // The facade and the sub-facade classes
+  'createApi', 'DidBtcr2Api', 'BitcoinApi', 'CasApi', 'CryptoApi', 'CryptosuiteApi',
+  'DataIntegrityProofApi', 'DidApi', 'DidMethodApi', 'KeyManagerApi', 'KeyPairApi', 'MultikeyApi', 'SmtApi',
+  // The configuration classes
+  'BlockstoreCasExecutor', 'HttpGatewayCasExecutor', 'IpfsRpcCasExecutor',
+  // The constants and presets
+  'BEACON_ADDRESS_TYPES', 'BEACON_TYPES', 'DEFAULT_BEACON_ADDRESS_TYPE', 'DEFAULT_BITCOIN_NETWORK_CONFIG',
+  'DEFAULT_CAS_GATEWAY', 'DEFAULT_CAS_TIMEOUT_MS', 'DEFAULT_MIN_CONF', 'NETWORK_PRESETS',
+  'VERIFICATION_RELATIONSHIPS', 'explorerAddressUrl', 'explorerTxUrl', 'faucetUrl',
+  // The error classes
+  'DidDocumentError', 'DidMethodError', 'IdentifierError', 'MethodError', 'ResolveError', 'UpdateError',
+];
 
 /**
- * Index re-export surface test
+ * Index export surface test
  */
-describe('index re-exports', () => {
-  it('exports the signer implementations and their key classes as values', () => {
-    for (const value of [LocalSigner, SchnorrKeyPair, KeyManagerSigner, LocalKeyManager]) {
-      expect(value).to.be.a('function');
+describe('index exports', () => {
+  it('the runtime values are exactly the facade, the configuration classes, the constants, and the errors', () => {
+    expect(Object.keys(surface).sort()).to.deep.equal([...RUNTIME_SURFACE].sort());
+  });
+
+  it('does not export the classes of the lower packages or the internal helpers as values', () => {
+    for (const name of [
+      'Appendix', 'BeaconFactory', 'BeaconUtils', 'BitcoinConnection', 'canonicalHash', 'DidBtcr2',
+      'DidDocument', 'DidDocumentBuilder', 'GenesisDocument', 'Identifier', 'IdentifierTypes', 'JSONPatch',
+      'KeyManagerSigner', 'LocalKeyManager', 'LocalSigner', 'Resolver', 'SchnorrKeyPair', 'Updater',
+      'NOOP_LOGGER', 'assertBytes', 'assertCompressedPubkey', 'assertGenesisDocument', 'assertString',
+      'buildGenesisDocument', 'resolutionErrorCode', 'rootCauseMessage',
+    ]) {
+      expect(surface, name).to.not.have.property(name);
     }
   });
 
-  it('exports the method drivers and BitcoinConnection as values', () => {
-    for (const value of [BeaconFactory, BeaconUtils, DidBtcr2, Resolver, Updater, BitcoinConnection]) {
-      expect(value).to.exist;
-    }
-  });
-
-  it('a signer obtained through the api surface satisfies Signer', () => {
-    const kp = SchnorrKeyPair.generate();
-    const localSigner: Signer = new LocalSigner(kp.secretKey.bytes);
-    const kmsSigner: Signer = new KeyManagerSigner(new LocalKeyManager());
-    expect(localSigner.publicKey).to.be.instanceOf(Uint8Array);
-    expect(kmsSigner).to.exist;
+  it('each type that a public signature uses is nameable from the api package', () => {
+    const witness: SurfaceTypes | undefined = undefined;
+    expect(witness).to.equal(undefined);
   });
 
   it('the two SignOptions shapes are distinct and both nameable', () => {
@@ -131,41 +198,31 @@ describe('index re-exports', () => {
     expect(plainOmitsScheme && kmsCarriesScheme).to.equal(true);
   });
 
-  it('every re-exported type name is usable in type position', () => {
-    const witness: SurfaceTypes | undefined = undefined;
-    expect(witness).to.equal(undefined);
+  it('a signer from the kms sub-facade satisfies Signer', () => {
+    const api = createApi();
+    const id = api.kms.generateKey();
+    const signer: Signer = api.kms.signer(id);
+    expect(signer.publicKey).to.be.instanceOf(Uint8Array);
   });
 
-  it('exports the genesis document builder and its constants as values', () => {
-    expect(buildGenesisDocument).to.be.a('function');
+  it('an error that the facade throws is an instance of the exported error classes', () => {
+    const api = createApi();
+    let caught: unknown;
+    try {
+      api.did.decode('did:btcr2:not-an-identifier');
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).to.be.instanceOf(IdentifierError);
+    expect(caught).to.be.instanceOf(DidMethodError);
+  });
+
+  it('exports the genesis constants as values', () => {
     expect(BEACON_TYPES).to.deep.equal(['SingletonBeacon', 'CASBeacon', 'SMTBeacon']);
     expect(BEACON_ADDRESS_TYPES).to.deep.equal(['p2pkh', 'p2wpkh', 'p2tr']);
     expect(VERIFICATION_RELATIONSHIPS).to.deep.equal([
       'authentication', 'assertionMethod', 'capabilityInvocation', 'capabilityDelegation',
     ]);
     expect(DEFAULT_BEACON_ADDRESS_TYPE).to.equal('p2wpkh');
-  });
-
-  it('exports rootCauseMessage as a value', () => {
-    expect(rootCauseMessage).to.be.a('function');
-    expect(rootCauseMessage(new Error('outer', { cause: new Error('inner') }))).to.equal('inner');
-  });
-
-  it('exports canonicalHash, JSONPatch, and Appendix as values for a vector tool', () => {
-    // JSON Document Hashing is independent of the property order, and the default encoding is base64url.
-    expect(canonicalHash({ b: 1, a: 2 })).to.equal(canonicalHash({ a: 2, b: 1 }));
-    expect(canonicalHash({ a: 2, b: 1 })).to.match(/^[A-Za-z0-9_-]{43}$/);
-
-    const source = { a: 1 };
-    expect(JSONPatch.apply(source, [{ op: 'add', path: '/b', value: 2 }])).to.deep.equal({ a: 1, b: 2 });
-    expect(source).to.deep.equal({ a: 1 });
-
-    const did = 'did:btcr2:k1qqp8n0nx0muaewav2ksx99wwsu9swq5mlndjmn3gm9vl9q2mzmup0xqhmkf96';
-    expect(Appendix.deriveRootCapability(did)).to.deep.equal({
-      '@context'       : 'https://w3id.org/zcap/v1',
-      id               : `urn:zcap:root:${encodeURIComponent(did)}`,
-      controller       : did,
-      invocationTarget : did,
-    });
   });
 });

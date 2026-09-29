@@ -1,4 +1,4 @@
-import type { KeyIdentifier, KeyManager } from '@did-btcr2/key-manager';
+import type { KeyIdentifier, KeyManager } from '@did-btcr2/api';
 import { CLIError } from '../error.js';
 
 /** Extracts the 32-hex fingerprint from a `urn:kms:secp256k1:<hex>` identifier. */

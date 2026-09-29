@@ -1,5 +1,5 @@
 import { DEFAULT_MIN_CONF } from '@did-btcr2/api';
-import type { ResolutionOptions } from '@did-btcr2/method';
+import type { ResolutionOptions } from '@did-btcr2/api';
 import { readFile } from 'node:fs/promises';
 import { CLIError } from './error.js';
 import { readGenesisDocumentFile } from './genesis-document-file.js';

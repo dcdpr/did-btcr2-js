@@ -1,5 +1,4 @@
-import type { DidBtcr2Api } from '@did-btcr2/api';
-import type { KeyManager } from '@did-btcr2/key-manager';
+import type { DidBtcr2Api, KeyManager } from '@did-btcr2/api';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import type { Command } from 'commander';
 import { existsSync } from 'node:fs';

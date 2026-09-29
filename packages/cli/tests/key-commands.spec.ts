@@ -1,4 +1,4 @@
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { createApi } from '@did-btcr2/api';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import type { Command } from 'commander';
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
@@ -92,7 +92,7 @@ describe('key commands', () => {
   });
 
   it('import --public adds a watch-only key', async () => {
-    const pub = bytesToHex(SchnorrKeyPair.generate().publicKey.compressed);
+    const pub = bytesToHex(createApi().crypto.keypair.generate().publicKey.compressed);
     await runKey('import', '--public', pub, '--name', 'watch');
     const result = JSON.parse(out[0]);
     expect(result.watchOnly).to.equal(true);

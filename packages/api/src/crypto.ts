@@ -16,6 +16,7 @@ import {
 import { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import type { KeyIdentifier } from '@did-btcr2/key-manager';
 import type { DidVerificationMethod } from '@web5/dids';
+import { assertCompressedPubkey } from './helpers.js';
 import type { KeyManagerApi } from './key-manager.js';
 
 /**
@@ -38,6 +39,18 @@ export class KeyPairApi {
    */
   fromSecret(data: KeyBytes | HexString): SchnorrKeyPair {
     return SchnorrKeyPair.fromSecret(data);
+  }
+
+  /**
+   * Create a watch-only Schnorr keypair from a compressed public key. The
+   * keypair has no secret key, so it can verify but not sign.
+   * @param data The compressed public key: 33 bytes.
+   * @returns The watch-only keypair.
+   * @throws {Error} If `data` is not a 33-byte compressed public key.
+   */
+  fromPublicKey(data: KeyBytes): SchnorrKeyPair {
+    assertCompressedPubkey(data, 'publicKey');
+    return new SchnorrKeyPair({ publicKey: data });
   }
 
   /** Create a secret key from entropy (bytes or bigint). */

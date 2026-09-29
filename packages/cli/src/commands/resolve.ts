@@ -1,4 +1,4 @@
-import { Identifier } from '@did-btcr2/api';
+import { DidApi } from '@did-btcr2/api';
 import type { Command } from 'commander';
 import { deriveNetwork, type ApiFactory } from '../config.js';
 import { CLIError } from '../error.js';
@@ -7,6 +7,9 @@ import { warnProfileNetworkMismatch } from '../network-option.js';
 import { formatResult } from '../output.js';
 import { MIN_CONF_HELP, parseMinConf, readResolutionOptions, type ResolutionOptionFlags } from '../resolution-options.js';
 import type { GlobalOptions, ResolveCommandOptions } from '../types.js';
+
+/** The offline identifier operations of the api. They need no connection and no key. */
+const didApi = new DidApi();
 
 export function registerResolveCommand(
   program : Command,
@@ -38,7 +41,7 @@ async function validateResolveOptions(
   options: { identifier: string } & ResolutionOptionFlags,
 ): Promise<ResolveCommandOptions> {
   // Validate identifier format early
-  const components = Identifier.decode(options.identifier);
+  const components = didApi.decode(options.identifier);
   assertGenesisDocumentApplies(options, components.hrp);
   const resolutionOptions = await readResolutionOptions(options);
   return { identifier: options.identifier, options: resolutionOptions };

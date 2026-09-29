@@ -1,7 +1,4 @@
 import { createApi, type DidBtcr2Api } from '@did-btcr2/api';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
-import { KeyManagerSigner } from '@did-btcr2/key-manager';
-import { StaticFeeEstimator } from '@did-btcr2/method';
 import type { Command } from 'commander';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -33,7 +30,7 @@ describe('update and deactivate (signing)', () => {
     out = [];
     captured = {};
     console.log = (m?: unknown) => { if (m !== undefined) out.push(String(m)); };
-    did = createApi().createDid('deterministic', SchnorrKeyPair.generate().publicKey.compressed, { network: 'regtest' });
+    did = createApi().createDid('deterministic', createApi().crypto.keypair.generate().publicKey.compressed, { network: 'regtest' });
   });
 
   afterEach(() => {
@@ -41,8 +38,10 @@ describe('update and deactivate (signing)', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  function seedActiveKey(): void {
-    createKeystoreTestApiFactory(keystore, 'pw')().kms.generateKey({ setActive: true });
+  /** Generates the active key of the keystore and returns its public key. */
+  function seedActiveKey(): Uint8Array {
+    const kms = createKeystoreTestApiFactory(keystore, 'pw')().kms;
+    return kms.getPublicKey(kms.generateKey({ setActive: true }));
   }
 
   // A real keystore-backed KeyManager plus stubbed updateDid/deactivateDid
@@ -77,14 +76,14 @@ describe('update and deactivate (signing)', () => {
     ).to.be.rejectedWith(CLIError, /no active key/i);
   });
 
-  it('update resolves the active key, builds a KeyManagerSigner, and calls updateDid', async () => {
-    seedActiveKey();
+  it('update resolves the active key, gets its signer from the kms, and calls updateDid', async () => {
+    const activeKey = seedActiveKey();
     const cli = new DidBtcr2Cli(createTestApiFactory(), stubFactory());
     await sub(cli, 'update').parseAsync(['-i', did, '-p', PATCHES], { from: 'user' });
     expect(captured.method).to.equal('updateDid');
     // No source pair: the source is the DID, and the api resolves it itself.
     expect(captured.source).to.equal(did);
-    expect(captured.signer).to.be.instanceOf(KeyManagerSigner);
+    expect(captured.signer.publicKey).to.deep.equal(activeKey);
     expect(captured.patch).to.deep.equal(JSON.parse(PATCHES));
     expect(captured.options.resolutionOptions).to.equal(undefined);
     // No -m/-b: the api derives the verification method and the beacon (ADR 104).
@@ -136,7 +135,7 @@ describe('update and deactivate (signing)', () => {
 
   it('update refuses a --source-document that describes another DID before it reads any key', async () => {
     // The keystore is empty. A check after key resolution fails with "no active key" instead.
-    const other = createApi().createDid('deterministic', SchnorrKeyPair.generate().publicKey.compressed, { network: 'regtest' });
+    const other = createApi().createDid('deterministic', createApi().crypto.keypair.generate().publicKey.compressed, { network: 'regtest' });
     const cli = new DidBtcr2Cli(createTestApiFactory(), stubFactory());
     await expect(
       sub(cli, 'update').parseAsync(
@@ -263,12 +262,12 @@ describe('update and deactivate (signing)', () => {
   });
 
   it('deactivate calls deactivateDid and sends no patches', async () => {
-    seedActiveKey();
+    const activeKey = seedActiveKey();
     const cli = new DidBtcr2Cli(createTestApiFactory(), stubFactory());
     await sub(cli, 'deactivate').parseAsync(['-i', did], { from: 'user' });
     expect(captured.method).to.equal('deactivateDid');
     expect(captured.source).to.equal(did);
-    expect(captured.signer).to.be.instanceOf(KeyManagerSigner);
+    expect(captured.signer.publicKey).to.deep.equal(activeKey);
     // The api supplies the deactivation patch (ADR 094).
     expect(captured.patch).to.equal(undefined);
     expect(captured.options.announce.publishToCas).to.equal('never');
@@ -315,15 +314,15 @@ describe('update and deactivate (signing)', () => {
     expect(captured.method).to.equal(undefined);
   });
 
-  it('update forwards --fee-rate as a StaticFeeEstimator in the announce options', async () => {
+  it('update forwards --fee-rate as feeRate in the announce options', async () => {
     seedActiveKey();
     const cli = new DidBtcr2Cli(createTestApiFactory(), stubFactory());
     await sub(cli, 'update').parseAsync(
       ['-i', did, '-p', PATCHES, '--fee-rate', '12'],
       { from: 'user' },
     );
-    expect(captured.options.announce.feeEstimator).to.be.instanceOf(StaticFeeEstimator);
-    expect(captured.options.announce.feeEstimator.satsPerVbyte).to.equal(12);
+    expect(captured.options.announce.feeRate).to.equal(12);
+    expect(captured.options.announce).to.not.have.property('feeEstimator');
   });
 
   it('update forwards --change-address in the announce options', async () => {
@@ -340,7 +339,7 @@ describe('update and deactivate (signing)', () => {
     seedActiveKey();
     const cli = new DidBtcr2Cli(createTestApiFactory(), stubFactory());
     await sub(cli, 'update').parseAsync(['-i', did, '-p', PATCHES], { from: 'user' });
-    expect(captured.options.announce).to.not.have.any.keys('feeEstimator', 'changeAddress');
+    expect(captured.options.announce).to.not.have.any.keys('feeRate', 'feeEstimator', 'changeAddress');
   });
 
   it('update rejects an invalid --fee-rate before calling update', async () => {
@@ -355,14 +354,14 @@ describe('update and deactivate (signing)', () => {
     expect(captured.method).to.equal(undefined);
   });
 
-  it('deactivate forwards --fee-rate as a StaticFeeEstimator in the announce options', async () => {
+  it('deactivate forwards --fee-rate as feeRate in the announce options', async () => {
     seedActiveKey();
     const cli = new DidBtcr2Cli(createTestApiFactory(), stubFactory());
     await sub(cli, 'deactivate').parseAsync(
       ['-i', did, '--fee-rate', '7'],
       { from: 'user' },
     );
-    expect(captured.options.announce.feeEstimator.satsPerVbyte).to.equal(7);
+    expect(captured.options.announce.feeRate).to.equal(7);
   });
 });
 
@@ -403,7 +402,7 @@ describe('update/deactivate watch hint (ADR 082)', () => {
   }
 
   const didFor = (network: string): string =>
-    createApi().createDid('deterministic', SchnorrKeyPair.generate().publicKey.compressed, { network: network as never });
+    createApi().createDid('deterministic', createApi().crypto.keypair.generate().publicKey.compressed, { network: network as never });
 
   it('prints a Watch link for the txid on a network with an explorer', async () => {
     const did = didFor('mutinynet');

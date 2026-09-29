@@ -2,10 +2,11 @@ import type { AddressUtxo, BitcoinConnection } from '@did-btcr2/bitcoin';
 import { canonicalHash, canonicalHashBytes, encode, hash, INVALID_DID_UPDATE, MISSING_UPDATE_DATA, UpdateError } from '@did-btcr2/common';
 import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { ID_PLACEHOLDER_VALUE } from '@did-btcr2/method';
-import { p2wpkh } from '@scure/btc-signer';
+import { hexToBytes } from '@noble/hashes/utils.js';
+import { p2wpkh, Transaction } from '@scure/btc-signer';
 import { expect, use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import type { BitcoinApi, CasExecutor, DidUpdateResult } from '../src/index.js';
+import type { AnnounceOptions, BitcoinApi, CasExecutor, DidUpdateResult } from '../src/index.js';
 import { CasApi, createApi, DidMethodApi, MultikeyApi } from '../src/index.js';
 import { network, recorders, TXID, updateArgs, updateFixture } from './support/update-fixtures.js';
 
@@ -474,6 +475,43 @@ describe('DidMethodApi update() CAS publication policy', () => {
 
       expect(feeCalls.length, 'the custom estimator must be consulted').to.be.greaterThan(0);
     });
+
+    it('announce.feeRate gives the same fee as an estimator with that fixed rate', async () => {
+      const fixture = updateFixture('SingletonBeacon');
+      const methodApi = new DidMethodApi();
+      const fee = async (announce: AnnounceOptions): Promise<bigint> => {
+        const { order, counters } = recorders();
+        await methodApi.update(...updateArgs(fixture, order, counters, { announce: { publishToCas: 'never', ...announce } }));
+        const tx = Transaction.fromRaw(hexToBytes(counters.sent[0]), { allowUnknownOutputs: true });
+        let spent = 0n;
+        for (let i = 0; i < tx.outputsLength; i++) spent += tx.getOutput(i).amount ?? 0n;
+        return 100_000n - spent;
+      };
+
+      const byRate = await fee({ feeRate: 7 });
+      const byEstimator = await fee({ feeEstimator: { estimateFee: async (vsize: number) => BigInt(Math.ceil(vsize * 7)) } });
+      expect(byRate > 0n, 'the fee must be positive').to.equal(true);
+      expect(byRate).to.equal(byEstimator);
+    });
+
+    it('refuses announce.feeRate together with announce.feeEstimator, before any read', async () => {
+      const fixture = updateFixture('SingletonBeacon');
+      const { order, counters } = recorders();
+      const feeEstimator = { estimateFee: async () => 1000n };
+      await expect(new DidMethodApi().update(...updateArgs(fixture, order, counters, { announce: { feeRate: 5, feeEstimator } })))
+        .to.be.rejectedWith(UpdateError, 'not both');
+      expect(counters.utxoCalls).to.equal(0);
+    });
+
+    for (const feeRate of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, '5' as unknown as number]) {
+      it(`refuses announce.feeRate ${String(feeRate)}`, async () => {
+        const fixture = updateFixture('SingletonBeacon');
+        const { order, counters } = recorders();
+        await expect(new DidMethodApi().update(...updateArgs(fixture, order, counters, { announce: { feeRate } })))
+          .to.be.rejectedWith(UpdateError, 'must be a positive finite number');
+        expect(counters.utxoCalls).to.equal(0);
+      });
+    }
   });
 
   describe('DidBtcr2Api.updateDid passthrough', () => {

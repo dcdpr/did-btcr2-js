@@ -1,4 +1,4 @@
-import { DidMethodError } from '@did-btcr2/common';
+import { DidMethodError } from '@did-btcr2/api';
 
 /**
  * Error raised by the CLI keystore layer: secret-envelope encryption and

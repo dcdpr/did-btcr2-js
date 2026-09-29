@@ -1,5 +1,4 @@
-import type { KeyManager } from '@did-btcr2/key-manager';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import type { KeyManager } from '@did-btcr2/api';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 import type { Command } from 'commander';
 import { closeSync, openSync, readFileSync, writeFileSync } from 'node:fs';
@@ -78,8 +77,8 @@ export function registerKeyCommand(
       const api = factory(undefined, globals());
       assertNameAvailable(api.kms.kms, options.name);
       const keyPair = options.secretFile
-        ? new SchnorrKeyPair({ secretKey: readHexFile(options.secretFile, 32, '--secret-file') })
-        : new SchnorrKeyPair({ publicKey: parseHex(options.public ?? '', 33, '--public') });
+        ? api.crypto.keypair.fromSecret(readHexFile(options.secretFile, 32, '--secret-file'))
+        : api.crypto.keypair.fromPublicKey(parseHex(options.public ?? '', 33, '--public'));
       const setActive = options.setActive ?? false;
       const id = api.kms.import(keyPair, { ...(options.name && { tags: { name: options.name } }), setActive });
       print({ action: 'key-import', data: { keyId: id, publicKey: bytesToHex(api.kms.getPublicKey(id)), watchOnly: !options.secretFile, active: setActive } });

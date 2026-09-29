@@ -150,6 +150,9 @@ importers:
       '@did-btcr2/method':
         specifier: workspace:^
         version: link:../method
+      '@did-btcr2/smt':
+        specifier: workspace:^
+        version: link:../smt
       '@web5/dids':
         specifier: ^1.2.0
         version: 1.2.0
@@ -157,9 +160,6 @@ importers:
         specifier: ^13.3.1
         version: 13.4.1
     devDependencies:
-      '@did-btcr2/smt':
-        specifier: workspace:^
-        version: link:../smt
       '@eslint/js':
         specifier: ^9.22.0
         version: 9.35.0
@@ -293,18 +293,9 @@ importers:
       '@did-btcr2/api':
         specifier: workspace:^
         version: link:../api
-      '@did-btcr2/common':
-        specifier: workspace:^
-        version: link:../common
       '@did-btcr2/key-manager':
         specifier: workspace:^
         version: link:../key-manager
-      '@did-btcr2/keypair':
-        specifier: workspace:^
-        version: link:../keypair
-      '@did-btcr2/method':
-        specifier: workspace:^
-        version: link:../method
       '@noble/ciphers':
         specifier: ^2.1.1
         version: 2.1.1
@@ -314,9 +305,6 @@ importers:
       '@scure/base':
         specifier: ^1.2.6
         version: 1.2.6
-      '@web5/dids':
-        specifier: ^1.2.0
-        version: 1.2.0
       commander:
         specifier: ^13.1.0
         version: 13.1.0

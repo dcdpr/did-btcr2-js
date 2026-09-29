@@ -1,27 +1,38 @@
-import { canonicalHashBytes } from '@did-btcr2/common';
-import { GenesisDocument, Identifier } from '@did-btcr2/api';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { createApi } from '@did-btcr2/api';
 import { bytesToHex } from '@noble/hashes/utils.js';
+import { base64urlnopad } from '@scure/base';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DidBtcr2Cli } from '../src/cli.js';
 import { createTestApiFactory, expect, originalConsoleError, originalConsoleLog } from './helpers.js';
 
+/** The api of the fixtures: offline, with no connection and no key. */
+const sdk = createApi();
+
+/** The JSON Document Hash of a document as bytes: the genesis bytes of an EXTERNAL identifier. */
+function hashBytes(document: object): Uint8Array {
+  return base64urlnopad.decode(sdk.btcr2.hashDocument(document));
+}
+
 /** The check names of a valid identifier with no genesis document, in run order. */
 const CHECKS = ['prefix', 'lowercase', 'bech32m', 'version', 'network', 'genesisBytes', 'roundTrip'];
 
 /** A KEY identifier on regtest. */
 function keyDid(): string {
-  const keyPair = SchnorrKeyPair.generate();
-  return Identifier.encode(keyPair.publicKey.compressed, { idType: 'KEY', network: 'regtest' });
+  const keyPair = sdk.crypto.keypair.generate();
+  return sdk.did.encode(keyPair.publicKey.compressed, { idType: 'KEY', network: 'regtest' });
 }
 
 /** A genesis document and the EXTERNAL identifier on regtest that encodes its hash. */
 function externalFixture(): { did: string; document: object } {
-  const keyPair = SchnorrKeyPair.generate();
-  const document = JSON.parse(JSON.stringify(GenesisDocument.fromPublicKey(keyPair.publicKey.compressed, 'regtest')));
-  const did = Identifier.encode(canonicalHashBytes(document), { idType: 'EXTERNAL', network: 'regtest' });
+  const keyPair = sdk.crypto.keypair.generate();
+  const document = JSON.parse(JSON.stringify(sdk.btcr2.buildGenesisDocument({
+    network             : 'regtest',
+    verificationMethods : [{ publicKey: keyPair.publicKey.compressed }],
+    beacons             : [{ type: 'SingletonBeacon', publicKey: keyPair.publicKey.compressed, addressType: 'p2pkh' }],
+  })));
+  const did = sdk.did.encode(hashBytes(document), { idType: 'EXTERNAL', network: 'regtest' });
   return { did, document };
 }
 
@@ -235,8 +246,8 @@ describe('identifier commands', () => {
     });
 
     it('passes the public key of a KEY identifier with -b', async () => {
-      const keyPair = SchnorrKeyPair.generate();
-      const did = Identifier.encode(keyPair.publicKey.compressed, { idType: 'KEY', network: 'regtest' });
+      const keyPair = sdk.crypto.keypair.generate();
+      const did = sdk.did.encode(keyPair.publicKey.compressed, { idType: 'KEY', network: 'regtest' });
       await run('-o', 'json', 'identifier', 'validate', did, '-b', bytesToHex(keyPair.publicKey.compressed));
       const { data } = JSON.parse(out[0]);
       expect(data.valid).to.equal(true);
@@ -246,7 +257,7 @@ describe('identifier commands', () => {
 
     it('passes the genesis document hash of an EXTERNAL identifier with --bytes', async () => {
       const { did, document } = externalFixture();
-      await run('-o', 'json', 'identifier', 'validate', did, '--bytes', bytesToHex(canonicalHashBytes(document)));
+      await run('-o', 'json', 'identifier', 'validate', did, '--bytes', bytesToHex(hashBytes(document)));
       const { data } = JSON.parse(out[0]);
       expect(data.valid).to.equal(true);
       expect(data.checks[data.checks.length - 1]).to.include({ name: 'genesisBytesMatch', ok: true });
@@ -254,7 +265,7 @@ describe('identifier commands', () => {
 
     it('fails the genesisBytesMatch check for other bytes and sets exit code 1', async () => {
       const did = keyDid();
-      await run('-o', 'json', 'identifier', 'validate', did, '-b', bytesToHex(SchnorrKeyPair.generate().publicKey.compressed));
+      await run('-o', 'json', 'identifier', 'validate', did, '-b', bytesToHex(sdk.crypto.keypair.generate().publicKey.compressed));
       const { data } = JSON.parse(out[0]);
       expect(data.valid).to.equal(false);
       expect(data.checks[data.checks.length - 1]).to.include({ name: 'genesisBytesMatch', ok: false });

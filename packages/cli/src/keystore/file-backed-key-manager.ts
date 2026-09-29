@@ -1,4 +1,4 @@
-import type { Bytes, HashBytes, KeyBytes, SignatureBytes } from '@did-btcr2/common';
+import type { Bytes, HashBytes, KeyBytes, SchnorrKeyPair, SignatureBytes } from '@did-btcr2/api';
 import {
   LocalKeyManager,
   type GenerateKeyOptions,
@@ -8,7 +8,6 @@ import {
   type SignOptions,
   type VerifyOptions,
 } from '@did-btcr2/key-manager';
-import type { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { FileKeyStore, type FileKeyStoreOptions } from './file-key-store.js';
 
 /**

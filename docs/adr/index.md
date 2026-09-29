@@ -209,3 +209,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 129 | 2026-09-28 | [defaults.cas, One CAS Endpoint for All Networks](129-defaults-cas-one-cas-endpoint-for-all-networks.md) |
 | 130 | 2026-09-28 | [create Prints Only the Identifier, and validate Has a Quiet Form](130-create-prints-only-the-identifier-and-validate-has-a-quiet-form.md) |
 | 131 | 2026-09-29 | [The Network of the Active Profile Wins over defaults.network](131-network-of-the-active-profile-wins-over-defaults-network.md) |
+| 132 | 2026-09-29 | [The api Exports Only Its Facade, and a Sub-facade Function Does Each CRUD Step](132-the-api-exports-only-its-facade-and-a-sub-facade-function-does-each-crud-step.md) |

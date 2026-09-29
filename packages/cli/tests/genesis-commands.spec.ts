@@ -1,8 +1,6 @@
-import { canonicalHashBytes } from '@did-btcr2/common';
-import { createApi, GenesisDocument, Identifier } from '@did-btcr2/api';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
-import { BeaconUtils } from '@did-btcr2/method';
+import { createApi } from '@did-btcr2/api';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
+import { base64urlnopad } from '@scure/base';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,28 +9,42 @@ import { collectGenesisSpec } from '../src/genesis-wizard.js';
 import type { WizardContext } from '../src/genesis-wizard.js';
 import { createKeystoreTestApiFactory, createTestApiFactory, expect, originalConsoleError, originalConsoleLog } from './helpers.js';
 
+/** The api of the fixtures: offline, with no connection and no key. */
+const sdk = createApi();
+
+/** The JSON Document Hash of a document as bytes: the genesis bytes of an EXTERNAL identifier. */
+function hashBytes(document: object): Uint8Array {
+  return base64urlnopad.decode(sdk.btcr2.hashDocument(document));
+}
+
 /** A fresh 33-byte compressed public key as hex. */
 function publicKeyHex(): string {
-  return bytesToHex(SchnorrKeyPair.generate().publicKey.compressed);
+  return bytesToHex(sdk.crypto.keypair.generate().publicKey.compressed);
 }
 
 /** A genesis document and the EXTERNAL identifier on regtest that encodes its hash. */
 function externalFixture(): { did: string; document: object } {
-  const keyPair = SchnorrKeyPair.generate();
-  const document = JSON.parse(JSON.stringify(GenesisDocument.fromPublicKey(keyPair.publicKey.compressed, 'regtest')));
-  const did = Identifier.encode(canonicalHashBytes(document), { idType: 'EXTERNAL', network: 'regtest' });
+  const keyPair = sdk.crypto.keypair.generate();
+  const document = JSON.parse(JSON.stringify(sdk.btcr2.buildGenesisDocument({
+    network             : 'regtest',
+    verificationMethods : [{ publicKey: keyPair.publicKey.compressed }],
+    beacons             : [{ type: 'SingletonBeacon', publicKey: keyPair.publicKey.compressed, addressType: 'p2pkh' }],
+  })));
+  const did = sdk.did.encode(hashBytes(document), { idType: 'EXTERNAL', network: 'regtest' });
   return { did, document };
 }
 
 /** A KEY identifier on regtest. */
 function keyDid(): string {
-  return Identifier.encode(SchnorrKeyPair.generate().publicKey.compressed, { idType: 'KEY', network: 'regtest' });
+  return sdk.did.encode(sdk.crypto.keypair.generate().publicKey.compressed, { idType: 'KEY', network: 'regtest' });
 }
 
 /** The P2TR address of a public key on regtest, derived through the KEY identifier of that key. */
 function p2trAddress(publicKey: Uint8Array): string {
-  const did = Identifier.encode(publicKey, { idType: 'KEY', network: 'regtest' });
-  return BeaconUtils.createBeaconService(did, 'p2tr', 'SingletonBeacon').serviceEndpoint.replace(/^bitcoin:/, '');
+  const did = sdk.did.encode(publicKey, { idType: 'KEY', network: 'regtest' });
+  const beacon = sdk.btcr2.getBeacons(sdk.btcr2.getInitialDocument(did)).find(b => b.id.endsWith('#initialP2TR'));
+  if (!beacon) throw new Error(`no #initialP2TR beacon for ${did}`);
+  return beacon.address;
 }
 
 describe('genesis commands', () => {
@@ -99,8 +111,8 @@ describe('genesis commands', () => {
       expect(document.verificationMethod[0].id).to.equal('did:btcr2:_#key-0');
       expect(document.service[0].serviceEndpoint).to.equal(`bitcoin:${result.data.beacons[0].address}`);
       // The identifier encodes the hash of the file as written.
-      expect(bytesToHex(canonicalHashBytes(document))).to.equal(result.data.genesisBytes);
-      expect(bytesToHex(Identifier.decode(result.data.did).genesisBytes)).to.equal(result.data.genesisBytes);
+      expect(bytesToHex(hashBytes(document))).to.equal(result.data.genesisBytes);
+      expect(bytesToHex(sdk.did.decode(result.data.did).genesisBytes)).to.equal(result.data.genesisBytes);
     });
 
     it('the written document passes identifier validate and reproduces the identifier through create', async () => {
@@ -121,7 +133,7 @@ describe('genesis commands', () => {
     it('resolves keystore references by name, and takes beacons and services from the spec', async () => {
       await run('-o', 'json', 'key', 'generate', '--name', 'alice');
       await run('-o', 'json', 'key', 'generate', '--name', 'bob');
-      const cohort = p2trAddress(SchnorrKeyPair.generate().publicKey.compressed);
+      const cohort = p2trAddress(sdk.crypto.keypair.generate().publicKey.compressed);
       const spec = writeJson('spec.json', {
         verificationMethods : [
           { key: 'alice', relationships: ['authentication', 'capabilityInvocation'] },
@@ -163,7 +175,7 @@ describe('genesis commands', () => {
       const data = JSON.parse(out[0]);
       expect(data.network).to.equal('mutinynet');
       expect(data.beacons[0].address).to.match(/^tb1q/);
-      expect(Identifier.decode(data.did).network).to.equal('mutinynet');
+      expect(sdk.did.decode(data.did).network).to.equal('mutinynet');
       const stderr = err.join('');
       expect(stderr).to.include(`Wrote the genesis document to ${outPath}`);
       expect(stderr).to.include('Fund the initial beacon');
@@ -365,7 +377,7 @@ describe('genesis commands', () => {
       const result = JSON.parse(out[0]);
       expect(result.action).to.equal('create');
       expect(result.data).to.equal(did);
-      expect(result.genesisBytes).to.equal(bytesToHex(canonicalHashBytes(document)));
+      expect(result.genesisBytes).to.equal(bytesToHex(hashBytes(document)));
     });
 
     it('prints the identifier alone in text mode, with no funding hint', async () => {

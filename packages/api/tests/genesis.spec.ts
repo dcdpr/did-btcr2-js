@@ -4,10 +4,10 @@ import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { deriveSingletonAddress, GenesisDocument, Identifier } from '@did-btcr2/method';
 import { getNetwork } from '@did-btcr2/bitcoin';
 import { bytesToHex } from '@noble/hashes/utils.js';
+import { buildGenesisDocument } from '../src/genesis.js';
 import {
   BEACON_ADDRESS_TYPES,
   BEACON_TYPES,
-  buildGenesisDocument,
   DEFAULT_BEACON_ADDRESS_TYPE,
   DidMethodApi,
   VERIFICATION_RELATIONSHIPS,

@@ -1,10 +1,11 @@
 import type { BitcoinConnection, NetworkName } from '@did-btcr2/bitcoin';
+import { StaticFeeEstimator } from '@did-btcr2/bitcoin';
 import type { DocumentBytes, HashBytes, KeyBytes, PatchOperation } from '@did-btcr2/common';
-import { decode as decodeHash, IdentifierHrp, IdentifierTypes, INVALID_DID_UPDATE, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/common';
+import { canonicalHash, decode as decodeHash, IdentifierHrp, IdentifierTypes, INVALID_DID_UPDATE, JSONPatch, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/common';
 import type { Signer } from '@did-btcr2/keypair';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
-import type { BeaconService, BroadcastOptions, BroadcastResult, Btcr2DidDocument, CASAnnouncement, CASBroadcastOptions, DidCreateOptions, DidDocument, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, ResolutionOptions, SignedBTCR2Update, SMTProof } from '@did-btcr2/method';
-import { BeaconError, BeaconFactory, BeaconSignalDiscovery, BeaconUtils, DEACTIVATION_PATCH, DidBtcr2, GenesisDocument, Identifier, Resolver, selectSpendableUtxo } from '@did-btcr2/method';
+import type { BeaconService, BroadcastOptions, BroadcastResult, Btcr2DidDocument, CASAnnouncement, CASBroadcastOptions, DidCreateOptions, DidDocument, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, ResolutionOptions, RootCapability, SignedBTCR2Update, SMTProof, UnsignedBTCR2Update } from '@did-btcr2/method';
+import { Appendix, BeaconError, BeaconFactory, BeaconSignalDiscovery, BeaconUtils, DEACTIVATION_PATCH, DidBtcr2, GenesisDocument, Identifier, Resolver, selectSpendableUtxo, Updater } from '@did-btcr2/method';
 import type { DidResolutionResult, DidVerificationMethod } from '@web5/dids';
 import type { BitcoinApi } from './bitcoin.js';
 import type { CasApi } from './cas.js';
@@ -124,6 +125,12 @@ export interface AnnounceOptions extends BroadcastOptions {
   publishToCas?: PublishToCasMode;
   /** The Bitcoin connection of the announcement. Default: the connection of the api. */
   bitcoin?: BitcoinConnection;
+  /**
+   * A fixed fee rate of the beacon transaction, in satoshis for each virtual
+   * byte. It must be a positive finite number. Do not set it together with
+   * `feeEstimator`.
+   */
+  feeRate?: number;
 }
 
 /**
@@ -375,6 +382,101 @@ export class DidMethodApi {
   }
 
   /**
+   * The "Construct BTCR2 Unsigned Update" step of the specification, with zero
+   * I/O. The api applies the patch to the source document, validates the target
+   * document, and computes `sourceHash` and `targetHash`. The target version is
+   * `source.versionId + 1`.
+   *
+   * Use this step and {@link DidMethodApi.signUpdate} to make a signed update
+   * without an announcement, for example for a test vector or for an aggregate
+   * beacon. {@link DidMethodApi.update} does all steps and broadcasts.
+   * @param source The source document and the `versionId` that its resolution returned.
+   * @param patch The JSON Patch operations that change the source document.
+   * @returns The unsigned update.
+   * @throws {UpdateError} If the patch does not give a valid DID document.
+   */
+  constructUpdate(source: SourceState, patch: PatchOperation[]): UnsignedBTCR2Update {
+    if (source === null || typeof source !== 'object') {
+      throw new Error('source must be an object.');
+    }
+    return Updater.construct(source.document, patch, source.versionId);
+  }
+
+  /**
+   * The "Construct BTCR2 Signed Update" step of the specification, with zero
+   * I/O. The api makes sure that the verification method publishes the key of
+   * the signer. Then it adds a Data Integrity proof that invokes the root
+   * capability of the DID.
+   * @param did The DID that the update changes.
+   * @param unsignedUpdate The result of {@link DidMethodApi.constructUpdate}.
+   * @param verificationMethod The verification method that signs the update.
+   * @param signer The signer with the key of the verification method.
+   * @returns The signed update.
+   * @throws {UpdateError} If the DID, the verification method, or the signer is not valid.
+   */
+  signUpdate(
+    did: string,
+    unsignedUpdate: UnsignedBTCR2Update,
+    verificationMethod: DidVerificationMethod,
+    signer: Signer,
+  ): SignedBTCR2Update {
+    assertString(did, 'did');
+    const publicKeyMultibase = verificationMethod?.publicKeyMultibase;
+    if(!publicKeyMultibase) {
+      throw new UpdateError(
+        'The verification method must have a publicKeyMultibase: the api compares it with the key of the signer.',
+        INVALID_DID_UPDATE, { verificationMethodId: verificationMethod?.id }
+      );
+    }
+    return Updater.sign(did, unsignedUpdate, { ...verificationMethod, publicKeyMultibase }, signer);
+  }
+
+  /**
+   * The "JSON Document Hashing" algorithm of the specification: the JCS
+   * canonical form, SHA-256, and base64url with no padding. `sourceHash` and
+   * `targetHash` of an update, the `updateId` of an SMT proof, and a CAS key
+   * use this form.
+   * @param document The JSON document.
+   * @returns The hash, base64url with no padding.
+   */
+  hashDocument(document: object): string {
+    if (document === null || typeof document !== 'object') {
+      throw new Error('document must be an object.');
+    }
+    return canonicalHash(document);
+  }
+
+  /**
+   * Apply JSON Patch operations to a document, with zero I/O. The source
+   * document does not change. The first operation that fails, a failed `test`
+   * included, fails the whole patch, as in an update. For a DID document, the
+   * result is the target document of an update with this patch. The api does
+   * not validate the result as a DID document; {@link DidMethodApi.constructUpdate} does.
+   * @param document The source document.
+   * @param patch The JSON Patch operations.
+   * @returns A new document with the operations applied.
+   * @throws {MethodError} `JSON_PATCH_APPLY_ERROR` if an operation is not valid or does not apply.
+   */
+  applyPatch(document: object, patch: PatchOperation[]): Record<string, unknown> {
+    if (document === null || typeof document !== 'object') {
+      throw new Error('document must be an object.');
+    }
+    return JSONPatch.apply(document, patch, { strict: true });
+  }
+
+  /**
+   * The root capability of a DID, as the "Derive Root Capability from
+   * did:btcr2 Identifier" algorithm of the specification gives it. The proof
+   * of each update invokes this capability.
+   * @param did The DID.
+   * @returns The root capability.
+   */
+  rootCapability(did: string): RootCapability {
+    assertString(did, 'did');
+    return Appendix.deriveRootCapability(did);
+  }
+
+  /**
    * Resolve a DID by driving the sans-I/O `Resolver` state machine (from @did-btcr2/method).
    * If a Bitcoin connection is configured on the API, it is used automatically
    * to fetch beacon signals. Sidecar data flows through `options.sidecar`.
@@ -595,9 +697,9 @@ export class DidMethodApi {
    * api refuses the update. If several match, the api refuses the update and
    * names the candidates.
    *
-   * For multi-party aggregation of SMT/CAS beacons, the caller should drive the
-   * Updater directly and delegate `NeedBroadcast` to the aggregation runner
-   * rather than using this high-level method.
+   * For multi-party aggregation of SMT/CAS beacons, do not use this method. Make
+   * the signed update with {@link DidMethodApi.constructUpdate} and
+   * {@link DidMethodApi.signUpdate}, and give it to the aggregation service.
    *
    * @param source The source document and the `versionId` that its resolution returned.
    * @param patch The JSON Patch document: the operations that change the source document.
@@ -618,10 +720,27 @@ export class DidMethodApi {
       signer: beaconSigner = signer,
       publishToCas = 'never',
       bitcoin,
+      feeRate,
       ...broadcastOptions
     } = options.announce ?? {};
     let beaconId = announceBeaconId;
     let verificationMethodId = options.verificationMethodId;
+
+    if(feeRate !== undefined) {
+      if(broadcastOptions.feeEstimator) {
+        throw new UpdateError(
+          'Set `announce.feeRate` or `announce.feeEstimator`, not both.',
+          INVALID_DID_UPDATE, { feeRate }
+        );
+      }
+      if(typeof feeRate !== 'number' || !Number.isFinite(feeRate) || feeRate <= 0) {
+        throw new UpdateError(
+          `\`announce.feeRate\` must be a positive finite number of sats/vB; got ${String(feeRate)}.`,
+          INVALID_DID_UPDATE, { feeRate }
+        );
+      }
+      broadcastOptions.feeEstimator = new StaticFeeEstimator(feeRate);
+    }
 
     // A deactivated document takes no further update: resolution halts at the
     // deactivation, so anything signed and broadcast on top of it spends a

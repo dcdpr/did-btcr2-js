@@ -11,11 +11,7 @@
   },
   "include": ["src", "bin/btcr2.ts"],
   "references": [
-    { "path": "../common" },
-    { "path": "../cryptosuite" },
     { "path": "../key-manager" },
-    { "path": "../keypair" },
-    { "path": "../method" },
     { "path": "../api" }
   ]
 }
