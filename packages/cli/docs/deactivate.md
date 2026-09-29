@@ -4,10 +4,12 @@ Deactivates a did:btcr2 identifier. This is permanent, and there is no undo. The
 
 The command resolves the current document from the network, or it takes the source pair that you supply. It signs the update with a key from the keystore. It publishes the artifacts to a writable CAS if you ask for it. Then it broadcasts a beacon signal transaction on the Bitcoin network that the identifier encodes. The command shares the write path of `update` from end to end: the same funded beacon, the same signature and session behavior, and the same `--publish-to-cas`, `--fee-rate`, and `--change-address` flags. Use it only if you are certain that the identifier must reach its final state. `delete` is an alias.
 
+The identifier record in `<home>/dids.json` works as in `update` (ADR 133). `-i` accepts the name of a record. The signing key of the record signs if `--signing-key` is absent. The sidecar data of the record feeds the source resolution. After the broadcast, the command adds the signing key, the transaction, and the sidecar data to the record, and marks the record `deactivated: true`. See [identifier.md](./identifier.md#identifier-records).
+
 ## Synopsis
 
 ```
-btcr2 deactivate -i <did> [--signing-key <ref>]
+btcr2 deactivate -i <did|name> [--signing-key <ref>]
                  [-s <doc-json> --source-version-id <n>] [-m <vm-id>] [-b <beacon-id>]
                  [-r <json> | --resolution-options-path <path>] [--min-conf <n>]
                  [--genesis-document <path>]
@@ -25,13 +27,13 @@ There are no subcommands.
 
 | Flag | Value | Default | Description |
 |------|-------|---------|-------------|
-| `-i, --identifier <identifier>` | A `did:btcr2:...` identifier. The command reads the network from it. An identifier with an unsupported network fails with `Unsupported network "..." in DID.` | (required) | The identifier to deactivate. It drives the network, the mainnet keystore guard, and the resolution of the current document. A supplied `-s` document must carry this identifier as its `id`. The api refuses a mismatch before it signs. |
+| `-i, --identifier <identifier>` | A `did:btcr2:...` identifier, or the name of an identifier record. A value that does not start with `did:` is a name. An unknown name fails with `No identifier record has the name "<name>". An identifier starts with "did:btcr2:".` The command reads the network from the identifier. An identifier with an unsupported network fails with `Unsupported network "..." in DID.` | (required) | The identifier to deactivate. It drives the network, the mainnet keystore guard, the identifier record, and the resolution of the current document. A supplied `-s` document must carry this identifier as its `id`. The api refuses a mismatch before it signs. |
 | `-s, --source-document <json>` | A JSON object (the current DID document). The command parses it with `JSON.parse` at parse time and refuses invalid JSON (`INVALID_ARGUMENT_ERROR`). It requires `--source-version-id`. | none | The document to deactivate. Omit both `-s` and `--source-version-id`, and the command resolves the current document first. Supply both for an offline source, or if you already hold large sidecar data. |
 | `--source-version-id <number>` | Digits only (`/^\d+$/`): a non-negative integer. The command refuses `-1`, `1.5`, or `2a` at parse time (`INVALID_ARGUMENT_ERROR`). It requires `--source-document`. | none | The version id of the source document. The deactivation becomes version `n + 1`. |
-| `--signing-key <ref>` | A key reference: a key URN (`urn:kms:secp256k1:<32-hex>`), a unique key `name` tag, or a unique fingerprint prefix. | the `identity.default` of the active profile, else the active key | The key that signs the deactivation. The resolution of the reference reads public material only. No match, or more than one match, fails the command before any signature. |
+| `--signing-key <ref>` | A key reference: a key URN (`urn:kms:secp256k1:<32-hex>`), a unique key `name` tag, or a unique fingerprint prefix. | the signing key of the identifier record, else the `identity.default` of the active profile, else the active key | The key that signs the deactivation. The resolution of the reference reads public material only. No match, or more than one match, fails the command before any signature. |
 | `-m, --verification-method-id <id>` | A verification method id that an entry of the `capabilityInvocation` list of the document identifies, as a reference or as an embedded method (ADR 112). The api checks it before it constructs the update. An absolute DID URL (`did:btcr2:...#initialKey`) and a relative DID URL (`#initialKey`) are both valid. The api resolves the id against the source document before the match. | derived | The verification method that signs the deactivation. Its key must be in the keystore. Without the flag, the api selects the one method whose `publicKeyMultibase` is the signing key (ADR 104). The api refuses zero candidates and more than one candidate, and it names them. Pass the flag to select one. |
 | `-b, --beacon-id <id>` | A DID URL that names a beacon service `id` in the source document, in the absolute or the relative form. The value is a plain string, not JSON. | derived | The beacon service whose Bitcoin address broadcasts the deactivation signal. Without the flag, the api selects the only beacon of the document, else the one beacon with a spendable UTXO (ADR 104). The api refuses zero funded beacons and more than one funded beacon, and it names them. Pass the flag to select one. |
-| `-r, --resolution-options <json>` | Resolution options as a JSON string, with the shape of `btcr2 resolve -r`. The command refuses invalid JSON (`INVALID_ARGUMENT_ERROR`). Not valid with the source pair. | none | Feeds the resolution of the current document. Supply sidecar data here if a prior update of the identifier is not in a CAS. |
+| `-r, --resolution-options <json>` | Resolution options as a JSON string, with the shape of `btcr2 resolve -r`. The command refuses invalid JSON (`INVALID_ARGUMENT_ERROR`). Not valid with the source pair. | none | Feeds the resolution of the current document. Supply sidecar data here if a prior update of the identifier is not in a CAS and not in the identifier record. The sidecar data of the record joins these options, and the sidecar data of the flag wins. |
 | `--resolution-options-path <path>` | The path of a JSON file with resolution options. `-r` wins if both are present. Not valid with the source pair. | none | The file form of `-r`. There is no short form. The flag set mirrors `update`, where `-p` is `--patches`. |
 | `--min-conf <n>` | A positive integer (minimum 1). The command refuses another value at parse time (`INVALID_ARGUMENT_ERROR`). Not valid with the source pair. | `6` (the specification value) | The minimum number of block confirmations that a beacon signal needs before the source resolution applies it (ADR 105). The flag overrides a `minConf` inside `-r` or the options file. Pass `1` to build on an update with one confirmation. |
 | `--genesis-document <path>` | The path of the JSON genesis document of an external (`x`) identifier. The command refuses an unreadable file or invalid JSON (`INVALID_ARGUMENT_ERROR`). It refuses the flag for a `k` identifier. Not valid with the source pair. | none | Fills `sidecar.genesisDocument` of the resolution options. The flag wins over a value inside `-r` or the options file. Use it if the genesis document is not in a CAS (ADR 108). |
@@ -43,7 +45,8 @@ There are no subcommands.
 Behavior that the `--help` text does not show:
 
 - The network is never a flag. The command decodes it from the identifier (`-i`). The supported networks are `bitcoin`, `testnet3`, `testnet4`, `signet`, `mutinynet`, and `regtest`. Any other encoded network fails with `INVALID_ARGUMENT_ERROR`.
-- Source resolution: without the source pair, the command resolves the identifier first, through the same path as `btcr2 resolve`. That resolution needs the sidecar data of each prior update that is not in a CAS. Pass it with `-r` or `--resolution-options-path`. The resolution applies `--min-conf` (default six). An external (`x`) identifier also needs its genesis document. Pass it with `--genesis-document` if it is not in a CAS. The command refuses a half pair before it reads any key: `Provide both --source-document and --source-version-id, or neither.` It also refuses a `-s` document whose `id` is not the identifier: `--source-document has the id <id>, but the identifier under update is <did>.` The command refuses the four resolution flags with the pair: `... apply only when --source-document and --source-version-id are omitted.`
+- Source resolution: without the source pair, the command resolves the identifier first, through the same path as `btcr2 resolve`. That resolution needs the sidecar data of each prior update that is not in a CAS. The identifier record supplies the sidecar data of each update that the CLI made or that `identifier add --sidecar` added. Pass other sidecar data with `-r` or `--resolution-options-path`. The resolution applies `--min-conf` (default six). An external (`x`) identifier also needs its genesis document. Pass it with `--genesis-document` if it is not in a CAS. The command refuses a half pair before it reads any key: `Provide both --source-document and --source-version-id, or neither.` It also refuses a `-s` document whose `id` is not the identifier: `--source-document has the id <id>, but the identifier under update is <did>.` The command refuses the four resolution flags with the pair: `... apply only when --source-document and --source-version-id are omitted.`
+- Sidecar data of the identifier record (ADR 133): without the source pair, the sidecar data of the record joins the options of the source resolution. The sidecar data of the flags wins. The genesis document of `--genesis-document`, `-r`, or the options file wins over the record. The arrays (`updates`, `casUpdates`, `smtProofs`) hold the entries of the flags, then the entries of the record. Two entries with the same canonical hash are one entry. A supplied source pair skips the resolution, so the command does not use the sidecar data of the record. A malformed records file stops the command before it reads any key.
 - Mainnet guard (ADR 080): if the network of the identifier is `bitcoin` and the resolved keystore is a dev keystore, the command refuses (`DEV_KEYSTORE_MAINNET_ERROR`) before it touches any key material.
 - Derivation (ADR 104): without `-m`, the api selects the one verification method whose `publicKeyMultibase` is the signing key. Without `-b`, the api selects the only beacon, else the one beacon with a spendable UTXO. The api refuses zero candidates and more than one candidate with a message that names them. Pass `-m` or `-b` to select.
 - Deactivated source (ADR 100): the api refuses a source document with `deactivated: true`, supplied or resolved, before it signs. The api supplies the deactivation patch itself (ADR 094).
@@ -54,11 +57,12 @@ Behavior that the `--help` text does not show:
 
 - Text mode (default): the update result payload as pretty JSON on stdout: `signedUpdate` (the full signed update for sidecar distribution), `txid` (the beacon signal transaction), `announcement` (CAS beacons only), `proof` (SMT beacons only, always sidecar data), and `publishedToCas` (`{ update, announcement }` booleans that record what reached the CAS).
 - Text mode also prints a watch hint on stderr on a network with a block explorer (all except regtest): `Watch: <explorer-tx-url>`, for example `https://mutinynet.com/tx/<txid>`. `--quiet` and JSON mode suppress it. This command prints no faucet hint.
-- JSON mode (`-o json`): stdout carries `{ "action": "deactivate", "data": { ...the same payload... } }`. On success, the command writes nothing on stderr, except the network warning below.
+- JSON mode (`-o json`): stdout carries `{ "action": "deactivate", "data": { ...the same payload... } }`. On success, the command writes nothing on stderr, except the network warning and the record warning below.
+- Identifier record (ADR 133): after a successful broadcast, the command adds these items to the record of the identifier. It makes the record if it does not exist. The items: the signing key (it joins `keys` and becomes `signingKey`), the `txid`, the sidecar data, and `deactivated: true`. The sidecar data is the `signedUpdate`, the `announcement` (CAS beacons), the `proof` (SMT beacons), and the sidecar data of the source resolution. A later `resolve` of the identifier therefore shows the deactivated state with no sidecar flag. A failed write of the record does not fail the command, because the transaction is broadcast. The command prints `Warning: the CLI could not write the record of <identifier> to <path>: <reason>` on stderr, and the exit code stays `0`. `--quiet` does not suppress this warning.
 - Profile network warning (ADR 131): if the active profile declares a network that is not the network of the identifier, the command prints a warning on stderr: `Warning: the identifier network is "<network>", but the active profile "<name>" declares network "<declared>". The endpoints of the profile can be for another network.` The command then uses the endpoints of the profile. The warning never blocks. `--quiet` suppresses it.
 - An error prints its message only (the full object and the stack under `--verbose`) and exits with code 1.
 
-Keep the printed `signedUpdate` (and the `announcement` or `proof` if present). A resolver needs it as sidecar data to see the deactivated state, unless you published it to a CAS.
+The identifier record keeps the printed `signedUpdate` (and the `announcement` or `proof` if present). Another resolver needs it as sidecar data to see the deactivated state, unless you published it to a CAS. `btcr2 identifier sidecar <identifier>` prints the sidecar data for that resolver.
 
 ## Environment and configuration
 
@@ -68,7 +72,7 @@ The general precedence for each value: flag, then environment variable, then the
 
 | Variable | Feeds | Flag |
 |----------|-------|------|
-| `BTCR2_HOME` | The home directory that holds `config.json`, `keystore.json`, `session.json` | `--home` (the flag wins) |
+| `BTCR2_HOME` | The home directory that holds `config.json`, `keystore.json`, `session.json`, and `dids.json` | `--home` (the flag wins) |
 | `BTCR2_OUTPUT` | The output format (`json` or `text`) | `-o, --output` |
 | `BTCR2_KEYSTORE_PASSPHRASE` | The keystore passphrase (see the passphrase order below) | none (never a flag value) |
 | `BTCR2_FEE_RATE` | The fee rate in sats/vByte | `--fee-rate` |
@@ -104,13 +108,13 @@ The config file is at `<home>/config.json` (override it with `-c/--config`). The
 | `profiles.<name>.cas.gateway`, `.rpcUrl`, `.rpcUser`, `.rpcPass`, `.timeoutMs` | The CAS endpoints, the RPC credentials, and the timeout |
 | `defaults.cas.gateway`, `.rpcUrl`, `.rpcUser`, `.rpcPass`, `.timeoutMs` | The CAS values for all networks, below the profile `cas` values. The CAS endpoint comes from one layer: the highest layer that sets a gateway or an RPC URL gives the gateway, the RPC URL, the user, and the password (ADR 129). |
 | `profiles.<name>.identity.keystore` | The keystore path (below the `--keystore` flag, above `<home>/keystore.json`) |
-| `profiles.<name>.identity.default` | The default signing key reference (below the `--signing-key` flag, above the active key of the keystore) |
+| `profiles.<name>.identity.default` | The default signing key reference (below the `--signing-key` flag and the signing key of the identifier record, above the active key of the keystore) |
 
 The RPC credentials resolve as one unit (ADR 074): the URL, the user, and the password come together from the highest layer (flag, environment, profile) that supplies a URL. A host from one layer never gets the credentials of another layer.
 
 ### Signing key resolution
 
-The signing key reference is, in this order: `--signing-key <ref>`, else the `identity.default` of the active profile, else the active key of the keystore (set with `btcr2 key use`). A reference is a full URN (`urn:kms:secp256k1:<fingerprint>`), a unique key name, or a unique fingerprint prefix. An exact name match wins over a fingerprint prefix. No match, an ambiguous match, or no reference with no active key fails the command before any signature.
+The order of the signing key reference: `--signing-key <ref>`, the signing key of the identifier record, the `identity.default` of the active profile, and the active key. Set the active key with `btcr2 key use`. The keystore must hold the signing key of the record. If it does not, the command refuses to continue: `The record of <identifier> names the signing key <urn>, but the keystore does not hold it. Use --signing-key <ref> to select a key. Use "btcr2 identifier add <identifier> -k <ref>" to change the key of the record.` A reference is a full URN (`urn:kms:secp256k1:<fingerprint>`), a unique key name, or a unique fingerprint prefix. An exact name match wins over a fingerprint prefix. No match, an ambiguous match, or no reference with no active key fails the command before any signature.
 
 ### Passphrase and session
 
@@ -129,7 +133,13 @@ See the [docs README](./README.md#global-flags) for the shared global flags. `de
 
 ## Examples
 
-Deactivate a mutinynet identifier with the key named `demo`. The version 2 update of the identifier is sidecar data only, so the source resolution needs it. `--min-conf 1` lets a signal with one confirmation count. The api derives the verification method and the beacon, and supplies the deactivation patch:
+Deactivate a recorded identifier by the name of its record. The record supplies the signing key and the sidecar data of the prior updates. `--min-conf 1` lets a signal with one confirmation count:
+
+```bash
+btcr2 deactivate -i alice --min-conf 1
+```
+
+Deactivate a mutinynet identifier with no record in this home, with the key named `demo`. The version 2 update of the identifier is sidecar data only, so the source resolution needs it. The api derives the verification method and the beacon, and supplies the deactivation patch:
 
 ```bash
 DID='did:btcr2:k1qqp...'
@@ -183,5 +193,6 @@ btcr2 keystore unlock --ttl 1h
 
 - `btcr2 update`: the general write path that this command specializes (a deactivation is an update with a fixed patch).
 - `btcr2 resolve`: make sure of the final state afterwards. With the deactivation as sidecar data, `didDocumentMetadata.deactivated` is `true`.
+- `btcr2 identifier`: show the identifier record, and print its sidecar data for another resolver.
 - `btcr2 key`, `btcr2 keystore`: manage the signing key, the passphrase, and the session that this command uses.
 - [DEMO.md](./DEMO.md): the full lifecycle walkthrough, with a deactivate step on mutinynet.

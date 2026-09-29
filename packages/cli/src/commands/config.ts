@@ -18,7 +18,7 @@ import {
 import { findConfigIssues, validateConfigSet } from '../config-schema.js';
 import { CLIError } from '../error.js';
 import { formatCheckResult, formatResult, REDACTED, redactSecrets, scrubUrlUserinfo } from '../output.js';
-import { resolveHome } from '../paths.js';
+import { defaultDidsPath, resolveHome } from '../paths.js';
 import type { CommandResult, GlobalOptions, NetworkOption } from '../types.js';
 import { SUPPORTED_NETWORKS } from '../types.js';
 
@@ -128,7 +128,7 @@ export function registerConfigCommand(program: Command, globals: () => GlobalOpt
 
   config
     .command('path')
-    .description('Print the resolved home directory, config-file, and keystore paths.')
+    .description('Print the resolved home directory, config-file, keystore, and identifier records paths.')
     .action(() => {
       const g = globals();
       const data = {
@@ -137,6 +137,7 @@ export function registerConfigCommand(program: Command, globals: () => GlobalOpt
         // Diagnostic command: report the path even when the config is malformed
         // (this is a command you run to find and fix a broken config).
         keystore : resolveKeystorePath(g, { lenient: true }),
+        dids     : defaultDidsPath(g),
       };
       print({ action: 'config-path', data });
     });

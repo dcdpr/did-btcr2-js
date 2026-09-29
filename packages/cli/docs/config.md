@@ -132,13 +132,25 @@ btcr2 config effective -n regtest --show-secrets
 
 ### config path
 
-Prints the resolved locations on disk as `{ "home", "config", "keystore" }`:
+Prints the resolved locations on disk as `{ "home", "config", "keystore", "dids" }`:
 
 - `home`: the `--home` flag, else `$BTCR2_HOME`, else the platform default. The platform default is `~/.btcr2` on Linux and macOS. On Windows it is `%LOCALAPPDATA%\btcr2`, else `%APPDATA%\btcr2`, else `<user profile>\btcr2`. A blank value at one layer defers to the next layer.
 - `config`: the `-c/--config` flag, else `<home>/config.json`.
 - `keystore`: the `--keystore` flag, else the `identity.keystore` of the active profile, else `<home>/keystore.json`. This is a diagnostic command, so the keystore lookup is lenient. A malformed config file falls back to the home default instead of a stop. A command that changes the keystore stops with a message in the same situation.
+- `dids`: the records file of the identifier records, `<home>/dids.json` (ADR 133). No other flag and no profile key moves it. The file exists only after the first record. See [identifier.md](./identifier.md#identifier-records).
 
-The command never reads key material, never asks for a passphrase, and never touches the network.
+The command never reads key material, never reads the records file, never asks for a passphrase, and never touches the network.
+
+Example output, text mode:
+
+```json
+{
+  "home": "/home/you/.btcr2",
+  "config": "/home/you/.btcr2/config.json",
+  "keystore": "/home/you/.btcr2/keystore.json",
+  "dids": "/home/you/.btcr2/dids.json"
+}
+```
 
 ```sh
 btcr2 config path
@@ -227,7 +239,7 @@ The known config file keys (the schema that `config set` validates against and t
 | `profiles.<name>.cas.rpcPass` | string | The HTTP Basic password. It can be an `env:<VAR>` or `file:<path>` secret reference. The output redacts it. |
 | `profiles.<name>.cas.timeoutMs` | number | The CAS timeout. The api default is 30000 ms. `0` disables it. |
 | `profiles.<name>.identity.keystore` | string | The keystore path of this profile. It feeds `config path`. |
-| `profiles.<name>.identity.default` | string | The default key reference of this profile. `create` uses its public key, and `update` and `deactivate` sign with it, if the key flag is absent. It wins over the active key of the keystore (the `config` subcommands do not read it). |
+| `profiles.<name>.identity.default` | string | The default key reference of this profile. `create` uses its public key, if the key flag is absent. `update` and `deactivate` sign with it, if the key flag is absent and the identifier record has no signing key. It wins over the active key of the keystore (the `config` subcommands do not read it). |
 
 The precedence of each value that `config effective` and `config doctor` resolve: the CLI flag, then the environment variable, then the profile in the config file, then `defaults.cas` (CAS values only), then the built-in (SDK per-network) default. A blank value at one layer defers to the next layer. The RPC URL, username, and password come together from one layer (never mixed across layers). The CAS endpoint comes from one layer: the highest layer that sets a gateway or an RPC URL gives the gateway, the RPC URL, the user, and the password (ADR 129). The active profile is `--profile`, else `defaults.profile`. If neither is set, the connection values come from the profile with the name of the resolved network.
 
@@ -261,7 +273,7 @@ btcr2 config effective -n mutinynet
 # Check the file for typos and unknown keys (exit code 1 on a finding)
 btcr2 config validate
 
-# Where is the state? Which endpoints are reachable?
+# Where is the state (home, config file, keystore, records file)? Which endpoints are reachable?
 btcr2 config path
 btcr2 config doctor -n mutinynet
 

@@ -6,11 +6,13 @@ import type {
   DidUpdateResult,
   IdentifierReport,
   ResolutionOptions,
+  Sidecar,
   Signer,
   UpdateSource
 } from '@did-btcr2/api';
 import type { DoctorReport, EffectiveConfig } from './config.js';
 import type { ConfigIssue } from './config-schema.js';
+import type { IdentifierRecordView, IdentifierSummary } from './identifier-records.js';
 import type { SessionStatus } from './keystore/session.js';
 
 export type NetworkOption = 'bitcoin' | 'testnet3' | 'testnet4' | 'signet' | 'mutinynet' | 'regtest';
@@ -92,6 +94,11 @@ export type CommandResult =
   | { action: 'deactivate'; data: DidUpdateResult }
   | { action: 'identifier-decode'; data: IdentifierDecodeData }
   | { action: 'identifier-validate'; data: IdentifierReport }
+  | { action: 'identifier-list'; data: IdentifierSummary[] }
+  | { action: 'identifier-show'; data: IdentifierRecordView }
+  | { action: 'identifier-add'; data: IdentifierRecordView }
+  | { action: 'identifier-remove'; data: { identifier: string; removed: true } }
+  | { action: 'identifier-sidecar'; data: Sidecar | { identifier: string; path: string } }
   | { action: 'genesis-build'; data: GenesisBuildData }
   | { action: 'key-generate'; data: { keyId: string; publicKey: string; active: boolean } }
   | { action: 'key-list'; data: Array<{ keyId: string; fingerprint: string; name?: string; active: boolean }> }
@@ -119,7 +126,7 @@ export type CommandResult =
   | { action: 'config-list'; data: unknown }
   | { action: 'config-validate'; data: { ok: boolean; issues: ConfigIssue[] } }
   | { action: 'config-effective'; data: EffectiveConfig }
-  | { action: 'config-path'; data: { home: string; config: string; keystore: string } }
+  | { action: 'config-path'; data: { home: string; config: string; keystore: string; dids: string } }
   | { action: 'config-doctor'; data: DoctorReport }
   | { action: 'keystore-init'; data: { path: string; protection: 'encrypted' | 'dev' } }
   | { action: 'keystore-status'; data: { path: string; protection: KeystoreProtectionLabel; established: boolean; keyCount: number; active: string | undefined; session: SessionStatus } }

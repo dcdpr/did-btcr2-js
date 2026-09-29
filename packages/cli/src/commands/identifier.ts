@@ -1,15 +1,27 @@
-import type { IdentifierCheck, IdentifierReport } from '@did-btcr2/api';
+import type { IdentifierCheck, IdentifierReport, Sidecar } from '@did-btcr2/api';
 import { DidApi } from '@did-btcr2/api';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 import type { Command } from 'commander';
-import type { ApiFactory } from '../config.js';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { assertSupportedNetwork, deriveNetwork, type ApiFactory } from '../config.js';
 import { CLIError } from '../error.js';
 import { readGenesisDocumentFile } from '../genesis-document-file.js';
+import { describeRecord, IdentifierRecords, summarizeRecord } from '../identifier-records.js';
+import { resolveKeyRef } from '../keystore/resolve-key-ref.js';
 import { formatCheckResult, formatResult } from '../output.js';
 import type { CommandResult, GlobalOptions, IdentifierDecodeData } from '../types.js';
 
 /** The offline identifier operations of the api. They need no connection and no key. */
 const didApi = new DidApi();
+
+/** The fields of a sidecar data file, and the JSON type of each. */
+const SIDECAR_FIELDS: Record<string, 'string' | 'object' | 'array'> = {
+  '@context'      : 'string',
+  genesisDocument : 'object',
+  updates         : 'array',
+  casUpdates      : 'array',
+  smtProofs       : 'array',
+};
 
 /**
  * Registers the `identifier` command group. `decode` prints the components of
@@ -17,15 +29,20 @@ const didApi = new DidApi();
  * specification and prints a report (`OK` or the failed check under `--quiet`).
  * Both commands are offline and keystore-free: they use the api with no Bitcoin
  * connection, no CAS, and no key material.
+ *
+ * `list`, `show`, `add`, `remove`, and `sidecar` manage the identifier records
+ * in `<home>/dids.json` (ADR 133). They are offline. `add` and `list --key`
+ * read the public keys of the keystore, which never prompts.
  */
 export function registerIdentifierCommand(
-  program : Command,
-  factory : ApiFactory,
-  globals : () => GlobalOptions,
+  program         : Command,
+  factory         : ApiFactory,
+  keystoreFactory : ApiFactory,
+  globals         : () => GlobalOptions,
 ): void {
   const identifier = program
     .command('identifier')
-    .description('Decode and validate did:btcr2 identifiers (offline).');
+    .description('Decode and validate did:btcr2 identifiers, and manage the identifier records (offline).');
   const print = (result: CommandResult): void => console.log(formatResult(result, globals()));
 
   identifier
@@ -112,6 +129,185 @@ export function registerIdentifierCommand(
       console.log(formatCheckResult({ action: 'identifier-validate', data: report }, globals(), failures));
       if (!report.valid) process.exitCode = 1;
     });
+
+  identifier
+    .command('list')
+    .alias('ls')
+    .description('List the identifier records.')
+    .option('-n, --network <network>', 'List only the identifiers of this network.')
+    .option('-k, --key <ref>', 'List only the identifiers whose record holds this key: a URN, fingerprint prefix, or name.')
+    .action((options: { network?: string; key?: string }) => {
+      const g = globals();
+      const network = options.network === undefined ? undefined : assertSupportedNetwork(options.network);
+      const keyId = options.key === undefined ? undefined : keyIdOf(keystoreFactory, g, options.key);
+      const data = IdentifierRecords.forHome(g).list()
+        .map(([did, record]) => summarizeRecord(did, record))
+        .filter(entry => network === undefined || entry.network === network)
+        .filter(entry => keyId === undefined || entry.keys.includes(keyId));
+      print({ action: 'identifier-list', data });
+    });
+
+  identifier
+    .command('show <ref>')
+    .description('Show the record of an identifier: the name, the keys, the transactions, and the sidecar data. '
+      + 'The reference is the identifier or the name of its record.')
+    .action((ref: string) => {
+      const records = IdentifierRecords.forHome(globals());
+      const did = records.resolveRef(ref);
+      const record = records.get(did);
+      if (record === undefined) {
+        throw new CLIError(
+          `No identifier record for ${did}. Use "btcr2 identifier add ${did}" to add one.`,
+          'INVALID_ARGUMENT_ERROR',
+          { did },
+        );
+      }
+      print({ action: 'identifier-show', data: describeRecord(did, record) });
+    });
+
+  identifier
+    .command('add <ref>')
+    .description('Add an identifier to the records, or add data to its record. '
+      + 'The reference is the identifier or the name of its record.')
+    .option('--name <name>', 'A unique name for the record. Other commands accept the name in place of the identifier.')
+    .option(
+      '-k, --key <ref>',
+      'A stored key that signs the next update of the identifier: a URN, fingerprint prefix, or name. '
+      + 'For a new record of a KEY identifier (k), the default is the stored key of the genesis bytes.',
+    )
+    .option(
+      '--sidecar <path>',
+      'Path to a JSON file with sidecar data (genesisDocument, updates, casUpdates, smtProofs), '
+      + 'as "identifier sidecar" prints it. The CLI adds each new entry to the record.',
+    )
+    .action((ref: string, options: { name?: string; key?: string; sidecar?: string }) => {
+      const g = globals();
+      const records = IdentifierRecords.forHome(g);
+      const did = records.resolveRef(ref);
+      assertValidIdentifier(did);
+      deriveNetwork(did);
+      if (options.name !== undefined) records.assertNameAvailable(options.name, did);
+      const sidecar = options.sidecar === undefined ? undefined : readSidecarFile(options.sidecar);
+      let signingKey: string | undefined;
+      if (options.key !== undefined) {
+        signingKey = keyIdOf(keystoreFactory, g, options.key);
+      } else if (!records.get(did)?.keys.length) {
+        signingKey = genesisKeyOf(keystoreFactory, g, did);
+      }
+      const record = records.record(did, {
+        ...(options.name !== undefined && { name: options.name }),
+        ...(signingKey !== undefined && { signingKey }),
+        ...(sidecar !== undefined && { sidecar }),
+      });
+      print({ action: 'identifier-add', data: describeRecord(did, record) });
+    });
+
+  identifier
+    .command('remove <ref>')
+    .alias('rm')
+    .description('Remove the record of an identifier. The keys stay in the keystore. '
+      + 'The reference is the identifier or the name of its record.')
+    .action((ref: string) => {
+      const records = IdentifierRecords.forHome(globals());
+      const did = records.resolveRef(ref);
+      if (!records.remove(did)) {
+        throw new CLIError(`No identifier record for ${did}.`, 'INVALID_ARGUMENT_ERROR', { did });
+      }
+      print({ action: 'identifier-remove', data: { identifier: did, removed: true } });
+    });
+
+  identifier
+    .command('sidecar <ref>')
+    .description('Print the sidecar data of an identifier record, for a resolver or for "identifier add --sidecar". '
+      + 'The reference is the identifier or the name of its record.')
+    .option('--out <path>', 'Write the sidecar data to this new file (created 0600) and print the path.')
+    .action((ref: string, options: { out?: string }) => {
+      const records = IdentifierRecords.forHome(globals());
+      const did = records.resolveRef(ref);
+      const record = records.get(did);
+      if (record === undefined) {
+        throw new CLIError(`No identifier record for ${did}.`, 'INVALID_ARGUMENT_ERROR', { did });
+      }
+      if (options.out === undefined) {
+        print({ action: 'identifier-sidecar', data: record.sidecar });
+        return;
+      }
+      try {
+        writeFileSync(options.out, `${JSON.stringify(record.sidecar, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+      } catch (error) {
+        if ((error as { code?: string }).code === 'EEXIST') {
+          throw new CLIError(
+            `The file ${options.out} exists. Choose a new --out path.`,
+            'INVALID_ARGUMENT_ERROR',
+            { path: options.out },
+          );
+        }
+        throw error;
+      }
+      print({ action: 'identifier-sidecar', data: { identifier: did, path: options.out } });
+    });
+}
+
+/** The key URN of a key reference. Reads the public keys of the keystore only. */
+function keyIdOf(keystoreFactory: ApiFactory, g: GlobalOptions, ref: string): string {
+  if (ref.trim() === '') {
+    throw new CLIError('--key must not be empty.', 'INVALID_ARGUMENT_ERROR');
+  }
+  return resolveKeyRef(keystoreFactory(undefined, g).kms.kms, ref);
+}
+
+/**
+ * The stored key whose public key is the genesis bytes of a KEY identifier (k),
+ * or `undefined`. An external identifier (x) has no genesis key.
+ */
+function genesisKeyOf(keystoreFactory: ApiFactory, g: GlobalOptions, did: string): string | undefined {
+  const { hrp, genesisBytes } = didApi.decode(did);
+  if (hrp !== 'k') return undefined;
+  const kms = keystoreFactory(undefined, g).kms;
+  const genesisHex = bytesToHex(genesisBytes);
+  return kms.kms.listKeys().find(keyId => bytesToHex(kms.getPublicKey(keyId)) === genesisHex);
+}
+
+/**
+ * Reads a sidecar data file for `identifier add --sidecar`. Refuses a file that
+ * is not a JSON object, a field with the wrong JSON type, and an unknown field.
+ * A resolution options file has the field `sidecar`, so the error for it names
+ * the object to use.
+ */
+function readSidecarFile(path: string): Sidecar {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf-8'));
+  } catch (error) {
+    throw new CLIError(
+      `Could not read the sidecar data file ${path}: ${(error as Error).message}`,
+      'INVALID_ARGUMENT_ERROR',
+      { path },
+    );
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new CLIError(`The sidecar data file ${path} must hold a JSON object.`, 'INVALID_ARGUMENT_ERROR', { path });
+  }
+  for (const [ field, value ] of Object.entries(parsed)) {
+    const expected = SIDECAR_FIELDS[field];
+    if (expected === undefined) {
+      const hint = field === 'sidecar' ? ' The file holds resolution options: use the object in its "sidecar" field.' : '';
+      throw new CLIError(
+        `The sidecar data file ${path} has the unknown field "${field}".${hint}`,
+        'INVALID_ARGUMENT_ERROR',
+        { path, field },
+      );
+    }
+    const actual = Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value;
+    if (actual !== expected) {
+      throw new CLIError(
+        `The field "${field}" of the sidecar data file ${path} must be a JSON ${expected}.`,
+        'INVALID_ARGUMENT_ERROR',
+        { path, field },
+      );
+    }
+  }
+  return parsed as Sidecar;
 }
 
 /**

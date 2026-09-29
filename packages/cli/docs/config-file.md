@@ -177,7 +177,7 @@ The config file never holds a secret key. The secret keys are in the keystore. T
 | Key | Type | Used by | Meaning |
 |-----|------|---------|---------|
 | `identity.keystore` | string (path) | `create`, `update`, `deactivate`, `key`, `keystore`, `config path` | The keystore file of the profile, below `--keystore`. The default is `<home>/keystore.json`. |
-| `identity.default` | string (key reference) | `create`, `update`, `deactivate` | The default key of the profile: a key URN, a key name, or a fingerprint prefix. `create` makes the identifier from its public key, and `update` and `deactivate` sign with it. `create --key` and `--signing-key` win over it. It wins over the active key of the keystore. |
+| `identity.default` | string (key reference) | `create`, `update`, `deactivate` | The default key of the profile: a key URN, a key name, or a fingerprint prefix. `create` makes the identifier from its public key, and `update` and `deactivate` sign with it. `create --key` and `--signing-key` win over it. For `update` and `deactivate`, the signing key of the identifier record also wins over it. It wins over the active key of the keystore. |
 
 Use `identity.default` if one keystore holds keys for more than one profile. The active key of the keystore (`btcr2 key use`) applies to all profiles. `identity.default` gives one profile its own key. Remember that `identity.default` applies only to the active profile (see [The active profile](#the-active-profile)).
 
@@ -198,7 +198,7 @@ For each value, the highest layer that sets the value wins. A blank value at one
 - `feeRate`: `--fee-rate`, then `BTCR2_FEE_RATE`, then `btc.feeRate`, then 5 sat/vByte. `changeAddress`: `--change-address`, then `btc.changeAddress`.
 - Network (a command with no identifier): `-n`, then the `network` of the active profile, then `defaults.network`, then `regtest`.
 - Keystore path: `--keystore`, then `identity.keystore`, then `<home>/keystore.json`.
-- Key: `create --key` or `--signing-key`, then `identity.default`, then the active key of the keystore.
+- Key: `create --key` or `--signing-key`, then the signing key of the identifier record, then `identity.default`, then the active key. Only `update` and `deactivate` read the identifier record (ADR 133).
 - Output: `-o`, then `BTCR2_OUTPUT`, then `defaults.output`, then `text`.
 
 The [docs README](./README.md#environment-variables) lists all environment variables. `btcr2 config effective` prints the resolved connection values and the layer of each value.

@@ -2,6 +2,8 @@
 
 Resolves the DID document of a `did:btcr2` identifier and prints the resolution result on stdout. The command is read-only and needs no keystore: it never touches the keystore, never asks for a passphrase, and never reads the session. The identifier encodes the network. So `resolve` works with no config against the public defaults of each network: the mempool.space Esplora REST endpoints and the public `https://trustless-gateway.link` IPFS gateway for CAS reads.
 
+If the identifier has an identifier record in `<home>/dids.json`, the sidecar data of the record joins the resolution options (ADR 133). `-i` also accepts the name of a record. `resolve` reads the records file but never writes it. See [identifier.md](./identifier.md#identifier-records).
+
 The CLI drives the sans-I/O `Resolver` state machine through `@did-btcr2/api`. The api fetches the beacon signals from the Bitcoin REST endpoint. With `--btc-signal-discovery fullnode`, it scans blocks over Bitcoin Core RPC instead. The api fetches a genesis document, a CAS announcement, or a signed update from the configured CAS by hash, if the sidecar data does not supply it. Use `-r` or `-p` to pass resolution options (a version pin, sidecar data, a discovery limit).
 
 ## Synopsis
@@ -14,24 +16,36 @@ btcr2 resolve -i did:btcr2:k1qq...
 btcr2 resolve -i did:btcr2:x1qh... -r '<json>'
 btcr2 resolve -i did:btcr2:x1qh... -p <path-to-json-file>
 btcr2 resolve -i did:btcr2:x1qh... --genesis-document ./genesis.json
+btcr2 resolve -i alice                          # the name of an identifier record
 ```
 
-There are no subcommands and no arguments. The required `-i` flag carries the identifier.
+There are no subcommands and no arguments. The required `-i` flag carries the identifier or the name of its record.
 
 ## Options
 
 | Flag | Value | Default | Description |
 |------|-------|---------|-------------|
-| `-i, --identifier <identifier>` | A `did:btcr2` identifier string: `did:btcr2:` and a Bech32m body. The HRP is `k` (deterministic, a 33-byte compressed secp256k1 public key) or `x` (external, a 32-byte genesis document hash). The encoded network must be one of `bitcoin`, `testnet3`, `testnet4`, `signet`, `mutinynet`, `regtest`. | none (required) | The identifier to resolve. The command decodes and validates it before any I/O. A malformed identifier fails at once (for example `Invalid did: <value>`). An identifier with a reserved network value (`6` to `11`) or a custom network value (`12` to `15`) fails at decode with `Invalid network (reserved): <n>` or `Invalid network (custom network not supported): <n>` (ADR 107). |
-| `-r, --resolution-options <json>` | An inline JSON string. See "Resolution options JSON" below for the shape. | none | The resolution options, passed to the resolver as they are. Non-JSON input fails with `Invalid resolution options. Must be a valid JSON string.` (`INVALID_ARGUMENT_ERROR`). If both `-r` and `-p` are present, `-r` wins and the command ignores `-p` without a message. |
+| `-i, --identifier <identifier>` | A `did:btcr2` identifier string: `did:btcr2:` and a Bech32m body. The HRP is `k` (deterministic, a 33-byte compressed secp256k1 public key) or `x` (external, a 32-byte genesis document hash). The encoded network must be one of `bitcoin`, `testnet3`, `testnet4`, `signet`, `mutinynet`, `regtest`. | none (required) | The identifier to resolve, or the name of its identifier record. A value that does not start with `did:` is a name. An unknown name fails with `No identifier record has the name "<name>". An identifier starts with "did:btcr2:".` The command decodes and validates the identifier before any I/O. A malformed identifier fails at once (for example `Invalid did: <value>`). An identifier with a reserved network value (`6` to `11`) or a custom network value (`12` to `15`) fails at decode with `Invalid network (reserved): <n>` or `Invalid network (custom network not supported): <n>` (ADR 107). |
+| `-r, --resolution-options <json>` | An inline JSON string. See "Resolution options JSON" below for the shape. | none | The resolution options. The command adds the sidecar data of the identifier record (see below), and passes the rest to the resolver as it is. Non-JSON input fails with `Invalid resolution options. Must be a valid JSON string.` (`INVALID_ARGUMENT_ERROR`). If both `-r` and `-p` are present, `-r` wins and the command ignores `-p` without a message. |
 | `-p, --resolution-options-path <path>` | The path of a file with the same JSON shape as `-r`. | none | The file form of `-r`. An unreadable path or non-JSON content fails with `Invalid resolution options path. Must be a valid path to a JSON file.` (`INVALID_ARGUMENT_ERROR`). |
 | `--min-conf <n>` | A positive integer (minimum 1). Another value fails at parse time with `--min-conf must be a positive integer (minimum 1).` | `6` (the specification value) | The minimum number of block confirmations that a beacon signal needs before resolution applies it (ADR 105). The flag overrides a `minConf` inside `-r` or `-p`. Pass `1` to see a fresh update after one block. |
 | `--genesis-document <path>` | The path of the JSON genesis document of an external (`x`) identifier, for example the file that `btcr2 genesis build` wrote. An unreadable path or non-JSON content fails with `Invalid genesis document path. Must be a valid path to a JSON file.`. A JSON value that is not an object fails with `Invalid genesis document. The file must contain a JSON object.`. | none | Fills `sidecar.genesisDocument` of the resolution options. The flag wins over a `sidecar.genesisDocument` inside `-r` or `-p`. For a `k` identifier, the command refuses the flag with `--genesis-document applies only to external identifiers (x).` before it reads the file (ADR 108). |
 | `-h, --help` | none | n/a | Print the help of the command and exit. |
 
-The validation order (from the source): the command decodes the identifier first, then checks `--genesis-document` against the identifier type, then parses `-r`, then `-p`, then reads the genesis document file. An invalid identifier therefore fails before the command looks at a bad options string.
+The validation order (from the source): the command finds the identifier of a record name first. Then it decodes the identifier, then checks `--genesis-document` against the identifier type, then parses `-r`, then `-p`, then reads the genesis document file. It reads the identifier record last, before the resolution. An invalid identifier therefore fails before the command looks at a bad options string.
 
 The `--help` text of `resolve` matches the source.
+
+### Sidecar data of the identifier record
+
+If the identifier has an identifier record, the command adds the sidecar data of the record to the resolution options (ADR 133). `create`, `update`, `deactivate`, and `identifier add --sidecar` put the sidecar data into the record. So an identifier that the CLI made and updated resolves with no sidecar flag.
+
+- The sidecar data of the flags wins. The genesis document of `--genesis-document`, `-r`, or `-p` wins over the genesis document of the record.
+- The arrays (`updates`, `casUpdates`, `smtProofs`) hold the entries of the flags, then the entries of the record. Two entries with the same canonical hash are one entry. The resolver uses an entry only if a beacon signal names its hash, so an extra entry has no effect.
+- The other options (`versionId`, `versionTime`, `minConf`, `maxDiscoveryRounds`) come from the flags only.
+- An identifier with no record, or a record with no sidecar data, gets the options of the flags only.
+- `resolve` never writes the records file. A resolution with new sidecar data from the flags does not change the record. Use `btcr2 identifier add <identifier> --sidecar <path>` to keep that data.
+- A malformed records file stops the command before the resolution (see [identifier.md](./identifier.md#the-records-file)).
 
 ### Resolution options JSON (the `-r` or `-p` value)
 
@@ -85,7 +99,7 @@ The settings that feed this command:
 
 | Setting | Flag | Env var | config.json key | Built-in default |
 |---------|------|---------|-----------------|------------------|
-| Home directory | `--home <dir>` | `BTCR2_HOME` | n/a | `~/.btcr2` (Linux and macOS). On Windows `%LOCALAPPDATA%\btcr2`, else `%APPDATA%\btcr2` |
+| Home directory (holds the records file `dids.json`) | `--home <dir>` | `BTCR2_HOME` | n/a | `~/.btcr2` (Linux and macOS). On Windows `%LOCALAPPDATA%\btcr2`, else `%APPDATA%\btcr2` |
 | Config file | `-c, --config <path>` | none | n/a | `<home>/config.json` |
 | Active profile | `--profile <name>` | none | `defaults.profile` | the network name of the identifier |
 | Output format | `-o, --output <format>` (`json` \| `text`) | `BTCR2_OUTPUT` | `defaults.output` | `text` |
@@ -156,6 +170,9 @@ btcr2 resolve -i did:btcr2:x1qh... -p ./resolution-options.json
 # An external (x) identifier with the genesis document that genesis build wrote
 btcr2 resolve -i did:btcr2:x1qh... --genesis-document ./genesis.json
 
+# An identifier by the name of its record. The record supplies the sidecar data
+btcr2 resolve -i alice --min-conf 1
+
 # Limit the beacon discovery rounds as a resource guard
 btcr2 resolve -i did:btcr2:k1qq... -r '{"maxDiscoveryRounds":3}'
 
@@ -181,7 +198,7 @@ A `resolution-options.json` for an external identifier with sidecar updates:
 ## See also
 
 - `btcr2 create`: create the identifier that `resolve` reads back.
-- `btcr2 identifier`: decode and validate the identifier offline.
+- `btcr2 identifier`: decode and validate the identifier offline, and show or edit the identifier record whose sidecar data `resolve` uses.
 - `btcr2 update` and `btcr2 deactivate`: publish the updates that `resolve` discovers and applies.
 - `btcr2 config effective` and `btcr2 config doctor`: show the resolved endpoints (with their source) and probe them for a network.
 - [README](./README.md): the global flags, the config file reference, and the profile rules.
