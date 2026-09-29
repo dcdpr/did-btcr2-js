@@ -1,7 +1,7 @@
 /**
  * E2E: the full did:btcr2 lifecycle through the DidBtcr2Api facade.
  *
- * Companion to packages/api/DEMO.md: the DEMO's code blocks are lifted from
+ * Companion to packages/api/docs/DEMO.md: the DEMO's code blocks are lifted from
  * this file, so a green run here is the proof that the walkthrough works.
  *
  * Drives, in order:
@@ -20,14 +20,14 @@
  *   9. final resolve: deactivated true, versionId 3; a later update is refused
  *
  * Env:
- *   BITCOIN_NETWORK   default: regtest (set mutinynet for the DEMO.md path)
+ *   BITCOIN_NETWORK   default: regtest (set mutinynet for the docs/DEMO.md path)
  *   E2E_MIN_CONF      the minConf every resolve passes, and the confirmation
  *                     depth each broadcast waits for. Default: 6 on regtest
  *                     (the specification default), 1 on a public network.
  *
  * Usage:
- *   npx tsx packages/api/lib/e2e-full-lifecycle.ts
- *   BITCOIN_NETWORK=mutinynet npx tsx packages/api/lib/e2e-full-lifecycle.ts
+ *   bun packages/api/lib/e2e-full-lifecycle.ts
+ *   BITCOIN_NETWORK=mutinynet bun packages/api/lib/e2e-full-lifecycle.ts
  *
  * Exit code: 0 on success, non-zero on any assertion failure.
  *

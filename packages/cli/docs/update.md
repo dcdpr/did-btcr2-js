@@ -35,7 +35,7 @@ There are no subcommands. A global flag (`-o`, an endpoint override, and so on) 
 | `--resolution-options-path <path>` | The path of a JSON file with resolution options. An unreadable file or invalid JSON fails with `Invalid resolution options path.` `-r` wins if both are present. Not valid with the source pair. | none | The file form of `-r`. There is no short form: `-p` is `--patches` on this command. |
 | `--min-conf <n>` | A positive integer (minimum 1). The command refuses another value at parse time with `--min-conf must be a positive integer (minimum 1).` Not valid with the source pair. | `6` (the specification value) | The minimum number of block confirmations that a beacon signal needs before the source resolution applies it (ADR 105). The flag overrides a `minConf` inside `-r` or the options file. Pass `1` to build on an update with one confirmation. |
 | `--genesis-document <path>` | The path of the JSON genesis document of an external (`x`) identifier. An unreadable file or invalid JSON fails with `Invalid genesis document path.` For a `k` identifier, the command refuses the flag with `--genesis-document applies only to external identifiers (x).` Not valid with the source pair. | none | Fills `sidecar.genesisDocument` of the resolution options. The flag wins over a value inside `-r` or the options file. Use it if the genesis document is not in a CAS (ADR 108). |
-| `--publish-to-cas <mode>` | One of `auto`, `always`, `never`. The command refuses another value at parse time. | `never` | The CAS publication policy for the update artifacts, applied before the broadcast. `never`: publish nothing. Distribute the returned artifacts as sidecar data. `auto`: best effort. If a writable CAS is configured, publish the signed update (all beacon types) and the CAS announcement (CAS beacons). Otherwise skip the publication without a message. `always`: a writable CAS is required. A read-only or absent CAS fails up front, before any signature or spend. `--cas-rpc-url`, `BTCR2_CAS_RPC_URL`, `profiles.<name>.cas.rpcUrl`, or `defaults.cas.rpcUrl` configures a writable CAS. |
+| `--publish-to-cas <mode>` | One of `auto`, `always`, `never`. The command refuses another value at parse time. | `never` | The CAS publication policy for the update artifacts, applied before the broadcast. `never`: publish nothing. Distribute the returned artifacts as sidecar data. `auto`: if a writable CAS is configured, publish the signed update (all beacon types) and the CAS announcement (CAS beacons). Otherwise skip the publication without a message. `always`: a writable CAS is required. A read-only or absent CAS fails up front, before any signature or spend. With `auto` and `always`, a failed publication stops the command before the broadcast. `--cas-rpc-url`, `BTCR2_CAS_RPC_URL`, `profiles.<name>.cas.rpcUrl`, or `defaults.cas.rpcUrl` configures a writable CAS. |
 | `--fee-rate <satsPerVByte>` | A positive finite number of sats per vByte (decimals are valid). Zero, a negative value, or a non-numeric value fails with `Invalid --fee-rate ...`. | unset (the SDK default is 5 sat/vB) | The fee rate of the beacon transaction. Raise it if the network is busy, so that the transaction confirms. If the flag is unset, the value comes from `BTCR2_FEE_RATE`, then the `btc.feeRate` of the profile, then the SDK default. |
 | `--change-address <address>` | A Bitcoin address on the network of the identifier. The beacon validates it at broadcast time. | unset (the change returns to the beacon address) | Sends the change of the transaction to this address instead of the beacon address, so that the announcements of an identifier are not linked on-chain (ADR 044). If the flag is unset, the value comes from the `btc.changeAddress` of the profile. There is no environment variable for this value on purpose: a change address belongs to one identifier and one network. |
 | `-h, --help` | | | Print the help of the command. |
@@ -203,6 +203,71 @@ btcr2 --passphrase-file /run/secrets/btcr2-pass update --signing-key demo \
   -i "$DID" \
   -p "$(cat patches.json)"
 ```
+
+### Publish through an IPFS node with HTTP Basic auth
+
+A public IPFS node usually puts its RPC API behind a reverse proxy with HTTP Basic auth, because the RPC API also has administration calls. The CLI sends the CAS RPC user and password with each CAS RPC request: the reads, the writes, and the `config doctor` check. Set up the node once in the config file. Then add `--publish-to-cas` to each update that you want to publish.
+
+1. Write the password to a file that only you can read. The command asks for the password, so the password does not go into the shell history:
+
+   ```bash
+   read -rsp 'IPFS RPC password: ' pass && echo
+   (umask 077 && printf '%s\n' "$pass" > "$HOME/.btcr2/ipfs-rpc-pass") && unset pass
+   ```
+
+2. Put the node in `defaults.cas`, so that each network uses it. For one network only, set the same keys under `profiles.<name>.cas`:
+
+   ```bash
+   btcr2 config set defaults.cas.rpcUrl https://ipfs.example.com
+   btcr2 config set defaults.cas.rpcUser btcr2
+   btcr2 config set defaults.cas.rpcPass "file:$HOME/.btcr2/ipfs-rpc-pass"
+   ```
+
+3. Check the result. `config effective` prints `cas.rpcUrl`, `cas.rpcUser`, and the redacted `cas.rpcPass`, each with the source `file`. `config doctor` reads a fixed block through the node, with the credentials:
+
+   ```bash
+   btcr2 config effective
+   btcr2 config doctor
+   ```
+
+   The output must have `"ok": true` for the `cas` check. If a check fails, `config doctor` exits with code 1. The check does not write, so it cannot prove that the node accepts a write.
+
+4. Update the identifier and publish the signed update:
+
+   ```bash
+   btcr2 update -i "$DID" \
+     -p '[{"op":"add","path":"/alsoKnownAs","value":["https://example.com"]}]' \
+     --publish-to-cas always
+   ```
+
+   The command publishes the signed update to the node before the broadcast. If the node refuses the write, the command fails before the broadcast, and the beacon UTXO stays unspent.
+
+5. After the confirmation, resolve the identifier without sidecar data:
+
+   ```bash
+   btcr2 resolve -i "$DID" --min-conf 1
+   ```
+
+   The resolver reads the signed update from the node. A party whose CAS endpoint can get the block from your node also resolves the identifier without sidecar data.
+
+The config file is one of three places for the credentials. The URL, the user, and the password always come from one layer, so a URL never gets the password of another layer:
+
+- **Environment, for CI or a script:** set `BTCR2_CAS_RPC_URL`, `BTCR2_CAS_RPC_USER`, and `BTCR2_CAS_RPC_PASS`. `BTCR2_CAS_RPC_PASS` can also hold an `env:<VAR>` or `file:<path>` reference.
+- **Flags, for one command:** set `--cas-rpc-url` and `--cas-rpc-user`, and give the password through `BTCR2_CAS_RPC_PASS_FILE`. There is no password flag, because `ps` and the shell history show the arguments of a command.
+
+  ```bash
+  BTCR2_CAS_RPC_PASS_FILE="$HOME/.btcr2/ipfs-rpc-pass" \
+    btcr2 --cas-rpc-url https://ipfs.example.com --cas-rpc-user btcr2 \
+    update -i "$DID" -p "$(cat patches.json)" --publish-to-cas always
+  ```
+
+If the command fails:
+
+| Message or symptom | Cause and fix |
+|---|---|
+| `The CAS RPC credentials need a user and a password. Only the user is set for <url>.` | The layer of the URL gives a user and no password. Add the password to the same layer, or set `BTCR2_CAS_RPC_PASS_FILE`. The message names `password` if only the password is set. |
+| `IPFS RPC block/put failed: 401 ...` | The node refused the credentials. Correct the user or the password, run `btcr2 config doctor`, and try again. The beacon UTXO is not spent. |
+| `resolve` reports `Signed update not found in CAS` for an update that you published | A read with wrong credentials gets no content, and the resolver reports missing content. Run `btcr2 config doctor` to find the cause. |
 
 ## See also
 
