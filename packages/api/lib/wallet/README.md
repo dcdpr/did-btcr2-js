@@ -63,6 +63,11 @@ pnpm wallet send funding tb1q... --amount 5000   # generic transfer: any wallet 
 pnpm wallet send beacon-foo funding --all        #   any label or raw address; --all sweeps
 pnpm wallet send /tmp/secret.hex funding --all   # one-off source from a 64-hex secret file
                                                  #   (used once, never saved to wallet.json)
+
+pnpm wallet consolidate beacon-a beacon-b --dry-run  # print the sweep of both keys, do not send
+pnpm wallet consolidate beacon-a beacon-b            # sweep both keys to funding in one tx
+pnpm wallet consolidate funding                      # merge the funding UTXOs into one
+pnpm wallet consolidate beacon-a --to tb1q...        # sweep to a raw address
 ```
 
 `fund` and `recover` are sugar over `send`: `fund X` = `send funding X --amount N`,
@@ -71,11 +76,23 @@ can sign with (`funding`, a label, or a secret file); the destination can also b
 raw address. `--from-type`/`--to-type` pick the address derivation on each end
 (default P2WPKH; `--to-type` applies to labels only, a raw address pins its own type).
 
+`consolidate` spends every UTXO at all three address types of each source key in
+one transaction, with one output and no change. A source is `funding`, a label, or a
+secret-hex file, as for `send`. The destination is `--to` (default `funding`, at
+`--to-type`, default P2WPKH). Each key signs its own inputs. Use it for small UTXOs:
+`recover` refuses a UTXO below 746 sats: the 200-sat fee floor plus the 546-sat
+dust limit. `--dry-run` builds and signs the transaction, prints the
+inputs, the fee, and the txid, and sends nothing.
+
 ## Fee strategy
 
 Two-pass: probe sign at minimum fee (200 sats absolute floor) to measure vsize,
 recompute at the target rate (default **1 sat/vB**, override with `--fee-rate`),
 rebuild with correct change. Same algorithm the Beacon base class uses.
+
+`consolidate` has no absolute floor. Its fee is the target rate times the probe
+vsize plus 3 vB. The margin covers an ECDSA signature that is 1 byte longer in the
+final pass. The command checks that the final fee meets the rate before it sends.
 
 ## Storage shape
 
