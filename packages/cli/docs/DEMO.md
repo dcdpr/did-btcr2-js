@@ -491,7 +491,7 @@ Example output of `config list`. A fresh config file has one empty profile per n
 }
 ```
 
-`config validate` checks the file. `config effective` shows the resolved connection values with their source (`flag`, `env`, `file`, or `default`). `config doctor` probes the endpoints. `config get`, `config list`, `config effective`, and `profile show` **redact** the Bitcoin RPC password. `config get`, `config list`, and `profile show` also redact an authentication header (`config effective` omits the headers). Add `--show-secrets` to print them in plaintext.
+`config validate` checks the file. `config effective` shows the resolved connection values with their source (`flag`, `env`, `file`, or `default`). `config doctor` probes the endpoints. `config get`, `config list`, `config effective`, and `profile show` **redact** the Bitcoin RPC password and the CAS RPC password. `config get`, `config list`, and `profile show` also redact an authentication header (`config effective` omits the headers). Add `--show-secrets` to print them in plaintext.
 
 ### Publish updates to a CAS (opt-in)
 
@@ -501,7 +501,19 @@ Part 4 kept the signed update private as sidecar data. If you *want* an update t
 btcr2 --cas-rpc-url http://127.0.0.1:5001 update ... --publish-to-cas always
 ```
 
-`--publish-to-cas` has three values. `never` (default): sidecar data only, the private default. `auto`: a best-effort publication if a writable CAS is configured. It never blocks the broadcast. `always`: the publication is required, and the command fails without a writable CAS. Reads go through `--cas-gateway` (any public IPFS gateway works). Writes need `--cas-rpc-url` (an IPFS HTTP RPC endpoint under your control). After the publication, the last step of Part 4 inverts: resolution finds the update in the CAS and succeeds without sidecar data. The default is private. The publication is your choice.
+`--publish-to-cas` has three values. `never` (default): sidecar data only, the private default. `auto`: a publication if a writable CAS is configured, else no publication. `always`: the publication is required, and the command fails without a writable CAS. With `auto` and `always`, a failed publication stops the command before the broadcast. Reads go through `--cas-gateway` (any public IPFS gateway works). Writes need `--cas-rpc-url` (an IPFS HTTP RPC endpoint under your control). After the publication, the last step of Part 4 inverts: resolution finds the update in the CAS and succeeds without sidecar data. The default is private. The publication is your choice.
+
+A public IPFS node usually requires HTTP Basic auth for its RPC API. Put the node and its credentials in the config file once. The password stays in a file, and the config file holds only a reference to the file:
+
+```bash
+btcr2 config set defaults.cas.rpcUrl https://ipfs.example.com
+btcr2 config set defaults.cas.rpcUser btcr2
+btcr2 config set defaults.cas.rpcPass "file:$HOME/.btcr2/ipfs-rpc-pass"
+btcr2 config doctor                          # the cas check must pass
+btcr2 update ... --publish-to-cas always
+```
+
+[update.md](./update.md#publish-through-an-ipfs-node-with-http-basic-auth) has the full procedure.
 
 ### Use your own Bitcoin node
 
