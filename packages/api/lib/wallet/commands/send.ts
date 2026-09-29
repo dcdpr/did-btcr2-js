@@ -61,7 +61,7 @@ export async function cmdSend(from: string, to: string, opts: {
  * beacon label, or a path to a file holding a 64-hex-char secret. A file
  * source stays ephemeral: it is used for this one transaction, never saved.
  */
-function resolveSource(wallet: Wallet, from: string): Key {
+export function resolveSource(wallet: Wallet, from: string): Key {
   if (from === 'funding') return requireFunding(wallet);
 
   const beacon = findBeacon(wallet, from);
@@ -82,7 +82,7 @@ function resolveSource(wallet: Wallet, from: string): Key {
 }
 
 /** The destination may be `funding`, a registered label, or a raw address. */
-function resolveDestination(wallet: Wallet, to: string, network: Network, toKind: AddrType): string {
+export function resolveDestination(wallet: Wallet, to: string, network: Network, toKind: AddrType): string {
   if (to === 'funding') return requireFunding(wallet).addresses[network][toKind];
 
   const beacon = findBeacon(wallet, to);

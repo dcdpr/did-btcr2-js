@@ -14,12 +14,15 @@
  *   status   fetch live balances per key per address type
  *   fund     send sats from the funding key to a beacon key or raw address
  *   recover  sweep a beacon address back to the funding key
+ *   consolidate  sweep every UTXO of one or more keys (all address types)
+ *            into one output, in one transaction; --dry-run to only print it
  *   send     generic transfer: any wallet key (or secret-hex file) to any
  *            label or raw address; --amount or --all (sweep)
  */
 import { Command } from 'commander';
 
 import { cmdAdd } from './commands/add.js';
+import { cmdConsolidate } from './commands/consolidate.js';
 import { cmdFund } from './commands/fund.js';
 import { cmdInit } from './commands/init.js';
 import { cmdList } from './commands/list.js';
@@ -88,6 +91,17 @@ program
   .option('-n, --network <name>', 'network to broadcast on')
   .option('-f, --fee-rate <sat-per-vb>', 'fee rate override (default 1)')
   .action(async (label, opts) => cmdRecover(label, opts));
+
+program
+  .command('consolidate <sources...>')
+  .description('sweep every UTXO of one or more wallet keys (funding, labels, or secret-hex files; '
+    + 'all three address types) into one output, in one transaction')
+  .option('--to <labelOrAddress>', 'destination: funding, a label, or a raw address', 'funding')
+  .option('--to-type <kind>', 'destination address type for funding and labels: p2pkh|p2wpkh|p2tr', 'p2wpkh')
+  .option('-n, --network <name>', 'network to broadcast on')
+  .option('-f, --fee-rate <sat-per-vb>', 'fee rate override (default 1)')
+  .option('--dry-run', 'build and sign the transaction, print it, and do not broadcast')
+  .action(async (sources, opts) => cmdConsolidate(sources, opts));
 
 try {
   await program.parseAsync(process.argv);

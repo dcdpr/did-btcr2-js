@@ -38,6 +38,8 @@ export function isValidAddress(target: string, network: Network): boolean {
 const FEE_RATE_SAT_PER_VB = 1;
 const MIN_ABS_FEE_SATS = 200n;
 const DUST_THRESHOLD = 546n;
+/** Extra vbytes over the probe size. An ECDSA signature of the final pass can be 1 byte longer. */
+const VSIZE_MARGIN = 3;
 
 type Utxo = {
   txid: string;
@@ -345,6 +347,98 @@ export async function sweepAll(args: {
 
   const txid = await broadcast(final.hex, btc);
   return { txid, vsize, feeSats, sweptSats };
+}
+
+/** One source of a consolidation: a wallet key and the address types whose UTXOs it spends. */
+export type ConsolidationSource = { key: Key; kinds: AddrType[] };
+
+/** One input of a consolidation, for the printed plan. */
+export type ConsolidationInput = {
+  label     : string;
+  kind      : AddrType;
+  address   : string;
+  txid      : string;
+  vout      : number;
+  value     : number;
+  confirmed : boolean;
+};
+
+/**
+ * Spend every UTXO at the given addresses of one or more wallet keys into one
+ * output at `destAddress`, with no change output. Each key signs its own
+ * inputs. The fee is the target rate times the probe vsize plus
+ * {@link VSIZE_MARGIN}, with no absolute floor. So UTXOs that are too small for
+ * `recover` alone can come back together. If `broadcast` is false, the
+ * function builds and signs the transaction but does not send it.
+ */
+export async function consolidate(args: {
+  sources: ConsolidationSource[];
+  destAddress: string;
+  network: Network;
+  feeRateSatPerVb?: number;
+  broadcast: boolean;
+}): Promise<{ inputs: ConsolidationInput[]; txid: string; vsize: number; feeSats: bigint; sweptSats: bigint }> {
+  const btc = connectionFor(args.network);
+  const net = getNetwork(args.network);
+  const feeRate = args.feeRateSatPerVb ?? FEE_RATE_SAT_PER_VB;
+
+  const found: Array<{ input: ConsolidationInput; utxo: Utxo; publicKey: Uint8Array; prevTxHex?: string }> = [];
+  const outpoints = new Set<string>();
+  const secrets: Uint8Array[] = [];
+  for (const source of args.sources) {
+    const kp = keypairFromKey(source.key);
+    const publicKey = kp.publicKey.compressed;
+    let signs = false;
+    for (const kind of source.kinds) {
+      const address = source.key.addresses[args.network][kind];
+      for (const utxo of await fetchUtxos(address, btc)) {
+        // The same key given twice must not spend an outpoint twice.
+        const outpoint = `${utxo.txid}:${utxo.vout}`;
+        if (outpoints.has(outpoint)) continue;
+        outpoints.add(outpoint);
+        const prevTxHex = kind === 'p2pkh' ? await fetchTxHex(utxo.txid, btc) : undefined;
+        const input = {
+          label     : source.key.label,
+          kind,
+          address,
+          txid      : utxo.txid,
+          vout      : utxo.vout,
+          value     : utxo.value,
+          confirmed : utxo.status?.confirmed ?? false,
+        };
+        found.push({ input, utxo, publicKey, prevTxHex });
+        signs = true;
+      }
+    }
+    if (signs) secrets.push(kp.secretKey.bytes);
+  }
+  if (found.length === 0) {
+    const labels = args.sources.map((source) => source.key.label).join(', ');
+    throw new Error(`No UTXOs at the addresses of ${labels} on ${args.network}`);
+  }
+
+  const totalIn = found.reduce((sum, f) => sum + BigInt(f.utxo.value), 0n);
+  const build = (feeSats: bigint): Transaction => {
+    const tx = new Transaction({ allowUnknownOutputs: false });
+    for (const f of found) addInput(tx, f.utxo, f.input.kind, f.publicKey, args.network, f.prevTxHex);
+    tx.addOutputAddress(args.destAddress, totalIn - feeSats, net);
+    for (const secret of secrets) tx.sign(secret);
+    tx.finalize();
+    return tx;
+  };
+
+  const feeSats = BigInt(Math.ceil((build(0n).vsize + VSIZE_MARGIN) * feeRate));
+  const sweptSats = totalIn - feeSats;
+  if (sweptSats < DUST_THRESHOLD) {
+    throw new Error(`Consolidation output ${sweptSats} sats (${totalIn} in, fee ${feeSats}) is below dust ${DUST_THRESHOLD}`);
+  }
+  const final = build(feeSats);
+  if (Number(feeSats) < final.vsize * feeRate) {
+    throw new Error(`Fee ${feeSats} sats is below ${feeRate} sat/vB for ${final.vsize} vB`);
+  }
+
+  const txid = args.broadcast ? await broadcast(final.hex, btc) : final.id;
+  return { inputs: found.map((f) => f.input), txid, vsize: final.vsize, feeSats, sweptSats };
 }
 
 export async function sweepBeacon(args: {
