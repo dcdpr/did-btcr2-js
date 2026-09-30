@@ -77,24 +77,58 @@ export const DUST_LIMIT_SATS: Readonly<Record<SingletonScriptKind, number>> = {
 };
 
 /**
- * vsize (vbytes) for a beacon transaction that spends one input of `beaconKind`
- * and returns change to an output of `changeKind`, plus the OP_RETURN(32) signal.
+ * Conservative size (vbytes) of one more input of each script kind. The
+ * {@link SINGLETON_BEACON_TX_VSIZE} constants include one input; each added input
+ * adds this value.
  *
- * When `changeKind === beaconKind` (the default, change to the beacon address) this
- * returns the per-kind {@link SINGLETON_BEACON_TX_VSIZE} constant unchanged, so the
- * default path and the constants' lock-in tests are byte-identical. A differing
- * `changeKind` swaps the assumed same-kind change output for the actual one, keeping
- * the result a valid upper bound. The aggregation key-path spend is the
- * `beaconKind: 'p2tr'` case (its input is always the cohort's P2TR key path; only the
- * change output varies), the analytical sizing ADR 045 calls for, computed without a
- * secret.
+ * - P2PKH 149: 32 txid + 4 vout + 1 scriptSig length + 108 scriptSig (a worst-case
+ *   72-byte DER signature with its sighash byte, a 33-byte pubkey, two push bytes)
+ *   + 4 sequence. No witness discount.
+ * - P2WPKH 69: 41 non-witness bytes (164 WU) + 109 witness bytes (stack count,
+ *   the same signature and pubkey, length bytes) = 273 WU, rounded up.
+ * - P2TR 58: 41 non-witness bytes (164 WU) + 66 witness bytes (stack count, length
+ *   byte, 64-byte BIP-340 signature with SIGHASH_DEFAULT) = 230 WU, rounded up.
+ *
+ * {@link selectBeaconFunding} also uses these values for the fee of the input
+ * that spends a UTXO: a UTXO at or below that fee adds nothing to a signal.
+ */
+export const BEACON_INPUT_VBYTES: Readonly<Record<SingletonScriptKind, number>> = {
+  p2pkh  : 149,
+  p2wpkh : 69,
+  p2tr   : 58,
+};
+
+/**
+ * Maximum number of inputs in a single-party beacon transaction. The builder
+ * reads the previous transaction of each input (one REST request for each
+ * input), so the limit bounds the requests and the transaction size (a P2PKH
+ * transaction with 20 inputs is at most 3080 vB). If more UTXOs are eligible,
+ * {@link selectBeaconFunding} spends the 20 with the largest value.
+ */
+export const MAX_BEACON_TX_INPUTS = 20;
+
+/**
+ * vsize (vbytes) for a beacon transaction that spends `inputs` inputs of
+ * `beaconKind` and returns change to an output of `changeKind`, plus the
+ * OP_RETURN(32) signal.
+ *
+ * When `changeKind === beaconKind` (the default, change to the beacon address) and
+ * `inputs` is 1, this returns the per-kind {@link SINGLETON_BEACON_TX_VSIZE}
+ * constant unchanged, so the default path and the constants' lock-in tests are
+ * byte-identical. A differing `changeKind` swaps the assumed same-kind change output
+ * for the actual one, keeping the result a valid upper bound. Each input after the
+ * first adds {@link BEACON_INPUT_VBYTES} of `beaconKind`. The aggregation key-path
+ * spend is the `beaconKind: 'p2tr'` case (its input is always the cohort's P2TR key
+ * path; only the change output varies), the analytical sizing ADR 045 calls for,
+ * computed without a secret.
  */
 export function beaconTxVsize(
   beaconKind: SingletonScriptKind,
   changeKind: SingletonScriptKind,
+  inputs: number = 1,
 ): number {
   const base = SINGLETON_BEACON_TX_VSIZE[beaconKind] - CHANGE_OUTPUT_VBYTES[beaconKind];
-  return base + CHANGE_OUTPUT_VBYTES[changeKind];
+  return base + CHANGE_OUTPUT_VBYTES[changeKind] + (inputs - 1) * BEACON_INPUT_VBYTES[beaconKind];
 }
 
 /**
@@ -228,9 +262,12 @@ export interface BeaconTxPlan {
   beaconAddress: string;
   /** Address the change output was sent to (the beacon address unless a change address was supplied). */
   changeAddress: string;
-  /** The UTXO this tx consumes. */
-  utxo: AddressUtxo;
-  /** The fee (sats) already deducted from the change output. */
+  /** The UTXOs this tx consumes, in input order. */
+  utxos: Array<AddressUtxo>;
+  /**
+   * The estimated fee (sats) deducted from the change output. If the tx has no
+   * change output, the remainder also goes to the fee.
+   */
   feeSats: bigint;
   /**
    * Singleton beacon script kind, when applicable. Drives the signing dispatch
@@ -255,30 +292,6 @@ export interface BeaconTxPlan {
 export function opReturnScript(signalBytes: Uint8Array): Uint8Array {
   return Script.encode(['RETURN', signalBytes]);
 }
-
-/**
- * Minimum value (sats) a beacon UTXO must exceed for {@link selectSpendableUtxo} to
- * treat it as spendable. This is a fixed, conservative, script-kind-agnostic floor:
- * an output at or below it is too small to be worth spending, so selection discards
- * it in favor of a larger confirmed UTXO. Keeping the floor a constant (rather than
- * deriving it from a fee estimate) keeps selection pure and fee-estimator-independent.
- *
- * The floor is a coarse pre-filter, not the fee-coverage boundary: whether a selected
- * UTXO actually covers the transaction fee is a separate check, enforced against the
- * live {@link FeeEstimator} by the builders' `value <= feeSats` guard
- * ({@link SinglePartyBeacon.buildSinglePartyTx} and {@link buildAggregationBeaconTx}).
- * At the default 5 sat/vB rate that fee (roughly 775 to 1200 sats across the three
- * script kinds) sits above this floor, so a UTXO can clear the dust filter and still
- * be rejected as insufficient; conversely, at a very low fee rate an output near the
- * floor could cover the fee. The floor's job is only to skip trivially small inputs.
- *
- * The value is the standard Bitcoin Core P2PKH dust threshold, the largest of the
- * three singleton beacon script kinds (P2PKH 546, P2TR 330, P2WPKH 294 per
- * {@link DUST_LIMIT_SATS}): a UTXO above it is non-dust under any beacon address kind.
- * Distinct from {@link DUST_LIMIT_SATS}, which sizes the outgoing change output by
- * kind; this bounds the incoming UTXO chosen to fund the transaction.
- */
-export const SPENDABLE_DUST_LIMIT_SATS = 546;
 
 /** A UTXO whose status carries the block fields: the confirmed arm of {@link TransactionStatus}. */
 type ConfirmedUtxo = AddressUtxo & { status: Extract<TransactionStatus, { confirmed: true }> };
@@ -305,62 +318,180 @@ function byDepthThenId(a: ConfirmedUtxo, b: ConfirmedUtxo): number {
   return txidOrder !== 0 ? txidOrder : a.vout - b.vout;
 }
 
-/**
- * Select the beacon UTXO to fund a signal transaction from the set of UTXOs at a
- * beacon address. Pure and deterministic: the same address state always yields the
- * same input, across broadcast retries and across independent resolvers.
- *
- * Filters to confirmed UTXOs (an unconfirmed input is reorg- and RBF-unsafe: a
- * signal built on it can be orphaned or double-spent before it confirms), then drops
- * dust at or below {@link SPENDABLE_DUST_LIMIT_SATS}, then picks the deepest via
- * {@link byDepthThenId}. The did:btcr2 spec does not mandate a selection rule or a
- * confirmation depth (only the security considerations favor deeper confirmations),
- * so this is an implementation policy: prefer safety and reproducibility over
- * spending the newest or largest output.
- *
- * @param utxos UTXOs reported at the beacon address.
- * @param address Beacon address, used only to annotate thrown errors.
- * @returns The confirmed, non-dust, deepest UTXO.
- * @throws {BeaconError} `UNFUNDED_BEACON_ADDRESS` when no UTXOs exist at all;
- *   `NO_SPENDABLE_BEACON_UTXO` when UTXOs exist but none are both confirmed and above
- *   the dust limit (the message distinguishes all-unconfirmed from all-dust).
- */
-export function selectSpendableUtxo(utxos: Array<AddressUtxo>, address?: string): AddressUtxo {
-  if(!utxos.length) {
-    throw new BeaconError(
-      'No UTXOs found, please fund address!',
-      'UNFUNDED_BEACON_ADDRESS', { address }
-    );
-  }
-  const confirmed = utxos.filter(isConfirmedUtxo);
-  const spendable = confirmed.filter(utxo => utxo.value > SPENDABLE_DUST_LIMIT_SATS);
-  if(!spendable.length) {
-    const reason = confirmed.length === 0
-      ? `all ${utxos.length} UTXO(s) are unconfirmed`
-      : `all ${confirmed.length} confirmed UTXO(s) are at or below the ${SPENDABLE_DUST_LIMIT_SATS}-sat dust limit`;
-    throw new BeaconError(
-      `No spendable UTXO at beacon address: ${reason}.`,
-      'NO_SPENDABLE_BEACON_UTXO',
-      { address, total: utxos.length, confirmed: confirmed.length, dustLimit: SPENDABLE_DUST_LIMIT_SATS }
-    );
-  }
-  return [ ...spendable ].sort(byDepthThenId)[0]!;
+/** Largest value first; {@link byDepthThenId} breaks a tie. */
+function byValueThenDepth(a: ConfirmedUtxo, b: ConfirmedUtxo): number {
+  return b.value !== a.value ? b.value - a.value : byDepthThenId(a, b);
+}
+
+/** Count text for an error reason: `1 UTXO`, `2 UTXOs`. */
+function utxoCount(count: number, adjective?: string): string {
+  const noun = count === 1 ? 'UTXO' : 'UTXOs';
+  return adjective ? `${count} ${adjective} ${noun}` : `${count} ${noun}`;
+}
+
+/** Options of {@link selectBeaconFunding}. */
+export interface BeaconFundingOptions {
+  /** The beacon address that holds the UTXOs. Its kind sets the input size. */
+  beaconAddress: string;
+  /** Network of the beacon address and the change address. */
+  network: BTCNetwork;
+  /** Fee estimator. Defaults to {@link DEFAULT_FEE_ESTIMATOR}. */
+  feeEstimator?: FeeEstimator;
+  /** Change address. Defaults to the beacon address (ADR 044). */
+  changeAddress?: string;
+  /**
+   * Maximum number of inputs. Defaults to {@link MAX_BEACON_TX_INPUTS}. The
+   * aggregation path sets 1: each input needs one MuSig2 nonce and one partial
+   * signature from each cohort participant.
+   */
+  maxInputs?: number;
 }
 
 /**
- * Fetch the deepest confirmed, non-dust spendable UTXO at `bitcoinAddress` plus the
- * raw bytes of its parent transaction (needed by PSBT inputs). Selection is delegated
- * to {@link selectSpendableUtxo}; throws {@link BeaconError} when the address is
- * unfunded or has no confirmed, non-dust UTXO.
+ * The funding of one beacon signal transaction: the UTXOs it spends, the size,
+ * the fee, and the change. {@link selectBeaconFunding} returns it.
  */
-async function fetchSpendableUtxo(
-  bitcoinAddress: string,
+export interface BeaconFunding {
+  /** The UTXOs to spend, in transaction input order (deepest first, then txid and vout). */
+  utxos: Array<AddressUtxo>;
+  /** Script kind of the beacon address (the kind of each input). */
+  kind: SingletonScriptKind;
+  /** Address of the change output (the beacon address unless the caller gave one). */
+  changeAddress: string;
+  /** Script kind used to size the change output. */
+  changeKind: SingletonScriptKind;
+  /** vsize (vbytes) of the transaction, from {@link beaconTxVsize}. */
+  vsize: number;
+  /** Total value (sats) of {@link utxos}. */
+  valueSats: bigint;
+  /** Estimated fee (sats) for {@link vsize}. */
+  feeSats: bigint;
+  /**
+   * Value (sats) of the change output. 0 if the transaction has no change
+   * output: the remainder then goes to the fee.
+   */
+  changeSats: bigint;
+}
+
+/**
+ * Select the UTXOs that fund a beacon signal transaction, and size its fee and
+ * change. Deterministic for a given UTXO set and fee rate. The builders, the api
+ * funding guard, and the api beacon derivation call this one function.
+ *
+ * The rule:
+ *
+ * 1. A UTXO is eligible if it is confirmed (ADR 063) and its value is more than
+ *    the fee of its own input ({@link BEACON_INPUT_VBYTES} of the beacon kind).
+ *    An eligible UTXO always adds value to the transaction.
+ * 2. The transaction spends all eligible UTXOs, up to `maxInputs`. It thus
+ *    consolidates small UTXOs before a rise in the fee rate makes them useless.
+ *    If more UTXOs are eligible, it spends those with the largest value.
+ * 3. The inputs are in ADR 063 order: deepest first, then txid, then vout.
+ * 4. The total value must be more than the fee of {@link beaconTxVsize} for the
+ *    number of inputs.
+ * 5. The change output exists only if the change is at least the dust limit of
+ *    its kind and more than the fee of the input that spends it later. At the
+ *    same fee rate, a later signal can then spend it under rule 1.
+ *
+ * @param utxos UTXOs reported at the beacon address.
+ * @param options The beacon address, network, fee estimator, change address, and input limit.
+ * @returns The selected UTXOs, the vsize, the fee, and the change.
+ * @throws {BeaconError} Each error has `data.reason`, the reason text without the address.
+ *   - `UNFUNDED_BEACON_ADDRESS` if the address has no UTXO.
+ *   - `NO_SPENDABLE_BEACON_UTXO` if no UTXO is eligible (all unconfirmed, or all
+ *     at or below the fee of their own input).
+ *   - `INSUFFICIENT_FUNDS` if the selected UTXOs do not cover the fee.
+ */
+export async function selectBeaconFunding(
+  utxos: Array<AddressUtxo>,
+  options: BeaconFundingOptions,
+): Promise<BeaconFunding> {
+  const { beaconAddress: address, network } = options;
+  const feeEstimator = options.feeEstimator ?? DEFAULT_FEE_ESTIMATOR;
+  const maxInputs = options.maxInputs ?? MAX_BEACON_TX_INPUTS;
+  const kind = detectSingletonScriptKind(address, network);
+  const changeAddress = resolveChangeAddress(address, network, options.changeAddress);
+  const changeKind = changeOutputKind(changeAddress, network);
+
+  if(!utxos.length) {
+    const reason = 'no UTXOs';
+    throw new BeaconError(
+      `Beacon address ${address} cannot fund a signal: ${reason}.`,
+      'UNFUNDED_BEACON_ADDRESS', { address, reason }
+    );
+  }
+
+  const inputFeeSats = await feeEstimator.estimateFee(BEACON_INPUT_VBYTES[kind]);
+  const confirmed = utxos.filter(isConfirmedUtxo);
+  const eligible = confirmed.filter(utxo => BigInt(utxo.value) > inputFeeSats);
+  if(!eligible.length) {
+    const unconfirmed = utxos.length - confirmed.length;
+    const reason = confirmed.length === 0
+      ? `${utxoCount(utxos.length)}, none confirmed`
+      : `${utxoCount(confirmed.length, 'confirmed')}, each at or below the fee of its own input `
+        + `(${inputFeeSats} sats)${unconfirmed ? `, and ${unconfirmed} unconfirmed` : ''}`;
+    throw new BeaconError(
+      `Beacon address ${address} cannot fund a signal: ${reason}.`,
+      'NO_SPENDABLE_BEACON_UTXO',
+      { address, reason, total: utxos.length, confirmed: confirmed.length, inputFeeSats: Number(inputFeeSats) }
+    );
+  }
+
+  const selected = eligible.length > maxInputs
+    ? [ ...eligible ].sort(byValueThenDepth).slice(0, maxInputs)
+    : [ ...eligible ];
+  selected.sort(byDepthThenId);
+
+  const vsize = beaconTxVsize(kind, changeKind, selected.length);
+  const feeSats = await feeEstimator.estimateFee(vsize);
+  const valueSats = selected.reduce((sum, utxo) => sum + BigInt(utxo.value), 0n);
+  if(valueSats <= feeSats) {
+    const reason = `${utxoCount(selected.length, 'spendable')}, total value ${valueSats} sats, `
+      + `fee ${feeSats} sats (${vsize} vB)`;
+    throw new BeaconError(
+      `Beacon address ${address} cannot fund a signal: ${reason}.`,
+      'INSUFFICIENT_FUNDS',
+      {
+        address, reason,
+        total     : utxos.length,
+        confirmed : confirmed.length,
+        eligible  : eligible.length,
+        selected  : selected.length,
+        valueSats : Number(valueSats),
+        feeSats   : Number(feeSats),
+        vsize,
+      }
+    );
+  }
+
+  const change = valueSats - feeSats;
+  const changeInputFeeSats = await feeEstimator.estimateFee(BEACON_INPUT_VBYTES[changeKind]);
+  const dustLimitSats = BigInt(DUST_LIMIT_SATS[changeKind]);
+  const changeFloorSats = changeInputFeeSats + 1n > dustLimitSats ? changeInputFeeSats + 1n : dustLimitSats;
+  const changeSats = change >= changeFloorSats ? change : 0n;
+
+  return { utxos: selected, kind, changeAddress, changeKind, vsize, valueSats, feeSats, changeSats };
+}
+
+/**
+ * Read the UTXOs at the beacon address, select the funding with
+ * {@link selectBeaconFunding}, and read the raw previous transaction of each
+ * selected UTXO (PSBT inputs need it). `prevTxs[i]` is the previous transaction
+ * of `funding.utxos[i]`. The reads are sequential, so a rate-limited REST
+ * endpoint gets one request at a time. Throws the {@link BeaconError} of
+ * {@link selectBeaconFunding}.
+ */
+async function fetchBeaconFunding(
   bitcoin: BitcoinConnection,
-): Promise<{ utxo: AddressUtxo; prevTxBytes: Uint8Array }> {
-  const utxos = await bitcoin.rest.address.getUtxos(bitcoinAddress);
-  const utxo = selectSpendableUtxo(utxos, bitcoinAddress);
-  const prevTxHex = await bitcoin.rest.transaction.getHex(utxo.txid);
-  return { utxo, prevTxBytes: hexToBytes(prevTxHex) };
+  options: BeaconFundingOptions,
+): Promise<{ funding: BeaconFunding; prevTxs: Array<Uint8Array> }> {
+  const utxos = await bitcoin.rest.address.getUtxos(options.beaconAddress);
+  const funding = await selectBeaconFunding(utxos, options);
+  const byTxid = new Map<string, Uint8Array>();
+  for(const { txid } of funding.utxos) {
+    if(!byTxid.has(txid)) byTxid.set(txid, hexToBytes(await bitcoin.rest.transaction.getHex(txid)));
+  }
+  return { funding, prevTxs: funding.utxos.map(utxo => byTxid.get(utxo.txid)!) };
 }
 
 /**
@@ -396,9 +527,19 @@ export async function buildAggregationBeaconTx(opts: {
    */
   changeAddress?: string;
 }): Promise<BeaconTxPlan> {
-  const feeEstimator = opts.feeEstimator ?? DEFAULT_FEE_ESTIMATOR;
-  const { utxo, prevTxBytes } = await fetchSpendableUtxo(opts.beaconAddress, opts.bitcoin);
-  const changeAddress = resolveChangeAddress(opts.beaconAddress, opts.network, opts.changeAddress);
+  // The fee cannot be probe-measured (no secret key until the downstream MuSig2
+  // round), so selectBeaconFunding sizes it analytically. The input is the cohort's
+  // P2TR key path; only the change output's kind varies (ADR 045). One input only:
+  // each input needs one MuSig2 nonce and one partial signature from each participant.
+  const { funding, prevTxs } = await fetchBeaconFunding(opts.bitcoin, {
+    beaconAddress : opts.beaconAddress,
+    network       : opts.network,
+    feeEstimator  : opts.feeEstimator,
+    changeAddress : opts.changeAddress,
+    maxInputs     : 1,
+  });
+  const utxo = funding.utxos[0]!;
+  const amount = BigInt(utxo.value);
 
   // The funded beacon output is a Taproot script-tree output: key path is the
   // MuSig2 aggregate, script path is the k-of-n fallback + CSV recovery leaves
@@ -408,19 +549,6 @@ export async function buildAggregationBeaconTx(opts: {
   // key-path sighash and the fallback script-path sighash.
   const witnessScript = OutScript.encode(Address(opts.network).decode(opts.beaconAddress));
 
-  // The fee cannot be probe-measured (no secret key until the downstream MuSig2
-  // round), so size it analytically. The input is the cohort's P2TR key path; only
-  // the change output's kind varies, so the vsize follows the change address (ADR 045).
-  const changeKind = changeOutputKind(changeAddress, opts.network);
-  const feeSats = await feeEstimator.estimateFee(beaconTxVsize('p2tr', changeKind));
-  if(BigInt(utxo.value) <= feeSats) {
-    throw new BeaconError(
-      `UTXO value (${utxo.value}) insufficient to cover fee (${feeSats}).`,
-      'INSUFFICIENT_FUNDS',
-      { address: opts.beaconAddress, valueSats: utxo.value, feeSats }
-    );
-  }
-
   // allowUnknownOutputs: scure does not classify OP_RETURN as a "known" output
   // type because it is unspendable by design. The opt-in flag tells scure we
   // know the output is intentional (the beacon signal embedded in OP_RETURN).
@@ -428,50 +556,63 @@ export async function buildAggregationBeaconTx(opts: {
   tx.addInput({
     txid           : utxo.txid,
     index          : utxo.vout,
-    nonWitnessUtxo : prevTxBytes,
-    witnessUtxo    : { amount: BigInt(utxo.value), script: witnessScript },
+    nonWitnessUtxo : prevTxs[0]!,
+    witnessUtxo    : { amount, script: witnessScript },
     tapInternalKey : opts.internalPubkey,
   });
-  // Change first (omitted when it would be dust, sweeping the remainder into the
-  // fee), then the OP_RETURN signal, which the spec requires to be the last output.
-  const changeValue = BigInt(utxo.value) - feeSats;
-  if(changeValue >= BigInt(DUST_LIMIT_SATS[changeKind])) {
-    tx.addOutputAddress(changeAddress, changeValue, opts.network);
-  }
-  tx.addOutput({ script: opReturnScript(opts.signalBytes), amount: 0n });
+  addSignalOutputs(tx, funding, opts.signalBytes, opts.network);
 
   return {
     tx,
     prevOutScripts : [witnessScript],
-    prevOutValues  : [BigInt(utxo.value)],
+    prevOutValues  : [amount],
     beaconAddress  : opts.beaconAddress,
-    changeAddress,
-    utxo,
-    feeSats,
+    changeAddress  : funding.changeAddress,
+    utxos          : funding.utxos,
+    feeSats        : funding.feeSats,
     scriptKind     : 'p2tr',
   };
 }
 
 /**
- * Sign the single input of a singleton beacon transaction. Dispatches to the
- * correct sighash + signature-application path based on `kind`, finalizes the
- * tx, and returns the signed raw hex.
+ * Add the outputs of a beacon signal transaction: the change output first (only
+ * if {@link BeaconFunding.changeSats} is not 0; else the remainder goes to the
+ * fee), then the OP_RETURN signal, which the spec requires to be the last output.
+ */
+function addSignalOutputs(
+  tx: Transaction,
+  funding: BeaconFunding,
+  signalBytes: Uint8Array,
+  network: BTCNetwork,
+): void {
+  if(funding.changeSats > 0n) {
+    tx.addOutputAddress(funding.changeAddress, funding.changeSats, network);
+  }
+  tx.addOutput({ script: opReturnScript(signalBytes), amount: 0n });
+}
+
+/**
+ * Sign one input of a singleton beacon transaction. Dispatches to the correct
+ * sighash + signature-application path based on `kind`. The caller finalizes the
+ * tx after it signs each input.
  *
  * - **P2PKH**: legacy ECDSA sighash; scure assembles the scriptSig from `partialSig`.
  * - **P2WPKH**: BIP-143 segwit-v0 sighash (P2PKH-shaped scriptCode); scure assembles
  *   the witness from `partialSig`.
  * - **P2TR**: BIP-341 taproot key-path sighash (SIGHASH_DEFAULT); 64-byte BIP-340
- *   Schnorr signature applied via `tapKeySig`.
+ *   Schnorr signature applied via `tapKeySig`. The sighash commits to the scripts
+ *   and amounts of all inputs, so the function takes the arrays for all inputs.
  */
-async function signSingletonInput(
+function signSingletonInput(
   tx: Transaction,
   inputIdx: number,
   kind: SingletonScriptKind,
   signer: Signer,
-  prevOutScript: Uint8Array,
-  amount: bigint,
-): Promise<string> {
+  prevOutScripts: Array<Uint8Array>,
+  amounts: Array<bigint>,
+): void {
   const pubkey = signer.publicKey;
+  const prevOutScript = prevOutScripts[inputIdx]!;
 
   if(kind === 'p2pkh') {
     // Legacy sighash: scriptCode is the prev-output P2PKH script itself.
@@ -489,8 +630,7 @@ async function signSingletonInput(
     const sig = signer.sign(sighash, 'ecdsa');
     const sigWithType = concatBytes(sig, new Uint8Array([sighashType]));
     tx.updateInput(inputIdx, { partialSig: [[pubkey, sigWithType]] }, true);
-    tx.finalize();
-    return tx.hex;
+    return;
   }
 
   if(kind === 'p2wpkh') {
@@ -512,12 +652,11 @@ async function signSingletonInput(
     }
     const sighashScript = OutScript.encode({ type: 'pkh', hash: decoded.hash });
     const sighashType = SigHash.ALL;
-    const sighash = tx.preimageWitnessV0(inputIdx, sighashScript, sighashType, amount);
+    const sighash = tx.preimageWitnessV0(inputIdx, sighashScript, sighashType, amounts[inputIdx]!);
     const sig = signer.sign(sighash, 'ecdsa');
     const sigWithType = concatBytes(sig, new Uint8Array([sighashType]));
     tx.updateInput(inputIdx, { partialSig: [[pubkey, sigWithType]] }, true);
-    tx.finalize();
-    return tx.hex;
+    return;
   }
 
   // P2TR key-path. BIP-341 requires signing with the taproot-tweaked secret
@@ -525,11 +664,10 @@ async function signSingletonInput(
   // tweaked output internal key `Q = P + tG`. The tweak lives inside the Signer
   // (it needs the secret key), so we use scheme 'bip341' rather than the raw
   // 'bip340' scheme. No script tree on singleton beacons, no merkleRoot.
-  const sighash = tx.preimageWitnessV1(inputIdx, [prevOutScript], SigHash.DEFAULT, [amount]);
+  // `true` lets scure add the signature after it signed an earlier input.
+  const sighash = tx.preimageWitnessV1(inputIdx, prevOutScripts, SigHash.DEFAULT, amounts);
   const sig = signer.sign(sighash, 'bip341');
-  tx.updateInput(inputIdx, { tapKeySig: sig });
-  tx.finalize();
-  return tx.hex;
+  tx.updateInput(inputIdx, { tapKeySig: sig }, true);
 }
 
 /**
@@ -620,7 +758,8 @@ export abstract class SinglePartyBeacon {
    * @param bitcoin Bitcoin network connection.
    * @param options Broadcast options (fee estimator, etc.).
    * @returns The txid of the broadcast transaction.
-   * @throws {BeaconError} if the address is unfunded, no UTXO is available, or fee exceeds value.
+   * @throws {BeaconError} The errors of {@link selectBeaconFunding} (the address
+   *   cannot fund the signal), or `SIGNER_KEY_MISMATCH`.
    */
   protected async buildSignAndBroadcast(
     signalBytes: Uint8Array,
@@ -628,12 +767,15 @@ export abstract class SinglePartyBeacon {
     bitcoin: BitcoinConnection,
     options?: BroadcastOptions
   ): Promise<string> {
-    const feeEstimator = options?.feeEstimator ?? DEFAULT_FEE_ESTIMATOR;
     const beaconAddress = this.service.serviceEndpoint.replace('bitcoin:', '');
-    const { utxo, prevTxBytes } = await fetchSpendableUtxo(beaconAddress, bitcoin);
-    const plan = await this.buildSinglePartyTx({
-      signalBytes, beaconAddress, utxo, prevTxBytes, signer, bitcoin, feeEstimator,
+    const { funding, prevTxs } = await fetchBeaconFunding(bitcoin, {
+      beaconAddress,
+      network       : bitcoin.data,
+      feeEstimator  : options?.feeEstimator,
       changeAddress : options?.changeAddress,
+    });
+    const plan = this.buildSinglePartyTx({
+      signalBytes, beaconAddress, funding, prevTxs, signer, network : bitcoin.data,
     });
     const signedHex = await this.signSinglePartyTx(plan, signer);
     return this.broadcastRawTx(bitcoin, signedHex);
@@ -642,28 +784,25 @@ export abstract class SinglePartyBeacon {
   /**
    * Build an unsigned singleton beacon tx ready for {@link signSinglePartyTx}.
    *
-   * Detects the beacon address script kind (P2PKH / P2WPKH / P2TR) and configures
-   * the input accordingly. Validates that the signer's pubkey produces the beacon
-   * address under that script kind: without this check, a misconfigured caller
-   * would burn a real UTXO on a tx that fails at broadcast. Fees are computed from
-   * the per-kind {@link SINGLETON_BEACON_TX_VSIZE} constant (via {@link beaconTxVsize}),
-   * avoiding any probe-sign round-trip; a change address of a different kind re-sizes
-   * the fee by the change output's size delta so it stays a valid upper bound.
+   * Adds one input for each UTXO of `funding`, configured for the beacon address
+   * script kind (P2PKH / P2WPKH / P2TR). Validates that the signer's pubkey
+   * produces the beacon address under that script kind: without this check, a
+   * misconfigured caller would burn real UTXOs on a tx that fails at broadcast.
+   * The fee and the change come from `funding` ({@link selectBeaconFunding}),
+   * which sizes the tx analytically, with no probe-sign round-trip.
    */
-  protected async buildSinglePartyTx(opts: {
+  protected buildSinglePartyTx(opts: {
     signalBytes: Uint8Array;
     beaconAddress: string;
-    utxo: AddressUtxo;
-    prevTxBytes: Uint8Array;
+    funding: BeaconFunding;
+    /** Raw previous transaction of each UTXO of `funding`, in the same order. */
+    prevTxs: Array<Uint8Array>;
     signer: Signer;
-    bitcoin: BitcoinConnection;
-    feeEstimator: FeeEstimator;
-    changeAddress?: string;
-  }): Promise<BeaconTxPlan> {
-    const network = opts.bitcoin.data;
+    network: BTCNetwork;
+  }): BeaconTxPlan {
+    const { funding, network } = opts;
     const pubkey = opts.signer.publicKey;
-    const kind = detectSingletonScriptKind(opts.beaconAddress, network);
-    const changeAddress = resolveChangeAddress(opts.beaconAddress, network, opts.changeAddress);
+    const kind = funding.kind;
 
     const derivedAddress = deriveSingletonAddress(kind, pubkey, network);
     if(derivedAddress !== opts.beaconAddress) {
@@ -674,17 +813,6 @@ export abstract class SinglePartyBeacon {
       );
     }
 
-    const changeKind = changeOutputKind(changeAddress, network);
-    const feeSats = await opts.feeEstimator.estimateFee(beaconTxVsize(kind, changeKind));
-    const amount = BigInt(opts.utxo.value);
-    if(amount <= feeSats) {
-      throw new BeaconError(
-        `UTXO value (${opts.utxo.value}) insufficient to cover fee (${feeSats}).`,
-        'INSUFFICIENT_FUNDS',
-        { address: opts.beaconAddress, valueSats: opts.utxo.value, feeSats }
-      );
-    }
-
     // allowUnknownOutputs: scure does not classify OP_RETURN as a "known" output
     // type because it is unspendable by design. The opt-in flag tells scure we
     // know the output is intentional (the beacon signal embedded in OP_RETURN).
@@ -692,64 +820,44 @@ export abstract class SinglePartyBeacon {
 
     // Per-kind input setup: P2PKH consumes via nonWitnessUtxo only (legacy);
     // P2WPKH and P2TR also carry a witnessUtxo (and P2TR carries tapInternalKey).
-    let prevOutScript: Uint8Array;
-    if(kind === 'p2pkh') {
-      prevOutScript = p2pkh(pubkey, network).script;
-      tx.addInput({
-        txid           : opts.utxo.txid,
-        index          : opts.utxo.vout,
-        nonWitnessUtxo : opts.prevTxBytes,
-      });
-    } else if(kind === 'p2wpkh') {
-      prevOutScript = p2wpkh(pubkey, network).script;
-      tx.addInput({
-        txid           : opts.utxo.txid,
-        index          : opts.utxo.vout,
-        nonWitnessUtxo : opts.prevTxBytes,
-        witnessUtxo    : { amount, script: prevOutScript },
-      });
-    } else {
-      // p2tr key-path
-      const internalKey = pubkey.slice(1, 33);
-      prevOutScript = p2tr(internalKey, undefined, network).script;
-      tx.addInput({
-        txid           : opts.utxo.txid,
-        index          : opts.utxo.vout,
-        nonWitnessUtxo : opts.prevTxBytes,
-        witnessUtxo    : { amount, script: prevOutScript },
-        tapInternalKey : internalKey,
-      });
-    }
-
-    // Change first (omitted when it would be dust, sweeping the remainder into the
-    // fee), then the OP_RETURN signal, which the spec requires to be the last output.
-    const changeValue = amount - feeSats;
-    if(changeValue >= BigInt(DUST_LIMIT_SATS[changeKind])) {
-      tx.addOutputAddress(changeAddress, changeValue, network);
-    }
-    tx.addOutput({ script: opReturnScript(opts.signalBytes), amount: 0n });
+    // Each input spends an output of the beacon address, so all have one script.
+    const internalKey = pubkey.slice(1, 33);
+    const prevOutScript = OutScript.encode(Address(network).decode(opts.beaconAddress));
+    funding.utxos.forEach((utxo, i) => {
+      const input = { txid: utxo.txid, index: utxo.vout, nonWitnessUtxo: opts.prevTxs[i]! };
+      const witnessUtxo = { amount: BigInt(utxo.value), script: prevOutScript };
+      if(kind === 'p2pkh') {
+        tx.addInput(input);
+      } else if(kind === 'p2wpkh') {
+        tx.addInput({ ...input, witnessUtxo });
+      } else {
+        tx.addInput({ ...input, witnessUtxo, tapInternalKey: internalKey });
+      }
+    });
+    addSignalOutputs(tx, funding, opts.signalBytes, network);
 
     return {
       tx,
-      prevOutScripts : [prevOutScript],
-      prevOutValues  : [amount],
+      prevOutScripts : funding.utxos.map(() => prevOutScript),
+      prevOutValues  : funding.utxos.map(utxo => BigInt(utxo.value)),
       beaconAddress  : opts.beaconAddress,
-      changeAddress,
-      utxo           : opts.utxo,
-      feeSats,
+      changeAddress  : funding.changeAddress,
+      utxos          : funding.utxos,
+      feeSats        : funding.feeSats,
       scriptKind     : kind,
     };
   }
 
   /**
-   * Sign + finalize the unsigned single-party tx and return its raw hex.
-   * Dispatches to the correct signing primitive based on `plan.scriptKind`.
+   * Sign each input of the unsigned single-party tx, finalize it, and return its
+   * raw hex. Dispatches to the correct signing primitive based on `plan.scriptKind`.
    */
   protected async signSinglePartyTx(plan: BeaconTxPlan, signer: Signer): Promise<string> {
-    return signSingletonInput(
-      plan.tx, 0, plan.scriptKind, signer,
-      plan.prevOutScripts[0]!, plan.prevOutValues[0]!,
-    );
+    for(let idx = 0; idx < plan.tx.inputsLength; idx++) {
+      signSingletonInput(plan.tx, idx, plan.scriptKind, signer, plan.prevOutScripts, plan.prevOutValues);
+    }
+    plan.tx.finalize();
+    return plan.tx.hex;
   }
 
   /**

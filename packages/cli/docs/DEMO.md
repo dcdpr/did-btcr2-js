@@ -4,7 +4,7 @@ This walkthrough shows the `btcr2` command-line tool from the setup to an on-cha
 
 **How to use this document:** run the commands from top to bottom in one terminal session. A later command reuses the shell variables of an earlier command, so keep the same session open. Each output block is an example. Your keys, identifiers, and Bitcoin addresses differ, but the shape is the same.
 
-The text matches `@did-btcr2/cli` v0.29.0.
+The text matches `@did-btcr2/cli` v0.29.1.
 
 ---
 
@@ -44,7 +44,7 @@ btcr2 --version
 ```
 
 ```
-btcr2 0.29.0
+btcr2 0.29.1
 ```
 
 ### Set up in one command
@@ -349,7 +349,7 @@ Then:
 
 > **Note: many users behind one IP address.** The public mutinynet faucet has a rate limit and a captcha. A group of users behind one network address can hit the limit as one client. If you run this walkthrough for a group, fund each beacon address from one wallet before the session. Or spread the faucet requests over time. Or keep one funded identifier as a fallback.
 
-> **Note: why one confirmation?** The CLI does not spend an unconfirmed beacon UTXO. A block reorganization or a replacement can remove an unconfirmed input, and that removes the anchor of the update. If you run `update` too early, you see `No spendable UTXO at beacon address: all ... UTXO(s) are unconfirmed`. Wait one block and try again.
+> **Note: why one confirmation?** The CLI does not spend an unconfirmed beacon UTXO. A block reorganization or a replacement can remove an unconfirmed input, and that removes the anchor of the update. If you run `update` too early, you see `Beacon address ... cannot fund this update: 1 UTXO, none confirmed`. Wait one block and try again.
 
 ### Step B: broadcast the update
 
@@ -578,7 +578,8 @@ rm -rf /tmp/btcr2-demo
 | Symptom | Cause and fix |
 |---|---|
 | `... is unfunded. Send BTC ...` | Fund the beacon address from the faucet, then try again. |
-| `No spendable UTXO ... unconfirmed` | The faucet payment is not confirmed yet. Wait one block. |
+| `... cannot fund this update: ... none confirmed` | The faucet payment is not confirmed yet. Wait one block. |
+| `... cannot fund this update: ... total value ... sats, fee ... sats` or `... at or below the fee of its own input` | The UTXOs of the beacon address do not cover the fee of the transaction. The update spends all confirmed UTXOs of the address, up to 20 (ADR 134). Fund the address with more sats, or pass a lower `--fee-rate`. The error names `announce.feeRate`, the api option that `--fee-rate` sets. |
 | The faucet returns a rate-limit or captcha error | A shared IP address hit the limit. Spread the requests over time, or use a funded beacon (see Step A). |
 | `Signed update not found in CAS` | You resolved an identifier with an on-chain update, but without the sidecar data. Pass it back with `-r '{"sidecar":{"updates":[...]}}'`. This is the privacy feature, not a defect. |
 | `resolve` shows the old version, with no error | The update transaction has fewer than six confirmations, and the default `minConf` excludes it. Wait for six blocks, or pass `--min-conf 1`. |
@@ -591,7 +592,7 @@ rm -rf /tmp/btcr2-demo
 | `... apply only when --source-document and --source-version-id are omitted` | `-r`, `--resolution-options-path`, and `--min-conf` feed the source resolution. A supplied source pair skips that resolution. Drop the pair or drop the flags. |
 | `update` or `deactivate` fails with `Signed update not found in CAS` | The source resolution inside the command needs the same sidecar data as `resolve`. Pass `-r '{"sidecar":{"updates":[...]}}'`, and `--min-conf 1` for a fresh signal. |
 | `... verification methods on DID ... publish the signer's key` | The document lists the signing key under more than one method. Pass `-m <id>` with one of the listed ids. |
-| `No beacon of DID ... holds a spendable UTXO`, or `... beacons of DID ... hold a spendable UTXO` | Fund exactly one beacon, or pass `-b <id>` to select one of the funded beacons. |
+| `No beacon of DID ... can fund the signal`, or `... beacons of DID ... can fund the signal` | The first message gives the reason for each beacon. Fund exactly one beacon, or pass `-b <id>` to select one of the funded beacons. |
 
 ### Command reference (short)
 

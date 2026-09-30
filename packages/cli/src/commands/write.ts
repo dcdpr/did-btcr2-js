@@ -61,7 +61,7 @@ export function registerWriteOptions(command: Command): Command {
     .option(
       '-b, --beacon-id <id>',
       'Beacon service that announces the update, as a DID URL '
-        + '(default: the only beacon of the document, else the one beacon with a spendable UTXO)',
+        + '(default: the only beacon of the document, else the one beacon that can fund the signal)',
     )
     .option(
       '-r, --resolution-options <json>',

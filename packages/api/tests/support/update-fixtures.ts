@@ -15,10 +15,24 @@ export const network = getNetwork('regtest');
 /** The txid that the mock connection returns for every broadcast. */
 export const TXID = 'e'.repeat(64);
 
+/** The value (sats) of each small output of the mock previous transaction. */
+export const SMALL_UTXO_SATS = 500;
+
+/**
+ * The two small outputs of the mock previous transaction (vout 1 and 2), as
+ * confirmed UTXOs. `funded` is the confirmed UTXO of {@link mockBitcoin}.
+ * This is the case of a beacon address that holds two UTXOs of 500 sats.
+ */
+export function smallUtxos(funded: AddressUtxo): AddressUtxo[] {
+  return [1, 2].map(vout => ({ ...funded, vout, value: SMALL_UTXO_SATS }));
+}
+
 /**
  * Minimal BitcoinConnection that funds `beaconAddress` with one confirmed UTXO
- * and records broadcasts into `order` / UTXO lookups into `counters`. `utxosAt`
- * replaces the UTXO list of an address. It receives the confirmed UTXO and the
+ * of 100,000 sats (vout 0). The previous transaction also pays two outputs of
+ * {@link SMALL_UTXO_SATS} to the address (see {@link smallUtxos}). The
+ * connection records broadcasts into `order` / UTXO lookups into `counters`.
+ * `utxosAt` replaces the UTXO list of an address. It receives the confirmed UTXO and the
  * address. A test can return the UTXO altered, with others, not at all, or at
  * one address only.
  */
@@ -31,6 +45,8 @@ export function mockBitcoin(
   const beaconScript = OutScript.encode(Address(network).decode(beaconAddress));
   const prevTx = new Transaction({ allowUnknownOutputs: true });
   prevTx.addOutput({ amount: 100_000n, script: beaconScript });
+  prevTx.addOutput({ amount: BigInt(SMALL_UTXO_SATS), script: beaconScript });
+  prevTx.addOutput({ amount: BigInt(SMALL_UTXO_SATS), script: beaconScript });
   prevTx.addInput({ txid: new Uint8Array(32), index: 0xffffffff, finalScriptSig: new Uint8Array([0x00]) });
   const prevTxBytes = prevTx.toBytes();
   const utxo: AddressUtxo = { txid: prevTx.id, vout: 0, value: 100_000, status: { confirmed: true, block_height: 100 } as never };
