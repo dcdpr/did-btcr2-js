@@ -149,6 +149,13 @@ describe('config and profile commands', () => {
     expect(process.exitCode).to.equal(undefined);
   });
 
+  it('config validate stops with exit code 1 if the config file does not exist', async () => {
+    await run('config', 'validate');
+    expect(out).to.deep.equal([]);
+    expect(err.join(' ')).to.contain(`No config file at ${cfg}. Run \`btcr2 init\` to create one.`);
+    expect(process.exitCode).to.equal(1);
+  });
+
   it('config validate -q prints OK', async () => {
     await run('config', 'init');
     out = [];
@@ -330,6 +337,31 @@ describe('config and profile commands', () => {
       expect(checks.find((c) => c.endpoint === 'cas')).to.include({ ok: true, target: base });
       const casRead = seen.indexOf('POST /api/v0/block/get?arg=bafkqaclenfsduytumnzde');
       expect(auths[casRead]).to.equal('Basic YWxpY2U6czNjcmV0');
+    });
+
+    it('fails the btc-rpc and cas checks on a missing password file and still runs btc-rest', async () => {
+      await start('node');
+      writeFileSync(cfg, JSON.stringify({
+        profiles : { regtest : {
+          btc : { rpcUrl: base, rpcUser: 'bob', rpcPass: `file:${join(dir, 'no-btc-pass')}` },
+          cas : { rpcUrl: base, rpcUser: 'alice', rpcPass: `file:${join(dir, 'no-cas-pass')}` },
+        } },
+      }));
+      const checks = await doctor('--btc-rest', base, 'config', 'doctor', '-n', 'regtest');
+      expect(checks.map((c) => [c.endpoint, c.ok])).to.deep.equal([['btc-rest', true], ['btc-rpc', false], ['cas', false]]);
+      expect(checks.find((c) => c.endpoint === 'btc-rpc')?.detail).to.match(/Could not read the RPC password file reference at .*no-btc-pass/);
+      expect(checks.find((c) => c.endpoint === 'cas')?.detail).to.match(/Could not read the RPC password file reference at .*no-cas-pass/);
+      // The failed checks send no request. Only the btc-rest read reaches the server.
+      expect(seen).to.have.length(1);
+      expect(seen[0]).to.match(/^GET \/block-height\/0/);
+      expect(process.exitCode).to.equal(1);
+    });
+
+    it('fails the cas check on CAS RPC credentials with a user and no password', async () => {
+      await start('node');
+      const checks = await doctor('--btc-rest', base, '--cas-rpc-url', base, '--cas-rpc-user', 'alice', 'config', 'doctor', '-n', 'regtest');
+      expect(checks.find((c) => c.endpoint === 'btc-rest')?.ok).to.equal(true);
+      expect(checks.find((c) => c.endpoint === 'cas')?.detail).to.match(/need a user and a password\. Only the user is set/);
     });
   });
 

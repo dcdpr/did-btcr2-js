@@ -4,7 +4,7 @@ This walkthrough shows the `btcr2` command-line tool from the setup to an on-cha
 
 **How to use this document:** run the commands from top to bottom in one terminal session. A later command reuses the shell variables of an earlier command, so keep the same session open. Each output block is an example. Your keys, identifiers, and Bitcoin addresses differ, but the shape is the same.
 
-The text matches `@did-btcr2/cli` v0.29.1.
+The text matches `@did-btcr2/cli` v0.29.2.
 
 ---
 
@@ -44,7 +44,7 @@ btcr2 --version
 ```
 
 ```
-btcr2 0.29.1
+btcr2 0.29.2
 ```
 
 ### Set up in one command
@@ -85,7 +85,12 @@ Add `-o json` to a command, for example `btcr2 -o json quickstart`, to get the f
 
 > **Note:** `quickstart` is idempotent. A second run does not touch the existing files. It never overwrites a keystore, and it never changes a network that you recorded before. `--force` writes a new config file. That removes the custom profiles, the defaults, and the recorded network (pass `-n` to record one again). `--force` never touches the keystore. A mainnet setup needs `--allow-mainnet`, and never with `--dev`. The endpoint probe is **advisory**: if an endpoint is not reachable, the command prints a warning and exits with code 0. Run `btcr2 config doctor -n mutinynet` at any time for a full check. `--no-doctor` skips the probe. On a fresh home you can omit `-n mutinynet`: `quickstart` falls back to mutinynet if no network is recorded. A recorded `defaults.network` wins otherwise.
 >
-> The step-by-step alternative: `btcr2 init -n mutinynet` creates the home and records the network, `btcr2 keystore unlock --ttl 2h` caches the session, and `btcr2 config doctor` probes the endpoints. `quickstart` runs these three steps in this order.
+> The step-by-step alternative: `btcr2 init -n mutinynet` creates the home and records the network, `btcr2 keystore unlock --ttl 2h` caches the session, and `btcr2 config doctor` probes the endpoints. `quickstart` runs these three steps in this order. The step-by-step path has two differences:
+>
+> - `keystore unlock` asks for the passphrase again. `quickstart --unlock` uses the passphrase of the keystore creation, so it asks only for the new passphrase and its confirmation.
+> - `config doctor` exits with code 1 if a check fails. The probe of `quickstart` is advisory and exits with code 0.
+>
+> On Path B, run `btcr2 init -n mutinynet --dev` and then `btcr2 config doctor`. A dev keystore has no passphrase, so there is no `keystore unlock` step.
 
 ### List the commands
 

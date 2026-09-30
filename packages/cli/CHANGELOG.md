@@ -1,5 +1,14 @@
 # @did-btcr2/cli
 
+## 0.29.2
+
+### Patch Changes
+
+- `config validate` and `config doctor` report a config problem instead of a wrong result or a stop.
+
+  - `config validate` stops with `CONFIG_READ_ERROR` and exit code 1 if the config file does not exist. Before, it printed `{ "ok": true, "issues": [] }`.
+  - `config doctor` (and the probe of `quickstart`) reports a credential that it cannot read as a failed `btc-rpc` or `cas` check and still runs the other checks. Before, a missing `file:` password file stopped the command.
+
 ## 0.29.1
 
 ### Patch Changes
