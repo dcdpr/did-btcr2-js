@@ -92,7 +92,15 @@ export function registerConfigCommand(program: Command, globals: () => GlobalOpt
       // Read raw (bypassing the schema-version ceiling that readConfigFile
       // enforces) so a newer-than-supported version is reported as a finding
       // rather than aborting the very command meant to diagnose it.
-      const file = parseConfigFileRaw(path()) ?? {};
+      const file = parseConfigFileRaw(path());
+      // An absent file has nothing to check. Stop, as for an unparseable file.
+      if (file === undefined) {
+        throw new CLIError(
+          `No config file at ${path()}. Run \`btcr2 init\` to create one.`,
+          'CONFIG_READ_ERROR',
+          { path: path() },
+        );
+      }
       const issues = findConfigIssues(file, CONFIG_SCHEMA_VERSION);
       if (issues.length > 0) process.exitCode ??= 1;
       // Text mode prints the full result. `-q/--quiet` prints OK, or one line for

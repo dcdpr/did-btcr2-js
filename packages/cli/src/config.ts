@@ -697,10 +697,16 @@ function resolveSignalDiscovery(value?: string): SignalDiscoveryMode | undefined
  *
  * When no `--profile` is given, the network name is used as the profile key
  * (e.g. a regtest DID auto-selects the `"regtest"` profile).
+ *
+ * A credential that cannot be read (an RPC password secret reference or pass
+ * file, or CAS RPC credentials with only a user or only a password) throws. If
+ * the caller gives `credentialErrors`, the function records the error there by
+ * endpoint and continues without the credential.
  */
 export function resolveConnectionConfig(
-  network?  : NetworkOption,
-  overrides?: ConnectionOverrides,
+  network?         : NetworkOption,
+  overrides?       : ConnectionOverrides,
+  credentialErrors?: CredentialErrors,
 ): { btc?: BitcoinApiConfig; cas?: CasConfig } {
   if (!network) return {};
 
@@ -759,7 +765,11 @@ export function resolveConnectionConfig(
   const wantsRpc = rpcUnit !== undefined || rpcWallet !== undefined || rpcHeaders !== undefined;
   const hasRpcHost = rpcUnit?.url !== undefined || networkHasDefaultRpc;
   if (wantsRpc && hasRpcHost) {
-    const password = resolveSecretRef(rpcUnit?.pass) ?? readRpcPassFile(ENV_RPC_PASS_FILE);
+    const password = readCredential(
+      () => resolveSecretRef(rpcUnit?.pass) ?? readRpcPassFile(ENV_RPC_PASS_FILE),
+      'btc-rpc',
+      credentialErrors,
+    );
     btc.rpc = {
       ...(rpcUnit?.url  !== undefined ? { host: rpcUnit.url } : {}),
       ...(rpcUnit?.user !== undefined ? { username: rpcUnit.user } : {}),
@@ -799,7 +809,7 @@ export function resolveConnectionConfig(
   if (casGateway) cas.gateway = casGateway;
   if (casRpcUrl) {
     cas.rpcUrl = casRpcUrl;
-    const rpcAuth = resolveCasRpcAuth(casRpcUrl, casEndpoint);
+    const rpcAuth = readCredential(() => resolveCasRpcAuth(casRpcUrl, casEndpoint), 'cas', credentialErrors);
     if (rpcAuth) cas.rpcAuth = rpcAuth;
   }
   if (casTimeout !== undefined) {
@@ -813,6 +823,23 @@ export function resolveConnectionConfig(
   const hasCas = casGateway || casRpcUrl || casTimeout !== undefined;
 
   return { btc, ...(hasCas && { cas }) };
+}
+
+/** The credential read errors of {@link resolveConnectionConfig}, by the endpoint that needs the credential. */
+type CredentialErrors = Partial<Record<'btc-rpc' | 'cas', Error>>;
+
+/**
+ * Runs a credential read. Without `errors`, a failed read throws. With `errors`,
+ * the function records the failure for `endpoint` and returns `undefined`.
+ */
+function readCredential<T>(read: () => T, endpoint: keyof CredentialErrors, errors?: CredentialErrors): T | undefined {
+  if (!errors) return read();
+  try {
+    return read();
+  } catch (error) {
+    errors[endpoint] = error as Error;
+    return undefined;
+  }
 }
 
 /**
@@ -1163,10 +1190,13 @@ function assertChainMarker(network: NetworkOption, hash: unknown): void {
  *   proves an Esplora or a Bitcoin Core endpoint for the chain of the network.
  * - `cas`: `CasApi.probe` reads a fixed identity block through the resolved backend
  *   (the RPC endpoint if one is set, else the gateway) and compares the bytes.
+ * A credential that cannot be read fails the `btc-rpc` or `cas` check with the read
+ * error. The other checks still run.
  * Also surfaces the profile/network coherence warning. Reads the network; never writes.
  */
 export async function runDoctor(network: NetworkOption, overrides?: ConnectionOverrides): Promise<DoctorReport> {
-  const conn = resolveConnectionConfig(network, overrides);
+  const credentialErrors: CredentialErrors = {};
+  const conn = resolveConnectionConfig(network, overrides, credentialErrors);
   const api = createApi({
     btc : { ...conn.btc, network, timeoutMs: DOCTOR_PROBE_TIMEOUT_MS },
     cas : { ...(conn.cas ?? { gateway: DEFAULT_CAS_GATEWAY }), timeoutMs: DOCTOR_PROBE_TIMEOUT_MS },
@@ -1182,13 +1212,17 @@ export async function runDoctor(network: NetworkOption, overrides?: ConnectionOv
   const rpc = api.btc.connection.rpc;
   if (rpc) {
     checks.push(await runCheck('btc-rpc', rpc.config.host ?? '(default rpc)', async () => {
+      if (credentialErrors['btc-rpc']) throw credentialErrors['btc-rpc'];
       assertChainMarker(network, await rpc.getBlockHash(height));
     }));
   }
 
   // The api selects the RPC endpoint over the gateway, so the check names that target.
   const casTarget = (conn.cas?.rpcUrl ?? conn.cas?.gateway ?? DEFAULT_CAS_GATEWAY).replace(/\/+$/, '');
-  checks.push(await runCheck('cas', casTarget, () => api.cas.probe()));
+  checks.push(await runCheck('cas', casTarget, async () => {
+    if (credentialErrors.cas) throw credentialErrors.cas;
+    await api.cas.probe();
+  }));
 
   const mismatch = profileNetworkMismatch(network, overrides);
   return {

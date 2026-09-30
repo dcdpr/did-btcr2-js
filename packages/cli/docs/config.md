@@ -94,7 +94,10 @@ Checks the config file against the known schema and prints `{ "ok": <boolean>, "
 - a non-number value at a number leaf, and a non-object value at an object leaf,
 - a `schemaVersion` newer than this CLI supports (a finding, not a stop: `validate` reads the raw file, and it bypasses the schema version limit that the read subcommands apply).
 
-The exit code is 1 if the command finds an issue, and 0 if the file is clean or absent. A file that is not valid JSON still stops the command with `CONFIG_PARSE_ERROR` (there is nothing to walk).
+The exit code is 1 if the command finds an issue, and 0 if the file is clean. Two cases stop the command with exit code 1, because there is nothing to walk:
+
+- An absent file stops the command with `CONFIG_READ_ERROR`: ``No config file at <path>. Run `btcr2 init` to create one.``
+- A file that is not valid JSON stops the command with `CONFIG_PARSE_ERROR`.
 
 ```sh
 btcr2 config validate
@@ -164,6 +167,8 @@ Checks the resolved endpoints of one network (the same network selection and con
 - `btc-rest`: `GET <rest-host>/block-height/<height>`, with the configured REST headers. The check passes if the answer is the hash of a block that only the chain of the network has: the genesis block, or block 1 on `signet` and `mutinynet` (all signets share one genesis block). A web page, an endpoint of another chain, or an error status fails the check.
 - `btc-rpc`: a `getblockhash <height>` RPC call with the same hash test, only if an RPC client exists. An RPC client exists if a layer supplies an RPC URL, or on regtest (its default host `http://localhost:18443` always creates one, so the probe always runs there). On another network, credentials, a wallet name, or headers alone without an RPC URL create no RPC client, and the command skips the check.
 - `cas`: a read of the fixed block `bafkqaclenfsduytumnzde` through the backend that the commands use. If a CAS RPC is configured: `POST <cas-rpc-url>/api/v0/block/get`. Otherwise: `GET <gateway>/ipfs/<cid>?format=raw` with `Accept: application/vnd.ipld.raw` on the resolved gateway (default `https://trustless-gateway.link`). The check passes if the answer holds the block bytes (`did:btcr2`). The CID is an identity CID: it holds the bytes itself, so the check does not depend on content in the IPFS network. The check does not write, so it cannot prove that the RPC endpoint accepts a `block/put`.
+
+If the command cannot read a credential, the check of that endpoint fails with the read error as its `detail`, and the command sends no request to that endpoint. The other checks still run. A credential read fails for a password file that the command cannot read: a `file:<path>` secret reference, or the file that `BTCR2_BTC_RPC_PASS_FILE` or `BTCR2_CAS_RPC_PASS_FILE` names. It also fails for CAS RPC credentials with only a user or only a password. The failed check is `btc-rpc` for the Bitcoin RPC password and `cas` for the CAS RPC credentials.
 
 Prints `{ "checks": [ { "endpoint", "target", "ok", "detail"? }, ... ] }`. `detail` carries the HTTP status or the error message of a failed check. If the active profile declares a network that differs from the probed network, the output includes a `coherence` object (`{ "profile", "declared", "encoding" }`). The exit code is 1 if a check fails.
 
