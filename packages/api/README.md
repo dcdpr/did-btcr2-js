@@ -37,7 +37,7 @@ The write path refuses these inputs before any CAS publication or broadcast:
 
 - a deactivated source document (ADR 100)
 - a DID whose network differs from the network of the Bitcoin connection (ADR 103)
-- a beacon with no spendable UTXO, which is a confirmed UTXO above the dust limit (ADR 102)
+- a beacon address that cannot fund the signal at the fee rate of the update: its confirmed UTXOs, each above the fee of its own input, do not cover the fee of the transaction (ADRs 102, 134)
 
 The first two refusals run before the signature. Each refusal is an `UpdateError` with type `INVALID_DID_UPDATE`. `resolve()` refuses the network mismatch too, with a `ResolveError`.
 

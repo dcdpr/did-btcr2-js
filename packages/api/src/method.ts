@@ -4,8 +4,8 @@ import type { DocumentBytes, HashBytes, KeyBytes, PatchOperation } from '@did-bt
 import { canonicalHash, decode as decodeHash, IdentifierHrp, IdentifierTypes, INVALID_DID_UPDATE, JSONPatch, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/common';
 import type { Signer } from '@did-btcr2/keypair';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
-import type { BeaconService, BroadcastOptions, BroadcastResult, Btcr2DidDocument, CASAnnouncement, CASBroadcastOptions, DidCreateOptions, DidDocument, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, ResolutionOptions, RootCapability, SignedBTCR2Update, SMTProof, UnsignedBTCR2Update } from '@did-btcr2/method';
-import { Appendix, BeaconError, BeaconFactory, BeaconSignalDiscovery, BeaconUtils, DEACTIVATION_PATCH, DidBtcr2, GenesisDocument, Identifier, Resolver, selectSpendableUtxo, Updater } from '@did-btcr2/method';
+import type { BeaconFunding, BeaconService, BroadcastOptions, BroadcastResult, Btcr2DidDocument, CASAnnouncement, CASBroadcastOptions, DidCreateOptions, DidDocument, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, ResolutionOptions, RootCapability, SignedBTCR2Update, SMTProof, UnsignedBTCR2Update } from '@did-btcr2/method';
+import { Appendix, BeaconError, BeaconFactory, BeaconSignalDiscovery, BeaconUtils, DEACTIVATION_PATCH, DidBtcr2, GenesisDocument, Identifier, Resolver, selectBeaconFunding, Updater } from '@did-btcr2/method';
 import type { DidResolutionResult, DidVerificationMethod } from '@web5/dids';
 import type { BitcoinApi } from './bitcoin.js';
 import type { CasApi } from './cas.js';
@@ -112,7 +112,7 @@ export interface AnnounceOptions extends BroadcastOptions {
   /**
    * The id of the beacon service that announces the update. If absent, the
    * api uses the only beacon service of the source document. If the document
-   * has several, the api uses the one whose address holds a spendable UTXO.
+   * has several, the api uses the one whose address can fund the signal.
    */
   beaconId?: string;
   /**
@@ -172,6 +172,19 @@ export interface BeaconInfo {
   type: string;
   /** The Bitcoin address to fund, with the `bitcoin:` URI scheme removed. */
   address: string;
+}
+
+/**
+ * The error types of `selectBeaconFunding` that mean "this address cannot
+ * fund the signal". Each error of these types has `data.reason`. Other
+ * errors (an invalid change address, an unsupported address type) are not
+ * a funding state, so the api throws them again.
+ */
+const FUNDING_ERROR_TYPES = new Set(['UNFUNDED_BEACON_ADDRESS', 'NO_SPENDABLE_BEACON_UTXO', 'INSUFFICIENT_FUNDS']);
+
+/** True if `err` is a {@link BeaconError} that says why an address cannot fund the signal. */
+function isFundingError(err: unknown): err is BeaconError {
+  return err instanceof BeaconError && FUNDING_ERROR_TYPES.has(err.type);
 }
 
 /**
@@ -668,8 +681,9 @@ export class DidMethodApi {
    *   defaults to `signer`. Pass a separate signer when the beacon address
    *   belongs to a key other than the verification method key.
    * - Funding: reads the UTXOs at the beacon address and refuses the update if
-   *   none is spendable. A spendable UTXO is confirmed and above the dust
-   *   limit. The beacon applies the same rule at broadcast.
+   *   they cannot fund the signal at the fee rate of `announce`. The api calls
+   *   the funding rule of the beacon (`selectBeaconFunding`), so the beacon
+   *   applies the same rule at broadcast.
    * - CAS publication: publishes the signed update (and, for CAS beacons, the
    *   announcement) to the configured CAS per the `publishToCas` policy,
    *   **before** the on-chain broadcast, so any OP_RETURN update hash is
@@ -693,7 +707,7 @@ export class DidMethodApi {
    *
    * The beacon is the only beacon service, with no chain read. If the
    * document has several beacon services, the beacon is the one whose
-   * address holds a spendable UTXO. If no method or no beacon matches, the
+   * address can fund the signal. If no method or no beacon matches, the
    * api refuses the update. If several match, the api refuses the update and
    * names the candidates.
    *
@@ -784,11 +798,11 @@ export class DidMethodApi {
 
     // The caller can omit two ids. The Updater refuses a method whose key
     // differs from the signer's key, so the signer's key identifies the
-    // signing method. The beacon is the one beacon that holds a spendable
-    // UTXO. The api never picks one of several silently. The derivation runs
+    // signing method. The beacon is the one beacon whose address can fund
+    // the signal. The api never picks one of several silently. The derivation runs
     // after the guards above, so a refused update reads nothing.
     verificationMethodId ??= this.#deriveVerificationMethodId(sourceDocument, signer);
-    beaconId ??= await this.#deriveBeaconId(sourceDocument, btcConnection);
+    beaconId ??= await this.#deriveBeaconId(sourceDocument, btcConnection, broadcastOptions);
 
     this.#log.debug('Updating DID', sourceDocument.id, { beaconId, verificationMethodId });
 
@@ -831,22 +845,32 @@ export class DidMethodApi {
                 INVALID_DID_UPDATE, { beaconAddress: need.beaconAddress }
               );
             }
-            // The beacon spends only a confirmed UTXO above the dust limit. The
-            // guard applies that rule through the beacon's own selector, so an
-            // address that is funded but not spendable fails here, before any
-            // CAS publication, with the reason the beacon gives at broadcast.
+            // The guard calls the funding rule of the beacon (ADR 102) with the
+            // fee estimator and the change address of the broadcast. An address
+            // that cannot fund the signal at this fee rate thus fails here,
+            // before any CAS publication, with the reason of the beacon.
+            let funding: BeaconFunding;
             try {
-              selectSpendableUtxo(utxos, need.beaconAddress);
+              funding = await selectBeaconFunding(utxos, {
+                beaconAddress : need.beaconAddress,
+                network       : btcConnection.data,
+                feeEstimator  : broadcastOptions.feeEstimator,
+                changeAddress : broadcastOptions.changeAddress,
+              });
             } catch (err) {
-              if(!(err instanceof BeaconError)) throw err;
+              if(!isFundingError(err)) throw err;
+              const reason = String(err.data?.reason);
               throw new UpdateError(
-                `Beacon address ${need.beaconAddress} cannot fund this update. ${err.message} `
-                + 'Wait for a confirmation, or fund the address above the dust limit, '
-                + 'before you broadcast the update.',
-                INVALID_DID_UPDATE, { beaconAddress: need.beaconAddress, utxos: utxos.length }
+                `Beacon address ${need.beaconAddress} cannot fund this update: ${reason}. `
+                + 'Before you broadcast the update, wait for a confirmation, fund the address, '
+                + 'or set a lower `announce.feeRate`.',
+                INVALID_DID_UPDATE, { beaconAddress: need.beaconAddress, utxos: utxos.length, reason }
               );
             }
-            this.#log.debug('Beacon address funded with a spendable UTXO (%d UTXOs)', utxos.length);
+            this.#log.debug(
+              'Beacon address funds the signal: %d of %d UTXOs, fee %s sats',
+              funding.utxos.length, utxos.length, funding.feeSats
+            );
             updater.provide(need);
             break;
           }
@@ -1004,12 +1028,17 @@ export class DidMethodApi {
    * reports the state of that beacon.
    *
    * If the document has several beacon services, the helper uses the one
-   * whose address holds a spendable UTXO (confirmed, above the dust limit).
-   * If no beacon holds one, the helper refuses and names every address. If
-   * several beacons hold one, the helper refuses and names them. The api
-   * never decides which UTXO to spend.
+   * whose address can fund the signal. It calls the funding rule of the
+   * beacon (`selectBeaconFunding`) with the fee estimator and the change
+   * address of the broadcast. If no address can fund the signal, the helper
+   * refuses and gives the reason for each beacon. If several can, the helper
+   * refuses and names them. The api never decides which UTXO to spend.
    */
-  async #deriveBeaconId(document: Btcr2DidDocument, bitcoin: BitcoinConnection): Promise<string> {
+  async #deriveBeaconId(
+    document: Btcr2DidDocument,
+    bitcoin: BitcoinConnection,
+    fees: Pick<BroadcastOptions, 'feeEstimator' | 'changeAddress'>,
+  ): Promise<string> {
     const beacons = this.getBeacons(document);
     if(beacons.length === 1) return beacons[0]!.id;
     if(beacons.length === 0) {
@@ -1019,31 +1048,41 @@ export class DidMethodApi {
       );
     }
     const funded: BeaconInfo[] = [];
+    const unfunded: Array<BeaconInfo & { reason: string }> = [];
     for(const beacon of beacons) {
       const utxos = await bitcoin.rest.address.getUtxos(beacon.address);
       try {
-        selectSpendableUtxo(utxos, beacon.address);
+        await selectBeaconFunding(utxos, {
+          beaconAddress : beacon.address,
+          network       : bitcoin.data,
+          feeEstimator  : fees.feeEstimator,
+          changeAddress : fees.changeAddress,
+        });
         funded.push(beacon);
       } catch (err) {
-        // This address is unfunded, unconfirmed, or dust, so it is not a
-        // candidate. A different error is a fault of the UTXO list itself.
-        // The api throws that error again.
-        if(!(err instanceof BeaconError)) throw err;
+        // This address cannot fund the signal, so it is not a candidate. The
+        // error gives the reason. A different error is a fault of the UTXO
+        // list or of the options. The api throws that error again.
+        if(!isFundingError(err)) throw err;
+        unfunded.push({ ...beacon, reason: String(err.data?.reason) });
       }
     }
     if(funded.length === 1) return funded[0]!.id;
     if(funded.length === 0) {
-      const list = beacons.map(beacon => `${beacon.id} (${beacon.address})`).join(', ');
+      // The message names each beacon relative to the DID, which it names once.
+      const list = unfunded.map(beacon => {
+        const id = beacon.id.startsWith(`${document.id}#`) ? beacon.id.slice(document.id.length) : beacon.id;
+        return `${id} (${beacon.address}): ${beacon.reason}`;
+      }).join('; ');
       throw new UpdateError(
-        `No beacon of DID ${document.id} holds a spendable UTXO. The api cannot derive beaconId. `
-        + 'A spendable UTXO is confirmed and above the dust limit. '
-        + `Fund one of: ${list}.`,
-        INVALID_DID_UPDATE, { did: document.id, beacons }
+        `No beacon of DID ${document.id} can fund the signal. The api cannot derive beaconId. `
+        + `${list}. Wait for a confirmation, fund one beacon address, or set a lower \`announce.feeRate\`.`,
+        INVALID_DID_UPDATE, { did: document.id, beacons: unfunded }
       );
     }
     const ids = funded.map(beacon => beacon.id);
     throw new UpdateError(
-      `${funded.length} beacons of DID ${document.id} hold a spendable UTXO: ${ids.join(', ')}. `
+      `${funded.length} beacons of DID ${document.id} can fund the signal: ${ids.join(', ')}. `
       + 'Pass beaconId to choose which one spends.',
       INVALID_DID_UPDATE, { did: document.id, funded: ids }
     );

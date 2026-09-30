@@ -232,8 +232,8 @@ export class DidBtcr2Api {
    *
    * The caller can omit `verificationMethodId` and `announce.beaconId`. The
    * method facade then derives them. The verification method is the one that
-   * publishes the signer's key. The beacon is the one that holds the only
-   * spendable UTXO. If none or several match, the method facade refuses the
+   * publishes the signer's key. The beacon is the only one whose address can
+   * fund the signal. If none or several match, the method facade refuses the
    * update and names the candidates. See {@link DidMethodApi.update}.
    * @param source The DID, or a resolved {@link SourceState}.
    * @param patch The JSON Patch document: the operations that change the source document.

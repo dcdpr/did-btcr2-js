@@ -183,11 +183,13 @@ while (!utxos.some((u) => u.status.confirmed)) {
 console.log('beacon funded and confirmed');
 ```
 
-> **Note:** the api spends only a confirmed beacon UTXO above the dust limit. Another transaction can replace an unconfirmed input. A block reorganization can also remove it. Then the update has no anchor. If the UTXO has no confirmation, the api refuses the update before it publishes or broadcasts anything:
+> **Note:** the api spends only a confirmed beacon UTXO. Another transaction can replace an unconfirmed input. A block reorganization can also remove it. Then the update has no anchor. If the UTXO has no confirmation, the api refuses the update before it publishes or broadcasts anything:
 >
-> `Beacon address tb1q... cannot fund this update. No spendable UTXO at beacon address: all 1 UTXO(s) are unconfirmed. Wait for a confirmation, or fund the address above the dust limit, before you broadcast the update.`
+> ``Beacon address tb1q... cannot fund this update: 1 UTXO, none confirmed. Before you broadcast the update, wait for a confirmation, fund the address, or set a lower `announce.feeRate`.``
 >
 > Wait one block, then try again.
+>
+> The update spends all confirmed UTXOs of the beacon address whose value is more than the fee of their own input, up to 20 (ADR 134). Their total value must be more than the fee of the transaction. At the default 5 sat/vB, a p2wpkh beacon transaction with 1 input costs 775 sats. Each more input adds 345 sats.
 
 ### Step B: broadcast the update
 
@@ -212,7 +214,7 @@ const signedUpdate = update1.signedUpdate;
 ```
 
 - The arguments follow the update operation of the specification: the source, the JSON Patch, and the signer. A fourth argument holds the options.
-- The code gives no `verificationMethodId` and no `announce.beaconId`, so the api finds them. The verification method is the one that has the key of the signer. The beacon is the one whose address holds a spendable UTXO: `#initialP2WPKH`, the beacon that you funded. To choose them yourself, see [Name the verification method and the beacon](#name-the-verification-method-and-the-beacon).
+- The code gives no `verificationMethodId` and no `announce.beaconId`, so the api finds them. The verification method is the one that has the key of the signer. The beacon is the one whose address can fund the signal: `#initialP2WPKH`, the beacon that you funded. To choose them yourself, see [Name the verification method and the beacon](#name-the-verification-method-and-the-beacon).
 - `api.kms.signer(keyId)` gives the signer. The same call works with an external `KeyManager` from `createApi({ kms })`.
 - The source is the identifier, so `updateDid` resolves it first. A new `k` identifier resolves with no sidecar data.
 - `announce.publishToCas` is `'never'` by default. Only the 32-byte hash in the transaction leaves your machine. The last step of this part shows the result.
@@ -418,9 +420,11 @@ await api.updateDid(did, patch, signer, { announce: { publishToCas: 'always' } }
 |---|---|
 | `api.btc` throws `Bitcoin not configured.` | `createApi()` got no `btc` config. Give one, for example `createApi({ btc: { network: 'mutinynet' } })`. |
 | `Beacon address ... is unfunded. Send BTC to this address before broadcasting the update.` | The beacon address has no UTXO. Do Step A of Part 4, and wait until the Esplora endpoint shows the funding transaction. |
-| `Beacon address ... cannot fund this update. No spendable UTXO at beacon address: all N UTXO(s) are unconfirmed. ...` | The api spends only a confirmed UTXO, so that a replacement or a reorganization cannot remove the input. The api refuses before it publishes or broadcasts. Wait one block (about 30 seconds on mutinynet) and try again. The same message shows a UTXO at or below the dust limit of 546 sats. |
-| `No beacon of DID ... holds a spendable UTXO. The api cannot derive beaconId.` | The code gave no `announce.beaconId`, and no beacon address holds a confirmed UTXO above the dust limit. Fund one beacon address (Step A of Part 4), or give `announce.beaconId`. |
-| `N beacons of DID ... hold a spendable UTXO: ... Pass beaconId to choose which one spends.` | You funded more than one beacon address. Give `announce.beaconId`. The api does not choose a UTXO for you. |
+| `Beacon address ... cannot fund this update: N UTXOs, none confirmed. ...` | The api spends only a confirmed UTXO, so that a replacement or a reorganization cannot remove the input. The api refuses before it publishes or broadcasts. Wait one block (about 30 seconds on mutinynet) and try again. |
+| `Beacon address ... cannot fund this update: N confirmed UTXOs, each at or below the fee of its own input (345 sats). ...` | Each UTXO costs more fee to spend than its value. Fund the address with more sats, or set a lower `announce.feeRate`. |
+| `Beacon address ... cannot fund this update: N spendable UTXOs, total value ... sats, fee ... sats (... vB). ...` | The UTXOs do not cover the fee of the transaction. Fund the address with more sats, or set a lower `announce.feeRate`. For example, 2 UTXOs of 500 sats at a p2wpkh address fund an update at `announce.feeRate: 1`. |
+| `No beacon of DID ... can fund the signal. The api cannot derive beaconId. #initialP2WPKH (...): <reason>; ...` | The code gave no `announce.beaconId`, and no beacon address can fund the signal. The message gives the reason for each beacon. The rows above explain each reason. Fund one beacon address (Step A of Part 4), or give `announce.beaconId`. |
+| `N beacons of DID ... can fund the signal: ... Pass beaconId to choose which one spends.` | You funded more than one beacon address. Give `announce.beaconId`. The api does not choose a beacon for you. |
 | `No verification method on DID ... publishes the signer's key.` | The key of the signer is not in the DID document. Sign with the key of Part 1, or give `verificationMethodId`. |
 | `No key id given and no active key set.` | `api.kms.signer()` with no key id needs an active key. Part 1 sets one with `setActive: true`. As an alternative, give the key id. |
 | `Failed to resolve DID <did>: Signed update not found in CAS (hash: ...)` | The identifier has an update on the chain, and the call gave no sidecar data. Give `{ sidecar: { updates: [...] } }`. This is the privacy property of did:btcr2, not a defect. `tryResolveDid` returns the same text in `errorMessage`. |

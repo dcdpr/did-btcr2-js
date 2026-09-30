@@ -20,22 +20,26 @@ const FEE_RATE = 5; // DEFAULT_FEE_ESTIMATOR is StaticFeeEstimator(5)
 const freshKey = (): Uint8Array => new LocalSigner(SchnorrKeyPair.generate().secretKey.bytes).publicKey;
 
 /**
- * Minimal BitcoinConnection that funds `beaconAddress` with a single confirmed UTXO
- * of `value` sats. Builds a real prev tx whose output 0 pays the beacon address so
- * scure's nonWitnessUtxo hash check passes when the builder spends it.
+ * Minimal BitcoinConnection that funds `beaconAddress` with one confirmed UTXO for
+ * each entry of `values` (sats), the first one deepest. Builds a real prev tx for
+ * each UTXO whose output 0 pays the beacon address, so scure's nonWitnessUtxo hash
+ * check passes when the builder spends it.
  */
-function mockBitcoin(beaconAddress: string, value: number): BitcoinConnection {
+function mockBitcoin(beaconAddress: string, ...values: Array<number>): BitcoinConnection {
   const beaconScript = OutScript.encode(Address(network).decode(beaconAddress));
-  const prevTx = new Transaction({ allowUnknownOutputs: true });
-  prevTx.addOutput({ amount: BigInt(value), script: beaconScript });
-  prevTx.addInput({ txid: new Uint8Array(32), index: 0xffffffff, finalScriptSig: new Uint8Array([0x00]) });
-  const prevTxBytes = prevTx.toBytes();
-  const utxo: AddressUtxo = { txid: prevTx.id, vout: 0, value, status: { confirmed: true, block_height: 100 } as never };
+  const hexById = new Map<string, string>();
+  const utxos = values.map((value, i): AddressUtxo => {
+    const prevTx = new Transaction({ allowUnknownOutputs: true });
+    prevTx.addOutput({ amount: BigInt(value), script: beaconScript });
+    prevTx.addInput({ txid: new Uint8Array(32), index: i, finalScriptSig: new Uint8Array([0x00]) });
+    hexById.set(prevTx.id, bytesToHex(prevTx.toBytes()));
+    return { txid: prevTx.id, vout: 0, value, status: { confirmed: true, block_height: 100 + i } as never };
+  });
   return {
     data : network,
     rest : {
-      address     : { getUtxos: async () => [utxo] },
-      transaction : { getHex: async () => bytesToHex(prevTxBytes) },
+      address     : { getUtxos: async () => utxos },
+      transaction : { getHex: async (txid: string) => hexById.get(txid)! },
     },
   } as unknown as BitcoinConnection;
 }
@@ -122,6 +126,19 @@ describe('beacon change output (ADR 044)', () => {
       // Change is swept into the fee: the only output is the OP_RETURN signal.
       expect(plan.tx.outputsLength).to.equal(1);
       expect(bytesToHex(plan.tx.getOutput(0).script!)).to.equal(opReturn);
+    });
+
+    it('spends one input, the UTXO of the largest value, if several are eligible', async () => {
+      // The deeper UTXO (5,000 sats) is smaller: one MuSig2 input takes the larger one.
+      const bitcoin = mockBitcoin(beaconAddress, 5_000, 90_000);
+      const plan = await buildAggregationBeaconTx({
+        beaconAddress, internalPubkey : internalKey, signalBytes : new Uint8Array(32), bitcoin, network,
+      });
+
+      expect(plan.tx.inputsLength).to.equal(1);
+      expect(plan.utxos.map(utxo => utxo.value)).to.deep.equal([ 90_000 ]);
+      expect(plan.prevOutValues).to.deep.equal([ 90_000n ]);
+      expect(plan.tx.getOutput(0).amount).to.equal(90_000n - plan.feeSats);
     });
 
     it('rejects an invalid change address before spending the UTXO', async () => {

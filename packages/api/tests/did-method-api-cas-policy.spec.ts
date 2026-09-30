@@ -1,14 +1,14 @@
 import type { AddressUtxo, BitcoinConnection } from '@did-btcr2/bitcoin';
 import { canonicalHash, canonicalHashBytes, encode, hash, INVALID_DID_UPDATE, MISSING_UPDATE_DATA, UpdateError } from '@did-btcr2/common';
 import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
-import { ID_PLACEHOLDER_VALUE } from '@did-btcr2/method';
+import { BeaconError, ID_PLACEHOLDER_VALUE } from '@did-btcr2/method';
 import { hexToBytes } from '@noble/hashes/utils.js';
 import { p2wpkh, Transaction } from '@scure/btc-signer';
 import { expect, use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import type { AnnounceOptions, BitcoinApi, CasExecutor, DidUpdateResult } from '../src/index.js';
 import { CasApi, createApi, DidMethodApi, MultikeyApi } from '../src/index.js';
-import { network, recorders, TXID, updateArgs, updateFixture } from './support/update-fixtures.js';
+import { network, recorders, smallUtxos, TXID, updateArgs, updateFixture } from './support/update-fixtures.js';
 
 use(chaiAsPromised);
 
@@ -296,26 +296,72 @@ describe('DidMethodApi update() CAS publication policy', () => {
       ).catch((e: unknown) => e);
 
       expect(err).to.be.instanceOf(UpdateError);
-      expect((err as UpdateError).message).to.include('are unconfirmed');
+      expect((err as UpdateError).message).to.include('cannot fund this update: 1 UTXO, none confirmed.');
       expect((err as UpdateError).type).to.equal(INVALID_DID_UPDATE);
-      expect((err as UpdateError).data).to.deep.equal({ beaconAddress: fixture.beaconAddress, utxos: 1 });
+      expect((err as UpdateError).data).to.deep.equal({
+        beaconAddress : fixture.beaconAddress,
+        utxos         : 1,
+        reason        : '1 UTXO, none confirmed',
+      });
       expect(counters.utxoCalls, 'the guard read the address').to.equal(1);
       expect(order, 'no publish label, no tx broadcast').to.deep.equal([]);
       expect(executor.store.size, 'nothing may reach the CAS').to.equal(0);
       expect(counters.sent).to.have.length(0);
     });
 
-    it('dust-only address: refuses and names the dust limit', async () => {
+    it('a UTXO at or below the fee of its own input: refuses and names that fee', async () => {
       const fixture = updateFixture('SingletonBeacon');
       const { order, counters } = recorders();
       const methodApi = new DidMethodApi();
 
-      // 546 sats is the boundary: a UTXO at or below it is not spendable.
+      // At the default 5 sat/vB, a P2WPKH input (69 vB) costs 345 sats. A UTXO
+      // of 345 sats adds no value, so the rule does not select it.
       await expect(methodApi.update(
-        ...updateArgs(fixture, order, counters, { utxosAt: funded => [{ ...funded, value: 546 }] })
-      )).to.be.rejectedWith(UpdateError, '546-sat dust limit');
+        ...updateArgs(fixture, order, counters, { utxosAt: funded => [{ ...funded, value: 345 }] })
+      )).to.be.rejectedWith(
+        UpdateError, 'cannot fund this update: 1 confirmed UTXO, each at or below the fee of its own input (345 sats).'
+      );
       expect(order).to.deep.equal([]);
       expect(counters.sent).to.have.length(0);
+    });
+
+    it('two UTXOs of 500 sats at the default fee rate: refuses with the value, fee, and size', async () => {
+      const fixture = updateFixture('CASBeacon');
+      const { order, counters } = recorders();
+      const executor = new MemCasExecutor(order);
+      const methodApi = new DidMethodApi(undefined, new CasApi({ executor }));
+
+      // Each UTXO is eligible (500 > 345 sats), but 2 inputs make 224 vB. At
+      // 5 sat/vB the fee is 1120 sats, more than the total value.
+      const err: unknown = await methodApi.update(
+        ...updateArgs(fixture, order, counters, { utxosAt: smallUtxos, announce: { publishToCas: 'always' } })
+      ).catch((e: unknown) => e);
+
+      const reason = '2 spendable UTXOs, total value 1000 sats, fee 1120 sats (224 vB)';
+      expect(err).to.be.instanceOf(UpdateError);
+      expect((err as UpdateError).message).to.include(
+        `Beacon address ${fixture.beaconAddress} cannot fund this update: ${reason}.`
+      );
+      expect((err as UpdateError).message).to.include('set a lower `announce.feeRate`');
+      expect((err as UpdateError).data).to.deep.equal({ beaconAddress: fixture.beaconAddress, utxos: 2, reason });
+      expect(order, 'the refusal comes before any CAS publication').to.deep.equal([]);
+      expect(counters.sent).to.have.length(0);
+    });
+
+    it('two UTXOs of 500 sats at announce.feeRate 1: spends both in one signal', async () => {
+      const fixture = updateFixture('SingletonBeacon');
+      const { order, counters } = recorders();
+      const methodApi = new DidMethodApi();
+
+      const result = await methodApi.update(
+        ...updateArgs(fixture, order, counters, { utxosAt: smallUtxos, announce: { feeRate: 1 } })
+      );
+
+      expect(result.txid).to.equal(TXID);
+      const tx = Transaction.fromRaw(hexToBytes(counters.sent[0]!), { allowUnknownOutputs: true });
+      expect(tx.inputsLength).to.equal(2);
+      // 224 vB at 1 sat/vB: the fee is 224 sats, and the change is 776 sats.
+      expect(tx.getOutput(0).amount).to.equal(776n);
     });
 
     it('unfunded address: keeps the unfunded message', async () => {
@@ -381,7 +427,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
       expect(counters.utxoCalls).to.equal(2);
     });
 
-    it('derives the one beacon among several that holds a spendable UTXO', async () => {
+    it('derives the one beacon among several whose address can fund the signal', async () => {
       const fixture = updateFixture('SingletonBeacon');
       const other = withSecondBeacon(fixture);
       const { order, counters } = recorders();
@@ -404,7 +450,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
       expect(counters.utxoCalls).to.equal(4);
     });
 
-    it('refuses if no beacon holds a spendable UTXO, and names every address', async () => {
+    it('refuses if no beacon can fund the signal, and gives the reason for each beacon', async () => {
       const fixture = updateFixture('SingletonBeacon');
       const other = withSecondBeacon(fixture);
       const { order, counters } = recorders();
@@ -416,21 +462,75 @@ describe('DidMethodApi update() CAS publication policy', () => {
 
       expect(err).to.be.instanceOf(UpdateError);
       expect((err as UpdateError).message).to.include('cannot derive beaconId');
-      expect((err as UpdateError).message).to.include(`${fixture.beaconId} (${fixture.beaconAddress})`);
-      expect((err as UpdateError).message).to.include(`${other.id} (${other.address})`);
+      expect((err as UpdateError).message).to.include(
+        `#beacon-test (${fixture.beaconAddress}): no UTXOs; #beacon-other (${other.address}): no UTXOs.`
+      );
       expect((err as UpdateError).type).to.equal(INVALID_DID_UPDATE);
       expect((err as UpdateError).data).to.deep.equal({
         did     : fixture.did,
         beacons : [
-          { id: fixture.beaconId, type: 'SingletonBeacon', address: fixture.beaconAddress },
-          { id: other.id, type: 'SingletonBeacon', address: other.address },
+          { id: fixture.beaconId, type: 'SingletonBeacon', address: fixture.beaconAddress, reason: 'no UTXOs' },
+          { id: other.id, type: 'SingletonBeacon', address: other.address, reason: 'no UTXOs' },
         ],
       });
       expect(order).to.deep.equal([]);
       expect(counters.sent).to.have.length(0);
     });
 
-    it('refuses if several beacons hold a spendable UTXO', async () => {
+    it('refuses two UTXOs of 500 sats at the default fee rate, and gives the fee reason', async () => {
+      const fixture = updateFixture('SingletonBeacon');
+      const other = withSecondBeacon(fixture);
+      const { order, counters } = recorders();
+      const methodApi = new DidMethodApi();
+
+      const err: unknown = await methodApi.update(...updateArgs(fixture, order, counters, {
+        utxosAt  : (funded, address) => address === fixture.beaconAddress ? smallUtxos(funded) : [],
+        announce : { beaconId: undefined },
+      })).catch((e: unknown) => e);
+
+      const reason = '2 spendable UTXOs, total value 1000 sats, fee 1120 sats (224 vB)';
+      expect(err).to.be.instanceOf(UpdateError);
+      expect((err as UpdateError).message).to.include(
+        `#beacon-test (${fixture.beaconAddress}): ${reason}; #beacon-other (${other.address}): no UTXOs.`
+      );
+      expect((err as UpdateError).data!.beacons[0]).to.deep.equal(
+        { id: fixture.beaconId, type: 'SingletonBeacon', address: fixture.beaconAddress, reason }
+      );
+      expect(counters.sent).to.have.length(0);
+    });
+
+    it('derives the beacon with two UTXOs of 500 sats at announce.feeRate 1', async () => {
+      const fixture = updateFixture('SingletonBeacon');
+      withSecondBeacon(fixture);
+      const { order, counters } = recorders();
+      const methodApi = new DidMethodApi();
+
+      const result = await methodApi.update(...updateArgs(fixture, order, counters, {
+        utxosAt  : (funded, address) => address === fixture.beaconAddress ? smallUtxos(funded) : [],
+        announce : { beaconId: undefined, feeRate: 1 },
+      }));
+
+      expect(result.txid).to.equal(TXID);
+      const tx = Transaction.fromRaw(hexToBytes(counters.sent[0]!), { allowUnknownOutputs: true });
+      expect(tx.inputsLength).to.equal(2);
+    });
+
+    it('throws an invalid change address again, not as the reason of a beacon', async () => {
+      const fixture = updateFixture('SingletonBeacon');
+      withSecondBeacon(fixture);
+      const { order, counters } = recorders();
+      const methodApi = new DidMethodApi();
+
+      const err: unknown = await methodApi.update(...updateArgs(fixture, order, counters, {
+        announce : { beaconId: undefined, changeAddress: 'not-an-address' },
+      })).catch((e: unknown) => e);
+
+      expect(err).to.be.instanceOf(BeaconError);
+      expect((err as BeaconError).type).to.equal('INVALID_CHANGE_ADDRESS');
+      expect(counters.sent).to.have.length(0);
+    });
+
+    it('refuses if several beacons can fund the signal', async () => {
       const fixture = updateFixture('SingletonBeacon');
       const other = withSecondBeacon(fixture);
       const { order, counters } = recorders();
