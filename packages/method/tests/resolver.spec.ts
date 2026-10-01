@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { randomBytes } from 'crypto';
-import { canonicalHash, canonicalHashBytes, encode, hash, canonicalize, INTERNAL_ERROR, INVALID_DID_UPDATE, INVALID_OPTIONS, INVALID_SIGNAL_DATA, JSONPatch, LATE_PUBLISHING_ERROR, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError } from '@did-btcr2/common';
+import { canonicalHash, canonicalHashBytes, encode, hash, canonicalize, INTERNAL_ERROR, INVALID_DID_UPDATE, INVALID_OPTIONS, INVALID_SIGNAL_DATA, JSONPatch, LATE_PUBLISHING, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError } from '@did-btcr2/common';
 import type { PatchOperation } from '@did-btcr2/common';
 import { getNetwork } from '@did-btcr2/bitcoin';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
@@ -1101,7 +1101,7 @@ describe('Resolver', () => {
       expect(driveThreshold([ u2 ], [ u2 ], [ undefined ]).result?.metadata.versionId).to.equal('1');
     });
 
-    it('a gap below the threshold surfaces as LATE_PUBLISHING_ERROR: v2 at 5, v3 at 6', () => {
+    it('a gap below the threshold surfaces as LATE_PUBLISHING: v2 at 5, v3 at 6', () => {
       // The specification removes the shallow transaction from the set; the loop then
       // sees version 3 with no version 2. That is the true state of the chain at the
       // threshold depth. The error clears when version 2 reaches the threshold.
@@ -1116,7 +1116,7 @@ describe('Resolver', () => {
         thrown = error;
       }
       expect(thrown).to.be.instanceOf(ResolveError);
-      expect(thrown.type).to.equal(LATE_PUBLISHING_ERROR);
+      expect(thrown.type).to.equal(LATE_PUBLISHING);
       // Both at the threshold: the same history resolves.
       expect(driveThreshold([ u2, u3 ], [ u2, u3 ], [ 6, 6 ]).result?.metadata.versionId).to.equal('3');
     });
@@ -1688,7 +1688,7 @@ describe('Resolver', () => {
     // changed the document. These reproduce the finding-resolver-duplicate-handling
     // traces end-to-end through the resolver loop. Before Path C the version counter
     // incremented on every tuple, which inflated versionId and false-tripped
-    // LATE_PUBLISHING_ERROR on the next genuine update.
+    // LATE_PUBLISHING on the next genuine update.
     const fixture = deterministicData[2]; // regtest - has a known secretKey
 
     it('resolves [v2, v2-dup, v3]: a duplicate no longer bricks the next genuine update', () => {
@@ -1701,7 +1701,7 @@ describe('Resolver', () => {
       const { metadata, didDocument } = driveSignalSequence(fixture.did, [ u2, u3 ], [ u2, u2, u3 ]);
       // Before Path C the unconditional increment drove currentVersionId to 3 on the
       // duplicate, so genuine v3 was misread as a duplicate and confirmDuplicate read an
-      // empty history slot, throwing a false LATE_PUBLISHING_ERROR. Now it resolves to v3.
+      // empty history slot, throwing a false LATE_PUBLISHING error. Now it resolves to v3.
       expect(metadata.versionId).to.equal('3');
       expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 2);
     });
@@ -1773,7 +1773,7 @@ describe('Resolver', () => {
         state = resolver.resolve();
       }
       if(state.status !== 'resolved') throw new Error('expected resolved');
-      // Before Path C the cross-round duplicate false-tripped LATE_PUBLISHING_ERROR; now the
+      // Before Path C the cross-round duplicate false-tripped LATE_PUBLISHING; now the
       // history resolves to v3 with both added beacons present.
       expect(state.result.metadata.versionId).to.equal('3');
       expect(state.result.didDocument.service.length).to.equal(source.service.length + 2);
@@ -1807,7 +1807,7 @@ describe('Resolver', () => {
         thrown = error;
       }
       expect(thrown, 'expected a false duplicate to throw').to.exist;
-      expect(thrown.type).to.equal(LATE_PUBLISHING_ERROR);
+      expect(thrown.type).to.equal(LATE_PUBLISHING);
       expect(thrown.message).to.match(/invalid duplicate/i);
     });
 
@@ -1933,7 +1933,7 @@ describe('Resolver', () => {
         thrown = error;
       }
       expect(thrown, 'expected the false duplicate to fail resolution').to.exist;
-      expect(thrown.type).to.equal(LATE_PUBLISHING_ERROR);
+      expect(thrown.type).to.equal(LATE_PUBLISHING);
       expect(thrown.message).to.match(/invalid duplicate/i);
     });
 
@@ -2955,7 +2955,7 @@ describe('Resolver', () => {
         [B, [{ update: v2, block: { height: 100 } }]],
         [C, [{ update: conflict, block: { height: 200 } }]]
       ]));
-      expect(thrown?.type).to.equal(LATE_PUBLISHING_ERROR);
+      expect(thrown?.type).to.equal(LATE_PUBLISHING);
     });
   });
 

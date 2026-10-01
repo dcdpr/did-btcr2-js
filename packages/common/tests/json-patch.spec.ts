@@ -105,7 +105,7 @@ describe('JSONPatch', () => {
   describe('strict option (ADR 112)', () => {
     const source = () => ({ a: 1, nested: { b: 2 }, list: [1, 2] });
 
-    it('applies a valid patch with the same result as the default mode', () => {
+    it('applies a valid patch with the same result as the lenient mode', () => {
       const ops: PatchOperation[] = [
         { op: 'replace', path: '/a', value: 3 },
         { op: 'add', path: '/nested/c', value: 4 },
@@ -114,19 +114,19 @@ describe('JSONPatch', () => {
         { op: 'copy', from: '/a', path: '/d' },
         { op: 'test', path: '/d', value: 3 },
       ];
-      expect(JSONPatch.apply(source(), ops, { strict: true })).to.deep.equal(JSONPatch.apply(source(), ops));
+      expect(JSONPatch.apply(source(), ops, { strict: true })).to.deep.equal(JSONPatch.apply(source(), ops, { strict: false }));
     });
 
-    it('the default mode passes a remove of a missing path silently; strict fails it at that operation', () => {
+    it('the lenient mode passes a remove of a missing path silently; strict fails it at that operation', () => {
       const ops: PatchOperation[] = [{ op: 'remove', path: '/missing' }];
-      expect(JSONPatch.apply(source(), ops)).to.deep.equal(source());
+      expect(JSONPatch.apply(source(), ops, { strict: false })).to.deep.equal(source());
       expect(() => JSONPatch.apply(source(), ops, { strict: true }))
         .to.throw(MethodError, /at operation 0 \(remove \/missing\).*does not exist/);
     });
 
-    it('the default mode replaces a missing path by adding it; strict fails it', () => {
+    it('the lenient mode replaces a missing path by adding it; strict fails it', () => {
       const ops: PatchOperation[] = [{ op: 'replace', path: '/missing', value: 1 }];
-      expect(JSONPatch.apply(source(), ops)).to.have.property('missing', 1);
+      expect(JSONPatch.apply(source(), ops, { strict: false })).to.have.property('missing', 1);
       expect(() => JSONPatch.apply(source(), ops, { strict: true })).to.throw(MethodError, /does not exist/);
     });
 
@@ -135,16 +135,16 @@ describe('JSONPatch', () => {
       expect(() => JSONPatch.apply(source(), ops, { strict: true })).to.throw(MethodError, /does not exist/);
     });
 
-    it('the default mode ignores an unknown op on the root path; strict rejects it', () => {
+    it('the lenient mode ignores an unknown op on the root path; strict rejects it', () => {
       const ops = [{ op: 'frobnicate', path: '' } as unknown as PatchOperation];
-      expect(JSONPatch.apply(source(), ops)).to.deep.equal(source());
+      expect(JSONPatch.apply(source(), ops, { strict: false })).to.deep.equal(source());
       expect(() => JSONPatch.apply(source(), ops, { strict: true }))
         .to.throw(MethodError, /not an RFC 6902 operation: frobnicate/);
     });
 
-    it('the default mode writes a missing value as undefined; strict rejects it', () => {
+    it('the lenient mode writes a missing value as undefined; strict rejects it', () => {
       const ops = [{ op: 'add', path: '/a' } as PatchOperation];
-      const lenient = JSONPatch.apply(source(), ops);
+      const lenient = JSONPatch.apply(source(), ops, { strict: false });
       expect('a' in lenient).to.equal(true);
       expect(lenient.a).to.equal(undefined);
       expect(() => JSONPatch.apply(source(), ops, { strict: true }))
@@ -156,9 +156,16 @@ describe('JSONPatch', () => {
         { op: 'replace', path: '/a', value: 2 },
         { op: 'test', path: '/a', value: 1 },
       ];
-      expect(() => JSONPatch.apply(source(), ops)).to.throw(MethodError, /Test operation failed/);
+      expect(() => JSONPatch.apply(source(), ops, { strict: false })).to.throw(MethodError, /Test operation failed/);
       expect(() => JSONPatch.apply(source(), ops, { strict: true }))
         .to.throw(MethodError, /at operation 1 \(test \/a\): Test operation failed/);
+    });
+
+    it('the default mode is strict', () => {
+      const ops: PatchOperation[] = [{ op: 'remove', path: '/missing' }];
+      expect(() => JSONPatch.apply(source(), ops)).to.throw(MethodError, /at operation 0 \(remove \/missing\).*does not exist/);
+      expect(JSONPatch.validateOperations([{ op: 'add', path: '/a' } as PatchOperation]))
+        .to.be.instanceOf(MethodError);
     });
 
     it('the failure carries the type JSON_PATCH_APPLY_ERROR and the inner error', () => {

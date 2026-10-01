@@ -58,7 +58,7 @@ export interface JSONPatchApplyOptions {
    * `remove` or a `replace` of a path that does not exist, a `move` or a `copy` from a path
    * that does not exist, an `add` under a parent that does not exist, and a failed `test`
    * fail the patch at the first failing operation. With `false`, only a failed `test` fails
-   * the patch; the other cases pass silently. Default: `false`.
+   * the patch; the other cases pass silently. Default: `true`.
    */
   strict?: boolean;
 }
@@ -99,7 +99,7 @@ export class JSONPatch {
     options: JSONPatchApplyOptions = {}
   ): Record<any, any> {
     const mutate = options.mutate ?? false;
-    const strict = options.strict ?? false;
+    const strict = options.strict ?? true;
     const cloneFn = options.clone ?? deepClone;
     const docClone = mutate ? sourceDocument : cloneFn(sourceDocument);
     const validationError = this.validateOperations(operations, strict);
@@ -167,10 +167,10 @@ export class JSONPatch {
  * the `op` must be an RFC 6902 operation code, and `add`, `replace`, and `test` must carry
  * a `value`.
  * @param {PatchOperation[]} operations - The operations to validate.
- * @param {boolean} [strict=false] - Apply the RFC 6902 checks of {@link JSONPatchApplyOptions.strict}.
+ * @param {boolean} [strict=true] - Apply the RFC 6902 checks of {@link JSONPatchApplyOptions.strict}.
  * @returns {MethodError | null} A MethodError if validation fails, otherwise null.
  */
-  static validateOperations(operations: PatchOperation[], strict: boolean = false): MethodError | null {
+  static validateOperations(operations: PatchOperation[], strict: boolean = true): MethodError | null {
     if (!Array.isArray(operations)) return new MethodError('Operations must be an array', 'JSON_PATCH_VALIDATION_ERROR');
     for (const op of operations) {
       if (!op || typeof op !== 'object') return new MethodError('Operation must be an object', 'JSON_PATCH_VALIDATION_ERROR');

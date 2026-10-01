@@ -27,7 +27,7 @@
     }
   ],
   "expect": {
-    "error": "LATE_PUBLISHING_ERROR"
+    "error": "LATE_PUBLISHING"
   },
   "beacons": [
     {

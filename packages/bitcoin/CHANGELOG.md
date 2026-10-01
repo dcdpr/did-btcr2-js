@@ -1,5 +1,12 @@
 # @did-btcr2/bitcoin
 
+## 0.11.4
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/common@10.0.0
+
 ## 0.11.3
 
 ### Patch Changes

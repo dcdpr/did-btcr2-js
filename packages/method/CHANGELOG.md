@@ -1,5 +1,24 @@
 # @did-btcr2/method
 
+## 0.68.0
+
+### Minor Changes
+
+- The late-publishing error code is `LATE_PUBLISHING`, the code of the specification. `JSONPatch.apply` is strict by default (ADR 112). The deprecated options overload of `NotImplementedError` is gone (ADR 085).
+
+  - common: the error code `LATE_PUBLISHING_ERROR` is now `LATE_PUBLISHING`, in name and in value. The `strict` option of `JSONPatch.apply` and `JSONPatch.validateOperations` defaults to `true`. Pass `{ strict: false }` for the lenient mode. `NotImplementedError` takes the type and the data positionally only. Breaking: all three changes.
+  - method: the resolver raises `LATE_PUBLISHING` for a skipped version and for a duplicate that does not match the applied update. Breaking: the error type changes.
+  - api: a resolution that finds late publishing fails with the error type `LATE_PUBLISHING`. Breaking: the error type changes.
+  - keypair, cryptosuite, bitcoin, key-manager, aggregation, cli: dependency uptake.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/common@10.0.0
+  - @did-btcr2/bitcoin@0.11.4
+  - @did-btcr2/cryptosuite@10.0.1
+  - @did-btcr2/keypair@0.13.2
+
 ## 0.67.0
 
 ### Minor Changes
