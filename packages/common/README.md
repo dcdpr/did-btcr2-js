@@ -52,16 +52,16 @@ import { canonicalHash, JSONPatch, MethodError } from '@did-btcr2/common';
 const docHash = canonicalHash({ id: 'did:btcr2:k1q5p...', verificationMethod: [] });
 
 // Apply a JSON Patch operation to a document (returns a new document, does not mutate).
+// The apply is strict by default: an unknown op, a missing value, a remove or replace of
+// a path that does not exist, a move or copy from a path that does not exist, and a
+// failed test fail the patch at the first failing operation (RFC 6902).
 const patched = JSONPatch.apply(
   { id: 'did:btcr2:k1q5p...', service: [] },
   [{ op: 'add', path: '/service/-', value: { id: '#dwn' } }],
 );
 
-// Apply the patch strictly: an unknown op, a missing value, a remove or replace of a
-// path that does not exist, a move or copy from a path that does not exist, and a
-// failed test fail the patch at the first failing operation (RFC 6902). The default
-// mode fails a failed test only. The did:btcr2 update paths use the strict mode.
-const strict = JSONPatch.apply(document, operations, { strict: true });
+// The lenient mode fails a failed test only. The did:btcr2 update paths use the strict mode.
+const lenient = JSONPatch.apply(document, operations, { strict: false });
 
 // Throw a structured error with type tag + data payload.
 throw new MethodError('beacon address mismatch', 'BEACON_VALIDATION', {

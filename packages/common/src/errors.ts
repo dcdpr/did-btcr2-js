@@ -69,8 +69,8 @@ export enum MethodErrorCode {
   /** The verification method was formed improperly. */
   VERIFICATION_METHOD_ERROR = 'VERIFICATION_METHOD_ERROR',
 
- /** Something about the DID Update Payload indicates the potential for late publishing. */
-  LATE_PUBLISHING_ERROR = 'LATE_PUBLISHING_ERROR',
+  /** Something about the DID Update Payload indicates the potential for late publishing. */
+  LATE_PUBLISHING = 'LATE_PUBLISHING',
 
   /** The sidecar data in the DID Update Payload was invalid. */
   INVALID_SIDECAR_DATA = 'INVALID_SIDECAR_DATA',
@@ -117,7 +117,7 @@ export const {
   PROOF_SERIALIZATION_ERROR,
   PROOF_PARSING_ERROR,
   VERIFICATION_METHOD_ERROR,
-  LATE_PUBLISHING_ERROR,
+  LATE_PUBLISHING,
   INVALID_SIDECAR_DATA,
   MISSING_UPDATE_DATA,
   INVALID_SIGNAL_DATA,
@@ -200,18 +200,8 @@ export class MethodError extends DidMethodError {
 }
 
 export class NotImplementedError extends DidMethodError {
-  constructor(message: string, type?: string, data?: Record<string, any>);
-  /** @deprecated Pass the type string and data object positionally instead. */
-  constructor(message: string, options?: ErrorOptions);
-  constructor(message: string, typeOrOptions: string | ErrorOptions = 'NotImplementedError', data?: Record<string, any>) {
-    const opts: ErrorOptions = typeof typeOrOptions === 'string'
-      ? { type: typeOrOptions, name: typeOrOptions, data }
-      : {
-        type : typeOrOptions.type ?? 'NotImplementedError',
-        name : typeOrOptions.name ?? 'NotImplementedError',
-        data : typeOrOptions.data
-      };
-    super(message, opts);
+  constructor(message: string, type: string = 'NotImplementedError', data?: Record<string, any>) {
+    super(message, { type, name: type, data });
   }
 }
 

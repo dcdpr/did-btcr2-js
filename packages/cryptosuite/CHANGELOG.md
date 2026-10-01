@@ -1,5 +1,13 @@
 # @did-btcr2/cryptosuite
 
+## 10.0.1
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/common@10.0.0
+  - @did-btcr2/keypair@0.13.2
+
 ## 10.0.0
 
 ### Major Changes

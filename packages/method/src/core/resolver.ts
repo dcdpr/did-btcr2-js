@@ -13,7 +13,7 @@ import {
   INVALID_SIGNAL_DATA,
   JSONPatch,
   JSONUtils,
-  LATE_PUBLISHING_ERROR,
+  LATE_PUBLISHING,
   MISSING_UPDATE_DATA,
   NOT_FOUND,
   ResolveError
@@ -553,7 +553,7 @@ export class Resolver {
     if (historicalUpdateHash === undefined) {
       throw new ResolveError(
         `Invalid duplicate: no applied update in history for targetVersionId`,
-        LATE_PUBLISHING_ERROR, {
+        LATE_PUBLISHING, {
           targetVersionId : update.targetVersionId,
           historyLength   : updateHashHistory.length
         }
@@ -564,7 +564,7 @@ export class Resolver {
     if (!equalBytes(historicalUpdateHash, unsignedUpdateHash)) {
       throw new ResolveError(
         `Invalid duplicate: unsigned update hash does not match historical hash`,
-        LATE_PUBLISHING_ERROR, {
+        LATE_PUBLISHING, {
           unsignedUpdateHash : encodeHash(unsignedUpdateHash, 'hex'),
           historicalHash     : encodeHash(historicalUpdateHash, 'hex')
         }
@@ -998,7 +998,7 @@ export class Resolver {
           if(update.targetVersionId !== this.#currentVersionId + 1) {
             throw new ResolveError(
               `Version Id Mismatch: targetVersionId cannot be > currentVersionId + 1`,
-              LATE_PUBLISHING_ERROR, {
+              LATE_PUBLISHING, {
                 targetVersionId  : update.targetVersionId,
                 currentVersionId : this.#currentVersionId + 1
               }

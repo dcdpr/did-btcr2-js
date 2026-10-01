@@ -251,7 +251,7 @@ function substitute(value: unknown, ctx: { did: string; keys: Map<string, Schnor
 function constructLenient(sourceDocument: Btcr2DidDocument, patches: PatchOperation[], sourceVersionId: number): UnsignedBTCR2Update {
   let target: object = sourceDocument;
   try {
-    target = JSONPatch.apply(sourceDocument, patches) as object;
+    target = JSONPatch.apply(sourceDocument, patches, { strict: false }) as object;
   } catch {
     target = sourceDocument;
   }

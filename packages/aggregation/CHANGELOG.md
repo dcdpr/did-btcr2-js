@@ -1,5 +1,15 @@
 # @did-btcr2/aggregation
 
+## 0.7.5
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/common@10.0.0
+  - @did-btcr2/bitcoin@0.11.4
+  - @did-btcr2/cryptosuite@10.0.1
+  - @did-btcr2/keypair@0.13.2
+
 ## 0.7.4
 
 ### Patch Changes

@@ -1,5 +1,13 @@
 # @did-btcr2/cli
 
+## 0.29.3
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/api@0.30.0
+  - @did-btcr2/key-manager@0.7.1
+
 ## 0.29.2
 
 ### Patch Changes

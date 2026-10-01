@@ -125,7 +125,7 @@ export type Delivery = 'sidecar' | 'cas' | 'smt';
 
 /**
  * How an update is made invalid. The resolver must raise `INVALID_DID_UPDATE`
- * for every kind except `version-skip`, which raises `LATE_PUBLISHING_ERROR`
+ * for every kind except `version-skip`, which raises `LATE_PUBLISHING`
  * (a version is missing). The kinds that change the proof options sign the
  * update with those options; the kinds that change the signed bytes edit the
  * update after the signature.
@@ -151,7 +151,7 @@ export type TamperKind =
   | 'source-hash'
   /** `targetHash` is the hash of the source document. */
   | 'target-hash'
-  /** `targetVersionId` skips one version: `LATE_PUBLISHING_ERROR`. */
+  /** `targetVersionId` skips one version: `LATE_PUBLISHING`. */
   | 'version-skip'
   /** The patch is invalid on purpose: the update is constructed without the strict checks. */
   | 'invalid-patch'
