@@ -428,6 +428,14 @@ describe('Updater', () => {
       expect(signed.proof).to.have.property('cryptosuite', 'bip340-jcs-2025');
     });
 
+    it('Updater.sign() sets proof.invocationTarget to the DID', () => {
+      const unsigned = Updater.construct(sourceDocument, [], 1);
+      const vm = sourceDocument.verificationMethod![0]!;
+      const signed = Updater.sign(sourceDocument.id, unsigned, vm, signer);
+      // Spec "Construct BTCR2 Signed Update": invocation-target is sourceDidDocument.id.
+      expect(signed.proof).to.have.property('invocationTarget', sourceDocument.id);
+    });
+
     it('Updater.construct() emits the @context array that the specification pins, in order', () => {
       const unsigned = Updater.construct(sourceDocument, [], 1);
       // The literal is the value from the specification, so this test pins the constant too.

@@ -1,5 +1,21 @@
 # @did-btcr2/api
 
+## 0.31.0
+
+### Minor Changes
+
+- The proof of an update has `invocationTarget`, and `updated` is the block `mediantime` (spec PRs 379 and 380).
+
+  - method: `Btcr2DataIntegrityProof` and `Btcr2DataIntegrityConfig` have the required field `invocationTarget`. `Updater.sign` sets it to the DID. The resolver raises `INVALID_DID_UPDATE` if `update.proof.invocationTarget` is not the DID. Breaking: an update with no `invocationTarget` does not resolve.
+  - method: `didDocumentMetadata.updated` is the `mediantime` of the block of the last applied update, not the header time.
+  - api: a new update has `invocationTarget`. A resolution fails with `INVALID_DID_UPDATE` for an update with no `invocationTarget`. Breaking: an update that an earlier version signed does not resolve.
+  - cli: dependency uptake.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/method@0.69.0
+
 ## 0.30.0
 
 ### Minor Changes

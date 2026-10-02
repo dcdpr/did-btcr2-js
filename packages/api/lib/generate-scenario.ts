@@ -181,7 +181,7 @@ function buildGenesisDocument(scenario: Scenario, keys: Map<string, SchnorrKeyPa
     const kp = keys.get(extra.key);
     if (!kp) throw new Error(`Genesis method ${extra.id} names an unknown key "${extra.key}"`);
     const vm = multikeyMethod(`${idPrefix}${extra.id}`, controller, kp.publicKey.compressed);
-    verificationMethod.push(vm);
+    if (!extra.referenceOnly) verificationMethod.push(vm);
     for (const rel of extra.relationships) relationships[rel]!.push(vm.id);
   }
 
@@ -265,11 +265,18 @@ function constructLenient(sourceDocument: Btcr2DidDocument, patches: PatchOperat
   };
 }
 
+/** The DID of the same genesis bytes on mainnet. No vector network is mainnet, so it is another DID. */
+function otherNetworkDid(did: string): string {
+  const { idType, genesisBytes } = Identifier.decode(did);
+  return Identifier.encode(genesisBytes, { idType, network: 'bitcoin' });
+}
+
 /** Proof options that a tamper changes. `undefined` when the tamper does not touch the proof options. */
 function proofOverrides(kind: TamperKind | undefined, did: string): Partial<Btcr2DataIntegrityConfig> | undefined {
   switch (kind) {
     case 'capability-action':        return { capabilityAction: 'Read' };
     case 'capability-encoding':      return { capability: `urn:zcap:root:${did}` };
+    case 'invocation-target':        return { invocationTarget: otherNetworkDid(did) };
     case 'proof-purpose':            return { proofPurpose: 'assertionMethod' };
     case 'created-after-block':      return { created: '2099-01-01T00:00:00Z' };
     case 'expires-before-mediantime': return { expires: '2020-01-01T00:00:00Z' };
@@ -457,10 +464,15 @@ function runScenario(scenario: Scenario, cohorts: CohortDef[]): void {
     const vmId = u.tamper === 'unknown-method' ? `${did}#unknown` : absolutize(did, u.verificationMethodId);
     const beaconId = absolutize(did, u.beaconId);
 
-    // The signing method and the signer.
+    // The signing method and the signer. A reference-only genesis method is not in the
+    // document, so the method comes from its key.
+    const referenceOnly = scenario.genesis?.verificationMethods
+      ?.find((m) => m.referenceOnly && absolutize(did, m.id) === vmId);
     const vm: DidVerificationMethod = u.tamper === 'unknown-method'
       ? multikeyMethod(vmId, did, publicKey)
-      : DidBtcr2.getSigningMethod(source.document, vmId);
+      : referenceOnly
+        ? multikeyMethod(vmId, did, keys.get(referenceOnly.key)!.publicKey.compressed)
+        : DidBtcr2.getSigningMethod(source.document, vmId);
     const signerKp = u.signWith
       ? keys.get(u.signWith)
       : [...keys.values()].find((kp) => kp.publicKey.multibase.encoded === vm.publicKeyMultibase);

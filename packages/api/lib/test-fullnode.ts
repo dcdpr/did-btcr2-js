@@ -53,6 +53,7 @@ const resolutionOptions: ResolutionOptions = {
           proofPurpose       : 'capabilityInvocation',
           capability         : `urn:zcap:root:${encodeURIComponent(did)}`,
           capabilityAction   : 'Write',
+          invocationTarget   : did,
           proofValue         : 'z4uLUfMjfUufPGgeXa9ZgJ1DR7bnH7FAkHVf83ebT1C4iwFtiJPPNgStUrT9cpV2h8PKdN6RH4TFJgrRd7APPBqWA'
         }
       }

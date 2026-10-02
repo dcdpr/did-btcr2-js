@@ -240,7 +240,7 @@ export class Updater {
     }
 
     // Spec (operations/update.md): "An INVALID_DID_UPDATE error MUST be raised if
-    // didTargetDocument.id is not equal to didSourceDocument.id." `DidDocument.isValid`
+    // targetDidDocument.id is not equal to sourceDidDocument.id." `DidDocument.isValid`
     // checks W3C conformance but not this equality, so it's enforced explicitly here.
     if(targetDocument.id !== sourceDocument.id) {
       throw new UpdateError(
@@ -265,7 +265,8 @@ export class Updater {
   /**
    * Implements subsection {@link http://dcdpr.github.io/did-btcr2/operations/update.html#construct-btcr2-signed-update | 7.3.c Construct BTCR2 Signed Update }.
    *
-   * @param {string} did The did-btcr2 identifier to derive the root capability from.
+   * @param {string} did The did-btcr2 identifier: the source of the root capability and the
+   * invocation target.
    * @param {UnsignedBTCR2Update} unsignedUpdate The unsigned update to sign.
    * @param {DidVerificationMethod} verificationMethod The verification method for signing.
    * @param {Signer} signer Signer that produces the BIP-340 Schnorr signature.
@@ -337,6 +338,7 @@ export class Updater {
       proofPurpose       : 'capabilityInvocation',
       capability         : `urn:zcap:root:${encodeURIComponent(did)}`,
       capabilityAction   : 'Write',
+      invocationTarget   : did,
     };
 
     const diproof = multikey.toCryptosuite().toDataIntegrityProof();

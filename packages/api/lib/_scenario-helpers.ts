@@ -144,6 +144,8 @@ export type TamperKind =
   | 'capability-action'
   /** `capability` carries the DID without percent-encoding. */
   | 'capability-encoding'
+  /** `invocationTarget` is the DID of the same genesis bytes on mainnet, not the DID. */
+  | 'invocation-target'
   /** `proofPurpose` is `assertionMethod`. */
   | 'proof-purpose'
   /** The proof names a verification method that the document does not contain. */
@@ -225,8 +227,12 @@ export type VerificationRelationship = 'authentication' | 'assertionMethod' | 'c
 
 /** Options for the genesis document of an EXTERNAL identifier. */
 export type GenesisOptions = {
-  /** Extra verification methods, each from a named extra key, with the relationships that list it. */
-  verificationMethods?: Array<{ id: string; key: string; relationships: VerificationRelationship[] }>;
+  /**
+   * Extra verification methods, each from a named extra key, with the relationships that list it.
+   * With `referenceOnly`, the relationships list a reference to the method, and `verificationMethod`
+   * does not contain the method.
+   */
+  verificationMethods?: Array<{ id: string; key: string; relationships: VerificationRelationship[]; referenceOnly?: boolean }>;
   /** `capabilityInvocation` lists the initial key as an embedded method object and `verificationMethod` omits it. */
   embedInvocationKey?: boolean;
   /** Spell the ids of the genesis document as relative DID URLs (`#initialKey`). */
@@ -561,6 +567,7 @@ export function signWithConfig(
     proofPurpose       : 'capabilityInvocation',
     capability         : `urn:zcap:root:${encodeURIComponent(did)}`,
     capabilityAction   : 'Write',
+    invocationTarget   : did,
     ...overrides,
   };
   return multikey.toCryptosuite().toDataIntegrityProof().addProof(unsigned, config) as SignedBTCR2Update;
@@ -656,6 +663,12 @@ export const FAILURE_RULES: Readonly<Record<string, FailureRule>> = {
     section : `${RESOLVE}#check-update-proof`,
     message : /^Invalid update: proof\.capability must equal/,
   },
+  'proof-invocation-target-mismatch' : {
+    error   : 'INVALID_DID_UPDATE',
+    rule    : 'update.proof.invocationTarget is not the DID.',
+    section : `${RESOLVE}#check-update-proof`,
+    message : /^Invalid update: proof\.invocationTarget must equal/,
+  },
   'proof-purpose-mismatch' : {
     error   : 'INVALID_DID_UPDATE',
     rule    : 'update.proof.proofPurpose is not "capabilityInvocation".',
@@ -667,6 +680,12 @@ export const FAILURE_RULES: Readonly<Record<string, FailureRule>> = {
     rule    : 'No entry of capabilityInvocation identifies update.proof.verificationMethod.',
     section : `${RESOLVE}#check-update-proof`,
     message : /^Invalid update: verificationMethod is not authorized for capabilityInvocation/,
+  },
+  'proof-method-not-found' : {
+    error   : 'INVALID_DID_UPDATE',
+    rule    : 'The capabilityInvocation entry that identifies update.proof.verificationMethod is a reference, and current_document.verificationMethod has no method with that id.',
+    section : `${RESOLVE}#check-update-proof`,
+    message : /^Invalid update: verificationMethod is not found in the verificationMethod of the current document/,
   },
   'proof-not-verified' : {
     error   : 'INVALID_DID_UPDATE',
