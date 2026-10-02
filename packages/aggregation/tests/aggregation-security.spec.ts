@@ -37,6 +37,7 @@ function buildHugeUpdate(bytes: number): SignedBTCR2Update {
       proofPurpose       : 'capabilityInvocation',
       capability         : 'urn:zcap:root',
       capabilityAction   : 'Write',
+      invocationTarget   : 'did:btcr2:dummy',
       proofValue         : 'z' + 'x'.repeat(100),
     },
   } as SignedBTCR2Update;

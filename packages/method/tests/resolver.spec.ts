@@ -2581,6 +2581,20 @@ describe('Resolver', () => {
       });
     });
 
+    it('updated is the mediantime of the block, not its header time', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ benignPatch(fixture.did) ]);
+      // The header time is 600 s after the mediantime. Spec "Apply Update" sets
+      // block_mediantime, and `updated` is block_mediantime as an XML Datetime.
+      const { metadata } = driveSignalSequence(
+        fixture.did, [ u2 ], [ u2 ],
+        [ { height: 100, time: 1700000600, mediantime: 1700000000, confirmations: 6 } ]
+      );
+      expect(metadata).to.deep.equal({
+        versionId : '2', confirmations : 6, updated : '2023-11-14T22:13:20Z', deactivated : false
+      });
+    });
+
     it('resolves [v2 on A, v3 on B, v4 on A] where v2 adds beacon B: one update per pass, then a re-scan', () => {
       const source = resolveDeterministic(fixture.did);
       const genesisAddress = BeaconUtils.parseBitcoinAddress(
@@ -2659,6 +2673,7 @@ describe('Resolver', () => {
         proofPurpose       : 'capabilityInvocation',
         capability         : `urn:zcap:root:${encodeURIComponent(fixture.did)}`,
         capabilityAction   : 'Write',
+        invocationTarget   : fixture.did,
         ...extra,
       } as Btcr2DataIntegrityConfig;
       return multikey.toCryptosuite().toDataIntegrityProof().addProof({ ...unsigned }, config) as SignedBTCR2Update;
@@ -2710,6 +2725,10 @@ describe('Resolver', () => {
       [ 'capability', `urn:zcap:root:${fixture.did}` ],
       [ 'capability', `urn:zcap:root:${encodeURIComponent(deterministicData[0].did)}` ],
       [ 'capability', undefined ],
+      [ 'invocationTarget', deterministicData[0].did ],
+      [ 'invocationTarget', `urn:zcap:root:${encodeURIComponent(fixture.did)}` ],
+      // An update signed before the specification required the field.
+      [ 'invocationTarget', undefined ],
     ];
     for(const [ field, value ] of wrongFields) {
       it(`rejects a proof whose ${field} is ${value === undefined ? 'absent' : JSON.stringify(value)}, and names the field`, () => {

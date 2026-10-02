@@ -1,0 +1,64 @@
+{
+  "id": "n33-x1-invalid-update-reference-no-method",
+  "description": "Negative: x1 DID whose capabilityInvocation lists a reference #key-1 that names no verification method; 1 anchored update signed with #key-1.",
+  "network": "testnet4",
+  "idType": "EXTERNAL",
+  "keys": {
+    "source": "fixed",
+    "secretHex": "b44f7d11a988ce2459a8bfb2924a50098b9746fa52e5e6b7bf90fdb3b00fc783"
+  },
+  "extraKeys": {
+    "key-1": {
+      "source": "fixed",
+      "secretHex": "742e42ff821ce46c5fc41091fba058d09298c39010509e519ad3fa1d91409c4c"
+    }
+  },
+  "genesis": {
+    "verificationMethods": [
+      {
+        "id": "#key-1",
+        "key": "key-1",
+        "relationships": [
+          "capabilityInvocation"
+        ],
+        "referenceOnly": true
+      }
+    ]
+  },
+  "updates": [
+    {
+      "patches": [
+        {
+          "op": "add",
+          "path": "/service/3",
+          "value": {
+            "id": "#didcomm",
+            "type": "DIDCommMessaging",
+            "serviceEndpoint": "http://example.com/didcomm"
+          }
+        }
+      ],
+      "verificationMethodId": "#key-1",
+      "beaconId": "#initialP2WPKH",
+      "delivery": "sidecar"
+    }
+  ],
+  "expect": {
+    "error": "INVALID_DID_UPDATE",
+    "rule": "proof-method-not-found"
+  },
+  "beacons": [
+    {
+      "kind": "P2PKH",
+      "id": "#initialP2PKH"
+    },
+    {
+      "kind": "P2WPKH",
+      "id": "#initialP2WPKH"
+    },
+    {
+      "kind": "P2TR",
+      "id": "#initialP2TR"
+    }
+  ]
+}

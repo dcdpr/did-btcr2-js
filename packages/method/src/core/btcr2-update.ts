@@ -100,6 +100,9 @@ export type Btcr2DataIntegrityProof = DataIntegrityProofObject & {
 
   /** The action performed under the capability: `"Write"` for a DID document update. */
   capabilityAction: string;
+
+  /** The target of the capability invocation: the DID that the update changes. */
+  invocationTarget: string;
 };
 
 /**
@@ -129,4 +132,7 @@ export type Btcr2DataIntegrityConfig = DataIntegrityProofOptions & {
 
   /** The action performed under the capability: `"Write"` for a DID document update. */
   capabilityAction: string;
+
+  /** The target of the capability invocation: the DID that the update changes. */
+  invocationTarget: string;
 };

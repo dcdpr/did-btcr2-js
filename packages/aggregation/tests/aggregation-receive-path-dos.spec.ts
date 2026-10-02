@@ -61,6 +61,7 @@ function createSignedUpdate(did: string, keys: SchnorrKeyPair): SignedBTCR2Updat
     proofPurpose       : 'capabilityInvocation',
     capability         : `urn:zcap:root:${encodeURIComponent(did)}`,
     capabilityAction   : 'Write',
+    invocationTarget   : did,
   };
   const multikey = SchnorrMultikey.fromSecretKey(verificationMethodId, did, keys.secretKey.bytes);
   return multikey.toCryptosuite().toDataIntegrityProof().addProof(unsigned, config) as SignedBTCR2Update;

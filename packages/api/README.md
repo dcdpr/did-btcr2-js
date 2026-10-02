@@ -124,9 +124,9 @@ A spec can name several keys with chosen relationships, a `CASBeacon` or `SMTBea
 The update arguments follow the update operation of the specification:
 
 ```typescript
-// spec: update(didSourceDocument, jsonPatch, targetVersionId, verificationMethodId, signer)
+// spec: update(sourceDidDocument, jsonPatch, targetVersionId, verificationMethodId, signer)
 api.updateDid(source, patch, signer, options?)
-// spec: deactivate(didSourceDocument, targetVersionId, verificationMethodId, signer)
+// spec: deactivate(sourceDidDocument, targetVersionId, verificationMethodId, signer)
 api.deactivateDid(source, signer, options?)
 ```
 

@@ -89,7 +89,7 @@ export interface DidUpdateResult {
  * @public
  */
 export interface SourceState {
-  /** The source DID document: the `didSourceDocument` of the specification. */
+  /** The source DID document: the `sourceDidDocument` of the specification. */
   document: Btcr2DidDocument;
   /** The `versionId` of `document`, from the resolution that returned it. */
   versionId: number;

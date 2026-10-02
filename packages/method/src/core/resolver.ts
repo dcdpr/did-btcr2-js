@@ -68,8 +68,8 @@ export interface DidResolutionResponse {
     /** The version of the resolved document as an ASCII string. `"1"` when the resolver applied no update. */
     versionId: string;
     /**
-     * XML Datetime (UTC, no fraction) of the block of the last applied update.
-     * Absent until the resolver applies an update.
+     * XML Datetime (UTC, no fraction) of the `mediantime` of the block that contains
+     * the last applied update. Absent until the resolver applies an update.
      */
     updated?: string;
     /** Whether the resolved document is deactivated. */
@@ -328,10 +328,10 @@ export class Resolver {
    * (`current_version_id`), the update-hash history that backs duplicate confirmation
    * (`update_hash_history`), the confirmations of the block that contains the most
    * recently applied unique update (`block_confirmations`), the height of that block
-   * (`current_block_height`), and the header time of that block as `updated`. A pass
-   * that finds a new beacon address returns to discovery, so the state must not
-   * restart: a restart would reject a linear history whose later updates are
-   * announced on beacons that earlier updates added.
+   * (`current_block_height`), and the `mediantime` of that block as `updated`
+   * (`block_mediantime`). A pass that finds a new beacon address returns to discovery,
+   * so the state must not restart: a restart would reject a linear history whose later
+   * updates are announced on beacons that earlier updates added.
    */
   #currentVersionId = 1;
   #updateHashHistory: HashBytes[] = [];
@@ -700,8 +700,9 @@ export class Resolver {
 
     // Spec "Check update.proof": each proof field by string equality, before the method
     // lookup and before signature verification, so that a failure names the field. The
-    // capability is the URN that the Data Integrity Config specifies for this DID; the root
-    // capability is not derived, the specification makes that optional.
+    // capability is the URN that the Data Integrity Config specifies for this DID, and the
+    // invocation target is the DID; the root capability is not derived, the specification
+    // makes that optional.
     const proof = update.proof;
     const expectedFields: Array<[ string, string ]> = [
       [ 'type', 'DataIntegrityProof' ],
@@ -709,6 +710,7 @@ export class Resolver {
       [ 'proofPurpose', 'capabilityInvocation' ],
       [ 'capabilityAction', 'Write' ],
       [ 'capability', `urn:zcap:root:${encodeURIComponent(currentDocument.id)}` ],
+      [ 'invocationTarget', currentDocument.id ],
     ];
     for(const [ field, expected ] of expectedFields) {
       const actual = (proof as Record<string, unknown>)[field];
@@ -1012,12 +1014,12 @@ export class Resolver {
           this.#updateHashHistory.push(canonicalHashBytes(unsignedUpdate));
           this.#currentVersionId++;
 
-          // "Apply Update": block_confirmations, current_block_height, and the header time
-          // as `updated`. On the apply path only: the stop above and the duplicate branch
-          // stamp nothing.
+          // "Apply Update": block_confirmations, current_block_height, and the block
+          // mediantime as `updated` (block_mediantime). On the apply path only: the stop
+          // above and the duplicate branch stamp nothing.
           this.#blockConfirmations = block.confirmations;
           this.#currentBlockHeight = block.height;
-          this.#updated = DateUtils.toISOStringNonFractional(DateUtils.blocktimeToTimestamp(block.time));
+          this.#updated = DateUtils.toISOStringNonFractional(DateUtils.blocktimeToTimestamp(block.mediantime));
 
           // The applied update can add a beacon service. "Find Beacon Signals" runs at
           // the top of every pass for the addresses that are not scanned yet, so the
