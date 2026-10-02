@@ -27,7 +27,8 @@
     }
   ],
   "expect": {
-    "error": "MISSING_UPDATE_DATA"
+    "error": "MISSING_UPDATE_DATA",
+    "rule": "update-missing"
   },
   "beacons": [
     {

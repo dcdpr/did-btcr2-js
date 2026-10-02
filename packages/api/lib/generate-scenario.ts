@@ -7,7 +7,8 @@
  *   create/input.json, create/output.json
  *   update/input.json, update/output.json      (update/NN/ for more than one update)
  *   resolve/input.json, resolve/output.json    (resolve/NN/ for a sub-vector with options)
- *   other.json                                  (the keys and the genesis document)
+ *   other.json                                  (the keys, the genesis document, and the
+ *                                               `expectedFailure` of a negative set)
  *
  * The state of a scenario (the DID, the anchors, the beacon addresses) goes to
  * `lib/scenarios/<network>/state/<scenario-id>.json`, outside the corpus.
@@ -15,7 +16,7 @@
  * A recipe names the identifier type, the beacon mix, the genesis options, the
  * updates (with a signer, a fork, a tamper, a withhold, or a removedBeacon
  * directive, or a duplicate entry that announces an earlier update again), the
- * resolve sub-vectors, and the expected error of a negative vector. The generator runs
+ * resolve sub-vectors, and the expected error and rule id of a negative vector. The generator runs
  * offline: the funding and the anchoring are later steps of the pipeline, and
  * the live resolve of `scenario:verify:live --record` writes the final
  * `resolve/output.json`.
@@ -40,7 +41,6 @@ import { join } from 'node:path';
 
 import { getNetwork } from '@did-btcr2/bitcoin';
 import { canonicalHash, JSONPatch, type PatchOperation } from '@did-btcr2/common';
-import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import type {
   BeaconService, Btcr2DataIntegrityConfig, Btcr2DidDocument, DidVerificationMethod,
@@ -53,8 +53,9 @@ import { bech32m, hex } from '@scure/base';
 import { Address, p2pkh, p2tr, p2wpkh } from '@scure/btc-signer';
 
 import {
-  anchorRound, cohortsOutDir, errorEnvelope, findCohort, isDuplicate, loadCohorts, loadRecipes, networkDataDir, okEnvelope,
-  parseNetworkArg, readJSON, realUpdates, resolveCaseDir, stateDir, updateDir, writeJSON, writeState,
+  anchorRound, cohortsOutDir, errorEnvelope, expiresBeforeCreatedTimes, findCohort, isDuplicate, loadCohorts, loadRecipes,
+  networkDataDir, okEnvelope, parseNetworkArg, readJSON, realUpdates, resolveCaseDir, signWithConfig, stateDir, updateDir,
+  writeJSON, writeState,
   type AddrType, type AnchorEntry, type CohortDef, type IdentifierTamper, type KeySpec,
   type OtherFile, type Scenario, type ScenarioBeacon, type ScenarioState, type ScenarioUpdate, type TamperKind,
   type VectorNetwork,
@@ -264,10 +265,6 @@ function constructLenient(sourceDocument: Btcr2DidDocument, patches: PatchOperat
   };
 }
 
-function nowIso(offsetSeconds = 0): string {
-  return new Date(Date.now() + offsetSeconds * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
-}
-
 /** Proof options that a tamper changes. `undefined` when the tamper does not touch the proof options. */
 function proofOverrides(kind: TamperKind | undefined, did: string): Partial<Btcr2DataIntegrityConfig> | undefined {
   switch (kind) {
@@ -276,34 +273,9 @@ function proofOverrides(kind: TamperKind | undefined, did: string): Partial<Btcr
     case 'proof-purpose':            return { proofPurpose: 'assertionMethod' };
     case 'created-after-block':      return { created: '2099-01-01T00:00:00Z' };
     case 'expires-before-mediantime': return { expires: '2020-01-01T00:00:00Z' };
-    case 'expires-before-created':   return { created: nowIso(0), expires: nowIso(-1) };
+    case 'expires-before-created':   return expiresBeforeCreatedTimes();
     default:                         return undefined;
   }
-}
-
-/** Sign an update with explicit proof options (the tampers that change the options). */
-function signWithConfig(
-  did: string,
-  unsigned: UnsignedBTCR2Update,
-  vm: DidVerificationMethod,
-  signer: LocalSigner,
-  overrides: Partial<Btcr2DataIntegrityConfig>,
-): SignedBTCR2Update {
-  const hashIdx = vm.id.indexOf('#');
-  const fragment = vm.id.slice(hashIdx);
-  const absoluteId = hashIdx === 0 ? `${did}${fragment}` : vm.id;
-  const multikey = SchnorrMultikey.fromSigner(fragment, vm.controller, signer);
-  const config: Btcr2DataIntegrityConfig = {
-    '@context'         : [ ...BTCR2_UPDATE_CONTEXT ],
-    cryptosuite        : 'bip340-jcs-2025',
-    type               : 'DataIntegrityProof',
-    verificationMethod : absoluteId,
-    proofPurpose       : 'capabilityInvocation',
-    capability         : `urn:zcap:root:${encodeURIComponent(did)}`,
-    capabilityAction   : 'Write',
-    ...overrides,
-  };
-  return multikey.toCryptosuite().toDataIntegrityProof().addProof(unsigned, config) as SignedBTCR2Update;
 }
 
 /** The tampers that edit the update before the signature. */
@@ -369,8 +341,10 @@ function runScenario(scenario: Scenario, cohorts: CohortDef[]): void {
   const genesisKp = keys.get('genesis')!;
   const publicKey = genesisKp.publicKey.compressed;
 
+  // A negative set names the rule that it breaks (ADR 136).
   const other: OtherFile = {
     scenarioId  : scenario.id,
+    ...(scenario.expect ? { expectedFailure: scenario.expect.rule } : {}),
     genesisKeys : { secret: hex.encode(genesisKp.secretKey.bytes), public: hex.encode(publicKey) },
   };
   const extraKeys = [...keys].filter(([name]) => name !== 'genesis');

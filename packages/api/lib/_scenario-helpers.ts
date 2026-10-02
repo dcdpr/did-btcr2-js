@@ -18,7 +18,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { PatchOperation } from '@did-btcr2/common';
-import type { SignedBTCR2Update } from '@did-btcr2/method';
+import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
+import type { LocalSigner } from '@did-btcr2/keypair';
+import type { Btcr2DataIntegrityConfig, DidVerificationMethod, SignedBTCR2Update, UnsignedBTCR2Update } from '@did-btcr2/method';
+import { BTCR2_UPDATE_CONTEXT } from '@did-btcr2/method';
 
 // ─── Networks ────────────────────────────────────────────────────────────────
 
@@ -286,8 +289,11 @@ export type Scenario = {
   delivery?: { genesis?: 'cas' | 'sidecar'; announcement?: 'cas' | 'sidecar' };
   updates: ScenarioEntry[];
   resolves?: ResolveCase[];
-  /** The expected result of the main resolve when it is an error. */
-  expect?: { error: string };
+  /**
+   * The expected result of the main resolve of a negative set: the error code,
+   * and the id of the rule that the set breaks (a key of {@link FAILURE_RULES}).
+   */
+  expect?: { error: string; rule: string };
   /** The SMT tree entry and the proof of a member of an SMT cohort. */
   smt?: SmtMemberOptions;
   /** The reason the pipeline skips this recipe (for example a pending specification change). */
@@ -348,6 +354,8 @@ export type ScenarioState = {
 
 export type OtherFile = {
   scenarioId: string;
+  /** A negative set: the id of the rule that the set breaks (ADR 136). */
+  expectedFailure?: string;
   genesisKeys: { secret: string; public: string };
   extraKeys?: Record<string, { secret: string; public: string }>;
   genesisDocument?: object;
@@ -397,6 +405,13 @@ export function loadRecipes(network: VectorNetwork): Map<string, Scenario> {
     if (recipe.skip) {
       console.log(`  skip   ${recipe.id}: ${recipe.skip}`);
       continue;
+    }
+    if (recipe.expect) {
+      const rule = FAILURE_RULES[recipe.expect.rule];
+      if (!rule) throw new Error(`Recipe ${path}: expect.rule "${recipe.expect.rule}" is not a rule id of FAILURE_RULES.`);
+      if (rule.error !== recipe.expect.error) {
+        throw new Error(`Recipe ${path}: rule ${recipe.expect.rule} raises ${rule.error}, but expect.error is ${recipe.expect.error}.`);
+      }
     }
     recipes.set(recipe.id, recipe);
   }
@@ -506,6 +521,246 @@ export function resolveMinConf(value: number | string, confirmationsOf: (update:
 /** The round of anchor `index` (from 0) of a scenario: the round the recipe sets, or the position of the anchor. */
 export function anchorRound(anchor: AnchorEntry, index: number): number {
   return anchor.round ?? index + 1;
+}
+
+// ─── Proof options ───────────────────────────────────────────────────────────
+
+/** The current time plus `offsetSeconds`, as an XML Datetime in UTC with whole seconds. */
+export function nowIso(offsetSeconds = 0): string {
+  return new Date(Date.now() + offsetSeconds * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+/**
+ * The proof times of an `expires-before-created` update: `created` is now, and
+ * `expires` is one second earlier. The anchor step signs the update again with
+ * new times right before the broadcast. Then `expires` is after the
+ * `mediantime` of the block, and the update breaks only the rule that
+ * `expires` is not before `created`.
+ */
+export function expiresBeforeCreatedTimes(): { created: string; expires: string } {
+  return { created: nowIso(0), expires: nowIso(-1) };
+}
+
+/** Sign an update with explicit proof options (the tampers that change the options). */
+export function signWithConfig(
+  did: string,
+  unsigned: UnsignedBTCR2Update,
+  vm: Pick<DidVerificationMethod, 'id' | 'controller'>,
+  signer: LocalSigner,
+  overrides: Partial<Btcr2DataIntegrityConfig>,
+): SignedBTCR2Update {
+  const hashIdx = vm.id.indexOf('#');
+  const fragment = vm.id.slice(hashIdx);
+  const absoluteId = hashIdx === 0 ? `${did}${fragment}` : vm.id;
+  const multikey = SchnorrMultikey.fromSigner(fragment, vm.controller, signer);
+  const config: Btcr2DataIntegrityConfig = {
+    '@context'         : [ ...BTCR2_UPDATE_CONTEXT ],
+    cryptosuite        : 'bip340-jcs-2025',
+    type               : 'DataIntegrityProof',
+    verificationMethod : absoluteId,
+    proofPurpose       : 'capabilityInvocation',
+    capability         : `urn:zcap:root:${encodeURIComponent(did)}`,
+    capabilityAction   : 'Write',
+    ...overrides,
+  };
+  return multikey.toCryptosuite().toDataIntegrityProof().addProof(unsigned, config) as SignedBTCR2Update;
+}
+
+// ─── Failure rules ───────────────────────────────────────────────────────────
+
+/** The published specification. A {@link FailureRule} section is relative to it. */
+export const SPEC_URL = 'https://dcdpr.github.io/did-btcr2/';
+
+/** A rule of the specification that a negative set is built to break. */
+export type FailureRule = {
+  /** The DID Resolution error code that the rule raises. */
+  error: string;
+  /** The rule, in the words of the specification. */
+  rule: string;
+  /** The section of the specification that holds the rule, relative to {@link SPEC_URL}. */
+  section: string;
+  /** The `errorMessage` of this implementation for the rule. The cause check matches it. */
+  message: RegExp;
+  /**
+   * The resolver checks the rule in the proof time window, against the times
+   * of the block of the signal. The offline verifier has synthetic block
+   * times, so it cannot check the cause of the rule.
+   */
+  blockTimes?: true;
+};
+
+const RESOLVE = 'operations/resolve.html';
+const DECODING = 'algorithms.html#did-btcr2-identifier-decoding';
+
+/**
+ * The rules that the negative sets break, keyed by rule id. The id of a set
+ * goes into its `other.json` as `expectedFailure`. An id names a rule, not a
+ * set: two sets that break the same rule share the id.
+ *
+ * The ids are stable (ADR 136). Never rename an id and never use an id for
+ * another rule. A new rule gets a new id. A removed rule retires its id, and
+ * no other rule takes it.
+ */
+export const FAILURE_RULES: Readonly<Record<string, FailureRule>> = {
+  'did-checksum-invalid' : {
+    error   : 'INVALID_DID',
+    rule    : 'The Bech32m checksum of the method-specific-id is not valid.',
+    section : DECODING,
+    message : /Bech32m decoding failed: Invalid checksum/,
+  },
+  'did-padding-nonzero' : {
+    error   : 'INVALID_DID',
+    rule    : 'The incomplete final 5-bit group of the method-specific-id is not all zeros.',
+    section : DECODING,
+    message : /Bech32m decoding failed: Non-zero padding/,
+  },
+  'did-network-reserved' : {
+    error   : 'INVALID_DID',
+    rule    : 'The network_value is a reserved value (6 to 11).',
+    section : DECODING,
+    message : /^Invalid network \(reserved\)/,
+  },
+  'genesis-hash-mismatch' : {
+    error   : 'INVALID_DID',
+    rule    : 'The hash of the genesis document does not match genesis_bytes.',
+    section : `${RESOLVE}#process-sidecar-data`,
+    message : /^Initial document mismatch/,
+  },
+  'update-missing' : {
+    error   : 'MISSING_UPDATE_DATA',
+    rule    : 'The signed update is not available from the sidecar or from the CAS.',
+    section : `${RESOLVE}#find-beacon-signals`,
+    message : /^Signed update (not found in CAS|required but not in sidecar)/,
+  },
+  'update-context-mismatch' : {
+    error   : 'INVALID_DID_UPDATE',
+    rule    : 'The @context of the update is not the array that the BTCR2 Unsigned Update specifies.',
+    section : `${RESOLVE}#check-update-proof`,
+    message : /^Invalid update: @context is not the array/,
+  },
+  'proof-context-mismatch' : {
+    error   : 'INVALID_DID_UPDATE',
+    rule    : 'The @context of update.proof is not equal to the @context of the update.',
+    section : `${RESOLVE}#check-update-proof`,
+    message : /^Invalid update: proof @context does not equal/,
+  },
+  'proof-capability-action-mismatch' : {
+    error   : 'INVALID_DID_UPDATE',
+    rule    : 'update.proof.capabilityAction is not "Write".',
+    section : `${RESOLVE}#check-update-proof`,
+    message : /^Invalid update: proof\.capabilityAction must equal/,
+  },
+  'proof-capability-mismatch' : {
+    error   : 'INVALID_DID_UPDATE',
+    rule    : 'update.proof.capability is not the capability URN of the Data Integrity Config for the DID.',
+    section : `${RESOLVE}#check-update-proof`,
+    message : /^Invalid update: proof\.capability must equal/,
+  },
+  'proof-purpose-mismatch' : {
+    error   : 'INVALID_DID_UPDATE',
+    rule    : 'update.proof.proofPurpose is not "capabilityInvocation".',
+    section : `${RESOLVE}#check-update-proof`,
+    message : /^Invalid update: proof\.proofPurpose must equal/,
+  },
+  'proof-method-unauthorized' : {
+    error   : 'INVALID_DID_UPDATE',
+    rule    : 'No entry of capabilityInvocation identifies update.proof.verificationMethod.',
+    section : `${RESOLVE}#check-update-proof`,
+    message : /^Invalid update: verificationMethod is not authorized for capabilityInvocation/,
+  },
+  'proof-not-verified' : {
+    error   : 'INVALID_DID_UPDATE',
+    rule    : 'The BIP340 Cryptosuite does not verify the update.',
+    section : `${RESOLVE}#check-update-proof`,
+    message : /^Invalid update: proof (not verified|verification failed)/,
+  },
+  'source-hash-mismatch' : {
+    error   : 'INVALID_DID_UPDATE',
+    rule    : 'The hash of the current document does not match update.sourceHash.',
+    section : `${RESOLVE}#apply-update`,
+    message : /^Hash mismatch: update\.sourceHash/,
+  },
+  'target-hash-mismatch' : {
+    error   : 'INVALID_DID_UPDATE',
+    rule    : 'The hash of the patched document does not match update.targetHash.',
+    section : `${RESOLVE}#apply-update`,
+    message : /^Invalid update: update\.targetHash/,
+  },
+  'version-skip' : {
+    error   : 'LATE_PUBLISHING',
+    rule    : 'update.targetVersionId is more than the current version plus 1.',
+    section : `${RESOLVE}#check-update-version`,
+    message : /^Version Id Mismatch/,
+  },
+  'patch-apply-failure' : {
+    error   : 'INVALID_DID_UPDATE',
+    rule    : 'update.patch fails to apply to the current document.',
+    section : `${RESOLVE}#apply-update`,
+    message : /^Invalid update: JSON Patch application failed/,
+  },
+  'document-id-mismatch' : {
+    error   : 'INVALID_DID_UPDATE',
+    rule    : 'The id of the patched document is not the DID.',
+    section : `${RESOLVE}#apply-update`,
+    message : /^Invalid update: the patch changes the document id/,
+  },
+  'document-not-conformant' : {
+    error   : 'INVALID_DID_UPDATE',
+    rule    : 'The patched document does not conform to DID Core v1.1.',
+    section : `${RESOLVE}#apply-update`,
+    message : /^Invalid update: the patched document does not conform/,
+  },
+  'proof-created-after-block' : {
+    error      : 'INVALID_DID_UPDATE',
+    rule       : 'update.proof.created is after the timestamp in the block header.',
+    section    : `${RESOLVE}#check-update-proof`,
+    message    : /^Invalid update: proof\.created is after the header time/,
+    blockTimes : true,
+  },
+  'proof-expires-before-mediantime' : {
+    error      : 'INVALID_DID_UPDATE',
+    rule       : 'update.proof.expires is before the block mediantime.',
+    section    : `${RESOLVE}#check-update-proof`,
+    message    : /^Invalid update: proof\.expires is before the mediantime/,
+    blockTimes : true,
+  },
+  'proof-expires-before-created' : {
+    error      : 'INVALID_DID_UPDATE',
+    rule       : 'update.proof.expires is before update.proof.created.',
+    section    : `${RESOLVE}#check-update-proof`,
+    message    : /^Invalid update: proof\.expires is before proof\.created/,
+    blockTimes : true,
+  },
+  'duplicate-hash-mismatch' : {
+    error   : 'LATE_PUBLISHING',
+    rule    : 'The hash of a duplicate update does not match the hash of the applied update of its version.',
+    section : `${RESOLVE}#confirm-duplicate-update`,
+    message : /^Invalid duplicate: unsigned update hash does not match/,
+  },
+  'smt-proof-not-verified' : {
+    error   : 'INVALID_SIGNAL_DATA',
+    rule    : 'The SMT Proof Verification algorithm returns false.',
+    section : `${RESOLVE}#process-smt-beacon`,
+    message : /^SMT proof verification failed/,
+  },
+  'smt-proof-missing' : {
+    error   : 'MISSING_UPDATE_DATA',
+    rule    : 'smt_lookup_table has no entry for the signal root.',
+    section : `${RESOLVE}#process-smt-beacon`,
+    message : /^SMT proof required but not in sidecar/,
+  },
+};
+
+/**
+ * Check the cause of a failed resolve against the rule of a negative set.
+ * @returns `undefined` if `message` matches the rule, else the difference.
+ */
+export function causeDiff(ruleId: string, message: string | undefined): string | undefined {
+  const rule = FAILURE_RULES[ruleId];
+  if (!rule) return `unknown rule ${ruleId}`;
+  if (message !== undefined && rule.message.test(message)) return undefined;
+  const firstLine = (message ?? '(no errorMessage)').split('\n')[0]!;
+  return `cause "${firstLine.length > 100 ? `${firstLine.slice(0, 100)}...` : firstLine}" is not the rule ${ruleId}`;
 }
 
 // ─── Expected results ────────────────────────────────────────────────────────

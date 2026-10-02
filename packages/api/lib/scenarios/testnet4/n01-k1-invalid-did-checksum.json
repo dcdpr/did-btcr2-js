@@ -12,7 +12,8 @@
   },
   "updates": [],
   "expect": {
-    "error": "INVALID_DID"
+    "error": "INVALID_DID",
+    "rule": "did-checksum-invalid"
   },
   "beacons": [
     {

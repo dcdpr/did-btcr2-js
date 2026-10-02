@@ -43,6 +43,7 @@
     "proof": "id"
   },
   "expect": {
-    "error": "MISSING_UPDATE_DATA"
+    "error": "MISSING_UPDATE_DATA",
+    "rule": "smt-proof-missing"
   }
 }

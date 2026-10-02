@@ -43,7 +43,8 @@
     }
   ],
   "expect": {
-    "error": "LATE_PUBLISHING"
+    "error": "LATE_PUBLISHING",
+    "rule": "duplicate-hash-mismatch"
   },
   "beacons": [
     {
