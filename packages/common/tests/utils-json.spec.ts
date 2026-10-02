@@ -59,7 +59,7 @@ describe('utils/json', () => {
     expect(JSONUtils.deepEqual(typedA, typedB)).to.be.true;
 
     const dateA = new Date();
-    const dateB = new Date();
+    const dateB = new Date(dateA.getTime());
     const dateC = new Date(dateA.getTime() + 1000);
     expect(JSONUtils.deepEqual(dateA, dateB)).to.be.true;
     expect(JSONUtils.deepEqual(dateA, dateC)).to.be.false;
