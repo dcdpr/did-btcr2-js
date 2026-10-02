@@ -43,6 +43,7 @@
     "proof": "hash"
   },
   "expect": {
-    "error": "INVALID_SIGNAL_DATA"
+    "error": "INVALID_SIGNAL_DATA",
+    "rule": "smt-proof-not-verified"
   }
 }

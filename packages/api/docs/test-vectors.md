@@ -77,6 +77,14 @@ The command writes the `txid` of each broadcast anchor into `state/<scenario-id>
 
 `--dry` lists the rounds with their txids and reports whether the next round is ready. No script mines a block or waits for one. Run the command again after the next block.
 
+### Checks of the verify steps
+
+`scenario:verify` and `scenario:verify:live` compare each result with the expected output. They also make these checks:
+
+- **The cause of a negative set.** The main resolve of a negative set must fail for the rule of the set. The `errorMessage` of the result must match the pattern of the rule id in `expect.rule`. If the resolve fails for another rule, the case fails ([ADR 136](../../../docs/adr/136-a-negative-vector-names-the-rule-that-it-breaks-and-the-pipeline-checks-the-cause.md)). The synthetic blocks of `scenario:verify` do not have the times of the chain. Thus the offline step does not check the cause of the 3 proof time rules (`blockTimes`). The live step checks them.
+- **A proof time tamper.** A set with a proof time tamper (`created-after-block`, `expires-before-mediantime`, `expires-before-created`) must break only the rule of its tamper, against the block of its signal. If it breaks another rule or no rule, `scenario:verify:live` fails the set. Give the set a new key, then generate, fund, and anchor it again.
+- **One tip for each set.** `scenario:verify:live` reads the tip before and after the resolves of a set. If a block arrives between the two reads, it runs the set again, up to 3 times. `--record` writes the files of a set only after a run with one tip and no failed case.
+
 ## Recipes
 
 A recipe is a JSON file in `lib/scenarios/<network>/`. One directory per network holds the recipes, the `cohorts.json` of the aggregate beacons, the head of the network README (`README.head.md`), and the build state of the last pass: `cohorts/`, `publish-manifest.json`, `cid-manifest.json`, `FUNDING.md`, and `state/<scenario-id>.json` (the DID, the anchors with their txids, and the beacon addresses of every generated scenario). The build state is committed with the pass of the network. Every network directory has its own secrets, so a published key belongs to one chain.
@@ -94,7 +102,7 @@ A recipe names:
 - Patch values take the forms `$did`, `$address(name,kind)`, and `$multibase(name)`.
 - `resolves`: sub-vectors with resolution options (`versionId`, `versionTime`, `minConf`) and the expected version or error. A `versionTime` of the form `before:N`, `at:N`, or `after:N` names the `mediantime` of the block that anchors entry N of `updates` (a duplicate entry counts). A `minConf` of the form `depth:N` names the confirmation count of the anchor of entry N. The record step writes the value. A `depth:N` case holds only at the recorded tip, so only the regtest recipes use it.
 - `smt` (a member of an SMT cohort): `nonce: false` builds the tree entry without a nonce. A member with no update and no nonce has no tree entry, and its proof is the proof of an empty index. `proof` makes the sidecar proof invalid: `hash` (one byte of a sibling hash differs), `id` (the `id` is not the signal root), or `withhold` (no proof in the sidecar).
-- `expect.error`: the DID Resolution error code of a negative vector.
+- `expect` (a negative vector): `error` is the DID Resolution error code, and `rule` is the id of the rule that the set breaks, a key of `FAILURE_RULES` in `lib/_scenario-helpers.ts`. The generator writes the id into `other.json` as `expectedFailure`. A recipe for a new rule needs a new id ([ADR 136](../../../docs/adr/136-a-negative-vector-names-the-rule-that-it-breaks-and-the-pipeline-checks-the-cause.md)).
 - `skip`: a reason to leave the recipe out of the pass.
 
 ## Vector layout
@@ -104,13 +112,13 @@ lib/data/{network}/{k1|x1}/{hash}/
   create/input.json, create/output.json
   update/input.json, update/output.json       # update/NN/ for more than one update
   resolve/input.json, resolve/output.json     # resolve/NN/ for a sub-vector
-  other.json                                  # keys and genesis document
+  other.json                                  # keys, genesis document, expectedFailure (negative sets)
   signals.json                                # the Beacon Signals on the chain (anchored sets)
 ```
 
-The corpus holds the files a consumer needs and no pipeline state ([ADR 115](../../../docs/adr/115-vector-corpus-holds-no-pipeline-state-and-signals-json-records-the-anchored-signals.md)). `update/input.json` keeps `signingMaterial`: an implementation needs the key to produce its own signed update. `resolve/output.json` is the DID Resolution result that the api returns: `didResolutionMetadata` (`contentType: application/did`, or `error`), `didDocument`, and `didDocumentMetadata` (`versionId`, `confirmations`, `updated`, `deactivated`). The generator writes the result as far as it is known offline; `scenario:verify:live --record` writes the live result.
+The corpus holds the files a consumer needs and no pipeline state ([ADR 115](../../../docs/adr/115-vector-corpus-holds-no-pipeline-state-and-signals-json-records-the-anchored-signals.md)). `update/input.json` keeps `signingMaterial`: an implementation needs the key to produce its own signed update. `resolve/output.json` is the DID Resolution result that the api returns: `didResolutionMetadata` (`contentType: application/did`, or `error`), `didDocument`, and `didDocumentMetadata` (`versionId`, `confirmations`, `updated`, `deactivated`). The generator writes the result as far as it is known offline; `scenario:verify:live --record` writes the live result. The `other.json` of a negative set has `expectedFailure`: the id of the rule that the set breaks. The README of a network lists each id with its error code, its rule, and its section of the specification.
 
-`signals.json` is written by `scenario:verify:live --record` for every set that has a Beacon Signal on the chain. It is an array with one entry per signal: `update` (the `update/NN/` number of the signed update the signal commits to), `duplicate` (set on a second signal of the same update, in a later block), `beaconId`, `address`, `txid`, `blockHeight`, `blockHash`, `blockTime`, `mediantime`, `signalBytes`, and `recordedTip`. A cohort member records the shared signal with `cohort: { id, members }`. A cohort member with no update has no `update` member: the signal commits to no update of the DID. `recordedTip` is the chain tip height after the resolves of the set. At that tip, each recorded `confirmations` is at least the recorded value. A consumer checks its own signal discovery against the file, or takes the signals from it when it reads no chain.
+`signals.json` is written by `scenario:verify:live --record` for every set that has a Beacon Signal on the chain. It is an array with one entry per signal: `update` (the `update/NN/` number of the signed update the signal commits to), `duplicate` (set on a second signal of the same update, in a later block), `beaconId`, `address`, `txid`, `blockHeight`, `blockHash`, `blockTime`, `mediantime`, `signalBytes`, and `recordedTip`. A cohort member records the shared signal with `cohort: { id, members }`. A cohort member with no update has no `update` member: the signal commits to no update of the DID. `recordedTip` is the chain tip height during the resolves of the set: no block arrived during the run. At that tip, each recorded `confirmations` is the confirmation count of the block of the last applied update. A consumer checks its own signal discovery against the file, or takes the signals from it when it reads no chain.
 
 ## Networks
 

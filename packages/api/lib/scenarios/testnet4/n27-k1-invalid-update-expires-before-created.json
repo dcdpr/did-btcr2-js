@@ -27,7 +27,8 @@
     }
   ],
   "expect": {
-    "error": "INVALID_DID_UPDATE"
+    "error": "INVALID_DID_UPDATE",
+    "rule": "proof-expires-before-created"
   },
   "beacons": [
     {

@@ -22,7 +22,8 @@
     }
   ],
   "expect": {
-    "error": "INVALID_DID_UPDATE"
+    "error": "INVALID_DID_UPDATE",
+    "rule": "patch-apply-failure"
   },
   "beacons": [
     {

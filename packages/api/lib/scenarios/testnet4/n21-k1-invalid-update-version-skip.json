@@ -27,7 +27,8 @@
     }
   ],
   "expect": {
-    "error": "LATE_PUBLISHING"
+    "error": "LATE_PUBLISHING",
+    "rule": "version-skip"
   },
   "beacons": [
     {

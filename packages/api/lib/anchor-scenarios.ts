@@ -26,6 +26,15 @@
  * that every anchor is broadcast. No script mines a block. On regtest the
  * auto-miner of the Polar network confirms each round.
  *
+ * An `expires-before-created` update gets its proof times at the send. The
+ * script signs the update again right before the broadcast: `created` is the
+ * send time, and `expires` is one second earlier. Then `expires` is after the
+ * `mediantime` of the block, and the update breaks only the rule that
+ * `expires` is not before `created`. The new update goes to
+ * `update/NN/output.json` and into the sidecar of each resolve input. The
+ * update must use sidecar delivery, because the CAS copy is published before
+ * the anchor.
+ *
  * Determinism note: the signals are fixed for the current build only. Run
  * generate, artifacts, route, publish, fund, and anchor as one pass. Do not
  * generate again between artifacts and anchor.
@@ -35,16 +44,21 @@
  *   pnpm scenario:anchor --network mutinynet --dry     # list the rounds and the readiness, no broadcast
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { canonicalHash } from '@did-btcr2/common';
-import { BeaconSignalDiscovery, type BeaconService } from '@did-btcr2/method';
+import { LocalSigner } from '@did-btcr2/keypair';
+import {
+  BeaconSignalDiscovery, DidBtcr2,
+  type BeaconService, type Btcr2DidDocument, type SignedBTCR2Update, type UnsignedBTCR2Update,
+} from '@did-btcr2/method';
+import { hex } from '@scure/base';
 
 import { bitcoinFor } from './_e2e-helpers.js';
 import {
-  anchorRound, cohortsOutDir, indexScenarioDirs, loadCohorts, loadRecipes, parseNetworkArg, readJSON, readSignedUpdates,
-  readState, realUpdates, writeJSON, writeState,
+  anchorRound, cohortsOutDir, expiresBeforeCreatedTimes, indexScenarioDirs, loadCohorts, loadRecipes, parseNetworkArg,
+  readJSON, readSignedUpdates, readState, realUpdates, signWithConfig, updateDir, writeJSON, writeState,
   type AddrType, type OtherFile,
 } from './_scenario-helpers.js';
 import { anchorSignal, explorerHint } from './wallet/tx-builder.js';
@@ -64,9 +78,48 @@ type Anchor = {
   txid?: string;
   /** Write the txid into the state the anchor came from. */
   record: (txid: string) => void;
+  /** Sign the update again right before the broadcast. Returns the new signal bytes. */
+  signAgain?: () => string;
 };
 
 type CohortArtifact = { anchorAddress: string; signalHex: string; txid?: string } & Record<string, unknown>;
+
+type ResolveInput = { did: string; resolutionOptions: { sidecar?: { updates?: SignedBTCR2Update[] } } & Record<string, unknown> };
+
+/**
+ * Sign update `n` of a vector set again with new `expires-before-created`
+ * proof times. Write the new update to its `update/NN/output.json`, and put it
+ * in place of the old update in the sidecar of each resolve input.
+ * @returns The hex signal bytes of the new update.
+ * @throws {Error} if a resolve input has no sidecar copy of the old update.
+ */
+function signAgainAtSend(dir: string, count: number, n: number, did: string): string {
+  const stepDir = updateDir(dir, count, n);
+  const old = readJSON<{ signedUpdate: SignedBTCR2Update }>(join(stepDir, 'output.json')).signedUpdate;
+  const input = readJSON<{ sourceDocument: Btcr2DidDocument; verificationMethodId: string; signingMaterial: string }>(join(stepDir, 'input.json'));
+  const { proof: _proof, ...unsigned } = old;
+  void _proof;
+  const vm = DidBtcr2.getSigningMethod(input.sourceDocument, input.verificationMethodId);
+  const times = expiresBeforeCreatedTimes();
+  const signed = signWithConfig(did, unsigned as UnsignedBTCR2Update, vm, new LocalSigner(hex.decode(input.signingMaterial)), times);
+  writeJSON(join(stepDir, 'output.json'), { signedUpdate: signed });
+
+  const oldHash = canonicalHash(old as Record<string, unknown>, { encoding: 'hex' });
+  const inputs = [join(dir, 'resolve', 'input.json'), ...readdirSync(join(dir, 'resolve'), { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => join(dir, 'resolve', e.name, 'input.json'))
+    .filter((path) => existsSync(path))];
+  for (const path of inputs) {
+    const resolveInput = readJSON<ResolveInput>(path);
+    const updates = resolveInput.resolutionOptions.sidecar?.updates ?? [];
+    const i = updates.findIndex((u) => canonicalHash(u as Record<string, unknown>, { encoding: 'hex' }) === oldHash);
+    if (i < 0) throw new Error(`${path}: the sidecar has no copy of update ${n}`);
+    updates[i] = signed;
+    writeJSON(path, resolveInput);
+  }
+  console.log(`  signed update ${n} again: created ${times.created}, expires ${times.expires}`);
+  return canonicalHash(signed as Record<string, unknown>, { encoding: 'hex' });
+}
 
 /** Every anchor of the network in round order: the cohort signals, then the solo anchors of each scenario. */
 function collectAnchors(): Anchor[] {
@@ -95,13 +148,22 @@ function collectAnchors(): Anchor[] {
     const state = readState(network, id);
     if (!recipe || !state || state.anchors.length === 0) continue;
     const other = readJSON<OtherFile>(join(dir, 'other.json'));
-    const updates = readSignedUpdates(dir, realUpdates(recipe).length);
+    const entries = realUpdates(recipe);
+    const updates = readSignedUpdates(dir, entries.length);
     state.anchors.forEach((a, i) => {
       const secretHex = a.key === 'genesis' ? other.genesisKeys.secret : other.extraKeys?.[a.key]?.secret;
       if (!secretHex) throw new Error(`${state.scenarioId}: no secret for key "${a.key}" in other.json`);
       const update = updates[a.signalOf - 1];
       if (!update) throw new Error(`${state.scenarioId}: update ${a.signalOf} not found`);
       const again = a.duplicateOf ? ` (update ${a.duplicateOf} again)` : '';
+      const entry = entries[a.signalOf - 1]!;
+      const signAgain = entry.tamper === 'expires-before-created' && !a.txid;
+      if (signAgain && entry.delivery !== 'sidecar') {
+        throw new Error(`${state.scenarioId}: update ${a.signalOf} is expires-before-created, so it must use sidecar delivery, not ${entry.delivery}`);
+      }
+      if (signAgain && state.anchors.filter((x) => x.signalOf === a.signalOf).length > 1) {
+        throw new Error(`${state.scenarioId}: update ${a.signalOf} is expires-before-created, so only one anchor can carry its signal`);
+      }
       anchors.push({
         label     : `${state.scenarioId} entry ${a.update}/${recipe.updates.length}${again} @${a.beaconId.slice(a.beaconId.indexOf('#'))}`,
         round     : anchorRound(a, i),
@@ -111,6 +173,7 @@ function collectAnchors(): Anchor[] {
         kind      : a.kind,
         txid      : a.txid,
         record    : (txid) => { a.txid = txid; writeState(state); },
+        ...(signAgain ? { signAgain: () => signAgainAtSend(dir, entries.length, a.signalOf, state.did) } : {}),
       });
     });
   }
@@ -187,7 +250,8 @@ async function run(): Promise<void> {
   let ok = 0, fail = 0;
   for (const a of batch) {
     try {
-      const r = await anchorSignal({ secretHex: a.secretHex, signalHex: a.signalHex, network, kind: a.kind });
+      const signalHex = a.signAgain ? a.signAgain() : a.signalHex;
+      const r = await anchorSignal({ secretHex: a.secretHex, signalHex, network, kind: a.kind });
       a.record(r.txid);
       console.log(`  OK  ${a.label}  tx=${r.txid} (fee ${r.feeSats})  @${r.address}`);
       ok++;

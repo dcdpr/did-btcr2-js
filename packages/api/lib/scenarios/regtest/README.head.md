@@ -4,16 +4,15 @@
 
 ## Connecting to the regtest network
 
-1. Unzip `did-btcr2.polar.zip`.
-2. Change directory into the extracted folder: `cd did-btcr2-electrs.polar`
-3. Start the containers: `docker-compose up`
-4. Make sure the network runs with electrs:
+1. Unzip `did-btcr2.polar.zip` into an empty folder. The zip holds `docker-compose.yml` at its root.
+2. In that folder, start the containers: `docker-compose up`
+3. Make sure the network runs with electrs:
    - Open `http://localhost:3000/blocks` in a browser. The page shows a JSON list of blocks.
    - Or run `curl localhost:3000/blocks` in a terminal.
 
 If you get `curl: (56) Recv failure: Connection reset by peer`, or the browser cannot open localhost:3000:
 
-1. Make sure the containers run (step 3 above).
+1. Make sure the containers run (step 2 above).
 2. Find the bitcoind container id: `docker ps` and look for the `polarlightning` container.
 3. Open a shell in that container: `docker exec -it <CONTAINER_ID> bash`
 4. Mine 6 blocks:
@@ -25,7 +24,7 @@ If you get `curl: (56) Recv failure: Connection reset by peer`, or the browser c
      generatetoaddress 6 \
      $(bitcoin-cli -regtest -rpcuser=polaruser -rpcpassword=polarpass getnewaddress)
    ```
-5. Wait about 30 seconds for the sync, then do step 4 above again.
+5. Wait about 30 seconds for the sync, then do step 3 above again.
 
 You can also drag the zip file into the [Lightning Polar](https://lightningpolar.com/) app and start the network from there. Polar may drop the electrs and ipfs parts of the compose file. If so, copy them from the `docker-compose.yml` in the zip into the Polar compose file (`~/.polar/networks`).
 

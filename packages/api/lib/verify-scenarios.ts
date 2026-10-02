@@ -15,8 +15,9 @@
  *   - NeedCASAnnouncement   } (lib/scenarios/<network>/publish-manifest.json),
  *   - NeedSignedUpdate      } keyed by the content hash the resolver asks for.
  *                            A missing object yields the DID Resolution error
- *                            that the api raises (NOT_FOUND for the genesis
- *                            document, MISSING_UPDATE_DATA for the rest).
+ *                            and the message that the api raises (NOT_FOUND
+ *                            for the genesis document, MISSING_UPDATE_DATA for
+ *                            the rest).
  *
  * A `versionTime` form (`before:N`, `at:N`, `after:N`) resolves against the
  * synthetic block times, and a `minConf` form (`depth:N`) against the synthetic
@@ -24,6 +25,13 @@
  * for a sidecar with no proof, and it yields `MISSING_UPDATE_DATA`, as the api
  * raises. A negative vector passes when the resolver raises the expected error
  * code.
+ *
+ * The main resolve of a negative set must also fail for the rule of the set:
+ * the root cause message must match the pattern of the rule id in
+ * `expect.rule` (`FAILURE_RULES`, ADR 136). A rule with `blockTimes` breaks
+ * only against the times of the chain block, and the synthetic blocks do not
+ * have them. The verifier does not check the cause of such a rule and says so.
+ * The live verifier checks it.
  *
  * Run order: generate -> artifacts -> route -> verify.
  *
@@ -34,21 +42,23 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { resolutionErrorCode } from '../src/helpers.js';
+import { resolutionErrorCode, rootCauseMessage } from '../src/helpers.js';
 import { canonicalHash, canonicalize } from '@did-btcr2/common';
 import type { BeaconService, BeaconSignal, SignedBTCR2Update } from '@did-btcr2/method';
 import { DidBtcr2 } from '@did-btcr2/method';
 
 import {
-  anchorRound, cohortsOutDir, findCohort, indexScenarioDirs, loadCohorts, loadRecipes, parseNetworkArg, publishManifestFile,
-  readExpected, readJSON, readSignedUpdates, readState, realUpdates, resolveCaseDir, resolveMinConf, resolveVersionTime,
+  anchorRound, causeDiff, cohortsOutDir, FAILURE_RULES, findCohort, indexScenarioDirs, loadCohorts, loadRecipes, parseNetworkArg,
+  publishManifestFile, readExpected, readJSON, readSignedUpdates, readState, realUpdates, resolveCaseDir, resolveMinConf,
+  resolveVersionTime,
   type CohortDef, type Expected, type Scenario,
 } from './_scenario-helpers.js';
 
 const { network } = parseNetworkArg();
 
 type ManifestItem = { hashHex: string; object: unknown };
-type Outcome = { kind: 'ok'; didDocument: object; versionId: string; deactivated: boolean } | { kind: 'error'; error: string };
+/** The result of a resolve. A failed resolve has the error code and the root cause message. */
+type Outcome = { kind: 'ok'; didDocument: object; versionId: string; deactivated: boolean } | { kind: 'error'; error: string; message?: string };
 
 /** Manifest items keyed by the hex content hash the resolver Need carries. */
 function loadManifest(): Map<string, unknown> {
@@ -134,25 +144,25 @@ function resolveOffline(did: string, options: object, plan: SignalPlan, manifest
           }
           case 'NeedGenesisDocument': {
             const obj = manifest.get(need.genesisHash);
-            if (!obj) return { kind: 'error', error: 'NOT_FOUND' };
+            if (!obj) return { kind: 'error', error: 'NOT_FOUND', message: `Genesis document not found in CAS (hash: ${need.genesisHash}).` };
             resolver.provide(need, obj as object);
             break;
           }
           case 'NeedCASAnnouncement': {
             const obj = manifest.get(need.announcementHash);
-            if (!obj) return { kind: 'error', error: 'MISSING_UPDATE_DATA' };
+            if (!obj) return { kind: 'error', error: 'MISSING_UPDATE_DATA', message: `CAS announcement not found in CAS (hash: ${need.announcementHash}).` };
             resolver.provide(need, obj as Record<string, string>);
             break;
           }
           case 'NeedSignedUpdate': {
             const obj = manifest.get(need.updateHash);
-            if (!obj) return { kind: 'error', error: 'MISSING_UPDATE_DATA' };
+            if (!obj) return { kind: 'error', error: 'MISSING_UPDATE_DATA', message: `Signed update not found in CAS (hash: ${need.updateHash}).` };
             resolver.provide(need, obj as SignedBTCR2Update);
             break;
           }
           case 'NeedSMTProof':
             // The sidecar holds no proof: the api raises MISSING_UPDATE_DATA (ADR 120).
-            return { kind: 'error', error: 'MISSING_UPDATE_DATA' };
+            return { kind: 'error', error: 'MISSING_UPDATE_DATA', message: `SMT proof required but not in sidecar (root hash: ${need.smtRootHash}).` };
         }
       }
       state = resolver.resolve();
@@ -164,7 +174,7 @@ function resolveOffline(did: string, options: object, plan: SignalPlan, manifest
       deactivated : state.result.metadata.deactivated,
     };
   } catch (e) {
-    return { kind: 'error', error: resolutionErrorCode(e) };
+    return { kind: 'error', error: resolutionErrorCode(e), message: rootCauseMessage(e) };
   }
 }
 
@@ -181,8 +191,11 @@ export function compare(got: Outcome, want: Expected): string | undefined {
   return undefined;
 }
 
-function describe(o: Outcome): string {
-  return o.kind === 'ok' ? `v${o.versionId}${o.deactivated ? ' deactivated' : ''}` : `error ${o.error}`;
+/** The result of a case, with the rule id of a negative set. */
+function describe(o: Outcome, rule: string | undefined): string {
+  if (o.kind === 'ok') return `v${o.versionId}${o.deactivated ? ' deactivated' : ''}`;
+  if (rule === undefined) return `error ${o.error}`;
+  return `error ${o.error} (${rule}${FAILURE_RULES[rule]?.blockTimes ? ', cause not checked offline' : ''})`;
 }
 
 function run(): void {
@@ -203,8 +216,14 @@ function run(): void {
     try {
       const plan = buildSignalPlan(dir, recipe, cohort);
       const input = readJSON<{ did: string; resolutionOptions: Record<string, unknown> }>(join(dir, 'resolve', 'input.json'));
-      const cases: Array<{ label: string; options: Record<string, unknown>; expected: Expected }> = [
-        { label: id, options: input.resolutionOptions, expected: readExpected(join(dir, 'resolve', 'output.json')) },
+      // `rule` is set on the main resolve of a negative set.
+      const cases: Array<{ label: string; options: Record<string, unknown>; expected: Expected; rule?: string }> = [
+        {
+          label    : id,
+          options  : input.resolutionOptions,
+          expected : readExpected(join(dir, 'resolve', 'output.json')),
+          ...(recipe.expect ? { rule: recipe.expect.rule } : {}),
+        },
       ];
       for (const c of recipe.resolves ?? []) {
         const options: Record<string, unknown> = { ...input.resolutionOptions, ...c.options };
@@ -218,8 +237,12 @@ function run(): void {
       }
       for (const c of cases) {
         const got = resolveOffline(input.did, c.options, plan, manifest);
-        const diff = compare(got, c.expected);
-        console.log(`  ${diff ? 'FAIL' : 'PASS'} ${c.label.padEnd(52)} [${tag}]  ${diff ?? describe(got)}`);
+        // The error code first, then the cause of the error against the rule of the set.
+        const cause = c.rule !== undefined && got.kind === 'error' && !FAILURE_RULES[c.rule]?.blockTimes
+          ? causeDiff(c.rule, got.message)
+          : undefined;
+        const diff = compare(got, c.expected) ?? cause;
+        console.log(`  ${diff ? 'FAIL' : 'PASS'} ${c.label.padEnd(52)} [${tag}]  ${diff ?? describe(got, c.rule)}`);
         diff ? fail++ : pass++;
       }
     } catch (e) {
