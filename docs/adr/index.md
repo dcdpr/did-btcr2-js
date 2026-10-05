@@ -212,4 +212,5 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 132 | 2026-09-29 | [The api Exports Only Its Facade, and a Sub-facade Function Does Each CRUD Step](132-the-api-exports-only-its-facade-and-a-sub-facade-function-does-each-crud-step.md) |
 | 133 | 2026-09-29 | [The CLI Keeps an Identifier Record for Each Identifier](133-the-cli-keeps-an-identifier-record-for-each-identifier.md) |
 | 134 | 2026-09-30 | [A Beacon Signal Spends All Eligible UTXOs of the Beacon Address, and Its Change Stays Spendable](134-a-beacon-signal-spends-all-eligible-utxos-and-its-change-stays-spendable.md) |
+| 135 | 2026-10-05 | [An Update Is Refused If the Source Resolution Misses an Update of the Sidecar Data](135-an-update-is-refused-if-the-source-resolution-misses-an-update-of-the-sidecar-data.md) |
 | 136 | 2026-10-02 | [A Negative Vector Names the Rule That It Breaks, and the Pipeline Checks the Cause](136-a-negative-vector-names-the-rule-that-it-breaks-and-the-pipeline-checks-the-cause.md) |

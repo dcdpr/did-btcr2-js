@@ -16,6 +16,7 @@ If you're integrating did:btcr2 into an app, start here. If you're customizing t
 - **`tryResolveDid(did)`** returns `{ ok: true, document, metadata }` or `{ ok: false, error, errorMessage, cause }` instead of a throw. `error` is the DID Resolution error code of the nearest typed failure in the cause chain, for example `NOT_FOUND` (an EXTERNAL DID whose genesis document is not in the sidecar and not in the CAS), `INVALID_DID`, `INVALID_OPTIONS`, or `MISSING_UPDATE_DATA` (a signed update or a CAS announcement that neither the sidecar nor the CAS returns); every other failure is `INTERNAL_ERROR`. `errorMessage` is the root cause. `cause` is the original error.
 - **`resolveDid(did)`** returns the `DidResolutionResult`. `didResolutionMetadata.contentType` is `application/did`, the media type of a bare DID document. `didDocumentMetadata` always carries `versionId`, `confirmations`, and `deactivated`; `updated` is present after an update. `CasApi.retrieve` hashes the bytes that the CAS returns and refuses content that does not hash to the requested address, as the specification requires.
 - **`updateDid` / `deactivateDid`** resolve a DID source for you. Pass `options.resolutionOptions` to hand sidecar data to that resolution. Omit `verificationMethodId` and `announce.beaconId`: the api derives them.
+- **The source check of `updateDid` / `deactivateDid`.** For a DID source, the api refuses the update if the resolved `versionId` is less than the highest `targetVersionId` of the sidecar updates of the DID (the updates whose `proof.invocationTarget` is the DID). The resolution then cannot see all previous updates, and the specification forbids the announcement. Resolve again after the beacon signal of the last update has `minConf` confirmations, or set a lower `minConf`. Without sidecar updates, the api cannot do this check. A `SourceState` source skips it (ADR 135).
 - **`announce.signer`** signs the beacon transaction input. It defaults to `signer`. Pass it if a key other than the verification method key controls the beacon address.
 - **`api.kms.signer(id?)`** returns the `Signer` for a KMS key. The write path needs no second package.
 - **`api.btcr2.getInitialDocument(did)`** and **`api.btcr2.getBeacons(document)`** give the beacon addresses to fund with no chain read.
@@ -201,6 +202,8 @@ const signer = api.kms.signer(keyId);
 
 // A DID with prior updates resolves only with its sidecar. resolutionOptions
 // hands the sidecar to the auto-resolution. The api derives the two ids.
+// The signal of `first` must have minConf (default 6) confirmations. If not,
+// the resolution cannot see `first`, and the api refuses the update.
 const second = await api.updateDid(did, [{ op: 'add', path: '/service/-', value: newService }], signer, {
   resolutionOptions : { sidecar: { updates: [first.signedUpdate] } },
 });
@@ -254,6 +257,7 @@ The `lib/` directory contains end-to-end scripts that exercise the full update p
 - **[ADR-093 to ADR-104](../../docs/adr/index.md)** The api CRUD surface: network inheritance and the regtest fallback, `deactivateDid`, offline beacon addresses, the signer factory and the write-path re-exports, root causes, resolution options, the four write-path refusals, derived ids
 - **[ADR-122](../../docs/adr/122-api-exports-vector-tool-steps-and-smt-rejects-empty-sibling-in-hashes.md)** The exports for a tool that builds specification examples or test vectors
 - **[ADR-123](../../docs/adr/123-update-and-deactivate-follow-the-specification-signatures.md)** `updateDid` and `deactivateDid` follow the specification signatures
+- **[ADR-135](../../docs/adr/135-an-update-is-refused-if-the-source-resolution-misses-an-update-of-the-sidecar-data.md)** An update is refused if the source resolution misses an update of the sidecar data
 - **Source reference** See JSDoc on `DidBtcr2Api`, `DidMethodApi`, and the sub-facade classes.
 
 ## License
