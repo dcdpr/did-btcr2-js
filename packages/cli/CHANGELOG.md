@@ -1,5 +1,17 @@
 # @did-btcr2/cli
 
+## 0.29.5
+
+### Patch Changes
+
+- An update is refused if the source resolution misses an update of the sidecar data (spec PR 377, ADR 135).
+
+  - api: for a DID source, `updateDid` and `deactivateDid` refuse the update if the resolved `versionId` is less than the highest `targetVersionId` of the sidecar updates of the DID. The error is an `UpdateError` with `INVALID_DID_UPDATE` and the data `{ did, versionId, announcedVersionId, minConf }`. Without sidecar updates, the api does no check. A `SourceState` source skips the check.
+  - cli: `update` and `deactivate` get the check for each update in the identifier record. The `update` and `deactivate` pages give the remedy and the escape.
+
+- Updated dependencies []:
+  - @did-btcr2/api@0.32.0
+
 ## 0.29.4
 
 ### Patch Changes

@@ -15,6 +15,20 @@ import type { ResolutionOptions } from '../src/index.js';
 
 const stubSigner = new LocalSigner(SchnorrKeyPair.generate().secretKey.bytes);
 
+/** A sidecar update of a DID: only the fields that the source check reads. */
+function sidecarUpdate(did: string, targetVersionId: number): any {
+  return { targetVersionId, proof: { invocationTarget: did } };
+}
+
+/** Replaces the resolution of the api with one that returns `versionId`. */
+function stubResolution(api: DidBtcr2Api, did: string, versionId: number): void {
+  (api.btcr2 as any).resolve = async () => ({
+    didDocument           : { id: did, verificationMethod: [], service: [] },
+    didDocumentMetadata   : { versionId: String(versionId) },
+    didResolutionMetadata : {},
+  });
+}
+
 use(chaiAsPromised);
 
 /**
@@ -345,6 +359,111 @@ describe('DidBtcr2Api', () => {
       await expect(api.updateDid(source, patch, stubSigner, ids))
         .to.be.rejectedWith(UpdateError, 'is deactivated and cannot be updated');
     });
+
+    describe('source check against the sidecar updates', () => {
+      it('refuses a versionId less than the highest targetVersionId', async () => {
+        const api = createApi();
+        const { did } = api.did.generate();
+        stubResolution(api, did, 2);
+        let updateCalls = 0;
+        (api.btcr2 as any).update = async () => {
+          updateCalls++;
+          return { signedUpdate: {}, txid: 'txid', publishedToCas: [] };
+        };
+        const resolutionOptions: ResolutionOptions = {
+          sidecar : { updates: [ sidecarUpdate(did, 3), sidecarUpdate(did, 2) ] },
+        };
+
+        const err: unknown = await api.updateDid(did, patch, stubSigner, { ...ids, resolutionOptions })
+          .catch((e: unknown) => e);
+
+        expect(err).to.be.instanceOf(UpdateError);
+        expect((err as UpdateError).type).to.equal(INVALID_DID_UPDATE);
+        expect((err as UpdateError).message).to.include('returned versionId 2')
+          .and.to.include('targetVersionId 3')
+          .and.to.include('6 confirmations');
+        expect((err as UpdateError).data).to.deep.equal({ did, versionId: 2, announcedVersionId: 3, minConf: 6 });
+        expect(updateCalls).to.equal(0);
+      });
+
+      it('names the minConf of the resolution options', async () => {
+        const api = createApi();
+        const { did } = api.did.generate();
+        stubResolution(api, did, 1);
+        const resolutionOptions: ResolutionOptions = { minConf: 1, sidecar: { updates: [ sidecarUpdate(did, 2) ] } };
+
+        const err: unknown = await api.updateDid(did, patch, stubSigner, { ...ids, resolutionOptions })
+          .catch((e: unknown) => e);
+
+        expect((err as UpdateError).data).to.include({ minConf: 1 });
+      });
+
+      it('accepts a versionId equal to the highest targetVersionId', async () => {
+        const api = createApi();
+        const { did } = api.did.generate();
+        stubResolution(api, did, 3);
+        let captured: any[] = [];
+        (api.btcr2 as any).update = async (...args: any[]) => {
+          captured = args;
+          return { signedUpdate: {}, txid: 'txid', publishedToCas: [] };
+        };
+        const resolutionOptions: ResolutionOptions = {
+          sidecar : { updates: [ sidecarUpdate(did, 2), sidecarUpdate(did, 3) ] },
+        };
+
+        await api.updateDid(did, patch, stubSigner, { ...ids, resolutionOptions });
+
+        expect(captured[0].versionId).to.equal(3);
+      });
+
+      it('ignores a sidecar update of another DID', async () => {
+        const api = createApi();
+        const { did } = api.did.generate();
+        const { did: otherDid } = api.did.generate();
+        stubResolution(api, did, 1);
+        let updateCalls = 0;
+        (api.btcr2 as any).update = async () => {
+          updateCalls++;
+          return { signedUpdate: {}, txid: 'txid', publishedToCas: [] };
+        };
+        const resolutionOptions: ResolutionOptions = { sidecar: { updates: [ sidecarUpdate(otherDid, 5) ] } };
+
+        await api.updateDid(did, patch, stubSigner, { ...ids, resolutionOptions });
+
+        expect(updateCalls).to.equal(1);
+      });
+
+      it('checks nothing without sidecar updates', async () => {
+        const api = createApi();
+        const { did } = api.did.generate();
+        stubResolution(api, did, 1);
+        let updateCalls = 0;
+        (api.btcr2 as any).update = async () => {
+          updateCalls++;
+          return { signedUpdate: {}, txid: 'txid', publishedToCas: [] };
+        };
+
+        await api.updateDid(did, patch, stubSigner, { ...ids, resolutionOptions: { sidecar: {} } });
+
+        expect(updateCalls).to.equal(1);
+      });
+
+      it('skips the check for a state source', async () => {
+        const api = createApi();
+        const did = 'did:btcr2:test';
+        let captured: any[] = [];
+        (api.btcr2 as any).update = async (...args: any[]) => {
+          captured = args;
+          return { signedUpdate: {}, txid: 'txid', publishedToCas: [] };
+        };
+        const source = { document: { id: did, verificationMethod: [], service: [] } as any, versionId: 1 };
+        const resolutionOptions: ResolutionOptions = { sidecar: { updates: [ sidecarUpdate(did, 3) ] } };
+
+        await api.updateDid(source, patch, stubSigner, { ...ids, resolutionOptions });
+
+        expect(captured[0]).to.equal(source);
+      });
+    });
   });
 
   describe('deactivateDid()', () => {
@@ -397,6 +516,22 @@ describe('DidBtcr2Api', () => {
       expect(source.versionId).to.equal(3);
       expect(signer).to.equal(stubSigner);
       expect(options).to.deep.equal(ids);
+    });
+
+    it('refuses a versionId less than the highest targetVersionId of the sidecar updates', async () => {
+      const api = createApi();
+      const { did } = api.did.generate();
+      stubResolution(api, did, 1);
+      let deactivateCalls = 0;
+      (api.btcr2 as any).deactivate = async () => {
+        deactivateCalls++;
+        return { signedUpdate: {}, txid: 'txid', publishedToCas: [] };
+      };
+      const resolutionOptions: ResolutionOptions = { sidecar: { updates: [ sidecarUpdate(did, 2) ] } };
+
+      await expect(api.deactivateDid(did, stubSigner, { ...ids, resolutionOptions }))
+        .to.be.rejectedWith(UpdateError, 'targetVersionId 2');
+      expect(deactivateCalls).to.equal(0);
     });
 
     it('passes omitted verificationMethodId and beaconId through for derivation', async () => {

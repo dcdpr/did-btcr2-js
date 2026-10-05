@@ -5,6 +5,7 @@ import type { Signer } from '@did-btcr2/keypair';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import type { KeyIdentifier } from '@did-btcr2/key-manager';
 import type { Btcr2DidDocument, DidCreateOptions, ResolutionOptions } from '@did-btcr2/method';
+import { DEFAULT_MIN_CONF } from '@did-btcr2/method';
 import type { DidResolutionResult } from '@web5/dids';
 import { BitcoinApi } from './bitcoin.js';
 import { CasApi, DEFAULT_CAS_GATEWAY, type CasConfig } from './cas.js';
@@ -230,6 +231,15 @@ export class DidBtcr2Api {
    * A deactivated source document is refused before signing: resolution
    * halts at the deactivation, so no later update is ever applied.
    *
+   * If the source is a DID, the facade also compares the resolved `versionId`
+   * with the sidecar updates of the DID in `options.resolutionOptions`. If the
+   * `versionId` is less than the highest `targetVersionId` of these updates,
+   * the resolution cannot see all previous updates of the DID. The
+   * specification forbids the announcement in this case, so the facade
+   * refuses the update before signing. Resolve again after the beacon signal
+   * of the last update has `minConf` confirmations, or set a lower `minConf`.
+   * Without sidecar updates, the facade cannot do this check.
+   *
    * The caller can omit `verificationMethodId` and `announce.beaconId`. The
    * method facade then derives them. The verification method is the one that
    * publishes the signer's key. The beacon is the only one whose address can
@@ -286,6 +296,11 @@ export class DidBtcr2Api {
    * document and its `versionId` from the resolution. If the source is a
    * state, the helper returns it. {@link DidBtcr2Api.updateDid} and
    * {@link DidBtcr2Api.deactivateDid} share this helper.
+   *
+   * For a DID source, the helper refuses a resolved `versionId` that is less
+   * than the highest `targetVersionId` of the sidecar updates of the DID. A
+   * sidecar update names its DID in `proof.invocationTarget`. A state source
+   * skips this check: the caller is responsible for its `versionId`.
    */
   async #resolveUpdateSource(
     source: UpdateSource,
@@ -326,6 +341,24 @@ export class DidBtcr2Api {
     if (!Number.isFinite(versionId)) {
       throw new Error(
         `Resolution of DID ${did} returned a non-numeric versionId: ${String(rawVersionId)}.`
+      );
+    }
+
+    const announced = (resolutionOptions?.sidecar?.updates ?? [])
+      .filter(update => update?.proof?.invocationTarget === did)
+      .map(update => update.targetVersionId)
+      .filter(targetVersionId => Number.isInteger(targetVersionId));
+    const announcedVersionId = announced.length > 0 ? Math.max(...announced) : undefined;
+    if (announcedVersionId !== undefined && versionId < announcedVersionId) {
+      const minConf = resolutionOptions?.minConf ?? DEFAULT_MIN_CONF;
+      throw new UpdateError(
+        `Resolution of DID ${did} returned versionId ${versionId}, but a sidecar update `
+        + `of the DID has targetVersionId ${announcedVersionId}. The resolution cannot see `
+        + `all previous updates. Resolve again after the beacon signal of the last update `
+        + `has ${minConf} confirmations, or set a lower minConf. To skip this check, pass `
+        + 'a resolved state { document, versionId } as the source.',
+        INVALID_DID_UPDATE,
+        { did, versionId, announcedVersionId, minConf }
       );
     }
 
