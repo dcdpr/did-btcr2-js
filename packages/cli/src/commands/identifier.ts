@@ -1,27 +1,19 @@
-import type { IdentifierCheck, IdentifierReport, Sidecar } from '@did-btcr2/api';
+import type { IdentifierCheck, IdentifierReport } from '@did-btcr2/api';
 import { DidApi } from '@did-btcr2/api';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils.js';
 import type { Command } from 'commander';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { assertSupportedNetwork, deriveNetwork, type ApiFactory } from '../config.js';
 import { CLIError } from '../error.js';
 import { readGenesisDocumentFile } from '../genesis-document-file.js';
 import { describeRecord, IdentifierRecords, summarizeRecord } from '../identifier-records.js';
 import { resolveKeyRef } from '../keystore/resolve-key-ref.js';
 import { formatCheckResult, formatResult } from '../output.js';
+import { readSidecarFile } from '../sidecar-file.js';
 import type { CommandResult, GlobalOptions, IdentifierDecodeData } from '../types.js';
 
 /** The offline identifier operations of the api. They need no connection and no key. */
 const didApi = new DidApi();
-
-/** The fields of a sidecar data file, and the JSON type of each. */
-const SIDECAR_FIELDS: Record<string, 'string' | 'object' | 'array'> = {
-  '@context'      : 'string',
-  genesisDocument : 'object',
-  updates         : 'array',
-  casUpdates      : 'array',
-  smtProofs       : 'array',
-};
 
 /**
  * Registers the `identifier` command group. `decode` prints the components of
@@ -172,7 +164,7 @@ export function registerIdentifierCommand(
     .option('--name <name>', 'A unique name for the record. Other commands accept the name in place of the identifier.')
     .option(
       '-k, --key <ref>',
-      'A stored key that signs the next update of the identifier: a URN, fingerprint prefix, or name. '
+      'A stored key that signs the next update or message of the identifier: a URN, fingerprint prefix, or name. '
       + 'For a new record of a KEY identifier (k), the default is the stored key of the genesis bytes.',
     )
     .option(
@@ -266,48 +258,6 @@ function genesisKeyOf(keystoreFactory: ApiFactory, g: GlobalOptions, did: string
   const kms = keystoreFactory(undefined, g).kms;
   const genesisHex = bytesToHex(genesisBytes);
   return kms.kms.listKeys().find(keyId => bytesToHex(kms.getPublicKey(keyId)) === genesisHex);
-}
-
-/**
- * Reads a sidecar data file for `identifier add --sidecar`. Refuses a file that
- * is not a JSON object, a field with the wrong JSON type, and an unknown field.
- * A resolution options file has the field `sidecar`, so the error for it names
- * the object to use.
- */
-function readSidecarFile(path: string): Sidecar {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(readFileSync(path, 'utf-8'));
-  } catch (error) {
-    throw new CLIError(
-      `Could not read the sidecar data file ${path}: ${(error as Error).message}`,
-      'INVALID_ARGUMENT_ERROR',
-      { path },
-    );
-  }
-  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new CLIError(`The sidecar data file ${path} must hold a JSON object.`, 'INVALID_ARGUMENT_ERROR', { path });
-  }
-  for (const [ field, value ] of Object.entries(parsed)) {
-    const expected = SIDECAR_FIELDS[field];
-    if (expected === undefined) {
-      const hint = field === 'sidecar' ? ' The file holds resolution options: use the object in its "sidecar" field.' : '';
-      throw new CLIError(
-        `The sidecar data file ${path} has the unknown field "${field}".${hint}`,
-        'INVALID_ARGUMENT_ERROR',
-        { path, field },
-      );
-    }
-    const actual = Array.isArray(value) ? 'array' : value === null ? 'null' : typeof value;
-    if (actual !== expected) {
-      throw new CLIError(
-        `The field "${field}" of the sidecar data file ${path} must be a JSON ${expected}.`,
-        'INVALID_ARGUMENT_ERROR',
-        { path, field },
-      );
-    }
-  }
-  return parsed as Sidecar;
 }
 
 /**

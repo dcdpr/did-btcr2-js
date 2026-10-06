@@ -12,7 +12,7 @@ import type { GlobalOptions, ResolveCommandOptions } from '../types.js';
 /** The offline identifier operations of the api. They need no connection and no key. */
 const didApi = new DidApi();
 
-/** The help text of `-i, --identifier` on `resolve`, `update`, and `deactivate`. */
+/** The help text of `-i, --identifier` on `resolve`, `update`, `deactivate`, `message sign`, and `message verify`. */
 export const IDENTIFIER_REF_HELP = 'a did:btcr2 identifier, or the name of its identifier record';
 
 /**

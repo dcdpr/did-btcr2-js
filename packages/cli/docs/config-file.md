@@ -115,7 +115,7 @@ This example sets each key of the file at least once. `defaults.cas` and a profi
 | `defaults.profile` | string | all commands | The active profile if `--profile` is absent. See [The active profile](#the-active-profile). |
 | `defaults.network` | `bitcoin` \| `testnet3` \| `testnet4` \| `signet` \| `mutinynet` \| `regtest` | `create`, `genesis build`, `config effective`, `config doctor` | The network of a command that does not take an identifier, if `-n` is absent and the active profile has no network. `init -n` and `quickstart -n` write it. A command that takes an identifier reads the network from the identifier. |
 | `defaults.output` | `text` \| `json` | all commands | The output format, below `-o` and `BTCR2_OUTPUT`. |
-| `defaults.cas` | object | `resolve`, `update`, `deactivate`, `config effective`, `config doctor` | The CAS values for all networks: `gateway`, `rpcUrl`, `rpcUser`, `rpcPass`, and `timeoutMs`, as in a profile [`cas` block](#cas-the-content-addressed-store). A profile value wins over it (ADR 129). |
+| `defaults.cas` | object | `resolve`, `update`, `deactivate`, `message sign`, `message verify`, `config effective`, `config doctor` | The CAS values for all networks: `gateway`, `rpcUrl`, `rpcUser`, `rpcPass`, and `timeoutMs`, as in a profile [`cas` block](#cas-the-content-addressed-store). A profile value wins over it (ADR 129). |
 
 ## Profiles
 
@@ -136,21 +136,21 @@ A value that the profile does not set comes from the next layer. See [Precedence
 
 | Key | Type | Used by | Meaning |
 |-----|------|---------|---------|
-| `network` | `bitcoin` \| `testnet3` \| `testnet4` \| `signet` \| `mutinynet` \| `regtest` | `create`, `genesis build`, `resolve`, `update`, `deactivate`, `config effective`, `config doctor`, `keystore unlock` | The network that the endpoints of the profile serve. If `-n` is absent, `create` uses this network. It wins over `defaults.network` (ADR 131). `create`, `genesis build`, `resolve`, `update`, and `deactivate` print a warning if the identifier has another network. A profile with a network name and no `network` key has the network of its name. A profile with another name, for example `production`, has no network without the key. |
+| `network` | `bitcoin` \| `testnet3` \| `testnet4` \| `signet` \| `mutinynet` \| `regtest` | `create`, `genesis build`, `resolve`, `update`, `deactivate`, `message sign`, `message verify`, `config effective`, `config doctor`, `keystore unlock` | The network that the endpoints of the profile serve. If `-n` is absent, `create` uses this network. It wins over `defaults.network` (ADR 131). `create`, `genesis build`, `resolve`, `update`, `deactivate`, `message sign`, and `message verify` print a warning if the identifier has another network. A profile with a network name and no `network` key has the network of its name. A profile with another name, for example `production`, has no network without the key. |
 
 ### btc: the Bitcoin endpoints and transactions
 
 | Key | Type | Used by | Meaning |
 |-----|------|---------|---------|
-| `btc.rest` | string (URL) | `resolve`, `update`, `deactivate`, `config doctor` | The Esplora REST endpoint. |
-| `btc.rpcUrl` | string (URL) | `resolve`, `update`, `deactivate`, `config doctor` | The Bitcoin Core RPC endpoint. It is optional. `btc.signalDiscovery` `fullnode` needs it. |
+| `btc.rest` | string (URL) | `resolve`, `update`, `deactivate`, `message sign`, `message verify`, `config doctor` | The Esplora REST endpoint. |
+| `btc.rpcUrl` | string (URL) | `resolve`, `update`, `deactivate`, `message sign`, `message verify`, `config doctor` | The Bitcoin Core RPC endpoint. It is optional. `btc.signalDiscovery` `fullnode` needs it. |
 | `btc.rpcUser` | string | same as `btc.rpcUrl` | The RPC user name. |
 | `btc.rpcPass` | string | same as `btc.rpcUrl` | The RPC password. Use a secret reference, not the password: `env:<VAR>` reads an environment variable, and `file:<path>` reads a file. See [Secrets](#secrets). |
 | `btc.wallet` | string | same as `btc.rpcUrl` | The Bitcoin Core wallet name for wallet-scoped RPC calls. |
 | `btc.headers` | object | same as `btc.rest` | Extra headers for each REST request, for example `{ "X-Api-Key": "abc123" }`. |
 | `btc.rpcHeaders` | object | same as `btc.rpcUrl` | Extra headers for each RPC request. |
 | `btc.timeoutMs` | number | all Bitcoin requests | The request timeout in milliseconds. With no value, there is no timeout. |
-| `btc.signalDiscovery` | `indexer` \| `fullnode` | `resolve`, `update`, `deactivate` | The source of the beacon signals. `indexer` reads them from Esplora. `fullnode` scans the blocks over Bitcoin Core RPC. The default is `indexer`. |
+| `btc.signalDiscovery` | `indexer` \| `fullnode` | `resolve`, `update`, `deactivate`, `message sign`, `message verify` | The source of the beacon signals. `indexer` reads them from Esplora. `fullnode` scans the blocks over Bitcoin Core RPC. The default is `indexer`. |
 | `btc.feeRate` | number | `update`, `deactivate` | The fee rate of a beacon transaction, in sats/vByte. The SDK default is 5. |
 | `btc.changeAddress` | string | `update`, `deactivate` | The address that gets the change of a beacon transaction. With no value, the change goes back to the beacon address. |
 
@@ -160,7 +160,7 @@ The RPC URL, user, and password come from one layer together (ADR 074). A URL fr
 
 | Key | Type | Used by | Meaning |
 |-----|------|---------|---------|
-| `cas.gateway` | string (URL) | `resolve`, `update`, `deactivate`, `config doctor` | An IPFS HTTP gateway. The CLI reads CAS data through it. It cannot write. |
+| `cas.gateway` | string (URL) | `resolve`, `update`, `deactivate`, `message sign`, `message verify`, `config doctor` | An IPFS HTTP gateway. The CLI reads CAS data through it. It cannot write. |
 | `cas.rpcUrl` | string (URL) | same as `cas.gateway` | An IPFS HTTP RPC endpoint (for example a Kubo node). The CLI reads and writes through it. In one layer, it wins over `cas.gateway`. `--publish-to-cas auto` and `always` need it. |
 | `cas.rpcUser` | string | same as `cas.rpcUrl` | The HTTP Basic user name of the IPFS RPC endpoint, for a node behind a reverse proxy with authentication. |
 | `cas.rpcPass` | string | same as `cas.rpcUrl` | The HTTP Basic password. Use a secret reference, not the password: `env:<VAR>` reads an environment variable, and `file:<path>` reads a file. See [Secrets](#secrets). |
@@ -176,8 +176,8 @@ The config file never holds a secret key. The secret keys are in the keystore. T
 
 | Key | Type | Used by | Meaning |
 |-----|------|---------|---------|
-| `identity.keystore` | string (path) | `create`, `update`, `deactivate`, `key`, `keystore`, `config path` | The keystore file of the profile, below `--keystore`. The default is `<home>/keystore.json`. |
-| `identity.default` | string (key reference) | `create`, `update`, `deactivate` | The default key of the profile: a key URN, a key name, or a fingerprint prefix. `create` makes the identifier from its public key, and `update` and `deactivate` sign with it. `create --key` and `--signing-key` win over it. For `update` and `deactivate`, the signing key of the identifier record also wins over it. It wins over the active key of the keystore. |
+| `identity.keystore` | string (path) | `create`, `update`, `deactivate`, `message sign`, `key`, `keystore`, `config path` | The keystore file of the profile, below `--keystore`. The default is `<home>/keystore.json`. |
+| `identity.default` | string (key reference) | `create`, `update`, `deactivate`, `message sign` | The default key of the profile: a key URN, a key name, or a fingerprint prefix. `create` makes the identifier from its public key, and `update`, `deactivate`, and `message sign` sign with it. `create --key` and `--signing-key` win over it. For `update`, `deactivate`, and `message sign`, the signing key of the identifier record also wins over it. It wins over the active key of the keystore. |
 
 Use `identity.default` if one keystore holds keys for more than one profile. The active key of the keystore (`btcr2 key use`) applies to all profiles. `identity.default` gives one profile its own key. Remember that `identity.default` applies only to the active profile (see [The active profile](#the-active-profile)).
 
@@ -198,7 +198,7 @@ For each value, the highest layer that sets the value wins. A blank value at one
 - `feeRate`: `--fee-rate`, then `BTCR2_FEE_RATE`, then `btc.feeRate`, then 5 sat/vByte. `changeAddress`: `--change-address`, then `btc.changeAddress`.
 - Network (a command with no identifier): `-n`, then the `network` of the active profile, then `defaults.network`, then `regtest`.
 - Keystore path: `--keystore`, then `identity.keystore`, then `<home>/keystore.json`.
-- Key: `create --key` or `--signing-key`, then the signing key of the identifier record, then `identity.default`, then the active key. Only `update` and `deactivate` read the identifier record (ADR 133).
+- Key: `create --key` or `--signing-key`, then the signing key of the identifier record, then `identity.default`, then the active key. Only `update`, `deactivate`, and `message sign` read the signing key of the identifier record (ADR 133).
 - Output: `-o`, then `BTCR2_OUTPUT`, then `defaults.output`, then `text`.
 
 The [docs README](./README.md#environment-variables) lists all environment variables. `btcr2 config effective` prints the resolved connection values and the layer of each value.

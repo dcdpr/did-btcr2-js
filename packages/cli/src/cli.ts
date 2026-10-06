@@ -10,6 +10,7 @@ import {
   registerInitCommand,
   registerKeyCommand,
   registerKeystoreCommand,
+  registerMessageCommand,
   registerProfileCommand,
   registerQuickstartCommand,
   registerResolveCommand,
@@ -34,9 +35,9 @@ export class DidBtcr2Cli {
    * for known networks and localhost Polar for regtest.
    *
    * @param factory - Optional API factory for keystore-free commands (create,
-   *   resolve, identifier). Defaults to {@link defaultApiFactory}.
+   *   resolve, identifier, genesis, message verify). Defaults to {@link defaultApiFactory}.
    * @param keystoreFactory - Optional keystore-aware API factory for commands
-   *   that need a signing identity (key, update, deactivate). Defaults to
+   *   that need a signing identity (key, update, deactivate, message sign). Defaults to
    *   {@link keystoreApiFactory}.
    */
   constructor(
@@ -48,7 +49,7 @@ export class DidBtcr2Cli {
       .description('CLI tool for the did:btcr2 method')
       .option('-o, --output <format>', 'Output format <json|text> (default: config defaults.output, else text)')
       .option('--verbose', 'Print the key note and the funding hint of create, and the full error object on a failure', false)
-      .option('-q, --quiet', 'Suppress hints and warnings; config validate and identifier validate print only OK or the failures', false)
+      .option('-q, --quiet', 'Suppress hints and warnings; config validate, identifier validate, and message verify print only OK or the failures', false)
       .option('--home <dir>', 'btcr2 home directory holding config.json, keystore.json, and dids.json (default: ~/.btcr2, %LOCALAPPDATA%\\btcr2 on Windows; overrides $BTCR2_HOME)')
       .option('-c, --config <path>', 'Path to config file (default: <home>/config.json)')
       .option('--profile <name>', 'Config profile name (default: auto-detected from network)')
@@ -98,6 +99,7 @@ export class DidBtcr2Cli {
     registerGenesisCommand(this.program, factory, keystoreFactory, globals);
     registerKeyCommand(this.program, keystoreFactory, globals);
     registerKeystoreCommand(this.program, globals);
+    registerMessageCommand(this.program, factory, keystoreFactory, globals);
     registerConfigCommand(this.program, globals);
     registerProfileCommand(this.program, globals);
     registerCompletionCommand(this.program, globals);

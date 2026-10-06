@@ -12,6 +12,8 @@ import type { CasApi } from './cas.js';
 import type { GenesisDocumentSpec } from './genesis.js';
 import { assertGenesisDocument, buildGenesisDocument } from './genesis.js';
 import { assertBytes, assertCompressedPubkey, assertString, NOOP_LOGGER, rootCauseMessage } from './helpers.js';
+import type { MessageReport, SignedMessage, SignMessageOptions } from './message.js';
+import { signMessage, verifyMessage } from './message.js';
 import type { Logger } from './types.js';
 
 /**
@@ -487,6 +489,55 @@ export class DidMethodApi {
   rootCapability(did: string): RootCapability {
     assertString(did, 'did');
     return Appendix.deriveRootCapability(did);
+  }
+
+  /**
+   * Sign a text message as an assertion of the DID of the document, with zero
+   * I/O (ADR 137). The signed message is a `bip340-jcs-2025` proof with the
+   * fixed proof purpose `assertionMethod`. The signer gets only the hash of
+   * this closed format, never caller bytes, so a message signature is never
+   * valid as an update proof or as a transaction signature.
+   *
+   * The api uses the one `assertionMethod` method of the document that
+   * publishes the key of the signer. It verifies the result before it returns it.
+   * @param document The current DID document of the DID that signs.
+   * @param message The text to sign.
+   * @param signer The signer with the key of an `assertionMethod` method.
+   * @param options The options. See {@link SignMessageOptions}.
+   * @returns The signed message.
+   * @throws {MethodError} `VERIFICATION_METHOD_ERROR` if zero or several methods match.
+   * @throws {MethodError} `PROOF_GENERATION_ERROR` if the message is not well-formed
+   *   text, the document is deactivated, or the result fails its own verification.
+   */
+  signMessage(
+    document : Btcr2DidDocument,
+    message  : string,
+    signer   : Signer,
+    options  : SignMessageOptions = {},
+  ): SignedMessage {
+    if (document === null || typeof document !== 'object') {
+      throw new Error('document must be an object.');
+    }
+    return signMessage(document, message, signer, options);
+  }
+
+  /**
+   * Verify a signed message against a DID document, with zero I/O (ADR 137).
+   * The report lists the checks in run order (`structure`, `signer`, `active`,
+   * `assertionMethod`, `signature`) and stops at the first failed check. The
+   * method does not throw for a bad signed message; `verified` is `false`.
+   *
+   * The caller resolves the document. Pass the current document: an old
+   * document accepts a key that a later update removed.
+   * @param document The DID document of the DID that must have signed.
+   * @param signedMessage The signed message, as parsed from JSON.
+   * @returns The report.
+   */
+  verifyMessage(document: Btcr2DidDocument, signedMessage: unknown): MessageReport {
+    if (document === null || typeof document !== 'object') {
+      throw new Error('document must be an object.');
+    }
+    return verifyMessage(document, signedMessage);
   }
 
   /**

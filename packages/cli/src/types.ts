@@ -5,8 +5,10 @@ import type {
   DidUpdateOptions,
   DidUpdateResult,
   IdentifierReport,
+  MessageReport,
   ResolutionOptions,
   Sidecar,
+  SignedMessage,
   Signer,
   UpdateSource
 } from '@did-btcr2/api';
@@ -87,6 +89,16 @@ export interface GenesisBuildData {
   beacons      : BeaconInfo[];
 }
 
+/**
+ * The data that `message verify` prints: the report of the api, the document
+ * that the check used (`current` after a resolution, `initial` under
+ * `--offline`), and the `versionId` of the resolution (ADR 137).
+ */
+export interface MessageVerifyData extends MessageReport {
+  checkedAgainst : 'current' | 'initial';
+  versionId?     : string;
+}
+
 export type CommandResult =
   | { action: 'create'; data: string; keyId?: string; publicKey?: string; genesisBytes?: string }
   | { action: 'resolve'; data: DidResolutionResult }
@@ -100,6 +112,8 @@ export type CommandResult =
   | { action: 'identifier-remove'; data: { identifier: string; removed: true } }
   | { action: 'identifier-sidecar'; data: Sidecar | { identifier: string; path: string } }
   | { action: 'genesis-build'; data: GenesisBuildData }
+  | { action: 'message-sign'; data: SignedMessage }
+  | { action: 'message-verify'; data: MessageVerifyData }
   | { action: 'key-generate'; data: { keyId: string; publicKey: string; active: boolean } }
   | { action: 'key-list'; data: Array<{ keyId: string; fingerprint: string; name?: string; active: boolean }> }
   | { action: 'key-show'; data: { keyId: string; publicKey: string; tags?: Record<string, string> } }

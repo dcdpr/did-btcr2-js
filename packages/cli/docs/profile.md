@@ -122,7 +122,7 @@ The keys that a profile can hold (`btcr2 config set` and `btcr2 config validate`
 | `btc.signalDiscovery` | `"indexer"` or `"fullnode"` (the source of the beacon signals. `fullnode` scans blocks over Bitcoin Core RPC) |
 | `cas.gateway`, `cas.rpcUrl`, `cas.rpcUser`, `cas.rpcPass` | string |
 | `cas.timeoutMs` | number (`0` disables the timeout) |
-| `identity.keystore`, `identity.default` | string (the keystore path, the default key reference of `create`, `update`, and `deactivate`) |
+| `identity.keystore`, `identity.default` | string (the keystore path, the default key reference of `create`, `update`, `deactivate`, and `message sign`) |
 
 How the other commands use the active profile: the connection resolution takes the profile that the global `--profile` flag names, else `defaults.profile`, else the profile with the name of the network of the operation. A profile value sits at the bottom of the override chain: the flag, then the environment variable, then the profile, then the built-in default of the network. The network of the active profile is also the default network of a command with no identifier, above `defaults.network` (ADR 131). A command that takes an identifier of another network prints a warning.
 
