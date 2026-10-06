@@ -2,7 +2,7 @@
 
 Reference documentation for `btcr2`, the command-line tool of the `did:btcr2` method. This page lists the commands, the global flags, the environment variables, and the precedence of each value. One page per command follows the links in the table.
 
-The text matches `@did-btcr2/cli` v0.29.5.
+The text matches `@did-btcr2/cli` v0.29.6.
 
 ## Commands
 
@@ -16,6 +16,7 @@ The text matches `@did-btcr2/cli` v0.29.5.
 | [`deactivate`](./deactivate.md) | Deactivate an identifier (alias: `delete`). This is permanent. |
 | [`identifier`](./identifier.md) | Decode and validate identifiers offline. `decode` prints the components. `validate` prints a conformance report. `list`, `show`, `add`, `remove`, and `sidecar` manage the identifier records: the keys and the sidecar data of each identifier. |
 | [`genesis`](./genesis.md) | Build the genesis document of an external identifier offline. `build` asks for the keys, the beacons, and the services, or reads `--spec`. It writes the file and prints the identifier. |
+| [`message`](./message.md) | Sign a text message with an identifier (`sign`), and verify a signed message against the current DID document (`verify`). |
 | [`key`](./key.md) | Manage the keys in the keystore. |
 | [`keystore`](./keystore.md) | Create, inspect, re-key, and unlock the keystore. |
 | [`config`](./config.md) | Read and write the CLI config. |
@@ -33,7 +34,7 @@ A global flag goes before the command word. Every command accepts every global f
 | `-v, --version` | none | n/a | Print `btcr2 <version>` and exit. |
 | `-o, --output <format>` | `json` \| `text` | the flag, else `BTCR2_OUTPUT`, else config `defaults.output`, else `text` | The output format. `text` prints the data payload only: an object as pretty JSON, a string as the bare string. `json` prints the full envelope `{ "action": ..., "data": ... }`. In text mode, `create` prints the identifier only (ADR 130). The `--help` text omits the `BTCR2_OUTPUT` layer. The source reads the variable between the flag and the config default. |
 | `--verbose` | boolean | `false` | Print more detail. `create` prints the key note and the funding hint on stderr. A failure prints the full error object and the stack, not only the message. The flag can also go after the command word, for example `btcr2 create --verbose`. |
-| `-q, --quiet` | boolean | `false` | Do not print hints and warnings on stderr. In text mode, `config validate` and `identifier validate` print only `OK` or one line for each failure (ADR 130). For the other commands, the flag never changes the stdout payload. The flag can also go after the command word, for example `btcr2 config validate -q`. |
+| `-q, --quiet` | boolean | `false` | Do not print hints and warnings on stderr. In text mode, `config validate`, `identifier validate`, and `message verify` print only `OK` or one line for each failure (ADR 130). For the other commands, the flag never changes the stdout payload. The flag can also go after the command word, for example `btcr2 config validate -q`. |
 | `--home <dir>` | directory path | `$BTCR2_HOME`, else `~/.btcr2` on Linux and macOS. On Windows: `%LOCALAPPDATA%\btcr2`, else `%APPDATA%\btcr2`, else the user profile. | The home directory that holds `config.json`, `keystore.json`, `session.json`, and `dids.json` (the identifier records). A blank value at one layer defers to the next layer. |
 | `-c, --config <path>` | file path | `<home>/config.json` | The config file to read and write. The flag names one file. It does not move the home. |
 | `--profile <name>` | profile name | config `defaults.profile`, else the profile with the name of the network of the operation | The active profile (see [profile.md](./profile.md)). |
@@ -63,8 +64,9 @@ These flags are not global. The command page documents them:
 - `--ttl <duration>` and `--allow-mainnet` on `keystore unlock` ([keystore.md](./keystore.md)) and [`quickstart`](./quickstart.md).
 - `--initial-document` and `--genesis-document <path>` on [`identifier decode`](./identifier.md). `-b, --bytes <hex>` and `--genesis-document <path>` on [`identifier validate`](./identifier.md).
 - `-n, --network <network>` and `-k, --key <ref>` on [`identifier list`](./identifier.md#list). `--name <name>`, `-k, --key <ref>`, and `--sidecar <path>` on [`identifier add`](./identifier.md#add). `--out <path>` on [`identifier sidecar`](./identifier.md#sidecar).
+- `--signing-key <ref>`, `-m, --verification-method-id <id>`, `--sidecar <path>`, and `--min-conf <n>` on [`message sign`](./message.md#message-sign). `--sidecar <path>`, `--min-conf <n>`, and `--offline` on [`message verify`](./message.md#message-verify).
 - `--spec <path>`, `--out <path>`, and `--force` on [`genesis build`](./genesis.md). `-k, --key <ref>`, `--document <path>`, and `--name <name>` on [`create`](./create.md).
-- `-i, --identifier` on [`resolve`](./resolve.md), [`update`](./update.md), and [`deactivate`](./deactivate.md) accepts an identifier or the name of an identifier record.
+- `-i, --identifier` on [`resolve`](./resolve.md), [`update`](./update.md), [`deactivate`](./deactivate.md), and [`message`](./message.md) accepts an identifier or the name of an identifier record.
 
 ### Environment variables
 
@@ -104,14 +106,14 @@ The short rule is: flag, then environment variable, then the active profile, the
 - CAS endpoint: the highest layer that sets a gateway or an RPC URL gives the gateway, the RPC URL, the user, and the password (ADR 129). In that layer, the RPC URL wins over the gateway. So a profile gateway wins over a `defaults.cas` RPC URL. `BTCR2_CAS_RPC_PASS_FILE` is the password fallback below all layers. A CAS RPC user without a password, or a password without a user, stops the command.
 - Home directory: `--home`, then `BTCR2_HOME`, then the platform default. The CLI never reads the home from the config file, because the config file is inside the home.
 - Keystore path: `--keystore`, then the active profile's `identity.keystore`, then `<home>/keystore.json`.
-- Key: the key flag (`create --key`, `update --signing-key`, `deactivate --signing-key`), then the signing key of the identifier record, then `identity.default` of the active profile, then the active key. Only `update` and `deactivate` read the identifier record (ADR 133). If no key applies, `create` generates a key and `update` and `deactivate` fail.
+- Key: the key flag (`create --key`, `update --signing-key`, `deactivate --signing-key`, `message sign --signing-key`), then the signing key of the identifier record, then `identity.default` of the active profile, then the active key. Only `update`, `deactivate`, and `message sign` read the signing key of the identifier record (ADR 133). If no key applies, `create` generates a key, and `update`, `deactivate`, and `message sign` fail.
 - Keystore passphrase: `BTCR2_KEYSTORE_PASSPHRASE`, then `--passphrase-file`, then a live session in `<home>/session.json`, then the interactive prompt. This is the one value where the environment variable outranks a flag.
 - Fee rate: `--fee-rate`, then `BTCR2_FEE_RATE`, then profile `btc.feeRate`, then the SDK default (5 sat/vB). Change address: `--change-address`, then profile `btc.changeAddress`. There is no environment variable.
 - Session TTL: `--ttl`, then `BTCR2_KEYSTORE_TTL`, then 1 hour. The cap is 24 hours for every source.
 
 ## Set up the configuration
 
-The CLI works with no config on the public networks. The endpoints default to public services per network. The identifier fixes the network for `resolve`, `update`, and `deactivate`. Use the config to set the default network, to point the CLI at custom endpoints, and to manage the keystore. [config.md](./config.md), [init.md](./init.md), [quickstart.md](./quickstart.md), and [keystore.md](./keystore.md) have the full detail. The usual path follows.
+The CLI works with no config on the public networks. The endpoints default to public services per network. The identifier fixes the network for `resolve`, `update`, `deactivate`, `message sign`, and `message verify`. Use the config to set the default network, to point the CLI at custom endpoints, and to manage the keystore. [config.md](./config.md), [init.md](./init.md), [quickstart.md](./quickstart.md), and [keystore.md](./keystore.md) have the full detail. The usual path follows.
 
 ### First setup
 

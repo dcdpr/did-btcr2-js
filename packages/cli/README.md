@@ -6,13 +6,13 @@ Part of the [`did-btcr2-js`](https://github.com/dcdpr/did-btcr2-js) monorepo.
 
 ## Summary
 
-The `btcr2` command creates, resolves, updates, and deactivates did:btcr2 identifiers. It decodes and validates identifiers offline. It builds the genesis document of an external identifier. It manages the keys in an encrypted keystore. It reads and writes the CLI config and its profiles. It prints shell completion scripts.
+The `btcr2` command creates, resolves, updates, and deactivates did:btcr2 identifiers. It signs a text message with an identifier and verifies a signed message. It decodes and validates identifiers offline. It builds the genesis document of an external identifier. It manages the keys in an encrypted keystore. It reads and writes the CLI config and its profiles. It prints shell completion scripts.
 
 The CLI wraps the `@did-btcr2/api` SDK. It parses the arguments with [commander.js](https://github.com/tj/commander.js/).
 
 `btcr2 resolve` works with no config. The identifier names its network, and the CLI uses public endpoints (mempool.space, trustless-gateway.link) by default. A flag, an environment variable, or the config file can override each endpoint.
 
-`update` and `deactivate` read the signing key from the keystore. Select a key with `--signing-key <ref>`, or set the active key with `btcr2 key use <ref>`.
+`update`, `deactivate`, and `message sign` read the signing key from the keystore. Select a key with `--signing-key <ref>`, or set the active key with `btcr2 key use <ref>`.
 
 The reference documentation is in [`docs/`](./docs/README.md). It has one page per command, the global flags, the environment variables, and the precedence rules. [`docs/DEMO.md`](./docs/DEMO.md) is a walkthrough of the full lifecycle on mutinynet.
 
@@ -48,6 +48,7 @@ npx @did-btcr2/cli resolve -i did:btcr2:k1qq...
 | [`deactivate`](./docs/deactivate.md) | `delete` | Deactivate an identifier. This is permanent. The keystore signs the deactivation. |
 | [`identifier`](./docs/identifier.md) | | Decode and validate identifiers (offline). |
 | [`genesis`](./docs/genesis.md) | | Build the genesis document of an external identifier (offline). |
+| [`message`](./docs/message.md) | | Sign a text message with an identifier, and verify a signed message. |
 | [`key`](./docs/key.md) | | Manage the keys in the keystore. |
 | [`keystore`](./docs/keystore.md) | | Create, inspect, re-key, and unlock the keystore. |
 | [`config`](./docs/config.md) | | Read and write the CLI config. |

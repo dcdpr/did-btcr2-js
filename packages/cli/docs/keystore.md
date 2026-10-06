@@ -93,7 +93,7 @@ The data payload: `{ "path": "<keystore path>", "rekeyed": <number of secrets se
 
 ### unlock
 
-Caches the verified keystore passphrase in `<home>/session.json`. A later signing command (`key generate`, `key export`, `update`, `deactivate`, `create` with a generated key) reads it from the session instead of a prompt, until the session expires or `keystore lock` revokes it.
+Caches the verified keystore passphrase in `<home>/session.json`. A later signing command (`key generate`, `key export`, `update`, `deactivate`, `message sign`, `create` with a generated key) reads it from the session instead of a prompt, until the session expires or `keystore lock` revokes it.
 
 The refusals, in this order, before any cache:
 
@@ -198,6 +198,6 @@ btcr2 keystore unlock --allow-mainnet
 - `btcr2 init`: the home setup in one command, which also creates the keystore.
 - `btcr2 quickstart`: the setup that composes `btcr2 init`, `btcr2 keystore unlock` (through `--unlock`), and `btcr2 config doctor`.
 - `btcr2 key`: manage the keys in the keystore (generate, import, export, use, delete).
-- `btcr2 update` and `btcr2 deactivate`: the signing commands that use the keystore and the session.
+- `btcr2 update`, `btcr2 deactivate`, and `btcr2 message sign`: the signing commands that use the keystore and the session.
 - `btcr2 config path`: print the resolved home, config, keystore, and records file paths.
 - [DEMO.md](./DEMO.md): the full walkthrough, with the keystore creation and the session unlock.

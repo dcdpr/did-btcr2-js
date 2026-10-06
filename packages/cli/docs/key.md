@@ -1,6 +1,6 @@
 # btcr2 key
 
-Manages the keys in the keystore. Each subcommand is offline: it opens no Bitcoin or CAS connection, takes no network flag, and prints no faucet or explorer hint. The command group uses the api factory with a keystore. That factory wraps a file-backed key manager over `<home>/keystore.json` (or a configured keystore path). The keystore seals each secret key with argon2id and XChaCha20-Poly1305 under one shared passphrase. Only a subcommand that seals or opens a secret key asks for that passphrase. Use `btcr2 key` to create, inspect, import, export, delete, and select the keys that `btcr2 create`, `btcr2 update`, and `btcr2 deactivate` use.
+Manages the keys in the keystore. Each subcommand is offline: it opens no Bitcoin or CAS connection, takes no network flag, and prints no faucet or explorer hint. The command group uses the api factory with a keystore. That factory wraps a file-backed key manager over `<home>/keystore.json` (or a configured keystore path). The keystore seals each secret key with argon2id and XChaCha20-Poly1305 under one shared passphrase. Only a subcommand that seals or opens a secret key asks for that passphrase. Use `btcr2 key` to create, inspect, import, export, delete, and select the keys that `btcr2 create`, `btcr2 update`, `btcr2 deactivate`, and `btcr2 message sign` use.
 
 ## Synopsis
 
@@ -92,7 +92,7 @@ btcr2 key export signing --secret --out ./backup.hex
 
 ### delete <ref> (alias: rm)
 
-Deletes a key from the keystore. A delete of the active key without `--force` fails with `Cannot remove active key (use "force": true or switch active key)`. With `--force`, the command removes the key and clears the stored active pointer. The command never decrypts and never asks for the passphrase. It prints `{ keyId, deleted: true }`. The command does not change the identifier records. If a record names the key as its signing key, `update` and `deactivate` of that identifier refuse to continue until you pass `--signing-key` (see [identifier.md](./identifier.md#identifier-records)).
+Deletes a key from the keystore. A delete of the active key without `--force` fails with `Cannot remove active key (use "force": true or switch active key)`. With `--force`, the command removes the key and clears the stored active pointer. The command never decrypts and never asks for the passphrase. It prints `{ keyId, deleted: true }`. The command does not change the identifier records. If a record names the key as its signing key, `update`, `deactivate`, and `message sign` of that identifier refuse to continue until you pass `--signing-key` (see [identifier.md](./identifier.md#identifier-records)).
 
 ```
 btcr2 key delete old-key
@@ -101,7 +101,7 @@ btcr2 key delete signing --force
 
 ### use <ref>
 
-Sets the active key and stores the pointer in the keystore file, so that the active key survives across invocations. `create`, `update`, and `deactivate` use the active key if their key flag is absent and the active profile sets no `identity.default`. `update` and `deactivate` use it also only if the identifier record has no signing key. The precedence is: the key flag (`create --key`, `update --signing-key`, `deactivate --signing-key`), then the signing key of the identifier record, then `profiles.<name>.identity.default`, then the active key. Only `update` and `deactivate` read the identifier record. A key resolution without a reference also falls back to the active key. The command never decrypts and never asks for the passphrase. It prints `{ keyId, active: true }`.
+Sets the active key and stores the pointer in the keystore file, so that the active key survives across invocations. `create`, `update`, `deactivate`, and `message sign` use the active key if their key flag is absent and the active profile sets no `identity.default`. `update`, `deactivate`, and `message sign` use it also only if the identifier record has no signing key. The precedence is: the key flag (`create --key`, `update --signing-key`, `deactivate --signing-key`, `message sign --signing-key`), then the signing key of the identifier record, then `profiles.<name>.identity.default`, then the active key. Only `update`, `deactivate`, and `message sign` read the signing key of the identifier record. A key resolution without a reference also falls back to the active key. The command never decrypts and never asks for the passphrase. It prints `{ keyId, active: true }`.
 
 ```
 btcr2 key use signing
@@ -143,7 +143,7 @@ The `key` subcommands are offline (they pass no network to the api factory). So 
 | `profiles.<name>.identity.keystore` | The keystore file path if that profile is active. |
 | `defaults.output` | The output format below the flag and `BTCR2_OUTPUT`. |
 
-The `key` subcommands do not read `profiles.<name>.identity.default` (the default signing key reference). It feeds `create`, `update`, and `deactivate`.
+The `key` subcommands do not read `profiles.<name>.identity.default` (the default signing key reference). It feeds `create`, `update`, `deactivate`, and `message sign`.
 
 **Precedence**
 
@@ -207,6 +207,6 @@ btcr2 create -n mutinynet --key mutinynet-demo
 
 - `btcr2 keystore` (init, status, change-passphrase, unlock, lock): the keystore lifecycle and the session that the key commands use.
 - `btcr2 create --key <ref>`: make an identifier from the public key of a stored key.
-- `btcr2 update`, `btcr2 deactivate`: the commands that sign with `--signing-key <ref>` or the active key.
+- `btcr2 update`, `btcr2 deactivate`, `btcr2 message sign`: the commands that sign with `--signing-key <ref>` or the active key.
 - `btcr2 config` and `btcr2 profile`: manage `defaults.profile` and `profiles.<name>.identity.keystore`.
 - [DEMO.md](./DEMO.md): the CLI walkthrough, with the key setup.

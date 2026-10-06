@@ -1,5 +1,17 @@
 # @did-btcr2/cli
 
+## 0.29.6
+
+### Patch Changes
+
+- Sign a text message with a did:btcr2 identifier, and verify a signed message (ADR 137).
+
+  - api: `api.btcr2.signMessage(document, message, signer, options?)` returns a `SignedMessage`: the text and a `bip340-jcs-2025` proof with the fixed proof purpose `assertionMethod`. `api.btcr2.verifyMessage(document, signedMessage)` returns a `MessageReport` with five checks: `structure`, `signer`, `active`, `assertionMethod`, and `signature`. Neither function does I/O. New types: `SignedMessage`, `SignMessageOptions`, `MessageCheckName`, `MessageCheck`, and `MessageReport`.
+  - cli: `btcr2 message sign -i <identifier> <message>` resolves the current DID document and prints the signed message. `btcr2 message verify -i <identifier> <path>` checks a signed message file against the current DID document. A failed check gives exit code 1. Both commands take `--sidecar` and `--min-conf`. `message verify --offline` checks against the initial DID document with no resolution.
+
+- Updated dependencies []:
+  - @did-btcr2/api@0.32.1
+
 ## 0.29.5
 
 ### Patch Changes

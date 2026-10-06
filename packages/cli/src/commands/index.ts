@@ -8,6 +8,7 @@ export { registerIdentifierCommand } from './identifier.js';
 export { registerGenesisCommand } from './genesis.js';
 export { registerKeyCommand } from './key.js';
 export { registerKeystoreCommand } from './keystore.js';
+export { registerMessageCommand } from './message.js';
 export { registerConfigCommand } from './config.js';
 export { registerProfileCommand } from './profile.js';
 export { registerCompletionCommand } from './completion.js';

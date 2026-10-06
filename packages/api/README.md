@@ -23,6 +23,7 @@ If you're integrating did:btcr2 into an app, start here. If you're customizing t
 - **`api.btcr2.buildGenesisDocument(spec)`** builds the Genesis Document of an EXTERNAL (`x`) DID from public keys, relationships, beacons, and services, with no I/O. **`api.btcr2.createExternalFromDocument(document, { network })`** checks the document, hashes it as given, and returns `{ did, genesisBytes, didDocument }`. Keep the document: an EXTERNAL DID resolves only with it.
 - **`api.btcr2.constructUpdate(source, patch)`** and **`api.btcr2.signUpdate(did, unsignedUpdate, verificationMethod, signer)`** make a signed update with no I/O and no broadcast: the "Construct BTCR2 Unsigned Update" and "Construct BTCR2 Signed Update" steps of the specification. Use them for a test vector or an aggregate beacon.
 - **`api.btcr2.hashDocument(document)`** is the JSON Document Hashing of the specification (base64url, no padding). **`api.btcr2.applyPatch(document, patch)`** gives the target document of a patch. **`api.btcr2.rootCapability(did)`** gives the root capability that an update proof invokes.
+- **`api.btcr2.signMessage(document, message, signer, options?)`** signs a text message as an assertion of the DID, with no I/O (ADR 137). The result is `{ type: 'BTCR2Message', message, proof }` with a `bip340-jcs-2025` proof and the fixed proof purpose `assertionMethod`, so no message signature is valid as an update proof. **`api.btcr2.verifyMessage(document, signedMessage)`** runs the `structure`, `signer`, `active`, `assertionMethod`, and `signature` checks and returns a report. Pass the current document from a resolution: an old document accepts a key that a later update removed.
 - **`api.smt.build(entries)`** builds the Sparse Merkle Tree of one SMT beacon signal and gives its root and the proof of each DID. **`api.smt.verify(proof, did)`** verifies an SMT proof.
 - **`announce.feeRate`** sets a fixed fee rate of the beacon transaction in sats/vB. `announce.feeEstimator` takes your own `FeeEstimator`. Set one of the two, not both.
 - **`api.crypto.keypair.fromPublicKey(bytes)`** makes a watch-only key pair for `api.kms.import`.
@@ -73,6 +74,7 @@ The api is the one entry point of the implementation (ADR 132). It exports no cl
 | Write results | `DidUpdateResult`, `BeaconInfo`, `UnsignedBTCR2Update`, `SignedBTCR2Update`, `RootCapability` |
 | SMT | `SmtEntry`, `SmtTree`, `SMTProof` |
 | Identifier validation | `DidComponents`, `IdentifierReport`, `IdentifierCheck`, `IdentifierCheckName`, `IdentifierValidateOptions` |
+| Message signatures | `SignedMessage`, `SignMessageOptions`, `MessageReport`, `MessageCheck`, `MessageCheckName` |
 
 ## Quick Start
 

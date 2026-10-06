@@ -48,6 +48,7 @@ export type {
   VerificationRelationship
 } from './genesis.js';
 export { KeyManagerApi } from './key-manager.js';
+export type { MessageCheck, MessageCheckName, MessageReport, SignedMessage, SignMessageOptions } from './message.js';
 export { DidMethodApi } from './method.js';
 export type {
   AnnounceOptions,

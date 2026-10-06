@@ -206,7 +206,7 @@ export async function prepareWrite(
  * a fallback to another key would sign with a key that the DID document does
  * not name.
  */
-function resolveSigningKey(
+export function resolveSigningKey(
   api        : DidBtcr2Api,
   explicit   : string | undefined,
   recordKey  : string | undefined,

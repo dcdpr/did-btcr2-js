@@ -29,7 +29,7 @@ export interface IdentifierRecord {
   added        : string;
   /** The URNs of the keys that the CLI used for the identifier, in the order of first use. */
   keys         : string[];
-  /** The key that signs the next update if no `--signing-key` is given. One of `keys`. */
+  /** The key that signs the next update or message if no `--signing-key` is given. One of `keys`. */
   signingKey?  : string;
   /** The beacon signal transactions of the updates that the CLI broadcast, in order. */
   txids        : string[];

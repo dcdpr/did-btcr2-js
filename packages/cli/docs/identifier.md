@@ -172,7 +172,7 @@ These commands write the records file:
   the broadcast (see [update.md](./update.md) and [deactivate.md](./deactivate.md)).
 - `identifier add` and `identifier remove` change one record.
 
-`resolve`, `update`, and `deactivate` read the record of the identifier. `identifier list`,
+`resolve`, `update`, `deactivate`, `message sign`, and `message verify` read the record of the identifier. `identifier list`,
 `show`, and `sidecar` read the file. `decode` and `validate` never read it.
 
 An absent file holds no records. The first write makes the file with mode `0600`, and makes the
@@ -202,10 +202,10 @@ The format of the file:
 |-------|------|---------|
 | `v` | `1` | The format version of the file. |
 | `identifiers` | object | One record for each identifier, in the order of the first record. The key is the identifier. |
-| `name` | string, optional | A unique name. `resolve -i`, `update -i`, `deactivate -i`, and the record subcommands accept it in place of the identifier. |
+| `name` | string, optional | A unique name. `resolve -i`, `update -i`, `deactivate -i`, `message sign -i`, `message verify -i`, and the record subcommands accept it in place of the identifier. |
 | `added` | ISO 8601 string | The time of the first record. |
 | `keys` | array of key URNs | The keys that the CLI used for the identifier, in the order of first use. A record holds key URNs only, never key material. |
-| `signingKey` | key URN, optional | The key that signs the next update if `--signing-key` is absent. It is always one of `keys`. |
+| `signingKey` | key URN, optional | The key that signs the next update or message if `--signing-key` is absent. It is always one of `keys`. |
 | `txids` | array of strings | The beacon signal transactions of the updates that the CLI broadcast, in order. |
 | `deactivated` | `true`, optional | Present after a `deactivate`. |
 | `sidecar` | object | The sidecar data of the identifier: `genesisDocument`, `updates`, `casUpdates`, and `smtProofs`. It is the object that the `sidecar` field of the resolution options holds. |
@@ -220,7 +220,7 @@ messages:
 - `The identifier records file <path> is not valid JSON.`
 - `The identifier records file <path> is not a version 1 records file.`
 
-`resolve`, `update`, `deactivate`, and the record subcommands refuse to continue. `create` makes
+`resolve`, `update`, `deactivate`, `message sign`, `message verify`, and the record subcommands refuse to continue. `create` makes
 the identifier and prints the warning of a failed record write (see [create.md](./create.md)).
 
 ### References and names
@@ -228,7 +228,7 @@ the identifier and prints the warning of a failed record write (see [create.md](
 A reference `<ref>` names one identifier. A value that starts with `did:` is an identifier, with
 or without a record. Any other value is the name of an identifier record. If no record has the
 name, the command fails with `No identifier record has the name "<ref>". An identifier starts with "did:btcr2:".` The `-i` flag of
-`resolve`, `update`, and `deactivate` accepts the same references.
+`resolve`, `update`, `deactivate`, `message sign`, and `message verify` accepts the same references.
 
 The rules for a name:
 
@@ -327,7 +327,7 @@ name, the sidecar data file, and the key. An invalid identifier fails with
 |------|-------|---------|-------------|
 | `<ref>` (the argument) | an identifier or a record name | none (required) | The identifier to add, or to add data to. |
 | `--name <name>` | a name (see [References and names](#references-and-names)) | none | Set the name of the record. The name replaces a name that the record has. |
-| `-k, --key <ref>` | a key reference: a key URN, a unique key `name` tag, or a unique fingerprint prefix | see below | A stored key that signs the next update of the identifier. The key joins `keys` and becomes the `signingKey` of the record. The keystore must hold the key. The command reads public keys only and never asks for the passphrase. No match fails with `No key matches reference "<ref>".` An empty value fails with `--key must not be empty.` |
+| `-k, --key <ref>` | a key reference: a key URN, a unique key `name` tag, or a unique fingerprint prefix | see below | A stored key that signs the next update or message of the identifier. The key joins `keys` and becomes the `signingKey` of the record. The keystore must hold the key. The command reads public keys only and never asks for the passphrase. No match fails with `No key matches reference "<ref>".` An empty value fails with `--key must not be empty.` |
 | `--sidecar <path>` | path of a JSON file with sidecar data | none | Add the sidecar data of the file to the record. See "The sidecar data file" below. |
 | `-h, --help` | none | n/a | Print the help of the subcommand and exit. |
 
@@ -385,7 +385,7 @@ Text mode prints `{ "identifier": "<identifier>", "removed": true }`. JSON mode 
 ## sidecar
 
 Prints the sidecar data of one identifier record. The output is the object that the `sidecar`
-field of the resolution options holds. It is also the file format of `identifier add --sidecar`.
+field of the resolution options holds. It is also the file format of `identifier add --sidecar`, `message sign --sidecar`, and `message verify --sidecar`.
 Give it to a party that must resolve an update that is not in a CAS. A record with no sidecar data
 prints `{}`.
 
@@ -463,7 +463,7 @@ btcr2 identifier show alice
 # identifier, the command links the stored key of the genesis bytes
 btcr2 identifier add did:btcr2:k1qq... --name alice
 
-# Select the key that signs the next update of the identifier
+# Select the key that signs the next update or message of the identifier
 btcr2 identifier add alice -k 3fa2
 
 # Give the sidecar data to another party. The party adds it to its own records
@@ -488,6 +488,8 @@ btcr2 identifier rm alice
   transaction and the sidecar data to the record.
 - `btcr2 resolve`: resolve the DID document. `resolve` reads the network from the identifier in
   the same way as `identifier decode`. It uses the sidecar data of the record.
+- `btcr2 message sign` and `btcr2 message verify`: resolve with the sidecar data of the record.
+  `message sign` signs with the signing key of the record.
 - `btcr2 key`: list the keys that `identifier add -k` and `identifier list -k` name.
 - `btcr2 genesis build`: write the genesis document that `identifier validate --genesis-document`
   checks.

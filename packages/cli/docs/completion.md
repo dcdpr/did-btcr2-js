@@ -27,7 +27,7 @@ There are no subcommands. The one argument selects the target shell.
 The CLI builds the word list at run time from the registered commands: the name and the aliases of each top-level command, in registration order, then the built-in `help` command. The list is the same for the three shells:
 
 ```
-init quickstart create resolve read update deactivate delete identifier genesis key keystore config profile completion help
+init quickstart create resolve read update deactivate delete identifier genesis key keystore message config profile completion help
 ```
 
 - `bash`: defines a `_btcr2` function with `compgen -W` and registers it with `complete -F _btcr2 btcr2`. The header comment says: install with `eval "$(btcr2 completion bash)"`.
