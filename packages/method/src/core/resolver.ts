@@ -970,13 +970,15 @@ export class Resolver {
             continue;
           }
 
-          // Step 2: no tuple is left, or the document is deactivated. A requested
+          // Step 2: no tuple is left, or current_document.deactivated is true. A truthy
+          // value that is not the boolean true does not stop resolution (ADR 142). A requested
           // version that the history does not reach is NOT_FOUND.
-          if(this.#unsortedUpdates.length === 0 || document.deactivated) {
+          const deactivated = document.deactivated === true;
+          if(this.#unsortedUpdates.length === 0 || deactivated) {
             if(this.#versionId !== undefined) {
               throw new ResolveError(
                 `Version ${this.#versionId} of the DID does not exist: the history `
-                + (document.deactivated
+                + (deactivated
                   ? `ends with the deactivation at version ${this.#currentVersionId}.`
                   : `ends at version ${this.#currentVersionId}.`),
                 NOT_FOUND, { versionId: this.#versionId, currentVersionId: this.#currentVersionId }
@@ -1075,7 +1077,8 @@ export class Resolver {
         // Phase: Complete
         // The document metadata of the specification: versionId is current_version_id,
         // confirmations is block_confirmations (0 when no update applied), deactivated
-        // is the flag of the document. `updated` is present after the first apply.
+        // is deactivated === true of the document, thus always a boolean (ADR 142).
+        // `updated` is present after the first apply.
         case ResolverPhase.Complete: {
           this.#resolvedResponse ??= {
             didDocument : this.#currentDocument!,
@@ -1083,7 +1086,7 @@ export class Resolver {
               versionId     : `${this.#currentVersionId}`,
               confirmations : this.#blockConfirmations,
               ...(this.#updated !== undefined ? { updated: this.#updated } : {}),
-              deactivated   : this.#currentDocument!.deactivated || false
+              deactivated   : this.#currentDocument!.deactivated === true
             }
           };
           return { status: 'resolved', result: this.#resolvedResponse };

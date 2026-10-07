@@ -152,6 +152,20 @@ describe('DidDocument.isValid verificationMethod array (STD-2: enforce at the do
   });
 });
 
+describe('DidDocument deactivated property (ADR 142)', () => {
+  it('keeps the deactivated value of the input', () => {
+    for(const value of [true, false]) {
+      const document = new DidDocument({ ...validDocument(), deactivated: value });
+      expect(document.deactivated).to.equal(value);
+      expect(document.toJSON().deactivated).to.equal(value);
+    }
+  });
+
+  it('has no deactivated property if the input has none', () => {
+    expect(new DidDocument(validDocument())).to.not.have.property('deactivated');
+  });
+});
+
 describe('DidDocument.fromKeyIdentifier', () => {
   it('makes the deterministic document of a k1 DID', () => {
     const did = deterministicData[0]!.did;

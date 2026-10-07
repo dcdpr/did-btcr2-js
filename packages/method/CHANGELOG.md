@@ -1,5 +1,14 @@
 # @did-btcr2/method
 
+## 0.71.2
+
+### Patch Changes
+
+- The deactivation checks use strict equality (`deactivated === true`), and `DidDocument` keeps the `deactivated` property (ADR 142).
+
+  - method: `DidDocument` keeps the `deactivated` property of the input. Before, the constructor lost it, so an `x1` genesis document with `"deactivated": true` resolved as not deactivated. Step 2 of Process Next Update stops only if `current_document.deactivated` is `true`. Before, a value such as `"no"` or `1` stopped resolution and hid the later updates. The metadata `deactivated` is `true` only if the document holds the boolean `true`, else `false`.
+  - api: the update chokepoint and `deactivate` refuse a source document only if `deactivated === true`. The browser bundle holds the method fix.
+
 ## 0.71.1
 
 ### Patch Changes

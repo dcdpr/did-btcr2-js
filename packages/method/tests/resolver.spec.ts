@@ -475,6 +475,37 @@ describe('Resolver', () => {
       if(final.status !== 'resolved') return;
       expect(final.result.didDocument).to.have.property('id', did);
     });
+
+    describe('deactivated in the genesis document (ADR 142)', () => {
+      const fixture = externalData[0];
+      const genesisDocument = { ...fixture.genesisDocument, deactivated: true };
+      const did = Identifier.encode(canonicalHashBytes(genesisDocument), { idType: 'EXTERNAL', network: fixture.network });
+
+      /** Resolve the DID with the genesis document in the sidecar and no signal. */
+      function resolveGenesis(options: { versionId?: string } = {}): DidResolutionResponse {
+        const resolver = DidBtcr2.resolve(did, { sidecar: { genesisDocument }, ...options });
+        const state = resolver.resolve();
+        if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+        provideEmptySignals(resolver, state.needs[0] as NeedBeaconSignals);
+        const final = resolver.resolve();
+        if(final.status !== 'resolved') throw new Error('expected resolved');
+        return final.result;
+      }
+
+      it('keeps the property and reports deactivated true', () => {
+        const { didDocument, metadata } = resolveGenesis();
+        expect(didDocument.deactivated).to.equal(true);
+        expect(metadata).to.deep.equal({ versionId: '1', confirmations: 0, deactivated: true });
+      });
+
+      it('ends the history at version 1', () => {
+        let thrown: any;
+        try { resolveGenesis({ versionId: '2' }); } catch(error) { thrown = error; }
+        expect(thrown).to.be.instanceOf(ResolveError);
+        expect(thrown.type).to.equal(NOT_FOUND);
+        expect(thrown.message).to.include('ends with the deactivation at version 1');
+      });
+    });
   });
 
   describe('beacon signal needs', () => {
@@ -948,6 +979,21 @@ describe('Resolver', () => {
       expect(metadata.versionId).to.equal('2');
       // v3's benign append was never applied, so assertionMethod is unchanged from genesis.
       expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length);
+    });
+
+    it('does not stop at a deactivated value other than true, and reports false (ADR 142)', () => {
+      for(const value of ['true', 'no', 1, {}]) {
+        const source = resolveDeterministic(fixture.did);
+        const updates = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+          [{ op: 'add' as const, path: '/deactivated', value }], // v2 sets a value that is not true
+          benignPatch(fixture.did)                               // v3 applies
+        ]);
+        const { metadata, didDocument } = driveSingleBeacon(fixture.did, updates);
+        const label = JSON.stringify(value);
+        expect(metadata.versionId, label).to.equal('3');
+        expect(metadata.deactivated, label).to.equal(false);
+        expect(didDocument.deactivated, label).to.deep.equal(value);
+      }
     });
   });
 
