@@ -360,6 +360,22 @@ describe('DidBtcr2Api', () => {
         .to.be.rejectedWith(UpdateError, 'is deactivated and cannot be updated');
     });
 
+    it('does not refuse a supplied document whose deactivated value is not true (ADR 142)', async () => {
+      const api = createApi();
+      const source = {
+        document : {
+          id                 : 'did:btcr2:test',
+          deactivated        : 'yes',
+          verificationMethod : [],
+          service            : [],
+        } as any,
+        versionId : 2,
+      };
+      // No Bitcoin connection is configured: the connection check is the next refusal.
+      await expect(api.updateDid(source, patch, stubSigner, ids))
+        .to.be.rejectedWith(UpdateError, 'Bitcoin connection required');
+    });
+
     describe('source check against the sidecar updates', () => {
       it('refuses a versionId less than the highest targetVersionId', async () => {
         const api = createApi();
@@ -487,6 +503,22 @@ describe('DidBtcr2Api', () => {
         versionId : 2,
       };
       await expect(api.deactivateDid(source, stubSigner, ids)).to.be.rejectedWith('already deactivated');
+    });
+
+    it('does not refuse a document whose deactivated value is not true (ADR 142)', async () => {
+      const api = createApi();
+      const source = {
+        document : {
+          id                 : 'did:btcr2:test',
+          deactivated        : 'yes',
+          verificationMethod : [],
+          service            : [],
+        } as any,
+        versionId : 2,
+      };
+      // No Bitcoin connection is configured: the connection check is the next refusal.
+      await expect(api.deactivateDid(source, stubSigner, ids))
+        .to.be.rejectedWith(UpdateError, 'Bitcoin connection required');
     });
 
     it('threads resolutionOptions through to resolution', async () => {

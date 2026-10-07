@@ -226,6 +226,9 @@ export class DidDocument implements Btcr2DidDocument {
       'https://www.w3.org/ns/did/v1.1',
       'https://btcr2.dev/context/v1'
     ];
+    // Keep the value as the input holds it. The resolver tests it with
+    // deactivated === true (ADR 142). Sanitize removes the property if the input has none.
+    this.deactivated = document.deactivated;
 
     // Relationships logic based on idType
     if (idType === IdentifierTypes.KEY) {

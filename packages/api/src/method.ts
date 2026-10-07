@@ -811,8 +811,9 @@ export class DidMethodApi {
     // deactivation, so anything signed and broadcast on top of it spends a
     // beacon UTXO on an announcement no resolver will ever read. Refused here,
     // at the single chokepoint every write path (updateDid, deactivateDid,
-    // deactivate) passes through, before any connection is touched.
-    if(sourceDocument?.deactivated) {
+    // deactivate) passes through, before any connection is touched. The test
+    // is deactivated === true, as in resolution (ADR 142).
+    if(sourceDocument?.deactivated === true) {
       throw new UpdateError(
         `DID document ${sourceDocument.id} is deactivated and cannot be updated. `
         + 'Deactivation is irreversible: resolution halts at the deactivation, so '
@@ -1176,7 +1177,7 @@ export class DidMethodApi {
     signer: Signer,
     options: UpdateOptions = {},
   ): Promise<DidUpdateResult> {
-    if(source.document?.deactivated) {
+    if(source.document?.deactivated === true) {
       throw new UpdateError(
         `DID document ${source.document.id} is already deactivated. `
         + 'Deactivation is irreversible: a further deactivation update could '
