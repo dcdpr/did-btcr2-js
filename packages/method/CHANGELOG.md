@@ -1,5 +1,15 @@
 # @did-btcr2/method
 
+## 0.71.0
+
+### Minor Changes
+
+- The resolver checks the genesis id and compares with the DID under resolution (ADR 140).
+
+  - method: `Resolver.external` refuses a genesis document whose `id` is not `did:btcr2:_` with `INVALID_DID_DOCUMENT`. Before, such a document resolved to a document for another DID. The proof checks (`capability`, `invocationTarget`), the patched-id check, and the CAS and SMT beacons use the DID under resolution, not `current_document.id`. Breaking: the data of the patched-id error is `{ did, id }`. Before, it was `{ sourceId, targetId }`.
+  - api: dependency uptake. The browser bundle holds the fix. Breaking: `resolve` and `getInitialDocument` refuse the same genesis document.
+  - cli: dependency uptake.
+
 ## 0.70.1
 
 ### Patch Changes

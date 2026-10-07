@@ -217,3 +217,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 137 | 2026-10-06 | [A Signed Message Is an Assertion Proof That Verify Checks Against the Current DID Document](137-a-signed-message-is-an-assertion-proof-that-verify-checks-against-the-current-did-document.md) |
 | 138 | 2026-10-07 | [Indexer Signal Discovery Reads the Full History of a Beacon Address With an Overlap Cursor](138-indexer-signal-discovery-reads-the-full-address-history-with-an-overlap-cursor.md) |
 | 139 | 2026-10-07 | [JSONPatch.apply Runs the Patch on a JSON Copy of the Operations](139-json-patch-apply-runs-the-patch-on-a-json-copy-of-the-operations.md) |
+| 140 | 2026-10-07 | [The Resolver Checks the Genesis Id and Compares With the DID Under Resolution](140-the-resolver-checks-the-genesis-id-and-compares-with-the-did-under-resolution.md) |

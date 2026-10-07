@@ -8,6 +8,7 @@ import {
   decode as decodeHash,
   INTERNAL_ERROR,
   INVALID_DID,
+  INVALID_DID_DOCUMENT,
   INVALID_DID_UPDATE,
   INVALID_OPTIONS,
   INVALID_SIGNAL_DATA,
@@ -293,6 +294,11 @@ enum ResolverPhase {
 export class Resolver {
   // --- Immutable inputs ---
   readonly #didComponents: DidComponents;
+  /**
+   * The DID under resolution: `did` of the specification. The proof checks, the patched
+   * document id, and the beacons compare with it, not with `current_document.id`.
+   */
+  readonly #did: string;
   /** The parsed `ResolutionOptions.versionId`, or `undefined` when the option is absent. */
   readonly #versionId?: number;
   /** The parsed `ResolutionOptions.versionTime` in milliseconds since the Unix epoch, or `undefined`. */
@@ -382,6 +388,7 @@ export class Resolver {
     }
   ) {
     this.#didComponents = didComponents;
+    this.#did = Identifier.encode(didComponents.genesisBytes, didComponents);
     this.#sidecarData = sidecarData;
     this.#currentDocument = currentDocument;
     // The resolution options fail here, before any data need is emitted, so the
@@ -455,6 +462,7 @@ export class Resolver {
    * @param {object} genesisDocument The genesis document for resolving the DID Document.
    * @returns {DidDocument} The resolved DID Document object
    * @throws {ResolveError} `INVALID_DID` if the hash of the genesis document is not the genesis bytes of the identifier
+   * @throws {ResolveError} `INVALID_DID_DOCUMENT` if the id of the genesis document is not the placeholder
    */
   static external(
     didComponents: DidComponents,
@@ -472,6 +480,17 @@ export class Resolver {
           genesisBytes        : encodeHash(didComponents.genesisBytes, 'hex'),
           genesisDocumentHash : encodeHash(genesisDocumentHash, 'hex')
         }
+      );
+    }
+
+    // A Genesis Document has the placeholder as its id. The replacement below then makes
+    // the id of the document the DID, as a DID document must have. A genesis document
+    // with another id gives a document for another DID.
+    const genesisId = (genesisDocument as { id?: unknown }).id;
+    if (genesisId !== ID_PLACEHOLDER_VALUE) {
+      throw new ResolveError(
+        `Invalid genesis document: the id must be "${ID_PLACEHOLDER_VALUE}", got ${JSON.stringify(genesisId)}`,
+        INVALID_DID_DOCUMENT, { id: genesisId }
       );
     }
 
@@ -655,6 +674,7 @@ export class Resolver {
    * and its step {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#check-update-proof | Check update.proof}.
    * Every failure that the specification names raises `INVALID_DID_UPDATE`. An error of the
    * cryptosuite, the multikey, the hash decoder, or the patch rides along as `data.cause`.
+   * @param {string} did The DID under resolution.
    * @param {DidDocument} currentDocument The current DID Document to apply the update to.
    * @param {SignedBTCR2Update} update The BTCR2 Signed Update to apply.
    * @param {BlockMetadata} block The block that contains the Beacon Signal that announced the update.
@@ -662,6 +682,7 @@ export class Resolver {
    * @throws {ResolveError} `INVALID_DID_UPDATE` if the update is invalid or cannot be applied.
    */
   private static applyUpdate(
+    did: string,
     currentDocument: DidDocument,
     update: SignedBTCR2Update,
     block: BlockMetadata
@@ -709,8 +730,8 @@ export class Resolver {
       [ 'cryptosuite', 'bip340-jcs-2025' ],
       [ 'proofPurpose', 'capabilityInvocation' ],
       [ 'capabilityAction', 'Write' ],
-      [ 'capability', `urn:zcap:root:${encodeURIComponent(currentDocument.id)}` ],
-      [ 'invocationTarget', currentDocument.id ],
+      [ 'capability', `urn:zcap:root:${encodeURIComponent(did)}` ],
+      [ 'invocationTarget', did ],
     ];
     for(const [ field, expected ] of expectedFields) {
       const actual = (proof as Record<string, unknown>)[field];
@@ -785,10 +806,10 @@ export class Resolver {
 
     // Spec "Apply update": the patched document keeps the DID as its id and conforms to
     // DID Core v1.1.
-    if(updatedDocument?.id !== currentDocument.id) {
+    if(updatedDocument?.id !== did) {
       throw new ResolveError(
-        `Invalid update: the patch changes the document id (from "${currentDocument.id}" to "${String(updatedDocument?.id)}")`,
-        INVALID_DID_UPDATE, { sourceId: currentDocument.id, targetId: updatedDocument?.id }
+        `Invalid update: the patched document id is not the DID (expected "${did}", got "${String(updatedDocument?.id)}")`,
+        INVALID_DID_UPDATE, { did, id: updatedDocument?.id }
       );
     }
     try {
@@ -899,7 +920,7 @@ export class Resolver {
             // Establish a typed beacon and process its signals
             // The beacon is bound to the DID under resolution: a beacon service
             // `id` may be a relative DID URL, so it cannot supply the subject.
-            const beacon = BeaconFactory.establish(service, this.#currentDocument!.id);
+            const beacon = BeaconFactory.establish(service, this.#did);
             const result = beacon.processSignals(eligible, this.#sidecarData);
 
             if(result.needs.length > 0) {
@@ -1009,7 +1030,7 @@ export class Resolver {
 
           // Step 6, second arm: targetVersionId == currentVersionId + 1. Apply the update,
           // append the unsigned update hash to the history, increment the version.
-          this.#currentDocument = Resolver.applyUpdate(document, update, block);
+          this.#currentDocument = Resolver.applyUpdate(this.#did, document, update, block);
           const unsignedUpdate = JSONUtils.deleteKeys(update, ['proof']) as UnsignedBTCR2Update;
           this.#updateHashHistory.push(canonicalHashBytes(unsignedUpdate));
           this.#currentVersionId++;

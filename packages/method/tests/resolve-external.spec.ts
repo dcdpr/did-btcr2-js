@@ -1,4 +1,4 @@
-import { INVALID_DID, ResolveError } from '@did-btcr2/common';
+import { canonicalHashBytes, INVALID_DID, INVALID_DID_DOCUMENT, ResolveError } from '@did-btcr2/common';
 import { expect } from 'chai';
 import { DidBtcr2 } from '../src/did-btcr2.js';
 import type { BeaconService, BeaconSignal } from '../src/core/beacon/interfaces.js';
@@ -63,5 +63,30 @@ describe('Resolve External', () => {
       expect(caught).to.be.instanceOf(ResolveError);
       expect(caught).to.have.property('type', INVALID_DID);
       expect((caught as Error).message).to.match(/Initial document mismatch/);
+    });
+
+  it('rejects a genesis document whose id is not the placeholder with INVALID_DID_DOCUMENT',
+    () => {
+      const { genesisDocument } = data[2]; // regtest
+      const otherDid = data[0].did;
+      // The first document names another DID only in its id. The second names it in each
+      // place of the placeholder, as the initial document of that DID does.
+      const documents = [
+        { ...genesisDocument, id: otherDid },
+        JSON.parse(JSON.stringify(genesisDocument).replaceAll('did:btcr2:_', otherDid)),
+      ];
+      for(const document of documents) {
+        const did = DidBtcr2.create(canonicalHashBytes(document), { idType: 'EXTERNAL', version: 1, network: 'regtest' });
+        const resolver = DidBtcr2.resolve(did, { sidecar: { genesisDocument: document } });
+        let caught: unknown;
+        try {
+          resolver.resolve();
+        } catch (error: unknown) {
+          caught = error;
+        }
+        expect(caught).to.be.instanceOf(ResolveError);
+        expect(caught).to.have.property('type', INVALID_DID_DOCUMENT);
+        expect((caught as Error).message).to.match(/the id must be "did:btcr2:_"/);
+      }
     });
 });
