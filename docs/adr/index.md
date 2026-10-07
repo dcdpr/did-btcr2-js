@@ -215,3 +215,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 135 | 2026-10-05 | [An Update Is Refused If the Source Resolution Misses an Update of the Sidecar Data](135-an-update-is-refused-if-the-source-resolution-misses-an-update-of-the-sidecar-data.md) |
 | 136 | 2026-10-02 | [A Negative Vector Names the Rule That It Breaks, and the Pipeline Checks the Cause](136-a-negative-vector-names-the-rule-that-it-breaks-and-the-pipeline-checks-the-cause.md) |
 | 137 | 2026-10-06 | [A Signed Message Is an Assertion Proof That Verify Checks Against the Current DID Document](137-a-signed-message-is-an-assertion-proof-that-verify-checks-against-the-current-did-document.md) |
+| 138 | 2026-10-07 | [Indexer Signal Discovery Reads the Full History of a Beacon Address With an Overlap Cursor](138-indexer-signal-discovery-reads-the-full-address-history-with-an-overlap-cursor.md) |

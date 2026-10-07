@@ -48,7 +48,7 @@ function createMockSubClient() {
     if (req.url.includes('/tx') && req.method === 'POST') return VALID_TXID;
     if (req.url.includes('/tx/')) return { txid: VALID_TXID, status: { confirmed: false } };
     if (req.url.includes('/utxo')) return [{ txid: VALID_TXID, vout: 0, value: 5000 }];
-    if (req.url.includes('/address/') && req.url.endsWith('/txs/chain')) return [{ status: { confirmed: true } }];
+    if (req.url.includes('/address/') && req.url.includes('/txs/chain')) return [{ status: { confirmed: true } }];
     if (req.url.includes('/address/') && req.url.endsWith('/txs/mempool')) return [];
     if (req.url.includes('/address/') && req.url.endsWith('/txs')) return [{ status: { confirmed: true } }];
     if (req.url.includes('/address/')) return { address: 'addr1' };
@@ -131,12 +131,12 @@ describe('EsploraProtocol', () => {
 
     it('builds GET /address/:address/txs/chain without lastSeenTxId', () => {
       const req = protocol.getAddressTxsChain('addr1');
-      expect(req.url).to.equal('https://mempool.space/api/address/addr1/txs/chain');
+      expect(req.url).to.equal('https://mempool.space/api/address/addr1/txs/chain?max_txs=25');
     });
 
     it('builds GET /address/:address/txs/chain/:last_seen_txid', () => {
       const req = protocol.getAddressTxsChain('addr1', VALID_TXID);
-      expect(req.url).to.equal(`https://mempool.space/api/address/addr1/txs/chain/${VALID_TXID}`);
+      expect(req.url).to.equal(`https://mempool.space/api/address/addr1/txs/chain/${VALID_TXID}?max_txs=25`);
     });
 
     it('builds GET /address/:address', () => {

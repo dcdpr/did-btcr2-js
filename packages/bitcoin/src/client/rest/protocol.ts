@@ -4,6 +4,15 @@ import type { HttpRequest } from '../http.js';
 
 const HEX64_RE = /^[0-9a-f]{64}$/i;
 
+/**
+ * The page size of the Esplora confirmed history listing,
+ * `GET /address/:address/txs/chain[/:last_seen_txid]`. The Esplora API documents 25
+ * transactions per page. Blockstream electrs uses a fixed 25. mempool-electrs uses an
+ * operator setting, so {@link EsploraProtocol.getAddressTxsChain} sets the page size
+ * in the `max_txs` query parameter. Blockstream electrs ignores that parameter.
+ */
+export const ESPLORA_CHAIN_PAGE_SIZE = 25;
+
 /** Copy the headers without a `Content-Type` entry. The header name is case-insensitive. */
 function withoutContentType(headers: Record<string, string> = {}): Record<string, string> {
   return Object.fromEntries(Object.entries(headers).filter(([name]) => name.toLowerCase() !== 'content-type'));
@@ -136,14 +145,17 @@ export class EsploraProtocol {
     return this.getFresh(`/address/${address}/txs/mempool`);
   }
 
-  /** GET /address/:address/txs/chain[/:last_seen_txid] (fresh: a new confirmation or a reorg changes a page) */
+  /**
+   * GET /address/:address/txs/chain[/:last_seen_txid]?max_txs=25 (fresh: a new confirmation
+   * or a reorg changes a page). The query sets the page size; see {@link ESPLORA_CHAIN_PAGE_SIZE}.
+   */
   getAddressTxsChain(address: string, lastSeenTxId?: string): HttpRequest {
     EsploraProtocol.assertAddress(address);
     if (lastSeenTxId) EsploraProtocol.assertHex64(lastSeenTxId, 'lastSeenTxId');
     const path = lastSeenTxId
       ? `/address/${address}/txs/chain/${lastSeenTxId}`
       : `/address/${address}/txs/chain`;
-    return this.getFresh(path);
+    return this.getFresh(`${path}?max_txs=${ESPLORA_CHAIN_PAGE_SIZE}`);
   }
 
   /** GET /address/:address (fresh) */

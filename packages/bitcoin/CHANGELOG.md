@@ -1,5 +1,16 @@
 # @did-btcr2/bitcoin
 
+## 0.11.5
+
+### Patch Changes
+
+- The indexer signal discovery reads the full history of a beacon address (ADR 138).
+
+  - method: `BeaconSignalDiscovery.indexer` reads each page of the confirmed history (`GET /address/:address/txs/chain`) with an overlap cursor. Before, it read only the newest 25 transactions, so 25 payments to a beacon address hid an older signal. If the history changes during discovery, the resolve fails with `INTERNAL_ERROR`: resolve again later. Breaking: the Esplora server must serve the chain listing in a stable order. A mempool instance needs `MEMPOOL_BACKEND=esplora`.
+  - bitcoin: the new export `ESPLORA_CHAIN_PAGE_SIZE` (25). `EsploraProtocol.getAddressTxsChain` adds `?max_txs=25`.
+  - api: dependency uptake. The browser bundle holds the new discovery. Breaking: the same Esplora server requirements.
+  - cli: dependency uptake.
+
 ## 0.11.4
 
 ### Patch Changes
