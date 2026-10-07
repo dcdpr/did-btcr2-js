@@ -1,5 +1,18 @@
 # @did-btcr2/aggregation
 
+## 0.7.6
+
+### Patch Changes
+
+- `JSONPatch.apply` runs the patch on a JSON copy of the operations (ADR 139).
+
+  - common: the operations stay unchanged. Before, a later operation that wrote inside an added value also changed the operation. The checks run on the copy. The strict mode does not refuse a nested `undefined` any more: the copy drops it, as the signed update does. The error message of a failed path check names the index of the failing operation. Before, it said "at operation 0".
+  - method: an update whose patch writes inside an added value now resolves. Before, `Updater.construct` embedded a changed patch, and each resolver refused the update with `INVALID_DID_UPDATE`. The resolver hashes the update as received, so a duplicate of such an update is confirmed.
+  - method, api, aggregation: dependency uptake. The browser bundle holds the fix.
+
+- Updated dependencies []:
+  - @did-btcr2/common@10.0.1
+
 ## 0.7.5
 
 ### Patch Changes

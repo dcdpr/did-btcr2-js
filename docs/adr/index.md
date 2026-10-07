@@ -216,3 +216,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 136 | 2026-10-02 | [A Negative Vector Names the Rule That It Breaks, and the Pipeline Checks the Cause](136-a-negative-vector-names-the-rule-that-it-breaks-and-the-pipeline-checks-the-cause.md) |
 | 137 | 2026-10-06 | [A Signed Message Is an Assertion Proof That Verify Checks Against the Current DID Document](137-a-signed-message-is-an-assertion-proof-that-verify-checks-against-the-current-did-document.md) |
 | 138 | 2026-10-07 | [Indexer Signal Discovery Reads the Full History of a Beacon Address With an Overlap Cursor](138-indexer-signal-discovery-reads-the-full-address-history-with-an-overlap-cursor.md) |
+| 139 | 2026-10-07 | [JSONPatch.apply Runs the Patch on a JSON Copy of the Operations](139-json-patch-apply-runs-the-patch-on-a-json-copy-of-the-operations.md) |

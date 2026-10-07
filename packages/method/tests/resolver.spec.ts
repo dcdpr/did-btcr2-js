@@ -3080,4 +3080,43 @@ describe('Resolver', () => {
       expect(metadata.versionId).to.equal('3');
     });
   });
+
+  describe('the update as received (ADR 139)', () => {
+    // A later operation of the patch removes a member of a service that an earlier
+    // operation added. The patch application must not change the update: the history
+    // hash and the sidecar come from the update as received.
+    const fixture = deterministicData[2]; // regtest - has a known secretKey
+
+    function nestedPatch(source: DidDocument): PatchOperation[] {
+      return [
+        { op: 'add', path: '/service/-', value: { ...source.service![0]!, id: `${fixture.did}#extra`, note: 'x' } },
+        { op: 'remove', path: `/service/${source.service!.length}/note` },
+      ];
+    }
+
+    it('resolves the update and leaves the sidecar update unchanged', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ nestedPatch(source) ]);
+      const received = JSON.parse(JSON.stringify(u2));
+      const { metadata, didDocument } = driveSignalSequence(fixture.did, [ u2! ], [ u2! ]);
+      expect(metadata.versionId).to.equal('2');
+      expect(didDocument.service).to.have.length(source.service!.length + 1);
+      expect(u2).to.deep.equal(received);
+      // A second resolution with the same sidecar object finds the update again.
+      expect(driveSignalSequence(fixture.did, [ u2! ], [ u2! ]).metadata.versionId).to.equal('2');
+    });
+
+    it('confirms a re-signed duplicate: the history holds the hash of the update as received', () => {
+      const source = resolveDeterministic(fixture.did);
+      const vm = source.verificationMethod![0]!;
+      const signer = new LocalSigner(hexToBytes(fixture.secretKey));
+      const unsigned = Updater.construct(source, nestedPatch(source), 1);
+      const first = Updater.sign(fixture.did, JSON.parse(JSON.stringify(unsigned)), vm, signer);
+      const second = Updater.sign(fixture.did, JSON.parse(JSON.stringify(unsigned)), vm, signer);
+      // Two proofs over the same unsigned update: the second signal is a duplicate.
+      expect(first.proof.proofValue).to.not.equal(second.proof.proofValue);
+      const { metadata } = driveSignalSequence(fixture.did, [ first, second ], [ first, second ]);
+      expect(metadata.versionId).to.equal('2');
+    });
+  });
 });

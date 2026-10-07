@@ -182,6 +182,69 @@ describe('JSONPatch', () => {
     });
   });
 
+  describe('a JSON copy of the operations (ADR 139)', () => {
+    it('leaves the operations unchanged if a later operation writes inside an added value', () => {
+      const ops: PatchOperation[] = [
+        { op: 'add', path: '/service/-', value: { id: '#s2', note: 'x' } },
+        { op: 'remove', path: '/service/1/note' },
+      ];
+      const given = JSON.parse(JSON.stringify(ops));
+      const result = JSONPatch.apply({ service: [{ id: '#s1' }] }, ops);
+      expect(result).to.deep.equal({ service: [{ id: '#s1' }, { id: '#s2' }] });
+      expect(ops).to.deep.equal(given);
+      // The operations as given apply again with the same result.
+      expect(JSONPatch.apply({ service: [{ id: '#s1' }] }, ops)).to.deep.equal(result);
+    });
+
+    it('leaves the operations unchanged if a later operation appends to an added array', () => {
+      const ops: PatchOperation[] = [
+        { op: 'add', path: '/list', value: ['a'] },
+        { op: 'add', path: '/list/-', value: 'b' },
+      ];
+      const given = JSON.parse(JSON.stringify(ops));
+      for (const mutate of [false, true]) {
+        expect(JSONPatch.apply({}, ops, { mutate })).to.deep.equal({ list: ['a', 'b'] });
+        expect(ops).to.deep.equal(given);
+      }
+    });
+
+    it('returns a document that shares no object with the operations', () => {
+      const ops: PatchOperation[] = [{ op: 'add', path: '/a', value: { b: 1 } }];
+      const result = JSONPatch.apply({}, ops);
+      result.a.b = 2;
+      expect(ops[0]!.value).to.deep.equal({ b: 1 });
+    });
+
+    it('applies the JSON form of each value', () => {
+      const ops: PatchOperation[] = [{ op: 'add', path: '/a', value: { at: new Date(0), skip: undefined } }];
+      expect(JSONPatch.apply({}, ops)).to.deep.equal({ a: { at: '1970-01-01T00:00:00.000Z' } });
+    });
+
+    it('checks the JSON copy: an operation whose JSON form traverses prototype machinery fails', () => {
+      const original = Object.keys;
+      const disguised = {
+        op     : 'replace',
+        path   : '/a',
+        value  : 1,
+        toJSON : () => ({ op: 'replace', path: '/constructor/keys', value: null }),
+      } as PatchOperation;
+      try {
+        expect(() => JSONPatch.apply({ a: 1 }, [disguised])).to.throw(MethodError, /prototype machinery: constructor/);
+        expect(Object.keys).to.equal(original);
+      } finally {
+        Object.keys = original;
+      }
+    });
+
+    it('names the index of the failing operation in the error message', () => {
+      const ops: PatchOperation[] = [
+        { op: 'replace', path: '/a', value: 2 },
+        { op: 'remove', path: '/missing' },
+      ];
+      expect(() => JSONPatch.apply({ a: 1 }, ops)).to.throw(MethodError, /at operation 1 \(remove \/missing\).*does not exist/);
+    });
+  });
+
   it('computes diffs and prefixes paths with escaping', () => {
     const source = { 'a/b': 1 };
     const target = { 'a/b': 2, c: 3 };

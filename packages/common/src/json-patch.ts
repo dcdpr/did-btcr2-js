@@ -66,14 +66,18 @@ export interface JSONPatchApplyOptions {
 /**
  * Describe a failure of fast-json-patch for an error message: the index and the code of the
  * failing operation, and the reason. An error without those fields yields its message only.
+ * fast-json-patch gives index 0 to each failure of its path checks, so the index is the
+ * position of the failing operation in `operations`, if the error carries that operation.
  * @param {unknown} error - The error that fast-json-patch threw.
+ * @param {readonly unknown[]} operations - The operations that fast-json-patch applied.
  * @returns {string} The description, with a leading separator, or an empty string.
  */
-function describePatchFailure(error: unknown): string {
+function describePatchFailure(error: unknown, operations: readonly unknown[]): string {
   if (!(error instanceof Error)) return '';
   const { index, operation } = error as Error & { index?: number; operation?: Partial<PatchOperation> };
+  const position = operations.indexOf(operation);
   const location = typeof index === 'number' && operation && typeof operation === 'object'
-    ? ` at operation ${index} (${String(operation.op)} ${String(operation.path)})`
+    ? ` at operation ${position >= 0 ? position : index} (${String(operation.op)} ${String(operation.path)})`
     : '';
   return `${location}: ${error.message}`;
 }
@@ -86,7 +90,9 @@ function describePatchFailure(error: unknown): string {
 export class JSONPatch {
   /**
    * Applies a JSON Patch to a source document and returns the patched document.
-   * Does not mutate the input document unless `options.mutate` is `true`.
+   * Does not mutate the input document unless `options.mutate` is `true`. The operations
+   * stay unchanged: the patch runs on a JSON copy of them, so the patched document holds
+   * the values of the JSON form of the patch and shares no object with the operations.
    * @param {JSONObject} sourceDocument - The source JSON document to apply the patch to.
    * @param {PatchOperation[]} operations - The JSON Patch operations to apply.
    * @param {JSONPatchApplyOptions} [options] - The apply options; see {@link JSONPatchApplyOptions}.
@@ -102,7 +108,11 @@ export class JSONPatch {
     const strict = options.strict ?? true;
     const cloneFn = options.clone ?? deepClone;
     const docClone = mutate ? sourceDocument : cloneFn(sourceDocument);
-    const validationError = this.validateOperations(operations, strict);
+    // fast-json-patch writes each operation value into the document by reference, so a later
+    // operation that writes inside such a value also changes the patch. The patch thus runs
+    // on a JSON copy of the operations. The checks run on the same copy (ADR 139).
+    const opsClone = deepClone(operations) as PatchOperation[];
+    const validationError = this.validateOperations(opsClone, strict);
     if (validationError) {
       throw new MethodError(
         `Invalid JSON Patch operations: ${validationError.message}`, 'JSON_PATCH_APPLY_ERROR', { error: validationError }
@@ -110,9 +120,11 @@ export class JSONPatch {
     }
     let result;
     try {
-      result = applyPatch(docClone, operations as Operation[], strict, mutate);
+      result = applyPatch(docClone, opsClone as Operation[], strict, mutate);
     } catch (error) {
-      throw new MethodError(`JSON Patch application failed${describePatchFailure(error)}`, 'JSON_PATCH_APPLY_ERROR', { error });
+      throw new MethodError(
+        `JSON Patch application failed${describePatchFailure(error, opsClone)}`, 'JSON_PATCH_APPLY_ERROR', { error }
+      );
     }
     if (result.newDocument === undefined) {
       throw new MethodError('JSON Patch application failed: no document', 'JSON_PATCH_APPLY_ERROR', { result });
