@@ -13,7 +13,6 @@ import {
   INVALID_OPTIONS,
   INVALID_SIGNAL_DATA,
   JSONPatch,
-  JSONUtils,
   LATE_PUBLISHING,
   MISSING_UPDATE_DATA,
   NOT_FOUND,
@@ -22,8 +21,7 @@ import {
 import type { HashBytes } from '@did-btcr2/common';
 import type {
   Btcr2DataIntegrityProof,
-  SignedBTCR2Update,
-  UnsignedBTCR2Update
+  SignedBTCR2Update
 } from './btcr2-update.js';
 import { BTCR2_UPDATE_CONTEXT, isBtcr2UpdateContext } from './btcr2-update.js';
 import {
@@ -538,6 +536,20 @@ export class Resolver {
   }
 
   /**
+   * Hashes the unsigned update of a BTCR2 Signed Update with the JSON Document Hashing
+   * algorithm. The unsigned update is the update without its top-level `proof` property.
+   * A member named `proof` inside the patch is data of the update and stays in the hash.
+   * "Apply Update" and "Confirm Duplicate Update" use the same words, so both use this
+   * function (ADR 141).
+   * @param {SignedBTCR2Update} update The BTCR2 Signed Update.
+   * @returns {HashBytes} The hash of the unsigned update (raw bytes).
+   */
+  private static unsignedUpdateHash(update: SignedBTCR2Update): HashBytes {
+    const { proof: _, ...unsignedUpdate } = update;
+    return canonicalHashBytes(unsignedUpdate);
+  }
+
+  /**
    * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#confirm-duplicate-update | Confirm Duplicate Update}.
    * This step confirms that an update with a lower-than-expected targetVersionId is a true duplicate.
    * @param {SignedBTCR2Update} update The BTCR2 Signed Update to confirm as a duplicate.
@@ -556,11 +568,9 @@ export class Resolver {
       );
     }
 
-    // Create unsigned_update by removing the proof property from update.
-    const { proof: _, ...unsignedUpdate } = update;
-
-    // Hash unsignedUpdate with JSON Document Hashing algorithm (raw bytes)
-    const unsignedUpdateHash = canonicalHashBytes(unsignedUpdate);
+    // Create unsigned_update by removing the proof property from update, then hash it
+    // with the JSON Document Hashing algorithm (raw bytes).
+    const unsignedUpdateHash = Resolver.unsignedUpdateHash(update);
 
     // Let historicalUpdateHash equal updateHashHistory[updateHashIndex].
     const historicalUpdateHash = updateHashHistory[update.targetVersionId - 2];
@@ -1031,8 +1041,7 @@ export class Resolver {
           // Step 6, second arm: targetVersionId == currentVersionId + 1. Apply the update,
           // append the unsigned update hash to the history, increment the version.
           this.#currentDocument = Resolver.applyUpdate(this.#did, document, update, block);
-          const unsignedUpdate = JSONUtils.deleteKeys(update, ['proof']) as UnsignedBTCR2Update;
-          this.#updateHashHistory.push(canonicalHashBytes(unsignedUpdate));
+          this.#updateHashHistory.push(Resolver.unsignedUpdateHash(update));
           this.#currentVersionId++;
 
           // "Apply Update": block_confirmations, current_block_height, and the block

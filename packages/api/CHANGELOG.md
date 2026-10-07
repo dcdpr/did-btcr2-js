@@ -1,5 +1,17 @@
 # @did-btcr2/api
 
+## 0.34.1
+
+### Patch Changes
+
+- The resolver removes only the top-level proof before it hashes an update (ADR 141).
+
+  - method: the Apply step and the Confirm Duplicate step of the resolver both hash the update without its top-level `proof`. Before, the Apply step removed each member named `proof` at each depth, also inside the patch. Thus a second Beacon Signal of an update whose patch holds a member named `proof` raised `LATE_PUBLISHING`. A nested member named `proof` now stays in the hash.
+  - api: dependency uptake. The browser bundle holds the fix.
+
+- Updated dependencies []:
+  - @did-btcr2/method@0.71.1
+
 ## 0.34.0
 
 ### Minor Changes

@@ -3203,4 +3203,44 @@ describe('Resolver', () => {
       expect(resolveFrom(otherDid(), casDocument, sidecar, signal).metadata.versionId).to.equal('1');
     });
   });
+
+  describe('the top-level proof of the update (ADR 141)', () => {
+    // The patch adds a service with a member named proof. The unsigned update is the
+    // update without only its top-level proof, so the nested member stays in the hash.
+    const fixture = deterministicData[2]; // regtest - has a known secretKey
+
+    /** A patch that adds a service with a member named `proof`. */
+    function nestedProofPatch(value: string): PatchOperation[] {
+      return [{
+        op    : 'add',
+        path  : '/service/-',
+        value : { id: `${fixture.did}#nested`, type: 'LinkedDomains', serviceEndpoint: 'https://example.com', proof: { value } }
+      }];
+    }
+
+    it('confirms a duplicate of an update whose patch holds a member named proof', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ nestedProofPatch('a') ]);
+      const { metadata, didDocument } = driveSignalSequence(fixture.did, [ u2! ], [ u2!, u2! ]);
+      expect(metadata.versionId).to.equal('2');
+      expect(didDocument.service!.at(-1)).to.deep.include({ proof: { value: 'a' } });
+    });
+
+    it('refuses a duplicate that differs from the applied update only in the nested proof member', () => {
+      const source = resolveDeterministic(fixture.did);
+      const vm = source.verificationMethod![0]!;
+      const signer = new LocalSigner(hexToBytes(fixture.secretKey));
+      const applied = Updater.sign(fixture.did, Updater.construct(source, nestedProofPatch('a'), 1), vm, signer);
+      const other = Updater.sign(fixture.did, Updater.construct(source, nestedProofPatch('b'), 1), vm, signer);
+      let thrown: any;
+      try {
+        driveSignalSequence(fixture.did, [ applied, other ], [ applied, other ]);
+      } catch(error) {
+        thrown = error;
+      }
+      expect(thrown).to.be.instanceOf(ResolveError);
+      expect(thrown.type).to.equal(LATE_PUBLISHING);
+      expect(thrown.message).to.match(/does not match historical hash/);
+    });
+  });
 });
