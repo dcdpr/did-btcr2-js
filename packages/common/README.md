@@ -54,7 +54,8 @@ const docHash = canonicalHash({ id: 'did:btcr2:k1q5p...', verificationMethod: []
 // Apply a JSON Patch operation to a document (returns a new document, does not mutate).
 // The apply is strict by default: an unknown op, a missing value, a remove or replace of
 // a path that does not exist, a move or copy from a path that does not exist, and a
-// failed test fail the patch at the first failing operation (RFC 6902).
+// failed test fail the patch at the first failing operation (RFC 6902). The operations
+// stay unchanged: the patch runs on a JSON copy of them.
 const patched = JSONPatch.apply(
   { id: 'did:btcr2:k1q5p...', service: [] },
   [{ op: 'add', path: '/service/-', value: { id: '#dwn' } }],

@@ -1,4 +1,5 @@
-import { INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/common';
+import { canonicalHash, INVALID_DID_UPDATE, JSONPatch, UpdateError } from '@did-btcr2/common';
+import type { PatchOperation } from '@did-btcr2/common';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import type { Signer } from '@did-btcr2/keypair';
 import { CompressedSecp256k1PublicKey, LocalSigner } from '@did-btcr2/keypair';
@@ -228,6 +229,33 @@ describe('Updater', () => {
       expect(() => DidBtcr2.deactivate({
         sourceDocument, sourceVersionId : 1, verificationMethodId : `${did}#not-a-real-key`, beaconId
       })).to.throw(UpdateError, /not authorized for capabilityInvocation/);
+    });
+  });
+
+  describe('the embedded patch (ADR 139)', () => {
+    // A later operation writes inside a value that an earlier operation added. The update
+    // must embed the patch as given, and the embedded patch must give targetHash: a
+    // resolver applies the JSON form of update.patch.
+    function expectEmbeddedAsGiven(patch: PatchOperation[]): void {
+      const given = JSON.parse(JSON.stringify(patch));
+      const unsigned = Updater.construct(sourceDocument, patch, 1);
+      expect(unsigned.patch).to.deep.equal(given);
+      const embedded = JSON.parse(JSON.stringify(unsigned.patch));
+      expect(canonicalHash(JSONPatch.apply(sourceDocument, embedded))).to.equal(unsigned.targetHash);
+    }
+
+    it('Updater.construct embeds the patch as given if a later operation removes a member of an added service', () => {
+      expectEmbeddedAsGiven([
+        { op: 'add', path: '/service/-', value: { ...sourceDocument.service![0]!, id: `${did}#extra`, note: 'x' } },
+        { op: 'remove', path: `/service/${sourceDocument.service!.length}/note` },
+      ]);
+    });
+
+    it('Updater.construct embeds the patch as given if a later operation appends to an added array', () => {
+      expectEmbeddedAsGiven([
+        { op: 'add', path: '/alsoKnownAs', value: [ 'https://a.example' ] },
+        { op: 'add', path: '/alsoKnownAs/-', value: 'https://b.example' },
+      ]);
     });
   });
 
