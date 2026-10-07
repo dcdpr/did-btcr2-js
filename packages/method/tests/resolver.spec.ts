@@ -16,7 +16,9 @@ import type { DidDocument } from '../src/utils/did-document.js';
 import { DidVerificationMethod } from '../src/utils/did-document.js';
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from '../src/core/btcr2-update.js';
 import { BTCR2_UPDATE_CONTEXT } from '../src/core/btcr2-update.js';
-import { DEFAULT_MIN_CONF } from '../src/core/resolver.js';
+import { DEFAULT_MIN_CONF, Resolver } from '../src/core/resolver.js';
+import { Identifier } from '../src/core/identifier.js';
+import type { Sidecar } from '../src/core/types.js';
 import type { DidResolutionResponse, NeedBeaconSignals, NeedCASAnnouncement, NeedGenesisDocument, NeedSMTProof, NeedSignedUpdate } from '../src/core/resolver.js';
 import { Updater } from '../src/core/updater.js';
 import deterministicData from './data/deterministic-data.js';
@@ -2858,7 +2860,7 @@ describe('Resolver', () => {
         const source = resolveDeterministic(fixture.did);
         const patch: PatchOperation[] = [{ op: 'replace', path: '/id', value: deterministicData[0].did }];
         const update = signWith(unsignedV2(source, patch, JSONPatch.apply(source, patch)));
-        expectInvalidUpdate(thrownBy([ update ]), /changes the document id/);
+        expectInvalidUpdate(thrownBy([ update ]), /the patched document id is not the DID/);
       });
 
       it('rejects a patched document that does not conform to DID Core', () => {
@@ -3117,6 +3119,88 @@ describe('Resolver', () => {
       expect(first.proof.proofValue).to.not.equal(second.proof.proofValue);
       const { metadata } = driveSignalSequence(fixture.did, [ first, second ], [ first, second ]);
       expect(metadata.versionId).to.equal('2');
+    });
+  });
+
+  describe('the DID under resolution (ADR 140)', () => {
+    // The Resolver constructor takes the established document. A document whose id is
+    // another DID shows that the checks use the DID under resolution, not the document id.
+    const fixture = deterministicData[2]; // regtest - has a known secretKey
+
+    /** A regtest k1 DID of a random key. */
+    function otherDid(): string {
+      return DidBtcr2.create(secp256k1.getPublicKey(randomBytes(32), true), { idType: 'KEY', version: 1, network: 'regtest' });
+    }
+
+    /**
+     * Resolve `did` from the established `document`. The signals go to the first beacon of
+     * the document, in one discovery round. Returns the resolved response or throws.
+     */
+    function resolveFrom(did: string, document: DidDocument, sidecar: Sidecar, signalBytes: Array<string>): DidResolutionResponse {
+      const resolver = new Resolver(Identifier.decode(did), Resolver.sidecarData(sidecar), document);
+      let state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+      const need = state.needs[0] as NeedBeaconSignals;
+      resolver.provide(need, new Map([[ need.beaconServices[0]!, signalBytes.map((bytes, i) => ({
+        tx            : {} as any,
+        signalBytes   : bytes,
+        blockMetadata : { height: 100 + i, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
+      })) ]]));
+      state = resolver.resolve();
+      if(state.status !== 'resolved') throw new Error('expected resolved');
+      return state.result;
+    }
+
+    /** Resolve as {@link resolveFrom} does and return the thrown error, if any. */
+    function thrownFrom(...args: Parameters<typeof resolveFrom>): any {
+      try {
+        resolveFrom(...args);
+      } catch(error) {
+        return error;
+      }
+      return undefined;
+    }
+
+    it('refuses an update that another DID signed: the proof must name the DID under resolution', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ benignPatch(fixture.did) ]);
+      const signal = [ canonicalHash(u2!, { encoding: 'hex' }) ];
+      // Control: the DID that signed the update resolves it.
+      expect(resolveFrom(fixture.did, source, { updates: [ u2! ] }, signal).metadata.versionId).to.equal('2');
+
+      const did = otherDid();
+      const thrown = thrownFrom(did, source, { updates: [ u2! ] }, signal);
+      expect(thrown).to.be.instanceOf(ResolveError);
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.data).to.deep.include({ field: 'capability', expected: `urn:zcap:root:${encodeURIComponent(did)}` });
+    });
+
+    it('refuses a patched document whose id is not the DID under resolution', () => {
+      const source = resolveDeterministic(fixture.did);
+      const did = otherDid();
+      // The proof names the other DID, so only the id check refuses the update.
+      const unsigned = Updater.construct(source, benignPatch(fixture.did), 1);
+      const signer = new LocalSigner(hexToBytes(fixture.secretKey));
+      const update = Updater.sign(did, unsigned, source.verificationMethod![0]!, signer);
+      const thrown = thrownFrom(did, source, { updates: [ update ] }, [ canonicalHash(update, { encoding: 'hex' }) ]);
+      expect(thrown).to.be.instanceOf(ResolveError);
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.match(/the patched document id is not the DID/);
+      expect(thrown.data).to.deep.include({ did, id: fixture.did });
+    });
+
+    it('reads the CAS Announcement entry of the DID under resolution', () => {
+      const casDocument = JSON.parse(JSON.stringify(resolveDeterministic(fixture.did))) as DidDocument;
+      casDocument.service![0]!.type = 'CASBeacon';
+      const [ u2 ] = buildUpdateChain(fixture.did, casDocument, fixture.secretKey, [ benignPatch(fixture.did) ]);
+      const announcement = { [fixture.did]: canonicalHash(u2!) };
+      const sidecar = { updates: [ u2! ], casUpdates: [ announcement ] };
+      const signal = [ canonicalHash(announcement, { encoding: 'hex' }) ];
+      // Control: the announcement has an entry for this DID, so its update applies.
+      expect(resolveFrom(fixture.did, casDocument, sidecar, signal).metadata.versionId).to.equal('2');
+
+      // The announcement has no entry for the other DID, so the signal announces no update.
+      expect(resolveFrom(otherDid(), casDocument, sidecar, signal).metadata.versionId).to.equal('1');
     });
   });
 });
