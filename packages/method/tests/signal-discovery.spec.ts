@@ -1,6 +1,6 @@
 import type { BitcoinConnection, BlockV3, RawTransactionRest, RawTransactionV2, Vin, Vout } from '@did-btcr2/bitcoin';
 import { TXIN_WITNESS_COINBASE } from '@did-btcr2/bitcoin';
-import { INTERNAL_ERROR } from '@did-btcr2/common';
+import { INTERNAL_ERROR, MethodError } from '@did-btcr2/common';
 import { expect } from 'chai';
 import type { BeaconService } from '../src/core/beacon/interfaces.js';
 import { BeaconSignalDiscovery, extractOpReturnSignalHash } from '../src/core/beacon/signal-discovery.js';
@@ -107,7 +107,7 @@ describe('extractOpReturnSignalHash', () => {
  * Beacon signal discovery over an address transaction listing.
  *
  * A Beacon Signal is a transaction that *spends from* a Beacon Address, but
- * `address.getTxs` returns every transaction touching the address in either
+ * `address.getConfirmedTxs` returns every transaction touching the address in either
  * direction. {@link BeaconSignalDiscovery.indexer} therefore has to inspect the
  * input side before treating a transaction's OP_RETURN as a signal. Before that
  * check, anyone able to pay dust to a beacon address could attach an arbitrary
@@ -191,7 +191,7 @@ describe('BeaconSignalDiscovery.indexer', () => {
   }
 
   /**
-   * Minimal BitcoinConnection over a fixed address transaction listing. Every
+   * Minimal BitcoinConnection over a one-page confirmed address history. Every
    * `transaction.get` txid is recorded in `fetched` so a test can assert whether the
    * prevout fallback was taken, and is answered from `funding`. Every `block.get`
    * hash is recorded in `blocks`; the block record carries `mediantime` MEDIANTIME
@@ -213,7 +213,7 @@ describe('BeaconSignalDiscovery.indexer', () => {
             return blockRecord(blockhash);
           },
         },
-        address     : { getTxs: async () => txs },
+        address     : { getConfirmedTxs: async () => txs },
         transaction : {
           get : async (txid: string) => {
             fetched.push(txid);
@@ -423,9 +423,10 @@ describe('BeaconSignalDiscovery.indexer', () => {
     expect(await discover(mockBitcoin([tx]))).to.have.lengthOf(0);
   });
 
-  // The address listing includes mempool transactions. The specification says that a
-  // resolver must not process an unconfirmed transaction, and a mempool transaction has
-  // no block height and no block time to report. Discovery skips it before any parse.
+  // The chain listing holds no mempool transaction, but discovery still checks the flag.
+  // The specification says that a resolver must not process an unconfirmed transaction,
+  // and a mempool transaction has no block height and no block time to report.
+  // Discovery skips it before any parse.
 
   it('skips a mempool transaction that spends the beacon and carries a well-formed signal', async () => {
     const tx = unconfirmed(
@@ -497,6 +498,288 @@ describe('BeaconSignalDiscovery.indexer', () => {
     };
 
     expect(await discover(mockBitcoin([tx]))).to.have.lengthOf(0);
+  });
+
+  /**
+   * The walk over the confirmed history of a beacon address.
+   *
+   * The specification says that the resolver must process each Beacon Signal. The
+   * first page of the history holds only the newest 25 transactions, so a walk that
+   * stops there loses every older signal. Any person can push a signal off that page
+   * with 25 payments to the beacon address, and the resolver then returns an old DID
+   * document with no error.
+   */
+  describe('history walk', () => {
+    /** The page size of the Esplora chain listing. */
+    const PAGE_SIZE = 25;
+
+    /** Helper: a 64-character hex id from a number. */
+    const hex64 = (n: number, fill: string = '0') => n.toString(16).padStart(64, fill);
+
+    /** Helper: a beacon spend that carries the signal hash `hex64(n, 'a')`. */
+    function signalTx(n: number): RawTransactionRest {
+      return transaction(
+        hex64(n),
+        [input(hex64(n, 'f'), 0, payment(BEACON, 100_000))],
+        [payment(BEACON, 90_000), signalOutput(hex64(n, 'a'))],
+      );
+    }
+
+    /** Helper: a payment from an outsider to the beacon, with no signal. */
+    function dustTx(n: number): RawTransactionRest {
+      return transaction(hex64(n), [input(hex64(n, 'e'), 0, payment(OUTSIDER, 100_000))], [payment(BEACON, 546)]);
+    }
+
+    /** Helper: a history of `length` transactions, newest first, with a signal at each index in `at`. */
+    function history(length: number, at: Array<number>): Array<RawTransactionRest> {
+      return Array.from({ length }, (_, i) => at.includes(i) ? signalTx(i + 1) : dustTx(i + 1));
+    }
+
+    /** Helper: the transaction as a block reorganization mines it again, in the block `blockhash`. */
+    function minedIn(tx: RawTransactionRest, blockhash: string): RawTransactionRest {
+      return { ...tx, status: { confirmed: true, block_height: HEIGHT, block_hash: blockhash, block_time: 1700000000 } };
+    }
+
+    /** Helper: the REST client error for an HTTP response with `status`. */
+    function httpError(status: number): MethodError {
+      return new MethodError(`Request failed: ${status}`, 'FAILED_HTTP_REQUEST', { status });
+    }
+
+    /**
+     * Helper: the Esplora chain listing of `txs`. A page holds the 25 transactions
+     * after `lastSeen`. A `lastSeen` that is not in `txs` gives an empty page with no
+     * error, as electrs does.
+     */
+    function chainPage(txs: Array<RawTransactionRest>, lastSeen?: string): Array<RawTransactionRest> {
+      if(lastSeen === undefined) {
+        return txs.slice(0, PAGE_SIZE);
+      }
+      const at = txs.findIndex(tx => tx.txid === lastSeen);
+      return at < 0 ? [] : txs.slice(at + 1, at + 1 + PAGE_SIZE);
+    }
+
+    /**
+     * Helper: a listing that serves `before` for the first request and `after` for
+     * each later request. This is a change of the history after the first page.
+     */
+    function changesAfterFirstPage(
+      before: Array<RawTransactionRest>,
+      after: Array<RawTransactionRest>
+    ): (lastSeen: string | undefined) => Array<RawTransactionRest> {
+      let txs = before;
+      return lastSeen => {
+        const page = chainPage(txs, lastSeen);
+        txs = after;
+        return page;
+      };
+    }
+
+    /**
+     * Helper: a BitcoinConnection whose chain listing comes from `listing`. The cursor
+     * of each listing request goes into `cursors`. The one-page listing `getTxs` and the transaction lookup throw, because
+     * the fixtures embed each prevout. A walk that does not end fails at the 20th
+     * listing request, and does not hang the suite.
+     */
+    function pagedBitcoin(
+      listing: (lastSeen: string | undefined) => Array<RawTransactionRest>,
+      cursors: Array<string | undefined> = [],
+    ): BitcoinConnection {
+      return {
+        rest : {
+          block : {
+            count : async () => TIP,
+            get   : async ({ blockhash }: { blockhash: string }) => ({ id: blockhash, mediantime: MEDIANTIME }),
+          },
+          address : {
+            getTxs : async () => {
+              throw new Error('discovery must not read the one-page listing');
+            },
+            getConfirmedTxs : async (_address: string, lastSeen?: string) => {
+              cursors.push(lastSeen);
+              if(cursors.length >= 20) {
+                throw new Error('the walk does not end');
+              }
+              return listing(lastSeen);
+            },
+          },
+          transaction : {
+            get : async (txid: string) => {
+              throw new Error(`unexpected transaction fetch: ${txid}`);
+            },
+          },
+        },
+      } as unknown as BitcoinConnection;
+    }
+
+    /** Helper: run discovery and return the error that it raises. */
+    async function failure(bitcoin: BitcoinConnection): Promise<any> {
+      try {
+        await discover(bitcoin);
+      } catch(error) {
+        return error;
+      }
+      expect.fail('expected discovery to fail');
+    }
+
+    it('finds an older signal behind a full page of payments to the beacon', async () => {
+      // The bury attack: 25 newer payments fill the first page and hold no signal.
+      // A cursor taken from the last signal, and not from the raw page, stops here.
+      const txs = history(26, [25]);
+      const cursors: Array<string | undefined> = [];
+
+      const signals = await discover(pagedBitcoin(lastSeen => chainPage(txs, lastSeen), cursors));
+
+      expect(signals.map(s => s.signalBytes)).to.deep.equal([hex64(26, 'a')]);
+      expect(cursors).to.deep.equal([undefined, txs[23].txid]);
+    });
+
+    it('reads every page of a long history, newest first, and reads each overlap transaction one time', async () => {
+      // A page starts with the last transaction of the previous page. Two signals are
+      // such overlap transactions.
+      const txs = history(60, [0, 24, 48, 59]);
+      const cursors: Array<string | undefined> = [];
+
+      const signals = await discover(pagedBitcoin(lastSeen => chainPage(txs, lastSeen), cursors));
+
+      expect(signals.map(s => s.signalBytes)).to.deep.equal([hex64(1, 'a'), hex64(25, 'a'), hex64(49, 'a'), hex64(60, 'a')]);
+      expect(cursors).to.deep.equal([undefined, txs[23].txid, txs[47].txid]);
+    });
+
+    it('ends a history of exactly 25 transactions with a page of only the overlap transaction', async () => {
+      const txs = history(PAGE_SIZE, [0]);
+      const cursors: Array<string | undefined> = [];
+
+      const signals = await discover(pagedBitcoin(lastSeen => chainPage(txs, lastSeen), cursors));
+
+      expect(signals).to.have.lengthOf(1);
+      expect(cursors).to.deep.equal([undefined, txs[23].txid]);
+    });
+
+    it('raises INTERNAL_ERROR when the page after a full page is empty', async () => {
+      // The second request goes to a backend instance that does not have the newest
+      // block yet. That block holds the 25 newest transactions, so the instance does
+      // not know the cursor, and it gives an empty page with no error.
+      const txs = history(30, [27]);
+      const behind = txs.slice(PAGE_SIZE);
+      const cursors: Array<string | undefined> = [];
+      let request = 0;
+      const listing = (lastSeen: string | undefined) => chainPage(++request === 2 ? behind : txs, lastSeen);
+
+      const thrown = await failure(pagedBitcoin(listing, cursors));
+
+      expect(thrown.type).to.equal(INTERNAL_ERROR);
+      expect(thrown.data).to.deep.equal({ address: BEACON });
+      expect(cursors).to.deep.equal([undefined, txs[23].txid]);
+    });
+
+    it('does not raise an error when a new block arrives during the walk', async () => {
+      // The new transaction comes before the first page, and the rest of the history
+      // does not change. The next resolution reads the new signal.
+      const txs = history(30, [0, 27]);
+      const cursors: Array<string | undefined> = [];
+
+      const signals = await discover(pagedBitcoin(changesAfterFirstPage(txs, [signalTx(100), ...txs]), cursors));
+
+      expect(signals.map(s => s.signalBytes)).to.deep.equal([hex64(1, 'a'), hex64(28, 'a')]);
+      expect(cursors).to.deep.equal([undefined, txs[23].txid]);
+    });
+
+    it('raises INTERNAL_ERROR when a reorganization removes the overlap transaction', async () => {
+      // The overlap transaction goes back to the mempool, so the next page starts
+      // with a later transaction.
+      const before = history(50, [0, 40]);
+      const after = before.filter(tx => tx.txid !== before[24].txid);
+      const cursors: Array<string | undefined> = [];
+
+      const thrown = await failure(pagedBitcoin(changesAfterFirstPage(before, after), cursors));
+
+      expect(thrown.type).to.equal(INTERNAL_ERROR);
+      expect(cursors).to.deep.equal([undefined, before[23].txid]);
+    });
+
+    it('raises INTERNAL_ERROR when a reorganization moves an unread signal above the cursor', async () => {
+      // The next page is not empty and starts with the overlap transaction. Only its
+      // new block shows that the walk did not see the signal.
+      const before = history(50, [30]);
+      const moved = minedIn(before[30], 'c'.repeat(64));
+      const after = [moved, ...before.filter(tx => tx.txid !== moved.txid).map(tx => minedIn(tx, 'c'.repeat(64)))];
+      const cursors: Array<string | undefined> = [];
+
+      const thrown = await failure(pagedBitcoin(changesAfterFirstPage(before, after), cursors));
+
+      expect(thrown.type).to.equal(INTERNAL_ERROR);
+      expect(cursors).to.deep.equal([undefined, before[23].txid]);
+    });
+
+    it('raises INTERNAL_ERROR, and does not loop, for a backend that ignores the cursor', async () => {
+      const txs = history(30, [0]);
+      const cursors: Array<string | undefined> = [];
+
+      const thrown = await failure(pagedBitcoin(() => txs.slice(0, PAGE_SIZE), cursors));
+
+      expect(thrown.type).to.equal(INTERNAL_ERROR);
+      expect(thrown.message).to.match(/last_seen_txid/);
+      expect(cursors).to.deep.equal([undefined, txs[23].txid]);
+    });
+
+    it('raises INTERNAL_ERROR, and does not loop, for a backend that repeats the same transactions', async () => {
+      // Each page starts with the overlap transaction, but holds no new transaction.
+      const txs = history(PAGE_SIZE, [0]);
+      const cursors: Array<string | undefined> = [];
+      const listing = (lastSeen: string | undefined) => {
+        const at = txs.findIndex(tx => tx.txid === lastSeen);
+        return txs.map((_, i) => txs[(at + 1 + i) % PAGE_SIZE]);
+      };
+
+      const thrown = await failure(pagedBitcoin(listing, cursors));
+
+      expect(thrown.type).to.equal(INTERNAL_ERROR);
+      expect(cursors).to.deep.equal([undefined, txs[23].txid]);
+    });
+
+    it('raises INTERNAL_ERROR, and returns no part of the history, for a backend with a different page order', async () => {
+      // mempool-electrs v3.0.1 and v3.1.0 list the transactions of a page in an
+      // arbitrary order.
+      const txs = history(30, [0, 29]);
+
+      const thrown = await failure(pagedBitcoin(lastSeen => chainPage(txs, lastSeen).reverse()));
+
+      expect(thrown.type).to.equal(INTERNAL_ERROR);
+    });
+
+    it('raises INTERNAL_ERROR when the overlap transaction has no block', async () => {
+      // The chain listing holds only confirmed transactions. A backend that lists one
+      // with no block gives no block hash to compare.
+      const txs = history(30, [0]);
+      txs[24] = { ...txs[24], status: { confirmed: false } };
+
+      const thrown = await failure(pagedBitcoin(lastSeen => chainPage(txs, lastSeen)));
+
+      expect(thrown.type).to.equal(INTERNAL_ERROR);
+    });
+
+    it('lets a chain listing error other than HTTP 404 go to the caller', async () => {
+      // A rate limit gives HTTP 429. Blockstream electrs gives HTTP 400 for a history
+      // over its scan limit. Neither error means that the backend has no chain listing.
+      const thrown = await failure(pagedBitcoin(() => {
+        throw httpError(429);
+      }));
+
+      expect(thrown.type).to.equal('FAILED_HTTP_REQUEST');
+      expect(thrown.data).to.deep.equal({ status: 429 });
+    });
+
+    it('names the requirement when the backend does not serve the chain listing', async () => {
+      // A mempool backend in electrum mode serves /address/:address/txs, but not the
+      // chain listing.
+      const thrown = await failure(pagedBitcoin(() => {
+        throw httpError(404);
+      }));
+
+      expect(thrown.type).to.equal(INTERNAL_ERROR);
+      expect(thrown.message).to.match(/txs\/chain/);
+      expect(thrown.data.address).to.equal(BEACON);
+    });
   });
 });
 

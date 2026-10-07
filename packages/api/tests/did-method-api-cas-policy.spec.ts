@@ -700,7 +700,7 @@ describe('DidMethodApi resolve() SMT proof handling', () => {
         data : network,
         rest : {
           block   : { count: async () => 105, get: async () => ({ mediantime: 1700000000 }) },
-          address : { getTxs: async () => [signalTx] },
+          address : { getConfirmedTxs: async () => [signalTx] },
         },
       } as unknown as BitcoinConnection,
     } as unknown as BitcoinApi;

@@ -57,7 +57,7 @@ export class BitcoinAddress {
 
   /**
    * Get confirmed transaction history for the specified address/scripthash, sorted with newest first.
-   * Returns 25 transactions per page.
+   * Returns 25 transactions per page (`ESPLORA_CHAIN_PAGE_SIZE`). A shorter page is the last page.
    * @param {string} addressOrScripthash The address or scripthash to check.
    * @param {string} [lastSeenTxId] The last transaction id seen by the previous query for pagination.
    * @returns {Promise<Array<RawTransactionRest>>} Confirmed transactions.

@@ -34,7 +34,7 @@ Requires Node >= 22. Ships both ESM and CJS; pick whichever your bundler needs.
 | Per-network connection | `BitcoinConnection`, `BitcoinConnectionOptions` |
 | REST client (Esplora) | `BitcoinRestClient`, sub-clients `BitcoinAddress`, `BitcoinBlock`, `BitcoinTransaction` |
 | RPC client (Bitcoin Core) | `BitcoinCoreRpcClient`, `JsonRpcTransport`, `RpcMethodMap`, `TypedRpcMethod` |
-| Sans-I/O protocol layer | `EsploraProtocol`, `JsonRpcProtocol`, `HttpRequest`, `HttpExecutor`, `defaultHttpExecutor`, `createFetchExecutor`, `FetchExecutorOptions` |
+| Sans-I/O protocol layer | `EsploraProtocol`, `ESPLORA_CHAIN_PAGE_SIZE`, `JsonRpcProtocol`, `HttpRequest`, `HttpExecutor`, `defaultHttpExecutor`, `createFetchExecutor`, `FetchExecutorOptions` |
 | Fee estimation | `FeeEstimator`, `StaticFeeEstimator` |
 | Network params | `getNetwork(name)`, `BTCNetwork`, `NetworkName` |
 | Errors | `BitcoinRpcError`, `BitcoinRestError`, `RpcErrorType` |
@@ -97,6 +97,21 @@ const btc = new BitcoinConnection({
   },
 });
 ```
+
+## Esplora server requirements
+
+The `indexer` signal discovery of `@did-btcr2/method` reads the full confirmed history of each beacon address. It uses the Esplora listing `GET /address/:address/txs/chain[/:last_seen_txid]` (`BitcoinAddress.getConfirmedTxs`) and reads one page after the other.
+
+> [!WARNING]
+> The `indexer` signal discovery needs an Esplora server with the three properties below.
+>
+> 1. **The server serves the chain listing.** A mempool instance serves it only with `MEMPOOL_BACKEND=esplora`. In electrum mode, it sends HTTP 404, and each resolve fails with `INTERNAL_ERROR`.
+> 2. **The server lists the history in a stable order.** The newest block comes first, and the order in each block is fixed. Blockstream electrs and mempool-electrs v3.2.0 and later use such an order. mempool-electrs v3.0.1 and v3.1.0 do not. With these versions, a resolve fails with `INTERNAL_ERROR` if a beacon address has 25 or more transactions.
+> 3. **The server sends 25 transactions in each full page (`ESPLORA_CHAIN_PAGE_SIZE`).** The request sets `max_txs=25`, so a mempool-electrs server with a different default also sends 25. Discovery stops at the first page with fewer than 25 transactions. If a server sends fewer than 25 and ignores `max_txs`, discovery does not read the older signals. Then a resolve can return an old DID document with no error.
+>
+> The `fullnode` signal discovery reads the blocks over Bitcoin Core RPC. It does not use the Esplora listing.
+
+A resolve also fails with `INTERNAL_ERROR` if the history of a beacon address changes during discovery. Examples are a block reorganization, or a load-balanced server with an instance that is some blocks behind. Discovery does not read the history again. Resolve again later.
 
 ## Architecture Principles
 

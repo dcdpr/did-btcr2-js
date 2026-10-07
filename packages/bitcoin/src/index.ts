@@ -4,7 +4,7 @@ export { BitcoinConnection, type BitcoinConnectionOptions } from './connection.j
 // Sans-I/O protocol layer
 export type { HttpRequest, HttpExecutor, FetchExecutorOptions } from './client/http.js';
 export { createFetchExecutor, defaultHttpExecutor } from './client/http.js';
-export { EsploraProtocol } from './client/rest/protocol.js';
+export { ESPLORA_CHAIN_PAGE_SIZE, EsploraProtocol } from './client/rest/protocol.js';
 export { JsonRpcProtocol } from './client/rpc/protocol.js';
 export type { JsonRpcHttpRequest, JsonRpcBatchHttpRequest } from './client/rpc/protocol.js';
 

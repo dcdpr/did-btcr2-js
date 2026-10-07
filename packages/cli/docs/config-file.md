@@ -142,7 +142,7 @@ A value that the profile does not set comes from the next layer. See [Precedence
 
 | Key | Type | Used by | Meaning |
 |-----|------|---------|---------|
-| `btc.rest` | string (URL) | `resolve`, `update`, `deactivate`, `message sign`, `message verify`, `config doctor` | The Esplora REST endpoint. |
+| `btc.rest` | string (URL) | `resolve`, `update`, `deactivate`, `message sign`, `message verify`, `config doctor` | The Esplora REST endpoint. The `indexer` signal discovery has server requirements: see [Esplora server requirements](../../bitcoin/README.md#esplora-server-requirements). |
 | `btc.rpcUrl` | string (URL) | `resolve`, `update`, `deactivate`, `message sign`, `message verify`, `config doctor` | The Bitcoin Core RPC endpoint. It is optional. `btc.signalDiscovery` `fullnode` needs it. |
 | `btc.rpcUser` | string | same as `btc.rpcUrl` | The RPC user name. |
 | `btc.rpcPass` | string | same as `btc.rpcUrl` | The RPC password. Use a secret reference, not the password: `env:<VAR>` reads an environment variable, and `file:<path>` reads a file. See [Secrets](#secrets). |

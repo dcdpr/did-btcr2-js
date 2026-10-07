@@ -279,12 +279,13 @@ describe('DidMethodApi', () => {
       expect(result.didDocumentMetadata).to.deep.equal({ versionId: '1', confirmations: 0, deactivated: false });
       expect(result.didResolutionMetadata).to.deep.equal({ contentType: 'application/did' });
       // The injected connection is the one that was read: one tip-height lookup,
-      // then one transaction listing per beacon of the initial document.
+      // then one confirmed history listing per beacon of the initial document. The
+      // first page is empty, so each walk ends there.
       expect(urls[0]).to.match(/\/blocks\/tip\/height$/);
       const listed = urls.slice(1);
       expect(listed).to.have.length(beacons.length);
       for (const beacon of beacons) {
-        expect(listed.some(url => url.endsWith(`/address/${beacon.address}/txs`))).to.equal(true);
+        expect(listed.some(url => url.endsWith(`/address/${beacon.address}/txs/chain?max_txs=25`))).to.equal(true);
       }
     });
 
@@ -303,7 +304,7 @@ describe('DidMethodApi', () => {
       const result = await methodApi.resolve(did, { sidecar: { genesisDocument: EXTERNAL_GENESIS_DOCUMENT } });
       expect(result.didDocument?.id).to.equal(did);
       expect(result.didDocumentMetadata).to.include({ versionId: '1', deactivated: false });
-      expect(urls.some(url => url.endsWith('/address/12QG2GG9TWPD16SWyfWCsW4W3NhMFnnSFK/txs'))).to.equal(true);
+      expect(urls.some(url => url.endsWith('/address/12QG2GG9TWPD16SWyfWCsW4W3NhMFnnSFK/txs/chain?max_txs=25'))).to.equal(true);
     });
 
     it('rejects empty DID string', async () => {
@@ -389,7 +390,7 @@ describe('DidMethodApi', () => {
           data : getNetwork('regtest'),
           rest : {
             block   : { count: async () => 105, get: async () => ({ mediantime: 1700000000 }) },
-            address : { getTxs: async () => [signalTx] },
+            address : { getConfirmedTxs: async () => [signalTx] },
           },
         } as unknown as BitcoinConnection,
       } as unknown as BitcoinApi;
