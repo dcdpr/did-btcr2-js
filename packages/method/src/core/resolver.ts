@@ -442,16 +442,8 @@ export class Resolver {
       beaconType : 'SingletonBeacon'
     });
 
-    return new DidDocument({
-      id                 : did,
-      verificationMethod : [{
-        id                 : `${did}#initialKey`,
-        type               : 'Multikey',
-        controller         : did,
-        publicKeyMultibase : multibase.encoded
-      }],
-      service
-    });
+    // The KEY template: one verification method, and four relationships that reference it.
+    return DidDocument.fromKeyIdentifier(did, multibase.encoded, service);
   }
 
   /**

@@ -1,5 +1,17 @@
 # @did-btcr2/api
 
+## 0.34.4
+
+### Patch Changes
+
+- `DidDocument` keeps every property, and only the KEY template sets the `#initialKey` relationships (ADR 144).
+
+  - method: `DidDocument` copies each property of its input, and `toJSON` returns every property. Before, the constructor kept only nine properties, so `Resolver.external` dropped the other genesis properties (for example `alsoKnownAs`, `controller`, `keyAgreement`) and hashed the smaller document. A first update with the `sourceHash` of the full document then failed with `INVALID_DID_UPDATE`. Breaking: the constructor adds no `#initialKey` relationship to a `k1` document. `DidDocument.fromKeyIdentifier` sets the four relationships of the KEY template, and `Resolver.deterministic` calls it.
+  - api: the browser bundle holds the method fix. `resolve` and `getInitialDocument` keep every genesis property.
+
+- Updated dependencies []:
+  - @did-btcr2/method@0.72.0
+
 ## 0.34.3
 
 ### Patch Changes
