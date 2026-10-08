@@ -1,5 +1,17 @@
 # @did-btcr2/api
 
+## 0.34.3
+
+### Patch Changes
+
+- A beacon signal checks each selected UTXO against its previous transaction (ADR 143).
+
+  - method: `fetchBeaconFunding` checks that the previous transaction of each selected UTXO hashes to the txid, and that its output at the vout pays the listed value to the beacon script. A difference throws `BeaconError` `PREVOUT_MISMATCH` before the signature, and no transaction goes to the network. Before, the builders took the input values from the REST listing only. A legacy (P2PKH) sighash does not commit to the input values, so a low listing value made a P2PKH signal pay the difference as fee.
+  - api: the browser bundle holds the method fix. `PREVOUT_MISMATCH` is not a funding error.
+
+- Updated dependencies []:
+  - @did-btcr2/method@0.71.3
+
 ## 0.34.2
 
 ### Patch Changes

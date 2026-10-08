@@ -220,3 +220,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 140 | 2026-10-07 | [The Resolver Checks the Genesis Id and Compares With the DID Under Resolution](140-the-resolver-checks-the-genesis-id-and-compares-with-the-did-under-resolution.md) |
 | 141 | 2026-10-07 | [The Resolver Removes Only the Top-Level Proof Before It Hashes an Update](141-the-resolver-removes-only-the-top-level-proof-before-it-hashes-an-update.md) |
 | 142 | 2026-10-07 | [The Deactivation Checks Use Strict Equality, and DidDocument Keeps the `deactivated` Property](142-the-deactivation-checks-use-strict-equality-and-did-document-keeps-the-deactivated-property.md) |
+| 143 | 2026-10-08 | [The Beacon Transaction Checks Each UTXO Against Its Previous Transaction](143-the-beacon-transaction-checks-each-utxo-against-its-previous-transaction.md) |

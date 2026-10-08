@@ -2,8 +2,10 @@ import type { AddressUtxo, BitcoinConnection, BTCNetwork, TransactionStatus } fr
 import type { KeyBytes } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '../btcr2-update.js';
 import type { Signer } from '@did-btcr2/keypair';
-import { concatBytes, hexToBytes } from '@noble/hashes/utils.js';
-import { Address, OutScript, p2pkh, p2tr, p2wpkh, Script, SigHash, Transaction } from '@scure/btc-signer';
+import { equalBytes } from '@noble/curves/utils.js';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex, concatBytes, hexToBytes } from '@noble/hashes/utils.js';
+import { Address, OutScript, p2pkh, p2tr, p2wpkh, RawTx, Script, SigHash, Transaction } from '@scure/btc-signer';
 import type { SMTProof } from '../interfaces.js';
 import type { BeaconProcessResult } from '../resolver.js';
 import type { CASAnnouncement, SidecarData } from '../types.js';
@@ -474,24 +476,68 @@ export async function selectBeaconFunding(
 }
 
 /**
+ * Compare one UTXO of the REST listing with its raw previous transaction. The
+ * transaction must hash to `utxo.txid`, and its output at `utxo.vout` must pay
+ * `utxo.value` to `script`. Returns the reason text of the first difference,
+ * or `undefined` if the two agree.
+ */
+function prevoutMismatch(utxo: AddressUtxo, rawTx: Uint8Array, script: Uint8Array): string | undefined {
+  let prevTx: ReturnType<typeof RawTx.decode>;
+  try {
+    prevTx = RawTx.decode(rawTx);
+  } catch {
+    return 'the previous transaction does not decode';
+  }
+  // The txid is the double SHA-256 of the serialization without the witness, in reverse byte order.
+  const txid = bytesToHex(sha256(sha256(RawTx.encode({ ...prevTx, segwitFlag: false }))).reverse());
+  if(txid !== utxo.txid) return `the previous transaction hashes to ${txid}`;
+  const output = prevTx.outputs[utxo.vout];
+  if(!output) return `the previous transaction has no output at index ${utxo.vout}`;
+  if(!equalBytes(output.script, script)) return 'the output pays a different script';
+  if(output.amount !== BigInt(utxo.value)) return `the output value is ${output.amount} sats, not ${utxo.value} sats`;
+  return undefined;
+}
+
+/**
  * Read the UTXOs at the beacon address, select the funding with
  * {@link selectBeaconFunding}, and read the raw previous transaction of each
  * selected UTXO (PSBT inputs need it). `prevTxs[i]` is the previous transaction
  * of `funding.utxos[i]`. The reads are sequential, so a rate-limited REST
- * endpoint gets one request at a time. Throws the {@link BeaconError} of
- * {@link selectBeaconFunding}.
+ * endpoint gets one request at a time.
+ *
+ * The builders take the input values from the listing. A legacy (P2PKH) sighash
+ * does not commit to the input values, so a listing with a low value makes the
+ * transaction pay the difference as fee. Thus each selected UTXO must agree with
+ * its previous transaction (ADR 143).
+ *
+ * @throws {BeaconError} The errors of {@link selectBeaconFunding}, or
+ *   `PREVOUT_MISMATCH` if a selected UTXO does not agree with its previous
+ *   transaction (`data.reason` tells the difference).
  */
 async function fetchBeaconFunding(
   bitcoin: BitcoinConnection,
   options: BeaconFundingOptions,
 ): Promise<{ funding: BeaconFunding; prevTxs: Array<Uint8Array> }> {
-  const utxos = await bitcoin.rest.address.getUtxos(options.beaconAddress);
+  const { beaconAddress: address, network } = options;
+  const utxos = await bitcoin.rest.address.getUtxos(address);
   const funding = await selectBeaconFunding(utxos, options);
   const byTxid = new Map<string, Uint8Array>();
   for(const { txid } of funding.utxos) {
     if(!byTxid.has(txid)) byTxid.set(txid, hexToBytes(await bitcoin.rest.transaction.getHex(txid)));
   }
-  return { funding, prevTxs: funding.utxos.map(utxo => byTxid.get(utxo.txid)!) };
+  const prevTxs = funding.utxos.map(utxo => byTxid.get(utxo.txid)!);
+  const script = OutScript.encode(Address(network).decode(address));
+  funding.utxos.forEach((utxo, i) => {
+    const reason = prevoutMismatch(utxo, prevTxs[i]!, script);
+    if(reason) {
+      throw new BeaconError(
+        `UTXO ${utxo.txid}:${utxo.vout} of beacon address ${address} does not agree with its previous transaction: ${reason}.`,
+        'PREVOUT_MISMATCH',
+        { address, txid: utxo.txid, vout: utxo.vout, reason }
+      );
+    }
+  });
+  return { funding, prevTxs };
 }
 
 /**
@@ -505,6 +551,8 @@ async function fetchBeaconFunding(
  *
  * @param opts Parameters including the cohort's aggregate internal pubkey.
  * @returns A {@link BeaconTxPlan} with the unsigned tx and sighash inputs.
+ * @throws {BeaconError} The errors of {@link selectBeaconFunding}, or `PREVOUT_MISMATCH`
+ *   (the UTXO does not agree with its previous transaction).
  */
 export async function buildAggregationBeaconTx(opts: {
   /** The beacon (cohort) address where UTXOs live and change returns to. */
@@ -759,7 +807,8 @@ export abstract class SinglePartyBeacon {
    * @param options Broadcast options (fee estimator, etc.).
    * @returns The txid of the broadcast transaction.
    * @throws {BeaconError} The errors of {@link selectBeaconFunding} (the address
-   *   cannot fund the signal), or `SIGNER_KEY_MISMATCH`.
+   *   cannot fund the signal), `PREVOUT_MISMATCH` (a UTXO does not agree with its
+   *   previous transaction), or `SIGNER_KEY_MISMATCH`.
    */
   protected async buildSignAndBroadcast(
     signalBytes: Uint8Array,
