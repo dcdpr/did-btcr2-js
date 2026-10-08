@@ -1,3 +1,4 @@
+import { canonicalHash } from '@did-btcr2/common';
 import { expect } from 'chai';
 import { Identifier } from '../src/core/identifier.js';
 import { Resolver } from '../src/core/resolver.js';
@@ -166,15 +167,53 @@ describe('DidDocument deactivated property (ADR 142)', () => {
   });
 });
 
+describe('DidDocument properties (ADR 144)', () => {
+  it('keeps the properties that the class does not name', () => {
+    const document = validDocument();
+    const did = document.id as string;
+    const input = {
+      ...document,
+      alsoKnownAs  : ['https://example.com/alice'],
+      controller   : did,
+      keyAgreement : [`${did}#key-0`],
+      extension    : { note: 'kept' },
+    };
+    const didDocument = new DidDocument(input);
+    expect(didDocument.toJSON()).to.deep.equal(input);
+    expect(canonicalHash(didDocument)).to.equal(canonicalHash(input));
+  });
+
+  it('keeps a "__proto__" property as data and keeps the prototype', () => {
+    const input = JSON.parse(`{"__proto__":{"note":"kept"},${JSON.stringify(validDocument()).slice(1)}`);
+    const didDocument = new DidDocument(input);
+    expect(Object.getPrototypeOf(didDocument)).to.equal(DidDocument.prototype);
+    expect(Object.keys(didDocument)).to.include('__proto__');
+    expect(JSON.stringify(didDocument)).to.include('"__proto__":{"note":"kept"}');
+  });
+
+  it('adds no relationship to a k1 document', () => {
+    const did = deterministicData[0]!.did;
+    const input = Resolver.deterministic(Identifier.decode(did)).toJSON();
+    delete input.authentication;
+    const didDocument = new DidDocument(input);
+    expect(didDocument).to.not.have.property('authentication');
+    expect(didDocument.toJSON()).to.deep.equal(input);
+  });
+});
+
 describe('DidDocument.fromKeyIdentifier', () => {
-  it('makes the deterministic document of a k1 DID', () => {
+  it('makes the KEY template document of a k1 DID', () => {
     const did = deterministicData[0]!.did;
     const deterministic = Resolver.deterministic(Identifier.decode(did));
     const document = DidDocument.fromKeyIdentifier(
       did, deterministic.verificationMethod[0]!.publicKeyMultibase!, deterministic.service
     );
+    const keyRef = `${did}#initialKey`;
     expect(document.id).to.equal(did);
-    expect(document.verificationMethod[0]!.id).to.equal(`${did}#initialKey`);
+    expect(document.verificationMethod[0]!.id).to.equal(keyRef);
+    for(const relationship of ['authentication', 'assertionMethod', 'capabilityInvocation', 'capabilityDelegation'] as const) {
+      expect(document[relationship]).to.deep.equal([keyRef]);
+    }
     expect(document.toJSON()).to.deep.equal(deterministic.toJSON());
   });
 });

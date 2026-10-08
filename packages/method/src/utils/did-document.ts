@@ -8,7 +8,6 @@ import {
   canonicalize,
   DidDocumentError,
   hash,
-  IdentifierTypes,
   INVALID_DID_DOCUMENT,
   JSONUtils
 } from '@did-btcr2/common';
@@ -194,11 +193,6 @@ export class DidDocument implements Btcr2DidDocument {
       throw new DidDocumentError('DID Document must have an id', INVALID_DID_DOCUMENT, document);
     }
 
-    // Set the ID and ID type
-    const idType = document.id.includes('k1')
-      ? IdentifierTypes.KEY
-      : IdentifierTypes.EXTERNAL;
-
     // Validate ID and parts for non-intermediate
     const isGenesis = document.id === ID_PLACEHOLDER_VALUE;
 
@@ -218,6 +212,13 @@ export class DidDocument implements Btcr2DidDocument {
       }
     }
 
+    // Keep every property as the input holds it, also a property that this class does not
+    // name, for example alsoKnownAs, controller, or keyAgreement (ADR 144). defineProperty
+    // keeps a "__proto__" property as data. It does not change the prototype.
+    for (const [key, value] of Object.entries(document)) {
+      Object.defineProperty(this, key, { value, enumerable: true, writable: true, configurable: true });
+    }
+
     // Set core properties
     this.id = document.id;
     this.verificationMethod = document.verificationMethod || [];
@@ -226,25 +227,6 @@ export class DidDocument implements Btcr2DidDocument {
       'https://www.w3.org/ns/did/v1.1',
       'https://btcr2.dev/context/v1'
     ];
-    // Keep the value as the input holds it. The resolver tests it with
-    // deactivated === true (ADR 142). Sanitize removes the property if the input has none.
-    this.deactivated = document.deactivated;
-
-    // Relationships logic based on idType
-    if (idType === IdentifierTypes.KEY) {
-      // auto-generate #initialKey if missing
-      const keyRef = `${this.id}#initialKey`;
-      this.authentication = document.authentication || [keyRef];
-      this.assertionMethod = document.assertionMethod || [keyRef];
-      this.capabilityInvocation = document.capabilityInvocation || [keyRef];
-      this.capabilityDelegation = document.capabilityDelegation || [keyRef];
-    } else {
-      // EXTERNAL: use provided arrays, must be defined
-      this.authentication = document.authentication;
-      this.assertionMethod = document.assertionMethod;
-      this.capabilityInvocation = document.capabilityInvocation;
-      this.capabilityDelegation = document.capabilityDelegation;
-    }
 
     // Sanitize the DID Document
     DidDocument.sanitize(this);
@@ -259,25 +241,17 @@ export class DidDocument implements Btcr2DidDocument {
 
   /**
    * Convert the DidDocument to a JSON object.
-   * @returns {DidDocument} The JSON representation of the DidDocument.
+   * @returns {DidDocument} The JSON representation of the DidDocument, with every property.
    */
   public toJSON(): DidDocumentLike {
-    return {
-      id                    : this.id,
-      '@context'            : this['@context'],
-      verificationMethod    : this.verificationMethod,
-      authentication        : this.authentication,
-      assertionMethod       : this.assertionMethod,
-      capabilityInvocation  : this.capabilityInvocation,
-      capabilityDelegation  : this.capabilityDelegation,
-      service               : this.service,
-      deactivated           : this.deactivated
-    };
+    return { ...this };
   }
 
   /**
    * Create a minimal DidDocument from "k1" btcr2 identifier. The document `id` is
-   * the DID, and the one verification method is `<did>#initialKey`.
+   * the DID, and the one verification method is `<did>#initialKey`. The four
+   * verification relationships reference this method, as the KEY template of the
+   * specification says.
    * @param {string} id The k1 DID, without a fragment.
    * @param {string} publicKeyMultibase The public key in multibase format.
    * @param {Array<BeaconService>} service The beacon services to be included in the document.
@@ -288,14 +262,19 @@ export class DidDocument implements Btcr2DidDocument {
     publicKeyMultibase: string,
     service: Array<BeaconService>
   ): DidDocument {
+    const keyRef = `${id}#initialKey`;
     return new DidDocument({
       id,
       verificationMethod : [{
-        id         : `${id}#initialKey`,
+        id         : keyRef,
         type       : 'Multikey',
         controller : id,
         publicKeyMultibase
       }],
+      authentication       : [keyRef],
+      assertionMethod      : [keyRef],
+      capabilityInvocation : [keyRef],
+      capabilityDelegation : [keyRef],
       service
     });
   }

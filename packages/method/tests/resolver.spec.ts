@@ -506,6 +506,32 @@ describe('Resolver', () => {
         expect(thrown.message).to.include('ends with the deactivation at version 1');
       });
     });
+
+    describe('genesis properties that DidDocument does not name (ADR 144)', () => {
+      const fixture = externalData[0];
+      const genesisDocument = {
+        ...fixture.genesisDocument,
+        alsoKnownAs  : ['https://example.com/alice'],
+        controller   : 'did:btcr2:_',
+        keyAgreement : ['did:btcr2:_#key-0'],
+        extension    : { note: 'kept' },
+      };
+      const did = Identifier.encode(canonicalHashBytes(genesisDocument), { idType: 'EXTERNAL', network: fixture.network });
+
+      it('keeps every property, so the document hash is the hash of current_document', () => {
+        const resolver = DidBtcr2.resolve(did, { sidecar: { genesisDocument } });
+        const state = resolver.resolve();
+        if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+        provideEmptySignals(resolver, state.needs[0] as NeedBeaconSignals);
+        const final = resolver.resolve();
+        if(final.status !== 'resolved') throw new Error('expected resolved');
+
+        // Spec: replace the placeholder, then parse the result as JSON to form current_document.
+        const currentDocument = JSON.parse(JSON.stringify(genesisDocument).replaceAll('did:btcr2:_', did));
+        expect(JSON.parse(JSON.stringify(final.result.didDocument))).to.deep.equal(currentDocument);
+        expect(canonicalHash(final.result.didDocument)).to.equal(canonicalHash(currentDocument));
+      });
+    });
   });
 
   describe('beacon signal needs', () => {
