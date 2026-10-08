@@ -48,7 +48,8 @@ export function mockBitcoin(
   prevTx.addOutput({ amount: BigInt(SMALL_UTXO_SATS), script: beaconScript });
   prevTx.addOutput({ amount: BigInt(SMALL_UTXO_SATS), script: beaconScript });
   prevTx.addInput({ txid: new Uint8Array(32), index: 0xffffffff, finalScriptSig: new Uint8Array([0x00]) });
-  const prevTxBytes = prevTx.toBytes();
+  // toBytes(true) keeps the scriptSig, so the bytes hash to prevTx.id (ADR 143).
+  const prevTxBytes = prevTx.toBytes(true);
   const utxo: AddressUtxo = { txid: prevTx.id, vout: 0, value: 100_000, status: { confirmed: true, block_height: 100 } as never };
   return {
     data : network,

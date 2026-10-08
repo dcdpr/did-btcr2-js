@@ -26,8 +26,8 @@ const update = { patch: [], targetVersionId: 2 } as unknown as SignedBTCR2Update
 
 /**
  * Minimal BitcoinConnection: the beacon address holds one confirmed UTXO for each
- * entry of `funds`. Each UTXO has its own real prev tx, so scure's nonWitnessUtxo
- * hash check passes. `transaction.send` records the raw hex in `sent`.
+ * entry of `funds`. Each UTXO has its own real prev tx, so the UTXO check of
+ * ADR 143 passes. `transaction.send` records the raw hex in `sent`.
  */
 function fundedBitcoin(
   beaconAddress: string,
@@ -40,7 +40,8 @@ function fundedBitcoin(
     const prevTx = new Transaction({ allowUnknownOutputs: true });
     prevTx.addOutput({ amount: BigInt(value), script });
     prevTx.addInput({ txid: new Uint8Array(32), index: i, finalScriptSig: new Uint8Array([0x00]) });
-    hexById.set(prevTx.id, bytesToHex(prevTx.toBytes()));
+    // toBytes(true) keeps the scriptSig, so the bytes hash to prevTx.id (ADR 143).
+    hexById.set(prevTx.id, bytesToHex(prevTx.toBytes(true)));
     return { txid: prevTx.id, vout: 0, value, status: { confirmed: true, block_height: height } as never };
   });
   const bitcoin = {
