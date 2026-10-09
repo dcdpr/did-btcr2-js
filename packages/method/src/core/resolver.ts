@@ -53,22 +53,25 @@ export const DEFAULT_MIN_CONF = 6;
 
 /**
  * The response object for DID Resolution. `metadata` is the DID document metadata
- * of the specification: `versionId`, `confirmations`, and `deactivated` are always
- * present; `updated` is present after the resolver applies an update.
+ * of the specification. `versionId`, `confirmations`, and `deactivated` are always
+ * present. `updated` is present if the resolved version is more than 1. For a request
+ * with `versionId` or `versionTime`, the document and the metadata are the state at the
+ * requested version (`requested_state` of the specification). Later updates do not
+ * change them.
  */
 export interface DidResolutionResponse {
   didDocument: DidDocument;
   metadata: {
     /**
-     * Number of confirmations of the Bitcoin block that contains the last applied
-     * unique update. `0` when the resolver applied no update.
+     * Number of confirmations of the Bitcoin block that contains the unique update
+     * that yields the resolved version. `0` if the resolved version is 1.
      */
     confirmations: number;
-    /** The version of the resolved document as an ASCII string. `"1"` when the resolver applied no update. */
+    /** The version of the resolved document as an ASCII string. `"1"` for the genesis document. */
     versionId: string;
     /**
      * XML Datetime (UTC, no fraction) of the `mediantime` of the block that contains
-     * the last applied update. Absent until the resolver applies an update.
+     * the update that yields the resolved version. Absent if the resolved version is 1.
      */
     updated?: string;
     /** Whether the resolved document is deactivated. */
@@ -144,6 +147,24 @@ export interface BeaconProcessResult {
  * removed-beacon test of "Process Next Update", step 4.
  */
 type UpdateTuple = [update: SignedBTCR2Update, block: BlockMetadata, address: string];
+
+/**
+ * `requested_state` of the specification: the state at the version that `versionId` or
+ * `versionTime` requests. "Process Next Update" saves it at step 1 or step 5. The
+ * resolver then processes the rest of the history, so a historical request raises each
+ * error that a request for the current version raises. Step 2 restores the saved state
+ * as the result (ADR 145).
+ */
+interface RequestedState {
+  /** `current_document` at the requested version. */
+  document: DidDocument;
+  /** `current_version_id` at the requested version. */
+  versionId: number;
+  /** `block_confirmations` at the requested version. */
+  confirmations: number;
+  /** `block_mediantime` as an XML Datetime. `undefined` at version 1. */
+  updated?: string;
+}
 
 // ─── provide() payload guards ────────────────────────────────────────────────
 // Runtime shape checks so a malformed payload fails fast at the provide()
@@ -339,6 +360,8 @@ export class Resolver {
    */
   #currentVersionId = 1;
   #updateHashHistory: HashBytes[] = [];
+  /** `requested_state` of the specification. `undefined` until step 1 or step 5 saves it. */
+  #requestedState?: RequestedState;
   #blockConfirmations = 0;
   #updated?: string;
 
@@ -955,19 +978,26 @@ export class Resolver {
         case ResolverPhase.ProcessUpdate: {
           const document = this.#currentDocument!;
 
-          // Step 1: the requested version is reached. The test runs before Apply,
-          // so version 1 is reachable.
+          // Step 1: the resolver reaches the requested version. Save the state if no
+          // state is saved yet. The resolver then processes the rest of the history
+          // (ADR 145). The test runs before Apply, so version 1 is reachable.
           if(this.#versionId !== undefined && this.#currentVersionId === this.#versionId) {
-            this.#phase = ResolverPhase.Complete;
-            continue;
+            this.#saveRequestedState();
           }
 
           // Step 2: no tuple is left, or current_document.deactivated is true. A truthy
-          // value that is not the boolean true does not stop resolution (ADR 142). A requested
-          // version that the history does not reach is NOT_FOUND.
+          // value that is not the boolean true does not stop resolution (ADR 142). A saved
+          // requested state is the result. Else a requested version that the history does
+          // not reach is NOT_FOUND.
           const deactivated = document.deactivated === true;
           if(this.#unsortedUpdates.length === 0 || deactivated) {
-            if(this.#versionId !== undefined) {
+            const requested = this.#requestedState;
+            if(requested !== undefined) {
+              this.#currentDocument = requested.document;
+              this.#currentVersionId = requested.versionId;
+              this.#blockConfirmations = requested.confirmations;
+              this.#updated = requested.updated;
+            } else if(this.#versionId !== undefined) {
               throw new ResolveError(
                 `Version ${this.#versionId} of the DID does not exist: the history `
                 + (deactivated
@@ -1005,20 +1035,21 @@ export class Resolver {
           // to the history (the slot already holds the applied update, ADR 067), and
           // does not stamp the metadata: confirmations refers to the block of the most
           // recently applied unique update. The branch runs before the versionTime
-          // test (ADR 068): a re-announcement mined after versionTime can neither end
-          // the resolution early nor dodge late-publishing detection.
+          // test (ADR 068). A re-announcement mined after versionTime does not save the
+          // requested state. Thus a next version mined at or before versionTime still
+          // applies before the save (footnote 4 of the specification).
           if(update.targetVersionId <= this.#currentVersionId) {
             Resolver.confirmDuplicate(update, this.#updateHashHistory);
             continue;
           }
 
-          // Step 5: the versionTime stop. The block mediantime of the tuple is after
-          // versionTime: resolve the current document. The boundary is inclusive, so a
-          // tuple whose mediantime equals versionTime applies. The stopped tuple stamps
-          // nothing: the metadata reports the last applied update.
+          // Step 5: if no state is saved yet and the block mediantime of the tuple is
+          // after versionTime, the current state is the requested state. Save it. The
+          // tuple then goes to step 6, and the resolver processes the rest of the history
+          // (ADR 145). The boundary is inclusive, so a tuple whose mediantime equals
+          // versionTime does not save.
           if(this.#versionTime !== undefined && block.mediantime * 1000 > this.#versionTime) {
-            this.#phase = ResolverPhase.Complete;
-            continue;
+            this.#saveRequestedState();
           }
 
           // Step 6, third arm: a version was skipped, so raise LATE_PUBLISHING.
@@ -1039,8 +1070,9 @@ export class Resolver {
           this.#currentVersionId++;
 
           // "Apply Update": block_confirmations, current_block_height, and the block
-          // mediantime as `updated` (block_mediantime). On the apply path only: the stop
-          // above and the duplicate branch stamp nothing.
+          // mediantime as `updated` (block_mediantime). On the apply path only: the
+          // duplicate branch stamps nothing. A saved requested state keeps the values
+          // from before this stamp.
           this.#blockConfirmations = block.confirmations;
           this.#currentBlockHeight = block.height;
           this.#updated = DateUtils.toISOStringNonFractional(DateUtils.blocktimeToTimestamp(block.mediantime));
@@ -1068,9 +1100,11 @@ export class Resolver {
 
         // Phase: Complete
         // The document metadata of the specification: versionId is current_version_id,
-        // confirmations is block_confirmations (0 when no update applied), deactivated
-        // is deactivated === true of the document, thus always a boolean (ADR 142).
-        // `updated` is present after the first apply.
+        // confirmations is block_confirmations (0 at version 1), deactivated is
+        // deactivated === true of the document, thus always a boolean (ADR 142).
+        // `updated` is present if current_version_id is more than 1. For a historical
+        // request, step 2 restored these values from the requested state, so the
+        // metadata reports the requested version.
         case ResolverPhase.Complete: {
           this.#resolvedResponse ??= {
             didDocument : this.#currentDocument!,
@@ -1085,6 +1119,21 @@ export class Resolver {
         }
       }
     }
+  }
+
+  /**
+   * Save the current state as `requested_state` ("Process Next Update", steps 1 and 5)
+   * if no saved state exists. The function does not copy the document. An apply sets
+   * `#currentDocument` to a new object, because `JSONPatch.apply` patches a clone. Thus
+   * the saved object does not change.
+   */
+  #saveRequestedState(): void {
+    this.#requestedState ??= {
+      document      : this.#currentDocument!,
+      versionId     : this.#currentVersionId,
+      confirmations : this.#blockConfirmations,
+      updated       : this.#updated
+    };
   }
 
   /**

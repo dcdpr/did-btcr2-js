@@ -222,3 +222,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 142 | 2026-10-07 | [The Deactivation Checks Use Strict Equality, and DidDocument Keeps the `deactivated` Property](142-the-deactivation-checks-use-strict-equality-and-did-document-keeps-the-deactivated-property.md) |
 | 143 | 2026-10-08 | [The Beacon Transaction Checks Each UTXO Against Its Previous Transaction](143-the-beacon-transaction-checks-each-utxo-against-its-previous-transaction.md) |
 | 144 | 2026-10-08 | [DidDocument Keeps Every Property, and Only the KEY Template Sets the `#initialKey` Relationships](144-did-document-keeps-every-property-and-only-the-key-template-sets-the-initialkey-relationships.md) |
+| 145 | 2026-10-09 | [A Historical Resolution Processes the Full History and Returns the Requested State](145-a-historical-resolution-processes-the-full-history-and-returns-the-requested-state.md) |
