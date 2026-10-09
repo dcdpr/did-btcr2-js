@@ -20,24 +20,30 @@ export interface ResolutionOptions extends DidResolutionOptions {
   /**
    * The version of the DID document to resolve, as an ASCII string of an integer
    * (for example `"2"`). The versions start at `"1"`, the genesis document. The
-   * resolver stops before it applies the update that yields the next version, so
-   * `"1"` returns the genesis document also when updates exist. A version that the
-   * history does not reach, also a version after a deactivation, fails with a
-   * `ResolveError` of type `NOT_FOUND`. A value that is not an ASCII string of an
-   * integer fails with `INVALID_OPTIONS`. Mutually exclusive with `versionTime`:
-   * a request with both fails with `INVALID_OPTIONS`.
+   * resolver keeps the state at this version, processes the rest of the history,
+   * and returns the kept state. Thus `"1"` returns the genesis document also if
+   * updates exist. An error in a later update fails the request, as it fails a
+   * request for the current version. A deactivation ends the history. A version
+   * that the history does not reach, also a version after a deactivation, fails
+   * with a `ResolveError` of type `NOT_FOUND`. A value that is not an ASCII string
+   * of an integer fails with `INVALID_OPTIONS`. Mutually exclusive with
+   * `versionTime`: a request with both fails with `INVALID_OPTIONS`.
    */
   versionId?: string
 
   /**
    * An XML Datetime in UTC with the `Z` designator and no fraction (for example
    * `"2026-07-01T00:00:00Z"`), the form that DID Resolution v1 requires. The
-   * resolver applies each update whose block `mediantime` (median time past) is
-   * at or before this instant, and stops at the first update whose block
-   * `mediantime` is after it. The boundary is inclusive. Every conformant resolver
-   * reads the same `mediantime` from the block chain, so every resolver selects
-   * the same version. A value in another form fails with `INVALID_OPTIONS`.
-   * Mutually exclusive with `versionId`.
+   * resolver processes the updates in version order. It keeps the state before the
+   * first new version whose block `mediantime` (median time past) is after this
+   * instant. A duplicate of an applied update does not count. The resolver then
+   * processes the rest of the history and returns the kept state. If no new version
+   * is after this instant, the result is the current version. The boundary is
+   * inclusive: a block `mediantime` equal to this instant is not after it. An error
+   * in a later update fails the request, as it fails a request for the current
+   * version. Every conformant resolver reads the same `mediantime` from the block
+   * chain, so every resolver selects the same version. A value in another form
+   * fails with `INVALID_OPTIONS`. Mutually exclusive with `versionId`.
    */
   versionTime?: string;
 
@@ -53,7 +59,9 @@ export interface ResolutionOptions extends DidResolutionOptions {
    * added. Discovery is unbounded by default: termination is already guaranteed
    * by de-duplicating already-queried beacon addresses. Set a positive value only
    * to impose a resource guard; a non-positive value or omitting the field means
-   * no limit. Exceeding a configured limit surfaces as an INTERNAL_ERROR, the
+   * no limit. With `versionId` or `versionTime`, the count includes the rounds after
+   * the requested version, because the resolver processes the full history (ADR 145).
+   * Exceeding a configured limit surfaces as an INTERNAL_ERROR, the
    * document is well-formed, the resolver simply stopped at the caller's limit.
    */
   maxDiscoveryRounds?: number;
@@ -66,7 +74,8 @@ export interface ResolutionOptions extends DidResolutionOptions {
    * as if it did not exist yet; the rest of the signals are processed. A lower
    * value shows a fresh update sooner and raises the exposure to a block
    * reorganization. The `confirmations` field of the resolution metadata
-   * reports the depth of the last applied signal, so a consumer can judge it.
+   * reports the depth of the signal of the resolved version, so a consumer can
+   * judge it.
    * Any other value (`0`, a negative number, a fraction, `NaN`, a string)
    * fails with a `ResolveError` of type `INVALID_OPTIONS`.
    */

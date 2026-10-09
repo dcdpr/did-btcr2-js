@@ -167,6 +167,14 @@ function buildUpdateChain(
 /** One signal to deliver at an address: the announced update and its block. */
 interface AddressSignal { update: SignedBTCR2Update; block?: Partial<BlockMetadata> }
 
+/** The resolution options of {@link driveAddresses}, and a list that records the scanned addresses. */
+interface DriveOptions {
+  versionId?: string;
+  versionTime?: string;
+  maxDiscoveryRounds?: number;
+  scanned?: Array<string>;
+}
+
 /** The beacon address of service `index` of the document. */
 function addressOf(document: DidDocument, index: number): string {
   return BeaconUtils.parseBitcoinAddress(
@@ -198,16 +206,18 @@ function freshAddress(): string {
  * Drive resolution with explicit signals per beacon address. Each address the
  * resolver asks for receives its signals in order. The block of a signal defaults
  * to height 100 plus its position across all addresses, six confirmations; an
- * explicit `block` overrides any field. Returns the resolved response or
- * propagates whatever the resolver throws.
+ * explicit `block` overrides any field. If the caller gives `scanned`, the function
+ * appends to it each address that the resolver asks for. Returns the resolved
+ * response or propagates whatever the resolver throws.
  */
 function driveAddresses(
   did: string,
   updates: Array<SignedBTCR2Update>,
   signalsByAddress: Map<string, Array<AddressSignal>>,
-  options: { versionId?: string } = {}
+  options: DriveOptions = {}
 ): DidResolutionResponse {
-  const resolver = DidBtcr2.resolve(did, { sidecar: { updates }, ...options });
+  const { scanned, ...resolutionOptions } = options;
+  const resolver = DidBtcr2.resolve(did, { sidecar: { updates }, ...resolutionOptions });
   let position = 0;
   let state = resolver.resolve();
   while(state.status === 'action-required') {
@@ -216,6 +226,7 @@ function driveAddresses(
     const signals = new Map<BeaconService, Array<BeaconSignal>>();
     for(const service of need.beaconServices) {
       const address = BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string);
+      scanned?.push(address);
       signals.set(service, (signalsByAddress.get(address) ?? []).map(({ update, block }) => ({
         tx            : {} as any,
         signalBytes   : canonicalHash(update, { encoding: 'hex' }),
@@ -240,7 +251,7 @@ function thrownByAddresses(
   did: string,
   updates: Array<SignedBTCR2Update>,
   signalsByAddress: Map<string, Array<AddressSignal>>,
-  options: { versionId?: string } = {}
+  options: DriveOptions = {}
 ): any {
   try {
     driveAddresses(did, updates, signalsByAddress, options);
@@ -252,8 +263,8 @@ function thrownByAddresses(
 
 /**
  * Drive a resolver delivering every update as a signal on the single genesis beacon in one
- * discovery pass (the updates add no beacons). Optional versionId/versionTime limits and
- * per-update block times exercise the stop conditions of the ProcessUpdate phase. The
+ * discovery pass (the updates add no beacons). Optional versionId and versionTime values and
+ * per-update block times exercise steps 1 and 5 of the ProcessUpdate phase. The
  * block mediantime of update i is `mediantimes[i]`, else its header time.
  */
 function driveSingleBeacon(
@@ -966,25 +977,26 @@ describe('Resolver', () => {
   describe('update-processing limits (versionId / versionTime / deactivated)', () => {
     const fixture = deterministicData[2]; // regtest - has a known secretKey
 
-    it('stops at the requested versionId and ignores later updates', () => {
+    it('returns the requested versionId, not the state after later updates', () => {
       const source = resolveDeterministic(fixture.did);
       // v2, v3, v4 - three benign hops, all delivered on the genesis beacon in one round.
       const updates = buildUpdateChain(fixture.did, source, fixture.secretKey, [
         benignPatch(fixture.did), benignPatch(fixture.did), benignPatch(fixture.did)
       ]);
       const { metadata, didDocument } = driveSingleBeacon(fixture.did, updates, { versionId: '3' });
-      // The loop applies v2 then v3; once currentVersionId reaches 3 it returns, never applying v4.
+      // The loop applies v2, v3, and v4. Step 1 saves the state at version 3, and step 2
+      // restores it after the last tuple (ADR 145).
       expect(metadata.versionId).to.equal('3');
       expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 2);
     });
 
-    it('stops before an update dated after versionTime', () => {
+    it('returns the version before an update dated after versionTime', () => {
       const source = resolveDeterministic(fixture.did);
       const updates = buildUpdateChain(fixture.did, source, fixture.secretKey, [
         benignPatch(fixture.did), benignPatch(fixture.did)
       ]);
       // v2 block time 2023-11-14, v3 block time 2027-01-15; versionTime sits between them, so
-      // v2 applies and v3 is short-circuited before it is applied.
+      // step 5 saves the state after v2. v3 then applies, and step 2 restores the v2 state.
       const { metadata, didDocument } = driveSingleBeacon(fixture.did, updates, {
         versionTime : '2025-01-01T00:00:00Z',
         times       : [1700000000, 1800000000]
@@ -1020,6 +1032,285 @@ describe('Resolver', () => {
         expect(metadata.deactivated, label).to.equal(false);
         expect(didDocument.deactivated, label).to.deep.equal(value);
       }
+    });
+  });
+
+  describe('a historical request processes the full history (ADR 145)', () => {
+    // Spec "Process Next Update": steps 1 and 5 copy the state at the requested version
+    // to requested_state and do not resolve. The resolver processes the rest of the
+    // history, and step 2 restores requested_state. Thus an error in a later update
+    // fails a request with versionId or versionTime, as it fails a request for the
+    // current version. A false duplicate has its own patch, and a true duplicate is
+    // the same update object, so no test depends on two equal patches.
+    const fixture = deterministicData[2]; // regtest - has a known secretKey
+    // 2023-11-14, 2027-01-15, and 2030-03-17 as Unix seconds; versionTime is between the first two.
+    const [ T2, T3, T4 ] = [ 1700000000, 1800000000, 1900000000 ];
+    const VERSION_TIME = '2025-01-01T00:00:00Z';
+    const T2_UPDATED = '2023-11-14T22:13:20Z';
+
+    /** The patch that sets alsoKnownAs to one marker URL: a hop that adds no beacon and names its version. */
+    function marker(label: string): PatchOperation[] {
+      return [{ op: 'add' as const, path: '/alsoKnownAs', value: [`https://example.com/${label}`] }];
+    }
+
+    /** The marker that {@link marker} sets. */
+    function markerOf(label: string): Array<string> {
+      return [`https://example.com/${label}`];
+    }
+
+    /** The marker of a document: its alsoKnownAs value, a member that DidDocument does not name. */
+    function markerIn(document: DidDocument): unknown {
+      return (document as DidDocument & { alsoKnownAs?: unknown }).alsoKnownAs;
+    }
+
+    /**
+     * Returns these updates:
+     * - `u2`, `u3`, `u4`: v2, v3, and v4, each with a marker.
+     * - `forged3`: a false v3, with version 3 and another marker.
+     * - `invalid3`: a v3 on another v2, so its sourceHash does not match.
+     */
+    function linearHistory() {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2, u3, u4 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        marker('v2'), marker('v3'), marker('v4')
+      ]);
+      const [ , forged3 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        marker('v2'), marker('v3-forged')
+      ]);
+      const [ , invalid3 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        marker('v2-other'), marker('v3')
+      ]);
+      return { source, genesis: addressOf(source, 0), u2, u3, u4, forged3, invalid3 };
+    }
+
+    /**
+     * v2 on the genesis beacon adds beacon B, v3 on B adds beacon C, and v4 on C sets a
+     * marker. The blocks of v2, v3, and v4 have the mediantimes T2, T3, and T4.
+     */
+    function discoveryHistory() {
+      const source = resolveDeterministic(fixture.did);
+      const [ B, C ] = [ freshAddress(), freshAddress() ];
+      const [ u2, u3, u4 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        addService({ id: `${fixture.did}#beacon-b`, type: 'SingletonBeacon', serviceEndpoint: `bitcoin:${B}` }),
+        addService({ id: `${fixture.did}#beacon-c`, type: 'SingletonBeacon', serviceEndpoint: `bitcoin:${C}` }),
+        marker('v4')
+      ]);
+      const signals = new Map<string, Array<AddressSignal>>([
+        [addressOf(source, 0), [{ update: u2, block: { mediantime: T2 } }]],
+        [B, [{ update: u3, block: { mediantime: T3 } }]],
+        [C, [{ update: u4, block: { mediantime: T4 } }]]
+      ]);
+      const genesisAddresses = BeaconUtils.getBeaconServices(source).map(service =>
+        BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string)
+      );
+      return { source, B, C, u2, u3, u4, signals, genesisAddresses };
+    }
+
+    it('versionId "2" fails with LATE_PUBLISHING on a later false duplicate of version 3', () => {
+      const { genesis, u2, u3, forged3 } = linearHistory();
+      const signals = new Map([[genesis, [{ update: u2 }, { update: u3 }, { update: forged3 }]]]);
+      const thrown = thrownByAddresses(fixture.did, [ u2, u3, forged3 ], signals, { versionId: '2' });
+      expect(thrown?.type).to.equal(LATE_PUBLISHING);
+      expect(thrown.message).to.match(/invalid duplicate/i);
+    });
+
+    it('versionId "3", the last version, fails with LATE_PUBLISHING on a false duplicate of itself', () => {
+      const { genesis, u2, u3, forged3 } = linearHistory();
+      const signals = new Map([[genesis, [{ update: u2 }, { update: u3 }, { update: forged3 }]]]);
+      const thrown = thrownByAddresses(fixture.did, [ u2, u3, forged3 ], signals, { versionId: '3' });
+      expect(thrown?.type).to.equal(LATE_PUBLISHING);
+      expect(thrown.message).to.match(/invalid duplicate/i);
+    });
+
+    it('versionId "2" fails with LATE_PUBLISHING on a later skipped version', () => {
+      const { genesis, u2, u4 } = linearHistory();
+      const signals = new Map([[genesis, [{ update: u2 }, { update: u4 }]]]);
+      const thrown = thrownByAddresses(fixture.did, [ u2, u4 ], signals, { versionId: '2' });
+      expect(thrown?.type).to.equal(LATE_PUBLISHING);
+      expect(thrown.data).to.deep.equal({ targetVersionId: 4, currentVersionId: 3 });
+    });
+
+    it('versionId "2" fails with INVALID_DID_UPDATE on a later invalid update', () => {
+      const { genesis, u2, invalid3 } = linearHistory();
+      const signals = new Map([[genesis, [{ update: u2 }, { update: invalid3 }]]]);
+      const thrown = thrownByAddresses(fixture.did, [ u2, invalid3 ], signals, { versionId: '2' });
+      expect(thrown?.type).to.equal(INVALID_DID_UPDATE);
+    });
+
+    it('versionTime fails with LATE_PUBLISHING on a false duplicate or a skipped version after versionTime', () => {
+      const { genesis, u2, u3, u4, forged3 } = linearHistory();
+      // v2 is before versionTime. Each later signal is after it, so the result is v2 if no
+      // error occurs.
+      const cases: Array<[string, Array<AddressSignal>, RegExp]> = [
+        ['false duplicate of v3', [
+          { update: u2, block: { mediantime: T2 } },
+          { update: u3, block: { mediantime: T3 } },
+          { update: forged3, block: { mediantime: T4 } }
+        ], /invalid duplicate/i],
+        ['skipped v3', [
+          { update: u2, block: { mediantime: T2 } },
+          { update: u4, block: { mediantime: T3 } }
+        ], /Version Id Mismatch/]
+      ];
+      for(const [label, list, message] of cases) {
+        const updates = list.map(({ update }) => update);
+        const thrown = thrownByAddresses(fixture.did, updates, new Map([[genesis, list]]), { versionTime: VERSION_TIME });
+        expect(thrown?.type, label).to.equal(LATE_PUBLISHING);
+        expect(thrown.message, label).to.match(message);
+      }
+    });
+
+    it('versionTime before every update fails with INVALID_DID_UPDATE on a later invalid update', () => {
+      const { genesis, u2, invalid3 } = linearHistory();
+      const signals = new Map([[genesis, [
+        { update: u2, block: { mediantime: T2 } },
+        { update: invalid3, block: { mediantime: T3 } }
+      ]]]);
+      const thrown = thrownByAddresses(fixture.did, [ u2, invalid3 ], signals, { versionTime: '2020-01-01T00:00:00Z' });
+      expect(thrown?.type).to.equal(INVALID_DID_UPDATE);
+    });
+
+    it('versionId and versionTime scan the beacons that later updates add, and return the requested version', () => {
+      const { source, B, C, u2, u3, u4, signals, genesisAddresses } = discoveryHistory();
+      for(const options of [{ versionId: '1' }, { versionTime: '2020-01-01T00:00:00Z' }]) {
+        const label = JSON.stringify(options);
+        const scanned: Array<string> = [];
+        const v1 = driveAddresses(fixture.did, [ u2, u3, u4 ], signals, { ...options, scanned });
+        expect(scanned, label).to.have.members([ ...genesisAddresses, B, C ]);
+        expect(v1.metadata, label).to.deep.equal({ versionId: '1', confirmations: 0, deactivated: false });
+        expect(v1.didDocument.service.length, label).to.equal(source.service.length);
+      }
+      for(const options of [{ versionId: '2' }, { versionTime: VERSION_TIME }]) {
+        const label = JSON.stringify(options);
+        const scanned: Array<string> = [];
+        const v2 = driveAddresses(fixture.did, [ u2, u3, u4 ], signals, { ...options, scanned });
+        expect(scanned, label).to.have.members([ ...genesisAddresses, B, C ]);
+        expect(v2.metadata, label).to.deep.equal({ versionId: '2', confirmations: 6, updated: T2_UPDATED, deactivated: false });
+        expect(v2.didDocument.service.length, label).to.equal(source.service.length + 1);
+      }
+    });
+
+    it('versionId "2" asks for the update on a beacon that a later update adds', () => {
+      const { u2, u3, u4, signals } = discoveryHistory();
+      // The sidecar has no v4, so the resolver asks for it after it applies v3.
+      const resolver = DidBtcr2.resolve(fixture.did, { sidecar: { updates: [ u2, u3 ] }, versionId: '2' });
+      let height = 100;
+      let state = resolver.resolve();
+      while(state.status === 'action-required' && state.needs[0]!.kind === 'NeedBeaconSignals') {
+        const need = state.needs[0] as NeedBeaconSignals;
+        const provided = new Map<BeaconService, Array<BeaconSignal>>();
+        for(const service of need.beaconServices) {
+          const address = BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string);
+          provided.set(service, (signals.get(address) ?? []).map(({ update }) => ({
+            tx            : {} as any,
+            signalBytes   : canonicalHash(update, { encoding: 'hex' }),
+            blockMetadata : { height: height++, time: T2, mediantime: T2, confirmations: 6 }
+          })));
+        }
+        resolver.provide(need, provided);
+        state = resolver.resolve();
+      }
+      if(state.status !== 'action-required') throw new Error('expected NeedSignedUpdate');
+      const need = state.needs[0] as NeedSignedUpdate;
+      expect(need.kind).to.equal('NeedSignedUpdate');
+      expect(need.updateHash).to.equal(canonicalHash(u4, { encoding: 'hex' }));
+    });
+
+    it('versionId "2" returns the confirmations and updated of the v2 block, not of the later block', () => {
+      const { genesis, u2, u3 } = linearHistory();
+      const signals = new Map([[genesis, [
+        { update: u2, block: { mediantime: T2, confirmations: 9 } },
+        { update: u3, block: { mediantime: T3, confirmations: 7 } }
+      ]]]);
+      const { metadata, didDocument } = driveAddresses(fixture.did, [ u2, u3 ], signals, { versionId: '2' });
+      expect(metadata).to.deep.equal({ versionId: '2', confirmations: 9, updated: T2_UPDATED, deactivated: false });
+      expect(markerIn(didDocument)).to.deep.equal(markerOf('v2'));
+    });
+
+    it('a later deactivation does not change the requested version, and deactivated is false', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2, u3 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        marker('v2'), [{ op: 'add' as const, path: '/deactivated', value: true }]
+      ]);
+      const signals = new Map([[addressOf(source, 0), [
+        { update: u2, block: { mediantime: T2 } },
+        { update: u3, block: { mediantime: T3 } }
+      ]]]);
+      for(const options of [{ versionId: '2' }, { versionTime: VERSION_TIME }]) {
+        const label = JSON.stringify(options);
+        const { metadata, didDocument } = driveAddresses(fixture.did, [ u2, u3 ], signals, options);
+        expect(metadata, label).to.deep.equal({ versionId: '2', confirmations: 6, updated: T2_UPDATED, deactivated: false });
+        expect(didDocument.deactivated, label).to.equal(undefined);
+        expect(markerIn(didDocument), label).to.deep.equal(markerOf('v2'));
+      }
+    });
+
+    it('maxDiscoveryRounds counts the rounds of the full history, also with versionId or versionTime', () => {
+      const { u2, u3, u4, signals } = discoveryHistory();
+      // v2 adds B (round 1), v3 adds C (round 2): the history needs two rounds.
+      for(const options of [{ versionId: '2' }, { versionTime: VERSION_TIME }]) {
+        const label = JSON.stringify(options);
+        const thrown = thrownByAddresses(fixture.did, [ u2, u3, u4 ], signals, { ...options, maxDiscoveryRounds: 1 });
+        expect(thrown?.type, label).to.equal(INTERNAL_ERROR);
+        expect(thrown.data, label).to.deep.equal({ maxDiscoveryRounds: 1, discoveryRounds: 2 });
+      }
+    });
+
+    it('versionTime saves the state once: with v3 and v4 after versionTime, the result is v2', () => {
+      const { genesis, u2, u3, u4 } = linearHistory();
+      const signals = new Map([[genesis, [
+        { update: u2, block: { mediantime: T2, confirmations: 9 } },
+        { update: u3, block: { mediantime: T3, confirmations: 8 } },
+        { update: u4, block: { mediantime: T4, confirmations: 7 } }
+      ]]]);
+      const { metadata, didDocument } = driveAddresses(fixture.did, [ u2, u3, u4 ], signals, { versionTime: VERSION_TIME });
+      expect(metadata).to.deep.equal({ versionId: '2', confirmations: 9, updated: T2_UPDATED, deactivated: false });
+      expect(markerIn(didDocument)).to.deep.equal(markerOf('v2'));
+    });
+
+    it('a true duplicate of a version after the requested version does not fail the request', () => {
+      const { genesis, u2, u3 } = linearHistory();
+      // The same u3 object is announced twice, both times after versionTime.
+      const signals = new Map([[genesis, [
+        { update: u2, block: { mediantime: T2 } },
+        { update: u3, block: { mediantime: T3 } },
+        { update: u3, block: { mediantime: T4 } }
+      ]]]);
+      for(const options of [{ versionId: '2' }, { versionTime: VERSION_TIME }]) {
+        const label = JSON.stringify(options);
+        const { metadata, didDocument } = driveAddresses(fixture.did, [ u2, u3 ], signals, options);
+        expect(metadata.versionId, label).to.equal('2');
+        expect(markerIn(didDocument), label).to.deep.equal(markerOf('v2'));
+      }
+    });
+
+    it('versionTime: a true duplicate before the save changes neither confirmations nor updated', () => {
+      const { genesis, u2, u3 } = linearHistory();
+      // The same u2 object is announced again in a later block with fewer confirmations,
+      // before versionTime. u3 is after versionTime, so step 5 saves the v2 state.
+      const signals = new Map([[genesis, [
+        { update: u2, block: { mediantime: T2, confirmations: 12 } },
+        { update: u2, block: { mediantime: T2 + 600, confirmations: 7 } },
+        { update: u3, block: { mediantime: T3, confirmations: 6 } }
+      ]]]);
+      const { metadata } = driveAddresses(fixture.did, [ u2, u3 ], signals, { versionTime: VERSION_TIME });
+      expect(metadata).to.deep.equal({ versionId: '2', confirmations: 12, updated: T2_UPDATED, deactivated: false });
+    });
+
+    it('a tuple that step 4 ignores does not save the requested state, also if its block is after versionTime', () => {
+      const source = resolveDeterministic(fixture.did);
+      // v2 removes service 1. The same v2 object is announced again at the removed
+      // address after versionTime, and step 4 ignores it. v3 is before versionTime.
+      const [ u2, u3 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        removeService(1), marker('v3')
+      ]);
+      const signals = new Map<string, Array<AddressSignal>>([
+        [addressOf(source, 0), [{ update: u2, block: { mediantime: T2 } }, { update: u3, block: { mediantime: T2 } }]],
+        [addressOf(source, 1), [{ update: u2, block: { mediantime: T4 } }]]
+      ]);
+      const { metadata, didDocument } = driveAddresses(fixture.did, [ u2, u3 ], signals, { versionTime: VERSION_TIME });
+      expect(metadata.versionId).to.equal('3');
+      expect(markerIn(didDocument)).to.deep.equal(markerOf('v3'));
     });
   });
 
@@ -1957,9 +2248,9 @@ describe('Resolver', () => {
         benignPatch(fixture.did), benignPatch(fixture.did)
       ]);
       // The mirror of the test above: u2 is in-window, but its duplicate AND genuine u3 are
-      // both mined after versionTime. The duplicate is confirmed and skipped; u3 must still
-      // trip the versionTime early-return on its own blocktime, stopping at v2. Pins that
-      // the duplicate branch's continue never carries resolution past the query point.
+      // both mined after versionTime. The resolver confirms and skips the duplicate. Step 5
+      // saves the requested state at u3, on the block mediantime of u3, so the result is v2.
+      // The test makes sure that the duplicate branch does not move the result past versionTime.
       const { metadata, didDocument } = driveSignalSequence(
         fixture.did, [ u2, u3 ], [ u2, u2, u3 ],
         [
@@ -1990,9 +2281,8 @@ describe('Resolver', () => {
         ),
         vm, signer
       );
-      // A versionTime query is a view of the history, not an integrity waiver: equivocation
-      // evidence mined after versionTime still fails resolution instead of being hidden by
-      // the early return.
+      // A versionTime query does not skip the integrity checks. Equivocation evidence mined
+      // after versionTime fails the resolution, as it fails a request for the current version.
       let thrown: any;
       try {
         driveSignalSequence(
@@ -2400,11 +2690,13 @@ describe('Resolver', () => {
 
   describe('resolution options and the update loop of the specification (ADR 111)', () => {
     // Spec "Resolve", "Process": versionId and versionTime are mutually exclusive and
-    // must parse (INVALID_OPTIONS). Spec "Process Next Update": the versionId test runs
-    // before Apply; an unsatisfiable versionId is NOT_FOUND; the versionTime test
-    // compares the block mediantime with an inclusive boundary; block_confirmations is
-    // set after the versionTime stop; one update per pass, then "Find Beacon Signals"
-    // for the beacon addresses the resolver did not scan yet.
+    // must parse (INVALID_OPTIONS). Spec "Process Next Update":
+    // - The versionId test runs before Apply.
+    // - An unsatisfiable versionId is NOT_FOUND.
+    // - The versionTime test compares the block mediantime with an inclusive boundary.
+    // - The saved requested state keeps block_confirmations and block_mediantime (ADR 145).
+    // - One update per pass, then "Find Beacon Signals" for the beacon addresses that
+    //   the resolver did not scan yet.
     const fixture = deterministicData[2]; // regtest - has a known secretKey
     // 2025-01-01T00:00:00Z as Unix seconds.
     const NEW_YEAR_2025 = 1735689600;
@@ -2491,7 +2783,8 @@ describe('Resolver', () => {
       const source = resolveDeterministic(fixture.did);
       const updates = buildUpdateChain(fixture.did, source, fixture.secretKey, [benignPatch(fixture.did)]);
       const { metadata, didDocument } = driveSingleBeacon(fixture.did, updates, { versionId: '1' });
-      // The versionId test runs before Apply, so no update applies and nothing stamps.
+      // The versionId test runs before Apply, so step 1 saves the genesis state. v2 then
+      // applies, and step 2 restores the genesis state with no stamp (ADR 145).
       expect(metadata).to.deep.equal({ versionId: '1', confirmations: 0, deactivated: false });
       expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length);
     });
@@ -2522,6 +2815,23 @@ describe('Resolver', () => {
       expect(thrown).to.be.instanceOf(ResolveError);
       expect(thrown.type).to.equal(NOT_FOUND);
       expect(thrown.message).to.match(/ends at version 3/);
+    });
+
+    it('versionId "0" and "-1" fail with NOT_FOUND: no version is below 1', () => {
+      const source = resolveDeterministic(fixture.did);
+      const updates = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        benignPatch(fixture.did), benignPatch(fixture.did)
+      ]);
+      for(const versionId of ['0', '-1']) {
+        let thrown: any;
+        try {
+          driveSingleBeacon(fixture.did, updates, { versionId });
+        } catch(error) {
+          thrown = error;
+        }
+        expect(thrown?.type, versionId).to.equal(NOT_FOUND);
+        expect(thrown.message, versionId).to.match(/ends at version 3/);
+      }
     });
 
     it('a versionId with no signal at all fails with NOT_FOUND, not with the genesis document labelled with it', () => {
@@ -2602,7 +2912,7 @@ describe('Resolver', () => {
       expect(metadata.versionId).to.equal('3');
     });
 
-    it('versionTime: a block whose mediantime is one second after versionTime does not apply', () => {
+    it('versionTime: a block whose mediantime is one second after versionTime is not in the result', () => {
       const source = resolveDeterministic(fixture.did);
       const updates = buildUpdateChain(fixture.did, source, fixture.secretKey, [
         benignPatch(fixture.did), benignPatch(fixture.did)
@@ -2617,7 +2927,7 @@ describe('Resolver', () => {
       expect(metadata.versionId).to.equal('2');
     });
 
-    it('versionTime: the tuple that stops the resolution stamps neither confirmations nor updated', () => {
+    it('versionTime: the tuple after versionTime changes neither confirmations nor updated of the result', () => {
       const source = resolveDeterministic(fixture.did);
       const [ u2, u3 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
         benignPatch(fixture.did), benignPatch(fixture.did)
@@ -2626,7 +2936,7 @@ describe('Resolver', () => {
         fixture.did, [ u2, u3 ], [ u2, u3 ],
         [
           { height: 100, time: 1700000000, confirmations: 9 },
-          { height: 200, time: 1900000000, confirmations: 3 }
+          { height: 200, time: 1900000000, confirmations: 7 }
         ],
         '2025-01-01T00:00:00Z'
       );
@@ -2640,18 +2950,19 @@ describe('Resolver', () => {
       const [ u2, u3 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
         benignPatch(fixture.did), benignPatch(fixture.did)
       ]);
-      // u3 applies from height 150 (8 confirmations); its re-announcement at height 400
-      // has 2 confirmations and a later time. The metadata reports the applied block.
+      // u3 applies from height 150 (10 confirmations); its re-announcement at height 400
+      // has 7 confirmations (at or above minConf) and a later time. The metadata reports
+      // the applied block.
       const { metadata } = driveSignalSequence(
         fixture.did, [ u2, u3 ], [ u2, u3, u3 ],
         [
-          { height: 100, time: 1700000000, confirmations: 9 },
-          { height: 150, time: 1700000600, confirmations: 8 },
-          { height: 400, time: 1800000000, confirmations: 2 }
+          { height: 100, time: 1700000000, confirmations: 12 },
+          { height: 150, time: 1700000600, confirmations: 10 },
+          { height: 400, time: 1800000000, confirmations: 7 }
         ]
       );
       expect(metadata).to.deep.equal({
-        versionId : '3', confirmations : 8, updated : '2023-11-14T22:23:20Z', deactivated : false
+        versionId : '3', confirmations : 10, updated : '2023-11-14T22:23:20Z', deactivated : false
       });
     });
 

@@ -1,6 +1,6 @@
 {
   "id": "23-k1-duplicate-signal",
-  "description": "k1 DID; update 1 (version 2) and update 2 (version 3) are anchored at #initialP2WPKH; entry 3 announces the signed update of version 2 again at the same beacon, in a later block (a duplicate signal). Resolves to version 3. The sub-vector asks for a versionTime after the block of version 3 and before the block of the duplicate: a resolver confirms the duplicate before the versionTime test, so the duplicate does not end the resolution at version 2.",
+  "description": "k1 DID; update 1 (version 2) and update 2 (version 3) are anchored at #initialP2WPKH; entry 3 announces the signed update of version 2 again at the same beacon, in a later block (a duplicate signal). Resolves to version 3. The sub-vector asks for a versionTime after the block of version 3 and before the block of the duplicate. A resolver confirms the duplicate before the versionTime test, so it does not select version 2 at the duplicate.",
   "network": "regtest",
   "idType": "KEY",
   "keys": {
