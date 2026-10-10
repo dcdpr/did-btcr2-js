@@ -4,22 +4,13 @@ import type { SignedBTCR2Update } from '../btcr2-update.js';
 import type { Signer } from '@did-btcr2/keypair';
 import { base64UrlToHash, BTCR2MerkleTree, hashToHex, verifyProof } from '@did-btcr2/smt';
 import { randomBytes } from '@noble/hashes/utils';
+import { hasNonZeroPadBits, smtProofRootHex } from '../../utils/base64url-hash.js';
 import type { BeaconProcessResult, DataNeed } from '../resolver.js';
-import type { SMTProof } from '../interfaces.js';
 import type { SidecarData } from '../types.js';
 import type { BroadcastOptions, BroadcastResult } from './beacon.js';
 import { SinglePartyBeacon } from './beacon.js';
 import { SMTBeaconError } from './error.js';
 import type { BeaconService, BeaconSignal, BlockMetadata } from './interfaces.js';
-
-/** The hex of the base64url `id` of a proof, or `undefined` if the id does not decode to 32 bytes. */
-function proofIdHex(proof: SMTProof): string | undefined {
-  try {
-    return hashToHex(base64UrlToHash(proof.id));
-  } catch {
-    return undefined;
-  }
-}
 
 /**
  * Implements {@link https://dcdpr.github.io/did-btcr2/terminology.html#smt-beacon | SMT Beacon}.
@@ -47,16 +38,20 @@ export class SMTBeacon extends SinglePartyBeacon {
    * Implements {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process-smt-beacon | 7.2.e.1 Process SMT Beacon}.
    *
    * For each signal, the signalBytes contain the hex-encoded SMT root hash
-   * (`smt_root`). This method looks up the SMT Proof from the sidecar by root
-   * hash, checks that the id of the proof is the root, verifies the proof with
-   * the SMT Proof Verification algorithm, and retrieves the signed update by the
-   * proof's updateId. A proof with no updateId announces no update for the DID.
+   * (`smt_root`). For each signal, this method:
+   * 1. Looks up the SMT Proof in the sidecar by root hash. A proof whose id has
+   *    non-zero pad bits counts as absent.
+   * 2. Checks that the decoded id of the proof is the root.
+   * 3. Verifies the proof with the SMT Proof Verification algorithm.
+   * 4. Gets the signed update by the decoded updateId of the proof. A proof with
+   *    no updateId announces no update for the DID.
    *
    * @param {Array<BeaconSignal>} signals The array of Beacon Signals to process.
    * @param {SidecarData} sidecar The sidecar data associated with the SMT Beacon.
    * @returns {BeaconProcessResult} Successfully resolved updates and any data needs.
-   * @throws {SMTBeaconError} `INVALID_SIGNAL_DATA` if the id of the proof is not the
-   *   signal root, or if the proof does not verify.
+   * @throws {SMTBeaconError} `INVALID_SIGNAL_DATA` if the id of the proof does not
+   *   decode to the signal root, or if the proof does not verify. A proof whose id
+   *   has non-zero pad bits gives a NeedSMTProof and no error.
    */
   processSignals(
     signals: Array<BeaconSignal>,
@@ -70,10 +65,13 @@ export class SMTBeacon extends SinglePartyBeacon {
 
     for(const signal of signals) {
       // "Process SMT Beacon": the signal bytes are smt_root, the hex SMT root hash.
-      // The smtMap is keyed by the hex of proof.id. No entry = a need for the proof.
+      // The resolver keys smtMap by the hex of the decoded proof.id. No entry = a
+      // need for the proof. The resolver MUST ignore a proof whose id has non-zero
+      // pad bits. Resolver.sidecarData ignores it. In a caller-built map, it counts
+      // as absent.
       const smtProof = sidecar.smtMap.get(signal.signalBytes);
 
-      if(!smtProof) {
+      if(!smtProof || hasNonZeroPadBits(smtProof.id)) {
         // SMT Proof not available, emit a need
         needs.push({
           kind            : 'NeedSMTProof',
@@ -83,9 +81,10 @@ export class SMTBeacon extends SinglePartyBeacon {
         continue;
       }
 
-      // The id of the proof must equal smt_root. The resolver keys the map by the
-      // hex of the id, so its entries pass. A caller-built map is checked here too.
-      if(proofIdHex(smtProof) !== signal.signalBytes) {
+      // The decoded id of the proof must equal smt_root. The resolver keys the map
+      // by the hex of the decoded id, so its entries pass. This check also covers a
+      // caller-built map.
+      if(smtProofRootHex(smtProof) !== signal.signalBytes) {
         throw new SMTBeaconError(
           `SMT proof id does not equal the signal root ${signal.signalBytes}.`,
           INVALID_SIGNAL_DATA, { smtProof, did, smtRootHash: signal.signalBytes }
@@ -107,8 +106,9 @@ export class SMTBeacon extends SinglePartyBeacon {
         continue;
       }
 
-      // Look up the signed update in sidecar updateMap (keyed by hex canonical
-      // hash). The proof's updateId is the same hash in base64url.
+      // The decoded updateId is update_hash. Look up the signed update in sidecar
+      // updateMap (keyed by hex canonical hash). The proof's updateId is the same
+      // hash in base64url.
       const updateHashHex = hashToHex(base64UrlToHash(smtProof.updateId));
       const signedUpdate = sidecar.updateMap.get(updateHashHex);
 

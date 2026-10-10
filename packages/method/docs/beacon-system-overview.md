@@ -164,13 +164,15 @@ while (state.status === 'action-required') {
 
 Each beacon's `processSignals()` follows the same contract -- returns `{ updates, needs }` -- but the internal logic differs:
 
-**Singleton:** Signal bytes (hex) -> decode to base64url -> direct `updateMap` lookup. One indirection.
+**Singleton:** Signal bytes (hex) -> direct `updateMap` lookup. One indirection.
 
-**CAS:** Signal bytes (hex) -> decode to base64url -> `casMap` lookup -> extract `announcement[did]` -> `updateMap` lookup. Two indirections.
+**CAS:** Signal bytes (hex) -> `casMap` lookup -> decode the value of `announcement[did]` to hex (`update_hash`) -> `updateMap` lookup. An announcement with no entry for the DID announces no update. A value for the DID that does not decode to 32 bytes raises `MISSING_UPDATE_DATA` (ADR 146). Two indirections.
 
-**SMT:** Signal bytes (hex) -> `smtMap` lookup by root hash -> the `id` of the proof must equal the root -> verify the proof (`verifyProof(proof, did)`) -> a proof with no `updateId` announces no update -> decode `proof.updateId` to hex -> `updateMap` lookup. Two indirections plus cryptographic verification.
+**SMT:** Signal bytes (hex) -> `smtMap` lookup by root hash (the key is the hex of the decoded `id`) -> the decoded `id` of the proof must equal the root -> verify the proof (`verifyProof(proof, did)`) -> a proof with no `updateId` announces no update -> decode `proof.updateId` to hex -> `updateMap` lookup. Two indirections plus cryptographic verification.
 
-The SMT proof verification (spec section SMT Proof Verification) selects the leaf value from the `nonce` and `updateId` fields of the proof: `hash(hash(nonce) || updateId)`, `hash(hash(nonce))`, `updateId`, or the value of an empty leaf. It walks the sparse Merkle tree path from the leaf to confirm that it produces the on-chain root. A proof whose `id` is not the root, a proof that does not decode, and a proof that does not verify raise `INVALID_SIGNAL_DATA`. This is the only beacon type that requires cryptographic verification at resolve time -- Singleton and CAS rely on the hash commitment being unforgeable.
+The SMT proof verification (spec section SMT Proof Verification) selects the leaf value from the `nonce` and `updateId` fields of the proof: `hash(hash(nonce) || updateId)`, `hash(hash(nonce))`, `updateId`, or the value of an empty leaf. It walks the sparse Merkle tree path from the leaf to confirm that it produces the on-chain root. A proof whose decoded `id` is not the root raises `INVALID_SIGNAL_DATA`. A proof that does not verify, also a proof whose other fields do not decode, raises `INVALID_SIGNAL_DATA`. This is the only beacon type that requires cryptographic verification at resolve time -- Singleton and CAS rely on the hash commitment being unforgeable.
+
+`Resolver.sidecarData` ignores a sidecar proof whose `id` does not decode to 32 bytes. For a beacon signal that needs the proof, `SMTBeacon.processSignals` emits `NeedSMTProof`. For a pad-bit `id`, `provide(NeedSMTProof)` raises `MISSING_UPDATE_DATA`. `SMTBeacon.processSignals` treats a pad-bit proof in a caller-built map as absent. On those two paths, another `id` that does not decode raises `INVALID_SIGNAL_DATA` (ADR 146).
 
 ---
 

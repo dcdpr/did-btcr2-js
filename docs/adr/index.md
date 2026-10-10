@@ -223,3 +223,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 143 | 2026-10-08 | [The Beacon Transaction Checks Each UTXO Against Its Previous Transaction](143-the-beacon-transaction-checks-each-utxo-against-its-previous-transaction.md) |
 | 144 | 2026-10-08 | [DidDocument Keeps Every Property, and Only the KEY Template Sets the `#initialKey` Relationships](144-did-document-keeps-every-property-and-only-the-key-template-sets-the-initialkey-relationships.md) |
 | 145 | 2026-10-09 | [A Historical Resolution Processes the Full History and Returns the Requested State](145-a-historical-resolution-processes-the-full-history-and-returns-the-requested-state.md) |
+| 146 | 2026-10-10 | [The Resolver Ignores a Sidecar SMT Proof Whose Id Does Not Decode, and a CAS Announcement Entry Must Decode to a Hash](146-the-resolver-ignores-a-sidecar-smt-proof-whose-id-does-not-decode-and-a-cas-announcement-entry-must-decode-to-a-hash.md) |

@@ -1,5 +1,5 @@
 import type { AddressUtxo, BitcoinConnection } from '@did-btcr2/bitcoin';
-import { canonicalHash, canonicalHashBytes, encode, hash, INVALID_DID_UPDATE, MISSING_UPDATE_DATA, UpdateError } from '@did-btcr2/common';
+import { canonicalHash, canonicalHashBytes, canonicalize, encode, hash, INVALID_DID_UPDATE, MISSING_UPDATE_DATA, UpdateError } from '@did-btcr2/common';
 import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { BeaconError, ID_PLACEHOLDER_VALUE } from '@did-btcr2/method';
 import { hexToBytes } from '@noble/hashes/utils.js';
@@ -650,70 +650,132 @@ describe('DidMethodApi update() CAS publication policy', () => {
   });
 });
 
+/** Mint an x1 DID whose genesis document carries one beacon of `type`. */
+function beaconDid(type: 'SMTBeacon' | 'CASBeacon'): { did: string; genesisDocument: object; beaconAddress: string } {
+  const kp = SchnorrKeyPair.generate();
+  const mkApi = new MultikeyApi();
+  const mk = mkApi.create('#key-0', ID_PLACEHOLDER_VALUE, kp);
+  const vm = mkApi.toVerificationMethod(mk);
+  const beaconAddress = p2wpkh(new LocalSigner(kp.secretKey.bytes).publicKey, network).address!;
+  const genesisDocument = {
+    'id'                   : ID_PLACEHOLDER_VALUE,
+    '@context'             : ['https://www.w3.org/ns/did/v1.1', 'https://btcr2.dev/context/v1'],
+    'verificationMethod'   : [{ ...vm, id: `${ID_PLACEHOLDER_VALUE}#key-0`, controller: ID_PLACEHOLDER_VALUE }],
+    'authentication'       : [`${ID_PLACEHOLDER_VALUE}#key-0`],
+    'assertionMethod'      : [`${ID_PLACEHOLDER_VALUE}#key-0`],
+    'capabilityInvocation' : [`${ID_PLACEHOLDER_VALUE}#key-0`],
+    'capabilityDelegation' : [`${ID_PLACEHOLDER_VALUE}#key-0`],
+    'service'              : [{
+      id              : `${ID_PLACEHOLDER_VALUE}#${type === 'SMTBeacon' ? 'smt' : 'cas'}-beacon`,
+      type,
+      serviceEndpoint : `bitcoin:${beaconAddress}`,
+    }],
+  };
+  const did = new DidMethodApi().createExternal(canonicalHashBytes(genesisDocument), { network: 'regtest' });
+  return { did, genesisDocument, beaconAddress };
+}
+
+/** A Bitcoin mock whose beacon address has one signal for each value of `signalBytes`. */
+function btcWithSignals(beaconAddress: string, signalBytes: Array<string>): BitcoinApi {
+  // A signal is a transaction that spends from the beacon address, so the input side
+  // has to look like one: discovery ignores transactions that merely pay the beacon.
+  const signalTxs = signalBytes.map(bytes => ({
+    vin    : [{
+      txid        : 'f'.repeat(64),
+      vout        : 0,
+      prevout     : { scriptpubkey_address: beaconAddress },
+      is_coinbase : false,
+    }],
+    // Discovery decodes the serialized script, which Esplora returns alongside the asm
+    // rendering; the asm is here only to document what those bytes mean.
+    vout   : [{
+      scriptpubkey     : `6a20${bytes}`,
+      scriptpubkey_asm : `OP_RETURN OP_PUSHBYTES_32 ${bytes}`,
+    }],
+    status : { confirmed: true, block_height: 100, block_hash: 'b'.repeat(64), block_time: 1700000000 },
+  }));
+  return {
+    connection : {
+      data : network,
+      rest : {
+        block   : { count: async () => 105, get: async () => ({ mediantime: 1700000000 }) },
+        address : { getConfirmedTxs: async () => signalTxs },
+      },
+    } as unknown as BitcoinConnection,
+  } as unknown as BitcoinApi;
+}
+
+/** The same base64url text with a non-zero pad bit (ADR 146). A lenient decoder gets the same bytes. */
+function padBit(text: string): string {
+  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  return text.slice(0, -1) + letters[letters.indexOf(text.at(-1)!) | 1];
+}
+
 describe('DidMethodApi resolve() SMT proof handling', () => {
-  it('fails fast with a sidecar pointer instead of spinning on NeedSMTProof', async () => {
-    // Mint an x1 DID whose genesis document carries an SMT beacon, then surface
-    // one on-chain signal for it with no proof in the sidecar.
-    const kp = SchnorrKeyPair.generate();
-    const mkApi = new MultikeyApi();
-    const mk = mkApi.create('#key-0', ID_PLACEHOLDER_VALUE, kp);
-    const vm = mkApi.toVerificationMethod(mk);
-    const beaconAddress = p2wpkh(new LocalSigner(kp.secretKey.bytes).publicKey, network).address!;
-    const genesisDocument = {
-      'id'                   : ID_PLACEHOLDER_VALUE,
-      '@context'             : ['https://www.w3.org/ns/did/v1.1', 'https://btcr2.dev/context/v1'],
-      'verificationMethod'   : [{ ...vm, id: `${ID_PLACEHOLDER_VALUE}#key-0`, controller: ID_PLACEHOLDER_VALUE }],
-      'authentication'       : [`${ID_PLACEHOLDER_VALUE}#key-0`],
-      'assertionMethod'      : [`${ID_PLACEHOLDER_VALUE}#key-0`],
-      'capabilityInvocation' : [`${ID_PLACEHOLDER_VALUE}#key-0`],
-      'capabilityDelegation' : [`${ID_PLACEHOLDER_VALUE}#key-0`],
-      'service'              : [{
-        id              : `${ID_PLACEHOLDER_VALUE}#smt-beacon`,
-        type            : 'SMTBeacon',
-        serviceEndpoint : `bitcoin:${beaconAddress}`,
-      }],
-    };
+  const smtRootHex = 'ab'.repeat(32);
 
-    const methodApi = new DidMethodApi();
-    const did = methodApi.createExternal(canonicalHashBytes(genesisDocument), { network: 'regtest' });
+  /** A proof for `rootHex` whose id has a non-zero pad bit. */
+  function padBitProof(rootHex: string): Record<string, unknown> {
+    return { id: padBit(encode(hexToBytes(rootHex), 'base64urlnopad')), collapsed: 'A'.repeat(43), hashes: [] };
+  }
 
-    const smtRootHex = 'ab'.repeat(32);
-    // A signal is a transaction that spends from the beacon address, so the input side
-    // has to look like one: discovery ignores transactions that merely pay the beacon.
-    const signalTx = {
-      vin    : [{
-        txid        : 'f'.repeat(64),
-        vout        : 0,
-        prevout     : { scriptpubkey_address: beaconAddress },
-        is_coinbase : false,
-      }],
-      // Discovery decodes the serialized script, which Esplora returns alongside the asm
-      // rendering; the asm is here only to document what those bytes mean.
-      vout   : [{
-        scriptpubkey     : `6a20${smtRootHex}`,
-        scriptpubkey_asm : `OP_RETURN OP_PUSHBYTES_32 ${smtRootHex}`,
-      }],
-      status : { confirmed: true, block_height: 100, block_hash: 'b'.repeat(64), block_time: 1700000000 },
-    };
-    const btcMock = {
-      connection : {
-        data : network,
-        rest : {
-          block   : { count: async () => 105, get: async () => ({ mediantime: 1700000000 }) },
-          address : { getConfirmedTxs: async () => [signalTx] },
-        },
-      } as unknown as BitcoinConnection,
-    } as unknown as BitcoinApi;
-
-    const withSignals = new DidMethodApi(btcMock);
+  it('fails at once with a sidecar pointer and does not loop on NeedSMTProof', async () => {
+    // The mock gives one beacon signal for the DID. The sidecar holds no proof.
+    const { did, genesisDocument, beaconAddress } = beaconDid('SMTBeacon');
+    const withSignals = new DidMethodApi(btcWithSignals(beaconAddress, [smtRootHex]));
     try {
       await withSignals.resolve(did, { sidecar: { genesisDocument } });
-      expect.fail('resolution should have failed on the missing SMT proof');
+      expect.fail('resolution did not fail on the missing SMT proof');
     } catch (err: any) {
       expect(err.message).to.include('Failed to resolve DID');
       expect(String(err.cause?.message)).to.match(/SMT proof required/);
       expect(String(err.cause?.message)).to.match(/sidecar\.smtProofs/);
       expect(err.cause?.type).to.equal(MISSING_UPDATE_DATA);
     }
+  });
+
+  it('ignores an unused sidecar proof whose id has non-zero pad bits', async () => {
+    const { did, genesisDocument, beaconAddress } = beaconDid('SMTBeacon');
+    const noSignals = new DidMethodApi(btcWithSignals(beaconAddress, []));
+    const result = await noSignals.resolve(did, { sidecar: { genesisDocument, smtProofs: [padBitProof(smtRootHex)] } as any });
+    expect(result.didDocumentMetadata.versionId).to.equal('1');
+  });
+
+  it('raises MISSING_UPDATE_DATA if the only sidecar proof for a signal has an id with non-zero pad bits', async () => {
+    const { did, genesisDocument, beaconAddress } = beaconDid('SMTBeacon');
+    const withSignals = new DidMethodApi(btcWithSignals(beaconAddress, [smtRootHex]));
+    try {
+      await withSignals.resolve(did, { sidecar: { genesisDocument, smtProofs: [padBitProof(smtRootHex)] } as any });
+      expect.fail('resolution did not fail on the ignored SMT proof');
+    } catch (err: any) {
+      expect(String(err.cause?.message)).to.match(/SMT proof required/);
+      expect(String(err.cause?.message)).to.match(/ignores a proof whose id does not decode to 32 bytes/);
+      expect(err.cause?.type).to.equal(MISSING_UPDATE_DATA);
+    }
+  });
+});
+
+describe('DidMethodApi resolve() CAS announcement values (ADR 146)', () => {
+  it('raises MISSING_UPDATE_DATA if the sidecar CAS announcement value for the DID is an empty string', async () => {
+    const { did, genesisDocument, beaconAddress } = beaconDid('CASBeacon');
+    const announcement = { [did]: '' };
+    const methodApi = new DidMethodApi(btcWithSignals(beaconAddress, [canonicalHash(announcement, { encoding: 'hex' })]));
+    const err: any = await methodApi.resolve(did, { sidecar: { genesisDocument, casUpdates: [announcement] } as any })
+      .then(() => expect.fail('resolution did not fail on the empty CAS announcement value'), (e: unknown) => e);
+    expect(err.cause?.type).to.equal(MISSING_UPDATE_DATA);
+    expect(err.cause?.data).to.deep.include({ did, value: '' });
+  });
+
+  it('raises MISSING_UPDATE_DATA if a CAS-fetched announcement value for the DID has non-zero pad bits', async () => {
+    const { did, genesisDocument, beaconAddress } = beaconDid('CASBeacon');
+    const value = padBit(canonicalHash({ other: true }));
+    const announcement = { [did]: value };
+    const bytes = new TextEncoder().encode(canonicalize(announcement));
+    const cas = new CasApi({ executor: { retrieve: async () => bytes, publish: async () => '' } });
+    const methodApi = new DidMethodApi(btcWithSignals(beaconAddress, [canonicalHash(announcement, { encoding: 'hex' })]), cas);
+    const err: any = await methodApi.resolve(did, { sidecar: { genesisDocument } })
+      .then(() => expect.fail('resolution did not fail on the pad-bit CAS announcement value'), (e: unknown) => e);
+    expect(err.cause?.type).to.equal(MISSING_UPDATE_DATA);
+    expect(err.cause?.data).to.deep.include({ did, value });
   });
 });

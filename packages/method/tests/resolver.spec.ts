@@ -18,6 +18,7 @@ import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update }
 import { BTCR2_UPDATE_CONTEXT } from '../src/core/btcr2-update.js';
 import { DEFAULT_MIN_CONF, Resolver } from '../src/core/resolver.js';
 import { Identifier } from '../src/core/identifier.js';
+import type { SMTProof } from '../src/core/interfaces.js';
 import type { Sidecar } from '../src/core/types.js';
 import type { DidResolutionResponse, NeedBeaconSignals, NeedCASAnnouncement, NeedGenesisDocument, NeedSMTProof, NeedSignedUpdate } from '../src/core/resolver.js';
 import { Updater } from '../src/core/updater.js';
@@ -857,6 +858,288 @@ describe('Resolver', () => {
       // Should resolve (no update announced, no updates, no needs)
       state = resolver.resolve();
       expect(state.status).to.equal('resolved');
+    });
+  });
+
+  describe('SMT proof ids and CAS Announcement values read as decoded bytes (ADR 146)', () => {
+    // The base64url letters in the order of their values (RFC 4648 Section 5).
+    const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
+    /** The same base64url text with a non-zero pad bit. A lenient decoder gets the same bytes. */
+    function padBit(text: string): string {
+      return text.slice(0, -1) + LETTERS[LETTERS.indexOf(text.at(-1)!) | 1];
+    }
+
+    /** An x1 DID whose genesis document has one beacon of the given type. */
+    function didWith(type: 'SMTBeacon' | 'CASBeacon'): { did: string; genesisDocument: object } {
+      const genesisDocument = JSON.parse(JSON.stringify(externalData[2].genesisDocument));
+      genesisDocument.service[0].type = type;
+      const did = DidBtcr2.create(hash(canonicalize(genesisDocument)), { idType: 'EXTERNAL', version: 1, network: 'regtest' });
+      return { did, genesisDocument };
+    }
+
+    /** A finalized tree with one entry for `did`: the hex root and the proof of `did`. */
+    function treeFor(did: string, updateId?: Uint8Array): { rootHex: string; proof: SMTProof } {
+      const tree = new BTCR2MerkleTree();
+      tree.addEntries([{ did, nonce: randomBytes(32), ...(updateId ? { updateId } : {}) }]);
+      tree.finalize();
+      return { rootHex: hashToHex(tree.rootHash), proof: tree.proof(did) };
+    }
+
+    /**
+     * Resolve `did` with the sidecar and one signal for each value of `signalBytes` on the
+     * genesis beacon. Return the resolver and the state after the signals.
+     */
+    function drive(
+      did: string,
+      sidecar: Record<string, unknown>,
+      signalBytes: Array<string>,
+      options: { versionId?: string; versionTime?: string } = {}
+    ): { resolver: ReturnType<typeof DidBtcr2.resolve>; state: ReturnType<ReturnType<typeof DidBtcr2.resolve>['resolve']> } {
+      const resolver = DidBtcr2.resolve(did, { ...options, sidecar: sidecar as Sidecar });
+      const first = resolver.resolve();
+      if(first.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+      const need = first.needs[0] as NeedBeaconSignals;
+      const signals = new Map<BeaconService, Array<BeaconSignal>>();
+      signals.set(need.beaconServices[0] as BeaconService, signalBytes.map((bytes, i) => ({
+        tx            : {} as any,
+        signalBytes   : bytes,
+        blockMetadata : { height: 100 + i, time: 1700000000 + i, mediantime: 1700000000 + i, confirmations: 6 }
+      })));
+      resolver.provide(need, signals);
+      return { resolver, state: resolver.resolve() };
+    }
+
+    /** The error that `fn` throws. Fails if it does not throw. */
+    function thrownBy(fn: () => unknown): any {
+      try {
+        fn();
+      } catch(error) {
+        return error;
+      }
+      throw new Error('expected a throw');
+    }
+
+    for(const [label, options] of [
+      ['a current request', {}],
+      ['versionId "1"', { versionId: '1' }],
+      ['a versionTime', { versionTime: '2030-01-01T00:00:00Z' }]
+    ] as const) {
+      it(`ignores an unused sidecar proof whose id has non-zero pad bits, for ${label}`, () => {
+        const { did, genesisDocument } = didWith('SMTBeacon');
+        const { proof } = treeFor('did:btcr2:x1other');
+        const { state } = drive(did, { genesisDocument, smtProofs: [{ ...proof, id: padBit(proof.id) }] }, [], options);
+        expect(state.status).to.equal('resolved');
+        if(state.status !== 'resolved') return;
+        expect(state.result.metadata.versionId).to.equal('1');
+      });
+    }
+
+    it('ignores unused sidecar items that are not objects or whose id does not decode to 32 bytes', () => {
+      const { did, genesisDocument } = didWith('SMTBeacon');
+      const { proof } = treeFor('did:btcr2:x1other');
+      const entries: Array<[string, unknown]> = [
+        ['null', null],
+        ['a number', 42],
+        ['a string', proof.id],
+        ['an array', [proof]],
+        ['no id', { ...proof, id: undefined }],
+        ['a number id', { ...proof, id: 7 }],
+        ['an id with letters outside base64url', { ...proof, id: '!!' }],
+        ['an id with "=" padding', { ...proof, id: `${proof.id}=` }],
+        ['an id of 31 bytes', { ...proof, id: encode(randomBytes(31), 'base64urlnopad') }]
+      ];
+      for(const [label, entry] of entries) {
+        const { state } = drive(did, { genesisDocument, smtProofs: [entry] }, []);
+        expect(state.status, label).to.equal('resolved');
+      }
+    });
+
+    it('emits NeedSMTProof if the only sidecar proof for a signal root has an id with non-zero pad bits', () => {
+      const { did, genesisDocument } = didWith('SMTBeacon');
+      const { rootHex, proof } = treeFor(did);
+      const { state } = drive(did, { genesisDocument, smtProofs: [{ ...proof, id: padBit(proof.id) }] }, [rootHex]);
+      expect(state.status).to.equal('action-required');
+      if(state.status !== 'action-required') return;
+      expect(state.needs).to.have.length(1);
+      expect(state.needs[0].kind).to.equal('NeedSMTProof');
+      expect((state.needs[0] as NeedSMTProof).smtRootHash).to.equal(rootHex);
+    });
+
+    it('emits NeedSMTProof if the only sidecar proof for a signal root has an id with "=" padding', () => {
+      const { did, genesisDocument } = didWith('SMTBeacon');
+      const { rootHex, proof } = treeFor(did);
+      const { state } = drive(did, { genesisDocument, smtProofs: [{ ...proof, id: `${proof.id}=` }] }, [rootHex]);
+      expect(state.status).to.equal('action-required');
+      if(state.status !== 'action-required') return;
+      expect(state.needs.map(need => [need.kind, (need as NeedSMTProof).smtRootHash])).to.deep.equal([['NeedSMTProof', rootHex]]);
+    });
+
+    it('emits NeedSMTProof for versionId "1" if a later signal has only a pad-bit sidecar proof', () => {
+      const { did, genesisDocument } = didWith('SMTBeacon');
+      const { rootHex, proof } = treeFor(did);
+      const { state } = drive(did, { genesisDocument, smtProofs: [{ ...proof, id: padBit(proof.id) }] }, [rootHex], { versionId: '1' });
+      expect(state.status).to.equal('action-required');
+      if(state.status !== 'action-required') return;
+      expect(state.needs.map(need => [need.kind, (need as NeedSMTProof).smtRootHash])).to.deep.equal([['NeedSMTProof', rootHex]]);
+    });
+
+    it('builds smt_lookup_table only from proofs whose id decodes to 32 bytes', () => {
+      const { rootHex, proof } = treeFor('did:btcr2:x1other');
+      for(const smtProofs of [
+        [{ ...proof, id: padBit(proof.id) }, proof, null, { ...proof, id: `${proof.id}=` }, { ...proof, id: 7 }],
+        [proof, { ...proof, id: padBit(proof.id) }]
+      ]) {
+        const { smtMap } = Resolver.sidecarData({ smtProofs } as unknown as Sidecar);
+        expect([...smtMap.keys()]).to.deep.equal([rootHex]);
+        expect(smtMap.get(rootHex)).to.equal(proof);
+      }
+    });
+
+    it('uses the proof with zero pad bits if the sidecar also holds a pad-bit copy, in either order', () => {
+      const { did, genesisDocument } = didWith('SMTBeacon');
+      const fakeUpdate = { '@context': ['test'], patch: [], targetHash: 'fake', targetVersionId: 2, sourceHash: 'fake' };
+      const { rootHex, proof } = treeFor(did, canonicalHashBytes(fakeUpdate));
+      const padded = { ...proof, id: padBit(proof.id) };
+      for(const smtProofs of [[proof, padded], [padded, proof]]) {
+        const { state } = drive(did, { genesisDocument, smtProofs }, [rootHex]);
+        expect(state.status).to.equal('action-required');
+        if(state.status !== 'action-required') return;
+        expect(state.needs).to.have.length(1);
+        expect(state.needs[0].kind).to.equal('NeedSignedUpdate');
+        expect((state.needs[0] as NeedSignedUpdate).updateHash).to.equal(canonicalHash(fakeUpdate, { encoding: 'hex' }));
+      }
+    });
+
+    it('raises MISSING_UPDATE_DATA if provide(NeedSMTProof) gets a proof whose id has non-zero pad bits', () => {
+      const { did, genesisDocument } = didWith('SMTBeacon');
+      const { rootHex, proof } = treeFor(did);
+      const { resolver, state } = drive(did, { genesisDocument }, [rootHex]);
+      if(state.status !== 'action-required') throw new Error('expected NeedSMTProof');
+      const need = state.needs[0] as NeedSMTProof;
+
+      const thrown = thrownBy(() => resolver.provide(need, { ...proof, id: padBit(proof.id) }));
+      expect(thrown).to.be.instanceOf(ResolveError);
+      expect(thrown.type).to.equal(MISSING_UPDATE_DATA);
+      expect(thrown.message).to.match(/non-zero pad bits/);
+      expect(thrown.data).to.deep.equal({ smtRootHash: rootHex, id: padBit(proof.id) });
+
+      // The ignored proof leaves the need open: the proof with zero pad bits fulfills it.
+      resolver.provide(need, proof);
+      expect(resolver.resolve().status).to.equal('resolved');
+    });
+
+    it('raises MISSING_UPDATE_DATA for a pad-bit id in provide(NeedSMTProof) before the shape check', () => {
+      const { did, genesisDocument } = didWith('SMTBeacon');
+      const { rootHex, proof } = treeFor(did);
+      const { resolver, state } = drive(did, { genesisDocument }, [rootHex]);
+      if(state.status !== 'action-required') throw new Error('expected NeedSMTProof');
+
+      const thrown = thrownBy(() => resolver.provide(state.needs[0] as NeedSMTProof, { id: padBit(proof.id) } as SMTProof));
+      expect(thrown).to.be.instanceOf(ResolveError);
+      expect(thrown.type).to.equal(MISSING_UPDATE_DATA);
+      expect(thrown.message).to.match(/non-zero pad bits/);
+    });
+
+    it('raises MISSING_UPDATE_DATA in provide(NeedSMTProof) for an id with "=" padding and non-zero pad bits', () => {
+      const { did, genesisDocument } = didWith('SMTBeacon');
+      const { rootHex, proof } = treeFor(did);
+      const { resolver, state } = drive(did, { genesisDocument }, [rootHex]);
+      if(state.status !== 'action-required') throw new Error('expected NeedSMTProof');
+
+      const thrown = thrownBy(() => resolver.provide(state.needs[0] as NeedSMTProof, { ...proof, id: `${padBit(proof.id)}=` }));
+      expect(thrown).to.be.instanceOf(ResolveError);
+      expect(thrown.type).to.equal(MISSING_UPDATE_DATA);
+    });
+
+    it('keeps INVALID_SIGNAL_DATA in provide(NeedSMTProof) for a payload that is not a record', () => {
+      const { did, genesisDocument } = didWith('SMTBeacon');
+      const { rootHex } = treeFor(did);
+      const { resolver, state } = drive(did, { genesisDocument }, [rootHex]);
+      if(state.status !== 'action-required') throw new Error('expected NeedSMTProof');
+      for(const payload of [null, undefined, 'x', 7]) {
+        const thrown = thrownBy(() => resolver.provide(state.needs[0] as NeedSMTProof, payload as unknown as SMTProof));
+        expect(thrown, String(payload)).to.be.instanceOf(ResolveError);
+        expect(thrown.type).to.equal(INVALID_SIGNAL_DATA);
+        expect(thrown.message).to.match(/not an SMT proof/);
+      }
+    });
+
+    it('keeps INVALID_SIGNAL_DATA in provide(NeedSMTProof) for an id with "=" padding and zero pad bits', () => {
+      const { did, genesisDocument } = didWith('SMTBeacon');
+      const { rootHex, proof } = treeFor(did);
+      const { resolver, state } = drive(did, { genesisDocument }, [rootHex]);
+      if(state.status !== 'action-required') throw new Error('expected NeedSMTProof');
+
+      const thrown = thrownBy(() => resolver.provide(state.needs[0] as NeedSMTProof, { ...proof, id: `${proof.id}=` }));
+      expect(thrown.type).to.equal(INVALID_SIGNAL_DATA);
+      expect(thrown.message).to.match(/does not decode/);
+    });
+
+    it('raises MISSING_UPDATE_DATA for a sidecar CAS announcement whose value for the DID is an empty string', () => {
+      const { did, genesisDocument } = didWith('CASBeacon');
+      const announcement = { [did]: '' };
+      const thrown = thrownBy(() => drive(
+        did, { genesisDocument, casUpdates: [announcement] }, [canonicalHash(announcement, { encoding: 'hex' })]
+      ));
+      expect(thrown.type).to.equal(MISSING_UPDATE_DATA);
+      expect(thrown.data).to.deep.include({ did, value: '' });
+    });
+
+    it('raises MISSING_UPDATE_DATA for versionId "1" if a later CAS announcement value for the DID is an empty string', () => {
+      const { did, genesisDocument } = didWith('CASBeacon');
+      const announcement = { [did]: '' };
+      const thrown = thrownBy(() => drive(
+        did, { genesisDocument, casUpdates: [announcement] }, [canonicalHash(announcement, { encoding: 'hex' })], { versionId: '1' }
+      ));
+      expect(thrown.type).to.equal(MISSING_UPDATE_DATA);
+      expect(thrown.data).to.deep.include({ did, value: '' });
+    });
+
+    it('raises MISSING_UPDATE_DATA on the next resolve() after provide(NeedCASAnnouncement) gets a value for the DID with non-zero pad bits', () => {
+      const { did, genesisDocument } = didWith('CASBeacon');
+      const value = padBit(canonicalHash({ other: true }));
+      const announcement = { [did]: value };
+      const { resolver, state } = drive(did, { genesisDocument }, [canonicalHash(announcement, { encoding: 'hex' })]);
+      if(state.status !== 'action-required') throw new Error('expected NeedCASAnnouncement');
+      expect(state.needs[0].kind).to.equal('NeedCASAnnouncement');
+      resolver.provide(state.needs[0] as NeedCASAnnouncement, announcement);
+      const thrown = thrownBy(() => resolver.resolve());
+      expect(thrown.type).to.equal(MISSING_UPDATE_DATA);
+      expect(thrown.data).to.deep.include({ did, value });
+    });
+
+    it('resolves with no update for a sidecar CAS announcement that has no entry for the DID', () => {
+      const { did, genesisDocument } = didWith('CASBeacon');
+      const announcement = { 'did:btcr2:x1other': canonicalHash({ other: true }) };
+      const { state } = drive(did, { genesisDocument, casUpdates: [announcement] }, [canonicalHash(announcement, { encoding: 'hex' })]);
+      expect(state.status).to.equal('resolved');
+    });
+
+    it('resolves with no update for a sidecar CAS announcement whose entry for the DID is not in its JSON form', () => {
+      // JSON drops an undefined value, so the hash covers an announcement with no entry for the DID.
+      const { did, genesisDocument } = didWith('CASBeacon');
+      const announcement = { [did]: undefined, 'did:btcr2:x1other': canonicalHash({ other: true }) };
+      for(const casUpdates of [[announcement], [announcement, { 'did:btcr2:x1other': canonicalHash({ other: true }) }]]) {
+        const { state } = drive(did, { genesisDocument, casUpdates }, [canonicalHash(announcement, { encoding: 'hex' })]);
+        expect(state.status).to.equal('resolved');
+        if(state.status !== 'resolved') return;
+        expect(state.result.metadata.versionId).to.equal('1');
+      }
+    });
+
+    it('resolves with no update after provide(NeedCASAnnouncement) gets an entry for the DID that is not in its JSON form', () => {
+      // JSON.stringify skips a property that is not enumerable, so the hash does not cover it.
+      const { did, genesisDocument } = didWith('CASBeacon');
+      const announcement = { 'did:btcr2:x1other': canonicalHash({ other: true }) };
+      Object.defineProperty(announcement, did, { value: canonicalHash({ hidden: true }), enumerable: false });
+      const { resolver, state } = drive(did, { genesisDocument }, [canonicalHash(announcement, { encoding: 'hex' })]);
+      if(state.status !== 'action-required') throw new Error('expected NeedCASAnnouncement');
+      resolver.provide(state.needs[0] as NeedCASAnnouncement, announcement);
+      const next = resolver.resolve();
+      expect(next.status).to.equal('resolved');
+      if(next.status !== 'resolved') return;
+      expect(next.result.metadata.versionId).to.equal('1');
     });
   });
 
@@ -1720,7 +2003,7 @@ describe('Resolver', () => {
       expect(thrown.type).to.equal(INVALID_SIGNAL_DATA);
     });
 
-    it('rejects a NeedSMTProof payload whose id does not decode with INVALID_SIGNAL_DATA', () => {
+    it('rejects a NeedSMTProof payload whose id is not base64url text with INVALID_SIGNAL_DATA', () => {
       const { resolver, need } = reachNeedSMTProof('cafe'.repeat(16));
       const thrown = caught(() => resolver.provide(need, { id: '!!!', collapsed: 'A'.repeat(43), hashes: [] }));
       expect(thrown.message).to.match(/does not decode/i);

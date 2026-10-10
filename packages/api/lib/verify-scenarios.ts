@@ -21,8 +21,9 @@
  *
  * A `versionTime` form (`before:N`, `at:N`, `after:N`) resolves against the
  * synthetic block times, and a `minConf` form (`depth:N`) against the synthetic
- * confirmation counts. SMT proofs ride in the sidecar. NeedSMTProof fires only
- * for a sidecar with no proof, and it yields `MISSING_UPDATE_DATA`, as the api
+ * confirmation counts. SMT proofs ride in the sidecar. The resolver emits
+ * NeedSMTProof only if the sidecar holds no proof that it uses for the signal
+ * root. The script then returns `MISSING_UPDATE_DATA`, the code that the api
  * raises. A negative vector passes when the resolver raises the expected error
  * code.
  *
@@ -161,8 +162,15 @@ function resolveOffline(did: string, options: object, plan: SignalPlan, manifest
             break;
           }
           case 'NeedSMTProof':
-            // The sidecar holds no proof: the api raises MISSING_UPDATE_DATA (ADR 120).
-            return { kind: 'error', error: 'MISSING_UPDATE_DATA', message: `SMT proof required but not in sidecar (root hash: ${need.smtRootHash}).` };
+            // The sidecar holds no proof that the resolver uses: the api raises MISSING_UPDATE_DATA (ADR 120, ADR 146).
+            return {
+              kind    : 'error',
+              error   : 'MISSING_UPDATE_DATA',
+              message : `SMT proof required but not in sidecar (root hash: ${need.smtRootHash}). `
+                + 'SMT proofs cannot be fetched from a CAS; provide the proof via '
+                + 'options.sidecar.smtProofs. The resolver ignores a proof whose id does not '
+                + 'decode to 32 bytes, for example an id with non-zero pad bits.'
+            };
         }
       }
       state = resolver.resolve();

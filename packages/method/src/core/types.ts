@@ -6,6 +6,8 @@ import type { SMTProof } from './interfaces.js';
  * a data structure that maps DIDs to BTCR2 Signed Update hashes. All BTCR2 Signed
  * Updates (data structure) MUST be hashed with the JSON Document Hashing algorithm.
  * The concrete representation of this data structure will be published to a CAS.
+ * The resolver reads the decoded value of the entry for the DID as `update_hash`. A
+ * string value that does not decode to 32 bytes raises `MISSING_UPDATE_DATA`.
  * @example
  * ```json
  * {
@@ -43,8 +45,8 @@ export type Sidecar = {
   updates?: Array<SignedBTCR2Update>
 
   /**
-   * Optional array of CAS Announcements. Required if the DID being reslved has
-   * used a CAS Beacon to publish a BTCR2 Update.
+   * Optional array of CAS Announcements. The resolver needs them if the DID under
+   * resolution used a CAS Beacon to announce a BTCR2 Update.
    */
   casUpdates?: Array<CASAnnouncement>;
 
@@ -52,7 +54,8 @@ export type Sidecar = {
    * Optional array of SMT Proofs: one proof for each SMT beacon signal that the
    * resolver finds for the DID, with an update announced or not. The DID
    * controller keeps every proof for the life of the DID. Sidecar is the only
-   * channel for a proof.
+   * channel for a proof. The resolver ignores a proof whose `id` does not decode to
+   * 32 bytes, for example an `id` with non-zero pad bits (ADR 146).
    */
   smtProofs?: Array<SMTProof>;
 };
@@ -68,7 +71,8 @@ export type SingletonBeaconSidecarData = Map<string, SignedBTCR2Update>;
  */
 export type CASBeaconSidecarData = Map<string, CASAnnouncement>;
 /**
- * The Sidecar data structure used for SMT Beacons.
+ * The Sidecar data structure used for SMT Beacons (`smt_lookup_table`).
+ * The map key is the hex of the decoded proof `id`.
  */
 export type SMTBeaconSidecarData = Map<string, SMTProof>;
 
@@ -87,7 +91,7 @@ export type SidecarData = {
   casMap: CASBeaconSidecarData;
 
   /**
-   * Map of SMT Proofs by their ID.
+   * This map holds the SMT Proofs. The key of each proof is the hex of its decoded `id`.
    */
   smtMap: SMTBeaconSidecarData;
 }
