@@ -547,11 +547,18 @@ export class DidMethodApi {
    * If the DID names a network other than the connection's, resolution is
    * refused before any chain read.
    *
-   * A failure rejects with a plain `Error` whose `cause` chain carries the
-   * typed failure: `ResolveError` of type `NOT_FOUND` when the genesis
-   * document of an EXTERNAL DID is not in the sidecar and the CAS does not
-   * return it, `MISSING_UPDATE_DATA` when a signed update or a CAS
-   * announcement is not in the sidecar and the CAS does not return it.
+   * A failure rejects with a plain `Error`. Its `cause` chain carries the typed
+   * failure, for example:
+   * - `ResolveError` of type `NOT_FOUND`: the genesis document of an EXTERNAL
+   *   DID is not in the sidecar, and the CAS does not return it.
+   * - `ResolveError` of type `MISSING_UPDATE_DATA`: a signed update or a CAS
+   *   announcement is not in the sidecar, and the CAS does not return it. The
+   *   same error occurs if the sidecar holds no SMT proof that the resolver uses
+   *   for the root of a beacon signal.
+   * - `CASBeaconError` of type `MISSING_UPDATE_DATA`: the value of the entry for the
+   *   DID in a CAS Announcement is not a base64url SHA-256 hash (ADR 146). From the CAS,
+   *   an announcement with a value that is not a string gives a `ResolveError`
+   *   of type `INVALID_DID_UPDATE`.
    * @param did The DID to resolve.
    * @param options Resolution options.
    * @returns The resolution result. `didResolutionMetadata.contentType` is
@@ -679,12 +686,14 @@ export class DidMethodApi {
               // An SMT proof has no content address on chain: the signal is the
               // tree root, and the proof of one DID is not derivable from it. Sidecar
               // is the only channel. Without it the need is unfulfillable. The
-              // specification raises MISSING_UPDATE_DATA when the proof table has
-              // no entry for the signal root.
+              // specification raises MISSING_UPDATE_DATA if smt_lookup_table has
+              // no entry for smt_root. The resolver ignores a sidecar proof whose id
+              // does not decode to 32 bytes, so that table has no entry for it (ADR 146).
               throw new ResolveError(
                 `SMT proof required but not in sidecar (root hash: ${need.smtRootHash}). `
                 + 'SMT proofs cannot be fetched from a CAS; provide the proof via '
-                + 'options.sidecar.smtProofs.',
+                + 'options.sidecar.smtProofs. The resolver ignores a proof whose id does not '
+                + 'decode to 32 bytes, for example an id with non-zero pad bits.',
                 MISSING_UPDATE_DATA, { smtRootHash: need.smtRootHash }
               );
             }

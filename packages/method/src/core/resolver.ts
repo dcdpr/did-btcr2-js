@@ -32,6 +32,7 @@ import {
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { Appendix } from '../utils/appendix.js';
 import { DidDocument, ID_PLACEHOLDER_VALUE } from '../utils/did-document.js';
+import { hasNonZeroPadBits, smtProofRootHex } from '../utils/base64url-hash.js';
 import { errorCause } from '../utils/error-cause.js';
 import { BeaconFactory } from './beacon/factory.js';
 import type { BeaconService, BeaconSignal, BlockMetadata } from './beacon/interfaces.js';
@@ -520,9 +521,11 @@ export class Resolver {
   }
 
   /**
-   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process-sidecar-data | Process Sidecar Data}
+   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process-sidecar-data | Process Sidecar Data}.
+   * The SMT map (`smt_lookup_table`) holds a proof only if its `id` decodes to 32 bytes with
+   * the strict decoder (ADR 146).
    * @param {Sidecar} sidecar The sidecar data to process.
-   * @returns {SidecarData} The processed sidecar data containing maps of updates, CAS announcements, and SMT proofs.
+   * @returns {SidecarData} The maps of updates, CAS Announcements, and SMT proofs.
    */
   static sidecarData(sidecar: Sidecar = {} as Sidecar): SidecarData {
     // BTCR2 Signed Updates map
@@ -532,19 +535,27 @@ export class Resolver {
         updateMap.set(canonicalHash(update, { encoding: 'hex' }), update);
       }
 
-    // CAS Announcements map
+    // CAS Announcements map. The map keeps the JSON form of each announcement,
+    // because the hash covers only that content. Thus an entry that JSON drops (for
+    // example an entry whose value is undefined) is not an entry for the DID.
     const casMap = new Map<string, CASAnnouncement>();
     if(sidecar.casUpdates?.length)
       for(const update of sidecar.casUpdates) {
-        casMap.set(canonicalHash(update, { encoding: 'hex' }), update);
+        const announcement = JSON.parse(JSON.stringify(update));
+        casMap.set(canonicalHash(announcement, { encoding: 'hex' }), announcement);
       }
 
-    // SMT Proofs map. proof.id is base64url per the SMT Proof spec; key by the
-    // hex root hash so lookups match the hex signalBytes from the OP_RETURN.
+    // SMT Proofs map (smt_lookup_table). The key is the hex of the decoded proof id,
+    // so a lookup matches the hex signalBytes from the OP_RETURN. "Process Sidecar
+    // Data": the resolver MUST ignore a proof whose id has non-zero pad bits. The
+    // resolver also ignores an item that is not an object, and a proof whose id does
+    // not decode to 32 bytes. smtProofRootHex gives no value for such an id, so no
+    // smt_root can match it. Unused sidecar data has no effect on the result.
     const smtMap = new Map<string, SMTProof>();
     if(sidecar.smtProofs?.length)
       for(const proof of sidecar.smtProofs) {
-        smtMap.set(encodeHash(decodeHash(proof.id, 'base64urlnopad'), 'hex'), proof);
+        const rootHex = smtProofRootHex(proof);
+        if(rootHex !== undefined) smtMap.set(rootHex, proof);
       }
 
     return { updateMap, casMap, smtMap };
@@ -1257,7 +1268,8 @@ export class Resolver {
             MISSING_UPDATE_DATA, { expected: need.announcementHash, actual: announcementHash }
           );
         }
-        this.#sidecarData.casMap.set(announcementHash, data);
+        // Keep the JSON form: the hash covers only that content.
+        this.#sidecarData.casMap.set(announcementHash, JSON.parse(JSON.stringify(data)));
         break;
       }
 
@@ -1283,6 +1295,17 @@ export class Resolver {
       }
 
       case 'NeedSMTProof': {
+        // "Process Sidecar Data": the resolver MUST ignore a sidecar proof whose id
+        // has non-zero pad bits. ADR 146 applies the same rule to a proof that
+        // provide() gets. An ignored proof leaves the need open: MISSING_UPDATE_DATA,
+        // as for an smt_lookup_table with no entry for smt_root.
+        const id = isRecord(data) ? (data as { id?: unknown }).id : undefined;
+        if(hasNonZeroPadBits(id)) {
+          throw new ResolveError(
+            `The resolver ignores the SMT proof for the root hash ${need.smtRootHash}: its id has non-zero pad bits.`,
+            MISSING_UPDATE_DATA, { smtRootHash: need.smtRootHash, id }
+          );
+        }
         // A proof of another shape is data for the signal that does not agree with
         // its Signal Bytes: INVALID_SIGNAL_DATA, as for the id and the walk below.
         if(!isSMTProof(data)) {
@@ -1291,15 +1314,11 @@ export class Resolver {
             INVALID_SIGNAL_DATA, { kind: need.kind }
           );
         }
-        // proof.id is base64url per spec; smtRootHash is the hex on-chain signal. The
-        // specification ("Process SMT Beacon") compares the id of smt_proof to
-        // smt_root: a mismatch, or an id that does not decode, is INVALID_SIGNAL_DATA.
-        let proofIdHex: string | undefined;
-        try {
-          proofIdHex = encodeHash(decodeHash(data.id, 'base64urlnopad'), 'hex');
-        } catch {
-          proofIdHex = undefined;
-        }
+        // proof.id is base64url per spec; smtRootHash is the hex on-chain signal.
+        // "Process SMT Beacon" raises INVALID_SIGNAL_DATA if the decoded id of
+        // smt_proof is not smt_root. This library also raises it for an id that the
+        // strict decoder refuses for a reason other than pad bits (ADR 120, ADR 146).
+        const proofIdHex = smtProofRootHex(data);
         if(proofIdHex !== need.smtRootHash) {
           throw new ResolveError(
             `SMT proof root hash mismatch: expected ${need.smtRootHash}, got ${proofIdHex ?? 'an id that does not decode'}.`,

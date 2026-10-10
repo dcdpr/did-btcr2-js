@@ -1,11 +1,13 @@
 import type { BitcoinConnection } from '@did-btcr2/bitcoin';
-import { canonicalHash, canonicalize, decode, encode, hash } from '@did-btcr2/common';
+import { canonicalHash, canonicalize, hash, MISSING_UPDATE_DATA } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '../btcr2-update.js';
 import type { Signer } from '@did-btcr2/keypair';
+import { base64UrlHashHex } from '../../utils/base64url-hash.js';
 import type { BeaconProcessResult, DataNeed } from '../resolver.js';
 import type { SidecarData } from '../types.js';
 import type { BroadcastOptions, BroadcastResult } from './beacon.js';
 import { SinglePartyBeacon } from './beacon.js';
+import { CASBeaconError } from './error.js';
 import type { BeaconService, BeaconSignal, BlockMetadata, CasPublishFn } from './interfaces.js';
 
 /**
@@ -68,13 +70,17 @@ export class CASBeacon extends SinglePartyBeacon {
    *
    * For each signal, the signalBytes contain the hex-encoded hash of a CAS Announcement.
    * The CAS Announcement maps DIDs to their base64url-encoded update hashes.
-   * This method looks up the CAS Announcement from the sidecar, extracts the update
-   * hash for the DID being resolved, and retrieves the corresponding signed update from sidecar.
+   * This method looks up the CAS Announcement in the sidecar. It reads the decoded
+   * value of the entry for the DID under resolution as `update_hash`. Then it gets
+   * the signed update with that hash from the sidecar. Only an announcement with no
+   * entry for the DID announces no update for it.
    *
    * @param {Array<BeaconSignal>} signals The array of Beacon Signals to process.
    * @param {SidecarData} sidecar The sidecar data associated with the CAS Beacon.
    * @returns {BeaconProcessResult} Successfully resolved updates and any data needs.
-   * @throws {CASBeaconError} if hash verification fails (validation errors only).
+   * @throws {CASBeaconError} `MISSING_UPDATE_DATA` if the announcement has an entry for
+   *   the DID whose value is not a base64url SHA-256 hash (32 bytes, no padding, zero
+   *   pad bits).
    */
   processSignals(
     signals: Array<BeaconSignal>,
@@ -103,16 +109,26 @@ export class CASBeacon extends SinglePartyBeacon {
         continue;
       }
 
-      // Look up this DID's update hash in the CAS Announcement
-      // Announcement values are base64urlnopad per spec, convert to hex for map lookup
-      const updateHashEncoded = casAnnouncement[did];
-
-      // If no entry for this DID, this announcement doesn't contain an update for us, skip
-      if(!updateHashEncoded) {
+      // "Process CAS Beacon": only an announcement with no entry for this DID
+      // announces no update for it, so skip the signal.
+      if(!Object.hasOwn(casAnnouncement, did)) {
         continue;
       }
 
-      const updateHash = encode(decode(updateHashEncoded, 'base64urlnopad'), 'hex');
+      // The decoded value of the entry is update_hash. Announcement values are
+      // base64url with no padding. The code converts the decoded value to hex for
+      // the map lookup. A value that does not decode to 32 bytes cannot match a
+      // signed update, so the data that the signal announces is not available:
+      // MISSING_UPDATE_DATA.
+      const updateHashEncoded = casAnnouncement[did];
+      const updateHash = base64UrlHashHex(updateHashEncoded);
+      if(updateHash === undefined) {
+        throw new CASBeaconError(
+          `The value of the CAS announcement entry for ${did} is not a base64url SHA-256 hash.`,
+          MISSING_UPDATE_DATA,
+          { did, value: updateHashEncoded, announcementHash, beaconServiceId: this.service.id }
+        );
+      }
 
       // Look up the signed update in sidecar updateMap
       const signedUpdate = sidecar.updateMap.get(updateHash);

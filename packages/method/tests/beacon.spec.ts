@@ -1,11 +1,11 @@
-import { canonicalHashBytes, canonicalize, canonicalHash, decode, encode, hash, INVALID_SIGNAL_DATA } from '@did-btcr2/common';
+import { canonicalHashBytes, canonicalize, canonicalHash, decode, encode, hash, INVALID_SIGNAL_DATA, MISSING_UPDATE_DATA } from '@did-btcr2/common';
 import type { SignedBTCR2Update } from '@did-btcr2/method';
 import { BTCR2MerkleTree, hashToHex, type TreeEntry } from '@did-btcr2/smt';
 import { bytesToHex, randomBytes } from '@noble/hashes/utils';
 import { expect } from 'chai';
 import { SinglePartyBeacon } from '../src/core/beacon/beacon.js';
 import { CASBeacon } from '../src/core/beacon/cas-beacon.js';
-import { SMTBeaconError } from '../src/core/beacon/error.js';
+import { CASBeaconError, SMTBeaconError } from '../src/core/beacon/error.js';
 import { BeaconFactory } from '../src/core/beacon/factory.js';
 import type { BeaconService, BeaconSignal, BlockMetadata } from '../src/core/beacon/interfaces.js';
 import { SingletonBeacon } from '../src/core/beacon/singleton-beacon.js';
@@ -42,6 +42,24 @@ function fakeSignal(signalBytes: string): BeaconSignal {
 }
 
 const DID = 'did:btcr2:k1q5ptvjpcgt0jfgvddau2fllfcpxwa5qtw2umkafp5xqwqr72a7xanvcjf324y';
+
+/** The base64url letters in the order of their values (RFC 4648 Section 5). */
+const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+
+/** Helper: the same base64url text with a non-zero pad bit. A lenient decoder gets the same bytes. */
+function padBit(text: string): string {
+  return text.slice(0, -1) + LETTERS[LETTERS.indexOf(text.at(-1)!) | 1];
+}
+
+/** Helper: the error that `fn` throws, or undefined. */
+function thrownBy(fn: () => unknown): any {
+  try {
+    fn();
+  } catch(error) {
+    return error;
+  }
+  return undefined;
+}
 
 describe('SinglePartyBeacon.processSignals', () => {
 
@@ -155,6 +173,54 @@ describe('SinglePartyBeacon.processSignals', () => {
       expect(result.needs[0]!.kind).to.equal('NeedSignedUpdate');
       expect((result.needs[0] as { updateHash: string }).updateHash).to.equal(updateHashHex);
     });
+
+    const valid = canonicalHash(fakeUpdate('cas-bad-entry'));
+    for(const [label, value] of [
+      ['an empty string', ''],
+      ['a hash with non-zero pad bits', padBit(valid)],
+      ['a hash with "=" padding', `${valid}=`],
+      ['a hash with a base64 letter outside base64url ("+")', `+${valid.slice(1)}`],
+      ['a 31-byte value', encode(randomBytes(31), 'base64urlnopad')],
+      ['a 33-byte value', encode(randomBytes(33), 'base64urlnopad')],
+      ['a number', 42],
+      ['null', null]
+    ] as Array<[string, unknown]>) {
+      it(`throws MISSING_UPDATE_DATA if the value of the entry for this DID is ${label}`, () => {
+        const announcement = { [DID]: value } as unknown as CASAnnouncement;
+        const announcementHashHex = bytesToHex(hash(canonicalize(announcement)));
+
+        const sidecar = emptySidecar();
+        sidecar.casMap.set(announcementHashHex, announcement);
+
+        const thrown = thrownBy(() => beacon.processSignals([fakeSignal(announcementHashHex)], sidecar));
+        expect(thrown).to.be.instanceOf(CASBeaconError);
+        expect(thrown.type).to.equal(MISSING_UPDATE_DATA);
+        expect(thrown.data).to.deep.equal({
+          did              : DID,
+          value,
+          announcementHash : announcementHashHex,
+          beaconServiceId  : service.id
+        });
+      });
+    }
+
+    it('ignores a malformed value for another DID if the value for this DID is valid', () => {
+      const otherDid = 'did:btcr2:k1q5pcyz9x806tq82vysz6tde0lpge4frgmuxx33dxz6zxtkx7ljwg78q7n2tc4';
+      for(const otherValue of ['', padBit(canonicalHash(fakeUpdate('cas-other'))), null]) {
+        const update = fakeUpdate('cas-other-entry');
+        const announcement = { [otherDid]: otherValue, [DID]: canonicalHash(update) } as unknown as CASAnnouncement;
+        const announcementHashHex = bytesToHex(hash(canonicalize(announcement)));
+
+        const sidecar = emptySidecar();
+        sidecar.casMap.set(announcementHashHex, announcement);
+        sidecar.updateMap.set(bytesToHex(hash(canonicalize(update))), update);
+
+        const result = beacon.processSignals([fakeSignal(announcementHashHex)], sidecar);
+        expect(result.needs, String(otherValue)).to.be.empty;
+        expect(result.updates).to.have.length(1);
+        expect(result.updates[0]![0]).to.deep.equal(update);
+      }
+    });
   });
 
   describe('SMTBeacon', () => {
@@ -171,16 +237,6 @@ describe('SinglePartyBeacon.processSignals', () => {
       tree.addEntries([{ did: DID, ...entry }]);
       tree.finalize();
       return { rootHex: hashToHex(tree.rootHash), proof: tree.proof(DID) };
-    }
-
-    /** The error that `fn` throws, or undefined. */
-    function thrownBy(fn: () => unknown): any {
-      try {
-        fn();
-      } catch(error) {
-        return error;
-      }
-      return undefined;
     }
 
     it('returns update when SMT proof and signed update are in sidecar', () => {
@@ -271,6 +327,59 @@ describe('SinglePartyBeacon.processSignals', () => {
       expect(thrown.type).to.equal(INVALID_SIGNAL_DATA);
       expect(thrown.message).to.match(/id does not equal the signal root/);
       expect(thrown.data.smtRootHash).to.equal(otherRoot);
+    });
+
+    it('emits NeedSMTProof for a proof in a caller-built map whose id has non-zero pad bits', () => {
+      const update = fakeUpdate('smt-pad-bits');
+      const { rootHex, proof } = treeOf({ nonce: randomBytes(32), updateId: canonicalHashBytes(update) });
+
+      const sidecar = emptySidecar();
+      sidecar.smtMap.set(rootHex, { ...proof, id: padBit(proof.id) });
+      sidecar.updateMap.set(bytesToHex(canonicalHashBytes(update)), update);
+
+      const result = beacon.processSignals([fakeSignal(rootHex)], sidecar);
+
+      expect(result.updates).to.be.empty;
+      expect(result.needs).to.deep.equal([{ kind: 'NeedSMTProof', smtRootHash: rootHex, beaconServiceId: service.id }]);
+    });
+
+    it('emits NeedSMTProof for a proof in a caller-built map whose id has "=" padding and non-zero pad bits', () => {
+      const { rootHex, proof } = treeOf({ nonce: randomBytes(32) });
+
+      const sidecar = emptySidecar();
+      sidecar.smtMap.set(rootHex, { ...proof, id: `${padBit(proof.id)}=` });
+
+      const result = beacon.processSignals([fakeSignal(rootHex)], sidecar);
+
+      expect(result.updates).to.be.empty;
+      expect(result.needs).to.deep.equal([{ kind: 'NeedSMTProof', smtRootHash: rootHex, beaconServiceId: service.id }]);
+    });
+
+    it('throws INVALID_SIGNAL_DATA for a proof whose updateId has non-zero pad bits', () => {
+      // ADR 146: the decoders stay strict, so a pad-bit updateId fails SMT Proof Verification.
+      const update = fakeUpdate('smt-pad-bit-update-id');
+      const { rootHex, proof } = treeOf({ nonce: randomBytes(32), updateId: canonicalHashBytes(update) });
+
+      const sidecar = emptySidecar();
+      sidecar.smtMap.set(rootHex, { ...proof, updateId: padBit(proof.updateId!) });
+      sidecar.updateMap.set(bytesToHex(canonicalHashBytes(update)), update);
+
+      const thrown = thrownBy(() => beacon.processSignals([fakeSignal(rootHex)], sidecar));
+      expect(thrown).to.be.instanceOf(SMTBeaconError);
+      expect(thrown.type).to.equal(INVALID_SIGNAL_DATA);
+      expect(thrown.message).to.match(/verification failed/);
+    });
+
+    it('throws INVALID_SIGNAL_DATA for a proof in a caller-built map whose id has "=" padding and zero pad bits', () => {
+      const { rootHex, proof } = treeOf({ nonce: randomBytes(32) });
+
+      const sidecar = emptySidecar();
+      sidecar.smtMap.set(rootHex, { ...proof, id: `${proof.id}=` });
+
+      const thrown = thrownBy(() => beacon.processSignals([fakeSignal(rootHex)], sidecar));
+      expect(thrown).to.be.instanceOf(SMTBeaconError);
+      expect(thrown.type).to.equal(INVALID_SIGNAL_DATA);
+      expect(thrown.message).to.match(/id does not equal the signal root/);
     });
 
     it('throws INVALID_SIGNAL_DATA for a proof that does not verify', () => {

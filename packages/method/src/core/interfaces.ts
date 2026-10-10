@@ -112,7 +112,9 @@ export interface ResolutionOptions extends DidResolutionOptions {
 export interface SMTProof {
   /**
    * base64url (no padding) SHA-256 hash of the root node of the Sparse Merkle Tree.
-   * The resolver compares it to the Signal Bytes of the SMT beacon signal.
+   * The resolver compares the decoded id to the Signal Bytes of the SMT beacon
+   * signal. The resolver ignores a sidecar proof whose id does not decode to 32
+   * bytes, for example an id with non-zero pad bits.
    */
   id: string;
   /**
@@ -124,6 +126,7 @@ export interface SMTProof {
   /**
    * Optional base64url (no padding) JSON Document Hash of the BTCR2 Signed Update.
    * Present when the signal announces an update for the DID. Absent when it does not.
+   * The decoded updateId is `update_hash`.
    */
   updateId?: string;
   /**
