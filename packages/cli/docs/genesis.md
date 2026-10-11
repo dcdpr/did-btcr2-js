@@ -96,6 +96,14 @@ The api refuses a spec that cannot produce an updatable identifier: no verificat
 address of the network, an unknown relationship, an unknown beacon type, and two entries with one
 id. The command prints the reason and writes no file.
 
+Before it writes the file, the command also runs the check of `create -t x --document` (ADR 147).
+The initial DID document must have a `capabilityInvocation` method that can sign an update. Each
+key with `capabilityInvocation` gives a `Multikey` method that passes this check, so a valid spec
+passes. If you edit the written file, keep at least one such method. Otherwise
+`create -t x --document` refuses the file with this message:
+`Invalid genesis document: the DID document has no capabilityInvocation method that can sign an update. Nobody can update or deactivate the DID.`
+See [create.md](./create.md#options) for the conditions of the method.
+
 ### The document
 
 The command writes the genesis document as pretty JSON, and it hashes the parsed form of that

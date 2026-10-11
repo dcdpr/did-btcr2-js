@@ -47,13 +47,13 @@ import type {
   SignedBTCR2Update, UnsignedBTCR2Update,
 } from '@did-btcr2/method';
 import {
-  BTCR2_UPDATE_CONTEXT, DidBtcr2, GenesisDocument, ID_PLACEHOLDER_VALUE, Identifier, Resolver, Updater,
+  Appendix, BTCR2_UPDATE_CONTEXT, DidBtcr2, GenesisDocument, ID_PLACEHOLDER_VALUE, Identifier, Resolver, Updater,
 } from '@did-btcr2/method';
 import { bech32m, hex } from '@scure/base';
 import { Address, p2pkh, p2tr, p2wpkh } from '@scure/btc-signer';
 
 import {
-  anchorRound, cohortsOutDir, errorEnvelope, expiresBeforeCreatedTimes, findCohort, isDuplicate, loadCohorts, loadRecipes,
+  anchorRound, cohortsOutDir, errorEnvelope, expiresBeforeCreatedTimes, FAILURE_RULES, findCohort, isDuplicate, loadCohorts, loadRecipes,
   networkDataDir, okEnvelope, parseNetworkArg, readJSON, realUpdates, resolveCaseDir, signWithConfig, stateDir, updateDir,
   writeJSON, writeState,
   type AddrType, type AnchorEntry, type CohortDef, type IdentifierTamper, type KeySpec,
@@ -331,6 +331,18 @@ function fragmentOf(id: string): string {
   return id.slice(id.indexOf('#'));
 }
 
+/**
+ * The key of method `vmId` in `document`. The method is a member of
+ * `verificationMethod`, or a method that a relationship embeds. The generator
+ * uses the method only to find the key that signs. It does not check the
+ * method: `Updater.sign` does, and a negative set can name a method that fails
+ * the checks.
+ */
+function keyOfMethod(keys: Map<string, SchnorrKeyPair>, document: Btcr2DidDocument, did: string, vmId: string): SchnorrKeyPair | undefined {
+  const multibase = Appendix.getVerificationMethods(document).find((m) => absolutize(did, m.id) === vmId)?.publicKeyMultibase;
+  return [...keys.values()].find((kp) => kp.publicKey.multibase.encoded === multibase);
+}
+
 function runScenario(scenario: Scenario, cohorts: CohortDef[]): void {
   console.log(`\n[scenario] ${scenario.id} (${scenario.network})`);
   console.log(`  ${scenario.description}`);
@@ -347,6 +359,9 @@ function runScenario(scenario: Scenario, cohorts: CohortDef[]): void {
   for (const [name, kp] of keys) registerKey(registry, name, kp, scenario.network);
   const genesisKp = keys.get('genesis')!;
   const publicKey = genesisKp.publicKey.compressed;
+  // Updater.sign refuses the update data or the signing method of some negative sets. Every
+  // update of such a set is signed with signWithConfig, with the proof options of Updater.sign.
+  const signWithoutChecks = scenario.expect !== undefined && FAILURE_RULES[scenario.expect.rule]?.signRefuses === true;
 
   // A negative set names the rule that it breaks (ADR 136).
   const other: OtherFile = {
@@ -464,18 +479,17 @@ function runScenario(scenario: Scenario, cohorts: CohortDef[]): void {
     const vmId = u.tamper === 'unknown-method' ? `${did}#unknown` : absolutize(did, u.verificationMethodId);
     const beaconId = absolutize(did, u.beaconId);
 
-    // The signing method and the signer. A reference-only genesis method is not in the
-    // document, so the method comes from its key.
+    // The signer: the key that the recipe names, else the key of the method. The method of an
+    // unknown-method tamper is in no document, and a reference-only genesis method is not in
+    // the document, so their key comes from the recipe.
     const referenceOnly = scenario.genesis?.verificationMethods
       ?.find((m) => m.referenceOnly && absolutize(did, m.id) === vmId);
-    const vm: DidVerificationMethod = u.tamper === 'unknown-method'
-      ? multikeyMethod(vmId, did, publicKey)
+    const methodKp = u.tamper === 'unknown-method'
+      ? genesisKp
       : referenceOnly
-        ? multikeyMethod(vmId, did, keys.get(referenceOnly.key)!.publicKey.compressed)
-        : DidBtcr2.getSigningMethod(source.document, vmId);
-    const signerKp = u.signWith
-      ? keys.get(u.signWith)
-      : [...keys.values()].find((kp) => kp.publicKey.multibase.encoded === vm.publicKeyMultibase);
+        ? keys.get(referenceOnly.key)
+        : keyOfMethod(keys, source.document, did, vmId);
+    const signerKp = u.signWith ? keys.get(u.signWith) : methodKp;
     if (!signerKp) throw new Error(`${scenario.id} update ${stepNum}: no key for ${u.signWith ?? vmId}`);
     const signer = new LocalSigner(signerKp.secretKey.bytes);
 
@@ -485,9 +499,9 @@ function runScenario(scenario: Scenario, cohorts: CohortDef[]): void {
       : Updater.construct(source.document, patches, source.version);
     tamperUnsigned(unsigned, u.tamper);
     const overrides = proofOverrides(u.tamper, did);
-    const signed = overrides
-      ? signWithConfig(did, unsigned, vm, signer, overrides)
-      : Updater.sign(did, unsigned, vm, signer);
+    const signed = overrides || signWithoutChecks
+      ? signWithConfig(did, unsigned, vmId, signer, overrides ?? {})
+      : Updater.sign(source.document, unsigned, vmId, signer);
     tamperSigned(signed, u.tamper);
 
     const flags = [

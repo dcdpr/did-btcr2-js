@@ -1,7 +1,7 @@
 import type { BitcoinConnection, NetworkName } from '@did-btcr2/bitcoin';
 import { StaticFeeEstimator } from '@did-btcr2/bitcoin';
 import type { DocumentBytes, HashBytes, KeyBytes, PatchOperation } from '@did-btcr2/common';
-import { canonicalHash, decode as decodeHash, IdentifierHrp, IdentifierTypes, INVALID_DID_UPDATE, JSONPatch, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/common';
+import { canonicalHash, decode as decodeHash, DidDocumentError, IdentifierHrp, IdentifierTypes, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, JSONPatch, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/common';
 import type { Signer } from '@did-btcr2/keypair';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import type { BeaconFunding, BeaconService, BroadcastOptions, BroadcastResult, Btcr2DidDocument, CASAnnouncement, CASBroadcastOptions, DidCreateOptions, DidDocument, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, ResolutionOptions, RootCapability, SignedBTCR2Update, SMTProof, UnsignedBTCR2Update } from '@did-btcr2/method';
@@ -142,7 +142,8 @@ export interface AnnounceOptions extends BroadcastOptions {
 export interface UpdateOptions {
   /**
    * The id of the verification method that signs the update. If absent, the
-   * api uses the one verification method that publishes the key of the signer.
+   * api uses the one `capabilityInvocation` method that can sign an update
+   * and publishes the key of the signer.
    */
   verificationMethodId?: string;
   /** Options of the announcement. */
@@ -187,6 +188,89 @@ const FUNDING_ERROR_TYPES = new Set(['UNFUNDED_BEACON_ADDRESS', 'NO_SPENDABLE_BE
 /** True if `err` is a {@link BeaconError} that says why an address cannot fund the signal. */
 function isFundingError(err: unknown): err is BeaconError {
   return err instanceof BeaconError && FUNDING_ERROR_TYPES.has(err.type);
+}
+
+/** An entry of `capabilityInvocation` that cannot sign an update, and the reason. */
+type RefusedSigningMethod = { verificationMethodId: string | undefined; reason: string };
+
+/**
+ * Puts each entry of `document.capabilityInvocation` into one of two groups
+ * with {@link Updater.signingMethod}, the rule of the update path. `signing`
+ * maps the absolute id of each method that can sign an update to the method,
+ * with one item for each id. `refused` gives each other entry and the error
+ * message of `Updater.signingMethod`. The function reads an entry in the
+ * reference form and in the embedded form.
+ */
+function capabilityInvocationMethods(document: Btcr2DidDocument): {
+  signing: Map<string, DidVerificationMethod>;
+  refused: RefusedSigningMethod[];
+} {
+  const signing = new Map<string, DidVerificationMethod>();
+  const refused: RefusedSigningMethod[] = [];
+  const entries: unknown[] = Array.isArray(document?.capabilityInvocation) ? document.capabilityInvocation : [];
+  for(const entry of entries) {
+    const verificationMethodId = Appendix.relationshipMethodId(entry, document.id);
+    try {
+      // Updater.signingMethod refuses an entry with no usable id, so the id is a string here.
+      const method = Updater.signingMethod(document, verificationMethodId as string);
+      signing.set(verificationMethodId as string, method);
+    } catch (error) {
+      refused.push({ verificationMethodId, reason: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return { signing, refused };
+}
+
+/**
+ * Returns `undefined` if `document` does not lock out the DID: the document
+ * is deactivated, or a `capabilityInvocation` method can sign an update.
+ * Else the function returns the entries of `capabilityInvocation`
+ * and the reason that each entry cannot sign. The list is empty if
+ * `capabilityInvocation` is absent or empty. If no method can sign, nobody
+ * can update or deactivate the DID again.
+ */
+function lockOutReasons(document: Btcr2DidDocument): RefusedSigningMethod[] | undefined {
+  if(document?.deactivated === true) return undefined;
+  const { signing, refused } = capabilityInvocationMethods(document);
+  return signing.size > 0 ? undefined : refused;
+}
+
+/**
+ * Refuses an update after which no `capabilityInvocation` method can sign an
+ * update. Nobody can update or deactivate the DID after such an update, and
+ * an announced update is permanent. A target document with
+ * `deactivated === true` passes.
+ *
+ * The guard does not check an update that the Updater refuses for another
+ * reason: a source document with no method that can sign, or a patch that
+ * does not give a valid target document. The Updater names the cause of
+ * these refusals.
+ * @throws {UpdateError} `INVALID_DID_UPDATE` if the target document has no
+ *   method that can sign an update.
+ */
+function assertTargetCanSign(
+  sourceDocument: Btcr2DidDocument,
+  patch: PatchOperation[],
+  sourceVersionId: number,
+): void {
+  if(capabilityInvocationMethods(sourceDocument).signing.size === 0) return;
+  let targetDocument: Btcr2DidDocument;
+  try {
+    // Updater.construct applies the patch and validates the target document
+    // with the rules of the update path. The result has only the hash, so
+    // the guard applies the patch again for the document.
+    Updater.construct(sourceDocument, patch, sourceVersionId);
+    targetDocument = JSONPatch.apply(sourceDocument, patch, { strict: true }) as Btcr2DidDocument;
+  } catch {
+    return;
+  }
+  const methods = lockOutReasons(targetDocument);
+  if(methods === undefined) return;
+  throw new UpdateError(
+    'Invalid update: after this update, the DID document has no capabilityInvocation method that can sign '
+    + `an update. Nobody can update or deactivate ${sourceDocument.id} again.`,
+    INVALID_DID_UPDATE, { did: sourceDocument.id, methods }
+  );
 }
 
 /**
@@ -380,10 +464,17 @@ export class DidMethodApi {
    * configured Bitcoin connection, else for {@link DidMethodApi.FALLBACK_NETWORK}
    * (regtest), never mainnet. The network is not checked against the beacon
    * addresses of the document.
+   *
+   * A `capabilityInvocation` method of the initial DID document must be able
+   * to sign an update, with the rules of {@link DidMethodApi.signUpdate}.
+   * Without such a method, nobody can update or deactivate the DID. A
+   * document with `deactivated === true` passes.
    * @param genesisDocument The genesis document.
    * @param options Creation options (idType is set for you).
    * @returns The identifier, its genesis bytes, and the initial DID document.
-   * @throws {DidDocumentError} If the document is not a valid genesis document.
+   * @throws {DidDocumentError} `INVALID_DID_DOCUMENT` if the document is not a
+   *   valid genesis document, or if the initial DID document has no method
+   *   that can sign an update.
    */
   createExternalFromDocument(
     genesisDocument: object,
@@ -393,6 +484,14 @@ export class DidMethodApi {
     const genesisBytes = GenesisDocument.toGenesisBytes(genesisDocument);
     const did = this.createExternal(genesisBytes, options);
     const didDocument = Resolver.external(Identifier.decode(did), genesisDocument);
+    const methods = lockOutReasons(didDocument);
+    if(methods !== undefined) {
+      throw new DidDocumentError(
+        'Invalid genesis document: the DID document has no capabilityInvocation method that can sign an update. '
+        + 'Nobody can update or deactivate the DID.',
+        INVALID_DID_DOCUMENT, { did, methods }
+      );
+    }
     return { did, genesisBytes, didDocument };
   }
 
@@ -408,7 +507,9 @@ export class DidMethodApi {
    * @param source The source document and the `versionId` that its resolution returned.
    * @param patch The JSON Patch operations that change the source document.
    * @returns The unsigned update.
-   * @throws {UpdateError} If the patch does not give a valid DID document.
+   * @throws {UpdateError} `INVALID_DID_UPDATE` if `source.versionId` is not
+   *   an integer of 1 or more, or if the patch does not give a valid DID
+   *   document.
    */
   constructUpdate(source: SourceState, patch: PatchOperation[]): UnsignedBTCR2Update {
     if (source === null || typeof source !== 'object') {
@@ -419,31 +520,63 @@ export class DidMethodApi {
 
   /**
    * The "Construct BTCR2 Signed Update" step of the specification, with zero
-   * I/O. The api makes sure that the verification method publishes the key of
-   * the signer. Then it adds a Data Integrity proof that invokes the root
-   * capability of the DID.
-   * @param did The DID that the update changes.
+   * I/O. The DID is `source.document.id`. An entry of `capabilityInvocation`
+   * in the source document must identify the verification method. The method
+   * must be a BIP340 Multikey with the DID as its controller, and its key
+   * must be the key of the signer. The api adds a Data Integrity proof that
+   * invokes the root capability of the DID, and verifies the proof.
+   *
+   * The unsigned update must be an update of the source: its hashes must
+   * match the source document and the patch, and `targetVersionId` must be
+   * `source.versionId + 1`. Make it with {@link DidMethodApi.constructUpdate}
+   * from the same source. The api also refuses an update after which no
+   * `capabilityInvocation` method can sign an update. After such an update,
+   * nobody can update or deactivate the DID. A target document with
+   * `deactivated === true` passes.
+   * @param source The source document and the `versionId` that its resolution returned.
    * @param unsignedUpdate The result of {@link DidMethodApi.constructUpdate}.
-   * @param verificationMethod The verification method that signs the update.
+   * @param verificationMethodId The id of the verification method that signs, absolute or relative.
    * @param signer The signer with the key of the verification method.
    * @returns The signed update.
-   * @throws {UpdateError} If the DID, the verification method, or the signer is not valid.
+   * @throws {Error} If `source` is not an object.
+   * @throws {UpdateError} `INVALID_DID_UPDATE` if `source.versionId` is not
+   *   an integer of 1 or more, if `targetVersionId` is not
+   *   `source.versionId + 1`, if the target document has no method that can
+   *   sign an update, or if the source document, the verification method,
+   *   the unsigned update, or the signer is not valid.
    */
   signUpdate(
-    did: string,
+    source: SourceState,
     unsignedUpdate: UnsignedBTCR2Update,
-    verificationMethod: DidVerificationMethod,
+    verificationMethodId: string,
     signer: Signer,
   ): SignedBTCR2Update {
-    assertString(did, 'did');
-    const publicKeyMultibase = verificationMethod?.publicKeyMultibase;
-    if(!publicKeyMultibase) {
+    if (source === null || typeof source !== 'object') {
+      throw new Error('source must be an object.');
+    }
+    // The Updater cannot see the version of the source, so the api checks it and compares it.
+    // The text is the text of Updater.construct.
+    if(!Number.isInteger(source.versionId) || source.versionId < 1) {
       throw new UpdateError(
-        'The verification method must have a publicKeyMultibase: the api compares it with the key of the signer.',
-        INVALID_DID_UPDATE, { verificationMethodId: verificationMethod?.id }
+        'Invalid sourceVersionId: expected an integer of 1 or more.',
+        INVALID_DID_UPDATE, { sourceVersionId: source.versionId }
       );
     }
-    return Updater.sign(did, unsignedUpdate, { ...verificationMethod, publicKeyMultibase }, signer);
+    // The Updater refuses an unsigned update that is not an object, or a targetVersionId that is
+    // not an integer, with its own message.
+    const targetVersionId: unknown = unsignedUpdate?.targetVersionId;
+    if(Number.isInteger(targetVersionId) && targetVersionId !== source.versionId + 1) {
+      throw new UpdateError(
+        `Invalid update: targetVersionId is ${String(targetVersionId)}, but the source has `
+        + `versionId ${source.versionId}. Construct the update from this source.`,
+        INVALID_DID_UPDATE, { targetVersionId, sourceVersionId: source.versionId }
+      );
+    }
+    // Updater.sign runs first, so each of its refusals names its own cause. A signature has no
+    // effect until the announcement, so the api can discard it if the guard refuses the update.
+    const signedUpdate = Updater.sign(source.document, unsignedUpdate, verificationMethodId, signer);
+    assertTargetCanSign(source.document, unsignedUpdate.patch, source.versionId);
+    return signedUpdate;
   }
 
   /**
@@ -759,11 +892,18 @@ export class DidMethodApi {
    * Every write path (`updateDid`, `deactivateDid`, `deactivate`) passes
    * through here, so the refusal holds for all of them.
    *
+   * The api also refuses an update after which no `capabilityInvocation`
+   * method can sign an update, as {@link DidMethodApi.signUpdate} does. After
+   * such an update, nobody can update or deactivate the DID. A target
+   * document with `deactivated === true` passes. This refusal comes before
+   * any chain read and any signature.
+   *
    * The caller can omit `verificationMethodId` and `announce.beaconId`. The
    * api then derives them, after the guards above and before any signature.
-   * The verification method is the one method on the source document that
-   * publishes the signer's key. The Updater refuses every other method, so
-   * the signer's key identifies the method.
+   * The verification method is the one `capabilityInvocation` method of the
+   * source document that can sign an update and publishes the signer's key.
+   * The Updater refuses every other method, so the signer's key identifies
+   * the method.
    *
    * The beacon is the only beacon service, with no chain read. If the
    * document has several beacon services, the beacon is the one whose
@@ -856,6 +996,10 @@ export class DidMethodApi {
         INVALID_DID_UPDATE, { did: sourceDocument.id, ...mismatch }
       );
     }
+
+    // An update that leaves no method that can sign locks out the DID. The guard reads no
+    // chain, so a refused update reads nothing and signs nothing.
+    assertTargetCanSign(sourceDocument, patch, sourceVersionId);
 
     // The caller can omit two ids. The Updater refuses a method whose key
     // differs from the signer's key, so the signer's key identifies the
@@ -1055,29 +1199,33 @@ export class DidMethodApi {
   }
 
   /**
-   * This helper returns the id of the one verification method on `document`
-   * that publishes the signer's key. The Updater refuses a signer whose key
-   * differs from the `publicKeyMultibase` of the method, so the signer's key
-   * identifies the method. The api refuses zero matches and several matches.
-   * It never picks a method silently.
+   * This helper returns the absolute id of the one `capabilityInvocation`
+   * method on `document` that can sign an update and publishes the signer's
+   * key. The helper reads an entry in the reference form and in the embedded
+   * form, and applies the rules of {@link Updater.signingMethod}. A method
+   * that the Updater refuses is not a candidate, also if it has the key of
+   * the signer. The Updater refuses a signer whose key differs from the
+   * `publicKeyMultibase` of the method, so the signer's key identifies the
+   * method. The api refuses zero matches and several matches. It never picks
+   * a method silently.
    */
   #deriveVerificationMethodId(document: Btcr2DidDocument, signer: Signer): string {
     const signerKey = new CompressedSecp256k1PublicKey(signer.publicKey).multibase.encoded;
-    const matches = (document.verificationMethod ?? [])
-      .filter((method: DidVerificationMethod) => method.publicKeyMultibase === signerKey);
-    if(matches.length === 1) return matches[0]!.id;
-    if(matches.length === 0) {
+    const ids = [...capabilityInvocationMethods(document).signing]
+      .filter(([, method]) => method.publicKeyMultibase === signerKey)
+      .map(([id]) => id);
+    if(ids.length === 1) return ids[0]!;
+    if(ids.length === 0) {
       throw new UpdateError(
-        `No verification method on DID ${document.id} publishes the signer's key. `
-        + 'The api cannot derive verificationMethodId. Sign with a key that the document lists. '
+        `No capabilityInvocation method that can sign an update of DID ${document.id} publishes the signer's key. `
+        + 'The api cannot derive verificationMethodId. Sign with the key of such a method. '
         + 'As an alternative, pass verificationMethodId.',
         INVALID_DID_UPDATE, { did: document.id, signerKey }
       );
     }
-    const ids = matches.map((method: DidVerificationMethod) => method.id);
     throw new UpdateError(
-      `${matches.length} verification methods on DID ${document.id} publish the signer's key: `
-      + `${ids.join(', ')}. Pass verificationMethodId to choose one.`,
+      `${ids.length} capabilityInvocation methods that can sign an update of DID ${document.id} publish `
+      + `the signer's key: ${ids.join(', ')}. Pass verificationMethodId to choose one.`,
       INVALID_DID_UPDATE, { did: document.id, signerKey, verificationMethodIds: ids }
     );
   }
@@ -1150,10 +1298,16 @@ export class DidMethodApi {
   }
 
   /**
-   * Get the signing method from a DID document by method ID.
+   * Returns the verification method that can sign an update of `didDocument`,
+   * with the rules of {@link DidMethodApi.signUpdate}. An entry of
+   * `capabilityInvocation` must identify the method, in the reference form or
+   * the embedded form. The method must be a BIP340 Multikey with the DID as
+   * its controller.
    * @param didDocument The DID document.
-   * @param methodId The method ID (if omitted, the first signing method is returned).
-   * @returns The found signing method.
+   * @param methodId The id of the method, absolute or relative. Default: `#initialKey`.
+   * @returns The verification method that can sign an update.
+   * @throws {UpdateError} `INVALID_DID_UPDATE` if the document or the method
+   *   does not agree with these rules.
    */
   getSigningMethod(didDocument: Btcr2DidDocument, methodId?: string): DidVerificationMethod {
     return DidBtcr2.getSigningMethod(didDocument, methodId);

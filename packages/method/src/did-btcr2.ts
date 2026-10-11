@@ -6,17 +6,11 @@ import {
   IdentifierHrp,
   INVALID_DID_DOCUMENT,
   INVALID_DID_UPDATE,
-  METHOD_NOT_SUPPORTED,
   MethodError,
   UpdateError
 } from '@did-btcr2/common';
 import type {
   DidMethod} from '@web5/dids';
-import {
-  Did,
-  DidError,
-  DidErrorCode
-} from '@web5/dids';
 import type { BeaconService } from './core/beacon/interfaces.js';
 import { DEACTIVATION_PATCH } from './core/btcr2-update.js';
 import { Identifier } from './core/identifier.js';
@@ -24,10 +18,6 @@ import type { ResolutionOptions } from './core/interfaces.js';
 import { Resolver } from './core/resolver.js';
 import { Updater } from './core/updater.js';
 import { Appendix } from './utils/appendix.js';
-import {
-  MULTIKEY_PUBLIC_KEY_MULTIBASE_PREFIX,
-  MULTIKEY_VERIFICATION_METHOD_TYPE
-} from './utils/did-document.js';
 import type { Btcr2DidDocument, DidVerificationMethod } from './utils/did-document.js';
 
 export interface DidCreateOptions {
@@ -142,7 +132,7 @@ export class DidBtcr2 implements DidMethod {
    *
    * Factory method that validates the update parameters and returns a sans-I/O
    * {@link Updater} state machine. The caller drives the updater through its
-   * phases (Construct -> Sign -> Broadcast -> Complete) by calling `advance()` and
+   * phases (Construct -> Sign -> Fund -> Broadcast -> Complete) by calling `advance()` and
    * `provide()`. The method package performs **zero I/O**: signing key retrieval
    * (or KMS delegation) and the on-chain broadcast are the caller's responsibility.
    *
@@ -156,11 +146,11 @@ export class DidBtcr2 implements DidMethod {
    * @param {string} params.verificationMethodId The verification method ID to sign with.
    * @param {string} params.beaconId The beacon service ID to broadcast through.
    * @returns {Updater} A sans-I/O state machine for driving the update.
-   * @throws {UpdateError} `INVALID_DID_UPDATE` if `sourceVersionId` is not an integer of at
-   *   least 1, if no entry of `capabilityInvocation` identifies the verification method, if a
-   *   reference entry names no member of `verificationMethod`, or if the beacon service is not
-   *   found. `INVALID_DID_DOCUMENT` if the method is not of type `Multikey` or does not have a
-   *   `zQ3s` publicKeyMultibase prefix.
+   * @throws {UpdateError} `INVALID_DID_UPDATE` if one of these conditions is true:
+   *   - `sourceVersionId` is not an integer of at least 1.
+   *   - `sourceDocument` or `verificationMethodId` fails a condition of
+   *     {@link Updater.signingMethod}.
+   *   - The beacon service is not found.
    */
   static update({
     sourceDocument,
@@ -185,45 +175,12 @@ export class DidBtcr2 implements DidMethod {
       );
     }
 
-    // Spec "Construct BTCR2 Signed Update": an entry of capabilityInvocation must identify
-    // the verificationMethodId, in the reference form or the embedded form. Both sides are
-    // resolved to absolute DID URLs first, so the caller's spelling of the reference and the
-    // document's spelling of the entry may differ: either is legal per DID Core. This is the
-    // same rule the read path applies to an update's proof, so an update this factory
-    // authorizes is one the resolver will also accept.
-    const entry = Appendix.capabilityInvocationEntry(sourceDocument, verificationMethodId);
-    if(entry === undefined) {
-      throw new UpdateError(
-        'Invalid verificationMethodId: not authorized for capabilityInvocation',
-        INVALID_DID_UPDATE, { verificationMethodId, capabilityInvocation: sourceDocument.capabilityInvocation }
-      );
-    }
-
-    // The verification method is the embedded object of the entry, or the member of
-    // verificationMethod[] that a reference entry names.
-    const verificationMethod = Appendix.verificationMethodOfEntry(sourceDocument, entry);
-    if(!verificationMethod) {
-      throw new UpdateError(
-        'Invalid verificationMethodId: not found in source document',
-        INVALID_DID_UPDATE, { verificationMethodId }
-      );
-    }
-
-    // Validate the verificationMethod is of type 'Multikey'
-    if(verificationMethod.type !== MULTIKEY_VERIFICATION_METHOD_TYPE) {
-      throw new UpdateError(
-        `Invalid verificationMethod: verificationMethod.type must be "${MULTIKEY_VERIFICATION_METHOD_TYPE}"`,
-        INVALID_DID_DOCUMENT, verificationMethod
-      );
-    }
-
-    // Validate the publicKeyMultibase prefix is 'zQ3s'
-    if(!verificationMethod.publicKeyMultibase?.startsWith(MULTIKEY_PUBLIC_KEY_MULTIBASE_PREFIX)) {
-      throw new UpdateError(
-        `Invalid verificationMethodId: publicKeyMultibase prefix must start with "${MULTIKEY_PUBLIC_KEY_MULTIBASE_PREFIX}"`,
-        INVALID_DID_DOCUMENT, verificationMethod
-      );
-    }
+    // Spec "Construct BTCR2 Signed Update": the lookup through capabilityInvocation and the
+    // checks of the method that signs, after a check of the shape of sourceDocument.
+    // Updater.sign runs them again; this call fails before Construct. The read path applies
+    // the same lookup and checks to the proof of an update, so an update that this factory
+    // authorizes is one that the resolver also accepts.
+    Updater.signingMethod(sourceDocument, verificationMethodId);
 
     // Find the beacon service matching the given beaconId. A service `id` may be a relative
     // DID URL, so both sides are resolved against the document before comparison; an
@@ -243,13 +200,12 @@ export class DidBtcr2 implements DidMethod {
       );
     }
 
-    // Return a sans-I/O state machine the caller will drive. The prefix check above proves
-    // that the method carries a publicKeyMultibase, which the btcr2 method type requires.
+    // Return a sans-I/O state machine the caller will drive.
     return new Updater({
       sourceDocument,
       patches,
       sourceVersionId,
-      verificationMethod : verificationMethod as DidVerificationMethod,
+      verificationMethodId,
       beaconService,
     });
   }
@@ -288,47 +244,22 @@ export class DidBtcr2 implements DidMethod {
   }
 
   /**
-   * Given the W3C DID Document of a `did:btcr2` identifier, return the signing verification method that will be used
-   * for signing messages and credentials. If given, the `methodId` parameter is used to select the
-   * verification method. If not given, the Identity Key's verification method with an ID fragment
-   * of '#initialKey' is used.
-   * @param {Btcr2DidDocument} didDocument The DID Document of the `did:btcr2` identifier.
-   * @param {string} [methodId] Optional verification method ID to be used for signing.
-   * @returns {DidVerificationMethod} Promise resolving to the {@link DidVerificationMethod} object used for signing.
-   * @throws {DidError} if the parsed did method does not match `btcr2` or signing method could not be determined.
+   * Returns the verification method that can sign an update of `didDocument`. This function
+   * applies the rules of {@link Updater.signingMethod}:
+   *
+   * 1. An entry of `capabilityInvocation` must identify the method, in the reference form or
+   *    the embedded form.
+   * 2. The method must have the type `Multikey` and the DID as its controller.
+   * 3. The method must have a secp256k1 public key in the BIP340 Multikey encoding.
+   *
+   * @param {Btcr2DidDocument} didDocument The DID document of the `did:btcr2` identifier.
+   * @param {string} [methodId] The id of the method, absolute or relative. The default is
+   *   `#initialKey`.
+   * @returns {DidVerificationMethod} The verification method that can sign an update.
+   * @throws {UpdateError} `INVALID_DID_UPDATE` if `didDocument` or the method fails a condition
+   *   of {@link Updater.signingMethod}.
    */
-  static getSigningMethod(didDocument: Btcr2DidDocument,  methodId?: string): DidVerificationMethod {
-    // Set the default methodId to the first assertionMethod if not given
-    methodId ??= '#initialKey';
-
-    // Verify the DID method is supported.
-    const parsedDid = Did.parse(didDocument.id);
-    if (parsedDid && parsedDid.method !== this.methodName) {
-      throw new MethodError(`Method not supported: ${parsedDid.method}`, METHOD_NOT_SUPPORTED, { identifier: didDocument.id });
-    }
-
-    // Attempt to find a verification method that matches the given method ID, or if not given,
-    // find the first verification method intended for signing claims. Both sides are resolved
-    // to absolute DID URLs first: a document may spell either the verification method `id` or
-    // the reference to it as a relative DID URL (`#initialKey`), and the two must still match.
-    const targetId = Appendix.absoluteDidUrl(methodId, didDocument.id)
-      ?? Appendix.relationshipMethodId(didDocument.assertionMethod?.[0], didDocument.id);
-
-    // An unusable target matches nothing: without this guard it compares equal to every
-    // method whose own id is unusable, and the document's first malformed method is
-    // returned as the signing method. The search covers verificationMethod[] first, then the
-    // methods that a verification relationship embeds.
-    const verificationMethod = targetId === undefined ? undefined : Appendix.getVerificationMethods(didDocument).find(
-      vm => Appendix.absoluteDidUrl(vm.id, didDocument.id) === targetId
-    );
-
-    // If no verification method is found, throw an error
-    if (!(verificationMethod && verificationMethod.publicKeyMultibase)) {
-      throw new DidError(
-        DidErrorCode.InternalError,
-        'A verification method intended for signing could not be determined from the DID Document'
-      );
-    }
-    return verificationMethod as DidVerificationMethod;
+  static getSigningMethod(didDocument: Btcr2DidDocument, methodId?: string): DidVerificationMethod {
+    return Updater.signingMethod(didDocument, methodId ?? '#initialKey');
   }
 }

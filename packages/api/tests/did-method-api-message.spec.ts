@@ -218,11 +218,11 @@ describe('DidMethodApi message signatures', () => {
     });
 
     it('the signature of a message does not verify on a signed update', () => {
-      const { api, did, document, signer } = fixture();
+      const { api, document, signer } = fixture();
       const signed = api.btcr2.signMessage(document, MESSAGE, signer);
       const patch: PatchOperation[] = [{ op: 'add', path: '/service/-', value: { id: '#x', type: 'LinkedDomains', serviceEndpoint: 'https://example.com' } }];
       const method = api.btcr2.getSigningMethod(document);
-      const update = api.btcr2.signUpdate(did, api.btcr2.constructUpdate({ document, versionId: 1 }, patch), method, signer);
+      const update = api.btcr2.signUpdate({ document, versionId: 1 }, api.btcr2.constructUpdate({ document, versionId: 1 }, patch), method.id, signer);
       const spliced = { ...update, proof: { ...update.proof, proofValue: signed.proof.proofValue } };
       const suite = new BIP340Cryptosuite(SchnorrMultikey.fromVerificationMethod(method));
 
@@ -231,9 +231,9 @@ describe('DidMethodApi message signatures', () => {
     });
 
     it('a signed update is not a signed message', () => {
-      const { api, did, document, signer } = fixture();
+      const { api, document, signer } = fixture();
       const patch: PatchOperation[] = [{ op: 'add', path: '/service/-', value: { id: '#x', type: 'LinkedDomains', serviceEndpoint: 'https://example.com' } }];
-      const update = api.btcr2.signUpdate(did, api.btcr2.constructUpdate({ document, versionId: 1 }, patch), api.btcr2.getSigningMethod(document), signer);
+      const update = api.btcr2.signUpdate({ document, versionId: 1 }, api.btcr2.constructUpdate({ document, versionId: 1 }, patch), '#initialKey', signer);
 
       const report = api.btcr2.verifyMessage(document, JSON.parse(JSON.stringify(update)));
       expect(report.verified).to.equal(false);

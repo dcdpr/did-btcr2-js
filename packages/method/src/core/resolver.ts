@@ -34,6 +34,7 @@ import { Appendix } from '../utils/appendix.js';
 import { DidDocument, ID_PLACEHOLDER_VALUE } from '../utils/did-document.js';
 import { hasNonZeroPadBits, smtProofRootHex } from '../utils/base64url-hash.js';
 import { errorCause } from '../utils/error-cause.js';
+import { signingMethodProblem } from '../utils/signing-method.js';
 import { BeaconFactory } from './beacon/factory.js';
 import type { BeaconService, BeaconSignal, BlockMetadata } from './beacon/interfaces.js';
 import { BeaconUtils } from './beacon/utils.js';
@@ -804,13 +805,32 @@ export class Resolver {
       );
     }
 
+    // Spec "Check update.proof": the method that signs, embedded or referenced, must have
+    // the type Multikey, the DID as its controller, and a secp256k1 public key in the BIP340
+    // Multikey encoding. The check runs after the method lookup and before the time window,
+    // in the order of the specification. It also runs before signature verification, so
+    // that a failure names the field of the method and not the signature.
+    const problem = signingMethodProblem(vm, did);
+    if(problem !== undefined) {
+      const reason = problem.cause !== undefined ? `: ${problem.cause.message}` : '';
+      throw new ResolveError(
+        `Invalid update: verificationMethod.${problem.message}${reason}`,
+        INVALID_DID_UPDATE, {
+          verificationMethodId,
+          field  : problem.field,
+          actual : vm[problem.field],
+          ...(problem.cause !== undefined && { cause: problem.cause })
+        }
+      );
+    }
+
     // Spec "Check update.proof": the proof time window against the block of the signal.
     Resolver.checkProofWindow(proof, block);
 
     // Verify the proof with the public key that the verification method publishes. The
-    // multikey names the method by its absolute DID URL, as the proof does. An error of the
-    // multikey or the cryptosuite (a key that does not decode, a proof value that does not
-    // decode, a created value the suite rejects) is an invalid update.
+    // multikey names the method by its absolute DID URL, as the proof does. The key decodes:
+    // the method check above decodes it. An error of the cryptosuite (a proof value that does
+    // not decode, a created value the suite rejects) is an invalid update.
     let verified: boolean;
     try {
       const multikey = SchnorrMultikey.fromVerificationMethod({

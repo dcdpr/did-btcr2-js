@@ -368,7 +368,7 @@ btcr2 -o json update --signing-key demo \
   | jq '.data.signedUpdate' > signed-update.json
 ```
 
-`update` first resolves the current document. This is version 1, the initial DID document, so no sidecar data is necessary yet. The command selects the verification method that publishes your key and the one funded beacon. It signs the change, spends the funded beacon UTXO, and broadcasts a Bitcoin transaction. The `OP_RETURN` output of the transaction carries the update hash. The `.data` of the result holds `.data.txid`, the transaction id, and `.data.signedUpdate`, the off-chain half that you keep. The `jq` filter saves the signed update in `signed-update.json`. In text mode, `update` also prints a `Watch:` explorer link for the transaction on stderr.
+`update` first resolves the current document. This is version 1, the initial DID document, so no sidecar data is necessary yet. The command selects the one `capabilityInvocation` method that can sign an update and has your key. It also selects the one funded beacon. It signs the change, spends the funded beacon UTXO, and broadcasts a Bitcoin transaction. The `OP_RETURN` output of the transaction carries the update hash. The `.data` of the result holds `.data.txid`, the transaction id, and `.data.signedUpdate`, the off-chain half that you keep. The `jq` filter saves the signed update in `signed-update.json`. In text mode, `update` also prints a `Watch:` explorer link for the transaction on stderr.
 
 A second update needs the first signed update as sidecar data for its own source resolution. Pass `--min-conf 1 -r "$(jq -c '{sidecar:{updates:[.]}}' signed-update.json)"`, as in Step D.
 
@@ -596,7 +596,8 @@ rm -rf /tmp/btcr2-demo
 | `Provide both --source-document and --source-version-id, or neither` | You passed one half of the offline source pair. Pass both, or omit both. Then the command resolves the current document. |
 | `... apply only when --source-document and --source-version-id are omitted` | `-r`, `--resolution-options-path`, and `--min-conf` feed the source resolution. A supplied source pair skips that resolution. Drop the pair or drop the flags. |
 | `update` or `deactivate` fails with `Signed update not found in CAS` | The source resolution inside the command needs the same sidecar data as `resolve`. Pass `-r '{"sidecar":{"updates":[...]}}'`, and `--min-conf 1` for a fresh signal. |
-| `... verification methods on DID ... publish the signer's key` | The document lists the signing key under more than one method. Pass `-m <id>` with one of the listed ids. |
+| `No capabilityInvocation method that can sign an update of DID ... publishes the signer's key` | No `capabilityInvocation` method that can sign an update has the signing key. Pass `--signing-key <ref>` with the key of such a method. If a method of the DID document has the signing key, pass `-m <id>` with its id. The message then names the check that the method fails. |
+| `... capabilityInvocation methods that can sign an update of DID ... publish the signer's key` | The document lists the signing key under more than one method that can sign an update. Pass `-m <id>` with one of the listed ids. |
 | `No beacon of DID ... can fund the signal`, or `... beacons of DID ... can fund the signal` | The first message gives the reason for each beacon. Fund exactly one beacon, or pass `-b <id>` to select one of the funded beacons. |
 
 ### Command reference (short)

@@ -177,8 +177,12 @@ export interface AggregationParticipantParams {
    * the self-verifying genesis. Omitted for a KEY (k1) identifier. When present, the
    * participant's `signer` MUST be the keypair of the genesis document's
    * `capabilityInvocation[0]` verification method, so the advertised `communicationPk`
-   * matches the genesis-derived key the service verifies against. Typed as a plain record
-   * to keep the aggregation package DID-method-agnostic.
+   * matches the genesis-derived key the service verifies against. That method must also be
+   * able to sign an update of the DID: the type `Multikey`, the DID as the controller, and a
+   * BIP340 Multikey key in base58btc text. If it cannot, `resolveBtcr2SenderPk` of
+   * `@did-btcr2/method` derives no key from the genesis document, so a service transport
+   * that uses it refuses the opt-in. Typed as a plain record to keep the aggregation
+   * package DID-method-agnostic.
    */
   genesisDocument?: Record<string, unknown>;
 }

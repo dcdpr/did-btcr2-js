@@ -56,7 +56,7 @@ export function registerWriteOptions(command: Command): Command {
     .option(
       '-m, --verification-method-id <id>',
       'Verification method that signs the update '
-        + '(default: the one method of the document that publishes the signing key)',
+        + '(default: the one capabilityInvocation method that can sign an update and publishes the signing key)',
     )
     .option(
       '-b, --beacon-id <id>',

@@ -94,7 +94,7 @@ const unsigned = Updater.construct(sourceDocument, [{
   },
 }], 1);
 
-const signed = Updater.sign(did, unsigned, vm, customSigner);
+const signed = Updater.sign(sourceDocument, unsigned, vm.id, customSigner);
 console.log(`\n[5] Update signed via custom Signer`);
 
 const verifyResult = SchnorrMultikey.fromVerificationMethod(vm)

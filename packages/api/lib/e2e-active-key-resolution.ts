@@ -95,7 +95,7 @@ const unsigned = Updater.construct(sourceDoc, [{
     serviceEndpoint : 'http://example.com/active-key',
   },
 }], 1);
-const signed = Updater.sign(didA, unsigned, vm, signer);
+const signed = Updater.sign(sourceDoc, unsigned, vm.id, signer);
 assert.equal(
   SchnorrMultikey.fromVerificationMethod(vm).toCryptosuite().verifyProof(signed).verified, true,
   'active-key A signed update verifies',

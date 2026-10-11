@@ -1,8 +1,11 @@
+import { DidDocumentError, INVALID_DID_DOCUMENT, VERIFICATION_METHOD_ERROR } from '@did-btcr2/common';
 import { expect } from 'chai';
 import { hex } from '@scure/base';
 import { CompressedSecp256k1PublicKey, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { DidBtcr2 } from '../src/did-btcr2.js';
 import { getAggregationCommunicationKey, resolveBtcr2SenderPk } from '../src/core/did-sender-resolver.js';
+import { Identifier } from '../src/core/identifier.js';
+import { Resolver } from '../src/core/resolver.js';
 import { GenesisDocument, type DidDocument, type GenesisDocumentLike } from '../src/utils/did-document.js';
 import externalData from './data/external-data.js';
 import deterministicData from './data/deterministic-data.js';
@@ -59,6 +62,17 @@ describe('resolveBtcr2SenderPk', () => {
     delete genesis.capabilityInvocation;
     const genesisBytes = GenesisDocument.toGenesisBytes(genesis as GenesisDocumentLike);
     const did = DidBtcr2.create(genesisBytes, { idType: 'EXTERNAL', network: external.network });
+    expect(resolveBtcr2SenderPk(did, { genesisDocument: genesis })).to.equal(undefined);
+  });
+
+  it('returns undefined for an x1 DID whose capabilityInvocation[0] has the type JsonWebKey2020 and a valid zQ3s key', () => {
+    const genesis = structuredClone(external.genesisDocument);
+    genesis.verificationMethod[0]!.type = 'JsonWebKey2020';
+    const genesisBytes = GenesisDocument.toGenesisBytes(genesis as GenesisDocumentLike);
+    const did = DidBtcr2.create(genesisBytes, { idType: 'EXTERNAL', network: external.network });
+    // The genesis document resolves: the document can hold a method of any type. The method
+    // cannot sign an update, so it gives no communication key.
+    expect(Resolver.external(Identifier.decode(did), genesis).verificationMethod[0]!.type).to.equal('JsonWebKey2020');
     expect(resolveBtcr2SenderPk(did, { genesisDocument: genesis })).to.equal(undefined);
   });
 
@@ -125,6 +139,67 @@ describe('getAggregationCommunicationKey', () => {
       capabilityInvocation : ['did:btcr2:x1other#key-0'],
     } as unknown as DidDocument;
     expect(() => getAggregationCommunicationKey(doc)).to.throw(/verification method/);
+  });
+
+  /**
+   * Expect the INVALID_DID_DOCUMENT error of the method check for `field`, with `message`.
+   * The data names the capabilityInvocation entry: a reference or an embedded method.
+   */
+  function expectMethodRefused(
+    doc: DidDocument, invocation: unknown, field: string, message: string, cause?: { type: string; message: string }
+  ): void {
+    let thrown: any;
+    try {
+      getAggregationCommunicationKey(doc);
+    } catch(error) {
+      thrown = error;
+    }
+    expect(thrown, 'expected a refusal').to.be.instanceOf(DidDocumentError);
+    expect(thrown.type).to.equal(INVALID_DID_DOCUMENT);
+    expect(thrown.message).to.equal(`Cannot derive aggregation communication key: verificationMethod.${message}`);
+    // The method of the entry: the embedded object, or the member that the reference names.
+    const method = typeof invocation === 'string'
+      ? doc.verificationMethod?.find(member => member.id === invocation)
+      : invocation;
+    const actual = (method as Record<string, unknown> | undefined)?.[field];
+    expect(thrown.data).to.deep.include({ id: controller, invocation, field, actual });
+    expect(thrown.data.cause).to.deep.equal(cause);
+  }
+
+  it('throws for a referenced method of the type JsonWebKey2020 with a valid zQ3s key', () => {
+    const doc = {
+      id                   : controller,
+      verificationMethod   : [{ ...vm, type: 'JsonWebKey2020' }],
+      capabilityInvocation : [vmId],
+    } as unknown as DidDocument;
+    expectMethodRefused(doc, vmId, 'type', 'type must equal "Multikey"');
+  });
+
+  it('throws for an embedded Multikey method whose controller is another DID', () => {
+    const embedded = { ...vm, controller: 'did:btcr2:x1other' };
+    const doc = {
+      id                   : controller,
+      verificationMethod   : [],
+      capabilityInvocation : [embedded],
+    } as unknown as DidDocument;
+    expectMethodRefused(doc, embedded, 'controller', `controller must equal "${controller}"`);
+  });
+
+  it('throws for other text for the key that the decoder reads as the same key', () => {
+    // U+0100 after the `z` header: the base58btc decoder of the cryptosuite ignores it and
+    // reads the same 35 bytes. Only the base58btc text of the key is a valid key value.
+    const otherText = `z\u0100${publicKeyMultibase.slice(1)}`;
+    const doc = {
+      id                   : controller,
+      verificationMethod   : [{ ...vm, publicKeyMultibase: otherText }],
+      capabilityInvocation : [vmId],
+    } as unknown as DidDocument;
+    expectMethodRefused(doc, vmId, 'publicKeyMultibase',
+      'publicKeyMultibase must encode a secp256k1 public key as a BIP340 Multikey: '
+      + 'Invalid publicKeyMultibase: not the base58btc encoding of the key', {
+        type    : VERIFICATION_METHOD_ERROR,
+        message : 'Invalid publicKeyMultibase: not the base58btc encoding of the key'
+      });
   });
 
   it('does not match an unusable reference against an unusable method id', () => {

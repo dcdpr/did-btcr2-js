@@ -20,8 +20,8 @@ import { fileURLToPath } from 'node:url';
 import type { PatchOperation } from '@did-btcr2/common';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import type { LocalSigner } from '@did-btcr2/keypair';
-import type { Btcr2DataIntegrityConfig, DidVerificationMethod, SignedBTCR2Update, UnsignedBTCR2Update } from '@did-btcr2/method';
-import { BTCR2_UPDATE_CONTEXT } from '@did-btcr2/method';
+import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from '@did-btcr2/method';
+import { Appendix, BTCR2_UPDATE_CONTEXT } from '@did-btcr2/method';
 
 // ─── Networks ────────────────────────────────────────────────────────────────
 
@@ -547,23 +547,35 @@ export function expiresBeforeCreatedTimes(): { created: string; expires: string 
   return { created: nowIso(0), expires: nowIso(-1) };
 }
 
-/** Sign an update with explicit proof options (the tampers that change the options). */
+/**
+ * Sign an update with explicit proof options, and with none of the checks of
+ * `Updater.sign`. A negative set uses it for an update that `Updater.sign`
+ * refuses: a tamper that changes the proof options, a method that cannot sign,
+ * or update data that does not belong to the source document.
+ *
+ * With an empty `overrides`, the proof options are the options of
+ * `Updater.sign`. The proof names the method by the absolute DID URL of
+ * `verificationMethodId`, as `Updater.sign` does. The id can be any text, so a
+ * negative set can name a method that the document does not contain.
+ * @throws {Error} if `verificationMethodId` is empty.
+ */
 export function signWithConfig(
   did: string,
   unsigned: UnsignedBTCR2Update,
-  vm: Pick<DidVerificationMethod, 'id' | 'controller'>,
+  verificationMethodId: string,
   signer: LocalSigner,
   overrides: Partial<Btcr2DataIntegrityConfig>,
 ): SignedBTCR2Update {
-  const hashIdx = vm.id.indexOf('#');
-  const fragment = vm.id.slice(hashIdx);
-  const absoluteId = hashIdx === 0 ? `${did}${fragment}` : vm.id;
-  const multikey = SchnorrMultikey.fromSigner(fragment, vm.controller, signer);
+  const methodId = Appendix.absoluteDidUrl(verificationMethodId, did);
+  if (methodId === undefined) throw new Error('verificationMethodId must not be empty');
+  // The cryptosuite signs only if the proof names the full id of the multikey. The full id of
+  // this multikey is methodId, because methodId does not start with "#".
+  const multikey = SchnorrMultikey.fromSigner(methodId, did, signer);
   const config: Btcr2DataIntegrityConfig = {
     '@context'         : [ ...BTCR2_UPDATE_CONTEXT ],
     cryptosuite        : 'bip340-jcs-2025',
     type               : 'DataIntegrityProof',
-    verificationMethod : absoluteId,
+    verificationMethod : methodId,
     proofPurpose       : 'capabilityInvocation',
     capability         : `urn:zcap:root:${encodeURIComponent(did)}`,
     capabilityAction   : 'Write',
@@ -594,6 +606,12 @@ export type FailureRule = {
    * times, so it cannot check the cause of the rule.
    */
   blockTimes?: true;
+  /**
+   * `Updater.sign` refuses an unsigned update or a signing method that breaks
+   * the rule. The generator signs every update of such a set with
+   * {@link signWithConfig}, which does not check.
+   */
+  signRefuses?: true;
 };
 
 const RESOLVE = 'operations/resolve.html';
@@ -640,10 +658,11 @@ export const FAILURE_RULES: Readonly<Record<string, FailureRule>> = {
     message : /^Signed update (not found in CAS|required but not in sidecar)/,
   },
   'update-context-mismatch' : {
-    error   : 'INVALID_DID_UPDATE',
-    rule    : 'The @context of the update is not the array that the BTCR2 Unsigned Update specifies.',
-    section : `${RESOLVE}#check-update-proof`,
-    message : /^Invalid update: @context is not the array/,
+    error       : 'INVALID_DID_UPDATE',
+    rule        : 'The @context of the update is not the array that the BTCR2 Unsigned Update specifies.',
+    section     : `${RESOLVE}#check-update-proof`,
+    message     : /^Invalid update: @context is not the array/,
+    signRefuses : true,
   },
   'proof-context-mismatch' : {
     error   : 'INVALID_DID_UPDATE',
@@ -676,16 +695,18 @@ export const FAILURE_RULES: Readonly<Record<string, FailureRule>> = {
     message : /^Invalid update: proof\.proofPurpose must equal/,
   },
   'proof-method-unauthorized' : {
-    error   : 'INVALID_DID_UPDATE',
-    rule    : 'No entry of capabilityInvocation identifies update.proof.verificationMethod.',
-    section : `${RESOLVE}#check-update-proof`,
-    message : /^Invalid update: verificationMethod is not authorized for capabilityInvocation/,
+    error       : 'INVALID_DID_UPDATE',
+    rule        : 'No entry of capabilityInvocation identifies update.proof.verificationMethod.',
+    section     : `${RESOLVE}#check-update-proof`,
+    message     : /^Invalid update: verificationMethod is not authorized for capabilityInvocation/,
+    signRefuses : true,
   },
   'proof-method-not-found' : {
-    error   : 'INVALID_DID_UPDATE',
-    rule    : 'The capabilityInvocation entry that identifies update.proof.verificationMethod is a reference, and current_document.verificationMethod has no method with that id.',
-    section : `${RESOLVE}#check-update-proof`,
-    message : /^Invalid update: verificationMethod is not found in the verificationMethod of the current document/,
+    error       : 'INVALID_DID_UPDATE',
+    rule        : 'The capabilityInvocation entry that identifies update.proof.verificationMethod is a reference, and current_document.verificationMethod has no method with that id.',
+    section     : `${RESOLVE}#check-update-proof`,
+    message     : /^Invalid update: verificationMethod is not found in the verificationMethod of the current document/,
+    signRefuses : true,
   },
   'proof-not-verified' : {
     error   : 'INVALID_DID_UPDATE',
@@ -694,16 +715,18 @@ export const FAILURE_RULES: Readonly<Record<string, FailureRule>> = {
     message : /^Invalid update: proof (not verified|verification failed)/,
   },
   'source-hash-mismatch' : {
-    error   : 'INVALID_DID_UPDATE',
-    rule    : 'The hash of the current document does not match update.sourceHash.',
-    section : `${RESOLVE}#apply-update`,
-    message : /^Hash mismatch: update\.sourceHash/,
+    error       : 'INVALID_DID_UPDATE',
+    rule        : 'The hash of the current document does not match update.sourceHash.',
+    section     : `${RESOLVE}#apply-update`,
+    message     : /^Hash mismatch: update\.sourceHash/,
+    signRefuses : true,
   },
   'target-hash-mismatch' : {
-    error   : 'INVALID_DID_UPDATE',
-    rule    : 'The hash of the patched document does not match update.targetHash.',
-    section : `${RESOLVE}#apply-update`,
-    message : /^Invalid update: update\.targetHash/,
+    error       : 'INVALID_DID_UPDATE',
+    rule        : 'The hash of the patched document does not match update.targetHash.',
+    section     : `${RESOLVE}#apply-update`,
+    message     : /^Invalid update: update\.targetHash/,
+    signRefuses : true,
   },
   'version-skip' : {
     error   : 'LATE_PUBLISHING',
@@ -712,22 +735,25 @@ export const FAILURE_RULES: Readonly<Record<string, FailureRule>> = {
     message : /^Version Id Mismatch/,
   },
   'patch-apply-failure' : {
-    error   : 'INVALID_DID_UPDATE',
-    rule    : 'update.patch fails to apply to the current document.',
-    section : `${RESOLVE}#apply-update`,
-    message : /^Invalid update: JSON Patch application failed/,
+    error       : 'INVALID_DID_UPDATE',
+    rule        : 'update.patch fails to apply to the current document.',
+    section     : `${RESOLVE}#apply-update`,
+    message     : /^Invalid update: JSON Patch application failed/,
+    signRefuses : true,
   },
   'document-id-mismatch' : {
-    error   : 'INVALID_DID_UPDATE',
-    rule    : 'The id of the patched document is not the DID.',
-    section : `${RESOLVE}#apply-update`,
-    message : /^Invalid update: the patch changes the document id/,
+    error       : 'INVALID_DID_UPDATE',
+    rule        : 'The id of the patched document is not the DID.',
+    section     : `${RESOLVE}#apply-update`,
+    message     : /^Invalid update: the patch changes the document id/,
+    signRefuses : true,
   },
   'document-not-conformant' : {
-    error   : 'INVALID_DID_UPDATE',
-    rule    : 'The patched document does not conform to DID Core v1.1.',
-    section : `${RESOLVE}#apply-update`,
-    message : /^Invalid update: the patched document does not conform/,
+    error       : 'INVALID_DID_UPDATE',
+    rule        : 'The patched document does not conform to DID Core v1.1.',
+    section     : `${RESOLVE}#apply-update`,
+    message     : /^Invalid update: the patched document does not conform/,
+    signRefuses : true,
   },
   'proof-created-after-block' : {
     error      : 'INVALID_DID_UPDATE',

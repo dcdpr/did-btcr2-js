@@ -89,7 +89,8 @@ function buildSignedUpdate(did: string, kp: SchnorrKeyPair, beaconAddress: strin
       version      : 1,
       network      : 'mutinynet',
     });
-  const vm = doc.verificationMethod![0];
+  // The first method signs: #initialKey of a KEY document, #key-0 of the genesis document.
+  const methodId = doc.verificationMethod[0]!.id;
   const unsigned = Updater.construct(doc, [{
     op    : 'add', path  : '/service/-', value : {
       id              : `${did}#beacon-cas`,
@@ -97,7 +98,7 @@ function buildSignedUpdate(did: string, kp: SchnorrKeyPair, beaconAddress: strin
       serviceEndpoint : `bitcoin:${beaconAddress}`,
     }
   }], 1);
-  return Updater.sign(did, unsigned, vm, new LocalSigner(kp.raw.secret!));
+  return Updater.sign(doc, unsigned, methodId, new LocalSigner(kp.raw.secret!));
 }
 
 const service = new AggregationServiceRunner({

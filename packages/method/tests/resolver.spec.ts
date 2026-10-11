@@ -1,13 +1,15 @@
 import { expect } from 'chai';
 import { randomBytes } from 'crypto';
-import { canonicalHash, canonicalHashBytes, encode, hash, canonicalize, INTERNAL_ERROR, INVALID_DID_UPDATE, INVALID_OPTIONS, INVALID_SIGNAL_DATA, JSONPatch, LATE_PUBLISHING, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError } from '@did-btcr2/common';
+import { canonicalHash, canonicalHashBytes, encode, hash, canonicalize, INTERNAL_ERROR, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, INVALID_OPTIONS, INVALID_SIGNAL_DATA, JSONPatch, LATE_PUBLISHING, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, VERIFICATION_METHOD_ERROR } from '@did-btcr2/common';
 import type { PatchOperation } from '@did-btcr2/common';
 import { getNetwork } from '@did-btcr2/bitcoin';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
+import type { Signer } from '@did-btcr2/keypair';
 import { CompressedSecp256k1PublicKey, LocalSigner } from '@did-btcr2/keypair';
 import { BTCR2MerkleTree, hashToHex } from '@did-btcr2/smt';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { hexToBytes } from '@noble/hashes/utils';
+import { base58 } from '@scure/base';
 import { p2wpkh } from '@scure/btc-signer';
 import { DidBtcr2 } from '../src/did-btcr2.js';
 import { BeaconUtils } from '../src/core/beacon/utils.js';
@@ -87,7 +89,7 @@ function buildDiscoveryChain(
     }];
 
     const unsigned = Updater.construct(currentDoc, patches, i + 1);
-    const signed = Updater.sign(did, unsigned, vm, signer);
+    const signed = Updater.sign(currentDoc, unsigned, vm.id, signer);
     updates.push(signed);
 
     // The beacon discovered in the previous round points at this update.
@@ -159,7 +161,7 @@ function buildUpdateChain(
   let currentDoc: DidDocument = sourceDocument;
   patchesPerHop.forEach((patches, i) => {
     const unsigned = Updater.construct(currentDoc, patches, i + 1);
-    signed.push(Updater.sign(did, unsigned, vm, signer));
+    signed.push(Updater.sign(currentDoc, unsigned, vm.id, signer));
     currentDoc = JSONPatch.apply(currentDoc, patches) as DidDocument;
   });
   return signed;
@@ -339,6 +341,72 @@ function driveSignalSequence(
   state = resolver.resolve();
   if(state.status !== 'resolved') throw new Error('expected resolved');
   return state.result;
+}
+
+/** An XML Datetime in UTC for a Unix time in seconds. */
+function utc(seconds: number): string {
+  return new Date(seconds * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
+/**
+ * Resolve `did` from the established `document`. The signals go to the first beacon of the
+ * document, in one discovery round. Each block has the header time and the mediantime
+ * 1700000000 and six confirmations. Returns the resolved response or throws.
+ */
+function resolveFrom(did: string, document: DidDocument, sidecar: Sidecar, signalBytes: Array<string>): DidResolutionResponse {
+  const resolver = new Resolver(Identifier.decode(did), Resolver.sidecarData(sidecar), document);
+  let state = resolver.resolve();
+  if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+  const need = state.needs[0] as NeedBeaconSignals;
+  resolver.provide(need, new Map([[ need.beaconServices[0]!, signalBytes.map((bytes, i) => ({
+    tx            : {} as any,
+    signalBytes   : bytes,
+    blockMetadata : { height: 100 + i, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
+  })) ]]));
+  state = resolver.resolve();
+  if(state.status !== 'resolved') throw new Error('expected resolved');
+  return state.result;
+}
+
+/** Resolve as {@link resolveFrom} does and return the thrown error, if any. */
+function thrownFrom(...args: Parameters<typeof resolveFrom>): any {
+  try {
+    resolveFrom(...args);
+  } catch(error) {
+    return error;
+  }
+  return undefined;
+}
+
+/**
+ * Sign `unsigned` through the cryptosuite with `key`, without the checks of the write path,
+ * so that a test can sign an update that the read path must refuse. `key` is a secret key in
+ * hex or a signer. The proof names `verificationMethod`, an absolute DID URL, and has the
+ * Data Integrity config that the resolver expects for `did`. `extra` adds proof fields, for
+ * example `created`.
+ */
+function forgeSign(
+  did: string,
+  unsigned: UnsignedBTCR2Update,
+  verificationMethod: string,
+  key: string | Signer,
+  extra: Record<string, unknown> = {}
+): SignedBTCR2Update {
+  const multikey = typeof key === 'string'
+    ? SchnorrMultikey.fromSecretKey(verificationMethod, did, hexToBytes(key))
+    : SchnorrMultikey.fromSigner(verificationMethod, did, key);
+  const config = {
+    '@context'         : [ ...BTCR2_UPDATE_CONTEXT ],
+    type               : 'DataIntegrityProof',
+    cryptosuite        : 'bip340-jcs-2025',
+    verificationMethod,
+    proofPurpose       : 'capabilityInvocation',
+    capability         : `urn:zcap:root:${encodeURIComponent(did)}`,
+    capabilityAction   : 'Write',
+    invocationTarget   : did,
+    ...extra,
+  } as Btcr2DataIntegrityConfig;
+  return multikey.toCryptosuite().toDataIntegrityProof().addProof({ ...unsigned }, config) as SignedBTCR2Update;
 }
 
 describe('Resolver', () => {
@@ -1177,7 +1245,7 @@ describe('Resolver', () => {
 
       const vm = sourceDocument.verificationMethod![0]!;
       const unsigned = Updater.construct(sourceDocument, patches, 1);
-      const signed = Updater.sign(did, unsigned, vm, new LocalSigner(secretKey));
+      const signed = Updater.sign(sourceDocument, unsigned, vm.id, new LocalSigner(secretKey));
       const updateHashHex = canonicalHash(signed, { encoding: 'hex' });
 
       // Build the sidecar with the update pre-loaded
@@ -2434,16 +2502,16 @@ describe('Resolver', () => {
       // Two distinct v1->v2 updates (both targetVersionId 2) with different patches, so
       // their unsigned-update hashes differ.
       const applied = Updater.sign(
-        fixture.did, Updater.construct(source, benignPatch(fixture.did), 1), vm, signer
+        source, Updater.construct(source, benignPatch(fixture.did), 1), vm.id, signer
       );
       const forgedDuplicate = Updater.sign(
-        fixture.did,
+        source,
         Updater.construct(
           source,
           [{ op: 'add' as const, path: '/capabilityDelegation/-', value: `${fixture.did}#initialKey` }],
           1
         ),
-        vm, signer
+        vm.id, signer
       );
       // `applied` applies first (v1->v2); `forgedDuplicate` then enters the duplicate
       // branch (targetVersionId 2 <= currentVersionId 2) but fails confirmation because
@@ -2552,17 +2620,17 @@ describe('Resolver', () => {
       const vm = source.verificationMethod![0]!;
       const signer = new LocalSigner(hexToBytes(fixture.secretKey));
       const applied = Updater.sign(
-        fixture.did, Updater.construct(source, benignPatch(fixture.did), 1), vm, signer
+        source, Updater.construct(source, benignPatch(fixture.did), 1), vm.id, signer
       );
       // A different update claiming the already-applied version 2, mined after versionTime.
       const forged = Updater.sign(
-        fixture.did,
+        source,
         Updater.construct(
           source,
           [{ op: 'add' as const, path: '/capabilityDelegation/-', value: `${fixture.did}#initialKey` }],
           1
         ),
-        vm, signer
+        vm.id, signer
       );
       // A versionTime query does not skip the integrity checks. Equivocation evidence mined
       // after versionTime fails the resolution, as it fails a request for the current version.
@@ -2701,7 +2769,21 @@ describe('Resolver', () => {
       vm: DidVerificationMethod,
       signer: LocalSigner
     ): SignedBTCR2Update {
-      return Updater.sign(fixture.did, Updater.construct(document, patches, sourceVersionId), vm, signer);
+      return Updater.sign(document, Updater.construct(document, patches, sourceVersionId), vm.id, signer);
+    }
+
+    /**
+     * Sign one version hop without the checks of the write path. The write path refuses the
+     * method of these hops, and the read path must refuse the update too.
+     */
+    function forgeHop(
+      document: DidDocument,
+      patches: PatchOperation[],
+      sourceVersionId: number,
+      vm: DidVerificationMethod,
+      signer: LocalSigner
+    ): SignedBTCR2Update {
+      return forgeSign(fixture.did, Updater.construct(document, patches, sourceVersionId), vm.id, signer);
     }
 
     /** Resolve the fixture DID, then apply `patches` as a legitimate v1->v2 update. */
@@ -2747,7 +2829,7 @@ describe('Resolver', () => {
       // authentication only, deliberately keeping it out of capabilityInvocation.
       const { document, update: u2 } = v2(publishKey(weak.vm, [ 'authentication' ]));
       // v2->v3 (attack): whoever holds the device key seizes capabilityInvocation.
-      const u3 = signHop(
+      const u3 = forgeHop(
         document, [{ op: 'add', path: '/capabilityInvocation/-', value: weak.vm.id }], 2, weak.vm, weak.signer
       );
 
@@ -2761,7 +2843,7 @@ describe('Resolver', () => {
       const loose = otherKey(9, 'loose');
       // Published under verificationMethod[] only: locatable, but authorized for nothing.
       const { document, update: u2 } = v2(publishKey(loose.vm, []));
-      const u3 = signHop(document, benignPatch(fixture.did), 2, loose.vm, loose.signer);
+      const u3 = forgeHop(document, benignPatch(fixture.did), 2, loose.vm, loose.signer);
 
       const thrown = thrownBy([ u2, u3 ]);
       expect(thrown, 'expected the unauthorized update to be rejected').to.exist;
@@ -2773,7 +2855,7 @@ describe('Resolver', () => {
       // No capabilityInvocation means no method is authorized, including the identity key.
       const { document, update: u2, vm } = v2([{ op: 'remove', path: '/capabilityInvocation' }]);
       const signer = new LocalSigner(hexToBytes(fixture.secretKey));
-      const u3 = signHop(document, benignPatch(fixture.did), 2, vm, signer);
+      const u3 = forgeHop(document, benignPatch(fixture.did), 2, vm, signer);
 
       const thrown = thrownBy([ u2, u3 ]);
       expect(thrown, 'expected the update to be rejected').to.exist;
@@ -2789,7 +2871,7 @@ describe('Resolver', () => {
         { op: 'replace', path: '/capabilityInvocation/0', value: foreignId }
       ]);
       const signer = new LocalSigner(hexToBytes(fixture.secretKey));
-      const u3 = signHop(document, benignPatch(fixture.did), 2, vm, signer);
+      const u3 = forgeHop(document, benignPatch(fixture.did), 2, vm, signer);
 
       const thrown = thrownBy([ u2, u3 ]);
       expect(thrown, 'expected the foreign capabilityInvocation entry to authorize nothing').to.exist;
@@ -2798,9 +2880,9 @@ describe('Resolver', () => {
     });
 
     it('rejects an update whose proof.verificationMethod is not a string', () => {
-      // A non-string id names no method, so it authorizes nothing. Before the membership
-      // check it reached getSigningMethod, whose fragment extraction returns undefined for
-      // a non-string and silently fell back to selecting assertionMethod[0].
+      // A non-string id names no method, so it authorizes nothing. No entry of
+      // capabilityInvocation identifies it, so the membership check refuses it before the
+      // method lookup. The read path has no fallback to another method.
       const source = resolveDeterministic(fixture.did);
       const vm = source.verificationMethod![0]!;
       const signer = new LocalSigner(hexToBytes(fixture.secretKey));
@@ -3304,11 +3386,6 @@ describe('Resolver', () => {
     const HEADER_TIME = 1700000000;
     const MEDIANTIME = HEADER_TIME - 3600;
 
-    /** An XML Datetime in UTC for a Unix time in seconds. */
-    function utc(seconds: number): string {
-      return new Date(seconds * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
-    }
-
     /** A distinct, valid secp256k1 key and the verification method that publishes it. */
     function newKey(seed: number, fragment: string): { signer: LocalSigner; vm: DidVerificationMethod } {
       const secret = new Uint8Array(32);
@@ -3332,19 +3409,7 @@ describe('Resolver', () => {
      * fields (created, expires) that Updater.sign does not set.
      */
     function signWith(unsigned: UnsignedBTCR2Update, extra: Record<string, unknown> = {}): SignedBTCR2Update {
-      const multikey = SchnorrMultikey.fromSigner('#initialKey', fixture.did, new LocalSigner(hexToBytes(fixture.secretKey)));
-      const config = {
-        '@context'         : [ ...BTCR2_UPDATE_CONTEXT ],
-        type               : 'DataIntegrityProof',
-        cryptosuite        : 'bip340-jcs-2025',
-        verificationMethod : `${fixture.did}#initialKey`,
-        proofPurpose       : 'capabilityInvocation',
-        capability         : `urn:zcap:root:${encodeURIComponent(fixture.did)}`,
-        capabilityAction   : 'Write',
-        invocationTarget   : fixture.did,
-        ...extra,
-      } as Btcr2DataIntegrityConfig;
-      return multikey.toCryptosuite().toDataIntegrityProof().addProof({ ...unsigned }, config) as SignedBTCR2Update;
+      return forgeSign(fixture.did, unsigned, `${fixture.did}#initialKey`, fixture.secretKey, extra);
     }
 
     /** An unsigned v1->v2 update with the given patch and an explicit target hash. */
@@ -3419,7 +3484,7 @@ describe('Resolver', () => {
       const [ u2 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ embedPatch ]);
       const document = JSONPatch.apply(source, embedPatch) as DidDocument;
       // v2->v3: the embedded method signs.
-      const u3 = Updater.sign(fixture.did, Updater.construct(document, benignPatch(fixture.did), 2), key.vm, key.signer);
+      const u3 = Updater.sign(document, Updater.construct(document, benignPatch(fixture.did), 2), key.vm.id, key.signer);
 
       const { metadata, didDocument } = driveSignalSequence(fixture.did, [ u2!, u3 ], [ u2!, u3 ]);
       expect(metadata.versionId).to.equal('3');
@@ -3433,7 +3498,7 @@ describe('Resolver', () => {
       const referencePatch: PatchOperation[] = [{ op: 'add', path: '/capabilityInvocation/-', value: ghost.vm.id }];
       const [ u2 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ referencePatch ]);
       const document = JSONPatch.apply(source, referencePatch) as DidDocument;
-      const u3 = Updater.sign(fixture.did, Updater.construct(document, benignPatch(fixture.did), 2), ghost.vm, ghost.signer);
+      const u3 = forgeSign(fixture.did, Updater.construct(document, benignPatch(fixture.did), 2), ghost.vm.id, ghost.signer);
 
       expectInvalidUpdate(thrownBy([ u2!, u3 ]), /not found in the verificationMethod/);
     });
@@ -3534,6 +3599,16 @@ describe('Resolver', () => {
         const patch: PatchOperation[] = [{ op: 'replace', path: '/@context', value: [] }];
         const update = signWith(unsignedV2(source, patch, JSONPatch.apply(source, patch)));
         expectInvalidUpdate(thrownBy([ update ]), /does not conform to DID Core/);
+      });
+
+      it('rejects a patch that sets the type of a verification method to a number', () => {
+        // A method can have any type, but the type must be a string (DID Core).
+        const source = resolveDeterministic(fixture.did);
+        const patch: PatchOperation[] = [{ op: 'replace', path: '/verificationMethod/0/type', value: 42 }];
+        const update = signWith(unsignedV2(source, patch, JSONPatch.apply(source, patch)));
+        const thrown = thrownBy([ update ]);
+        expectInvalidUpdate(thrown, /^Invalid update: the patched document does not conform to DID Core: Invalid "verificationMethod"$/);
+        expect(thrown.data.cause).to.deep.equal({ type: INVALID_DID_DOCUMENT, message: 'Invalid "verificationMethod"' });
       });
     });
   });
@@ -3779,8 +3854,8 @@ describe('Resolver', () => {
       const vm = source.verificationMethod![0]!;
       const signer = new LocalSigner(hexToBytes(fixture.secretKey));
       const unsigned = Updater.construct(source, nestedPatch(source), 1);
-      const first = Updater.sign(fixture.did, JSON.parse(JSON.stringify(unsigned)), vm, signer);
-      const second = Updater.sign(fixture.did, JSON.parse(JSON.stringify(unsigned)), vm, signer);
+      const first = Updater.sign(source, JSON.parse(JSON.stringify(unsigned)), vm.id, signer);
+      const second = Updater.sign(source, JSON.parse(JSON.stringify(unsigned)), vm.id, signer);
       // Two proofs over the same unsigned update: the second signal is a duplicate.
       expect(first.proof.proofValue).to.not.equal(second.proof.proofValue);
       const { metadata } = driveSignalSequence(fixture.did, [ first, second ], [ first, second ]);
@@ -3798,35 +3873,6 @@ describe('Resolver', () => {
       return DidBtcr2.create(secp256k1.getPublicKey(randomBytes(32), true), { idType: 'KEY', version: 1, network: 'regtest' });
     }
 
-    /**
-     * Resolve `did` from the established `document`. The signals go to the first beacon of
-     * the document, in one discovery round. Returns the resolved response or throws.
-     */
-    function resolveFrom(did: string, document: DidDocument, sidecar: Sidecar, signalBytes: Array<string>): DidResolutionResponse {
-      const resolver = new Resolver(Identifier.decode(did), Resolver.sidecarData(sidecar), document);
-      let state = resolver.resolve();
-      if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
-      const need = state.needs[0] as NeedBeaconSignals;
-      resolver.provide(need, new Map([[ need.beaconServices[0]!, signalBytes.map((bytes, i) => ({
-        tx            : {} as any,
-        signalBytes   : bytes,
-        blockMetadata : { height: 100 + i, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
-      })) ]]));
-      state = resolver.resolve();
-      if(state.status !== 'resolved') throw new Error('expected resolved');
-      return state.result;
-    }
-
-    /** Resolve as {@link resolveFrom} does and return the thrown error, if any. */
-    function thrownFrom(...args: Parameters<typeof resolveFrom>): any {
-      try {
-        resolveFrom(...args);
-      } catch(error) {
-        return error;
-      }
-      return undefined;
-    }
-
     it('refuses an update that another DID signed: the proof must name the DID under resolution', () => {
       const source = resolveDeterministic(fixture.did);
       const [ u2 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ benignPatch(fixture.did) ]);
@@ -3842,17 +3888,35 @@ describe('Resolver', () => {
     });
 
     it('refuses a patched document whose id is not the DID under resolution', () => {
-      const source = resolveDeterministic(fixture.did);
       const did = otherDid();
-      // The proof names the other DID, so only the id check refuses the update.
-      const unsigned = Updater.construct(source, benignPatch(fixture.did), 1);
-      const signer = new LocalSigner(hexToBytes(fixture.secretKey));
-      const update = Updater.sign(did, unsigned, source.verificationMethod![0]!, signer);
+      // A copy of the document of the fixture DID. The method that signs has the id and the
+      // controller of the other DID, and the fixture key. The proof names the other DID, so
+      // only the id check refuses the update.
+      const source = JSON.parse(JSON.stringify(resolveDeterministic(fixture.did))) as DidDocument;
+      const methodId = `${did}#initialKey`;
+      source.verificationMethod[0] = { ...source.verificationMethod[0]!, id: methodId, controller: did } as DidVerificationMethod;
+      source.capabilityInvocation = [ methodId ];
+      const patch: PatchOperation[] = [{ op: 'add', path: '/alsoKnownAs', value: [ 'https://example.com/id-check' ] }];
+      const update = forgeSign(did, Updater.construct(source, patch, 1), methodId, fixture.secretKey);
       const thrown = thrownFrom(did, source, { updates: [ update ] }, [ canonicalHash(update, { encoding: 'hex' }) ]);
       expect(thrown).to.be.instanceOf(ResolveError);
       expect(thrown.type).to.equal(INVALID_DID_UPDATE);
       expect(thrown.message).to.match(/the patched document id is not the DID/);
       expect(thrown.data).to.deep.include({ did, id: fixture.did });
+    });
+
+    it('refuses an update whose method has the document id as its controller and not the DID under resolution', () => {
+      const source = resolveDeterministic(fixture.did);
+      const did = otherDid();
+      // The proof names the other DID and the method of the document, whose controller is
+      // the fixture DID. The method check compares the controller with the other DID.
+      const patch: PatchOperation[] = [{ op: 'add', path: '/alsoKnownAs', value: [ 'https://example.com/id-check' ] }];
+      const update = forgeSign(did, Updater.construct(source, patch, 1), `${fixture.did}#initialKey`, fixture.secretKey);
+      const thrown = thrownFrom(did, source, { updates: [ update ] }, [ canonicalHash(update, { encoding: 'hex' }) ]);
+      expect(thrown).to.be.instanceOf(ResolveError);
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.equal(`Invalid update: verificationMethod.controller must equal "${did}"`);
+      expect(thrown.data).to.deep.include({ field: 'controller', actual: fixture.did });
     });
 
     it('reads the CAS Announcement entry of the DID under resolution', () => {
@@ -3896,8 +3960,8 @@ describe('Resolver', () => {
       const source = resolveDeterministic(fixture.did);
       const vm = source.verificationMethod![0]!;
       const signer = new LocalSigner(hexToBytes(fixture.secretKey));
-      const applied = Updater.sign(fixture.did, Updater.construct(source, nestedProofPatch('a'), 1), vm, signer);
-      const other = Updater.sign(fixture.did, Updater.construct(source, nestedProofPatch('b'), 1), vm, signer);
+      const applied = Updater.sign(source, Updater.construct(source, nestedProofPatch('a'), 1), vm.id, signer);
+      const other = Updater.sign(source, Updater.construct(source, nestedProofPatch('b'), 1), vm.id, signer);
       let thrown: any;
       try {
         driveSignalSequence(fixture.did, [ applied, other ], [ applied, other ]);
@@ -3907,6 +3971,302 @@ describe('Resolver', () => {
       expect(thrown).to.be.instanceOf(ResolveError);
       expect(thrown.type).to.equal(LATE_PUBLISHING);
       expect(thrown.message).to.match(/does not match historical hash/);
+    });
+  });
+
+  describe('the method that signs an update', () => {
+    // Spec "Check update.proof": the method that signs, embedded in capabilityInvocation or
+    // referenced from it, must have the type Multikey, the DID as its controller, and a
+    // secp256k1 public key in the BIP340 Multikey encoding. The check runs after the method
+    // lookup and before the proof time window. Each update in this describe has a valid
+    // signature of the fixture key, so no refusal in this describe comes from the signature.
+    const fixture = deterministicData[2]; // regtest - has a known secretKey
+    const did = fixture.did;
+    const OTHER_DID = deterministicData[0].did;
+    const SIGNER_ID = `${did}#signer`;
+    const KEY_MESSAGE = 'publicKeyMultibase must encode a secp256k1 public key as a BIP340 Multikey';
+    const ALSO_KNOWN_AS: PatchOperation[] = [{ op: 'add', path: '/alsoKnownAs', value: [ 'https://example.com/signer' ] }];
+
+    /** A copy of the source document of the DID. */
+    function sourceCopy(): DidDocument {
+      return JSON.parse(JSON.stringify(resolveDeterministic(did))) as DidDocument;
+    }
+
+    /** A method with the id SIGNER_ID, the type Multikey, the DID as the controller, and the fixture key. The values in `fields` replace these values. */
+    function signerMethod(fields: Record<string, unknown> = {}): DidVerificationMethod {
+      return {
+        id                 : SIGNER_ID,
+        type               : 'Multikey',
+        controller         : did,
+        publicKeyMultibase : resolveDeterministic(did).verificationMethod![0]!.publicKeyMultibase,
+        ...fields
+      } as DidVerificationMethod;
+    }
+
+    /** A copy of the source document that lists `method` in verificationMethod and its id in capabilityInvocation. */
+    function referencing(method: DidVerificationMethod): DidDocument {
+      const document = sourceCopy();
+      document.verificationMethod.push(method);
+      document.capabilityInvocation!.push(method.id);
+      return document;
+    }
+
+    /** A copy of the source document that embeds `method` in capabilityInvocation. */
+    function embedding(method: DidVerificationMethod): DidDocument {
+      const document = sourceCopy();
+      document.capabilityInvocation!.push(method);
+      return document;
+    }
+
+    /**
+     * The v1 to v2 update of `document`, signed with the fixture key. The proof names
+     * `methodId`. The explicit patch adds alsoKnownAs and changes no method.
+     */
+    function updateOf(document: DidDocument, methodId: string, extra: Record<string, unknown> = {}): SignedBTCR2Update {
+      return forgeSign(did, Updater.construct(document, ALSO_KNOWN_AS, 1), methodId, fixture.secretKey, extra);
+    }
+
+    /** The update of {@link updateOf}, signed through Updater.sign: the write path. */
+    function writtenUpdateOf(document: DidDocument, methodId: string): SignedBTCR2Update {
+      return Updater.sign(document, Updater.construct(document, ALSO_KNOWN_AS, 1), methodId, new LocalSigner(hexToBytes(fixture.secretKey)));
+    }
+
+    /** Resolve the DID from `document` with `update` in one signal. Returns the response or throws. */
+    function resolveWith(document: DidDocument, update: SignedBTCR2Update): DidResolutionResponse {
+      return resolveFrom(did, document, { updates: [ update ] }, [ canonicalHash(update, { encoding: 'hex' }) ]);
+    }
+
+    /** Resolve as {@link resolveWith} does and return the thrown error, if any. */
+    function thrownWith(document: DidDocument, update: SignedBTCR2Update): any {
+      return thrownFrom(did, document, { updates: [ update ] }, [ canonicalHash(update, { encoding: 'hex' }) ]);
+    }
+
+    /** Expect the INVALID_DID_UPDATE error of the method check for `field`, with `message`. */
+    function expectMethodRefused(thrown: any, field: string, message: string, methodId = SIGNER_ID): void {
+      expect(thrown, 'expected the update to be refused').to.be.instanceOf(ResolveError);
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.equal(`Invalid update: verificationMethod.${message}`);
+      expect(thrown.data).to.deep.include({ verificationMethodId: methodId, field });
+    }
+
+    /** 35 bytes with the prefix 0xe701, the byte 0x02, and the x coordinate 5, which is not on the curve. */
+    function notAPointKey(): string {
+      const bytes = new Uint8Array(35);
+      bytes.set([ 0xe7, 0x01, 0x02 ]);
+      bytes[34] = 5;
+      return `z${base58.encode(bytes)}`;
+    }
+
+    it('applies an update that a method signs if the method meets the three conditions, in the reference form and in the embedded form', () => {
+      for(const document of [ referencing(signerMethod()), embedding(signerMethod()) ]) {
+        const { metadata, didDocument } = resolveWith(document, writtenUpdateOf(document, SIGNER_ID));
+        expect(metadata.versionId).to.equal('2');
+        expect((didDocument as unknown as Record<string, unknown>).alsoKnownAs).to.deep.equal([ 'https://example.com/signer' ]);
+      }
+    });
+
+    it('applies an update that a method with an absolute id and no fragment signs, for the query form and the path form', () => {
+      for(const methodId of [ `${did}?key=1`, `${did}/keys/1` ]) {
+        const document = referencing(signerMethod({ id: methodId }));
+        const update = writtenUpdateOf(document, methodId);
+        expect(update.proof.verificationMethod, methodId).to.equal(methodId);
+        expect(resolveWith(document, update).metadata.versionId, methodId).to.equal('2');
+      }
+    });
+
+    it('refuses a referenced method whose controller is another DID', () => {
+      const document = referencing(signerMethod({ controller: OTHER_DID }));
+      const thrown = thrownWith(document, updateOf(document, SIGNER_ID));
+      expectMethodRefused(thrown, 'controller', `controller must equal "${did}"`);
+      expect(thrown.data.actual).to.equal(OTHER_DID);
+    });
+
+    it('refuses a referenced method whose controller is a DID URL of the DID and not the DID', () => {
+      const controller = `${did}#initialKey`;
+      const document = referencing(signerMethod({ controller }));
+      const thrown = thrownWith(document, updateOf(document, SIGNER_ID));
+      expectMethodRefused(thrown, 'controller', `controller must equal "${did}"`);
+      expect(thrown.data.actual).to.equal(controller);
+    });
+
+    it('refuses an embedded method of the type JsonWebKey2020 with the key of the signer', () => {
+      const document = embedding(signerMethod({ type: 'JsonWebKey2020' }));
+      const thrown = thrownWith(document, updateOf(document, SIGNER_ID));
+      expectMethodRefused(thrown, 'type', 'type must equal "Multikey"');
+      expect(thrown.data.actual).to.equal('JsonWebKey2020');
+    });
+
+    it('refuses an embedded Multikey method whose controller is another DID', () => {
+      const document = embedding(signerMethod({ controller: OTHER_DID }));
+      expectMethodRefused(thrownWith(document, updateOf(document, SIGNER_ID)), 'controller', `controller must equal "${did}"`);
+    });
+
+    it('refuses a method whose id and controller are under another DID', () => {
+      // capabilityInvocation names the method by its absolute id, so the lookup finds it.
+      const methodId = `${OTHER_DID}#key`;
+      const document = referencing(signerMethod({ id: methodId, controller: OTHER_DID }));
+      const thrown = thrownWith(document, updateOf(document, methodId));
+      expectMethodRefused(thrown, 'controller', `controller must equal "${did}"`, methodId);
+    });
+
+    it('refuses a zQ3sh key that is not a secp256k1 point, in the reference form and in the embedded form, with the decode error as the cause', () => {
+      const publicKeyMultibase = notAPointKey();
+      expect(publicKeyMultibase.startsWith('zQ3sh')).to.equal(true);
+      for(const document of [ referencing(signerMethod({ publicKeyMultibase })), embedding(signerMethod({ publicKeyMultibase })) ]) {
+        const thrown = thrownWith(document, updateOf(document, SIGNER_ID));
+        expectMethodRefused(thrown, 'publicKeyMultibase', `${KEY_MESSAGE}: Invalid argument: not a valid secp256k1 compressed point`);
+        expect(thrown.data.actual).to.equal(publicKeyMultibase);
+        expect(thrown.data.cause).to.deep.equal({ type: 'CONSTRUCTOR_ERROR', message: 'Invalid argument: not a valid secp256k1 compressed point' });
+      }
+    });
+
+    it('refuses an embedded Ed25519 Multikey whose controller is the DID, with the decode error as the cause', () => {
+      const publicKeyMultibase = `z${base58.encode(new Uint8Array([ 0xed, 0x01, ...new Uint8Array(32).fill(7) ]))}`;
+      expect(publicKeyMultibase.startsWith('z6Mk')).to.equal(true);
+      const document = embedding(signerMethod({ publicKeyMultibase }));
+      const thrown = thrownWith(document, updateOf(document, SIGNER_ID));
+      expectMethodRefused(thrown, 'publicKeyMultibase', `${KEY_MESSAGE}: Invalid publicKeyMultibase length: 34`);
+      expect(thrown.data.cause).to.deep.equal({ type: VERIFICATION_METHOD_ERROR, message: 'Invalid publicKeyMultibase length: 34' });
+    });
+
+    it('checks the method before the proof time window', () => {
+      // proof.created is one second after the header time of the block. The control shows
+      // that the window check refuses this created value for a method that meets the three
+      // conditions. For a method of the wrong type, the method check runs first.
+      const created = utc(1700000000 + 1);
+      const control = embedding(signerMethod());
+      const controlThrown = thrownWith(control, updateOf(control, SIGNER_ID, { created }));
+      expect(controlThrown, 'expected the window check to refuse the control').to.be.instanceOf(ResolveError);
+      expect(controlThrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(controlThrown.message).to.match(/^Invalid update: proof\.created is after the header time/);
+      const document = embedding(signerMethod({ type: 'JsonWebKey2020' }));
+      const thrown = thrownWith(document, updateOf(document, SIGNER_ID, { created }));
+      expectMethodRefused(thrown, 'type', 'type must equal "Multikey"');
+    });
+
+    it('looks up the method in capabilityInvocation before it checks the method', () => {
+      // The method has the wrong type and authentication embeds it. capabilityInvocation
+      // does not list it, so the lookup refuses the update and names no field.
+      const methodId = `${did}#auth`;
+      const document = sourceCopy();
+      document.authentication!.push(signerMethod({ id: methodId, type: 'JsonWebKey2020' }));
+      const thrown = thrownWith(document, updateOf(document, methodId));
+      expect(thrown).to.be.instanceOf(ResolveError);
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.match(/not authorized for capabilityInvocation/);
+      expect(thrown.data).to.not.have.property('field');
+    });
+
+    // The document can hold a method of any type and any key: only the method that signs
+    // must meet the three conditions. Each test below adds or changes a method with an
+    // explicit patch and checks the method that signs a later update.
+
+    /** An Ed25519 Multikey (multicodec 0xed01 and a 32-byte key): the z6Mk form. */
+    const ED25519_KEY = `z${base58.encode(new Uint8Array([ 0xed, 0x01, ...new Uint8Array(32).fill(7) ]))}`;
+
+    /** The patch that adds `method` to verificationMethod and its id to capabilityInvocation. */
+    function addInvocationMethod(method: DidVerificationMethod): PatchOperation[] {
+      return [
+        { op: 'add', path: '/verificationMethod/-', value: method },
+        { op: 'add', path: '/capabilityInvocation/-', value: method.id },
+      ];
+    }
+
+    /**
+     * Resolve the DID from a copy of its source document with two updates, one signal each.
+     * #initialKey signs v2 with `patch` through Updater.sign. The method `methodId` signs v3,
+     * which adds alsoKnownAs, without the checks of the write path. Returns the thrown error, if any.
+     */
+    function thrownAfter(patch: PatchOperation[], methodId: string): any {
+      const source = sourceCopy();
+      const v2 = Updater.sign(source, Updater.construct(source, patch, 1), `${did}#initialKey`, new LocalSigner(hexToBytes(fixture.secretKey)));
+      const v3Patch: PatchOperation[] = [{ op: 'add', path: '/alsoKnownAs', value: [ 'https://example.com/v3' ] }];
+      const v2Document = JSONPatch.apply(source, patch) as DidDocument;
+      const v3 = forgeSign(did, Updater.construct(v2Document, v3Patch, 2), methodId, fixture.secretKey);
+      const signals = [ v2, v3 ].map(update => canonicalHash(update, { encoding: 'hex' }));
+      return thrownFrom(did, source, { updates: [ v2, v3 ] }, signals);
+    }
+
+    it('applies an update that adds an Ed25519 Multikey authentication method, and keeps the method as given', () => {
+      const method = { id: `${did}#ed25519`, type: 'Multikey', controller: did, publicKeyMultibase: ED25519_KEY };
+      const patch: PatchOperation[] = [
+        { op: 'add', path: '/verificationMethod/-', value: method },
+        { op: 'add', path: '/authentication/-', value: method.id },
+      ];
+      const source = sourceCopy();
+      const update = Updater.sign(source, Updater.construct(source, patch, 1), `${did}#initialKey`, new LocalSigner(hexToBytes(fixture.secretKey)));
+      const { metadata, didDocument } = resolveWith(source, update);
+      expect(metadata.versionId).to.equal('2');
+      expect(didDocument.verificationMethod).to.have.length(2);
+      expect({ ...didDocument.verificationMethod[1]! }).to.deep.equal(method);
+      expect(didDocument.authentication).to.deep.equal([ `${did}#initialKey`, method.id ]);
+    });
+
+    it('resolves an x1 genesis document with an Ed25519 Multikey method, and keeps the method', () => {
+      const external = externalData[0]!;
+      const genesis = JSON.parse(JSON.stringify(external.genesisDocument));
+      const method = { id: 'did:btcr2:_#ed25519', type: 'Multikey', controller: 'did:btcr2:_', publicKeyMultibase: ED25519_KEY };
+      genesis.verificationMethod.push(method);
+      genesis.authentication.push(method.id);
+      const x1 = DidBtcr2.create(canonicalHashBytes(genesis), { idType: 'EXTERNAL', network: external.network });
+      const document = Resolver.external(Identifier.decode(x1), genesis);
+      expect(document.id).to.equal(x1);
+      expect(document.verificationMethod).to.have.length(2);
+      expect({ ...document.verificationMethod[1]! }).to.deep.equal({ ...method, id: `${x1}#ed25519`, controller: x1 });
+      expect(document.authentication).to.deep.equal([ `${x1}#key-0`, `${x1}#ed25519` ]);
+    });
+
+    it('refuses an update that #initialKey signs after an earlier update changes its type to JsonWebKey2020', () => {
+      const initialKey = `${did}#initialKey`;
+      const retype: PatchOperation[] = [{ op: 'replace', path: '/verificationMethod/0/type', value: 'JsonWebKey2020' }];
+      // The earlier update alone applies: the document can hold a method of another type.
+      const source = sourceCopy();
+      const v2 = Updater.sign(source, Updater.construct(source, retype, 1), initialKey, new LocalSigner(hexToBytes(fixture.secretKey)));
+      const { metadata, didDocument } = resolveWith(source, v2);
+      expect(metadata.versionId).to.equal('2');
+      expect(didDocument.verificationMethod[0]!.type).to.equal('JsonWebKey2020');
+      // The later update has a valid signature of the same key, but the method now has the wrong type.
+      const thrown = thrownAfter(retype, initialKey);
+      expectMethodRefused(thrown, 'type', 'type must equal "Multikey"', initialKey);
+      expect(thrown.data.actual).to.equal('JsonWebKey2020');
+    });
+
+    it('refuses a referenced method of the type JsonWebKey2020 with the key of the signer, in a document copy and after an earlier update', () => {
+      const method = signerMethod({ type: 'JsonWebKey2020' });
+      const document = referencing(method);
+      for(const thrown of [ thrownWith(document, updateOf(document, SIGNER_ID)), thrownAfter(addInvocationMethod(method), SIGNER_ID) ]) {
+        expectMethodRefused(thrown, 'type', 'type must equal "Multikey"');
+        expect(thrown.data.actual).to.equal('JsonWebKey2020');
+      }
+    });
+
+    it('refuses a referenced Ed25519 Multikey whose controller is the DID, in a document copy and after an earlier update', () => {
+      const method = signerMethod({ publicKeyMultibase: ED25519_KEY });
+      const document = referencing(method);
+      for(const thrown of [ thrownWith(document, updateOf(document, SIGNER_ID)), thrownAfter(addInvocationMethod(method), SIGNER_ID) ]) {
+        expectMethodRefused(thrown, 'publicKeyMultibase', `${KEY_MESSAGE}: Invalid publicKeyMultibase length: 34`);
+        expect(thrown.data.actual).to.equal(ED25519_KEY);
+        expect(thrown.data.cause).to.deep.equal({ type: VERIFICATION_METHOD_ERROR, message: 'Invalid publicKeyMultibase length: 34' });
+      }
+    });
+
+    it('refuses other text for the key of the signer that the decoder reads as the same key, in the embedded form and in the reference form', () => {
+      // The base58btc decoder of the cryptosuite ignores a code unit above 0xff between the z
+      // header and the first base58 digit. The signature verifies with the decoded key, so only
+      // the text comparison refuses the update.
+      const cause = { type: VERIFICATION_METHOD_ERROR, message: 'Invalid publicKeyMultibase: not the base58btc encoding of the key' };
+      const canonical = signerMethod().publicKeyMultibase!;
+      for(const publicKeyMultibase of [ `z\u0100${canonical.slice(1)}`, `z\u{1F600}${canonical.slice(1)}` ]) {
+        const decoded = SchnorrMultikey.fromVerificationMethod(signerMethod({ publicKeyMultibase }));
+        expect(decoded.publicKey.multibase.encoded).to.equal(canonical);
+        for(const document of [ embedding(signerMethod({ publicKeyMultibase })), referencing(signerMethod({ publicKeyMultibase })) ]) {
+          const thrown = thrownWith(document, updateOf(document, SIGNER_ID));
+          expectMethodRefused(thrown, 'publicKeyMultibase', `${KEY_MESSAGE}: ${cause.message}`);
+          expect(thrown.message.endsWith(': Invalid publicKeyMultibase: not the base58btc encoding of the key')).to.equal(true);
+          expect(thrown.data.actual).to.equal(publicKeyMultibase);
+          expect(thrown.data.cause).to.deep.equal(cause);
+        }
+      }
     });
   });
 });

@@ -18,7 +18,7 @@ pnpm add @did-btcr2/method
 | Resolve a DID (sans-I/O state machine) | `DidBtcr2.resolve()` |
 | Update a DID (sans-I/O state machine) | `DidBtcr2.update()` returns an `Updater` |
 | Deactivate a DID (the update with the fixed patch) | `DidBtcr2.deactivate()` returns an `Updater`; `DEACTIVATION_PATCH` |
-| Update utilities (construct, sign, announce) | `Updater.construct()`, `Updater.sign()`, `Updater.announce()` |
+| Update utilities (construct, signing method, sign, announce) | `Updater.construct()`, `Updater.signingMethod()`, `Updater.sign()`, `Updater.announce()` |
 | Beacon types (Singleton, CAS, SMT) | `SingletonBeacon`, `CASBeacon`, `SMTBeacon` |
 | Fee estimation (pluggable) | `FeeEstimator`, `StaticFeeEstimator` |
 | Signer abstraction (local key, KMS, custom) | `Signer` / `LocalSigner` from `@did-btcr2/keypair`; `KeyManagerSigner` from `@did-btcr2/key-manager` |
@@ -113,6 +113,8 @@ while (state.status === 'action-required') {
   for (const need of state.needs) {
     switch (need.kind) {
       case 'NeedSigningKey':
+        // need.verificationMethodId is the absolute DID URL of the method.
+        // If the caller gave the relative id '#initialKey', it is '<did>#initialKey'.
         updater.provide(need, signer);
         break;
       case 'NeedFunding':
@@ -143,7 +145,36 @@ An update carries the `@context` array that the specification pins, in this orde
 
 Both update paths apply the checks of the specification. Each failure that the specification names is an `UpdateError` on the write path, or a `ResolveError` on the read path, of type `INVALID_DID_UPDATE`. The inner error of the cryptosuite, the multikey, or the patch rides along as `data.cause`. The patch is applied strictly per RFC 6902. An unknown `op`, a missing `value`, a `remove` or `replace` of a missing path, a `move` or `copy` from a missing path, and a failed `test` fail the patch at the first failing operation. The patched document must keep the DID as its `id`, and it must conform to DID Core.
 
-The verification method is the entry of `capabilityInvocation` that identifies `verificationMethodId`. A reference entry identifies it when the two values are equal. An embedded method object identifies it when its `id` is equal. A reference names a member of `verificationMethod`. `Updater.sign()` verifies the proof with the public key of the verification method before the state machine asks for funding. A signer that returns a wrong signature spends no beacon UTXO. `sourceVersionId` must be an integer of at least 1.
+`Updater.signingMethod(sourceDocument, verificationMethodId)` returns the verification method that signs an update. `DidBtcr2.update()` calls it before it returns the `Updater`, and `Updater.sign()` calls it again. An entry of `capabilityInvocation` must identify `verificationMethodId`, as a reference or as an embedded method object. `Updater.signingMethod()` resolves the id of each entry and `verificationMethodId` to absolute DID URLs before it compares them. A reference entry must name a member of `verificationMethod`. The resolver applies the same lookup and the same method conditions to `update.proof` (ADR 147).
+
+The id of the method must be a DID URL under the DID: the DID, then a fragment, a query, or a path. Examples are `<did>#key-1`, `<did>?key=1`, and `<did>/keys/1`. A relative id must start with `#`. The write path refuses the relative ids `?key=1` and `/keys/1`, an id under another DID, and a URI that is not a DID URL. The proof and `NeedSigningKey.verificationMethodId` name the method by its absolute DID URL.
+
+The method must agree with three conditions:
+
+1. `type` is `Multikey`.
+2. `controller` is the DID, `sourceDocument.id`.
+3. `publicKeyMultibase` encodes a secp256k1 public key as a BIP340 Multikey, in the base58btc text of the key. A value that only starts with `zQ3s` does not agree with this condition.
+
+A method that fails a condition gives an `UpdateError` of type `INVALID_DID_UPDATE`. An example message is `Invalid update: verificationMethod.type must equal "Multikey"`. `data.field` names the field that fails. If `publicKeyMultibase` is a string, a key failure also gives `data.cause`. It holds the type and the message of the decode error. For text that is not the canonical encoding of the key, it holds the type `VERIFICATION_METHOD_ERROR` and the message `Invalid publicKeyMultibase: not the base58btc encoding of the key`. The conditions apply only to the method that signs. For each other verification method, `DidDocument` checks only that `id`, `type`, and `controller` are strings.
+
+`Updater.sign(sourceDocument, unsignedUpdate, verificationMethodId, signer)` signs an update of `sourceDocument`. Make `unsignedUpdate` with `Updater.construct()` from the same `sourceDocument`. Before it signs, `Updater.sign()` checks the unsigned update in this order:
+
+1. `unsignedUpdate` is an object with no `proof` member.
+2. `targetVersionId` is an integer of 2 or more.
+3. `@context` is the array `BTCR2_UPDATE_CONTEXT`.
+4. `sourceHash` is the hash of `sourceDocument`.
+5. `patch` gives a valid DID document from `sourceDocument`.
+6. `targetHash` is the hash of that DID document.
+
+The first check that fails gives an `UpdateError` of type `INVALID_DID_UPDATE`, with a message that starts with `Invalid unsignedUpdate:`. Each check after the object check names its field in `data.field`. For the patch check, `data.cause` holds the error of `Updater.construct()`. `Updater.sign()` does not get the version number of `sourceDocument`. The caller must make sure that `targetVersionId` is the version of `sourceDocument` plus 1. A resolver refuses another value.
+
+The public key of the signer must be the key of the method. If the two keys differ, `Updater.sign()` gives an `UpdateError` with a message that starts with `Signing key does not match verification method`.
+
+`Updater.sign()` wraps an error of the signer or of the cryptosuite as an `UpdateError` of type `INVALID_DID_UPDATE`, with the inner error in `data.cause`. The message of a wrapped error starts with `Invalid signer:` if the public key of the signer does not decode. If the public key decodes, the message starts with `Invalid update: cannot make the proof with`. For example, a key manager that holds only the public key gives the second message, with `KEY_NOT_SIGNER` in `data.cause.type`.
+
+`Updater.sign()` verifies the proof with the public key of the verification method before the state machine asks for funding. A signer that returns a wrong signature spends no beacon UTXO. `Updater.sign()` returns a new object and adds no proof to its input, so the caller can sign the same unsigned update again.
+
+`Updater.construct()` refuses a `sourceVersionId` that is not an integer of 1 or more, with `Invalid sourceVersionId: expected an integer of 1 or more.` `DidBtcr2.update()` also refuses such a `sourceVersionId`.
 
 On the read path, the resolver checks each proof field by string equality before it verifies the signature. `type` is `DataIntegrityProof`, `cryptosuite` is `bip340-jcs-2025`, `proofPurpose` is `capabilityInvocation`, `capabilityAction` is `Write`, `capability` is `urn:zcap:root:${encodeURIComponent(did)}`, and `invocationTarget` is the DID. A proof can carry `created` and `expires`. Each value must be an XML Datetime with a timezone. `created` must not be after the header time of the block that contains the Beacon Signal. `expires` must not be before the `mediantime` of that block, and not before `created`. The write path sets neither field.
 
@@ -181,6 +212,8 @@ const result = await runner.run();
 ```
 
 The full step-by-step protocol walkthrough (service flow, participant flow, decision callbacks, events, the low-level state machine API, and production deployment notes) is in [`docs/aggregation.md`](./docs/aggregation.md). The HTTP/REST transport has its own walkthrough in [`docs/http-transport.md`](./docs/http-transport.md). See the [`@did-btcr2/aggregation`](https://github.com/dcdpr/did-btcr2-js/tree/main/packages/aggregation) package for the runnable APIs those guides describe.
+
+This package exports `resolveBtcr2SenderPk`, which gives the communication key of a sender DID to the aggregation transports. For an EXTERNAL (`x1`) sender, the key is the key of the `capabilityInvocation[0]` method in the initial DID document that its genesis document gives. That method must agree with the three conditions of the method that signs an update. If it does not, `resolveBtcr2SenderPk` returns `undefined`, and the transport drops the message.
 
 ## Architecture Principles
 

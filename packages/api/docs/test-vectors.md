@@ -105,6 +105,15 @@ A recipe names:
 - `expect` (a negative vector): `error` is the DID Resolution error code, and `rule` is the id of the rule that the set breaks, a key of `FAILURE_RULES` in `lib/_scenario-helpers.ts`. The generator writes the id into `other.json` as `expectedFailure`. A recipe for a new rule needs a new id ([ADR 136](../../../docs/adr/136-a-negative-vector-names-the-rule-that-it-breaks-and-the-pipeline-checks-the-cause.md)).
 - `skip`: a reason to leave the recipe out of the pass.
 
+The generator signs each update with `Updater.sign(sourceDocument, unsignedUpdate, verificationMethodId, signer)`, except in two cases:
+
+- For an update with a proof option tamper (`proofOverrides` in `lib/generate-scenario.ts`), the generator uses `signWithConfig` of `lib/_scenario-helpers.ts` with the changed options.
+- `Updater.sign` refuses the update data or the signing method of some negative sets. The rule of such a set has `signRefuses: true` in `FAILURE_RULES`. The generator signs every update of the set with `signWithConfig`.
+
+`signWithConfig` uses the proof options of `Updater.sign` and does none of its checks. These rules have `signRefuses: true`: `update-context-mismatch`, `proof-method-unauthorized`, `proof-method-not-found`, `source-hash-mismatch`, `target-hash-mismatch`, `patch-apply-failure`, `document-id-mismatch`, and `document-not-conformant`. A new rule that `Updater.sign` refuses must have `signRefuses: true`.
+
+The `n24` recipes set the `type` of `#initialKey` to the number `42`. If the `type` is a string such as `JsonWebKey2020`, the patched document conforms to DID Core. Then the set does not break the `document-not-conformant` rule.
+
 ## Vector layout
 
 ```
