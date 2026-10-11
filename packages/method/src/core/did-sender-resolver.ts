@@ -3,6 +3,7 @@ import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { Appendix } from '../utils/appendix.js';
 import type { DidDocument, DidVerificationMethod } from '../utils/did-document.js';
+import { signingMethodProblem } from '../utils/signing-method.js';
 import { Identifier } from './identifier.js';
 import { Resolver } from './resolver.js';
 
@@ -24,8 +25,11 @@ import { Resolver } from './resolver.js';
  *
  * @param {DidDocument} document The resolved DID Document (placeholder id already replaced).
  * @returns {CompressedSecp256k1PublicKey} The compressed public key of the communication method.
- * @throws {DidDocumentError} If `capabilityInvocation` is absent or its first entry does not
- *   resolve to a verification method in the document.
+ * @throws {DidDocumentError} If one of these conditions is true:
+ *   - `capabilityInvocation` is absent.
+ *   - Its first entry does not resolve to a verification method in the document.
+ *   - That method cannot sign an update. Its type is not Multikey, its controller is not
+ *     the DID, or its key is not a BIP340 Multikey in base58btc text.
  */
 export function getAggregationCommunicationKey(
   document: DidDocument,
@@ -40,8 +44,9 @@ export function getAggregationCommunicationKey(
 
   // Resolve capabilityInvocation[0] to a verification method: a string reference is
   // dereferenced by id against verificationMethod; an embedded method is used directly.
-  // A local id lookup is used rather than getSigningMethod, which defaults to #initialKey
-  // and does not resolve embedded methods. Reference and method id are each resolved to an
+  // This function uses a local id lookup, not getSigningMethod. getSigningMethod finds the
+  // method that an id names (#initialKey by default), not the first entry. It also raises an
+  // UpdateError, not a DidDocumentError. Reference and method id are each resolved to an
   // absolute DID URL first, because either may be spelled as a relative DID URL; an
   // unusable reference resolves to nothing rather than to the first unusable method id.
   const invocationId = Appendix.absoluteDidUrl(invocation, document.id);
@@ -58,6 +63,23 @@ export function getAggregationCommunicationKey(
       `Cannot derive aggregation communication key: capabilityInvocation[0] "${invocation}" `
         + 'does not resolve to a verification method',
       INVALID_DID_DOCUMENT, { id: document.id, invocation }
+    );
+  }
+
+  // The method must be able to sign an update of the DID. If it cannot, the invariant above
+  // does not hold, because the resolver refuses an update that this method signs.
+  const problem = signingMethodProblem(vm, document.id);
+  if(problem !== undefined) {
+    const reason = problem.cause !== undefined ? `: ${problem.cause.message}` : '';
+    throw new DidDocumentError(
+      `Cannot derive aggregation communication key: verificationMethod.${problem.message}${reason}`,
+      INVALID_DID_DOCUMENT, {
+        id     : document.id,
+        invocation,
+        field  : problem.field,
+        actual : vm[problem.field],
+        ...(problem.cause !== undefined && { cause: problem.cause })
+      }
     );
   }
 

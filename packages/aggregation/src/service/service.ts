@@ -663,14 +663,17 @@ export class AggregationService {
     if(typeof proof.verificationMethod !== 'string') return false;
 
     // The proof must be signed by the sender's own key. Reject if the
-    // verificationMethod references a different DID. A relative DID URL
-    // ('#initialKey') denotes a fragment of the document it appears in, so it
-    // resolves to the sender by construction; the signing key is pinned by the
-    // opt-in record below either way, so accepting the relative spelling grants
-    // no additional trust.
+    // verificationMethod references a different DID. An absolute method id is
+    // the DID followed by a fragment, a query, or a path ('<did>#key-1',
+    // '<did>?key=1', '<did>/keys/1'). A DID contains no '#', '?', or '/', so
+    // the DID is the text before the first of these characters. A relative id
+    // ('#initialKey') passes this check, but the proof verification below
+    // refuses it, as the resolver does. The multikey below has the sender as
+    // its controller, so its full id is '<sender>#initialKey'. The cryptosuite
+    // refuses a proof that names another id.
     const vmDid = proof.verificationMethod.startsWith('#')
       ? sender
-      : proof.verificationMethod.split('#')[0];
+      : proof.verificationMethod.split(/[?/#]/)[0];
     if(vmDid !== sender) return false;
 
     const optIn = state.pendingOptIns.get(sender);

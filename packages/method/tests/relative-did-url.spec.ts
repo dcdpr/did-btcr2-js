@@ -1,3 +1,4 @@
+import { INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/common';
 import type { Signer } from '@did-btcr2/keypair';
 import { LocalSigner } from '@did-btcr2/keypair';
 import { hexToBytes } from '@noble/hashes/utils';
@@ -8,7 +9,7 @@ import { Resolver } from '../src/core/resolver.js';
 import type { NeedBroadcast, NeedFunding, NeedSigningKey } from '../src/core/updater.js';
 import { Appendix } from '../src/utils/appendix.js';
 import { DidDocument } from '../src/utils/did-document.js';
-import type { Btcr2DidDocument } from '../src/utils/did-document.js';
+import type { Btcr2DidDocument, DidVerificationMethod } from '../src/utils/did-document.js';
 import data from './data/deterministic-data.js';
 
 /**
@@ -64,6 +65,32 @@ describe('relative DID URLs in a DID document', () => {
   });
 
   describe('DidBtcr2.getSigningMethod', () => {
+    // DidBtcr2.getSigningMethod returns the method that can sign an update: the result of
+    // Updater.signingMethod. Each error is an UpdateError of the type INVALID_DID_UPDATE.
+
+    /** Call `fn` and return what it threw, or undefined. */
+    function thrownBy(fn: () => unknown): any {
+      try {
+        fn();
+      } catch(error) {
+        return error;
+      }
+      return undefined;
+    }
+
+    /** Expect an UpdateError of the type INVALID_DID_UPDATE with `message` and `data`. */
+    function expectRefusal(thrown: any, message: string, data: Record<string, unknown>): void {
+      expect(thrown, 'expected the input to be refused').to.be.instanceOf(UpdateError);
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.equal(message);
+      expect(thrown.data).to.deep.equal(data);
+    }
+
+    /** A Multikey method with the id `id`, the DID as the controller, and the key MULTIBASE. */
+    function multikey(id: string): DidVerificationMethod {
+      return { id, type: 'Multikey', controller: DID, publicKeyMultibase: MULTIBASE } as DidVerificationMethod;
+    }
+
     it('matches a relative verification method id against an absolute reference', () => {
       const vm = DidBtcr2.getSigningMethod(relativeDocument(), `${DID}#initialKey`);
       expect(vm.id).to.equal('#initialKey');
@@ -82,40 +109,93 @@ describe('relative DID URLs in a DID document', () => {
       expect(vm.id).to.equal(`${DID}#initialKey`);
     });
 
-    it('falls back to the default #initialKey fragment when no id is given', () => {
-      const vm = DidBtcr2.getSigningMethod(relativeDocument());
-      expect(vm.id).to.equal('#initialKey');
-    });
-
-    it('does not match a reference whose DID is a different subject', () => {
-      expect(() => DidBtcr2.getSigningMethod(relativeDocument(), `${OTHER_DID}#initialKey`))
-        .to.throw();
-    });
-
-    it('does not match an unknown fragment', () => {
-      expect(() => DidBtcr2.getSigningMethod(relativeDocument(), `${DID}#unknownKey`))
-        .to.throw();
-    });
-
-    it('finds a method that a verification relationship embeds and verificationMethod does not list (ADR 112)', () => {
+    it('uses #initialKey if the caller gives no id, also if another method comes first', () => {
       const document = relativeDocument();
-      document.capabilityInvocation!.push({
-        id                 : '#embeddedKey',
-        type               : 'Multikey',
-        controller         : DID,
-        publicKeyMultibase : MULTIBASE,
-      });
+      document.verificationMethod.unshift(multikey('#otherKey'));
+      document.capabilityInvocation!.unshift('#otherKey');
+      document.assertionMethod!.unshift('#otherKey');
+      expect(DidBtcr2.getSigningMethod(document)).to.deep.equal(document.verificationMethod[1]);
+    });
+
+    it('refuses a document without #initialKey if the caller gives no id, and does not use assertionMethod', () => {
+      const document = relativeDocument();
+      document.verificationMethod[0]!.id = '#otherKey';
+      for(const relationship of [ 'authentication', 'assertionMethod', 'capabilityInvocation', 'capabilityDelegation' ] as const) {
+        document[relationship] = [ '#otherKey' ];
+      }
+      expectRefusal(
+        thrownBy(() => DidBtcr2.getSigningMethod(document)),
+        'Invalid verificationMethodId: not authorized for capabilityInvocation',
+        { verificationMethodId: `${DID}#initialKey`, capabilityInvocation: [ '#otherKey' ] }
+      );
+    });
+
+    it('refuses a reference whose DID is a different subject', () => {
+      expectRefusal(
+        thrownBy(() => DidBtcr2.getSigningMethod(relativeDocument(), `${OTHER_DID}#initialKey`)),
+        `Invalid verificationMethodId: expected "${DID}" followed by a fragment, a query, or a path; got "${OTHER_DID}#initialKey".`,
+        { verificationMethodId: `${OTHER_DID}#initialKey` }
+      );
+    });
+
+    it('refuses an unknown fragment', () => {
+      expectRefusal(
+        thrownBy(() => DidBtcr2.getSigningMethod(relativeDocument(), `${DID}#unknownKey`)),
+        'Invalid verificationMethodId: not authorized for capabilityInvocation',
+        { verificationMethodId: `${DID}#unknownKey`, capabilityInvocation: [ '#initialKey' ] }
+      );
+    });
+
+    it('refuses a method with a key that only authentication lists or embeds', () => {
+      const referenced = relativeDocument();
+      referenced.verificationMethod.push(multikey('#authKey'));
+      referenced.authentication!.push('#authKey');
+      const embedded = relativeDocument();
+      embedded.authentication!.push(multikey('#authKey'));
+      for(const document of [ referenced, embedded ]) {
+        expectRefusal(
+          thrownBy(() => DidBtcr2.getSigningMethod(document, '#authKey')),
+          'Invalid verificationMethodId: not authorized for capabilityInvocation',
+          { verificationMethodId: `${DID}#authKey`, capabilityInvocation: [ '#initialKey' ] }
+        );
+      }
+    });
+
+    it('refuses the document of another DID method', () => {
+      const document = { ...relativeDocument(), id: 'did:example:123' } as Btcr2DidDocument;
+      expectRefusal(
+        thrownBy(() => DidBtcr2.getSigningMethod(document)),
+        'Expected a did:btcr2 identifier for the root capability; got "did:example:123".',
+        { did: 'did:example:123' }
+      );
+    });
+
+    it('refuses a method of the type JsonWebKey2020', () => {
+      const document = relativeDocument();
+      document.verificationMethod[0]!.type = 'JsonWebKey2020';
+      expectRefusal(
+        thrownBy(() => DidBtcr2.getSigningMethod(document)),
+        'Invalid update: verificationMethod.type must equal "Multikey"',
+        { verificationMethodId: `${DID}#initialKey`, field: 'type', actual: 'JsonWebKey2020' }
+      );
+    });
+
+    it('finds a method that capabilityInvocation embeds and verificationMethod does not list (ADR 112)', () => {
+      const document = relativeDocument();
+      document.capabilityInvocation!.push(multikey('#embeddedKey'));
       const vm = DidBtcr2.getSigningMethod(document, `${DID}#embeddedKey`);
       expect(vm.id).to.equal('#embeddedKey');
     });
 
-    it('does not return a malformed method when the target id is unusable', () => {
-      // An unusable target and an unusable method id both resolve to undefined; without a
-      // guard they compare equal and the malformed method is returned as the signing method.
+    it('refuses an empty id', () => {
+      // An empty id does not resolve to a DID URL, so it names no method.
       const document = relativeDocument();
       document.verificationMethod[0]!.id = '';
-      document.assertionMethod = [];
-      expect(() => DidBtcr2.getSigningMethod(document, '')).to.throw();
+      expectRefusal(
+        thrownBy(() => DidBtcr2.getSigningMethod(document, '')),
+        'Invalid verificationMethodId: expected a DID URL or a relative DID URL that starts with "#"; got "".',
+        { verificationMethodId: '' }
+      );
     });
   });
 
@@ -243,7 +323,10 @@ describe('relative DID URLs in a DID document', () => {
         sourceVersionId      : 1,
         verificationMethodId : `${OTHER_DID}#initialKey`,
         beaconId             : absoluteBeaconId,
-      })).to.throw(/capabilityInvocation/i);
+      })).to.throw(
+        `Invalid verificationMethodId: expected "${document.id}" followed by a fragment, a query, or a path; `
+        + `got "${OTHER_DID}#initialKey".`
+      );
     });
 
     it('still refuses a beaconId naming a different subject', () => {

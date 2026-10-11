@@ -50,8 +50,8 @@ import { join } from 'node:path';
 import { canonicalHash } from '@did-btcr2/common';
 import { LocalSigner } from '@did-btcr2/keypair';
 import {
-  BeaconSignalDiscovery, DidBtcr2,
-  type BeaconService, type Btcr2DidDocument, type SignedBTCR2Update, type UnsignedBTCR2Update,
+  BeaconSignalDiscovery,
+  type BeaconService, type SignedBTCR2Update, type UnsignedBTCR2Update,
 } from '@did-btcr2/method';
 import { hex } from '@scure/base';
 
@@ -96,12 +96,11 @@ type ResolveInput = { did: string; resolutionOptions: { sidecar?: { updates?: Si
 function signAgainAtSend(dir: string, count: number, n: number, did: string): string {
   const stepDir = updateDir(dir, count, n);
   const old = readJSON<{ signedUpdate: SignedBTCR2Update }>(join(stepDir, 'output.json')).signedUpdate;
-  const input = readJSON<{ sourceDocument: Btcr2DidDocument; verificationMethodId: string; signingMaterial: string }>(join(stepDir, 'input.json'));
+  const input = readJSON<{ verificationMethodId: string; signingMaterial: string }>(join(stepDir, 'input.json'));
   const { proof: _proof, ...unsigned } = old;
   void _proof;
-  const vm = DidBtcr2.getSigningMethod(input.sourceDocument, input.verificationMethodId);
   const times = expiresBeforeCreatedTimes();
-  const signed = signWithConfig(did, unsigned as UnsignedBTCR2Update, vm, new LocalSigner(hex.decode(input.signingMaterial)), times);
+  const signed = signWithConfig(did, unsigned as UnsignedBTCR2Update, input.verificationMethodId, new LocalSigner(hex.decode(input.signingMaterial)), times);
   writeJSON(join(stepDir, 'output.json'), { signedUpdate: signed });
 
   const oldHash = canonicalHash(old as Record<string, unknown>, { encoding: 'hex' });

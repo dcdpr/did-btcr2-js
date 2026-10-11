@@ -208,7 +208,7 @@ const unsigned = Updater.construct(sourceDocument, [{
   },
 }], 1);
 
-const signed = Updater.sign(did, unsigned, vm, signer);
+const signed = Updater.sign(sourceDocument, unsigned, vm.id, signer);
 console.log(`\n[5] Signed via external KeyManager`);
 
 const verifierMultikey = SchnorrMultikey.fromVerificationMethod(vm);

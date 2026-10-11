@@ -26,7 +26,6 @@ describe('AggregationRunner.solo (cohort of one)', () => {
         version      : 1,
         network      : 'mutinynet',
       });
-      const vm = doc.verificationMethod![0]!;
       const unsigned = Updater.construct(doc, [{
         op    : 'add',
         path  : '/service/-',
@@ -36,7 +35,7 @@ describe('AggregationRunner.solo (cohort of one)', () => {
           serviceEndpoint : `bitcoin:${beaconAddress}`,
         },
       }], 1);
-      return Updater.sign(participantDid, unsigned, vm, new LocalSigner(participantKeys.raw.secret!));
+      return Updater.sign(doc, unsigned, '#initialKey', new LocalSigner(participantKeys.raw.secret!));
     };
 
     // Capture signing artefacts for cryptographic verification after the run.

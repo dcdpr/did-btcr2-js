@@ -84,7 +84,7 @@ const unsigned = Updater.construct(sourceDocument, [{
   },
 }], 1);
 
-const signed = Updater.sign(did, unsigned, vm, signer);
+const signed = Updater.sign(sourceDocument, unsigned, vm.id, signer);
 console.log(`\n[5] Update signed via LocalSigner`);
 console.log(`    targetVersionId: ${signed.targetVersionId}`);
 console.log(`    cryptosuite: ${signed.proof.cryptosuite}`);

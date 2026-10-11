@@ -68,7 +68,6 @@ const participant = new AggregationParticipantRunner({
       version      : 1,
       network      : 'mutinynet',
     });
-    const vm = doc.verificationMethod![0];
     const unsigned = Updater.construct(doc, [{
       op    : 'add', path  : '/service/-', value : {
         id              : `${myDid}#beacon-cas`,
@@ -76,7 +75,7 @@ const participant = new AggregationParticipantRunner({
         serviceEndpoint : `bitcoin:${beaconAddress}`,
       }
     }], 1);
-    return Updater.sign(myDid, unsigned, vm, new LocalSigner(myKeys.raw.secret!));
+    return Updater.sign(doc, unsigned, '#initialKey', new LocalSigner(myKeys.raw.secret!));
   },
 });
 participant.once('cohort-complete', (result) => {

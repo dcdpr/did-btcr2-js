@@ -4,9 +4,11 @@ import { canonicalHash, canonicalize, INVALID_DID_UPDATE, JSONPatch, UpdateError
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import type { Signer } from '@did-btcr2/keypair';
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from './btcr2-update.js';
-import { BTCR2_UPDATE_CONTEXT } from './btcr2-update.js';
+import { BTCR2_UPDATE_CONTEXT, isBtcr2UpdateContext } from './btcr2-update.js';
+import { Appendix } from '../utils/appendix.js';
 import { DidDocument, type Btcr2DidDocument, type DidVerificationMethod } from '../utils/did-document.js';
 import { errorCause } from '../utils/error-cause.js';
+import { signingMethodProblem } from '../utils/signing-method.js';
 import type { BroadcastResult } from './beacon/beacon.js';
 import type { CASBroadcastOptions } from './beacon/cas-beacon.js';
 import { BeaconFactory } from './beacon/factory.js';
@@ -22,7 +24,10 @@ import type { BeaconService } from './beacon/interfaces.js';
  */
 export interface NeedSigningKey {
   readonly kind: 'NeedSigningKey';
-  /** The verification method ID that requires a signing key. */
+  /**
+   * The id of the verification method that requires a signing key, as an absolute DID URL.
+   * The proof names the method by this id.
+   */
   readonly verificationMethodId: string;
   /** The unsigned update that will be signed. */
   readonly unsignedUpdate: UnsignedBTCR2Update;
@@ -126,8 +131,130 @@ export interface UpdaterParams {
   sourceDocument: Btcr2DidDocument;
   patches: PatchOperation[];
   sourceVersionId: number;
-  verificationMethod: DidVerificationMethod;
+  /**
+   * The id of the verification method that signs, absolute or relative. An entry of
+   * `capabilityInvocation` must identify it (see {@link Updater.signingMethod}).
+   */
+  verificationMethodId: string;
   beaconService: BeaconService;
+}
+
+/**
+ * Returns the absolute DID URL of a verification method id: the id that the proof names.
+ * A proof travels apart from the document, so it must name the method by a DID URL.
+ * {@link Appendix.absoluteDidUrl} resolves only the `#` form of a relative DID URL. This
+ * function refuses another relative form (`?key=1`, `/keys/1`). It also refuses an absolute
+ * URI that is not a DID URL (`urn:x:1`).
+ *
+ * The method must be under the DID: the DID, then a fragment, a query, or a path. DID Core
+ * v1.1 lets a relative DID URL hold each of these three parts, and the result references a
+ * resource in the same DID document. An id under another DID (`did:btcr2:<other>#key`) fails
+ * the Retrieve Verification Method algorithm of Controlled Identifiers v1.0 (section 3.3),
+ * because the controller of the method is not that other DID.
+ *
+ * @param {string} verificationMethodId The id of the method, absolute or relative.
+ * @param {string} did The DID that a relative id resolves against.
+ * @returns {string} The absolute DID URL.
+ * @throws {UpdateError} `INVALID_DID_UPDATE` if the result of the resolution is not a DID URL,
+ *   or if it is not under `did`.
+ */
+function absoluteMethodId(verificationMethodId: string, did: string): string {
+  const methodId = Appendix.absoluteDidUrl(verificationMethodId, did);
+  if(methodId === undefined || !methodId.startsWith('did:')) {
+    throw new UpdateError(
+      'Invalid verificationMethodId: expected a DID URL or a relative DID URL that starts with "#"; '
+      + `got "${String(verificationMethodId)}".`,
+      INVALID_DID_UPDATE, { verificationMethodId }
+    );
+  }
+  const separator = methodId.charAt(did.length);
+  if(!methodId.startsWith(did) || ![ '#', '?', '/' ].includes(separator) || methodId.length === did.length + 1) {
+    throw new UpdateError(
+      `Invalid verificationMethodId: expected "${did}" followed by a fragment, a query, or a path; `
+      + `got "${methodId}".`,
+      INVALID_DID_UPDATE, { verificationMethodId: methodId }
+    );
+  }
+  return methodId;
+}
+
+/**
+ * Checks that `unsignedUpdate` is an update of `sourceDocument`. A resolver refuses an announced
+ * update if its hashes do not match the documents, and then the DID no longer resolves. So the
+ * write path must refuse such an update before it signs. The checks, in this order:
+ *
+ * 1. `unsignedUpdate` is an object with no `proof` member.
+ * 2. `targetVersionId` is an integer of 2 or more, as in the shape rule of the read path.
+ * 3. `@context` is the array that the specification pins for a BTCR2 Update.
+ * 4. `sourceHash` is the hash of `sourceDocument`.
+ * 5. `patch` gives a valid DID document from `sourceDocument` ({@link Updater.construct}).
+ * 6. `targetHash` is the hash of that document.
+ *
+ * This function does not compare other properties. The read path accepts an extra property,
+ * so the write path signs it too. A `proof` member is not an extra property: Updater.sign adds
+ * the proof.
+ *
+ * Updater.sign gets no version of `sourceDocument`. The caller must make sure that
+ * `targetVersionId` is the version of `sourceDocument` plus 1. A resolver refuses another value.
+ *
+ * @param {Btcr2DidDocument} sourceDocument The DID document that the update changes.
+ * @param {UnsignedBTCR2Update} unsignedUpdate The unsigned update to check.
+ * @throws {UpdateError} `INVALID_DID_UPDATE` for the first check that fails.
+ */
+function checkUnsignedUpdate(sourceDocument: Btcr2DidDocument, unsignedUpdate: UnsignedBTCR2Update): void {
+  if(typeof unsignedUpdate !== 'object' || unsignedUpdate === null || Array.isArray(unsignedUpdate)) {
+    throw new UpdateError(
+      'Invalid unsignedUpdate: expected an object.',
+      INVALID_DID_UPDATE, { unsignedUpdate }
+    );
+  }
+  if(Object.hasOwn(unsignedUpdate, 'proof')) {
+    throw new UpdateError(
+      'Invalid unsignedUpdate: an unsigned update must not have a proof.',
+      INVALID_DID_UPDATE, { field: 'proof', actual: (unsignedUpdate as { proof?: unknown }).proof }
+    );
+  }
+  const targetVersionId: unknown = unsignedUpdate.targetVersionId;
+  if(!Number.isInteger(targetVersionId) || (targetVersionId as number) < 2) {
+    throw new UpdateError(
+      'Invalid unsignedUpdate: targetVersionId must be an integer of 2 or more.',
+      INVALID_DID_UPDATE, { field: 'targetVersionId', actual: targetVersionId }
+    );
+  }
+  if(!isBtcr2UpdateContext(unsignedUpdate['@context'])) {
+    throw new UpdateError(
+      'Invalid unsignedUpdate: @context must be the BTCR2 update context.',
+      INVALID_DID_UPDATE, { field: '@context', expected: [ ...BTCR2_UPDATE_CONTEXT ], actual: unsignedUpdate['@context'] }
+    );
+  }
+  // The read path decodes each hash with a strict base64url decoder and compares the bytes. The
+  // decoder accepts one text for each hash, so the text comparison here gives the same result.
+  const sourceHash = canonicalHash(sourceDocument);
+  if(unsignedUpdate.sourceHash !== sourceHash) {
+    throw new UpdateError(
+      'Invalid unsignedUpdate: sourceHash is not the hash of sourceDocument.',
+      INVALID_DID_UPDATE, { field: 'sourceHash', expected: sourceHash, actual: unsignedUpdate.sourceHash }
+    );
+  }
+
+  // The write path builds the update again from the patch. Updater.construct applies the patch
+  // with the rules of the read path, so the hash of its target document is the hash that a
+  // resolver computes.
+  let rebuilt: UnsignedBTCR2Update;
+  try {
+    rebuilt = Updater.construct(sourceDocument, unsignedUpdate.patch, (targetVersionId as number) - 1);
+  } catch(error) {
+    throw new UpdateError(
+      `Invalid unsignedUpdate: the patch does not give a valid DID document from sourceDocument: ${errorCause(error).message}`,
+      INVALID_DID_UPDATE, { field: 'patch', cause: errorCause(error) }
+    );
+  }
+  if(unsignedUpdate.targetHash !== rebuilt.targetHash) {
+    throw new UpdateError(
+      'Invalid unsignedUpdate: targetHash is not the hash of the document that the patch gives.',
+      INVALID_DID_UPDATE, { field: 'targetHash', expected: rebuilt.targetHash, actual: unsignedUpdate.targetHash }
+    );
+  }
 }
 
 /**
@@ -172,9 +299,9 @@ export interface UpdaterParams {
  * the advance/provide protocol. This mirrors the {@link Resolver} pattern and makes
  * the update path transport-agnostic and KMS-ready.
  *
- * The class also exposes static utility methods ({@link construct}, {@link sign},
- * {@link announce}) for callers that need direct access to individual update steps
- * outside the state machine (e.g., test vector generation scripts).
+ * The class also exposes static utility methods ({@link construct}, {@link signingMethod},
+ * {@link sign}, {@link announce}) for callers that need direct access to individual update
+ * steps outside the state machine (e.g., test vector generation scripts).
  *
  * @class Updater
  */
@@ -183,17 +310,20 @@ export class Updater {
   readonly #sourceDocument: Btcr2DidDocument;
   readonly #patches: PatchOperation[];
   readonly #sourceVersionId: number;
-  readonly #verificationMethod: DidVerificationMethod;
+  readonly #verificationMethodId: string;
   readonly #beaconService: BeaconService;
 
   /**
    * @internal Use {@link DidBtcr2.update} to create instances.
+   * @throws {UpdateError} `INVALID_DID_UPDATE` if `verificationMethodId` is neither a DID URL
+   *   nor a relative DID URL that starts with `#`.
    */
   constructor(params: UpdaterParams) {
     this.#sourceDocument = params.sourceDocument;
     this.#patches = params.patches;
     this.#sourceVersionId = params.sourceVersionId;
-    this.#verificationMethod = params.verificationMethod;
+    // The absolute spelling: NeedSigningKey and the proof name the method by the same id.
+    this.#verificationMethodId = absoluteMethodId(params.verificationMethodId, params.sourceDocument.id);
     this.#beaconService = params.beaconService;
   }
 
@@ -208,6 +338,7 @@ export class Updater {
    * @param {PatchOperation[]} patches The JSON Patch operations to apply.
    * @param {number} sourceVersionId The version ID of the source document.
    * @returns {UnsignedBTCR2Update} The constructed UnsignedBTCR2Update object.
+   * @throws {UpdateError} `INVALID_DID_UPDATE` if `sourceVersionId` is not an integer of 1 or more.
    * @throws {UpdateError} If the target document fails DID Core validation.
    */
   static construct(
@@ -215,6 +346,15 @@ export class Updater {
     patches: PatchOperation[],
     sourceVersionId: number,
   ): UnsignedBTCR2Update {
+    // The version of a DID document is an integer of 1 or more. Without this check, the
+    // string '1' gives the targetVersionId '11', and undefined gives NaN.
+    if(!Number.isInteger(sourceVersionId) || sourceVersionId < 1) {
+      throw new UpdateError(
+        'Invalid sourceVersionId: expected an integer of 1 or more.',
+        INVALID_DID_UPDATE, { sourceVersionId }
+      );
+    }
+
     const unsignedUpdate: UnsignedBTCR2Update = {
       // The array the specification pins, as a fresh copy: the update is a plain JSON
       // object that callers may edit, and the shared constant is frozen.
@@ -263,59 +403,173 @@ export class Updater {
   }
 
   /**
-   * Implements subsection {@link http://dcdpr.github.io/did-btcr2/operations/update.html#construct-btcr2-signed-update | 7.3.c Construct BTCR2 Signed Update }.
+   * Returns the verification method that signs an update of `sourceDocument`. Implements the
+   * method lookup and the method checks of subsection
+   * {@link https://dcdpr.github.io/did-btcr2/operations/update.html#construct-btcr2-signed-update | 7.3.c Construct BTCR2 Signed Update}:
    *
-   * @param {string} did The did-btcr2 identifier: the source of the root capability and the
-   * invocation target.
-   * @param {UnsignedBTCR2Update} unsignedUpdate The unsigned update to sign.
-   * @param {DidVerificationMethod} verificationMethod The verification method for signing.
-   * @param {Signer} signer Signer that produces the BIP-340 Schnorr signature.
-   * @returns {SignedBTCR2Update} The signed update with a Data Integrity proof.
+   * 1. An entry of `capabilityInvocation` must identify `verificationMethodId`, in the
+   *    reference form or the embedded form. Both sides resolve to absolute DID URLs first, so
+   *    the caller and the document can spell the id in different forms.
+   * 2. A reference entry must name a member of `verificationMethod`.
+   * 3. The method must have the type `Multikey`, the DID as its controller, and a secp256k1
+   *    public key in the BIP340 Multikey encoding.
+   *
+   * Before the lookup, this function checks the shape of `sourceDocument`. The proof names the
+   * method by a DID URL, so this function also refuses an id that does not resolve to a DID URL.
+   *
+   * The read path applies the same lookup and the same checks to `update.proof`, so an update
+   * that passes these checks is one that a resolver also accepts. {@link DidBtcr2.update} calls
+   * this function before Construct, and {@link sign} calls it again.
+   *
+   * @param {Btcr2DidDocument} sourceDocument The DID document to update. Its `id` is the DID.
+   * @param {string} verificationMethodId The id of the method, absolute or relative.
+   * @returns {DidVerificationMethod} The verification method that signs.
+   * @throws {UpdateError} `INVALID_DID_UPDATE` if one of these conditions is true:
+   *   - `sourceDocument` is not an object.
+   *   - `sourceDocument.id` is not a did:btcr2 identifier.
+   *   - `capabilityInvocation` or `verificationMethod` is present and is not an array.
+   *   - The lookup or a method check above fails.
+   *   - The id is neither a DID URL nor a relative DID URL that starts with `#`.
    */
-  static sign(
-    did: string,
-    unsignedUpdate: UnsignedBTCR2Update,
-    verificationMethod: DidVerificationMethod,
-    signer: Signer,
-  ): SignedBTCR2Update {
-    if(!did.startsWith('did:btcr2:')) {
+  static signingMethod(sourceDocument: Btcr2DidDocument, verificationMethodId: string): DidVerificationMethod {
+    // The shape of the source document. The caller of this public function can give any value,
+    // but the lookup below reads an object with a did:btcr2 id and arrays.
+    if(typeof sourceDocument !== 'object' || sourceDocument === null || Array.isArray(sourceDocument)) {
       throw new UpdateError(
-        `Expected a did:btcr2 identifier for the root capability; got "${did}".`,
+        'Invalid sourceDocument: expected a DID document object.',
+        INVALID_DID_UPDATE, { sourceDocument }
+      );
+    }
+    const did: unknown = sourceDocument.id;
+    if(typeof did !== 'string' || !did.startsWith('did:btcr2:')) {
+      throw new UpdateError(
+        `Expected a did:btcr2 identifier for the root capability; got "${String(did)}".`,
         INVALID_DID_UPDATE, { did }
       );
     }
-    const controller = verificationMethod.controller;
-    const hashIdx = verificationMethod.id.indexOf('#');
-    if(hashIdx < 0) {
+    for(const field of [ 'capabilityInvocation', 'verificationMethod' ] as const) {
+      const value: unknown = sourceDocument[field];
+      if(value !== undefined && !Array.isArray(value)) {
+        throw new UpdateError(
+          `Invalid sourceDocument: ${field} must be an array.`,
+          INVALID_DID_UPDATE, { field, actual: value }
+        );
+      }
+    }
+
+    // The proof names the method by its absolute DID URL. Every error below names the method
+    // by the same id, as NeedSigningKey and the proof do.
+    const methodId = absoluteMethodId(verificationMethodId, did);
+
+    const entry = Appendix.capabilityInvocationEntry(sourceDocument, methodId);
+    if(entry === undefined) {
       throw new UpdateError(
-        `Verification method id must contain a fragment (e.g. "${verificationMethod.id}#initialKey"); got "${verificationMethod.id}".`,
-        INVALID_DID_UPDATE, { verificationMethodId: verificationMethod.id }
+        'Invalid verificationMethodId: not authorized for capabilityInvocation',
+        INVALID_DID_UPDATE, { verificationMethodId: methodId, capabilityInvocation: sourceDocument.capabilityInvocation }
       );
     }
-    const id = verificationMethod.id.slice(hashIdx);
-    const multikey = SchnorrMultikey.fromSigner(id, controller, signer);
 
-    // The absolute spelling of the method id, for the proof to name it by. `hashIdx === 0`
-    // means the document writes this method's own id as a relative DID URL, which per DID
-    // Core denotes that fragment of the document's `id`: the same rule as
-    // Appendix.absoluteDidUrl, whose `undefined` case the fragment check above excludes.
-    const absoluteMethodId = hashIdx === 0 ? `${did}${id}` : verificationMethod.id;
+    // The method is the embedded object of the entry, or the member of verificationMethod[]
+    // that a reference entry names.
+    const verificationMethod = Appendix.verificationMethodOfEntry(sourceDocument, entry);
+    if(verificationMethod === undefined) {
+      throw new UpdateError(
+        'Invalid verificationMethodId: not found in source document',
+        INVALID_DID_UPDATE, { verificationMethodId: methodId }
+      );
+    }
+
+    // The message and the data have the form of the read path, with the field that fails.
+    const problem = signingMethodProblem(verificationMethod, sourceDocument.id);
+    if(problem !== undefined) {
+      const reason = problem.cause !== undefined ? `: ${problem.cause.message}` : '';
+      throw new UpdateError(
+        `Invalid update: verificationMethod.${problem.message}${reason}`,
+        INVALID_DID_UPDATE, {
+          verificationMethodId : methodId,
+          field                : problem.field,
+          actual               : verificationMethod[problem.field],
+          ...(problem.cause !== undefined && { cause: problem.cause })
+        }
+      );
+    }
+    return verificationMethod as DidVerificationMethod;
+  }
+
+  /**
+   * Implements subsection {@link http://dcdpr.github.io/did-btcr2/operations/update.html#construct-btcr2-signed-update | 7.3.c Construct BTCR2 Signed Update }.
+   *
+   * The DID is `sourceDocument.id`: the source of the root capability and the invocation
+   * target. The method that signs must pass {@link signingMethod}. The proof names the method
+   * by its absolute DID URL. `unsignedUpdate` must be an update of `sourceDocument`: its
+   * `sourceHash` and `targetHash` must be the hashes that a resolver computes from
+   * `sourceDocument` and `patch`.
+   *
+   * Updater.sign gets no version of `sourceDocument`. The caller must make sure that
+   * `targetVersionId` is the version of `sourceDocument` plus 1. A resolver refuses another value.
+   *
+   * @param {Btcr2DidDocument} sourceDocument The DID document that the update changes.
+   * @param {UnsignedBTCR2Update} unsignedUpdate The unsigned update to sign.
+   * @param {string} verificationMethodId The id of the method that signs, absolute or relative.
+   * @param {Signer} signer Signer that produces the BIP-340 Schnorr signature.
+   * @returns {SignedBTCR2Update} The signed update with a Data Integrity proof.
+   * @throws {UpdateError} `INVALID_DID_UPDATE` if one of these conditions is true:
+   *   - `sourceDocument` or the method fails a condition of {@link signingMethod}.
+   *   - `unsignedUpdate` is not an object, or it has a `proof` member.
+   *   - `targetVersionId` is not an integer of 2 or more.
+   *   - `@context` is not the array that the specification pins for a BTCR2 Update.
+   *   - `sourceHash` is not the hash of `sourceDocument`.
+   *   - `patch` does not give a valid DID document from `sourceDocument`. `data.cause` holds
+   *     the error of {@link construct}.
+   *   - `targetHash` is not the hash of the document that `patch` gives.
+   *   - The public key of the signer is not the key of the method.
+   *   - The signer or the cryptosuite fails. `data.cause` holds the inner error.
+   *   - The proof does not verify with the key of the method.
+   */
+  static sign(
+    sourceDocument: Btcr2DidDocument,
+    unsignedUpdate: UnsignedBTCR2Update,
+    verificationMethodId: string,
+    signer: Signer,
+  ): SignedBTCR2Update {
+    // signingMethod refuses a sourceDocument whose id is not a did:btcr2 identifier.
+    const verificationMethod = Updater.signingMethod(sourceDocument, verificationMethodId);
+
+    // A resolver refuses an announced update whose hashes do not match the documents, and then
+    // the DID no longer resolves. So Updater.sign refuses an update that does not belong to
+    // sourceDocument, before it signs.
+    checkUnsignedUpdate(sourceDocument, unsignedUpdate);
+
+    const did = sourceDocument.id;
+    const methodId = absoluteMethodId(verificationMethodId, did);
+
+    // The multikey has the absolute method id and the DID as its controller, so its fullId()
+    // is the id that the proof names, with or without a fragment.
+    let multikey: SchnorrMultikey;
+    try {
+      multikey = SchnorrMultikey.fromSigner(methodId, did, signer);
+    } catch(error) {
+      throw new UpdateError(
+        `Invalid signer: ${errorCause(error).message}`,
+        INVALID_DID_UPDATE, { verificationMethodId: methodId, cause: errorCause(error) }
+      );
+    }
 
     // Fail fast if the signer's public key is not the key published in the named
     // verification method. Signing with the wrong key yields a Data Integrity
     // proof that cannot verify against the method, so the resulting on-chain
     // announcement is wasted: a resolver replaying the update rejects it. Catching
     // it here guards every update path (state machine, builder, api, cli) at a
-    // single chokepoint. The check is skipped when the method carries no
-    // publicKeyMultibase, which a well-formed btcr2 Multikey method never omits.
+    // single chokepoint. signingMethod above proves that the method has the key, in the
+    // base58btc text of the key, so the two texts compare equal for the same key.
     const signerKey = multikey.publicKey.multibase.encoded;
-    if(verificationMethod.publicKeyMultibase && signerKey !== verificationMethod.publicKeyMultibase) {
+    if(signerKey !== verificationMethod.publicKeyMultibase) {
       throw new UpdateError(
-        `Signing key does not match verification method "${verificationMethod.id}": the signer's public `
+        `Signing key does not match verification method "${methodId}": the signer's public `
         + 'key differs from the method\'s published publicKeyMultibase.',
         INVALID_DID_UPDATE,
         {
-          verificationMethodId : verificationMethod.id,
+          verificationMethodId : methodId,
           expected             : verificationMethod.publicKeyMultibase,
           actual               : signerKey,
         }
@@ -334,15 +588,28 @@ export class Updater {
       // that defines the method, so a bare `#initialKey` in it resolves against nothing.
       // For a document that already spells its ids absolutely this is the id unchanged,
       // so proofs over such documents are byte-identical to before.
-      verificationMethod : absoluteMethodId,
+      verificationMethod : methodId,
       proofPurpose       : 'capabilityInvocation',
       capability         : `urn:zcap:root:${encodeURIComponent(did)}`,
       capabilityAction   : 'Write',
       invocationTarget   : did,
     };
 
-    const diproof = multikey.toCryptosuite().toDataIntegrityProof();
-    const signedUpdate = diproof.addProof(unsignedUpdate, config) as SignedBTCR2Update;
+    // The signer and the cryptosuite run here. Their errors carry other types (a key manager
+    // that holds no secret key, for example), so Updater.sign wraps them as an invalid update.
+    let signedUpdate: SignedBTCR2Update;
+    try {
+      const diproof = multikey.toCryptosuite().toDataIntegrityProof();
+      // addProof writes the proof into the object that it gets. Updater.sign gives it a copy, so
+      // the update of the caller keeps no proof. The caller can then sign the same update again,
+      // for example after a signer fails.
+      signedUpdate = diproof.addProof({ ...unsignedUpdate }, config) as SignedBTCR2Update;
+    } catch(error) {
+      throw new UpdateError(
+        `Invalid update: cannot make the proof with "${methodId}": ${errorCause(error).message}`,
+        INVALID_DID_UPDATE, { verificationMethodId: methodId, cause: errorCause(error) }
+      );
+    }
 
     // Spec "Construct BTCR2 Signed Update": verify update.proof before the announcement,
     // with the public key that the verification method publishes, not the signer's key. A
@@ -351,20 +618,20 @@ export class Updater {
     // the failure surfaces here, before the state machine asks for funding.
     let verified: boolean;
     try {
-      const verifier = SchnorrMultikey.fromVerificationMethod({ ...verificationMethod, id: absoluteMethodId });
+      const verifier = SchnorrMultikey.fromVerificationMethod({ ...verificationMethod, id: methodId });
       verified = verifier.toCryptosuite().toDataIntegrityProof()
         .verifyProof(canonicalize(signedUpdate), 'capabilityInvocation').verified;
     } catch(error) {
       throw new UpdateError(
-        `Invalid update: the proof does not verify with the public key of "${verificationMethod.id}": `
+        `Invalid update: the proof does not verify with the public key of "${methodId}": `
         + errorCause(error).message,
-        INVALID_DID_UPDATE, { verificationMethodId: verificationMethod.id, cause: errorCause(error) }
+        INVALID_DID_UPDATE, { verificationMethodId: methodId, cause: errorCause(error) }
       );
     }
     if(!verified) {
       throw new UpdateError(
-        `Invalid update: the proof does not verify with the public key of "${verificationMethod.id}".`,
-        INVALID_DID_UPDATE, { verificationMethodId: verificationMethod.id }
+        `Invalid update: the proof does not verify with the public key of "${methodId}".`,
+        INVALID_DID_UPDATE, { verificationMethodId: methodId }
       );
     }
     return signedUpdate;
@@ -430,7 +697,7 @@ export class Updater {
             status : 'action-required',
             needs  : [{
               kind                 : 'NeedSigningKey',
-              verificationMethodId : this.#verificationMethod.id,
+              verificationMethodId : this.#verificationMethodId,
               unsignedUpdate       : this.#state.unsignedUpdate,
             }],
           };
@@ -504,7 +771,7 @@ export class Updater {
         }
         const unsignedUpdate = this.#state.unsignedUpdate;
         const signedUpdate = Updater.sign(
-          this.#sourceDocument.id, unsignedUpdate, this.#verificationMethod, data as Signer,
+          this.#sourceDocument, unsignedUpdate, this.#verificationMethodId, data as Signer,
         );
         this.#state = { phase: 'Fund', unsignedUpdate, signedUpdate };
         break;

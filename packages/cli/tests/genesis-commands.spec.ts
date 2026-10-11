@@ -425,6 +425,21 @@ describe('genesis commands', () => {
       expect(process.exitCode).to.equal(1);
     });
 
+    it('refuses a document whose DID document has no capabilityInvocation method that can sign, and records nothing', async () => {
+      const { document } = externalFixture();
+      const locked = document as { verificationMethod: Array<Record<string, unknown>> };
+      locked.verificationMethod[0]!.type = 'MultiKey';
+      const path = writeJson('genesis.json', locked);
+      await run('create', '-t', 'x', '-n', 'regtest', '--document', path);
+      expect(err).to.deep.equal([
+        'Invalid genesis document: the DID document has no capabilityInvocation method that can sign an update. '
+        + 'Nobody can update or deactivate the DID.'
+      ]);
+      expect(out).to.deep.equal([]);
+      expect(existsSync(join(process.env.BTCR2_HOME!, 'dids.json'))).to.equal(false);
+      expect(process.exitCode).to.equal(1);
+    });
+
     it('refuses a path that is not a JSON file', async () => {
       await run('create', '-t', 'x', '-n', 'regtest', '--document', join(dir, 'absent.json'));
       expect(err.join(' ')).to.match(/Invalid genesis document path/);

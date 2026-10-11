@@ -76,7 +76,6 @@ function buildSignedUpdate(did: string, kp: SchnorrKeyPair, beaconAddress: strin
     version      : 1,
     network      : 'mutinynet',
   });
-  const vm = doc.verificationMethod![0];
   const unsigned = Updater.construct(doc, [{
     op    : 'add',
     path  : '/service/-',
@@ -86,7 +85,7 @@ function buildSignedUpdate(did: string, kp: SchnorrKeyPair, beaconAddress: strin
       serviceEndpoint : `bitcoin:${beaconAddress}`,
     },
   }], 1);
-  return Updater.sign(did, unsigned, vm, new LocalSigner(kp.raw.secret!));
+  return Updater.sign(doc, unsigned, '#initialKey', new LocalSigner(kp.raw.secret!));
 }
 
 // ── Capture artefacts for post-run cryptographic verification ──

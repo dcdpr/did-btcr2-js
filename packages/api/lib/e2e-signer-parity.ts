@@ -99,7 +99,7 @@ const unsignedA = Updater.construct(sourceDocument, [{
     serviceEndpoint : 'http://example.com/parity-local',
   },
 }], 1);
-const signedA = Updater.sign(did, unsignedA, vm, localSigner);
+const signedA = Updater.sign(sourceDocument, unsignedA, vm.id, localSigner);
 assert.equal(
   SchnorrMultikey.fromVerificationMethod(vm).toCryptosuite().verifyProof(signedA).verified, true,
   'LocalSigner DI proof verifies',
@@ -122,7 +122,7 @@ const unsignedB = Updater.construct(sourceDocument, [{
     serviceEndpoint : 'http://example.com/parity-kms',
   },
 }], 1);
-const signedB = Updater.sign(did, unsignedB, vm, kmsSigner);
+const signedB = Updater.sign(sourceDocument, unsignedB, vm.id, kmsSigner);
 assert.equal(
   SchnorrMultikey.fromVerificationMethod(vm).toCryptosuite().verifyProof(signedB).verified, true,
   'KeyManagerSigner DI proof verifies',

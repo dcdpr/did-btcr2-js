@@ -1,6 +1,6 @@
 {
   "id": "n24-k1-invalid-update-patch-invalid-document",
-  "description": "Negative: k1 DID with 1 anchored update whose patched document does not conform (the verification method type is not Multikey).",
+  "description": "Negative: k1 DID with 1 anchored update whose patched document does not conform (the type of the verification method is the number 42, not a string).",
   "network": "regtest",
   "idType": "KEY",
   "keys": {
@@ -13,7 +13,7 @@
         {
           "op": "replace",
           "path": "/verificationMethod/0/type",
-          "value": "JsonWebKey2020"
+          "value": 42
         }
       ],
       "verificationMethodId": "#initialKey",

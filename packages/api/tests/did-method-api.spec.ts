@@ -48,6 +48,13 @@ const EXTERNAL_GENESIS_DOCUMENT = {
   ]
 };
 
+/** The refusal of the derivation if no method that can sign publishes the signer's key. */
+function noSigningMethodMessage(did: string): string {
+  return `No capabilityInvocation method that can sign an update of DID ${did} publishes the signer's key. `
+    + 'The api cannot derive verificationMethodId. Sign with the key of such a method. '
+    + 'As an alternative, pass verificationMethodId.';
+}
+
 /**
  * An {@link HttpExecutor} standing in for an Esplora backend whose chain holds
  * no beacon signals: the tip is at height 100 and no address has transactions.
@@ -613,13 +620,43 @@ describe('DidMethodApi', () => {
       ).catch((e: unknown) => e);
 
       expect(err).to.be.instanceOf(UpdateError);
-      expect((err as UpdateError).message).to.include('cannot derive verificationMethodId');
+      expect((err as UpdateError).message).to.equal(noSigningMethodMessage(did));
       expect((err as UpdateError).type).to.equal(INVALID_DID_UPDATE);
       expect((err as UpdateError).data).to.deep.equal({
         did,
         signerKey : new CompressedSecp256k1PublicKey(foreign.publicKey).multibase.encoded,
       });
       expect(events, 'no chain read before the refusal').to.deep.equal([]);
+    });
+
+    it('does not derive a method that capabilityInvocation does not name, also if it has the signer\'s key', async () => {
+      // Only authentication names #key-1. The Updater refuses it, so the derivation does not
+      // choose it, and the error names the cause before any chain read.
+      const events: string[] = [];
+      const connection = {
+        name : 'regtest',
+        rest : { address: { getUtxos: async (address: string) => { events.push(address); return []; } } },
+      } as unknown as BitcoinConnection;
+      const methodApi = new DidMethodApi();
+      const kp = SchnorrKeyPair.generate();
+      const did = methodApi.createDeterministic(kp.publicKey.compressed, { network: 'regtest' });
+      const document = methodApi.getInitialDocument(did);
+      const authKey = SchnorrKeyPair.generate();
+      const signerKey = new CompressedSecp256k1PublicKey(authKey.publicKey.compressed).multibase.encoded;
+      document.verificationMethod.push({ ...document.verificationMethod[0]!, id: `${did}#key-1`, publicKeyMultibase: signerKey });
+      document.authentication!.push(`${did}#key-1`);
+
+      const err: unknown = await methodApi.update(
+        { document, versionId: 1 },
+        [],
+        new LocalSigner(authKey.secretKey.bytes),
+        { announce: { beaconId: `${did}#initialP2WPKH`, bitcoin: connection } },
+      ).catch((e: unknown) => e);
+
+      expect(err).to.be.instanceOf(UpdateError);
+      expect((err as UpdateError).message).to.equal(noSigningMethodMessage(did));
+      expect((err as UpdateError).data).to.deep.equal({ did, signerKey });
+      expect(events).to.deep.equal([]);
     });
 
     it('refuses to derive if several verification methods publish the signer\'s key', async () => {
@@ -634,6 +671,8 @@ describe('DidMethodApi', () => {
       const document = methodApi.getInitialDocument(did);
       const initialKey = document.verificationMethod[0]!;
       document.verificationMethod = [initialKey, { ...initialKey, id: `${did}#second` }];
+      // A relative reference and a second entry for the same method count as one method.
+      document.capabilityInvocation = [`${did}#initialKey`, '#second', '#initialKey'];
 
       const err: unknown = await methodApi.update(
         { document, versionId: 1 },
@@ -643,7 +682,10 @@ describe('DidMethodApi', () => {
       ).catch((e: unknown) => e);
 
       expect(err).to.be.instanceOf(UpdateError);
-      expect((err as UpdateError).message).to.include('Pass verificationMethodId to choose one');
+      expect((err as UpdateError).message).to.equal(
+        `2 capabilityInvocation methods that can sign an update of DID ${did} publish the signer's key: `
+        + `${did}#initialKey, ${did}#second. Pass verificationMethodId to choose one.`
+      );
       expect((err as UpdateError).data).to.deep.equal({
         did,
         signerKey             : new CompressedSecp256k1PublicKey(kp.publicKey.compressed).multibase.encoded,
@@ -674,6 +716,67 @@ describe('DidMethodApi', () => {
       )).to.be.rejectedWith(UpdateError, 'names the network "testnet4"');
       expect(events).to.deep.equal([]);
     });
+
+    describe('an update that leaves no method that can sign', () => {
+      /** A connection that records each UTXO read and funds no address. */
+      function recordingConnection(events: string[]): BitcoinConnection {
+        return {
+          name : 'regtest',
+          rest : { address: { getUtxos: async (address: string) => { events.push(address); return []; } } },
+        } as unknown as BitcoinConnection;
+      }
+
+      it('is refused before the api reads the chain or signs', async () => {
+        // The ids are omitted, and the document has three beacons, so the derivation of the
+        // beacon would read three addresses. The signer records each call.
+        const events: string[] = [];
+        const methodApi = new DidMethodApi();
+        const kp = SchnorrKeyPair.generate();
+        const did = methodApi.createDeterministic(kp.publicKey.compressed, { network: 'regtest' });
+        const inner = new LocalSigner(kp.secretKey.bytes);
+        const signer = { publicKey: inner.publicKey, sign: (...args: Parameters<LocalSigner['sign']>) => { events.push('sign'); return inner.sign(...args); } };
+
+        const err: unknown = await methodApi.update(
+          { document: methodApi.getInitialDocument(did), versionId: 1 },
+          [{ op: 'replace', path: '/verificationMethod/0/type', value: 'MultiKey' }],
+          signer,
+          { announce: { bitcoin: recordingConnection(events) } },
+        ).catch((e: unknown) => e);
+
+        expect(err).to.be.instanceOf(UpdateError);
+        expect((err as UpdateError).message).to.equal(
+          'Invalid update: after this update, the DID document has no capabilityInvocation method that can sign '
+          + `an update. Nobody can update or deactivate ${did} again.`
+        );
+        expect((err as UpdateError).type).to.equal(INVALID_DID_UPDATE);
+        expect((err as UpdateError).data).to.deep.equal({
+          did,
+          methods : [{
+            verificationMethodId : `${did}#initialKey`,
+            reason               : 'Invalid update: verificationMethod.type must equal "Multikey"',
+          }],
+        });
+        expect(events).to.deep.equal([]);
+      });
+
+      it('goes on if the update also deactivates the DID', async () => {
+        // The guard passes, so the update reaches the funding check of the beacon.
+        const events: string[] = [];
+        const methodApi = new DidMethodApi();
+        const kp = SchnorrKeyPair.generate();
+        const did = methodApi.createDeterministic(kp.publicKey.compressed, { network: 'regtest' });
+        const document = methodApi.getInitialDocument(did);
+        const address = methodApi.getBeacons(document).find(beacon => beacon.id === `${did}#initialP2WPKH`)!.address;
+
+        await expect(methodApi.update(
+          { document, versionId: 1 },
+          [{ op: 'remove', path: '/capabilityInvocation' }, { ...DEACTIVATION_PATCH }],
+          new LocalSigner(kp.secretKey.bytes),
+          { announce: { beaconId: `${did}#initialP2WPKH`, bitcoin: recordingConnection(events) } },
+        )).to.be.rejectedWith(UpdateError, `Beacon address ${address} is unfunded.`);
+        expect(events).to.deep.equal([ address ]);
+      });
+    });
   });
 
   describe('DEACTIVATION_PATCH', () => {
@@ -684,22 +787,40 @@ describe('DidMethodApi', () => {
   });
 
   describe('getSigningMethod()', () => {
-    it('returns verification method from a DID document', () => {
-      const kp = SchnorrKeyPair.generate();
+    /** A document with #initialKey in capabilityInvocation and #key-1 in authentication only. */
+    function signingFixture() {
       const mkApi = new MultikeyApi();
-      const mk = mkApi.create('#initialKey', 'did:btcr2:test', kp);
-      const vm = mkApi.toVerificationMethod(mk);
+      const vm = mkApi.toVerificationMethod(mkApi.create('#initialKey', 'did:btcr2:test', SchnorrKeyPair.generate()));
+      const authOnly = mkApi.toVerificationMethod(mkApi.create('#key-1', 'did:btcr2:test', SchnorrKeyPair.generate()));
       const doc = {
         id                     : 'did:btcr2:test',
-        verificationMethod     : [vm],
+        verificationMethod     : [vm, authOnly],
+        authentication         : ['#key-1'],
         assertionMethod        : ['#initialKey'],
         capabilityInvocation   : ['#initialKey'],
         service                : [],
       } as any;
-      const methodApi = new DidMethodApi();
-      const result = methodApi.getSigningMethod(doc, '#initialKey');
-      expect(result).to.exist;
-      expect(result.id).to.include('initialKey');
+      return { doc, vm };
+    }
+
+    it('returns the method that the id names', () => {
+      const { doc, vm } = signingFixture();
+      expect(new DidMethodApi().getSigningMethod(doc, 'did:btcr2:test#initialKey')).to.deep.equal(vm);
+    });
+
+    it('returns #initialKey if the caller gives no id', () => {
+      const { doc, vm } = signingFixture();
+      expect(new DidMethodApi().getSigningMethod(doc)).to.deep.equal(vm);
+    });
+
+    it('refuses a method that capabilityInvocation does not name', () => {
+      const { doc } = signingFixture();
+      expect(() => new DidMethodApi().getSigningMethod(doc, '#key-1'))
+        .to.throw(UpdateError, 'Invalid verificationMethodId: not authorized for capabilityInvocation')
+        .that.deep.includes({
+          type : INVALID_DID_UPDATE,
+          data : { verificationMethodId: 'did:btcr2:test#key-1', capabilityInvocation: ['#initialKey'] },
+        });
     });
   });
 

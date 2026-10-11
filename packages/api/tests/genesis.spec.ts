@@ -1,9 +1,10 @@
 import { expect } from 'chai';
-import { canonicalHashBytes, DidDocumentError } from '@did-btcr2/common';
+import { canonicalHashBytes, DidDocumentError, INVALID_DID_DOCUMENT } from '@did-btcr2/common';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { deriveSingletonAddress, GenesisDocument, Identifier } from '@did-btcr2/method';
 import { getNetwork } from '@did-btcr2/bitcoin';
 import { bytesToHex } from '@noble/hashes/utils.js';
+import { base58 } from '@scure/base';
 import { buildGenesisDocument } from '../src/genesis.js';
 import {
   BEACON_ADDRESS_TYPES,
@@ -265,6 +266,20 @@ describe('genesis document builder', () => {
       expect(didDocument).to.not.have.property('authentication');
     });
 
+    it('accepts an Ed25519 Multikey authentication method and keeps it as given', () => {
+      // The multicodec prefix 0xed01 and a 32-byte key: the z6Mk form of an Ed25519 key. Only
+      // the method that signs an update must be a secp256k1 Multikey.
+      const publicKeyMultibase = `z${base58.encode(new Uint8Array([ 0xed, 0x01, ...new Uint8Array(32).fill(7) ]))}`;
+      const methodApi = new DidMethodApi();
+      const doc = plain(methodApi.buildGenesisDocument({ network: 'regtest', verificationMethods: [{ publicKey: publicKey() }] }));
+      const method = { id: 'did:btcr2:_#ed25519', type: 'Multikey', controller: 'did:btcr2:_', publicKeyMultibase };
+      doc.verificationMethod.push(method);
+      doc.authentication.push(method.id);
+      const { did, didDocument } = methodApi.createExternalFromDocument(doc, { network: 'regtest' });
+      expect(plain(didDocument.verificationMethod[1]!)).to.deep.equal({ ...method, id: `${did}#ed25519`, controller: did });
+      expect(didDocument.authentication).to.deep.equal([ `${did}#key-0`, `${did}#ed25519` ]);
+    });
+
     describe('refusals', () => {
       const methodApi = new DidMethodApi();
       const valid = (): Record<string, any> => plain(methodApi.buildGenesisDocument({
@@ -305,10 +320,84 @@ describe('genesis document builder', () => {
         expect(() => methodApi.createExternalFromDocument(doc)).to.throw(DidDocumentError, /service/);
       });
 
-      it('refuses a verification method that is not a Multikey', () => {
+      it('refuses a verification method whose type is not a string', () => {
         const doc = valid();
-        doc.verificationMethod[0].type = 'JsonWebKey';
-        expect(() => methodApi.createExternalFromDocument(doc)).to.throw(DidDocumentError, /verificationMethod/);
+        doc.verificationMethod[0].type = 42;
+        expect(() => methodApi.createExternalFromDocument(doc))
+          .to.throw(DidDocumentError, /verificationMethod/)
+          .with.property('type', INVALID_DID_DOCUMENT);
+      });
+
+      describe('a DID document with no method that can sign an update', () => {
+        const message = 'Invalid genesis document: the DID document has no capabilityInvocation method that can sign '
+          + 'an update. Nobody can update or deactivate the DID.';
+
+        /** The DID that the genesis document gives. */
+        const didOf = (doc: Record<string, any>): string =>
+          methodApi.createExternal(canonicalHashBytes(doc), { network: 'regtest' });
+
+        /** The error that the creation from `doc` throws. */
+        const refusal = (doc: Record<string, any>): any => {
+          try {
+            methodApi.createExternalFromDocument(doc, { network: 'regtest' });
+          } catch (error) {
+            return error;
+          }
+          expect.fail('expected an error');
+        };
+
+        it('refuses a document whose only capabilityInvocation method is not a Multikey', () => {
+          const doc = valid();
+          doc.verificationMethod[0].type = 'JsonWebKey';
+          const did = didOf(doc);
+          const error = refusal(doc);
+          expect(error).to.be.instanceOf(DidDocumentError);
+          expect(error.message).to.equal(message);
+          expect(error.type).to.equal(INVALID_DID_DOCUMENT);
+          expect(error.data).to.deep.equal({
+            did,
+            methods : [{ verificationMethodId: `${did}#key-0`, reason: 'Invalid update: verificationMethod.type must equal "Multikey"' }],
+          });
+        });
+
+        it('refuses a document with no capabilityInvocation', () => {
+          const doc = valid();
+          delete doc.capabilityInvocation;
+          const did = didOf(doc);
+          const error = refusal(doc);
+          expect(error).to.be.instanceOf(DidDocumentError);
+          expect(error.message).to.equal(message);
+          expect(error.data).to.deep.equal({ did, methods: [] });
+        });
+
+        it('accepts a deactivated document with no capabilityInvocation', () => {
+          const doc = valid();
+          delete doc.capabilityInvocation;
+          doc.deactivated = true;
+          const { didDocument } = methodApi.createExternalFromDocument(doc, { network: 'regtest' });
+          expect(didDocument.deactivated).to.equal(true);
+          expect(didDocument.capabilityInvocation).to.equal(undefined);
+        });
+
+        it('refuses a document with no capabilityInvocation if deactivated is the string "true"', () => {
+          const doc = valid();
+          delete doc.capabilityInvocation;
+          doc.deactivated = 'true';
+          const did = didOf(doc);
+          const error = refusal(doc);
+          expect(error).to.be.instanceOf(DidDocumentError);
+          expect(error.message).to.equal(message);
+          expect(error.type).to.equal(INVALID_DID_DOCUMENT);
+          expect(error.data).to.deep.equal({ did, methods: [] });
+        });
+
+        it('accepts a document if one of two capabilityInvocation methods can sign', () => {
+          const doc = valid();
+          doc.verificationMethod.push({ ...doc.verificationMethod[0], id: 'did:btcr2:_#jwk', type: 'JsonWebKey' });
+          doc.capabilityInvocation = [ 'did:btcr2:_#jwk', 'did:btcr2:_#key-0' ];
+          const { did, didDocument } = methodApi.createExternalFromDocument(doc, { network: 'regtest' });
+          expect(didDocument.capabilityInvocation).to.deep.equal([ `${did}#jwk`, `${did}#key-0` ]);
+        });
       });
     });
   });

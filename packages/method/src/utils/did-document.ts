@@ -24,14 +24,8 @@ export const BTCR2_DID_DOCUMENT_CONTEXT = [
   'https://btcr2.dev/context/v1',
 ];
 
-/** The `type` every did:btcr2 verification method must declare. */
+/** The `type` of the verification method that signs an update. */
 export const MULTIKEY_VERIFICATION_METHOD_TYPE = 'Multikey';
-
-/**
- * The multibase prefix of a did:btcr2 verification method's `publicKeyMultibase`.
- * `zQ3s` is the multibase-base58btc encoding of a Schnorr secp256k1 public key.
- */
-export const MULTIKEY_PUBLIC_KEY_MULTIBASE_PREFIX = 'zQ3s';
 export const ID_PLACEHOLDER_VALUE = 'did:btcr2:_';
 export const BECH32M_CHARS = '';
 export const DID_REGEX = /did:btcr2:(x1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]*)/g;
@@ -60,35 +54,8 @@ export interface Btcr2VerificationMethod extends W3CDidVerificationMethod {
   id: string;
   type: string;
   controller: string;
-  publicKeyMultibase: string;
+  publicKeyMultibase?: string;
   secretKeyMultibase?: string | undefined;
-}
-
-/**
- * Determines whether a value is a valid did:btcr2 verification method.
- *
- * Beyond the structural id/type/controller shape, a btcr2 verification method is
- * a {@link MULTIKEY_VERIFICATION_METHOD_TYPE | Multikey} whose public key is a
- * Schnorr secp256k1 key, multibase-encoded with the
- * {@link MULTIKEY_PUBLIC_KEY_MULTIBASE_PREFIX | zQ3s} prefix. This is the single
- * source of truth for that invariant: it is enforced both when a
- * {@link DidVerificationMethod} is constructed and when a {@link DidDocument}'s
- * `verificationMethod` array is validated, rather than only for the one method
- * being signed with at update time.
- *
- * @param {unknown} vm The value to check.
- * @returns {boolean} True if `vm` is a Multikey verification method with a zQ3s key.
- */
-export function isMultikeyVerificationMethod(vm: unknown): boolean {
-  if(!Appendix.isDidVerificationMethod(vm)) {
-    return false;
-  }
-  // `vm` is a structurally-valid verification method; check the btcr2 Multikey
-  // invariant on the raw fields (the public key is unconstrained by the guard).
-  const { type, publicKeyMultibase } = vm as { type: unknown; publicKeyMultibase: unknown };
-  return type === MULTIKEY_VERIFICATION_METHOD_TYPE
-    && typeof publicKeyMultibase === 'string'
-    && publicKeyMultibase.startsWith(MULTIKEY_PUBLIC_KEY_MULTIBASE_PREFIX);
 }
 
 /**
@@ -101,32 +68,25 @@ export class DidVerificationMethod implements Btcr2VerificationMethod {
   id: string;
   type: string;
   controller: string;
-  publicKeyMultibase: string;
+  publicKeyMultibase?: string;
   secretKeyMultibase?: string | undefined;
 
-  constructor({ id, type, controller, publicKeyMultibase, secretKeyMultibase }: Btcr2VerificationMethod) {
-    // A btcr2 verification method must be a Multikey carrying a Schnorr secp256k1
-    // public key (zQ3s multibase prefix). Enforce it here so the invariant holds
-    // wherever a verification method is constructed, not only at update time.
-    if(type !== MULTIKEY_VERIFICATION_METHOD_TYPE) {
-      throw new DidDocumentError(
-        `Invalid verification method: type must be "${MULTIKEY_VERIFICATION_METHOD_TYPE}"`,
-        INVALID_DID_DOCUMENT, { id, type }
-      );
+  constructor(method: Btcr2VerificationMethod) {
+    // Keep every property as the input holds it, also a property that this class does not
+    // name, for example publicKeyJwk or expires. The class does not check the type or the
+    // key: only the method that signs an update must be a secp256k1 Multikey.
+    // defineProperty keeps a "__proto__" property as data. It does not change the prototype.
+    for (const [key, value] of Object.entries(method)) {
+      Object.defineProperty(this, key, { value, enumerable: true, writable: true, configurable: true });
     }
-    if(typeof publicKeyMultibase !== 'string' || !publicKeyMultibase.startsWith(MULTIKEY_PUBLIC_KEY_MULTIBASE_PREFIX)) {
-      throw new DidDocumentError(
-        `Invalid verification method: publicKeyMultibase must start with "${MULTIKEY_PUBLIC_KEY_MULTIBASE_PREFIX}"`,
-        INVALID_DID_DOCUMENT, { id, publicKeyMultibase }
-      );
-    }
-    this.id = id;
-    this.type = type;
-    this.controller = controller;
-    this.publicKeyMultibase = publicKeyMultibase;
-    this.secretKeyMultibase = secretKeyMultibase;
-    if(!secretKeyMultibase){
-      delete this.secretKeyMultibase;
+    this.id = method.id;
+    this.type = method.type;
+    this.controller = method.controller;
+
+    // Remove each undefined value, also the value of a field that the input does not hold.
+    const own = this as Record<string, unknown>;
+    for (const key of Object.keys(own)) {
+      if (own[key] === undefined) delete own[key];
     }
   }
   // TODO: Add helper methods and properties
@@ -359,13 +319,16 @@ export class DidDocument implements Btcr2DidDocument {
   }
 
   /**
-   * Validates that verification methods exist and are correctly formatted.
+   * Validates that verification methods exist and are correctly formatted. Each method must
+   * have a string `id`, `type`, and `controller`. This check does not compare the type with a
+   * value, and it does not read the key material: a method can have any type. Only the method
+   * that signs an update must be a secp256k1 Multikey, and the update paths check that method.
    * @private
    * @param {DidVerificationMethod[]} verificationMethod The verification methods to validate.
    * @returns {boolean} True if the verification methods are valid.
    */
   private static isValidVerificationMethods(verificationMethod: unknown): boolean {
-    return Array.isArray(verificationMethod) && verificationMethod.every(isMultikeyVerificationMethod);
+    return Array.isArray(verificationMethod) && verificationMethod.every(Appendix.isDidVerificationMethod);
   }
 
   /**

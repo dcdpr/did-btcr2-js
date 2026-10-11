@@ -1,23 +1,23 @@
 /**
- * E2E: Watch-only KeyManager entry rejected at the api/method layer.
+ * E2E: Updater.sign refuses a watch-only KeyManager entry.
  *
- * A `KeyManager` entry can be imported as public-key-only (watch-only) when
- * the caller has the pubkey but not the secret. Attempting to sign with such
- * an entry must fail with a clear `KEY_NOT_SIGNER` error surfaced at the api
- * layer, NOT deep inside scure-btc-signer where the failure mode becomes
- * opaque ("input not finalized" or similar).
+ * A caller can import a `KeyManager` entry with only the public key (a
+ * watch-only entry). A signature with such an entry must fail at
+ * `Updater.sign`, before any transaction, with a clear error. It must not fail
+ * deep inside scure-btc-signer, where the error is not clear ("input not
+ * finalized", for example).
  *
- * This script imports a watch-only entry, constructs a `KeyManagerSigner`
- * wrapping it, drives the full update path through `Updater.sign`, and
- * asserts the rejection happens at the KeyManager.sign() boundary with the
- * documented error code.
+ * This script imports a watch-only entry and makes a `KeyManagerSigner` for it.
+ * Then it signs an update with `Updater.sign`. `Updater.sign` must throw an
+ * `UpdateError` of type `INVALID_DID_UPDATE`. The `cause` in the error data
+ * must be the `KEY_NOT_SIGNER` error of `KeyManager.sign()`.
  *
  * Env:
  *   BITCOIN_NETWORK   default: regtest
  *   BEACON_KIND       default: p2pkh - one of p2pkh|p2wpkh|p2tr
  */
 import assert from 'node:assert/strict';
-import { KeyManagerError } from '@did-btcr2/common';
+import { INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/common';
 import { KeyManagerSigner, LocalKeyManager } from '@did-btcr2/key-manager';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { DidBtcr2, Identifier, Resolver, Updater } from '@did-btcr2/method';
@@ -70,11 +70,11 @@ const unsigned = Updater.construct(sourceDoc, [{
 }], 1);
 console.log(`[3] Unsigned update constructed (pure, no signing required)`);
 
-// ─── Step 4: Updater.sign MUST throw KEY_NOT_SIGNER ─────────────────────────
+// ─── Step 4: Updater.sign must throw, with KEY_NOT_SIGNER as the cause ──────
 
 let thrown: unknown;
 try {
-  Updater.sign(did, unsigned, vm, signer);
+  Updater.sign(sourceDoc, unsigned, vm.id, signer);
 } catch(e) {
   thrown = e;
 }
@@ -92,29 +92,34 @@ console.log(`    type: ${thrown.constructor.name}`);
 console.log(`    message: ${(thrown as Error).message}`);
 
 assert.ok(
-  thrown instanceof KeyManagerError,
-  `expected KeyManagerError, got ${(thrown as Error).constructor.name}: ${(thrown as Error).message}`,
+  thrown instanceof UpdateError,
+  `expected UpdateError, got ${(thrown as Error).constructor.name}: ${(thrown as Error).message}`,
 );
-assert.equal(
-  (thrown as KeyManagerError & { type?: string }).type,
-  'KEY_NOT_SIGNER',
-  'error type must be KEY_NOT_SIGNER (the documented contract)',
+assert.equal(thrown.type, INVALID_DID_UPDATE, 'error type must be INVALID_DID_UPDATE');
+// The cause is the error of KeyManager.sign(). Its type is the documented contract.
+const methodId = `${did}#initialKey`;
+const notSignerMessage = `Key is not a signing key: ${watchOnlyId}`;
+assert.deepEqual(
+  thrown.data,
+  { verificationMethodId: methodId, cause: { type: 'KEY_NOT_SIGNER', message: notSignerMessage } },
+  'data.cause must be the KEY_NOT_SIGNER error of KeyManager.sign()',
 );
 
 // ─── Step 5: Sentinel - error did NOT come from scure or some other layer ───
 //
-// If the watch-only guard ever regresses, the failure might still happen,
-// but it would happen deeper (e.g., scure rejects an unsigned input at
-// finalize, or noble throws on a zero scalar). Such failures would be
-// confusing for callers: the api contract says "fail fast at sign()".
+// If the watch-only guard ever regresses, the failure can still occur, but at
+// a deeper layer (scure refuses an unsigned input at finalize, or noble throws
+// on a zero scalar, for example). Such an error is not clear to the caller:
+// the contract is "fail fast at sign()". The message must name the method and
+// the error of KeyManager.sign().
 
-const errMsg = (thrown as Error).message.toLowerCase();
-assert.ok(
-  errMsg.includes('not a signing key') || errMsg.includes('signer'),
-  `error message must indicate the entry lacks signing material, got: ${errMsg}`,
+assert.equal(
+  thrown.message,
+  `Invalid update: cannot make the proof with "${methodId}": ${notSignerMessage}`,
+  'the message must name the method and the error of KeyManager.sign()',
 );
 
-console.log(`\n══ E2E PASSED: watch-only rejection happens at api layer ══`);
-console.log(`  Error surfaced at Updater.sign -> KeyManagerSigner.sign -> KeyManager.sign.`);
-console.log(`  Caller gets KEY_NOT_SIGNER immediately, not an opaque scure/noble error.`);
+console.log(`\n══ E2E PASSED: Updater.sign refuses the watch-only entry ══`);
+console.log(`  KeyManager.sign threw KEY_NOT_SIGNER. Updater.sign wrapped it as INVALID_DID_UPDATE with the cause.`);
+console.log(`  The caller gets the error before any transaction, not an opaque scure/noble error.`);
 process.exit(0);

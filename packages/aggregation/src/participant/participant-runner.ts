@@ -74,7 +74,8 @@ export interface AggregationParticipantRunnerOptions {
    * The identity's genesis DID document. Required for an EXTERNAL (x1) did:btcr2 identifier
    * so the service can bootstrap-authenticate this participant from a self-verifying opt-in;
    * omitted for a KEY (k1) identifier. When present, `keys` MUST be the keypair of the
-   * genesis document's `capabilityInvocation[0]` verification method (see
+   * genesis document's `capabilityInvocation[0]` verification method, and that method must
+   * be able to sign an update of the DID (see
    * {@link AggregationParticipantParams.genesisDocument}).
    */
   genesisDocument?: Record<string, unknown>;
@@ -98,7 +99,13 @@ export interface AggregationParticipantRunnerOptions {
  *   keys: myKeys,
  *   shouldJoin: async (advert) => advert.beaconType === 'CASBeacon',
  *   onProvideUpdate: async ({ beaconAddress }) => {
- *     return Updater.sign(myDid, unsigned, vm, secretKey);
+ *     // sourceDocument is the current DID document at the version sourceVersionId.
+ *     const unsigned = Updater.construct(sourceDocument, [{
+ *       op: 'add',
+ *       path: '/service/-',
+ *       value: { id: `${myDid}#beacon-cas`, type: 'CASBeacon', serviceEndpoint: `bitcoin:${beaconAddress}` },
+ *     }], sourceVersionId);
+ *     return Updater.sign(sourceDocument, unsigned, '#initialKey', new LocalSigner(myKeys.raw.secret!));
  *   },
  * });
  *

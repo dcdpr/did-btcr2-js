@@ -361,9 +361,11 @@ const runner = new AggregationParticipantRunner({
       }
     }], 1);
 
-    // Updater.sign takes a Signer, not raw key bytes. LocalSigner is the
-    // in-process one; a KMS/HSM-backed key uses KeyManagerSigner instead.
-    return Updater.sign(myDid, unsigned, doc.verificationMethod![0], new LocalSigner(myKeys.raw.secret!));
+    // Updater.sign takes the source document, the unsigned update of that
+    // document, the id of a capabilityInvocation method, and a Signer.
+    // LocalSigner holds the secret key in this process. For a KMS or HSM key,
+    // use KeyManagerSigner.
+    return Updater.sign(doc, unsigned, '#initialKey', new LocalSigner(myKeys.raw.secret!));
   },
 });
 ```
@@ -602,7 +604,12 @@ import { AggregationParticipant, KeyPairAggregationSigner } from '@did-btcr2/agg
 // The participant does sign, so it takes an AggregationSigner rather than a raw
 // keypair. KeyPairAggregationSigner backs one with an in-memory keypair and
 // materializes the secret only for a single nonce/partial-sign step (ADR 038).
-// An x1 participant also passes its genesisDocument here.
+// An x1 participant also passes its genesisDocument here. The method of
+// capabilityInvocation[0] in that document must have the type Multikey and a
+// BIP340 Multikey key in base58btc text. Its controller must be 'did:btcr2:_'
+// (resolution replaces it with the DID). If the method does not agree with
+// these conditions, resolveBtcr2SenderPk returns no key, and the transport
+// drops the opt-in.
 const session = new AggregationParticipant({ did: myDid, signer: new KeyPairAggregationSigner(myKeys) });
 
 // Receive an advert
@@ -757,7 +764,7 @@ Both transports enforce that bind on every receive path, and it is what `resolve
 - **`resolveSenderPk` is required for inbound traffic from anyone who is not already a registered peer.** It maps a DID to its communication key without the transport knowing anything about did:btcr2; `@did-btcr2/method` exports `resolveBtcr2SenderPk` as that decode. A message whose `from` resolves to no key is dropped, not trusted. Pass it to `NostrTransport`, `HttpClientTransport` and `HttpServerTransport` alike.
 - A message whose declared `from` did not sign the event or envelope carrying it is dropped (HTTP answers `401 sender_mismatch` on the POST routes).
 - A message that advertises a `communicationPk` (a cohort advert, an opt-in) must advertise the key it just authenticated with, so a sender cannot authenticate as itself while having the cohort encrypt to, or attribute keys to, a different key.
-- An EXTERNAL (`x1`) sender is authenticated from the self-verifying genesis document it carries in-band on its opt-in, on both transports (ADR 066).
+- An EXTERNAL (`x1`) sender is authenticated from the self-verifying genesis document it carries in-band on its opt-in, on both transports (ADR 066). `resolveBtcr2SenderPk` takes the key of the `capabilityInvocation[0]` method in the initial DID document that the genesis document gives. That method must be able to sign an update of the DID (ADR 147). It must have the type `Multikey`, the DID as its controller, and a BIP340 Multikey key in base58btc text. If the method does not agree with these conditions, `resolveBtcr2SenderPk` returns no key, and the transport drops the opt-in. A KEY (`k1`) sender has no such condition: its DID decodes to its key.
 
 `AggregationParticipant` then holds every service-originated message (`COHORT_READY`, `DISTRIBUTE_AGGREGATED_DATA`, `AUTHORIZATION_REQUEST`, `AGGREGATED_NONCE`, `FALLBACK_AUTHORIZATION_REQUEST`) to `from === serviceDid` for the cohort it names, and the nonce and fallback messages to the active signing session's id, so a stranger cannot drive a member's cohort even on a transport that does not authenticate at all. `InMemoryTransport` is exactly that transport: it is an in-process test harness and performs no inbound authentication.
 

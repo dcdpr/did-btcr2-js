@@ -25,8 +25,9 @@ If you're integrating did:btcr2 into an app, start here. If you're customizing t
 - **`announce.signer`** signs the beacon transaction input. It defaults to `signer`. Pass it if a key other than the verification method key controls the beacon address.
 - **`api.kms.signer(id?)`** returns the `Signer` for a KMS key. The write path needs no second package.
 - **`api.btcr2.getInitialDocument(did)`** and **`api.btcr2.getBeacons(document)`** give the beacon addresses to fund with no chain read.
-- **`api.btcr2.buildGenesisDocument(spec)`** builds the Genesis Document of an EXTERNAL (`x`) DID from public keys, relationships, beacons, and services, with no I/O. **`api.btcr2.createExternalFromDocument(document, { network })`** checks the document, hashes it as given, and returns `{ did, genesisBytes, didDocument }`. Keep the document: an EXTERNAL DID resolves only with it.
-- **`api.btcr2.constructUpdate(source, patch)`** and **`api.btcr2.signUpdate(did, unsignedUpdate, verificationMethod, signer)`** make a signed update with no I/O and no broadcast: the "Construct BTCR2 Unsigned Update" and "Construct BTCR2 Signed Update" steps of the specification. Use them for a test vector or an aggregate beacon.
+- **`api.btcr2.buildGenesisDocument(spec)`** builds the Genesis Document of an EXTERNAL (`x`) DID from public keys, relationships, beacons, and services, with no I/O. **`api.btcr2.createExternalFromDocument(document, { network })`** checks the document, hashes it as given, and returns `{ did, genesisBytes, didDocument }`. Keep the document: an EXTERNAL DID resolves only with it. If no `capabilityInvocation` method of the initial DID document can sign an update, `createExternalFromDocument` refuses the document with a `DidDocumentError` of type `INVALID_DID_DOCUMENT`. Nobody can update or deactivate such a DID. A document with `deactivated: true` passes (ADR 147).
+- **`api.btcr2.constructUpdate(source, patch)`** and **`api.btcr2.signUpdate(source, unsignedUpdate, verificationMethodId, signer)`** make a signed update with no I/O and no broadcast. They are the "Construct BTCR2 Unsigned Update" and "Construct BTCR2 Signed Update" steps of the specification. Use them for a test vector or an aggregate beacon. `signUpdate` returns a new object and adds no proof to `unsignedUpdate`.
+- **The checks of `constructUpdate` / `signUpdate`.** Give the same `SourceState` to the two calls. `source.versionId` must be an integer of 1 or more. `signUpdate` refuses an unsigned update whose `targetVersionId` is not `source.versionId + 1`. It also refuses an update after which no `capabilityInvocation` method can sign an update (ADR 147). See [Update failures](#update-failures).
 - **`api.btcr2.hashDocument(document)`** is the JSON Document Hashing of the specification (base64url, no padding). **`api.btcr2.applyPatch(document, patch)`** gives the target document of a patch. **`api.btcr2.rootCapability(did)`** gives the root capability that an update proof invokes.
 - **`api.btcr2.signMessage(document, message, signer, options?)`** signs a text message as an assertion of the DID, with no I/O (ADR 137). The result is `{ type: 'BTCR2Message', message, proof }` with a `bip340-jcs-2025` proof and the fixed proof purpose `assertionMethod`, so no message signature is valid as an update proof. **`api.btcr2.verifyMessage(document, signedMessage)`** runs the `structure`, `signer`, `active`, `assertionMethod`, and `signature` checks and returns a report. Pass the current document from a resolution: an old document accepts a key that a later update removed.
 - **`api.smt.build(entries)`** builds the Sparse Merkle Tree of one SMT beacon signal and gives its root and the proof of each DID. **`api.smt.verify(proof, did)`** verifies an SMT proof.
@@ -51,9 +52,10 @@ The write path refuses these inputs before any CAS publication or broadcast:
 
 - a deactivated source document (ADR 100)
 - a DID whose network differs from the network of the Bitcoin connection (ADR 103)
+- an update after which no `capabilityInvocation` method can sign an update, if the target document does not have `deactivated: true` (ADR 147)
 - a beacon address that cannot fund the signal at the fee rate of the update: its confirmed UTXOs, each above the fee of its own input, do not cover the fee of the transaction (ADRs 102, 134)
 
-The first two refusals run before the signature. Each refusal is an `UpdateError` with type `INVALID_DID_UPDATE`. `resolve()` refuses the network mismatch too, with a `ResolveError`.
+The first three refusals run before the signature. Each refusal is an `UpdateError` with type `INVALID_DID_UPDATE`. `resolve()` refuses the network mismatch too, with a `ResolveError`.
 
 ## Install
 
@@ -132,7 +134,7 @@ console.log(did, beacon.address); // fund this address before the first update
 // Later: api.resolveDid(did, { sidecar: { genesisDocument: JSON.parse(json) } })
 ```
 
-A spec can name several keys with chosen relationships, a `CASBeacon` or `SMTBeacon` with the address of a cohort, and other services. The builder refuses a spec with no `capabilityInvocation` method or no beacon.
+A spec can name several keys with chosen relationships, a `CASBeacon` or `SMTBeacon` with the address of a cohort, and other services. The builder refuses a spec with no `capabilityInvocation` method or no beacon. `createExternalFromDocument` refuses a genesis document if no `capabilityInvocation` method of the initial DID document can sign an update. The error text is `Invalid genesis document: the DID document has no capabilityInvocation method that can sign an update. Nobody can update or deactivate the DID.`
 
 ### Update
 
@@ -147,8 +149,9 @@ api.deactivateDid(source, signer, options?)
 
 ```typescript
 // The source is the DID: the api resolves it and takes the document and its
-// versionId from the resolution. The api derives the verification method from
-// the signer's key and the beacon from the one funded beacon.
+// versionId from the resolution. The verification method is the one
+// capabilityInvocation method that can sign an update and has the key of
+// the signer. The beacon is the one funded beacon.
 const { signedUpdate, txid } = await api.updateDid(
   did,
   [{ op: 'add', path: '/service/-', value: newService }],
@@ -235,7 +238,47 @@ const { txid } = await api.deactivateDid(did, signer, {
 
 A later `updateDid` on a deactivated DID is refused before any signature or broadcast. The patch is `DEACTIVATION_PATCH` of `@did-btcr2/method`; `DidMethodApi.DEACTIVATION_PATCH` is the same object.
 
-Every update failure that the specification names is an `UpdateError` of type `INVALID_DID_UPDATE`. Examples: a verification method that no `capabilityInvocation` entry identifies, a reference with no `verificationMethod` member, a patch that fails to apply, a patched document that changes the `id` or does not conform to DID Core, and a proof that does not verify with the published key. The method package applies the patch strictly per RFC 6902: a `remove` of a missing path or a failed `test` fails the whole patch. A method that `capabilityInvocation` embeds as an object signs an update like a referenced one, also when `verificationMethod` does not list it.
+### Update failures
+
+Every update failure that the specification names is an `UpdateError` of type `INVALID_DID_UPDATE`. The refusals of the api in this section have the same type. The method package applies the patch strictly per RFC 6902: a `remove` of a missing path or a failed `test` fails the whole patch.
+
+The verification method that signs an update must agree with these conditions (ADR 147):
+
+1. An entry of `capabilityInvocation` identifies the method. The entry is a reference to a member of `verificationMethod`, or the method as an embedded object. An embedded method signs like a referenced one, also if `verificationMethod` does not list it.
+2. The `type` of the method is `Multikey`.
+3. The `controller` of the method is the DID.
+4. The `publicKeyMultibase` of the method is the BIP340 Multikey text of a secp256k1 public key. A `publicKeyMultibase` that only starts with `zQ3s` does not agree with this condition.
+
+In this README, a method that agrees with these conditions is a method that "can sign an update". The key of the signer must be the key of the method. `verificationMethodId` is a DID URL under the DID, or a relative DID URL that starts with `#`.
+
+| Failure | Error text |
+|---|---|
+| `verificationMethodId` is not a DID URL under the DID, and not a relative DID URL that starts with `#`. | `Invalid verificationMethodId: expected ...` |
+| No entry of `capabilityInvocation` identifies the method. | `Invalid verificationMethodId: not authorized for capabilityInvocation` |
+| The entry is a reference, and `verificationMethod` has no method with that id. | `Invalid verificationMethodId: not found in source document` |
+| The method does not agree with condition 2, 3, or 4. `data.field` names the field. | `Invalid update: verificationMethod.type must equal "Multikey"`, and the same form for `controller` and `publicKeyMultibase` |
+| The key of the signer is not the key of the method. | `Signing key does not match verification method "<id>": ...` |
+| The public key of the signer is not a valid secp256k1 public key. | `Invalid signer: <message>` |
+| The signer or its key manager fails, for example with a watch-only key. `data.cause` holds the type and the message of the inner error, for example `KEY_NOT_SIGNER`. | `Invalid update: cannot make the proof with "<id>": <message>` |
+| The proof does not verify with the key of the method. | `Invalid update: the proof does not verify with the public key of "<id>"` |
+| The patch fails to apply, or the patched document changes the `id` or does not conform to DID Core. | `Invalid patch: ...`, `Patches must not change the DID document id ...`, or `Error validating targetDocument: ...` |
+| `source.versionId` is not an integer of 1 or more (`constructUpdate`, `signUpdate`). | `Invalid sourceVersionId: expected an integer of 1 or more.` |
+| `targetVersionId` is not `source.versionId + 1` (`signUpdate`). | `Invalid update: targetVersionId is <n>, but the source has versionId <m>. Construct the update from this source.` |
+| After the update, no `capabilityInvocation` method can sign an update, and the target document does not have `deactivated: true`. | `Invalid update: after this update, the DID document has no capabilityInvocation method that can sign an update. Nobody can update or deactivate <did> again.` |
+
+Nobody can update or deactivate a DID after an update that leaves no method that can sign an update. Thus the api refuses such an update. `updateDid` and `api.btcr2.update` refuse it before the signature. A deactivation always passes, because its target document has `deactivated: true`. `signUpdate` signs first, so that each refusal of the method package names its own cause. Then it refuses such an update and returns no signed update.
+
+Before the signature, the method package also checks that the unsigned update belongs to the source document. It refuses the update at the first check that fails. The checks run in this order:
+
+1. `Invalid unsignedUpdate: expected an object.`
+2. `Invalid unsignedUpdate: an unsigned update must not have a proof.`
+3. `Invalid unsignedUpdate: targetVersionId must be an integer of 2 or more.`
+4. `Invalid unsignedUpdate: @context must be the BTCR2 update context.`
+5. `Invalid unsignedUpdate: sourceHash is not the hash of sourceDocument.`
+6. `Invalid unsignedUpdate: the patch does not give a valid DID document from sourceDocument: <message>`
+7. `Invalid unsignedUpdate: targetHash is not the hash of the document that the patch gives.`
+
+If you make the unsigned update with `constructUpdate` from the same source, these checks pass.
 
 ## Architecture Principles
 

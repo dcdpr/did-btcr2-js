@@ -414,6 +414,38 @@ describe('DidMethodApi update() CAS publication policy', () => {
       expect(result.txid).to.equal(TXID);
     });
 
+    it('ignores a method with the signer\'s key that cannot sign an update', async () => {
+      // #auth is in authentication only, and #jwk is not a Multikey. The Updater refuses both,
+      // so they do not make the match ambiguous.
+      const fixture = updateFixture('SingletonBeacon');
+      const document = fixture.sourceDocument;
+      const initialKey = document.verificationMethod[0]!;
+      document.verificationMethod.push(
+        { ...initialKey, id: `${fixture.did}#auth` },
+        { ...initialKey, id: `${fixture.did}#jwk`, type: 'JsonWebKey2020' },
+      );
+      document.authentication!.push(`${fixture.did}#auth`);
+      document.capabilityInvocation!.push(`${fixture.did}#jwk`);
+      const { order, counters } = recorders();
+
+      const result = await new DidMethodApi().update(...updateArgs(fixture, order, counters, { verificationMethodId: undefined }));
+
+      expect(result.signedUpdate.proof.verificationMethod).to.equal(`${fixture.did}#initialKey`);
+      expect(result.txid).to.equal(TXID);
+    });
+
+    it('derives an embedded capabilityInvocation method', async () => {
+      const fixture = updateFixture('SingletonBeacon');
+      const document = fixture.sourceDocument;
+      document.capabilityInvocation = [{ ...document.verificationMethod[0]!, id: `${fixture.did}#embedded` }];
+      const { order, counters } = recorders();
+
+      const result = await new DidMethodApi().update(...updateArgs(fixture, order, counters, { verificationMethodId: undefined }));
+
+      expect(result.signedUpdate.proof.verificationMethod).to.equal(`${fixture.did}#embedded`);
+      expect(result.txid).to.equal(TXID);
+    });
+
     it('uses the only beacon without a chain read', async () => {
       const fixture = updateFixture('SingletonBeacon');
       const { order, counters } = recorders();

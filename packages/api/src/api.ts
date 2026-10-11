@@ -229,7 +229,10 @@ export class DidBtcr2Api {
    * resolution that returned its document.
    *
    * A deactivated source document is refused before signing: resolution
-   * halts at the deactivation, so no later update is ever applied.
+   * halts at the deactivation, so no later update is ever applied. The facade
+   * also refuses an update after which no `capabilityInvocation` method can
+   * sign an update. It refuses the update before it signs. After such an
+   * update, nobody can update or deactivate the DID.
    *
    * If the source is a DID, the facade also compares the resolved `versionId`
    * with the sidecar updates of the DID in `options.resolutionOptions`. If the
@@ -241,10 +244,11 @@ export class DidBtcr2Api {
    * Without sidecar updates, the facade cannot do this check.
    *
    * The caller can omit `verificationMethodId` and `announce.beaconId`. The
-   * method facade then derives them. The verification method is the one that
-   * publishes the signer's key. The beacon is the only one whose address can
-   * fund the signal. If none or several match, the method facade refuses the
-   * update and names the candidates. See {@link DidMethodApi.update}.
+   * method facade then derives them. The verification method is the one
+   * `capabilityInvocation` method that can sign an update and publishes the
+   * signer's key. The beacon is the only one whose address can fund the
+   * signal. If none or several match, the method facade refuses the update
+   * and names the candidates. See {@link DidMethodApi.update}.
    * @param source The DID, or a resolved {@link SourceState}.
    * @param patch The JSON Patch document: the operations that change the source document.
    * @param signer The signer of the update proof, with the key of the verification method.
