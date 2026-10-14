@@ -90,7 +90,7 @@ function buildSignedUpdate(did: string, kp: SchnorrKeyPair, beaconAddress: strin
       network      : 'mutinynet',
     });
   // The first method signs: #initialKey of a KEY document, #key-0 of the genesis document.
-  const methodId = doc.verificationMethod[0]!.id;
+  const methodId = doc.verificationMethod![0]!.id;
   const unsigned = Updater.construct(doc, [{
     op    : 'add', path  : '/service/-', value : {
       id              : `${did}#beacon-cas`,

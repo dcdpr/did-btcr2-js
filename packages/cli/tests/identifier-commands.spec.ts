@@ -296,4 +296,76 @@ describe('identifier commands', () => {
       expect(process.exitCode).to.equal(1);
     });
   });
+
+  describe('genesis document files (ADR 148)', () => {
+    function writeText(name: string, text: string): string {
+      const path = join(dir, name);
+      writeFileSync(path, text);
+      return path;
+    }
+
+    it('decode replaces a placeholder that the file writes with a JSON escape', async () => {
+      const { did, document } = externalFixture();
+      const plain = JSON.stringify(document);
+      // The file writes the underscore of each placeholder as the six characters \u005f.
+      const escaped = plain.replaceAll('did:btcr2:_', 'did:btcr2:\\u005f');
+      expect(escaped).to.not.include('did:btcr2:_');
+      expect(escaped).to.include('did:btcr2:\\u005f');
+
+      await run('-o', 'json', 'identifier', 'decode', did, '--initial-document', '--genesis-document', writeText('escaped.json', escaped));
+      await run('-o', 'json', 'identifier', 'decode', did, '--initial-document', '--genesis-document', writeText('plain.json', plain));
+      expect(err).to.have.length(0);
+      const fromEscaped = JSON.parse(out[0]).data.initialDocument;
+      const fromPlain = JSON.parse(out[1]).data.initialDocument;
+      expect(fromEscaped.id).to.equal(did);
+      expect(JSON.stringify(fromEscaped)).to.not.include('did:btcr2:_');
+      expect(fromEscaped).to.deep.equal(fromPlain);
+    });
+
+    it('validate accepts a genesis document whose second method has another controller', async () => {
+      const keys = [ sdk.crypto.keypair.generate(), sdk.crypto.keypair.generate() ];
+      const document = JSON.parse(JSON.stringify(sdk.btcr2.buildGenesisDocument({
+        network             : 'regtest',
+        verificationMethods : [
+          { publicKey: keys[0].publicKey.compressed },
+          { publicKey: keys[1].publicKey.compressed, relationships: [ 'assertionMethod' ] },
+        ],
+        beacons : [{ type: 'SingletonBeacon', publicKey: keys[0].publicKey.compressed, addressType: 'p2pkh' }],
+      })));
+      document.verificationMethod[1].controller = 'did:example:org';
+      const did = sdk.did.encode(hashBytes(document), { idType: 'EXTERNAL', network: 'regtest' });
+
+      await run('-o', 'json', 'identifier', 'validate', did, '--genesis-document', writeJson('genesis.json', document));
+      const { data } = JSON.parse(out[0]);
+      expect(data.checks[data.checks.length - 1]).to.include({ name: 'genesisDocument', ok: true });
+      expect(data.valid).to.equal(true);
+      expect(process.exitCode).to.equal(undefined);
+    });
+
+    it('validate refuses a genesis document with no "@context"', async () => {
+      const { document } = externalFixture();
+      const { '@context': _context, ...noContext } = document as Record<string, unknown>;
+      const did = sdk.did.encode(hashBytes(noContext), { idType: 'EXTERNAL', network: 'regtest' });
+
+      await run('-o', 'json', 'identifier', 'validate', did, '--genesis-document', writeJson('genesis.json', noContext));
+      const { data } = JSON.parse(out[0]);
+      expect(data.valid).to.equal(false);
+      const last = data.checks[data.checks.length - 1];
+      expect(last).to.include({ name: 'genesisDocument', ok: false });
+      expect(last.detail).to.include('Invalid GenesisDocument "@context"');
+      expect(process.exitCode).to.equal(1);
+    });
+
+    it('decode --initial-document refuses a genesis document with no "@context"', async () => {
+      const { document } = externalFixture();
+      const { '@context': _context, ...noContext } = document as Record<string, unknown>;
+      const did = sdk.did.encode(hashBytes(noContext), { idType: 'EXTERNAL', network: 'regtest' });
+
+      await run('identifier', 'decode', did, '--initial-document', '--genesis-document', writeJson('genesis.json', noContext));
+      // The command adds no "@context" and prints no initial document.
+      expect(out).to.have.length(0);
+      expect(err.join(' ')).to.include('Invalid "@context"');
+      expect(process.exitCode).to.equal(1);
+    });
+  });
 });

@@ -31,6 +31,11 @@ function externalFixture(network = 'regtest') {
   return { document, genesisBytes, did };
 }
 
+/** The EXTERNAL identifier whose genesis bytes are the hash of `document`. */
+function externalDid(document: object, network = 'regtest'): string {
+  return Identifier.encode(canonicalHashBytes(document), { idType: 'EXTERNAL', network });
+}
+
 describe('Validate Identifier', () => {
   describe('valid identifiers', () => {
     it('reports every fixture as valid with the seven checks in run order', () => {
@@ -236,14 +241,45 @@ describe('Validate Identifier', () => {
     });
 
     it('fails a genesis document that is not a valid Genesis Document', () => {
-      const { did, document } = externalFixture();
-      const broken = {
-        ...document,
-        verificationMethod : [{ ...document.verificationMethod[0], controller: 'did:example:123' }],
-      };
-      const report = Identifier.validate(did, { genesisDocument: broken });
+      // A DID document must have "@context". The identifier encodes the hash of the
+      // broken document, so only the document check can fail.
+      const { document } = externalFixture();
+      const broken = { ...document };
+      delete broken['@context'];
+      const report = Identifier.validate(externalDid(broken), { genesisDocument: broken });
       expect(last(report)).to.include({ name: 'genesisDocument', ok: false });
-      expect(last(report).detail).to.match(/invalid genesis document/i);
+      expect(last(report).detail).to.equal('Invalid genesis document: Invalid GenesisDocument "@context"');
+    });
+
+    describe('optional members and any method controller (ADR 148)', () => {
+      it('passes a genesis document whose method controller is another DID', () => {
+        const { document } = externalFixture();
+        const changed = {
+          ...document,
+          verificationMethod : [{ ...document.verificationMethod[0], controller: 'did:example:123' }],
+        };
+        const report = Identifier.validate(externalDid(changed), { genesisDocument: changed });
+        expect(report.valid).to.equal(true);
+        expect(last(report)).to.include({ name: 'genesisDocument', ok: true });
+      });
+
+      it('passes a genesis document without service', () => {
+        const { document } = externalFixture();
+        const changed = { ...document };
+        delete changed.service;
+        const report = Identifier.validate(externalDid(changed), { genesisDocument: changed });
+        expect(report.valid).to.equal(true);
+        expect(last(report)).to.include({ name: 'genesisDocument', ok: true });
+      });
+
+      it('fails a genesis document with a partial "@context"', () => {
+        const { document } = externalFixture();
+        const changed = { ...document, '@context': ['https://www.w3.org/ns/did/v1.1'] };
+        const report = Identifier.validate(externalDid(changed), { genesisDocument: changed });
+        expect(report.valid).to.equal(false);
+        expect(last(report)).to.include({ name: 'genesisDocument', ok: false });
+        expect(last(report).detail).to.equal('Invalid genesis document: Invalid GenesisDocument "@context"');
+      });
     });
 
     it('fails a genesis document supplied for a KEY identifier', () => {

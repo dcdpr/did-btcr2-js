@@ -190,7 +190,7 @@ describe('DidMethodApi offline update steps', () => {
     it('refuses a verification method without publicKeyMultibase', () => {
       const { api, did, source, signer } = offlineFixture();
       const document = plainDocument(source);
-      delete document.verificationMethod[0]!.publicKeyMultibase;
+      delete document.verificationMethod![0]!.publicKeyMultibase;
       const changed: SourceState = { document, versionId: 1 };
       const error = thrown(() => api.btcr2.signUpdate(changed, api.btcr2.constructUpdate(changed, ADD_SERVICE), '#initialKey', signer));
       expect(error).to.be.instanceOf(UpdateError);
@@ -209,7 +209,7 @@ describe('DidMethodApi offline update steps', () => {
       const { api, did, source, signer } = offlineFixture();
       const document = plainDocument(source);
       // The method has the key of the signer, but only the authentication relationship.
-      document.verificationMethod.push({ ...document.verificationMethod[0]!, id: `${did}#key-1` });
+      document.verificationMethod!.push({ ...document.verificationMethod![0]!, id: `${did}#key-1` });
       document.authentication!.push(`${did}#key-1`);
       const changed: SourceState = { document, versionId: 1 };
       const error = thrown(() => api.btcr2.signUpdate(changed, api.btcr2.constructUpdate(changed, ADD_SERVICE), '#key-1', signer));
@@ -223,7 +223,7 @@ describe('DidMethodApi offline update steps', () => {
         const { api, did, source, signer } = offlineFixture();
         const document = plainDocument(source);
         // #initialKey can still sign, so the refusal is about #key-1 only.
-        document.verificationMethod.push({ ...document.verificationMethod[0]!, id: `${did}#key-1`, [field]: value });
+        document.verificationMethod!.push({ ...document.verificationMethod![0]!, id: `${did}#key-1`, [field]: value });
         document.capabilityInvocation!.push(`${did}#key-1`);
         const changed: SourceState = { document, versionId: 1 };
         const error = thrown(() => api.btcr2.signUpdate(changed, api.btcr2.constructUpdate(changed, ADD_SERVICE), '#key-1', signer));
@@ -366,7 +366,7 @@ describe('DidMethodApi offline update steps', () => {
       const { api, did, source, signer } = offlineFixture();
       const document = plainDocument(source);
       const other = api.btcr2.getInitialDocument(api.btcr2.createDeterministic(SchnorrKeyPair.generate().publicKey.compressed));
-      document.verificationMethod.push({ ...document.verificationMethod[0]!, id: `${did}#key-2`, publicKeyMultibase: other.verificationMethod[0]!.publicKeyMultibase });
+      document.verificationMethod!.push({ ...document.verificationMethod![0]!, id: `${did}#key-2`, publicKeyMultibase: other.verificationMethod![0]!.publicKeyMultibase });
       document.capabilityInvocation!.push(`${did}#key-2`);
       const changed: SourceState = { document, versionId: 1 };
       // #initialKey signs this update. After it, only #key-2 can sign.
@@ -376,7 +376,7 @@ describe('DidMethodApi offline update steps', () => {
 
     it('signs an update that moves the signing method into an embedded entry', () => {
       const { api, did, source, signer } = offlineFixture();
-      const embedded = { ...plainDocument(source).verificationMethod[0]!, id: `${did}#embedded` };
+      const embedded = { ...plainDocument(source).verificationMethod![0]!, id: `${did}#embedded` };
       const patch: PatchOperation[] = [{ op: 'replace', path: '/capabilityInvocation', value: [ embedded ] }];
       const signed = api.btcr2.signUpdate(source, api.btcr2.constructUpdate(source, patch), '#initialKey', signer);
       expect(signed.patch).to.deep.equal(patch);

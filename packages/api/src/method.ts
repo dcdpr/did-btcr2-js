@@ -389,6 +389,12 @@ export class DidMethodApi {
    * @param did The DID whose initial document to derive.
    * @param genesisDocument The genesis document (EXTERNAL DIDs only).
    * @returns The initial DID document.
+   * @throws {ResolveError} `INVALID_DID` if the hash of the genesis document is
+   *   not the genesis bytes of the DID.
+   * @throws {ResolveError} `INVALID_DID_DOCUMENT` if the id of the genesis
+   *   document is not `did:btcr2:_`.
+   * @throws {DidDocumentError} `INVALID_DID_DOCUMENT` if the initial DID document
+   *   does not conform, for example if the genesis document has no `"@context"`.
    */
   getInitialDocument(did: string, genesisDocument?: object): Btcr2DidDocument {
     assertString(did, 'did');
@@ -468,7 +474,9 @@ export class DidMethodApi {
    * A `capabilityInvocation` method of the initial DID document must be able
    * to sign an update, with the rules of {@link DidMethodApi.signUpdate}.
    * Without such a method, nobody can update or deactivate the DID. A
-   * document with `deactivated === true` passes.
+   * document with `deactivated === true` passes. A document without a
+   * beacon service also passes, but nobody can announce an update for its
+   * DID.
    * @param genesisDocument The genesis document.
    * @param options Creation options (idType is set for you).
    * @returns The identifier, its genesis bytes, and the initial DID document.
@@ -532,7 +540,8 @@ export class DidMethodApi {
    * from the same source. The api also refuses an update after which no
    * `capabilityInvocation` method can sign an update. After such an update,
    * nobody can update or deactivate the DID. A target document with
-   * `deactivated === true` passes.
+   * `deactivated === true` passes. A target document without a beacon service
+   * also passes, but nobody can announce a later update for the DID.
    * @param source The source document and the `versionId` that its resolution returned.
    * @param unsignedUpdate The result of {@link DidMethodApi.constructUpdate}.
    * @param verificationMethodId The id of the verification method that signs, absolute or relative.
@@ -895,8 +904,9 @@ export class DidMethodApi {
    * The api also refuses an update after which no `capabilityInvocation`
    * method can sign an update, as {@link DidMethodApi.signUpdate} does. After
    * such an update, nobody can update or deactivate the DID. A target
-   * document with `deactivated === true` passes. This refusal comes before
-   * any chain read and any signature.
+   * document with `deactivated === true` passes. A target document without a
+   * beacon service also passes, but nobody can announce a later update for
+   * the DID. This refusal comes before any chain read and any signature.
    *
    * The caller can omit `verificationMethodId` and `announce.beaconId`. The
    * api then derives them, after the guards above and before any signature.

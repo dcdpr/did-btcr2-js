@@ -65,6 +65,28 @@ describe('resolveBtcr2SenderPk', () => {
     expect(resolveBtcr2SenderPk(did, { genesisDocument: genesis })).to.equal(undefined);
   });
 
+  it('returns undefined for an x1 DID whose genesis has no "@context"', () => {
+    // The DID commits to this genesis, so the hash check passes. A DID document must have
+    // "@context", so the genesis does not resolve and gives no communication key.
+    const genesis: Record<string, unknown> = structuredClone(external.genesisDocument);
+    delete genesis['@context'];
+    const genesisBytes = GenesisDocument.toGenesisBytes(genesis as GenesisDocumentLike);
+    const did = DidBtcr2.create(genesisBytes, { idType: 'EXTERNAL', network: external.network });
+    expect(() => Resolver.external(Identifier.decode(did), genesis)).to.throw('Invalid "@context"');
+    expect(resolveBtcr2SenderPk(did, { genesisDocument: genesis })).to.equal(undefined);
+  });
+
+  it('resolves an x1 DID whose genesis has no service to its capabilityInvocation[0] key', () => {
+    // The service member is optional. The communication key does not need a service.
+    const genesis: Record<string, unknown> = structuredClone(external.genesisDocument);
+    delete genesis.service;
+    const genesisBytes = GenesisDocument.toGenesisBytes(genesis as GenesisDocumentLike);
+    const did = DidBtcr2.create(genesisBytes, { idType: 'EXTERNAL', network: external.network });
+    const resolved = resolveBtcr2SenderPk(did, { genesisDocument: genesis });
+    expect(resolved).to.be.instanceOf(CompressedSecp256k1PublicKey);
+    expect(hex.encode(resolved!.compressed)).to.equal(derivePkHex(external.secretKey));
+  });
+
   it('returns undefined for an x1 DID whose capabilityInvocation[0] has the type JsonWebKey2020 and a valid zQ3s key', () => {
     const genesis = structuredClone(external.genesisDocument);
     genesis.verificationMethod[0]!.type = 'JsonWebKey2020';
@@ -72,7 +94,7 @@ describe('resolveBtcr2SenderPk', () => {
     const did = DidBtcr2.create(genesisBytes, { idType: 'EXTERNAL', network: external.network });
     // The genesis document resolves: the document can hold a method of any type. The method
     // cannot sign an update, so it gives no communication key.
-    expect(Resolver.external(Identifier.decode(did), genesis).verificationMethod[0]!.type).to.equal('JsonWebKey2020');
+    expect(Resolver.external(Identifier.decode(did), genesis).verificationMethod![0]!.type).to.equal('JsonWebKey2020');
     expect(resolveBtcr2SenderPk(did, { genesisDocument: genesis })).to.equal(undefined);
   });
 

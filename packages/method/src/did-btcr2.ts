@@ -186,7 +186,9 @@ export class DidBtcr2 implements DidMethod {
     // DID URL, so both sides are resolved against the document before comparison; an
     // unusable beaconId matches nothing rather than matching an unusable service id.
     const targetBeaconId = Appendix.absoluteDidUrl(beaconId, sourceDocument.id);
-    const beaconService = sourceDocument.service
+    // The service member is optional: a document without it has no beacon service.
+    const services: unknown = sourceDocument.service;
+    const beaconService = (Array.isArray(services) ? services : [])
       .filter((service: BeaconService) =>
         targetBeaconId !== undefined
         && Appendix.absoluteDidUrl(service.id, sourceDocument.id) === targetBeaconId)

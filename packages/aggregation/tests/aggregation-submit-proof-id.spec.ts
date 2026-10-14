@@ -37,11 +37,11 @@ function keyDocument(keys: SchnorrKeyPair): Btcr2DidDocument {
 function signedUpdate(owner: SchnorrKeyPair, form: string, signerKeys: SchnorrKeyPair): SignedBTCR2Update {
   const document = keyDocument(owner);
   const methodId = `${document.id}${form}`;
-  document.verificationMethod.push({
+  document.verificationMethod!.push({
     id                 : methodId,
     type               : 'Multikey',
     controller         : document.id,
-    publicKeyMultibase : keyDocument(signerKeys).verificationMethod[0]!.publicKeyMultibase,
+    publicKeyMultibase : keyDocument(signerKeys).verificationMethod![0]!.publicKeyMultibase,
   });
   document.capabilityInvocation!.push(methodId);
   const unsigned = Updater.construct(document, [{ op: 'add', path: '/alsoKnownAs', value: [ 'https://example.com/member' ] }], 1);

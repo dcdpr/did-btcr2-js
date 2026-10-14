@@ -32,7 +32,7 @@ describe('signingMethodProblem', () => {
     const publicKey = secp256k1.getPublicKey(secret, true);
     expect(publicKey[0]).to.equal(prefix);
     const did = Identifier.encode(publicKey, { idType: 'KEY', version: 1, network: 'regtest' });
-    return { did, method: Resolver.deterministic(Identifier.decode(did)).verificationMethod[0]!, publicKey };
+    return { did, method: Resolver.deterministic(Identifier.decode(did)).verificationMethod![0]!, publicKey };
   }
 
   /** The base58btc multibase (`z` header) of `bytes`. */

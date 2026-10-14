@@ -170,7 +170,7 @@ describe('message commands (ADR 137)', () => {
       const { did } = seedIdentity();
       const twoMethods = (id: string): Btcr2DidDocument => {
         const document = initialDocument(id);
-        document.verificationMethod.push({ ...document.verificationMethod[0], id: `${id}#second` });
+        document.verificationMethod!.push({ ...document.verificationMethod![0], id: `${id}#second` });
         document.assertionMethod!.push(`${id}#second`);
         return document;
       };

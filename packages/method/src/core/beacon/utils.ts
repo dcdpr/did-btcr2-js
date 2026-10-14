@@ -48,14 +48,16 @@ export class BeaconUtils {
   }
 
   /**
-   * Extracts the services from a given DID Document
-   * @param {DidDocument} didDocument The DID Document to extract the services from
-   * @returns {DidService[]} An array of DidService objects
+   * Get the beacon services of a DID document.
+   * @param {DidDocument} didDocument The DID document to read.
+   * @returns {BeaconService[]} The beacon services. If `service` is absent or is not an array,
+   * the result is an empty array.
    * @throws {TypeError} if the didDocument is not provided
    */
   static getBeaconServices(didDocument: DidDocument): BeaconService[] {
-    // Filter for valid beacon service objects.
-    return (didDocument.service.filter(this.isBeaconService) ?? []) as BeaconService[];
+    // The service member is optional: a document without it has no beacons.
+    const service: unknown = didDocument.service;
+    return (Array.isArray(service) ? service.filter(this.isBeaconService) : []) as BeaconService[];
   }
 
   /**

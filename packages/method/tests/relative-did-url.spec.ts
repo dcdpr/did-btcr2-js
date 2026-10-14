@@ -104,22 +104,22 @@ describe('relative DID URLs in a DID document', () => {
 
     it('still matches when both the document and the reference are absolute', () => {
       const document = relativeDocument();
-      document.verificationMethod[0]!.id = `${DID}#initialKey`;
+      document.verificationMethod![0]!.id = `${DID}#initialKey`;
       const vm = DidBtcr2.getSigningMethod(document, `${DID}#initialKey`);
       expect(vm.id).to.equal(`${DID}#initialKey`);
     });
 
     it('uses #initialKey if the caller gives no id, also if another method comes first', () => {
       const document = relativeDocument();
-      document.verificationMethod.unshift(multikey('#otherKey'));
+      document.verificationMethod!.unshift(multikey('#otherKey'));
       document.capabilityInvocation!.unshift('#otherKey');
       document.assertionMethod!.unshift('#otherKey');
-      expect(DidBtcr2.getSigningMethod(document)).to.deep.equal(document.verificationMethod[1]);
+      expect(DidBtcr2.getSigningMethod(document)).to.deep.equal(document.verificationMethod![1]);
     });
 
     it('refuses a document without #initialKey if the caller gives no id, and does not use assertionMethod', () => {
       const document = relativeDocument();
-      document.verificationMethod[0]!.id = '#otherKey';
+      document.verificationMethod![0]!.id = '#otherKey';
       for(const relationship of [ 'authentication', 'assertionMethod', 'capabilityInvocation', 'capabilityDelegation' ] as const) {
         document[relationship] = [ '#otherKey' ];
       }
@@ -148,7 +148,7 @@ describe('relative DID URLs in a DID document', () => {
 
     it('refuses a method with a key that only authentication lists or embeds', () => {
       const referenced = relativeDocument();
-      referenced.verificationMethod.push(multikey('#authKey'));
+      referenced.verificationMethod!.push(multikey('#authKey'));
       referenced.authentication!.push('#authKey');
       const embedded = relativeDocument();
       embedded.authentication!.push(multikey('#authKey'));
@@ -172,7 +172,7 @@ describe('relative DID URLs in a DID document', () => {
 
     it('refuses a method of the type JsonWebKey2020', () => {
       const document = relativeDocument();
-      document.verificationMethod[0]!.type = 'JsonWebKey2020';
+      document.verificationMethod![0]!.type = 'JsonWebKey2020';
       expectRefusal(
         thrownBy(() => DidBtcr2.getSigningMethod(document)),
         'Invalid update: verificationMethod.type must equal "Multikey"',
@@ -190,7 +190,7 @@ describe('relative DID URLs in a DID document', () => {
     it('refuses an empty id', () => {
       // An empty id does not resolve to a DID URL, so it names no method.
       const document = relativeDocument();
-      document.verificationMethod[0]!.id = '';
+      document.verificationMethod![0]!.id = '';
       expectRefusal(
         thrownBy(() => DidBtcr2.getSigningMethod(document, '')),
         'Invalid verificationMethodId: expected a DID URL or a relative DID URL that starts with "#"; got "".',
@@ -283,12 +283,12 @@ describe('relative DID URLs in a DID document', () => {
     beforeEach(() => {
       const deterministic = Resolver.deterministic(Identifier.decode(did));
       document = new DidDocument(JSON.parse(JSON.stringify(deterministic)));
-      absoluteVmId = document.verificationMethod[0]!.id;
-      absoluteBeaconId = document.service[0]!.id;
+      absoluteVmId = document.verificationMethod![0]!.id;
+      absoluteBeaconId = document.service![0]!.id;
 
       const relative = (id: string) => id.startsWith(did) ? id.slice(did.length) : id;
-      document.verificationMethod = document.verificationMethod.map(vm => ({ ...vm, id: relative(vm.id) }));
-      document.service = document.service.map(s => ({ ...s, id: relative(s.id) }));
+      document.verificationMethod = document.verificationMethod!.map(vm => ({ ...vm, id: relative(vm.id) }));
+      document.service = document.service!.map(s => ({ ...s, id: relative(s.id) }));
       for(const relationship of ['authentication', 'assertionMethod', 'capabilityInvocation', 'capabilityDelegation'] as const) {
         document[relationship] = document[relationship]?.map(
           entry => typeof entry === 'string' ? relative(entry) : entry
@@ -340,7 +340,7 @@ describe('relative DID URLs in a DID document', () => {
     });
 
     it('refuses an unusable beaconId rather than matching an unusable service id', () => {
-      document.service = document.service.map(s => ({ ...s, id: '' }));
+      document.service = document.service!.map(s => ({ ...s, id: '' }));
       expect(() => DidBtcr2.update({
         sourceDocument       : document,
         patches              : [],

@@ -104,6 +104,10 @@ passes. If you edit the written file, keep at least one such method. Otherwise
 `Invalid genesis document: the DID document has no capabilityInvocation method that can sign an update. Nobody can update or deactivate the DID.`
 See [create.md](./create.md#options) for the conditions of the method.
 
+If you edit the written file, also keep at least one beacon service. `create -t x --document`
+accepts a file without a beacon service. Nobody can then announce an update for the identifier
+(ADR 148).
+
 ### The document
 
 The command writes the genesis document as pretty JSON, and it hashes the parsed form of that

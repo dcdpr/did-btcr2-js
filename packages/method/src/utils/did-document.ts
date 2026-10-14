@@ -32,12 +32,13 @@ export const DID_REGEX = /did:btcr2:(x1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]*)/g;
 
 export type ExternalData = {
   id: string,
-  verificationMethod: Array<DidVerificationMethod>,
+  '@context': Array<string | JSONObject>,
+  verificationMethod?: Array<DidVerificationMethod>,
   authentication?: Array<string | DidVerificationMethod>,
   assertionMethod?: Array<string | DidVerificationMethod>,
   capabilityInvocation?: Array<string | DidVerificationMethod>,
   capabilityDelegation?: Array<string | DidVerificationMethod>,
-  service: Array<BeaconService>
+  service?: Array<BeaconService>
 }
 export type VerificationRelationships = {
   authentication?: Array<string | DidVerificationMethod>;
@@ -98,23 +99,23 @@ export class DidVerificationMethod implements Btcr2VerificationMethod {
  * @type {Btcr2DidDocument}
  * @extends {W3CDidDocument}
  * @property {string} id - The identifier of the DID Document.
- * @property {Array<string | JSONObject>} ['@context'] - The context of the DID Document.
- * @property {Array<DidVerificationMethod>} verificationMethod - The verification methods of the DID Document.
+ * @property {Array<string | JSONObject>} '@context' - The context of the DID Document.
+ * @property {Array<DidVerificationMethod>} [verificationMethod] - The verification methods of the DID Document.
  * @property {Array<string | DidVerificationMethod>} [authentication] - The authentication methods of the DID Document.
  * @property {Array<string | DidVerificationMethod>} [assertionMethod] - The assertion methods of the DID Document.
  * @property {Array<string | DidVerificationMethod>} [capabilityInvocation] - The capability invocation methods of the DID Document.
  * @property {Array<string | DidVerificationMethod>} [capabilityDelegation] - The capability delegation methods of the DID Document.
- * @property {Array<BeaconService>} service - The services of the DID Document.
+ * @property {Array<BeaconService>} [service] - The services of the DID Document.
  */
 export interface Btcr2DidDocument extends W3CDidDocument {
   id: string;
-  '@context'?: Array<string | JSONObject>;
-  verificationMethod: Array<DidVerificationMethod>;
+  '@context': Array<string | JSONObject>;
+  verificationMethod?: Array<DidVerificationMethod>;
   authentication?: Array<string | DidVerificationMethod>;
   assertionMethod?: Array<string | DidVerificationMethod>;
   capabilityInvocation?: Array<string | DidVerificationMethod>;
   capabilityDelegation?: Array<string | DidVerificationMethod>;
-  service: Array<BeaconService>;
+  service?: Array<BeaconService>;
   deactivated?: boolean;
 }
 
@@ -124,27 +125,27 @@ export interface Btcr2DidDocument extends W3CDidDocument {
  * @type {DidDocument}
  * @implements {Btcr2DidDocument}
  * @property {string} id - The identifier of the DID Document.
- * @property {Array<string | JSONObject>} ['@context'] - The context of the DID Document.
- * @property {Array<DidVerificationMethod>} verificationMethod - The verification methods of the DID Document.
+ * @property {Array<string | JSONObject>} '@context' - The context of the DID Document.
+ * @property {Array<DidVerificationMethod>} [verificationMethod] - The verification methods of the DID Document.
  * @property {Array<string | DidVerificationMethod>} [authentication] - The authentication methods of the DID Document.
  * @property {Array<string | DidVerificationMethod>} [assertionMethod] - The assertion methods of the DID Document.
  * @property {Array<string | DidVerificationMethod>} [capabilityInvocation] - The capability invocation methods of the DID Document.
  * @property {Array<string | DidVerificationMethod>} [capabilityDelegation] - The capability delegation methods of the DID Document.
- * @property {Array<BeaconService>} service - The services of the DID Document.
+ * @property {Array<BeaconService>} [service] - The services of the DID Document.
  * @property {boolean} [deactivated] - Indicates if the DID Document is deactivated.
  */
 export class DidDocument implements Btcr2DidDocument {
+  // The field declarations set the key order of a document (ADR 144). They give no
+  // default value: the constructor copies the input, and validation refuses a document
+  // without "@context".
   id: string;
-  '@context'?: Array<string | JSONObject> = [
-    'https://www.w3.org/ns/did/v1.1',
-    'https://btcr2.dev/context/v1',
-  ];
-  verificationMethod: Array<DidVerificationMethod>;
+  '@context'!: Array<string | JSONObject>;
+  verificationMethod?: Array<DidVerificationMethod>;
   authentication?: Array<string | DidVerificationMethod>;
   assertionMethod?: Array<string | DidVerificationMethod>;
   capabilityInvocation?: Array<string | DidVerificationMethod>;
   capabilityDelegation?: Array<string | DidVerificationMethod>;
-  service: Array<BeaconService>;
+  service?: Array<BeaconService>;
   deactivated?: boolean;
 
   constructor(document: DidDocumentLike) {
@@ -179,14 +180,9 @@ export class DidDocument implements Btcr2DidDocument {
       Object.defineProperty(this, key, { value, enumerable: true, writable: true, configurable: true });
     }
 
-    // Set core properties
+    // Set no default: an absent member stays absent, so the document hash is the hash of
+    // the input.
     this.id = document.id;
-    this.verificationMethod = document.verificationMethod || [];
-    this.service = document.service || [];
-    this['@context'] = document['@context'] || [
-      'https://www.w3.org/ns/did/v1.1',
-      'https://btcr2.dev/context/v1'
-    ];
 
     // Sanitize the DID Document
     DidDocument.sanitize(this);
@@ -225,6 +221,7 @@ export class DidDocument implements Btcr2DidDocument {
     const keyRef = `${id}#initialKey`;
     return new DidDocument({
       id,
+      '@context'         : [...BTCR2_DID_DOCUMENT_CONTEXT],
       verificationMethod : [{
         id         : keyRef,
         type       : 'Multikey',
@@ -240,9 +237,12 @@ export class DidDocument implements Btcr2DidDocument {
   }
 
   /**
-   * Create a DidDocument from "x1" btcr2 identifier.
-   * @param {ExternalData} data The verification methods of the DID Document.
+   * Create a DidDocument from the data of an "x1" btcr2 identifier. The method adds no member:
+   * the data must contain "@context", as any other input must.
+   * @param {ExternalData} data The members of the DID document.
    * @returns {DidDocument} A new DidDocument.
+   * @throws {DidDocumentError} `INVALID_DID_DOCUMENT` if the data is not a valid DID document,
+   * for example if it has no "@context".
    */
   public static fromExternalIdentifier(data: ExternalData): DidDocument {
     return new DidDocument(data as Btcr2DidDocument);
@@ -319,8 +319,9 @@ export class DidDocument implements Btcr2DidDocument {
   }
 
   /**
-   * Validates that verification methods exist and are correctly formatted. Each method must
-   * have a string `id`, `type`, and `controller`. This check does not compare the type with a
+   * Validates the verification methods. The member is optional: an absent member is valid. A
+   * present member must be an array, and each method must have a string `id`, `type`, and
+   * `controller`. This check does not compare the type with a
    * value, and it does not read the key material: a method can have any type. Only the method
    * that signs an update must be a secp256k1 Multikey, and the update paths check that method.
    * @private
@@ -328,17 +329,19 @@ export class DidDocument implements Btcr2DidDocument {
    * @returns {boolean} True if the verification methods are valid.
    */
   private static isValidVerificationMethods(verificationMethod: unknown): boolean {
-    return Array.isArray(verificationMethod) && verificationMethod.every(Appendix.isDidVerificationMethod);
+    return verificationMethod === undefined
+      || (Array.isArray(verificationMethod) && verificationMethod.every(Appendix.isDidVerificationMethod));
   }
 
   /**
-   * Validates that the DID Document has valid services.
+   * Validates the services. The member is optional: an absent member is valid. A present
+   * member must be an array of valid services.
    * @private
    * @param {DidService[]} service The services to validate.
    * @returns {boolean} True if the services are valid.
    */
   private static isValidServices(service: unknown): boolean {
-    return Array.isArray(service) && service.every(isDidService);
+    return service === undefined || (Array.isArray(service) && service.every(isDidService));
   }
 
   /**
@@ -385,20 +388,39 @@ export class DidDocument implements Btcr2DidDocument {
   }
 
   /**
-   * Validate the GenesisDocument.
+   * Validate the GenesisDocument. The checks run in this order, and the first check that fails
+   * throws:
+   * 1. The id is the placeholder.
+   * 2. "@context" is an array that contains the two btcr2 contexts.
+   * 3. `verificationMethod` is absent, or an array of valid methods. Each method id contains
+   *    the placeholder.
+   * 4. `service` is absent, or an array of valid services. Each service id is a string that
+   *    contains the placeholder.
+   * 5. The verification relationships have a valid shape.
+   *
+   * Steps 3 and 4 use the shape checks of {@link DidDocument.isValid}. A method needs a string
+   * controller, and the controller can be another DID. Only the method that signs an update
+   * must have the DID as its controller.
    * @returns {boolean} True if the GenesisDocument is valid.
+   * @throws {DidDocumentError} `INVALID_DID_DOCUMENT` if a check fails.
    */
   public validateGenesis(): boolean {
     // Validate the id
     if(this.id !== ID_PLACEHOLDER_VALUE) {
       throw new DidDocumentError('Invalid GenesisDocument ID', INVALID_DID_DOCUMENT, this);
     }
+    // Validate the "@context"
+    if(!DidDocument.isValidContext(this['@context'])) {
+      throw new DidDocumentError('Invalid GenesisDocument "@context"', INVALID_DID_DOCUMENT, this);
+    }
     // Validate the verificationMethod
-    if(!this.verificationMethod.every(vm => vm.id.includes(ID_PLACEHOLDER_VALUE) && vm.controller === ID_PLACEHOLDER_VALUE)) {
+    if(!DidDocument.isValidVerificationMethods(this.verificationMethod)
+      || !(this.verificationMethod ?? []).every(vm => vm.id.includes(ID_PLACEHOLDER_VALUE))) {
       throw new DidDocumentError('Invalid GenesisDocument verificationMethod', INVALID_DID_DOCUMENT, this);
     }
     // Validate the service
-    if(!this.service.every(svc => svc.id.includes(ID_PLACEHOLDER_VALUE))) {
+    if(!DidDocument.isValidServices(this.service)
+      || !(this.service ?? []).every(svc => typeof svc.id === 'string' && svc.id.includes(ID_PLACEHOLDER_VALUE))) {
       throw new DidDocumentError('Invalid GenesisDocument service', INVALID_DID_DOCUMENT, this);
     }
     if(!DidDocument.isValidVerificationRelationships(this)) {
@@ -422,9 +444,11 @@ export class DidDocument implements Btcr2DidDocument {
 }
 
 /**
- * GenesisDocument extends the DidDocument class for creating and managing intermediate DID documents.
- * This class is used to create a minimal DID document with a placeholder ID.
- * It is used in the process of creating a new DID document.
+ * A Genesis Document: a DID document whose id is the placeholder `did:btcr2:_`. Its canonical
+ * hash is the genesis bytes of an EXTERNAL identifier. The constructor adds no member, so the
+ * input must contain "@context" with the two btcr2 contexts. `verificationMethod` and `service`
+ * are optional. The constructor runs the genesis checks only if the id is the placeholder.
+ * `GenesisDocument.create` and `GenesisDocument.fromPublicKey` write the two contexts.
  * @class GenesisDocument
  * @extends {DidDocument}
  */
@@ -456,10 +480,10 @@ export class GenesisDocument extends DidDocument {
   }
 
   /**
-   * Create a minimal GenesisDocument with a placeholder ID.
-   * @param {Array<DidVerificationMethod>} verificationMethod The public key in multibase format.
-   * @param {VerificationRelationships} relationships The public key in multibase format.
-   * @param {Array<BeaconService>} service The service to be included in the document.
+   * Create a GenesisDocument with the placeholder id and the two btcr2 contexts.
+   * @param {Array<DidVerificationMethod>} verificationMethod The verification methods.
+   * @param {VerificationRelationships} relationships The verification relationships.
+   * @param {Array<BeaconService>} service The services of the document.
    * @returns {GenesisDocument} A new GenesisDocument with the placeholder ID.
    */
   public static create(
@@ -467,7 +491,13 @@ export class GenesisDocument extends DidDocument {
     relationships: VerificationRelationships,
     service: Array<BeaconService>
   ): GenesisDocument {
-    return new GenesisDocument({ id: ID_PLACEHOLDER_VALUE, ...relationships, verificationMethod, service, });
+    return new GenesisDocument({
+      id         : ID_PLACEHOLDER_VALUE,
+      '@context' : [...BTCR2_DID_DOCUMENT_CONTEXT],
+      ...relationships,
+      verificationMethod,
+      service,
+    });
   }
 
   /**
@@ -504,9 +534,11 @@ export class GenesisDocument extends DidDocument {
   }
 
   /**
-   * Taken an object, convert it to an IntermediateDocuemnt and then to a DidDocument.
+   * Make a GenesisDocument from a JSON object. The method adds no member.
    * @param {object | DidDocument} object The JSON object to convert.
-   * @returns {DidDocument} The created DidDocument.
+   * @returns {GenesisDocument} The GenesisDocument.
+   * @throws {DidDocumentError} `INVALID_DID_DOCUMENT` if the object is not a valid DID document
+   * or Genesis Document.
    */
   public static fromJSON(object: object | DidDocument): GenesisDocument {
     return new GenesisDocument(object as Btcr2DidDocument);
