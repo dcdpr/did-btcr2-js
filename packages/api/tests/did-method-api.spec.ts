@@ -2,7 +2,17 @@ import { expect, use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import type { BitcoinConnection, HttpExecutor } from '@did-btcr2/bitcoin';
 import { getNetwork } from '@did-btcr2/bitcoin';
-import { canonicalHashBytes, INVALID_DID_UPDATE, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/common';
+import {
+  canonicalHashBytes,
+  canonicalize,
+  DidDocumentError,
+  INVALID_DID_DOCUMENT,
+  INVALID_DID_UPDATE,
+  MISSING_UPDATE_DATA,
+  NOT_FOUND,
+  ResolveError,
+  UpdateError,
+} from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey, LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { DEACTIVATION_PATCH } from '@did-btcr2/method';
 import {
@@ -247,7 +257,7 @@ describe('DidMethodApi', () => {
       const did = methodApi.createExternal(canonicalHashBytes(EXTERNAL_GENESIS_DOCUMENT), { network: 'regtest' });
       const doc = methodApi.getInitialDocument(did, EXTERNAL_GENESIS_DOCUMENT);
       expect(doc.id).to.equal(did);
-      expect(doc.verificationMethod[0].id).to.equal(`${did}#key-0`);
+      expect(doc.verificationMethod![0].id).to.equal(`${did}#key-0`);
       expect(methodApi.getBeacons(doc)).to.deep.equal([{
         id      : `${did}#service-0`,
         type    : 'SingletonBeacon',
@@ -261,6 +271,18 @@ describe('DidMethodApi', () => {
       expect(() => methodApi.getInitialDocument(did, { id: 'did:btcr2:_' })).to.throw(
         'Initial document mismatch'
       );
+    });
+
+    it('refuses an EXTERNAL DID whose genesis document has no "@context" (ADR 148)', () => {
+      // The DID encodes the hash of the document, so the hash check passes. The resolver
+      // adds no "@context", so the result is not a conformant DID document.
+      const genesis: Record<string, unknown> = JSON.parse(JSON.stringify(EXTERNAL_GENESIS_DOCUMENT));
+      delete genesis['@context'];
+      const methodApi = new DidMethodApi();
+      const did = methodApi.createExternal(canonicalHashBytes(genesis), { network: 'regtest' });
+      expect(() => methodApi.getInitialDocument(did, genesis))
+        .to.throw(DidDocumentError, 'Invalid "@context"')
+        .with.property('type', INVALID_DID_DOCUMENT);
     });
 
     it('rejects an empty DID string', () => {
@@ -429,6 +451,53 @@ describe('DidMethodApi', () => {
       // The CAS integrity failure rides along as the cause of the NOT_FOUND.
       expect(cause.data?.cause).to.be.instanceOf(ResolveError);
       expect(cause.data?.cause?.type).to.equal(MISSING_UPDATE_DATA);
+    });
+
+    describe('a genesis document from the CAS (ADR 148)', () => {
+      it('replaces the placeholder in member names and values, as the JCS steps of the specification do', async () => {
+        // The specification serializes the genesis document with JCS, replaces each
+        // placeholder with the DID, and parses the result. The endpoint of the second
+        // service is a map, and the name of its member holds the placeholder.
+        const genesis = {
+          ...EXTERNAL_GENESIS_DOCUMENT,
+          service : [
+            ...EXTERNAL_GENESIS_DOCUMENT.service,
+            {
+              id              : 'did:btcr2:_#keys',
+              type            : 'KeyDirectory',
+              serviceEndpoint : { 'did:btcr2:_#key-0': 'https://example.com/keys/0' },
+            },
+          ],
+        };
+        const { executor, urls } = emptyChainExecutor();
+        const methodApi = new DidMethodApi(
+          new BitcoinApi({ network: 'regtest', executor }),
+          casReturning(new TextEncoder().encode(canonicalize(genesis))),
+        );
+        const did = methodApi.createExternal(canonicalHashBytes(genesis), { network: 'regtest' });
+
+        const result = await methodApi.resolve(did);
+
+        const expected = JSON.parse(canonicalize(genesis).replaceAll('did:btcr2:_', did));
+        expect(canonicalize(result.didDocument as object)).to.equal(canonicalize(expected));
+        expect(result.didDocument?.service?.[1]?.serviceEndpoint).to.deep.equal({ [`${did}#key-0`]: 'https://example.com/keys/0' });
+        expect(result.didDocumentMetadata).to.deep.equal({ versionId: '1', confirmations: 0, deactivated: false });
+        // The resolver reads the chain for the beacon of the genesis document. The chain has no signal.
+        expect(urls.some(url => url.endsWith('/address/12QG2GG9TWPD16SWyfWCsW4W3NhMFnnSFK/txs/chain?max_txs=25'))).to.equal(true);
+      });
+
+      it('raises INVALID_DID_DOCUMENT if the genesis document has no "@context"', async () => {
+        const genesis: Record<string, unknown> = JSON.parse(JSON.stringify(EXTERNAL_GENESIS_DOCUMENT));
+        delete genesis['@context'];
+        const methodApi = new DidMethodApi(undefined, casReturning(new TextEncoder().encode(canonicalize(genesis))));
+        const did = methodApi.createExternal(canonicalHashBytes(genesis), { network: 'regtest' });
+        const message = `Failed to resolve DID ${did}: Invalid "@context"`;
+        // rejectedWith checks only that the message includes the text. The next line checks equality.
+        const error = await expect(methodApi.resolve(did)).to.be.rejectedWith(Error, message);
+        expect(error.message).to.equal(message);
+        expect(error.cause).to.be.instanceOf(DidDocumentError);
+        expect(error.cause.type).to.equal(INVALID_DID_DOCUMENT);
+      });
     });
 
     it('raises MISSING_UPDATE_DATA when no CAS driver can return a signed update', async () => {
@@ -643,7 +712,7 @@ describe('DidMethodApi', () => {
       const document = methodApi.getInitialDocument(did);
       const authKey = SchnorrKeyPair.generate();
       const signerKey = new CompressedSecp256k1PublicKey(authKey.publicKey.compressed).multibase.encoded;
-      document.verificationMethod.push({ ...document.verificationMethod[0]!, id: `${did}#key-1`, publicKeyMultibase: signerKey });
+      document.verificationMethod!.push({ ...document.verificationMethod![0]!, id: `${did}#key-1`, publicKeyMultibase: signerKey });
       document.authentication!.push(`${did}#key-1`);
 
       const err: unknown = await methodApi.update(
@@ -669,7 +738,7 @@ describe('DidMethodApi', () => {
       const kp = SchnorrKeyPair.generate();
       const did = methodApi.createDeterministic(kp.publicKey.compressed, { network: 'regtest' });
       const document = methodApi.getInitialDocument(did);
-      const initialKey = document.verificationMethod[0]!;
+      const initialKey = document.verificationMethod![0]!;
       document.verificationMethod = [initialKey, { ...initialKey, id: `${did}#second` }];
       // A relative reference and a second entry for the same method count as one method.
       document.capabilityInvocation = [`${did}#initialKey`, '#second', '#initialKey'];

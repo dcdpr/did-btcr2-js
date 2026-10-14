@@ -1,10 +1,11 @@
 import { DidDocumentError, INVALID_DID_DOCUMENT } from '@did-btcr2/common';
 import type { BeaconService } from '../core/beacon/interfaces.js';
 import type { DidVerificationMethod } from './did-document.js';
-import { DidDocument } from './did-document.js';
+import { BTCR2_DID_DOCUMENT_CONTEXT, DidDocument } from './did-document.js';
 
 /**
- * A builder class for constructing DID Documents.
+ * A builder for DID documents. If the initial document has no "@context", the builder
+ * writes the two btcr2 contexts. It sets no other default member.
  * @type {DidDocumentBuilder}
  * @class DidDocumentBuilder
  */
@@ -16,10 +17,11 @@ export class DidDocumentBuilder {
       throw new DidDocumentError('Missing required "id" property', INVALID_DID_DOCUMENT, initialDocument);
     }
     this.document.id = initialDocument.id;
-    this.document.verificationMethod = initialDocument.verificationMethod ?? [];
-
-    if (initialDocument['@context']) {
-      this.document['@context'] = initialDocument['@context'];
+    // If the initial document has no "@context", write the two btcr2 contexts.
+    // Do not add an empty verificationMethod.
+    this.document['@context'] = initialDocument['@context'] ?? [...BTCR2_DID_DOCUMENT_CONTEXT];
+    if (initialDocument.verificationMethod) {
+      this.document.verificationMethod = initialDocument.verificationMethod;
     }
   }
 

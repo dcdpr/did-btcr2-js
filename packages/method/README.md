@@ -73,6 +73,8 @@ The `metadata` of the result is the DID document metadata of the specification. 
 
 An identifier that does not decode fails with an `IdentifierError` of type `INVALID_DID`, also if the Bech32m decoder rejects the body. A sidecar genesis document whose hash is not the genesis bytes of the identifier fails with a `ResolveError` of type `INVALID_DID`.
 
+A genesis document from the sidecar or from the CAS gives the initial DID document. The resolver replaces each `did:btcr2:_` in the genesis document with the DID, and it adds no member (ADR 148). Then `@context` must contain the two btcr2 contexts, and `verificationMethod`, `service`, and the verification relationships must have a valid shape. A failed check gives a `DidDocumentError` of type `INVALID_DID_DOCUMENT`. For example, a genesis document without `@context` fails with the message `Invalid "@context"`. A genesis document without `service` gives a DID document without `service`, and the resolver asks for no beacon signal.
+
 Two resolution options select a version. The two options are mutually exclusive. A request with both, or with a value that does not parse, fails with `INVALID_OPTIONS` before any data need. The resolver processes the updates in version order. Each option selects the version as follows:
 
 - **`versionId`** is an ASCII string of an integer, for example `"2"`. The resolver keeps the state at this version, so `"1"` returns the genesis document also if updates exist. A version that the history does not reach, also a version after a deactivation, fails with a `ResolveError` of type `NOT_FOUND`.
@@ -105,7 +107,8 @@ const updater = DidBtcr2.update({
   patches              : [{ op: 'add', path: '/service/-', value: newService }],
   sourceVersionId      : 1,
   verificationMethodId : `${sourceDocument.id}#initialKey`,
-  beaconId             : sourceDocument.service[0].id,
+  // `service` is optional (ADR 148). Nobody can announce an update for a document without a beacon service.
+  beaconId             : sourceDocument.service![0].id,
 });
 
 let state = updater.advance();
@@ -214,6 +217,8 @@ const result = await runner.run();
 The full step-by-step protocol walkthrough (service flow, participant flow, decision callbacks, events, the low-level state machine API, and production deployment notes) is in [`docs/aggregation.md`](./docs/aggregation.md). The HTTP/REST transport has its own walkthrough in [`docs/http-transport.md`](./docs/http-transport.md). See the [`@did-btcr2/aggregation`](https://github.com/dcdpr/did-btcr2-js/tree/main/packages/aggregation) package for the runnable APIs those guides describe.
 
 This package exports `resolveBtcr2SenderPk`, which gives the communication key of a sender DID to the aggregation transports. For an EXTERNAL (`x1`) sender, the key is the key of the `capabilityInvocation[0]` method in the initial DID document that its genesis document gives. That method must agree with the three conditions of the method that signs an update. If it does not, `resolveBtcr2SenderPk` returns `undefined`, and the transport drops the message.
+
+If the resolver refuses the genesis document, `resolveBtcr2SenderPk` also returns `undefined`. For example, the resolver refuses a genesis document without `@context` (ADR 148). A genesis document without `service` gives the key, if the method agrees with the three conditions.
 
 ## Architecture Principles
 

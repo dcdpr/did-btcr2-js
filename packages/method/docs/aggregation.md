@@ -607,9 +607,10 @@ import { AggregationParticipant, KeyPairAggregationSigner } from '@did-btcr2/agg
 // An x1 participant also passes its genesisDocument here. The method of
 // capabilityInvocation[0] in that document must have the type Multikey and a
 // BIP340 Multikey key in base58btc text. Its controller must be 'did:btcr2:_'
-// (resolution replaces it with the DID). If the method does not agree with
-// these conditions, resolveBtcr2SenderPk returns no key, and the transport
-// drops the opt-in.
+// (resolution replaces it with the DID). The document must also have
+// "@context" with the two btcr2 contexts (ADR 148). If the document does not
+// agree with these conditions, resolveBtcr2SenderPk returns no key, and the
+// transport drops the opt-in. The document can have no service.
 const session = new AggregationParticipant({ did: myDid, signer: new KeyPairAggregationSigner(myKeys) });
 
 // Receive an advert
@@ -765,6 +766,7 @@ Both transports enforce that bind on every receive path, and it is what `resolve
 - A message whose declared `from` did not sign the event or envelope carrying it is dropped (HTTP answers `401 sender_mismatch` on the POST routes).
 - A message that advertises a `communicationPk` (a cohort advert, an opt-in) must advertise the key it just authenticated with, so a sender cannot authenticate as itself while having the cohort encrypt to, or attribute keys to, a different key.
 - An EXTERNAL (`x1`) sender is authenticated from the self-verifying genesis document it carries in-band on its opt-in, on both transports (ADR 066). `resolveBtcr2SenderPk` takes the key of the `capabilityInvocation[0]` method in the initial DID document that the genesis document gives. That method must be able to sign an update of the DID (ADR 147). It must have the type `Multikey`, the DID as its controller, and a BIP340 Multikey key in base58btc text. If the method does not agree with these conditions, `resolveBtcr2SenderPk` returns no key, and the transport drops the opt-in. A KEY (`k1`) sender has no such condition: its DID decodes to its key.
+- `resolveBtcr2SenderPk` also returns no key for an EXTERNAL (`x1`) sender if the resolver refuses its genesis document. For example, the resolver refuses a genesis document without `@context` (ADR 148). A genesis document without `service` gives the key, if the `capabilityInvocation[0]` method agrees with the conditions above.
 
 `AggregationParticipant` then holds every service-originated message (`COHORT_READY`, `DISTRIBUTE_AGGREGATED_DATA`, `AUTHORIZATION_REQUEST`, `AGGREGATED_NONCE`, `FALLBACK_AUTHORIZATION_REQUEST`) to `from === serviceDid` for the cohort it names, and the nonce and fallback messages to the active signing session's id, so a stranger cannot drive a member's cohort even on a transport that does not authenticate at all. `InMemoryTransport` is exactly that transport: it is an in-process test harness and performs no inbound authentication.
 

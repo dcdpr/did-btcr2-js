@@ -207,9 +207,9 @@ describe('genesis document builder', () => {
       expect(bytesToHex(components.genesisBytes)).to.equal(bytesToHex(genesisBytes));
       expect(bytesToHex(genesisBytes)).to.equal(bytesToHex(canonicalHashBytes(doc)));
       expect(didDocument.id).to.equal(did);
-      expect(didDocument.verificationMethod[0].id).to.equal(`${did}#key-0`);
-      expect(didDocument.verificationMethod[0].controller).to.equal(did);
-      expect(didDocument.service[0].id).to.equal(`${did}#service-0`);
+      expect(didDocument.verificationMethod![0].id).to.equal(`${did}#key-0`);
+      expect(didDocument.verificationMethod![0].controller).to.equal(did);
+      expect(didDocument.service![0].id).to.equal(`${did}#service-0`);
     });
 
     it('agrees with getInitialDocument, getBeacons, and the identifier validation report', () => {
@@ -276,8 +276,43 @@ describe('genesis document builder', () => {
       doc.verificationMethod.push(method);
       doc.authentication.push(method.id);
       const { did, didDocument } = methodApi.createExternalFromDocument(doc, { network: 'regtest' });
-      expect(plain(didDocument.verificationMethod[1]!)).to.deep.equal({ ...method, id: `${did}#ed25519`, controller: did });
+      expect(plain(didDocument.verificationMethod![1]!)).to.deep.equal({ ...method, id: `${did}#ed25519`, controller: did });
       expect(didDocument.authentication).to.deep.equal([ `${did}#key-0`, `${did}#ed25519` ]);
+    });
+
+    describe('controllers and optional members (ADR 148)', () => {
+      it('accepts a method that does not sign updates and has the controller did:example:org', () => {
+        // Only the method that signs an update must have the DID as its controller (ADR 147).
+        const methodApi = new DidMethodApi();
+        const doc = plain(methodApi.buildGenesisDocument({ network: 'regtest', verificationMethods: [{ publicKey: publicKey() }] }));
+        const method = {
+          id                 : 'did:btcr2:_#org',
+          type               : 'Multikey',
+          controller         : 'did:example:org',
+          publicKeyMultibase : doc.verificationMethod[0].publicKeyMultibase,
+        };
+        doc.verificationMethod.push(method);
+        doc.assertionMethod.push(method.id);
+        const { did, genesisBytes, didDocument } = methodApi.createExternalFromDocument(doc, { network: 'regtest' });
+        expect(bytesToHex(genesisBytes)).to.equal(bytesToHex(canonicalHashBytes(doc)));
+        expect(plain(didDocument.verificationMethod![1]!)).to.deep.equal({ ...method, id: `${did}#org` });
+        expect(didDocument.verificationMethod![0].controller).to.equal(did);
+        expect(didDocument.assertionMethod).to.deep.equal([ `${did}#key-0`, `${did}#org` ]);
+      });
+
+      it('accepts a document without service, and its initial document has no service and no beacon', () => {
+        const methodApi = new DidMethodApi();
+        const doc = plain(methodApi.buildGenesisDocument({ network: 'regtest', verificationMethods: [{ publicKey: publicKey() }] }));
+        delete doc.service;
+        const { did, genesisBytes, didDocument } = methodApi.createExternalFromDocument(doc, { network: 'regtest' });
+        expect(bytesToHex(genesisBytes)).to.equal(bytesToHex(canonicalHashBytes(doc)));
+        // The api adds no empty service member: the document keeps the members of the input.
+        expect(plain(didDocument)).to.not.have.property('service');
+        expect(methodApi.getBeacons(didDocument)).to.deep.equal([]);
+        const initial = methodApi.getInitialDocument(did, doc);
+        expect(plain(initial)).to.deep.equal(plain(didDocument));
+        expect(methodApi.getBeacons(initial)).to.deep.equal([]);
+      });
     });
 
     describe('refusals', () => {
@@ -308,10 +343,12 @@ describe('genesis document builder', () => {
         expect(() => methodApi.createExternalFromDocument(partial)).to.throw(DidDocumentError, /"@context" must include/);
       });
 
-      it('refuses a verification method that does not carry the placeholder', () => {
+      it('refuses a verification method whose id does not carry the placeholder', () => {
         const doc = valid();
-        doc.verificationMethod[0].controller = 'did:btcr2:k1qq';
-        expect(() => methodApi.createExternalFromDocument(doc)).to.throw(DidDocumentError, /verificationMethod/);
+        doc.verificationMethod[0].id = '#key-0';
+        expect(() => methodApi.createExternalFromDocument(doc))
+          .to.throw(DidDocumentError, 'Invalid GenesisDocument verificationMethod')
+          .with.property('type', INVALID_DID_DOCUMENT);
       });
 
       it('refuses a service that does not carry the placeholder', () => {
@@ -357,6 +394,22 @@ describe('genesis document builder', () => {
           expect(error.data).to.deep.equal({
             did,
             methods : [{ verificationMethodId: `${did}#key-0`, reason: 'Invalid update: verificationMethod.type must equal "Multikey"' }],
+          });
+        });
+
+        it('refuses a document whose only capabilityInvocation method has another controller', () => {
+          // The genesis check accepts a method with any controller. The lock-out check refuses
+          // the document, because the method that signs an update must have the DID as its controller.
+          const doc = valid();
+          doc.verificationMethod[0].controller = 'did:example:org';
+          const did = didOf(doc);
+          const error = refusal(doc);
+          expect(error).to.be.instanceOf(DidDocumentError);
+          expect(error.message).to.equal(message);
+          expect(error.type).to.equal(INVALID_DID_DOCUMENT);
+          expect(error.data).to.deep.equal({
+            did,
+            methods : [{ verificationMethodId: `${did}#key-0`, reason: `Invalid update: verificationMethod.controller must equal "${did}"` }],
           });
         });
 

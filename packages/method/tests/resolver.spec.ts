@@ -598,18 +598,84 @@ describe('Resolver', () => {
       };
       const did = Identifier.encode(canonicalHashBytes(genesisDocument), { idType: 'EXTERNAL', network: fixture.network });
 
-      it('keeps every property, so the document hash is the hash of current_document', () => {
-        const resolver = DidBtcr2.resolve(did, { sidecar: { genesisDocument } });
+      /** Resolve `didOf` with `genesis` in the sidecar and no signal. */
+      function resolveGenesis(didOf: string, genesis: object): DidDocument {
+        const resolver = DidBtcr2.resolve(didOf, { sidecar: { genesisDocument: genesis } });
         const state = resolver.resolve();
         if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
         provideEmptySignals(resolver, state.needs[0] as NeedBeaconSignals);
         const final = resolver.resolve();
         if(final.status !== 'resolved') throw new Error('expected resolved');
+        return final.result.didDocument;
+      }
 
-        // Spec: replace the placeholder, then parse the result as JSON to form current_document.
-        const currentDocument = JSON.parse(JSON.stringify(genesisDocument).replaceAll('did:btcr2:_', did));
-        expect(JSON.parse(JSON.stringify(final.result.didDocument))).to.deep.equal(currentDocument);
-        expect(canonicalHash(final.result.didDocument)).to.equal(canonicalHash(currentDocument));
+      /**
+       * Spec "If `genesis_bytes` is a SHA-256 Hash": serialize the genesis document with JCS,
+       * replace every placeholder with the DID, and parse the result as JSON to form
+       * current_document.
+       */
+      function currentDocumentOf(genesis: object, didOf: string): Record<string, unknown> {
+        return JSON.parse(canonicalize(genesis).replaceAll('did:btcr2:_', didOf));
+      }
+
+      /** The EXTERNAL DID of `genesis` on the fixture network. */
+      function externalDid(genesis: object): string {
+        return Identifier.encode(canonicalHashBytes(genesis), { idType: 'EXTERNAL', network: fixture.network });
+      }
+
+      /** A copy of `value` with the members of each object in the reverse order. Arrays keep their order. */
+      function reversedMembers(value: unknown): unknown {
+        if(Array.isArray(value)) return value.map(reversedMembers);
+        if(value !== null && typeof value === 'object') {
+          return Object.fromEntries(Object.entries(value).reverse().map(([key, member]) => [key, reversedMembers(member)]));
+        }
+        return value;
+      }
+
+      it('keeps every property, so the document hash is the hash of current_document', () => {
+        const didDocument = resolveGenesis(did, genesisDocument);
+        const currentDocument = currentDocumentOf(genesisDocument, did);
+        expect(JSON.parse(JSON.stringify(didDocument))).to.deep.equal(currentDocument);
+        expect(canonicalHash(didDocument)).to.equal(canonicalHash(currentDocument));
+      });
+
+      it('replaces the placeholder in member names and in each place of a nested string (ADR 148)', () => {
+        const genesis = {
+          ...fixture.genesisDocument,
+          'did:btcr2:_#label' : 'top level name',
+          extension           : {
+            'did:btcr2:_' : { note: 'did:btcr2:_ and did:btcr2:_#key-0' },
+            list          : [ 'did:btcr2:_/path', { 'did:btcr2:_#inner': 'did:btcr2:_' } ],
+          },
+        };
+        const didOf = externalDid(genesis);
+        const didDocument = resolveGenesis(didOf, genesis);
+        const currentDocument = currentDocumentOf(genesis, didOf);
+        const resolved = JSON.parse(JSON.stringify(didDocument));
+        expect(resolved).to.deep.equal(currentDocument);
+        expect(JSON.stringify(resolved)).to.not.include('did:btcr2:_');
+        expect(resolved[`${didOf}#label`]).to.equal('top level name');
+        expect(resolved.extension[didOf].note).to.equal(`${didOf} and ${didOf}#key-0`);
+        expect(canonicalHash(didDocument)).to.equal(canonicalHash(currentDocument));
+      });
+
+      it('gives the same DID and the same JCS document if the genesis members are in the reverse order (ADR 148)', () => {
+        const genesis = {
+          ...fixture.genesisDocument,
+          controller   : 'did:btcr2:_',
+          keyAgreement : ['did:btcr2:_#key-0'],
+          extension    : { note: 'kept', nested: { first: 1, second: 'did:btcr2:_#key-0' } },
+        };
+        const reversed = reversedMembers(genesis) as Record<string, unknown>;
+        expect(Object.keys(reversed)[0]).to.equal('extension');
+        const didOf = externalDid(genesis);
+        expect(externalDid(reversed)).to.equal(didOf);
+        const didDocument = resolveGenesis(didOf, genesis);
+        const reversedDocument = resolveGenesis(didOf, reversed);
+        const currentDocument = currentDocumentOf(genesis, didOf);
+        expect(JSON.parse(JSON.stringify(reversedDocument))).to.deep.equal(currentDocument);
+        expect(canonicalize(reversedDocument)).to.equal(canonicalize(didDocument));
+        expect(canonicalize(reversedDocument)).to.equal(canonicalize(currentDocument));
       });
     });
   });
@@ -1321,7 +1387,7 @@ describe('Resolver', () => {
       // reset that counter every round and rejected hop 1 at round two as late publishing.
       const resolved = driveDiscoveryChain(fixture.did, updates, signalByAddress);
       expect(resolved.metadata.versionId).to.equal(`${hops + 1}`);
-      expect(resolved.didDocument.service.length).to.equal(sourceDocument.service.length + hops);
+      expect(resolved.didDocument.service!.length).to.equal(sourceDocument.service!.length + hops);
     });
   });
 
@@ -1529,7 +1595,7 @@ describe('Resolver', () => {
         const v1 = driveAddresses(fixture.did, [ u2, u3, u4 ], signals, { ...options, scanned });
         expect(scanned, label).to.have.members([ ...genesisAddresses, B, C ]);
         expect(v1.metadata, label).to.deep.equal({ versionId: '1', confirmations: 0, deactivated: false });
-        expect(v1.didDocument.service.length, label).to.equal(source.service.length);
+        expect(v1.didDocument.service!.length, label).to.equal(source.service!.length);
       }
       for(const options of [{ versionId: '2' }, { versionTime: VERSION_TIME }]) {
         const label = JSON.stringify(options);
@@ -1537,7 +1603,7 @@ describe('Resolver', () => {
         const v2 = driveAddresses(fixture.did, [ u2, u3, u4 ], signals, { ...options, scanned });
         expect(scanned, label).to.have.members([ ...genesisAddresses, B, C ]);
         expect(v2.metadata, label).to.deep.equal({ versionId: '2', confirmations: 6, updated: T2_UPDATED, deactivated: false });
-        expect(v2.didDocument.service.length, label).to.equal(source.service.length + 1);
+        expect(v2.didDocument.service!.length, label).to.equal(source.service!.length + 1);
       }
     });
 
@@ -2103,7 +2169,7 @@ describe('Resolver', () => {
     it('resolves a DID whose updates drive many discovery rounds (default is unbounded)', () => {
       const fixture = deterministicData[2];
       const sourceDocument = resolveDeterministic(fixture.did);
-      const initialServiceCount = sourceDocument.service.length;
+      const initialServiceCount = sourceDocument.service!.length;
 
       // More rounds than the old fixed default of 10, so this would have failed
       // closed before; the default is now unbounded and it resolves cleanly.
@@ -2111,7 +2177,7 @@ describe('Resolver', () => {
       const { updates, signalByAddress } = buildDiscoveryChain(fixture.did, sourceDocument, fixture.secretKey, hops);
 
       const resolved = driveDiscoveryChain(fixture.did, updates, signalByAddress);
-      expect(resolved.didDocument.service.length).to.equal(initialServiceCount + hops);
+      expect(resolved.didDocument.service!.length).to.equal(initialServiceCount + hops);
     });
 
     it('treats a non-positive maxDiscoveryRounds as unbounded', () => {
@@ -2121,7 +2187,7 @@ describe('Resolver', () => {
 
       // 0 used to trip immediately; under the new semantics it means "no limit".
       const resolved = driveDiscoveryChain(fixture.did, updates, signalByAddress, { maxDiscoveryRounds: 0 });
-      expect(resolved.didDocument.service.length).to.equal(sourceDocument.service.length + 3);
+      expect(resolved.didDocument.service!.length).to.equal(sourceDocument.service!.length + 3);
     });
 
     it('still enforces an explicit positive maxDiscoveryRounds cap (INTERNAL_ERROR)', () => {
@@ -2393,7 +2459,7 @@ describe('Resolver', () => {
       if(state.status !== 'resolved') return;
       // Two hops applied exactly once each despite the stale re-provide: v3, +2 services.
       expect(state.result.metadata.versionId).to.equal('3');
-      expect(state.result.didDocument.service.length).to.equal(source.service.length + 2);
+      expect(state.result.didDocument.service!.length).to.equal(source.service!.length + 2);
     });
   });
 
@@ -2492,7 +2558,7 @@ describe('Resolver', () => {
       // Before Path C the cross-round duplicate false-tripped LATE_PUBLISHING; now the
       // history resolves to v3 with both added beacons present.
       expect(state.result.metadata.versionId).to.equal('3');
-      expect(state.result.didDocument.service.length).to.equal(source.service.length + 2);
+      expect(state.result.didDocument.service!.length).to.equal(source.service!.length + 2);
     });
 
     it('still rejects a false duplicate whose unsigned hash does not match history', () => {
@@ -3246,7 +3312,7 @@ describe('Resolver', () => {
       // v3 lives on the beacon that v2 added: the first pass cannot see it.
       const resolved = driveDiscoveryChain(fixture.did, updates, signalByAddress, { versionId: '3' });
       expect(resolved.metadata.versionId).to.equal('3');
-      expect(resolved.didDocument.service.length).to.equal(source.service.length + 2);
+      expect(resolved.didDocument.service!.length).to.equal(source.service!.length + 2);
     });
 
     it('versionTime: a block whose header time is after versionTime but whose mediantime is at or before it applies', () => {
@@ -3371,7 +3437,7 @@ describe('Resolver', () => {
       ]);
       const { metadata, didDocument } = driveSignalsByAddress([ u2, u3, u4 ], signalsByAddress);
       expect(metadata.versionId).to.equal('4');
-      expect(didDocument.service.length).to.equal(source.service.length + 1);
+      expect(didDocument.service!.length).to.equal(source.service!.length + 1);
       expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 2);
     });
   });
@@ -3634,7 +3700,7 @@ describe('Resolver', () => {
       ]));
       expect(metadata.versionId).to.equal('2');
       expect(metadata.confirmations).to.equal(9);
-      expect(didDocument.service.length).to.equal(source.service.length - 1);
+      expect(didDocument.service!.length).to.equal(source.service!.length - 1);
       expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length);
     });
 
@@ -3682,7 +3748,7 @@ describe('Resolver', () => {
         [A, [{ update: v4 }]]
       ]));
       expect(metadata.versionId).to.equal('4');
-      expect(didDocument.service.length).to.equal(source.service.length);
+      expect(didDocument.service!.length).to.equal(source.service!.length);
       expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 1);
     });
 
@@ -3692,7 +3758,7 @@ describe('Resolver', () => {
       const [v2] = buildUpdateChain(fixture.did, source, fixture.secretKey, [removeService(0)]);
       const { didDocument, metadata } = driveAddresses(fixture.did, [v2], new Map([[A, [{ update: v2 }]]]));
       expect(metadata.versionId).to.equal('2');
-      expect(didDocument.service.length).to.equal(source.service.length - 1);
+      expect(didDocument.service!.length).to.equal(source.service!.length - 1);
     });
 
     it('ignores a conflicting version 2 at the removed address and does not check it as a duplicate', () => {
@@ -3721,6 +3787,31 @@ describe('Resolver', () => {
     });
   });
 
+  describe('an update that removes the service member (ADR 148)', () => {
+    // Spec "Update": an update can change any property except id. The service member is
+    // optional, so a patch can remove it. The document then has no beacon, so the
+    // resolver ignores a later signal at a removed address (Process Next Update, step 4).
+    const fixture = deterministicData[2]; // regtest - has a known secretKey
+
+    it('applies the update and ignores a later signal at a removed beacon address', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [A, B] = [addressOf(source, 0), addressOf(source, 1)];
+      const serviceA = BeaconUtils.getBeaconServices(source)[0]!;
+      const [v2, v3] = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        [{ op: 'remove', path: '/service' }],          // v2 at B removes every beacon
+        [{ op: 'add', path: '/service', value: [ serviceA ] }]  // v3 at A is ignored
+      ]);
+      const { didDocument, metadata } = driveAddresses(fixture.did, [v2, v3], new Map([
+        [B, [{ update: v2, block: { height: 100, confirmations: 9 } }]],
+        [A, [{ update: v3, block: { height: 200, confirmations: 7 } }]]
+      ]));
+      expect(metadata.versionId).to.equal('2');
+      expect(metadata.confirmations).to.equal(9);
+      expect(didDocument).to.not.have.own.property('service');
+      expect(canonicalHash(didDocument)).to.equal(v2.targetHash);
+    });
+  });
+
   describe('the signals of a rotated beacon address (ADR 118)', () => {
     // A rotation replaces the serviceEndpoint of a beacon service and keeps its id. The
     // resolver marks the beacon addresses it processed, not the service ids, so the
@@ -3740,7 +3831,7 @@ describe('Resolver', () => {
         [A2, [{ update: v3 }]]
       ]));
       expect(metadata.versionId).to.equal('3');
-      expect(didDocument.service[0]!.serviceEndpoint).to.equal(`bitcoin:${A2}`);
+      expect(didDocument.service![0]!.serviceEndpoint).to.equal(`bitcoin:${A2}`);
       expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 1);
     });
 
@@ -3894,7 +3985,7 @@ describe('Resolver', () => {
       // only the id check refuses the update.
       const source = JSON.parse(JSON.stringify(resolveDeterministic(fixture.did))) as DidDocument;
       const methodId = `${did}#initialKey`;
-      source.verificationMethod[0] = { ...source.verificationMethod[0]!, id: methodId, controller: did } as DidVerificationMethod;
+      source.verificationMethod![0] = { ...source.verificationMethod![0]!, id: methodId, controller: did } as DidVerificationMethod;
       source.capabilityInvocation = [ methodId ];
       const patch: PatchOperation[] = [{ op: 'add', path: '/alsoKnownAs', value: [ 'https://example.com/id-check' ] }];
       const update = forgeSign(did, Updater.construct(source, patch, 1), methodId, fixture.secretKey);
@@ -4006,7 +4097,7 @@ describe('Resolver', () => {
     /** A copy of the source document that lists `method` in verificationMethod and its id in capabilityInvocation. */
     function referencing(method: DidVerificationMethod): DidDocument {
       const document = sourceCopy();
-      document.verificationMethod.push(method);
+      document.verificationMethod!.push(method);
       document.capabilityInvocation!.push(method.id);
       return document;
     }
@@ -4198,7 +4289,7 @@ describe('Resolver', () => {
       const { metadata, didDocument } = resolveWith(source, update);
       expect(metadata.versionId).to.equal('2');
       expect(didDocument.verificationMethod).to.have.length(2);
-      expect({ ...didDocument.verificationMethod[1]! }).to.deep.equal(method);
+      expect({ ...didDocument.verificationMethod![1]! }).to.deep.equal(method);
       expect(didDocument.authentication).to.deep.equal([ `${did}#initialKey`, method.id ]);
     });
 
@@ -4212,7 +4303,7 @@ describe('Resolver', () => {
       const document = Resolver.external(Identifier.decode(x1), genesis);
       expect(document.id).to.equal(x1);
       expect(document.verificationMethod).to.have.length(2);
-      expect({ ...document.verificationMethod[1]! }).to.deep.equal({ ...method, id: `${x1}#ed25519`, controller: x1 });
+      expect({ ...document.verificationMethod![1]! }).to.deep.equal({ ...method, id: `${x1}#ed25519`, controller: x1 });
       expect(document.authentication).to.deep.equal([ `${x1}#key-0`, `${x1}#ed25519` ]);
     });
 
@@ -4224,7 +4315,7 @@ describe('Resolver', () => {
       const v2 = Updater.sign(source, Updater.construct(source, retype, 1), initialKey, new LocalSigner(hexToBytes(fixture.secretKey)));
       const { metadata, didDocument } = resolveWith(source, v2);
       expect(metadata.versionId).to.equal('2');
-      expect(didDocument.verificationMethod[0]!.type).to.equal('JsonWebKey2020');
+      expect(didDocument.verificationMethod![0]!.type).to.equal('JsonWebKey2020');
       // The later update has a valid signature of the same key, but the method now has the wrong type.
       const thrown = thrownAfter(retype, initialKey);
       expectMethodRefused(thrown, 'type', 'type must equal "Multikey"', initialKey);

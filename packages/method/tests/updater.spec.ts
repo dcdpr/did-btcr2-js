@@ -681,7 +681,7 @@ describe('Updater', () => {
 
     /** The publicKeyMultibase of #initialKey: the base58btc text of the fixture key. */
     function fixtureKey(): string {
-      return sourceDocument.verificationMethod[0]!.publicKeyMultibase!;
+      return sourceDocument.verificationMethod![0]!.publicKeyMultibase!;
     }
 
     /** Other text for the fixture key that the base58btc decoder of the cryptosuite reads as the same key. */
@@ -706,7 +706,7 @@ describe('Updater', () => {
     /** A copy of the source document that lists `method` in verificationMethod and its id in capabilityInvocation. */
     function referencing(method: DidVerificationMethod): Btcr2DidDocument {
       const document = sourceCopy();
-      document.verificationMethod.push(method);
+      document.verificationMethod!.push(method);
       document.capabilityInvocation!.push(method.id);
       return document;
     }
@@ -924,16 +924,16 @@ describe('Updater', () => {
       notDidBtcr2(undefined),
       notAnArray('capabilityInvocation', 'a string', () => INITIAL_KEY),
       notAnArray('capabilityInvocation', 'null', () => null),
-      notAnArray('verificationMethod', 'an object', () => sourceCopy().verificationMethod[0]),
+      notAnArray('verificationMethod', 'an object', () => sourceCopy().verificationMethod![0]),
       notAuthorized('a method that only assertionMethod lists', `${did}#assert`, () => {
         const document = sourceCopy();
-        document.verificationMethod.push(signerMethod({ id: `${did}#assert` }));
+        document.verificationMethod!.push(signerMethod({ id: `${did}#assert` }));
         document.assertionMethod!.push(`${did}#assert`);
         return document;
       }),
       notAuthorized('a method that no verification relationship lists', `${did}#loose`, () => {
         const document = sourceCopy();
-        document.verificationMethod.push(signerMethod({ id: `${did}#loose` }));
+        document.verificationMethod!.push(signerMethod({ id: `${did}#loose` }));
         return document;
       }),
       {
@@ -1028,7 +1028,7 @@ describe('Updater', () => {
     describe('Updater.signingMethod', () => {
       it('returns #initialKey for the relative id and for the absolute id', () => {
         for(const methodId of [ '#initialKey', INITIAL_KEY ]) {
-          expect(Updater.signingMethod(sourceDocument, methodId), methodId).to.deep.equal(sourceDocument.verificationMethod[0]);
+          expect(Updater.signingMethod(sourceDocument, methodId), methodId).to.deep.equal(sourceDocument.verificationMethod![0]);
         }
       });
 
@@ -1039,7 +1039,7 @@ describe('Updater', () => {
       it('returns the method of a bare-fragment capabilityInvocation reference that the caller names by the absolute id', () => {
         const document = sourceCopy();
         document.capabilityInvocation = [ '#initialKey' ];
-        expect(Updater.signingMethod(document, INITIAL_KEY)).to.deep.equal(sourceDocument.verificationMethod[0]);
+        expect(Updater.signingMethod(document, INITIAL_KEY)).to.deep.equal(sourceDocument.verificationMethod![0]);
       });
 
       it('returns a method whose absolute id has no fragment, for the query form and the path form', () => {
@@ -1424,7 +1424,7 @@ describe('Updater', () => {
         // The second document spells the id of #initialKey and its capabilityInvocation entry
         // as relative DID URLs.
         const relative = sourceCopy();
-        relative.verificationMethod[0]!.id = '#initialKey';
+        relative.verificationMethod![0]!.id = '#initialKey';
         relative.capabilityInvocation = [ '#initialKey' ];
         for(const document of [ sourceDocument, relative ]) {
           for(const methodId of [ '#initialKey', INITIAL_KEY ]) {
@@ -1432,7 +1432,7 @@ describe('Updater', () => {
             if(state.status !== 'action-required') throw new Error('expected action-required');
             const need = state.needs[0] as NeedSigningKey;
             expect(need.kind).to.equal('NeedSigningKey');
-            expect(need.verificationMethodId, `${document.verificationMethod[0]!.id} named by ${methodId}`).to.equal(INITIAL_KEY);
+            expect(need.verificationMethodId, `${document.verificationMethod![0]!.id} named by ${methodId}`).to.equal(INITIAL_KEY);
           }
         }
       });
@@ -1474,6 +1474,74 @@ describe('Updater', () => {
         expect(broadcast.kind).to.equal('NeedBroadcast');
         expect(broadcast.signedUpdate.proof.verificationMethod).to.equal(methodId);
       });
+    });
+  });
+
+  describe('the optional service and verificationMethod members (ADR 148)', () => {
+    // Spec "DID Document": "verificationMethod" and "service" are optional, "@context" is
+    // required. Spec "Update": an update can change any property except id.
+
+    /** The error that `fn` throws, or undefined. */
+    function thrownBy(fn: () => unknown): any {
+      try {
+        fn();
+      } catch(error) {
+        return error;
+      }
+      return undefined;
+    }
+
+    /** A copy of the source document whose relationships embed the method of verificationMethod. */
+    function embeddedSource(): Btcr2DidDocument {
+      const method = { ...sourceDocument.verificationMethod![0]! };
+      return {
+        ...JSON.parse(JSON.stringify(sourceDocument)),
+        authentication       : [{ ...method }],
+        assertionMethod      : [{ ...method }],
+        capabilityInvocation : [{ ...method }],
+        capabilityDelegation : [{ ...method }],
+      } as Btcr2DidDocument;
+    }
+
+    it('Updater.construct accepts a patch that removes the optional /service member, but not the required /@context member', () => {
+      const patch: PatchOperation[] = [{ op: 'remove', path: '/service' }];
+      const unsigned = Updater.construct(sourceDocument, patch, 1);
+      const target = JSONPatch.apply(sourceDocument, patch);
+      expect(target).to.not.have.property('service');
+      expect(unsigned.targetHash).to.equal(canonicalHash(target));
+
+      const thrown = thrownBy(() => Updater.construct(sourceDocument, [{ op: 'remove', path: '/@context' }], 1));
+      expect(thrown).to.be.instanceOf(UpdateError);
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.equal('Error validating targetDocument: Invalid "@context"');
+    });
+
+    it('Updater.construct accepts a patch that removes /verificationMethod if the relationships embed the method', () => {
+      const source = embeddedSource();
+      const patch: PatchOperation[] = [{ op: 'remove', path: '/verificationMethod' }];
+      const unsigned = Updater.construct(source, patch, 1);
+      const target = JSONPatch.apply(source, patch);
+      expect(target).to.not.have.property('verificationMethod');
+      expect(target.capabilityInvocation[0]).to.deep.equal(sourceDocument.verificationMethod![0]);
+      expect(unsigned.targetHash).to.equal(canonicalHash(target));
+    });
+
+    it('DidBtcr2.update refuses a source document without service or with a service that is not an array with INVALID_DID_UPDATE', () => {
+      const withoutService = JSON.parse(JSON.stringify(sourceDocument)) as Btcr2DidDocument;
+      delete withoutService.service;
+      const stringService = { ...sourceDocument, service: 'x' } as unknown as Btcr2DidDocument;
+      for(const [label, document] of [['no service', withoutService], ['service "x"', stringService]] as const) {
+        const thrown = thrownBy(() => DidBtcr2.update({
+          sourceDocument  : document,
+          patches         : [],
+          sourceVersionId : 1,
+          verificationMethodId,
+          beaconId,
+        }));
+        expect(thrown, label).to.be.instanceOf(UpdateError);
+        expect(thrown.type, label).to.equal(INVALID_DID_UPDATE);
+        expect(thrown.message, label).to.equal('No beacon service found for provided beaconId');
+      }
     });
   });
 

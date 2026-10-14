@@ -4,11 +4,13 @@ import { base58, base64urlnopad } from '@scure/base';
 import { expect } from 'chai';
 import { Identifier } from '../src/core/identifier.js';
 import { Resolver } from '../src/core/resolver.js';
-import type { Btcr2VerificationMethod, DidDocumentLike } from '../src/utils/did-document.js';
+import { DidDocumentBuilder } from '../src/utils/did-document-builder.js';
+import type { Btcr2VerificationMethod, DidDocumentLike, ExternalData } from '../src/utils/did-document.js';
 import {
   BTCR2_DID_DOCUMENT_CONTEXT,
   DidDocument,
   DidVerificationMethod,
+  GenesisDocument,
 } from '../src/utils/did-document.js';
 import deterministicData from './data/deterministic-data.js';
 import externalData from './data/external-data.js';
@@ -99,7 +101,7 @@ describe('DidVerificationMethod construction', () => {
   /** The KEY template method of the first deterministic fixture DID. */
   function keyTemplateMethod(): Btcr2VerificationMethod {
     const did = deterministicData[0]!.did;
-    return { ...Resolver.deterministic(Identifier.decode(did)).verificationMethod[0]! };
+    return { ...Resolver.deterministic(Identifier.decode(did)).verificationMethod![0]! };
   }
 
   it('keeps the values of the KEY template method', () => {
@@ -296,14 +298,243 @@ describe('DidDocument.fromKeyIdentifier', () => {
     const did = deterministicData[0]!.did;
     const deterministic = Resolver.deterministic(Identifier.decode(did));
     const document = DidDocument.fromKeyIdentifier(
-      did, deterministic.verificationMethod[0]!.publicKeyMultibase!, deterministic.service
+      did, deterministic.verificationMethod![0]!.publicKeyMultibase!, deterministic.service!
     );
     const keyRef = `${did}#initialKey`;
     expect(document.id).to.equal(did);
-    expect(document.verificationMethod[0]!.id).to.equal(keyRef);
+    expect(document.verificationMethod![0]!.id).to.equal(keyRef);
     for(const relationship of ['authentication', 'assertionMethod', 'capabilityInvocation', 'capabilityDelegation'] as const) {
       expect(document[relationship]).to.deep.equal([keyRef]);
     }
     expect(document.toJSON()).to.deep.equal(deterministic.toJSON());
+  });
+});
+
+describe('DidDocument sets no defaults (ADR 148)', () => {
+  // Spec "DID Document": a DID document must include "@context" and "id". The members
+  // "verificationMethod" and "service" are optional. The class adds no member, so the
+  // document hash is the hash of the input.
+
+  const RELATIONSHIPS = ['authentication', 'assertionMethod', 'capabilityInvocation', 'capabilityDelegation'] as const;
+
+  /** A copy of the external genesis fixture: a Genesis Document with every member. */
+  function genesisDocument(): Record<string, any> {
+    return JSON.parse(JSON.stringify(externalData[0]!.genesisDocument)) as Record<string, any>;
+  }
+
+  /**
+   * A copy of `document` without the given members. If the copy has no verificationMethod,
+   * each relationship embeds the method, so no relationship holds a reference to a removed
+   * method.
+   */
+  function without(document: Record<string, any>, members: Array<string>): Record<string, any> {
+    const copy = JSON.parse(JSON.stringify(document)) as Record<string, any>;
+    if(members.includes('verificationMethod')) {
+      const [method] = copy.verificationMethod;
+      for(const relationship of RELATIONSHIPS) {
+        copy[relationship] = [{ ...method }];
+      }
+    }
+    for(const member of members) {
+      delete copy[member];
+    }
+    return copy;
+  }
+
+  /** The error that `fn` throws, or undefined. */
+  function thrownBy(fn: () => unknown): any {
+    try {
+      fn();
+    } catch(error) {
+      return error;
+    }
+    return undefined;
+  }
+
+  /** Expect `fn` to throw a DidDocumentError of the type INVALID_DID_DOCUMENT, and return it. */
+  function expectInvalid(fn: () => unknown, label: string): any {
+    const thrown = thrownBy(fn);
+    expect(thrown, label).to.be.instanceOf(DidDocumentError);
+    expect(thrown.type, label).to.equal(INVALID_DID_DOCUMENT);
+    return thrown;
+  }
+
+  const ABSENT_MEMBERS = [['verificationMethod'], ['service'], ['verificationMethod', 'service']];
+
+  it('constructs a DID document without verificationMethod, without service, or without both, and adds no member', () => {
+    for(const members of ABSENT_MEMBERS) {
+      const input = without(validDocument(), members);
+      const document = new DidDocument(JSON.parse(JSON.stringify(input)));
+      for(const member of members) {
+        expect(document, member).to.not.have.own.property(member);
+        expect(Object.keys(document.toJSON()), member).to.not.include(member);
+      }
+      expect(document.toJSON()).to.deep.equal(input);
+      expect(canonicalHash(document)).to.equal(canonicalHash(input));
+    }
+  });
+
+  it('constructs a Genesis Document without verificationMethod, without service, or without both, and adds no member', () => {
+    for(const members of ABSENT_MEMBERS) {
+      const input = without(genesisDocument(), members);
+      const document = GenesisDocument.fromJSON(JSON.parse(JSON.stringify(input)));
+      for(const member of members) {
+        expect(document, member).to.not.have.own.property(member);
+        expect(Object.keys(document.toJSON()), member).to.not.include(member);
+      }
+      expect(document.toJSON()).to.deep.equal(input);
+      expect(canonicalHash(document)).to.equal(canonicalHash(input));
+    }
+  });
+
+  it('refuses a null service or a null verificationMethod in a DID document', () => {
+    for(const member of ['service', 'verificationMethod']) {
+      const input = { ...validDocument(), [member]: null };
+      // The constructor check of the member fails first. isValid names the member in quotes.
+      const constructed = expectInvalid(() => new DidDocument(input as DidDocumentLike), `new DidDocument with ${member} null`);
+      expect(constructed.message, `new DidDocument with ${member} null`).to.equal(`Invalid ${member}: null`);
+      const validated = expectInvalid(() => DidDocument.isValid(input as DidDocumentLike), `DidDocument.isValid with ${member} null`);
+      expect(validated.message, `DidDocument.isValid with ${member} null`).to.equal(`Invalid "${member}"`);
+    }
+  });
+
+  it('refuses a null service or a null verificationMethod in a Genesis Document', () => {
+    for(const member of ['service', 'verificationMethod']) {
+      const thrown = expectInvalid(() => GenesisDocument.fromJSON({ ...genesisDocument(), [member]: null }), `${member} null`);
+      expect(thrown.message).to.equal(`Invalid GenesisDocument ${member}`);
+    }
+  });
+
+  it('refuses a genesis service or verificationMethod that is a string with a DidDocumentError, not a TypeError', () => {
+    for(const member of ['service', 'verificationMethod']) {
+      const thrown = expectInvalid(() => GenesisDocument.fromJSON({ ...genesisDocument(), [member]: 'x' }), `${member} "x"`);
+      expect(thrown.message).to.equal(`Invalid GenesisDocument ${member}`);
+    }
+  });
+
+  it('gives a DidDocumentError, not a TypeError, for a genesis service whose id is not a string', () => {
+    // The service shape check (isDidService) does not check the type of id. Without a string check, an
+    // array id that holds the placeholder passes, because Array.prototype.includes finds it.
+    for(const id of [42, 5, null, { x: 1 }, ['did:btcr2:_']]) {
+      const service = [{ id, type: 'X', serviceEndpoint: 'y' }];
+      const thrown = expectInvalid(() => GenesisDocument.fromJSON({ ...genesisDocument(), service }), `service id ${JSON.stringify(id)}`);
+      expect(thrown.message, `service id ${JSON.stringify(id)}`).to.equal('Invalid GenesisDocument service');
+    }
+  });
+
+  it('refuses a DID document and a Genesis Document without "@context"', () => {
+    const document = validDocument();
+    delete document['@context'];
+    const thrown = expectInvalid(() => new DidDocument(document as DidDocumentLike), 'new DidDocument');
+    expect(thrown.message).to.equal('Invalid "@context"');
+    const genesis = genesisDocument();
+    delete genesis['@context'];
+    const genesisThrown = expectInvalid(() => GenesisDocument.fromJSON(genesis), 'GenesisDocument.fromJSON');
+    expect(genesisThrown.message).to.equal('Invalid GenesisDocument "@context"');
+  });
+
+  it('refuses a DID document and a Genesis Document whose "@context" has only one of the two contexts', () => {
+    for(const context of BTCR2_DID_DOCUMENT_CONTEXT) {
+      const constructed = expectInvalid(() => new DidDocument({ ...validDocument(), '@context': [context] } as DidDocumentLike), `new DidDocument with ${context}`);
+      expect(constructed.message, `new DidDocument with ${context}`).to.equal('Invalid "@context"');
+      const thrown = expectInvalid(() => GenesisDocument.fromJSON({ ...genesisDocument(), '@context': [context] }), `GenesisDocument.fromJSON with ${context}`);
+      expect(thrown.message).to.equal('Invalid GenesisDocument "@context"');
+    }
+  });
+
+  it('checks "@context" before verificationMethod and service, and verificationMethod before service, in a Genesis Document', () => {
+    const noContext = without(genesisDocument(), ['@context']);
+    const cases: Array<[string, Record<string, any>, string]> = [
+      ['no "@context" and service null', { ...noContext, service: null }, 'Invalid GenesisDocument "@context"'],
+      ['no "@context" and verificationMethod null', { ...noContext, verificationMethod: null }, 'Invalid GenesisDocument "@context"'],
+      ['verificationMethod null and service null', { ...genesisDocument(), verificationMethod: null, service: null }, 'Invalid GenesisDocument verificationMethod'],
+    ];
+    for(const [label, genesis, message] of cases) {
+      const thrown = expectInvalid(() => GenesisDocument.fromJSON(genesis), label);
+      expect(thrown.message, label).to.equal(message);
+    }
+  });
+
+  it('accepts a genesis method whose controller is another DID', () => {
+    const genesis = genesisDocument();
+    genesis.verificationMethod[0].controller = 'did:example:org';
+    const document = GenesisDocument.fromJSON(genesis);
+    expect(document.verificationMethod![0]!.controller).to.equal('did:example:org');
+    expect(document.toJSON()).to.deep.equal(genesis);
+  });
+
+  it('refuses a genesis method with no controller or with a controller that is not a string', () => {
+    for(const controller of [undefined, 42]) {
+      const genesis = genesisDocument();
+      if(controller === undefined) {
+        delete genesis.verificationMethod[0].controller;
+      } else {
+        genesis.verificationMethod[0].controller = controller;
+      }
+      const thrown = expectInvalid(() => GenesisDocument.fromJSON(genesis), `controller ${String(controller)}`);
+      expect(thrown.message).to.equal('Invalid GenesisDocument verificationMethod');
+    }
+  });
+
+  it('writes the two contexts in fromKeyIdentifier, GenesisDocument.create, GenesisDocument.fromPublicKey, and DidDocumentBuilder.build', () => {
+    const fixture = deterministicData[0]!;
+    const deterministic = Resolver.deterministic(Identifier.decode(fixture.did));
+    const method = deterministic.verificationMethod![0]!;
+    const genesis = genesisDocument();
+    const documents = {
+      fromKeyIdentifier : DidDocument.fromKeyIdentifier(fixture.did, method.publicKeyMultibase!, deterministic.service!),
+      create            : GenesisDocument.create(genesis.verificationMethod, { authentication: genesis.authentication }, genesis.service),
+      fromPublicKey     : GenesisDocument.fromPublicKey(Identifier.decode(fixture.did).genesisBytes, 'bitcoin'),
+      build             : new DidDocumentBuilder({ id: fixture.did }).withService(deterministic.service!).build(),
+    };
+    for(const [name, document] of Object.entries(documents)) {
+      expect(document['@context'], name).to.deep.equal(BTCR2_DID_DOCUMENT_CONTEXT);
+      // Each document holds a copy. A change to its "@context" must not change the constant.
+      expect(document['@context'], name).to.not.equal(BTCR2_DID_DOCUMENT_CONTEXT);
+      expect(document.toJSON()['@context'], name).to.deep.equal(BTCR2_DID_DOCUMENT_CONTEXT);
+    }
+  });
+
+  it('DidDocumentBuilder keeps a given "@context" and adds no verificationMethod if the initial document has none', () => {
+    const did = deterministicData[0]!.did;
+    const context = [...BTCR2_DID_DOCUMENT_CONTEXT, 'https://w3id.org/security/data-integrity/v2'];
+    const document = new DidDocumentBuilder({ id: did, '@context': context }).build();
+    expect(document['@context']).to.deep.equal(context);
+    expect(document).to.not.have.own.property('verificationMethod');
+    expect(document.toJSON()).to.deep.equal({ id: did, '@context': context });
+  });
+
+  it('DidDocumentBuilder keeps the verificationMethod of the initial document', () => {
+    const did = deterministicData[0]!.did;
+    const deterministic = Resolver.deterministic(Identifier.decode(did));
+    const method = deterministic.verificationMethod![0]!;
+    const document = new DidDocumentBuilder({ id: did, verificationMethod: [method] })
+      .withCapabilityInvocation([method.id])
+      .withService(deterministic.service!)
+      .build();
+    expect(document.toJSON()).to.deep.equal({
+      id                   : did,
+      '@context'           : [...BTCR2_DID_DOCUMENT_CONTEXT],
+      verificationMethod   : [method],
+      capabilityInvocation : [method.id],
+      service              : deterministic.service,
+    });
+  });
+
+  it('fromExternalIdentifier refuses data without "@context"', () => {
+    const data = validDocument();
+    delete data['@context'];
+    const thrown = expectInvalid(() => DidDocument.fromExternalIdentifier(data as ExternalData), 'fromExternalIdentifier');
+    expect(thrown.message).to.equal('Invalid "@context"');
+  });
+
+  it('writes id and "@context" first in toJSON for a document with every member (ADR 144)', () => {
+    const input = { ...validDocument(), deactivated: false, extension: { note: 'kept' } };
+    // The input holds the members in the reverse order.
+    const reversed = Object.fromEntries(Object.entries(input).reverse());
+    const keys = Object.keys(new DidDocument(reversed as DidDocumentLike).toJSON());
+    expect(keys).to.deep.equal([
+      'id', '@context', 'verificationMethod', ...RELATIONSHIPS, 'service', 'deactivated', 'extension'
+    ]);
   });
 });

@@ -110,7 +110,9 @@ export function getAggregationCommunicationKey(
  *   on the bootstrap opt-in. Ignored for KEY identifiers.
  * @returns {CompressedSecp256k1PublicKey | undefined} The sender's compressed public key, or
  *   `undefined` when the DID is not a decodable did:btcr2 identifier, is an `x1` identifier
- *   with no (or a non-matching) genesis document, or has no usable communication key.
+ *   with no (or a non-matching) genesis document, is an `x1` identifier whose genesis
+ *   document the resolver refuses (for example, one without `"@context"`, ADR 148), or has
+ *   no usable communication key.
  */
 export function resolveBtcr2SenderPk(
   did: string,

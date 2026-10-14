@@ -398,7 +398,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
     function withSecondBeacon(fixture: ReturnType<typeof updateFixture>): { id: string; address: string } {
       const address = p2wpkh(SchnorrKeyPair.generate().publicKey.compressed, network).address!;
       const id = `${fixture.did}#beacon-other`;
-      fixture.sourceDocument.service.push({ id, type: 'SingletonBeacon', serviceEndpoint: `bitcoin:${address}` });
+      fixture.sourceDocument.service!.push({ id, type: 'SingletonBeacon', serviceEndpoint: `bitcoin:${address}` });
       return { id, address };
     }
 
@@ -419,8 +419,8 @@ describe('DidMethodApi update() CAS publication policy', () => {
       // so they do not make the match ambiguous.
       const fixture = updateFixture('SingletonBeacon');
       const document = fixture.sourceDocument;
-      const initialKey = document.verificationMethod[0]!;
-      document.verificationMethod.push(
+      const initialKey = document.verificationMethod![0]!;
+      document.verificationMethod!.push(
         { ...initialKey, id: `${fixture.did}#auth` },
         { ...initialKey, id: `${fixture.did}#jwk`, type: 'JsonWebKey2020' },
       );
@@ -437,7 +437,7 @@ describe('DidMethodApi update() CAS publication policy', () => {
     it('derives an embedded capabilityInvocation method', async () => {
       const fixture = updateFixture('SingletonBeacon');
       const document = fixture.sourceDocument;
-      document.capabilityInvocation = [{ ...document.verificationMethod[0]!, id: `${fixture.did}#embedded` }];
+      document.capabilityInvocation = [{ ...document.verificationMethod![0]!, id: `${fixture.did}#embedded` }];
       const { order, counters } = recorders();
 
       const result = await new DidMethodApi().update(...updateArgs(fixture, order, counters, { verificationMethodId: undefined }));

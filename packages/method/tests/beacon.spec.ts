@@ -10,8 +10,10 @@ import { BeaconFactory } from '../src/core/beacon/factory.js';
 import type { BeaconService, BeaconSignal, BlockMetadata } from '../src/core/beacon/interfaces.js';
 import { SingletonBeacon } from '../src/core/beacon/singleton-beacon.js';
 import { SMTBeacon } from '../src/core/beacon/smt-beacon.js';
+import { BeaconUtils } from '../src/core/beacon/utils.js';
 import type { SMTProof } from '../src/core/interfaces.js';
 import type { CASAnnouncement, SidecarData } from '../src/core/types.js';
+import { BTCR2_DID_DOCUMENT_CONTEXT, DidDocument } from '../src/utils/did-document.js';
 
 /** Helper: empty sidecar data maps for each beacon type. */
 function emptySidecar(): SidecarData {
@@ -456,6 +458,32 @@ describe('BeaconFactory.establish', () => {
   it('throws on an unknown beacon type', () => {
     const service = { id: base, type: 'BogusBeacon', serviceEndpoint: endpoint } as unknown as BeaconService;
     expect(() => BeaconFactory.establish(service, DID)).to.throw('Invalid Beacon Type');
+  });
+});
+
+describe('BeaconUtils.getBeaconServices (ADR 148)', () => {
+  // The service member of a DID document is optional. A document without it has no beacon.
+  const beacon: BeaconService = {
+    id              : `${DID}#beacon-1`,
+    type            : 'SingletonBeacon',
+    serviceEndpoint : 'bitcoin:bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4',
+  };
+
+  it('gives the beacon services of a document and no other service', () => {
+    const other = { id: `${DID}#web`, type: 'LinkedDomains', serviceEndpoint: 'https://example.com' };
+    const document = new DidDocument({ id: DID, '@context': [...BTCR2_DID_DOCUMENT_CONTEXT], service: [beacon, other as BeaconService] });
+    expect(BeaconUtils.getBeaconServices(document)).to.deep.equal([beacon]);
+  });
+
+  it('gives no beacon service for a document without service', () => {
+    const document = new DidDocument({ id: DID, '@context': [...BTCR2_DID_DOCUMENT_CONTEXT] });
+    expect(document).to.not.have.own.property('service');
+    expect(BeaconUtils.getBeaconServices(document)).to.deep.equal([]);
+  });
+
+  it('gives no beacon service for a document whose service is a string', () => {
+    const document = { id: DID, '@context': [...BTCR2_DID_DOCUMENT_CONTEXT], service: 'x' } as unknown as DidDocument;
+    expect(BeaconUtils.getBeaconServices(document)).to.deep.equal([]);
   });
 });
 

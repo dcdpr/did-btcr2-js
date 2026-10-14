@@ -195,8 +195,10 @@ export function assertGenesisDocument(genesisDocument: unknown): asserts genesis
       { context },
     );
   }
-  // The constructor runs the genesis checks: placeholder ids and controllers,
-  // and the shape of the verification relationships.
+  // The constructor runs the genesis checks: the shape of the verification
+  // methods and services, the placeholder ids, and the shape of the verification
+  // relationships. A verification method needs a string controller, and the
+  // controller can be another DID.
   GenesisDocument.fromJSON(document);
 }
 

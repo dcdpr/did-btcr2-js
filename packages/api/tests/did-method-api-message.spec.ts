@@ -52,7 +52,7 @@ function failure(report: MessageReport) {
 /** The multibase of a new key that the fixture DID does not hold. */
 function otherKeyMultibase(api: ReturnType<typeof createApi>): string {
   const did = api.btcr2.createDeterministic(SchnorrKeyPair.generate().publicKey.compressed);
-  return api.btcr2.getInitialDocument(did).verificationMethod[0].publicKeyMultibase!;
+  return api.btcr2.getInitialDocument(did).verificationMethod![0].publicKeyMultibase!;
 }
 
 const MESSAGE = 'I control this DID. 2026-10-06 nonce 7f3a';
@@ -143,7 +143,7 @@ describe('DidMethodApi message signatures', () => {
 
     it('refuses two matching methods and names both, and verificationMethodId selects one', () => {
       const { api, did, document, signer } = fixture();
-      document.verificationMethod.push({ ...document.verificationMethod[0], id: `${did}#second` });
+      document.verificationMethod!.push({ ...document.verificationMethod![0], id: `${did}#second` });
       document.assertionMethod!.push(`${did}#second`);
 
       expect(() => api.btcr2.signMessage(document, MESSAGE, signer))
@@ -156,9 +156,9 @@ describe('DidMethodApi message signatures', () => {
 
     it('refuses a verificationMethodId of another key, of another DID, or out of assertionMethod', () => {
       const { api, did, document, signer } = fixture();
-      document.verificationMethod.push({ ...document.verificationMethod[0], id: `${did}#other`, publicKeyMultibase: otherKeyMultibase(api) });
+      document.verificationMethod!.push({ ...document.verificationMethod![0], id: `${did}#other`, publicKeyMultibase: otherKeyMultibase(api) });
       document.assertionMethod!.push(`${did}#other`);
-      document.verificationMethod.push({ ...document.verificationMethod[0], id: `${did}#invokeOnly` });
+      document.verificationMethod!.push({ ...document.verificationMethod![0], id: `${did}#invokeOnly` });
 
       expect(() => api.btcr2.signMessage(document, MESSAGE, signer, { verificationMethodId: '#other' }))
         .to.throw(MethodError, 'does not publish the key of the signer');
@@ -170,7 +170,7 @@ describe('DidMethodApi message signatures', () => {
 
     it('refuses a method whose controller is another DID', () => {
       const { api, document, signer } = fixture();
-      document.verificationMethod[0].controller = 'did:btcr2:k1other';
+      document.verificationMethod![0].controller = 'did:btcr2:k1other';
       expect(() => api.btcr2.signMessage(document, MESSAGE, signer))
         .to.throw(MethodError, 'No assertionMethod method');
     });
@@ -208,7 +208,7 @@ describe('DidMethodApi message signatures', () => {
     it('a message proof fails as a capabilityInvocation proof', () => {
       const { api, document, signer } = fixture();
       const signed = api.btcr2.signMessage(document, MESSAGE, signer);
-      const method = { ...document.verificationMethod[0], id: signed.proof.verificationMethod };
+      const method = { ...document.verificationMethod![0], id: signed.proof.verificationMethod };
       const multikey = SchnorrMultikey.fromVerificationMethod(method);
       const proof = new BIP340DataIntegrityProof(new BIP340Cryptosuite(multikey));
 
@@ -314,8 +314,8 @@ describe('DidMethodApi message signatures', () => {
       const cases: Array<[ Btcr2DidDocument, string ]> = [
         [ { ...document, assertionMethod: [] }, 'is not in the assertionMethod' ],
         [ { ...document, verificationMethod: [] }, 'has no verification method' ],
-        [ { ...document, verificationMethod: [{ ...document.verificationMethod[0], controller: 'did:btcr2:k1other' }] }, 'The controller of the method' ],
-        [ { ...document, verificationMethod: [{ ...document.verificationMethod[0], type: 'JsonWebKey' }] }, 'not Multikey' ],
+        [ { ...document, verificationMethod: [{ ...document.verificationMethod![0], controller: 'did:btcr2:k1other' }] }, 'The controller of the method' ],
+        [ { ...document, verificationMethod: [{ ...document.verificationMethod![0], type: 'JsonWebKey' }] }, 'not Multikey' ],
         [ { ...document, verificationMethod: [{ id: `${did}#initialKey`, type: 'Multikey', controller: did } as never] }, 'no valid secp256k1 Multikey' ],
       ];
       for (const [ changed, detail ] of cases) {
@@ -327,7 +327,7 @@ describe('DidMethodApi message signatures', () => {
 
     it('accepts an embedded method in assertionMethod', () => {
       const { api, document, signed } = signedFixture();
-      const embedded = { ...document, assertionMethod: [ document.verificationMethod[0] ] };
+      const embedded = { ...document, assertionMethod: [ document.verificationMethod![0] ] };
       expect(api.btcr2.verifyMessage(embedded, signed).verified).to.equal(true);
     });
 

@@ -478,6 +478,8 @@ export class Resolver {
    * @returns {DidDocument} The resolved DID Document object
    * @throws {ResolveError} `INVALID_DID` if the hash of the genesis document is not the genesis bytes of the identifier
    * @throws {ResolveError} `INVALID_DID_DOCUMENT` if the id of the genesis document is not the placeholder
+   * @throws {DidDocumentError} `INVALID_DID_DOCUMENT` if the result does not conform, for example
+   * if it has no "@context"
    */
   static external(
     didComponents: DidComponents,
@@ -513,6 +515,9 @@ export class Resolver {
     const did = Identifier.encode(didComponents.genesisBytes, didComponents);
 
     // Replace the placeholder did with the did throughout the currentDocument.
+    // Spec "If `genesis_bytes` is a SHA-256 Hash": serialize with JCS, replace each placeholder
+    // with the DID, and parse. JSON.stringify writes the same string tokens in another member
+    // order. Thus the parsed value is the value of the JCS steps, with the same JCS hash.
     const currentDocument = JSON.parse(
       JSON.stringify(genesisDocument).replaceAll(ID_PLACEHOLDER_VALUE, did)
     );
