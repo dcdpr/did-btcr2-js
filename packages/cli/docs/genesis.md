@@ -89,12 +89,15 @@ network is not in the file. It comes from `-n` or from the config.
 |-------|----------|---------|
 | `verificationMethods[]` | yes, at least one | One entry per key. Exactly one of `key` (a keystore reference: URN, name, or fingerprint prefix) or `publicKey` (a 33-byte compressed public key as hex). `relationships` is a subset of the four names. If absent, all four apply. `fragment` is the id fragment without `#`. If absent, it is `key-<index>`. |
 | `beacons[]` | no | One entry per beacon. `type` is `SingletonBeacon`, `CASBeacon`, or `SMTBeacon`. Give `key` or `publicKey` to derive the address from a key, with `addressType` `p2pkh`, `p2wpkh` (default), or `p2tr`. Or give `address`, a Bitcoin address of the network, for the address of an aggregation cohort. `fragment` defaults to `service-<index>`. If `beacons` is absent, the document has one Singleton beacon with the P2WPKH address of the first key. |
-| `services[]` | no | Other services, after the beacons. `id` is a fragment (`#name`) or a full id that contains `did:btcr2:_`. If absent, it is `service-<position>`. `type` and `serviceEndpoint` are required. The api refuses a beacon type here: declare a beacon under `beacons`. |
+| `services[]` | no | Other services, after the beacons. `id` is a fragment (`#name`) or a full id that contains `did:btcr2:_`. If absent, it is `service-<position>`. `type` and `serviceEndpoint` are required. A `serviceEndpoint` string must be a URL. The `id` must be a valid DID URL or URL, for example with no space (ADR 149). The api refuses a beacon type here: declare a beacon under `beacons`. |
 
 The api refuses a spec that cannot produce an updatable identifier: no verification method with
 `capabilityInvocation`, or no beacon. It refuses an address that is not a P2PKH, P2WPKH, or P2TR
 address of the network, an unknown relationship, an unknown beacon type, and two entries with one
-id. The command prints the reason and writes no file.
+id. The api then checks the built document with the DID Core v1.1 rules of a producer (ADR 149).
+For example, a `services[]` entry whose `serviceEndpoint` is not a URL fails with
+`Invalid GenesisDocument service: service[1].serviceEndpoint must be a URL`. The command prints
+the reason and writes no file.
 
 Before it writes the file, the command also runs the check of `create -t x --document` (ADR 147).
 The initial DID document must have a `capabilityInvocation` method that can sign an update. Each

@@ -32,6 +32,7 @@ import {
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { Appendix } from '../utils/appendix.js';
 import { DidDocument, ID_PLACEHOLDER_VALUE } from '../utils/did-document.js';
+import { isDateTimeStamp } from '../utils/did-core-conformance.js';
 import { hasNonZeroPadBits, smtProofRootHex } from '../utils/base64url-hash.js';
 import { errorCause } from '../utils/error-cause.js';
 import { signingMethodProblem } from '../utils/signing-method.js';
@@ -251,9 +252,6 @@ function validateVersionId(value: unknown): number | undefined {
 
 /** An XML Datetime in UTC with the `Z` designator and no fraction, for example `2026-07-01T00:00:00Z`. */
 const UTC_XSD_DATETIME = /^-?\d{4,}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
-
-/** The timezone part that an XML Schema `dateTimeStamp` requires: `Z` or an offset. */
-const XSD_TIMEZONE = /(Z|[+-]\d{2}:\d{2})$/;
 
 /**
  * Parse `ResolutionOptions.versionTime`. DID Resolution v1 requires an XML Datetime
@@ -667,7 +665,7 @@ export class Resolver {
   private static proofInstant(proof: Btcr2DataIntegrityProof, field: 'created' | 'expires'): number | undefined {
     const value = proof[field];
     if(value === undefined) return undefined;
-    if(typeof value === 'string' && XSD_TIMEZONE.test(value) && DateUtils.isValidXsdDateTime(value)) {
+    if(isDateTimeStamp(value)) {
       const ms = Date.parse(value);
       if(Number.isFinite(ms)) return ms;
     }

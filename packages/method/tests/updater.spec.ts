@@ -264,7 +264,7 @@ describe('Updater', () => {
       }
       expect(thrown).to.be.instanceOf(UpdateError);
       expect(thrown.type).to.equal(INVALID_DID_UPDATE);
-      expect(thrown.message).to.equal('Error validating targetDocument: Invalid "verificationMethod"');
+      expect(thrown.message).to.equal('Error validating targetDocument: Invalid "verificationMethod": verificationMethod[0] must be a map with a string id, type, and controller');
     });
   });
 
@@ -1120,9 +1120,11 @@ describe('Updater', () => {
       it('checks the method before it compares the key of the signer with the key of the method', () => {
         // The signer holds the fixture key. The other text decodes to that key, but the text
         // differs from the base58btc text of the signer key, so a key comparison would refuse it too.
+        // Updater.construct refuses the text in a target document, so the update of the KEY template
+        // serves: Updater.sign checks the method before it checks the unsigned update.
         const publicKeyMultibase = otherKeyText('\u0100');
         const document = referencing(signerMethod({ publicKeyMultibase }));
-        const thrown = thrownBy(() => Updater.sign(document, Updater.construct(document, [], 1), SIGNER_ID, signer));
+        const thrown = thrownBy(() => Updater.sign(document, Updater.construct(sourceDocument, [], 1), SIGNER_ID, signer));
         expect(thrown).to.be.instanceOf(UpdateError);
         expect(thrown.message).to.equal(`Invalid update: verificationMethod.${KEY_RULE}: ${NOT_CANONICAL.message}`);
         expect(thrown.data.field).to.equal('publicKeyMultibase');
@@ -1321,7 +1323,7 @@ describe('Updater', () => {
           ],
           [
             [{ op: 'replace', path: '/verificationMethod/0/type', value: 42 }],
-            'Error validating targetDocument: Invalid "verificationMethod"'
+            'Error validating targetDocument: Invalid "verificationMethod": verificationMethod[0] must be a map with a string id, type, and controller'
           ],
         ];
         for(const [ patch, inner ] of cases) {
@@ -1492,14 +1494,12 @@ describe('Updater', () => {
     }
 
     /** A copy of the source document whose relationships embed the method of verificationMethod. */
+    /** The source document with its first method embedded in capabilityInvocation. The other relationships keep their references. */
     function embeddedSource(): Btcr2DidDocument {
       const method = { ...sourceDocument.verificationMethod![0]! };
       return {
         ...JSON.parse(JSON.stringify(sourceDocument)),
-        authentication       : [{ ...method }],
-        assertionMethod      : [{ ...method }],
         capabilityInvocation : [{ ...method }],
-        capabilityDelegation : [{ ...method }],
       } as Btcr2DidDocument;
     }
 
