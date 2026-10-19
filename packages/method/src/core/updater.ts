@@ -7,6 +7,7 @@ import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update }
 import { BTCR2_UPDATE_CONTEXT, isBtcr2UpdateContext } from './btcr2-update.js';
 import { Appendix } from '../utils/appendix.js';
 import { DidDocument, type Btcr2DidDocument, type DidVerificationMethod } from '../utils/did-document.js';
+import { isJsonMap, NOT_A_JSON_OBJECT } from '../utils/did-core-conformance.js';
 import { errorCause } from '../utils/error-cause.js';
 import { signingMethodProblem } from '../utils/signing-method.js';
 import type { BroadcastResult } from './beacon/beacon.js';
@@ -379,6 +380,15 @@ export class Updater {
       );
     }
 
+    // A patch can replace the whole document, for example with null. The id check below
+    // reads a member, so the target must be a JSON object first.
+    if(!isJsonMap(targetDocument)) {
+      throw new UpdateError(
+        `Error validating targetDocument: ${NOT_A_JSON_OBJECT}`,
+        INVALID_DID_UPDATE, { targetDocument }
+      );
+    }
+
     // Spec (operations/update.md): "An INVALID_DID_UPDATE error MUST be raised if
     // targetDidDocument.id is not equal to sourceDidDocument.id." `DidDocument.isValid`
     // checks W3C conformance but not this equality, so it's enforced explicitly here.
@@ -389,8 +399,9 @@ export class Updater {
       );
     }
 
+    // The write path makes the target document, so it checks the rules of a producer.
     try {
-      DidDocument.isValid(targetDocument);
+      DidDocument.isValid(targetDocument, 'producer');
     } catch (error) {
       throw new UpdateError(
         'Error validating targetDocument: ' + (error instanceof Error ? error.message : String(error)),

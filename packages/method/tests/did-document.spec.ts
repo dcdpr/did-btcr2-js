@@ -390,35 +390,36 @@ describe('DidDocument sets no defaults (ADR 148)', () => {
   it('refuses a null service or a null verificationMethod in a DID document', () => {
     for(const member of ['service', 'verificationMethod']) {
       const input = { ...validDocument(), [member]: null };
-      // The constructor check of the member fails first. isValid names the member in quotes.
+      // The constructor runs the checks of isValid, so both give one message.
+      const message = `Invalid "${member}": ${member} must be an array`;
       const constructed = expectInvalid(() => new DidDocument(input as DidDocumentLike), `new DidDocument with ${member} null`);
-      expect(constructed.message, `new DidDocument with ${member} null`).to.equal(`Invalid ${member}: null`);
+      expect(constructed.message, `new DidDocument with ${member} null`).to.equal(message);
       const validated = expectInvalid(() => DidDocument.isValid(input as DidDocumentLike), `DidDocument.isValid with ${member} null`);
-      expect(validated.message, `DidDocument.isValid with ${member} null`).to.equal(`Invalid "${member}"`);
+      expect(validated.message, `DidDocument.isValid with ${member} null`).to.equal(message);
     }
   });
 
   it('refuses a null service or a null verificationMethod in a Genesis Document', () => {
     for(const member of ['service', 'verificationMethod']) {
       const thrown = expectInvalid(() => GenesisDocument.fromJSON({ ...genesisDocument(), [member]: null }), `${member} null`);
-      expect(thrown.message).to.equal(`Invalid GenesisDocument ${member}`);
+      expect(thrown.message).to.equal(`Invalid GenesisDocument ${member}: ${member} must be an array`);
     }
   });
 
   it('refuses a genesis service or verificationMethod that is a string with a DidDocumentError, not a TypeError', () => {
     for(const member of ['service', 'verificationMethod']) {
       const thrown = expectInvalid(() => GenesisDocument.fromJSON({ ...genesisDocument(), [member]: 'x' }), `${member} "x"`);
-      expect(thrown.message).to.equal(`Invalid GenesisDocument ${member}`);
+      expect(thrown.message).to.equal(`Invalid GenesisDocument ${member}: ${member} must be an array`);
     }
   });
 
   it('gives a DidDocumentError, not a TypeError, for a genesis service whose id is not a string', () => {
-    // The service shape check (isDidService) does not check the type of id. Without a string check, an
-    // array id that holds the placeholder passes, because Array.prototype.includes finds it.
+    // Without a string check, an array id that holds the placeholder passes, because
+    // Array.prototype.includes finds it.
     for(const id of [42, 5, null, { x: 1 }, ['did:btcr2:_']]) {
       const service = [{ id, type: 'X', serviceEndpoint: 'y' }];
       const thrown = expectInvalid(() => GenesisDocument.fromJSON({ ...genesisDocument(), service }), `service id ${JSON.stringify(id)}`);
-      expect(thrown.message, `service id ${JSON.stringify(id)}`).to.equal('Invalid GenesisDocument service');
+      expect(thrown.message, `service id ${JSON.stringify(id)}`).to.equal('Invalid GenesisDocument service: service[0].id must be a string');
     }
   });
 
@@ -447,7 +448,7 @@ describe('DidDocument sets no defaults (ADR 148)', () => {
     const cases: Array<[string, Record<string, any>, string]> = [
       ['no "@context" and service null', { ...noContext, service: null }, 'Invalid GenesisDocument "@context"'],
       ['no "@context" and verificationMethod null', { ...noContext, verificationMethod: null }, 'Invalid GenesisDocument "@context"'],
-      ['verificationMethod null and service null', { ...genesisDocument(), verificationMethod: null, service: null }, 'Invalid GenesisDocument verificationMethod'],
+      ['verificationMethod null and service null', { ...genesisDocument(), verificationMethod: null, service: null }, 'Invalid GenesisDocument verificationMethod: verificationMethod must be an array'],
     ];
     for(const [label, genesis, message] of cases) {
       const thrown = expectInvalid(() => GenesisDocument.fromJSON(genesis), label);
@@ -472,7 +473,7 @@ describe('DidDocument sets no defaults (ADR 148)', () => {
         genesis.verificationMethod[0].controller = controller;
       }
       const thrown = expectInvalid(() => GenesisDocument.fromJSON(genesis), `controller ${String(controller)}`);
-      expect(thrown.message).to.equal('Invalid GenesisDocument verificationMethod');
+      expect(thrown.message).to.equal('Invalid GenesisDocument verificationMethod: verificationMethod[0] must be a map with a string id, type, and controller');
     }
   });
 

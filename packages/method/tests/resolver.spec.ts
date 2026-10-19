@@ -25,6 +25,7 @@ import type { Sidecar } from '../src/core/types.js';
 import type { DidResolutionResponse, NeedBeaconSignals, NeedCASAnnouncement, NeedGenesisDocument, NeedSMTProof, NeedSignedUpdate } from '../src/core/resolver.js';
 import { Updater } from '../src/core/updater.js';
 import deterministicData from './data/deterministic-data.js';
+import { PRODUCER_REFUSAL_CASES, REFUSAL_CASES } from './data/did-core-cases.js';
 import externalData from './data/external-data.js';
 
 /** Helper: provide empty signals for a NeedBeaconSignals need. */
@@ -136,12 +137,15 @@ function driveDiscoveryChain(
 }
 
 /**
- * A benign, non-beacon mutation that keeps the document valid: append an existing key reference
- * to assertionMethod (duplicate string refs are allowed by isValidVerificationRelationships).
+ * A benign, non-beacon mutation that keeps the document valid: append a new key reference to
+ * assertionMethod. Each call gives a new reference, because a verification relationship is a
+ * set and cannot hold one reference two times. The reference names no method in the document,
+ * and DID Core does not require that it does.
  * Used to build version hops that do NOT add a beacon, so the whole chain stays in one round.
  */
+let benignCount = 0;
 function benignPatch(did: string): PatchOperation[] {
-  return [{ op: 'add' as const, path: '/assertionMethod/-', value: `${did}#initialKey` }];
+  return [{ op: 'add' as const, path: '/assertionMethod/-', value: `${did}#benign-${++benignCount}` }];
 }
 
 /**
@@ -2574,7 +2578,7 @@ describe('Resolver', () => {
         source,
         Updater.construct(
           source,
-          [{ op: 'add' as const, path: '/capabilityDelegation/-', value: `${fixture.did}#initialKey` }],
+          [{ op: 'add' as const, path: '/capabilityDelegation/-', value: `${fixture.did}#forged-key` }],
           1
         ),
         vm.id, signer
@@ -2693,7 +2697,7 @@ describe('Resolver', () => {
         source,
         Updater.construct(
           source,
-          [{ op: 'add' as const, path: '/capabilityDelegation/-', value: `${fixture.did}#initialKey` }],
+          [{ op: 'add' as const, path: '/capabilityDelegation/-', value: `${fixture.did}#forged-key` }],
           1
         ),
         vm.id, signer
@@ -2998,11 +3002,14 @@ describe('Resolver', () => {
     });
 
     it('accepts an embedded verification method object in capabilityInvocation', () => {
-      // A relationship entry may embed the method rather than reference it.
+      // A relationship entry may embed the method rather than reference it. The patch also
+      // removes the method from verificationMethod: the write path refuses two methods with
+      // one id (CID v1.0, section 3.4).
       const source = resolveDeterministic(fixture.did);
       const embedded = { ...source.verificationMethod![0]! };
       const { document, update: u2, vm } = v2([
-        { op: 'replace', path: '/capabilityInvocation/0', value: embedded }
+        { op: 'replace', path: '/capabilityInvocation/0', value: embedded },
+        { op: 'remove', path: '/verificationMethod/0' }
       ]);
       const signer = new LocalSigner(hexToBytes(fixture.secretKey));
       const u3 = signHop(document, benignPatch(fixture.did), 2, vm, signer);
@@ -3673,9 +3680,44 @@ describe('Resolver', () => {
         const patch: PatchOperation[] = [{ op: 'replace', path: '/verificationMethod/0/type', value: 42 }];
         const update = signWith(unsignedV2(source, patch, JSONPatch.apply(source, patch)));
         const thrown = thrownBy([ update ]);
-        expectInvalidUpdate(thrown, /^Invalid update: the patched document does not conform to DID Core: Invalid "verificationMethod"$/);
-        expect(thrown.data.cause).to.deep.equal({ type: INVALID_DID_DOCUMENT, message: 'Invalid "verificationMethod"' });
+        const rule = 'Invalid "verificationMethod": verificationMethod[0] must be a map with a string id, type, and controller';
+        expectInvalidUpdate(thrown, /^Invalid update: the patched document does not conform to DID Core: /);
+        expect(thrown.message).to.equal(`Invalid update: the patched document does not conform to DID Core: ${rule}`);
+        expect(thrown.data.cause).to.deep.equal({ type: INVALID_DID_DOCUMENT, message: rule });
       });
+
+      // Spec "Apply update": the patched document must conform to DID Core v1.1. The cases
+      // are the member rules of did-core-conformance.spec.ts.
+      for(const { label, change, member, message } of REFUSAL_CASES) {
+        it(`rejects a patched document with ${label}`, () => {
+          const source = resolveDeterministic(fixture.did);
+          const target = JSON.parse(JSON.stringify(source)) as Record<string, any>;
+          change(target);
+          const patch: PatchOperation[] = [{ op: 'replace', path: '', value: target }];
+          const thrown = thrownBy([ signWith(unsignedV2(source, patch, target)) ]);
+          const rule = `Invalid "${member}": ${message}`;
+          expectInvalidUpdate(thrown, /^Invalid update: the patched document does not conform to DID Core: /);
+          expect(thrown.message).to.equal(`Invalid update: the patched document does not conform to DID Core: ${rule}`);
+          expect(thrown.data.cause).to.deep.equal({ type: INVALID_DID_DOCUMENT, message: rule });
+        });
+      }
+
+      // The resolver is a consumer: it accepts a document that only a producer refuses, for
+      // example a set with a repeated item or a URL that it treats as opaque.
+      for(const { label, change } of PRODUCER_REFUSAL_CASES) {
+        it(`accepts a patched document with ${label}`, () => {
+          const source = resolveDeterministic(fixture.did);
+          const target = JSON.parse(JSON.stringify(source)) as Record<string, any>;
+          change(target);
+          const patch: PatchOperation[] = [{ op: 'replace', path: '', value: target }];
+          const update = signWith(unsignedV2(source, patch, target));
+          const { didDocument, metadata } = driveSignalSequence(
+            fixture.did, [ update ], [ update ], [{ time: HEADER_TIME, mediantime: MEDIANTIME }]
+          );
+          expect(didDocument).to.deep.equal(target);
+          expect(metadata.versionId).to.equal('2');
+        });
+      }
     });
   });
 
@@ -4117,6 +4159,21 @@ describe('Resolver', () => {
       return forgeSign(did, Updater.construct(document, ALSO_KNOWN_AS, 1), methodId, fixture.secretKey, extra);
     }
 
+    /**
+     * The update of {@link updateOf}, built without Updater.construct. Use it for a document
+     * that breaks a DID Core rule: Updater.construct refuses that document as the target.
+     */
+    function handBuiltUpdateOf(document: DidDocument, methodId: string): SignedBTCR2Update {
+      const unsigned: UnsignedBTCR2Update = {
+        '@context'      : [ ...BTCR2_UPDATE_CONTEXT ],
+        patch           : ALSO_KNOWN_AS,
+        sourceHash      : canonicalHash(document),
+        targetHash      : canonicalHash(JSONPatch.apply(document, ALSO_KNOWN_AS)),
+        targetVersionId : 2,
+      };
+      return forgeSign(did, unsigned, methodId, fixture.secretKey);
+    }
+
     /** The update of {@link updateOf}, signed through Updater.sign: the write path. */
     function writtenUpdateOf(document: DidDocument, methodId: string): SignedBTCR2Update {
       return Updater.sign(document, Updater.construct(document, ALSO_KNOWN_AS, 1), methodId, new LocalSigner(hexToBytes(fixture.secretKey)));
@@ -4175,7 +4232,7 @@ describe('Resolver', () => {
     it('refuses a referenced method whose controller is a DID URL of the DID and not the DID', () => {
       const controller = `${did}#initialKey`;
       const document = referencing(signerMethod({ controller }));
-      const thrown = thrownWith(document, updateOf(document, SIGNER_ID));
+      const thrown = thrownWith(document, handBuiltUpdateOf(document, SIGNER_ID));
       expectMethodRefused(thrown, 'controller', `controller must equal "${did}"`);
       expect(thrown.data.actual).to.equal(controller);
     });
@@ -4344,14 +4401,15 @@ describe('Resolver', () => {
     it('refuses other text for the key of the signer that the decoder reads as the same key, in the embedded form and in the reference form', () => {
       // The base58btc decoder of the cryptosuite ignores a code unit above 0xff between the z
       // header and the first base58 digit. The signature verifies with the decoded key, so only
-      // the text comparison refuses the update.
+      // the text comparison refuses the update. The Multibase rule of DID Core conformance also
+      // refuses the text, but the test gives the document to the Resolver as the current document.
       const cause = { type: VERIFICATION_METHOD_ERROR, message: 'Invalid publicKeyMultibase: not the base58btc encoding of the key' };
       const canonical = signerMethod().publicKeyMultibase!;
       for(const publicKeyMultibase of [ `z\u0100${canonical.slice(1)}`, `z\u{1F600}${canonical.slice(1)}` ]) {
         const decoded = SchnorrMultikey.fromVerificationMethod(signerMethod({ publicKeyMultibase }));
         expect(decoded.publicKey.multibase.encoded).to.equal(canonical);
         for(const document of [ embedding(signerMethod({ publicKeyMultibase })), referencing(signerMethod({ publicKeyMultibase })) ]) {
-          const thrown = thrownWith(document, updateOf(document, SIGNER_ID));
+          const thrown = thrownWith(document, handBuiltUpdateOf(document, SIGNER_ID));
           expectMethodRefused(thrown, 'publicKeyMultibase', `${KEY_MESSAGE}: ${cause.message}`);
           expect(thrown.message.endsWith(': Invalid publicKeyMultibase: not the base58btc encoding of the key')).to.equal(true);
           expect(thrown.data.actual).to.equal(publicKeyMultibase);

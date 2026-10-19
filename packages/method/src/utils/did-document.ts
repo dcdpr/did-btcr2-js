@@ -13,11 +13,10 @@ import {
 } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import type { DidDocument as W3CDidDocument, DidVerificationMethod as W3CDidVerificationMethod } from '@web5/dids';
-import { isDidService } from '@web5/dids/utils';
 import { p2pkh } from '@scure/btc-signer';
 import type { BeaconService } from '../core/beacon/interfaces.js';
 import { Identifier } from '../core/identifier.js';
-import { Appendix } from './appendix.js';
+import { didCoreProblem, isJsonMap, NOT_A_JSON_OBJECT, type ConformanceRole } from './did-core-conformance.js';
 
 export const BTCR2_DID_DOCUMENT_CONTEXT = [
   'https://www.w3.org/ns/did/v1.1',
@@ -137,8 +136,8 @@ export interface Btcr2DidDocument extends W3CDidDocument {
 export class DidDocument implements Btcr2DidDocument {
   // The field declarations set the key order of a document (ADR 144). They give no
   // default value: the constructor copies the input, and validation refuses a document
-  // without "@context".
-  id: string;
+  // without "@context" or "id".
+  id!: string;
   '@context'!: Array<string | JSONObject>;
   verificationMethod?: Array<DidVerificationMethod>;
   authentication?: Array<string | DidVerificationMethod>;
@@ -149,29 +148,12 @@ export class DidDocument implements Btcr2DidDocument {
   deactivated?: boolean;
 
   constructor(document: DidDocumentLike) {
-    // Ensure document has an id
-    if(!document.id) {
-      throw new DidDocumentError('DID Document must have an id', INVALID_DID_DOCUMENT, document);
+    if(!isJsonMap(document)) {
+      throw new DidDocumentError(NOT_A_JSON_OBJECT, INVALID_DID_DOCUMENT, { document });
     }
 
-    // Validate ID and parts for non-intermediate
+    // The checks run after the copy, in the order of DidDocument.isValid or validateGenesis.
     const isGenesis = document.id === ID_PLACEHOLDER_VALUE;
-
-    // Deconstruct the document parts for validation
-    const { id, verificationMethod: vm, service } = document;
-
-    // If not genesis, validate core properties
-    if (!isGenesis) {
-      if (!DidDocument.isValidId(id)) {
-        throw new DidDocumentError(`Invalid id: ${id}`, INVALID_DID_DOCUMENT, document);
-      }
-      if (!DidDocument.isValidVerificationMethods(vm)) {
-        throw new DidDocumentError('Invalid verificationMethod: ' + vm, INVALID_DID_DOCUMENT, document);
-      }
-      if (!DidDocument.isValidServices(service)) {
-        throw new DidDocumentError('Invalid service: ' + service, INVALID_DID_DOCUMENT, document);
-      }
-    }
 
     // Keep every property as the input holds it, also a property that this class does not
     // name, for example alsoKnownAs, controller, or keyAgreement (ADR 144). defineProperty
@@ -179,10 +161,6 @@ export class DidDocument implements Btcr2DidDocument {
     for (const [key, value] of Object.entries(document)) {
       Object.defineProperty(this, key, { value, enumerable: true, writable: true, configurable: true });
     }
-
-    // Set no default: an absent member stays absent, so the document hash is the hash of
-    // the input.
-    this.id = document.id;
 
     // Sanitize the DID Document
     DidDocument.sanitize(this);
@@ -263,26 +241,35 @@ export class DidDocument implements Btcr2DidDocument {
   }
 
   /**
-   * Validates a DidDocument by breaking it into modular validation methods.
+   * Validates a DID document. The checks run in this order, and the first check that fails
+   * throws:
+   * 1. The document is a JSON object.
+   * 2. "@context" is an array that contains the two btcr2 contexts.
+   * 3. The id is a did:btcr2 identifier.
+   * 4. The members conform to DID Core v1.1. See `didCoreProblem` in
+   *    `utils/did-core-conformance.ts` for the rules and their order. The message is
+   *    `Invalid "<member>": <rule>`.
+   *
+   * The read path is a `consumer`. The write path is a `producer`: it also checks the URL
+   * syntax, sets with a repeated item, `secretKeyMultibase`, and ids that two items share.
    * @param {DidDocument} didDocument The DID document to validate.
+   * @param {'consumer' | 'producer'} role The role of the caller. The default is `consumer`.
    * @returns {boolean} True if the DID document is valid.
-   * @throws {DidDocumentError} If any validation check fails.
+   * @throws {DidDocumentError} `INVALID_DID_DOCUMENT` if a check fails.
    */
-  public static isValid(didDocument: DidDocumentLike): boolean {
-    if (!this.isValidContext(didDocument?.['@context'])) {
+  public static isValid(didDocument: DidDocumentLike, role: ConformanceRole = 'consumer'): boolean {
+    if (!isJsonMap(didDocument)) {
+      throw new DidDocumentError(NOT_A_JSON_OBJECT, INVALID_DID_DOCUMENT, { document: didDocument });
+    }
+    if (!this.isValidContext(didDocument['@context'])) {
       throw new DidDocumentError('Invalid "@context"', INVALID_DID_DOCUMENT, didDocument);
     }
-    if (!this.isValidId(didDocument?.id)) {
+    if (!this.isValidId(didDocument.id)) {
       throw new DidDocumentError('Invalid "id"', INVALID_DID_DOCUMENT, didDocument);
     }
-    if (!this.isValidVerificationMethods(didDocument?.verificationMethod)) {
-      throw new DidDocumentError('Invalid "verificationMethod"', INVALID_DID_DOCUMENT, didDocument);
-    }
-    if (!this.isValidServices(didDocument?.service)) {
-      throw new DidDocumentError('Invalid "service"', INVALID_DID_DOCUMENT, didDocument);
-    }
-    if (!this.isValidVerificationRelationships(didDocument)) {
-      throw new DidDocumentError('Invalid verification relationships', INVALID_DID_DOCUMENT, didDocument);
+    const problem = didCoreProblem(didDocument, role);
+    if (problem) {
+      throw new DidDocumentError(`Invalid "${problem.member}": ${problem.message}`, INVALID_DID_DOCUMENT, didDocument);
     }
     return true;
   }
@@ -319,59 +306,6 @@ export class DidDocument implements Btcr2DidDocument {
   }
 
   /**
-   * Validates the verification methods. The member is optional: an absent member is valid. A
-   * present member must be an array, and each method must have a string `id`, `type`, and
-   * `controller`. This check does not compare the type with a
-   * value, and it does not read the key material: a method can have any type. Only the method
-   * that signs an update must be a secp256k1 Multikey, and the update paths check that method.
-   * @private
-   * @param {DidVerificationMethod[]} verificationMethod The verification methods to validate.
-   * @returns {boolean} True if the verification methods are valid.
-   */
-  private static isValidVerificationMethods(verificationMethod: unknown): boolean {
-    return verificationMethod === undefined
-      || (Array.isArray(verificationMethod) && verificationMethod.every(Appendix.isDidVerificationMethod));
-  }
-
-  /**
-   * Validates the services. The member is optional: an absent member is valid. A present
-   * member must be an array of valid services.
-   * @private
-   * @param {DidService[]} service The services to validate.
-   * @returns {boolean} True if the services are valid.
-   */
-  private static isValidServices(service: unknown): boolean {
-    return service === undefined || (Array.isArray(service) && service.every(isDidService));
-  }
-
-  /**
-   * Validates verification relationships (authentication, assertionMethod, capabilityInvocation, capabilityDelegation).
-   * @private
-   * @param {DidDocument} didDocument The DID Document to validate.
-   * @returns {boolean} True if the verification relationships are valid.
-   */
-  public static isValidVerificationRelationships(didDocument: DidDocumentLike): boolean {
-    const possibleVerificationRelationships = [
-      'authentication',
-      'assertionMethod',
-      'capabilityInvocation',
-      'capabilityDelegation'
-    ] as const;
-
-    const keys = Object.keys(didDocument);
-    const availableKeys = possibleVerificationRelationships.filter(key => keys.includes(key));
-
-    return availableKeys.every((key) => {
-      const value = didDocument[key];
-      return value &&
-        Array.isArray(value) &&
-        value.every(
-          (entry) => typeof entry === 'string' || Appendix.isDidVerificationMethod(entry)
-        );
-    });
-  }
-
-  /**
    * Validate the DID Document
    * @returns {DidDocument} Validated DID Document.
    * @throws {DidDocumentError} If the DID Document is invalid.
@@ -392,42 +326,42 @@ export class DidDocument implements Btcr2DidDocument {
    * throws:
    * 1. The id is the placeholder.
    * 2. "@context" is an array that contains the two btcr2 contexts.
-   * 3. `verificationMethod` is absent, or an array of valid methods. Each method id contains
-   *    the placeholder.
-   * 4. `service` is absent, or an array of valid services. Each service id is a string that
-   *    contains the placeholder.
-   * 5. The verification relationships have a valid shape.
+   * 3. The members conform to DID Core v1.1, with the rules of {@link DidDocument.isValid}
+   *    for the role. The message is `Invalid GenesisDocument <member>: <rule>`.
+   * 4. A `producer` only: each verification method id contains the placeholder.
+   * 5. A `producer` only: each service id contains the placeholder.
    *
-   * Steps 3 and 4 use the shape checks of {@link DidDocument.isValid}. A method needs a string
-   * controller, and the controller can be another DID. Only the method that signs an update
-   * must have the DID as its controller.
+   * The create path is a `producer`. A `consumer` uses the rules of the resolver, which
+   * checks the document after it replaces each placeholder with the DID.
+   *
+   * A method needs a DID as its controller, and the controller can be another DID. Only the
+   * method that signs an update must have the DID as its controller.
+   * @param {'consumer' | 'producer'} role The role of the caller. The default is `consumer`.
    * @returns {boolean} True if the GenesisDocument is valid.
    * @throws {DidDocumentError} `INVALID_DID_DOCUMENT` if a check fails.
    */
-  public validateGenesis(): boolean {
-    // Validate the id
+  public validateGenesis(role: ConformanceRole = 'consumer'): boolean {
     if(this.id !== ID_PLACEHOLDER_VALUE) {
       throw new DidDocumentError('Invalid GenesisDocument ID', INVALID_DID_DOCUMENT, this);
     }
-    // Validate the "@context"
     if(!DidDocument.isValidContext(this['@context'])) {
       throw new DidDocumentError('Invalid GenesisDocument "@context"', INVALID_DID_DOCUMENT, this);
     }
-    // Validate the verificationMethod
-    if(!DidDocument.isValidVerificationMethods(this.verificationMethod)
-      || !(this.verificationMethod ?? []).every(vm => vm.id.includes(ID_PLACEHOLDER_VALUE))) {
-      throw new DidDocumentError('Invalid GenesisDocument verificationMethod', INVALID_DID_DOCUMENT, this);
+    const problem = didCoreProblem(this as unknown as Record<string, unknown>, role);
+    if(problem) {
+      throw new DidDocumentError(`Invalid GenesisDocument ${problem.member}: ${problem.message}`, INVALID_DID_DOCUMENT, this);
     }
-    // Validate the service
-    if(!DidDocument.isValidServices(this.service)
-      || !(this.service ?? []).every(svc => typeof svc.id === 'string' && svc.id.includes(ID_PLACEHOLDER_VALUE))) {
-      throw new DidDocumentError('Invalid GenesisDocument service', INVALID_DID_DOCUMENT, this);
+    if(role === 'consumer') return true;
+    // Step 3 makes each id a string.
+    for(const member of ['verificationMethod', 'service'] as const) {
+      const index = (this[member] ?? []).findIndex(item => !item.id.includes(ID_PLACEHOLDER_VALUE));
+      if(index >= 0) {
+        throw new DidDocumentError(
+          `Invalid GenesisDocument ${member}: ${member}[${index}].id must contain "${ID_PLACEHOLDER_VALUE}"`,
+          INVALID_DID_DOCUMENT, this
+        );
+      }
     }
-    if(!DidDocument.isValidVerificationRelationships(this)) {
-      // Return true if all validations pass
-      throw new DidDocumentError('Invalid GenesisDocument assertionMethod', INVALID_DID_DOCUMENT, this);
-    }
-
     return true;
   }
 
@@ -480,24 +414,28 @@ export class GenesisDocument extends DidDocument {
   }
 
   /**
-   * Create a GenesisDocument with the placeholder id and the two btcr2 contexts.
+   * Create a GenesisDocument with the placeholder id and the two btcr2 contexts. The document
+   * must pass the checks of {@link DidDocument.validateGenesis} for a `producer`.
    * @param {Array<DidVerificationMethod>} verificationMethod The verification methods.
    * @param {VerificationRelationships} relationships The verification relationships.
    * @param {Array<BeaconService>} service The services of the document.
    * @returns {GenesisDocument} A new GenesisDocument with the placeholder ID.
+   * @throws {DidDocumentError} `INVALID_DID_DOCUMENT` if a check fails.
    */
   public static create(
     verificationMethod: Array<DidVerificationMethod>,
     relationships: VerificationRelationships,
     service: Array<BeaconService>
   ): GenesisDocument {
-    return new GenesisDocument({
+    const document = new GenesisDocument({
       id         : ID_PLACEHOLDER_VALUE,
       '@context' : [...BTCR2_DID_DOCUMENT_CONTEXT],
       ...relationships,
       verificationMethod,
       service,
     });
+    document.validateGenesis('producer');
+    return document;
   }
 
   /**
