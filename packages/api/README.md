@@ -51,12 +51,21 @@ On the write path, `announce.publishToCas` (`'never'` | `'auto'` | `'always'`, d
 
 The write path refuses these inputs before any CAS publication or broadcast:
 
+- an `announce.publishToCas` value other than `'never'`, `'auto'`, and `'always'`, for example `null` or `'Never'` (ADR 150)
 - a deactivated source document (ADR 100)
 - a DID whose network differs from the network of the Bitcoin connection (ADR 103)
 - an update after which no `capabilityInvocation` method can sign an update, if the target document does not have `deactivated: true` (ADR 147)
 - a beacon address that cannot fund the signal at the fee rate of the update: its confirmed UTXOs, each above the fee of its own input, do not cover the fee of the transaction (ADRs 102, 134)
 
-The first three refusals run before the signature. Each refusal is an `UpdateError` with type `INVALID_DID_UPDATE`. `resolve()` refuses the network mismatch too, with a `ResolveError`.
+The first four refusals run before the signature. Each refusal is an `UpdateError`. The `publishToCas` refusal has the type `INVALID_OPTIONS`, and each other refusal in the list has the type `INVALID_DID_UPDATE`. `resolve()` refuses the network mismatch too, with a `ResolveError`.
+
+The api refuses an api option that is not valid with an `UpdateError` of type `INVALID_OPTIONS` (ADR 150). The specification makes `INVALID_DID_UPDATE` a refinement of `INVALID_DID_DOCUMENT`, which DID Resolution defines for a malformed DID document. DID Resolution defines `INVALID_OPTIONS` for options that are not valid. These refusals have the type `INVALID_OPTIONS`:
+
+- an `announce.publishToCas` value other than the three modes
+- `announce.publishToCas: 'always'` with no writable CAS
+- both `announce.feeRate` and `announce.feeEstimator`
+- an `announce.feeRate` that is not a positive finite number
+- no Bitcoin connection: no `announce.bitcoin`, and no `BitcoinApi` on the `DidBtcr2Api` instance
 
 ## Install
 
@@ -241,7 +250,7 @@ A later `updateDid` on a deactivated DID is refused before any signature or broa
 
 ### Update failures
 
-Every update failure that the specification names is an `UpdateError` of type `INVALID_DID_UPDATE`. The refusals of the api in this section have the same type. The method package applies the patch strictly per RFC 6902: a `remove` of a missing path or a failed `test` fails the whole patch.
+Every update failure that the specification names is an `UpdateError` of type `INVALID_DID_UPDATE`. The refusals of the api in this section have the same type. A refusal of an api option has the type `INVALID_OPTIONS`, for example an `announce.publishToCas` value that is not valid (ADR 150). The method package applies the patch strictly per RFC 6902: a `remove` of a missing path or a failed `test` fails the whole patch.
 
 The verification method that signs an update must agree with these conditions (ADR 147):
 

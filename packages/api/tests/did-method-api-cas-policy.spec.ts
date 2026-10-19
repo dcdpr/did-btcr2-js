@@ -1,5 +1,6 @@
 import type { AddressUtxo, BitcoinConnection } from '@did-btcr2/bitcoin';
-import { canonicalHash, canonicalHashBytes, canonicalize, encode, hash, INVALID_DID_UPDATE, MISSING_UPDATE_DATA, UpdateError } from '@did-btcr2/common';
+import { canonicalHash, canonicalHashBytes, canonicalize, encode, hash, INVALID_DID_UPDATE, INVALID_OPTIONS, MISSING_UPDATE_DATA, UpdateError } from '@did-btcr2/common';
+import type { Signer } from '@did-btcr2/keypair';
 import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { BeaconError, ID_PLACEHOLDER_VALUE } from '@did-btcr2/method';
 import { hexToBytes } from '@noble/hashes/utils.js';
@@ -132,7 +133,8 @@ describe('DidMethodApi update() CAS publication policy', () => {
 
       // 'always' is the opt-in hard-guarantee mode: it fails up-front for every
       // beacon type (including CAS) when no writable CAS is available.
-      await expect(methodApi.update(...updateArgs(fixture, order, counters, { announce: { publishToCas: 'always' } }))).to.be.rejectedWith(/'always'.*read-only/s);
+      const error = await expect(methodApi.update(...updateArgs(fixture, order, counters, { announce: { publishToCas: 'always' } }))).to.be.rejectedWith(UpdateError, /'always'.*read-only/s);
+      expect(error.type).to.equal(INVALID_OPTIONS);
       expect(counters.utxoCalls, 'must fail before the funding phase').to.equal(0);
       expect(order).to.deep.equal([]);
     });
@@ -229,7 +231,8 @@ describe('DidMethodApi update() CAS publication policy', () => {
         undefined, new CasApi({ executor: new MemCasExecutor(order, false) })
       );
 
-      await expect(methodApi.update(...updateArgs(fixture, order, counters, { announce: { publishToCas: 'always' } }))).to.be.rejectedWith(/'always'.*read-only/s);
+      const error = await expect(methodApi.update(...updateArgs(fixture, order, counters, { announce: { publishToCas: 'always' } }))).to.be.rejectedWith(UpdateError, /'always'.*read-only/s);
+      expect(error.type).to.equal(INVALID_OPTIONS);
       expect(counters.utxoCalls).to.equal(0);
     });
 
@@ -591,6 +594,111 @@ describe('DidMethodApi update() CAS publication policy', () => {
     });
   });
 
+  describe('publishToCas value check', () => {
+    // No value here is a PublishToCasMode. A caller without the types can pass
+    // each of them. Before the check, each value acted as 'auto' (ADR 150).
+    const refused: [string, unknown][] = [
+      ['null', null],
+      ['\'Never\'', 'Never'],
+      ['\'none\'', 'none'],
+      ['\'false\'', 'false'],
+      ['the empty string', ''],
+      ['false', false],
+      ['0', 0],
+      ['an object', {}],
+      ['an object without a prototype', Object.create(null)],
+    ];
+
+    /** The fixture signer, with a count of its signatures. */
+    function countingSigner(fixture: ReturnType<typeof updateFixture>): { signer: Signer; signs: () => number } {
+      let signs = 0;
+      const signer: Signer = {
+        publicKey : fixture.signer.publicKey,
+        sign      : (data, scheme, opts) => { signs += 1; return fixture.signer.sign(data, scheme, opts); },
+      };
+      return { signer, signs: () => signs };
+    }
+
+    for (const [label, value] of refused) {
+      it(`refuses ${label} with a writable CAS, before any read, signature, or publication`, async () => {
+        const fixture = updateFixture('CASBeacon');
+        const { order, counters } = recorders();
+        const executor = new MemCasExecutor(order);
+        const methodApi = new DidMethodApi(undefined, new CasApi({ executor }));
+        const { signer, signs } = countingSigner(fixture);
+        const [source, patch, , options] = updateArgs(fixture, order, counters, {
+          announce : { publishToCas: value as AnnounceOptions['publishToCas'] },
+        });
+
+        const message = '`announce.publishToCas` must be \'never\', \'auto\', or \'always\'.';
+        const error = await expect(methodApi.update(source, patch, signer, options)).to.be.rejectedWith(UpdateError, message);
+
+        expect(error.message).to.equal(message);
+        expect(error.type).to.equal(INVALID_OPTIONS);
+        expect(error.data.publishToCas).to.equal(value);
+        expect(signs(), 'no signature').to.equal(0);
+        expect(counters.utxoCalls, 'no UTXO read').to.equal(0);
+        expect(executor.store.size, 'no CAS publication').to.equal(0);
+        expect(order).to.deep.equal([]);
+      });
+    }
+
+    for (const value of ['Always', 'ALWAYS', 'always ']) {
+      it(`refuses '${value}' with a read-only CAS, before any read or broadcast`, async () => {
+        // Before the check, a typo of 'always' acted as 'auto': the update
+        // skipped the publication with no message and spent the beacon UTXO.
+        const fixture = updateFixture('SingletonBeacon');
+        const { order, counters } = recorders();
+        const methodApi = new DidMethodApi(
+          undefined, new CasApi({ executor: new MemCasExecutor(order, false) })
+        );
+
+        await expect(methodApi.update(...updateArgs(fixture, order, counters, {
+          announce : { publishToCas: value as AnnounceOptions['publishToCas'] },
+        }))).to.be.rejectedWith(UpdateError, '`announce.publishToCas` must be');
+        expect(counters.utxoCalls).to.equal(0);
+        expect(counters.sent).to.have.length(0);
+      });
+    }
+
+    it('refuses the value before the deactivated-document check', async () => {
+      const fixture = updateFixture('SingletonBeacon');
+      fixture.sourceDocument.deactivated = true;
+      const { order, counters } = recorders();
+
+      await expect(new DidMethodApi().update(...updateArgs(fixture, order, counters, {
+        announce : { publishToCas: 'Never' as AnnounceOptions['publishToCas'] },
+      }))).to.be.rejectedWith(UpdateError, '`announce.publishToCas` must be');
+    });
+
+    it('deactivate() refuses the value too', async () => {
+      const fixture = updateFixture('CASBeacon');
+      const { order, counters } = recorders();
+      const executor = new MemCasExecutor(order);
+      const methodApi = new DidMethodApi(undefined, new CasApi({ executor }));
+      const [source, , signer, options] = updateArgs(fixture, order, counters, {
+        announce : { publishToCas: 'none' as AnnounceOptions['publishToCas'] },
+      });
+
+      await expect(methodApi.deactivate(source, signer, options))
+        .to.be.rejectedWith(UpdateError, '`announce.publishToCas` must be');
+      expect(counters.utxoCalls).to.equal(0);
+      expect(executor.store.size).to.equal(0);
+    });
+
+    it('DidBtcr2Api.updateDid refuses the value for a SourceState', async () => {
+      const fixture = updateFixture('CASBeacon');
+      const { order, counters } = recorders();
+      const api = createApi({ cas: { executor: new MemCasExecutor(order) } });
+
+      await expect(api.updateDid(...updateArgs(fixture, order, counters, {
+        announce : { publishToCas: null as unknown as AnnounceOptions['publishToCas'] },
+      }))).to.be.rejectedWith(UpdateError, '`announce.publishToCas` must be');
+      expect(counters.utxoCalls).to.equal(0);
+      expect(order).to.deep.equal([]);
+    });
+  });
+
   describe('broadcastOptions passthrough', () => {
     it('forwards a custom fee estimator to the beacon transaction', async () => {
       const fixture = updateFixture('SingletonBeacon');
@@ -630,17 +738,27 @@ describe('DidMethodApi update() CAS publication policy', () => {
       const fixture = updateFixture('SingletonBeacon');
       const { order, counters } = recorders();
       const feeEstimator = { estimateFee: async () => 1000n };
-      await expect(new DidMethodApi().update(...updateArgs(fixture, order, counters, { announce: { feeRate: 5, feeEstimator } })))
+      const error = await expect(new DidMethodApi().update(...updateArgs(fixture, order, counters, { announce: { feeRate: 5, feeEstimator } })))
         .to.be.rejectedWith(UpdateError, 'not both');
+      expect(error.type).to.equal(INVALID_OPTIONS);
       expect(counters.utxoCalls).to.equal(0);
+    });
+
+    it('refuses an update with no Bitcoin connection', async () => {
+      const fixture = updateFixture('SingletonBeacon');
+      const { order, counters } = recorders();
+      const error = await expect(new DidMethodApi().update(...updateArgs(fixture, order, counters, { announce: { bitcoin: undefined } })))
+        .to.be.rejectedWith(UpdateError, 'Bitcoin connection required for update.');
+      expect(error.type).to.equal(INVALID_OPTIONS);
     });
 
     for (const feeRate of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, '5' as unknown as number]) {
       it(`refuses announce.feeRate ${String(feeRate)}`, async () => {
         const fixture = updateFixture('SingletonBeacon');
         const { order, counters } = recorders();
-        await expect(new DidMethodApi().update(...updateArgs(fixture, order, counters, { announce: { feeRate } })))
+        const error = await expect(new DidMethodApi().update(...updateArgs(fixture, order, counters, { announce: { feeRate } })))
           .to.be.rejectedWith(UpdateError, 'must be a positive finite number');
+        expect(error.type).to.equal(INVALID_OPTIONS);
         expect(counters.utxoCalls).to.equal(0);
       });
     }
