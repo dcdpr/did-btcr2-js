@@ -1,7 +1,7 @@
 import type { BitcoinConnection, NetworkName } from '@did-btcr2/bitcoin';
 import { StaticFeeEstimator } from '@did-btcr2/bitcoin';
 import type { DocumentBytes, HashBytes, KeyBytes, PatchOperation } from '@did-btcr2/common';
-import { canonicalHash, decode as decodeHash, DidDocumentError, IdentifierHrp, IdentifierTypes, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, JSONPatch, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/common';
+import { canonicalHash, decode as decodeHash, DidDocumentError, IdentifierHrp, IdentifierTypes, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, INVALID_OPTIONS, JSONPatch, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/common';
 import type { Signer } from '@did-btcr2/keypair';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import type { BeaconFunding, BeaconService, BroadcastOptions, BroadcastResult, Btcr2DidDocument, CASAnnouncement, CASBroadcastOptions, DidCreateOptions, DidDocument, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, ResolutionOptions, RootCapability, SignedBTCR2Update, SMTProof, UnsignedBTCR2Update } from '@did-btcr2/method';
@@ -49,6 +49,9 @@ export interface ExternalCreateResult {
  * - `'always'`: require a writable CAS. A read-only or absent CAS throws
  *   up-front for every beacon type. Use this to opt into a hard guarantee that
  *   the artifacts reached the CAS.
+ *
+ * {@link DidMethodApi.update} refuses each other value before any I/O, for
+ * example `null` or `'Never'`.
  * @public
  */
 export type PublishToCasMode = 'auto' | 'always' | 'never';
@@ -889,13 +892,16 @@ export class DidMethodApi {
    * - CAS publication: publishes the signed update (and, for CAS beacons, the
    *   announcement) to the configured CAS per the `publishToCas` policy,
    *   **before** the on-chain broadcast, so any OP_RETURN update hash is
-   *   fetchable from CAS at resolution time without sidecar data.
+   *   fetchable from CAS at resolution time without sidecar data. The api
+   *   refuses a `publishToCas` value other than `'never'`, `'auto'`, and
+   *   `'always'` before any I/O.
    * - Broadcast: establishes a beacon via {@link BeaconFactory} and calls
    *   `broadcastSignal()` with the bitcoin connection configured on the API.
    * - Network check: refuses the update if the DID names a network other
    *   than the connection's, before any I/O.
    *
-   * A deactivated source document is refused before anything else runs.
+   * The api checks the `announce.publishToCas` and `announce.feeRate` values
+   * first. Then it refuses a deactivated source document, before any I/O.
    * Resolution halts at the deactivation, so an update signed on top of it
    * would spend a beacon UTXO on an announcement no resolver ever reads.
    * Every write path (`updateDid`, `deactivateDid`, `deactivate`) passes
@@ -950,17 +956,28 @@ export class DidMethodApi {
     let beaconId = announceBeaconId;
     let verificationMethodId = options.verificationMethodId;
 
+    // A CAS publication is permanent, and publication is opt-in (ADR 073).
+    // Thus the api refuses a value other than the three modes before any I/O,
+    // for example null or 'Never'. Only `data` holds the value: String()
+    // throws on an object without a prototype.
+    if(publishToCas !== 'never' && publishToCas !== 'auto' && publishToCas !== 'always') {
+      throw new UpdateError(
+        '`announce.publishToCas` must be \'never\', \'auto\', or \'always\'.',
+        INVALID_OPTIONS, { publishToCas }
+      );
+    }
+
     if(feeRate !== undefined) {
       if(broadcastOptions.feeEstimator) {
         throw new UpdateError(
           'Set `announce.feeRate` or `announce.feeEstimator`, not both.',
-          INVALID_DID_UPDATE, { feeRate }
+          INVALID_OPTIONS, { feeRate }
         );
       }
       if(typeof feeRate !== 'number' || !Number.isFinite(feeRate) || feeRate <= 0) {
         throw new UpdateError(
           `\`announce.feeRate\` must be a positive finite number of sats/vB; got ${String(feeRate)}.`,
-          INVALID_DID_UPDATE, { feeRate }
+          INVALID_OPTIONS, { feeRate }
         );
       }
       broadcastOptions.feeEstimator = new StaticFeeEstimator(feeRate);
@@ -989,7 +1006,7 @@ export class DidMethodApi {
       throw new UpdateError(
         'Bitcoin connection required for update. Pass `announce.bitcoin` '
         + 'or configure a BitcoinApi on the DidBtcr2Api instance.',
-        INVALID_DID_UPDATE, { beaconId }
+        INVALID_OPTIONS, { beaconId }
       );
     }
 
@@ -1179,7 +1196,7 @@ export class DidMethodApi {
         `publishToCas is 'always' but ${casState}. Configure a writable CAS `
         + '(cas.rpcUrl, cas.blockstore, or a custom cas.executor with publish support), '
         + 'or use publishToCas \'auto\'/\'never\'.',
-        INVALID_DID_UPDATE, { beaconId, publishToCas: mode }
+        INVALID_OPTIONS, { beaconId, publishToCas: mode }
       );
     }
 
