@@ -129,14 +129,6 @@ describe('utils/json', () => {
     expect(result).to.deep.equal({ msg: 'hello btcr2' });
   });
 
-  it('deleteKeys removes specified keys in JSON objects', () => {
-    const deleteA = JSONUtils.deleteKeys(['b', 1, { a: 3, c: '4' }, 'a'], ['a']);
-    expect(deleteA).to.deep.equal([ 'b', 1, { c: '4' }, 'a' ]);
-
-    const deleteB = JSONUtils.deleteKeys({ a: 1, b: 2, nested: { b: 3 } }, ['b']);
-    expect(deleteB).to.deep.equal({ a: 1, nested: {} });
-  });
-
   it('sanitize drops undefined values in JSON objects', () => {
     const sanitizeA = JSONUtils.sanitize({ a: undefined, b: 2, c: { d: undefined, e: 5 } });
     expect(sanitizeA).to.deep.equal({ b: 2, c: { e: 5 } });
@@ -151,7 +143,6 @@ describe('utils/json', () => {
 
     const walkers: Array<{ name: string; walk: (value: any) => any }> = [
       { name: 'normalize', walk: (value) => JSONUtils.normalize(value) },
-      { name: 'deleteKeys', walk: (value) => JSONUtils.deleteKeys(value, ['unrelated']) },
       { name: 'sanitize', walk: (value) => JSONUtils.sanitize(value) },
       { name: 'cloneReplace', walk: (value) => JSONUtils.cloneReplace(value, /nomatch/, 'x') }
     ];
@@ -188,12 +179,6 @@ describe('utils/json', () => {
       JSONUtils.normalize(parse());
       JSONUtils.sanitize(parse());
       expect(({} as any).admin).to.be.undefined;
-    });
-
-    it('deleteKeys still removes __proto__ when it is named', () => {
-      const result: any = JSONUtils.deleteKeys(parse(), ['__proto__']);
-      expect(Object.keys(result)).to.deep.equal(['id']);
-      expect(Object.getPrototypeOf(result)).to.equal(Object.prototype);
     });
   });
 });

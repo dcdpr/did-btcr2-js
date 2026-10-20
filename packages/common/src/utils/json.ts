@@ -210,35 +210,6 @@ export class JSONUtils {
   }
 
   /**
-   * Delete specified keys from a JSON value.
-   * @param {T} value - The JSON value to process.
-   * @param {Array<string | number | symbol>} keys - The keys to delete.
-   * @returns {T} The JSON value with specified keys deleted.
-   */
-  static deleteKeys<T>(value: T, keys: Array<string | number | symbol>): T {
-    const keySet = new Set(keys.map(key => typeof key === 'number' ? key.toString() : key));
-
-    const walk = (candidate: any): any => {
-      if (Array.isArray(candidate)) {
-        return candidate.map(item => walk(item));
-      }
-
-      if (candidate && typeof candidate === 'object') {
-        const result: any = {};
-        for (const key of Object.keys(candidate)) {
-          if (keySet.has(key)) continue;
-          defineOwn(result, key, walk(candidate[key]));
-        }
-        return result;
-      }
-
-      return candidate;
-    };
-
-    return walk(value);
-  }
-
-  /**
    * Sanitize a JSON value by removing undefined values from objects and arrays.
    * @param {T} value - The JSON value to sanitize.
    * @returns {T} The sanitized JSON value.
