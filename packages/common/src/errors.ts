@@ -17,29 +17,8 @@ export enum MethodErrorCode {
   /** The DID Update supplied does not conform to valid syntax. */
   INVALID_DID_UPDATE = 'INVALID_DID_UPDATE',
 
-  /** The byte length of a DID document does not match the expected value. */
-  INVALID_DID_DOCUMENT_LENGTH = 'INVALID_DID_DOCUMENT_LENGTH',
-
   /** The DID URL supplied to the dereferencing function does not conform to valid syntax. */
   INVALID_DID_URL = 'INVALID_DID_URL',
-
-  /** The given proof of a previous DID is invalid */
-  INVALID_PREVIOUS_DID_PROOF = 'INVALID_PREVIOUS_DID_PROOF',
-
-  /** An invalid public key is detected during a DID operation. */
-  INVALID_PUBLIC_KEY = 'INVALID_PUBLIC_KEY',
-
-  /** An invalid multibase format is detected on the public key during a DID operation. */
-  INVALID_PUBLIC_KEY_MULTIBASE = 'INVALID_PUBLIC_KEY_MULTIBASE',
-
-  /** The byte length of a public key does not match the expected value. */
-  INVALID_PUBLIC_KEY_LENGTH = 'INVALID_PUBLIC_KEY_LENGTH',
-
-  /** An invalid public key type was detected during a DID operation. */
-  INVALID_PUBLIC_KEY_TYPE = 'INVALID_PUBLIC_KEY_TYPE',
-
-  /** Verification of a signature failed during a DID operation. */
-  INVALID_SIGNATURE = 'INVALID_SIGNATURE',
 
   /** General: The resource requested was not found. */
   /** DID Resolution: The DID resolver was unable to find the DID document resulting from the resolution request.  */
@@ -50,9 +29,6 @@ export enum MethodErrorCode {
    * DID method and/or DID resolver implementation.
    */
   REPRESENTATION_NOT_SUPPORTED = 'REPRESENTATION_NOT_SUPPORTED',
-
-  /** The type of a public key is not supported by the DID method and/or DID resolver implementation. */
-  UNSUPPORTED_PUBLIC_KEY_TYPE = 'UNSUPPORTED_PUBLIC_KEY_TYPE',
 
   /** The proof verification operation failed. */
   PROOF_VERIFICATION_ERROR = 'PROOF_VERIFICATION_ERROR',
@@ -72,23 +48,14 @@ export enum MethodErrorCode {
   /** Something about the DID Update Payload indicates the potential for late publishing. */
   LATE_PUBLISHING = 'LATE_PUBLISHING',
 
-  /** The sidecar data in the DID Update Payload was invalid. */
-  INVALID_SIDECAR_DATA = 'INVALID_SIDECAR_DATA',
-
   /** The update data required for resolution is missing. */
   MISSING_UPDATE_DATA = 'MISSING_UPDATE_DATA',
 
   /** The data for a Beacon Signal does not agree with its Signal Bytes. */
   INVALID_SIGNAL_DATA = 'INVALID_SIGNAL_DATA',
 
-  /** The update is missing or has a malformed field(s). */
-  INVALID_UPDATE = 'INVALID_UPDATE',
-
   /** The proof is missing or has a malformed domain field. */
   INVALID_DOMAIN_ERROR = 'INVALID_DOMAIN_ERROR',
-
-  /** Options required for resolution are missing. */
-  MISSING_RESOLUTION_OPTIONS = 'MISSING_RESOLUTION_OPTIONS',
 
   /**
    * A resolution option has an invalid value. Defined by
@@ -105,12 +72,6 @@ export const {
   INVALID_DID_DOCUMENT,
   INVALID_DID_UPDATE,
   INVALID_DID_URL,
-  INVALID_PREVIOUS_DID_PROOF,
-  INVALID_PUBLIC_KEY,
-  INVALID_PUBLIC_KEY_MULTIBASE,
-  INVALID_PUBLIC_KEY_LENGTH,
-  INVALID_PUBLIC_KEY_TYPE,
-  INVALID_SIGNATURE,
   NOT_FOUND,
   PROOF_VERIFICATION_ERROR,
   PROOF_GENERATION_ERROR,
@@ -118,10 +79,8 @@ export const {
   PROOF_PARSING_ERROR,
   VERIFICATION_METHOD_ERROR,
   LATE_PUBLISHING,
-  INVALID_SIDECAR_DATA,
   MISSING_UPDATE_DATA,
   INVALID_SIGNAL_DATA,
-  MISSING_RESOLUTION_OPTIONS,
   INVALID_OPTIONS
 } = MethodErrorCode;
 
