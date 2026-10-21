@@ -29,9 +29,9 @@ const TEST_RECOVERY_SEQUENCE = 144;
 
 /**
  * Creates a cryptographically valid SignedBTCR2Update for the given participant.
- * The proof is a real BIP-340 Schnorr Data Integrity proof that will pass
- * verification via SchnorrMultikey + BIP340Cryptosuite. Required by the service's
- * #verifySubmittedUpdate guard in #handleSubmitUpdate.
+ * The proof is a real BIP-340 Schnorr Data Integrity proof that names
+ * `<did>#initialKey`. The service checks only that the proof names a DID URL of
+ * the sender DID; it does not verify the signature.
  */
 function createSignedUpdate(did: string, keys: SchnorrKeyPair, version = 2): SignedBTCR2Update {
   const context = [
@@ -438,14 +438,14 @@ describe('Aggregation', () => {
 
       // ── Step 4: Sign ──
       const cohort = service.getCohort(cohortId)!;
-      const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-      const payment = p2tr(aggPk);
+      // The transaction spends the beacon output of the cohort.
+      const script = cohort.beaconScript;
       const prevOutValue = 100000n;
-      const tx = buildDummyTx(payment.script, prevOutValue, cohort.signalBytes!);
+      const tx = buildDummyTx(script, prevOutValue, cohort.signalBytes!);
 
       await send(serviceTransport, serviceDid, service.startSigning(cohortId, {
         tx,
-        prevOutScripts : [payment.script],
+        prevOutScripts : [script],
         prevOutValues  : [prevOutValue],
       }));
       expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.SigningStarted);
@@ -511,14 +511,14 @@ describe('Aggregation', () => {
       expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.Validated);
 
       // ── Step 4: Sign ──
-      const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-      const payment = p2tr(aggPk);
+      // The transaction spends the beacon output of the cohort.
+      const script = cohort.beaconScript;
       const prevOutValue = 100000n;
-      const tx = buildDummyTx(payment.script, prevOutValue, cohort.signalBytes!);
+      const tx = buildDummyTx(script, prevOutValue, cohort.signalBytes!);
 
       await send(serviceTransport, serviceDid, service.startSigning(cohortId, {
         tx,
-        prevOutScripts : [payment.script],
+        prevOutScripts : [script],
         prevOutValues  : [prevOutValue],
       }));
 
@@ -656,11 +656,11 @@ describe('Aggregation', () => {
         config          : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE },
         onProvideTxData : async () => {
           const cohort = service.session.cohorts[0];
-          const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-          const payment = p2tr(aggPk);
+          // The transaction spends the beacon output of the cohort.
+          const script: Uint8Array = cohort.beaconScript;
           const prevOutValue = 100000n;
-          const tx = buildDummyTx(payment.script, prevOutValue, cohort.signalBytes!);
-          return { tx, prevOutScripts: [payment.script], prevOutValues: [prevOutValue] };
+          const tx = buildDummyTx(script, prevOutValue, cohort.signalBytes!);
+          return { tx, prevOutScripts: [script], prevOutValues: [prevOutValue] };
         },
       });
 
@@ -792,11 +792,11 @@ describe('Aggregation', () => {
         config          : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE },
         onProvideTxData : async () => {
           const cohort = service.session.cohorts[0];
-          const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-          const payment = p2tr(aggPk);
+          // The transaction spends the beacon output of the cohort.
+          const script: Uint8Array = cohort.beaconScript;
           const prevOutValue = 100000n;
-          const tx = buildDummyTx(payment.script, prevOutValue, cohort.signalBytes!);
-          return { tx, prevOutScripts: [payment.script], prevOutValues: [prevOutValue] };
+          const tx = buildDummyTx(script, prevOutValue, cohort.signalBytes!);
+          return { tx, prevOutScripts: [script], prevOutValues: [prevOutValue] };
         },
       });
 

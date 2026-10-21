@@ -165,5 +165,18 @@ describe('ADR 039: cohort conditions', () => {
       expect(isCohortAdvertMessage(advertWith({ fundingModel: 'mystery' }))).to.equal(false);
       expect(isCohortAdvertMessage(advertWith({ fundingModel: 'operator-funded' }))).to.equal(true);
     });
+
+    it('accepts an advert of each aggregate beacon type', () => {
+      expect(isCohortAdvertMessage(advertWith({ beaconType: 'CASBeacon' }))).to.equal(true);
+      expect(isCohortAdvertMessage(advertWith({ beaconType: 'SMTBeacon' }))).to.equal(true);
+    });
+
+    it('rejects an advert of a beacon type that is not an aggregate beacon type', () => {
+      // A member validates the data and derives the signal with the strategy of the
+      // advertised type. The service refuses these types at createCohort.
+      for(const beaconType of [ 'FooBeacon', 'SingletonBeacon', '', 'casbeacon', 42 ]) {
+        expect(isCohortAdvertMessage(advertWith({ beaconType })), String(beaconType)).to.equal(false);
+      }
+    });
   });
 });

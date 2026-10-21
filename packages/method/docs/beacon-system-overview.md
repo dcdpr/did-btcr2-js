@@ -44,19 +44,21 @@ This is where the coordinator/participant protocol comes in. The aggregation flo
 Coordinator                          Participant
     |                                    |
     |--- BEACON_COHORT_ADVERT --------->|  (cohortId, minParticipants, network, beaconType)
-    |                                    |  participant derives HD key for cohort
+    |                                    |  participant opts in with its signer key
     |<-- BEACON_COHORT_OPT_IN ---------|  (participantPk)
     |                                    |
     |  (when minParticipants reached)    |
-    |  cohort.finalize()                 |
-    |  -> sorts keys, computes Taproot   |
-    |    multisig address via p2tr()     |
+    |  finalizeKeygen(cohortId)          |
+    |  -> sorts keys, computes the       |
+    |    script-tree P2TR address        |
     |                                    |
     |--- BEACON_COHORT_READY ---------->|  (cohortKeys, beaconAddress)
-    |                                    |  participant validates keys match
+    |                                    |  participant checks keys, address, and beacon type
 ```
 
-Each participant derives a fresh BIP-32 child key per cohort. The beacon address is a Taproot key-path spend address derived from the MuSig2 aggregate of all cohort public keys.
+A participant uses the key of its signer for every cohort. Two cohorts with the same cohort keys, fallback threshold (k), recovery key, recovery sequence, funding model, and network have the same beacon address. A beacon address must have one beacon type. Thus the participant refuses a cohort at the beacon address of another of its cohorts with another beacon type (BEACON_TYPE_CONFLICT). This check knows only the cohorts of one participant object.
+
+The beacon address is a Taproot output. Its internal key is the MuSig2 aggregate of the cohort keys. Its script tree holds the k-of-n fallback leaf and the CSV recovery leaf. The prevout script of a beacon transaction must be this output script (`cohort.beaconScript`).
 
 ### Phase 2 -- Update Collection
 
@@ -100,12 +102,16 @@ This is the trust gate. Each participant independently verifies that the aggrega
 ```
 Coordinator                          Participant
     |                                    |
-    |  buildBeaconTransaction(cohortId)  |
+    |  buildAggregationBeaconTx(opts)    |
     |  -> fetches beacon UTXO            |
     |  -> builds TX: input + change +    |
     |    OP_RETURN(signalBytes)          |
+    |  startSigning: prevout script must |
+    |    be the beacon script            |
     |                                    |
     |--- AUTHORIZATION_REQUEST -------->|  (pendingTx, sessionId)
+    |                                    |  refuses a prevout script that is
+    |                                    |    not the beacon script
     |                                    |  creates signing session
     |<-- NONCE_CONTRIBUTION ------------|  (musig2 nonce)
     |                                    |
@@ -201,28 +207,46 @@ The runner layer handles message routing, callback orchestration, and event emis
 See `docs/aggregation.md` for the full API reference.
 
 ```typescript
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import {
   AggregationServiceRunner,
   AggregationParticipantRunner,
-  DidBtcr2,
   NostrTransport,
-} from '@did-btcr2/method';
+} from '@did-btcr2/aggregation';
+import { getNetwork } from '@did-btcr2/bitcoin';
+import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { buildAggregationBeaconTx, DidBtcr2 } from '@did-btcr2/method';
 
 // --- Service Setup ---
 const serviceKeys = SchnorrKeyPair.generate();
 const serviceDid = DidBtcr2.create(serviceKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
 const transport = new NostrTransport({ relays: ['wss://relay.example'] });
 
-const service = new AggregationServiceRunner({
+// onProvideTxData reads `service`. The runner calls onProvideTxData only after
+// the constructor returns.
+const service: AggregationServiceRunner = new AggregationServiceRunner({
   transport,
   did    : serviceDid,
   keys   : serviceKeys,
-  config : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' },
-  onProvideTxData: async ({ beaconAddress, signalBytes }) => {
-    // Build the Bitcoin transaction for MuSig2 signing
-    // (fetch UTXO, construct PSBT with OP_RETURN, return tx + prevout data)
-    return { tx, prevOutScripts: [...], prevOutValues: [...] };
+  config : {
+    minParticipants  : 2,
+    network          : 'mutinynet',
+    beaconType       : 'CASBeacon',
+    recoveryKey      : recoveryKeyHex, // x-only operator recovery key, 64 hex characters
+    recoverySequence : 144,            // blocks (BIP-68) before the recovery leaf is spendable
+  },
+  onProvideTxData : async ({ cohortId, beaconAddress, signalBytes, feeEstimator }) => {
+    // Build the Bitcoin transaction for MuSig2 signing. The transaction must
+    // spend the beacon output. buildAggregationBeaconTx finds a UTXO at
+    // beaconAddress and puts signalBytes in the last output (OP_RETURN).
+    const cohort = service.session.getCohort(cohortId)!;
+    return await buildAggregationBeaconTx({
+      beaconAddress,
+      internalPubkey : cohort.internalKey,
+      signalBytes,
+      bitcoin,                   // a BitcoinConnection
+      network        : getNetwork(cohort.network),
+      feeEstimator,
+    });
   },
 });
 

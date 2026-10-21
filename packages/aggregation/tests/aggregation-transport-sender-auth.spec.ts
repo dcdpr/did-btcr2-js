@@ -432,7 +432,7 @@ describe('Transport sender authentication (audit H6)', () => {
 
     it('drops an opt-in that claims another participant DID (slot squatting)', () => {
       // The service side of the same bind: an opt-in seats a DID into the cohort and
-      // registers the key its updates are verified against.
+      // registers its cohort key. A false sender DID gets the seat of that DID.
       const victimKeys = SchnorrKeyPair.generate();
       const victimDid = k1Did(victimKeys);
       const t = makeTransport();

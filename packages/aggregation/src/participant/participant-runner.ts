@@ -17,6 +17,7 @@ import type {
 import {
   AggregationParticipant
 } from './participant.js';
+import { AggregationParticipantError } from '../core/errors.js';
 import { ParticipantCohortPhase } from '../core/phases.js';
 import { KeyPairAggregationSigner } from '../core/signer.js';
 import type { Transport } from '../core/transport/transport.js';
@@ -26,10 +27,25 @@ import { TypedEventEmitter } from '../core/typed-emitter.js';
 /** Decision callback: filter discovered cohorts. Default rejects all. */
 export type ShouldJoin = (advert: CohortAdvert) => Promise<boolean>;
 
-/** Data callback: provide a signed BTCR2 update for a joined cohort. */
+/**
+ * Data callback: provide a signed BTCR2 update for a joined cohort.
+ *
+ * A null return declines the update (cooperative non-inclusion). A decline
+ * does not refuse the cohort, because the member still signs. To refuse the
+ * cohort, return `{ approved: false }` from onValidateData. For example, refuse
+ * if a beacon service of another type has this beacon address (see
+ * `JoinedCohortInfo.beaconType`).
+ *
+ * onValidateData gets no beacon address. Keep the address of each cohortId
+ * from this callback. A caller that holds the runner can also read
+ * `runner.session.joinedCohorts`.
+ */
 export type OnProvideUpdate = (info: {
   cohortId: string;
+  /** Beacon address of the cohort. One beacon address must have one beacon type in the DID document. */
   beaconAddress: string;
+  /** Beacon type of the cohort. The beacon service in the DID document must have this type. */
+  beaconType: string;
 }) => Promise<SecuredDocument | null>;
 
 /** Decision callback: approve or reject aggregated data. */
@@ -60,7 +76,9 @@ export interface AggregationParticipantRunnerOptions {
 
   /**
    * Approve or reject aggregated data.
-   * Default: approve if validation matches the submitted update's hash.
+   * Default: approve if `info.matches` is true. `matches` covers the slot of the
+   * member, the signal, and the beacon type (see {@link PendingValidation.matches}).
+   * If `matches` is false, the member refuses to sign, even after an approval.
    */
   onValidateData?: OnValidateData;
 
@@ -76,7 +94,9 @@ export interface AggregationParticipantRunnerOptions {
    * omitted for a KEY (k1) identifier. When present, `keys` MUST be the keypair of the
    * genesis document's `capabilityInvocation[0]` verification method, and that method must
    * be able to sign an update of the DID (see
-   * {@link AggregationParticipantParams.genesisDocument}).
+   * {@link AggregationParticipantParams.genesisDocument}). The genesis document must also
+   * have an `@context` with "https://www.w3.org/ns/did/v1.1" and
+   * "https://btcr2.dev/context/v1" (ADR 148).
    */
   genesisDocument?: Record<string, unknown>;
 }
@@ -161,7 +181,10 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
     this.#registerHandlers();
   }
 
-  /** Stop the runner and detach transport handlers. Safe to call repeatedly. */
+  /**
+   * Stop the runner and detach transport handlers. A callback that waits at
+   * stop() has no effect after it returns. Safe to call repeatedly.
+   */
   stop(): void {
     this.#stopped = true;
     this.#unregisterHandlers();
@@ -195,6 +218,12 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
    * Single-shot helper: start, join the first cohort that passes `shouldJoin`,
    * drive it to completion, and resolve. Convenient for tests and demos. The
    * single-cohort special case of {@link joinMatching} (count = 1).
+   *
+   * A failed cohort (`cohort-failed`) does not settle the promise. The helper
+   * waits for a cohort that completes. The promise rejects on the first `error`
+   * event of the runner, for example BEACON_ADDRESS_MISMATCH. Before the
+   * rejection, the helper stops the runner. Thus the member signs nothing after
+   * the rejection.
    */
   static async joinFirst(
     options: AggregationParticipantRunnerOptions
@@ -205,7 +234,10 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
         runner.stop();
         resolve(info);
       });
-      runner.on('error', reject);
+      runner.on('error', (err) => {
+        runner.stop();
+        reject(err);
+      });
       runner.start().catch(reject);
     });
   }
@@ -221,6 +253,13 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
    * {@link AggregationParticipantRunner} directly, set `shouldJoin`, call
    * `start()`, and listen for `cohort-complete` - the runner already drives
    * any number of cohorts concurrently.
+   *
+   * A failed cohort (`cohort-failed`) does not count toward `count`. The helper
+   * waits for another cohort that completes. An example is a cohort that the
+   * member refuses with BEACON_TYPE_CONFLICT. If no other cohort completes, the
+   * promise stays pending. The promise rejects on the first `error` event of the
+   * runner. Before the rejection, the helper stops the runner. Thus the member
+   * signs nothing after the rejection.
    *
    * @param options Participant runner options (set `shouldJoin` to select cohorts).
    * @param count Number of completed cohorts to collect before resolving.
@@ -240,7 +279,10 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
           resolve(completed);
         }
       });
-      runner.on('error', reject);
+      runner.on('error', (err) => {
+        runner.stop();
+        reject(err);
+      });
       runner.start().catch(reject);
     });
   }
@@ -282,7 +324,9 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
       }
 
       const join = await this.#shouldJoin(advert);
-      if (!join) return;
+      // stop() can run while a callback waits. A stopped runner then sends
+      // nothing (ADR 152).
+      if (!join || this.#stopped) return;
 
       await this.#sendAll(this.session.joinCohort(advert.cohortId));
       this.emit('cohort-joined', { cohortId: advert.cohortId });
@@ -328,7 +372,9 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
       const signedUpdate = await this.#onProvideUpdate({
         cohortId,
         beaconAddress : info.beaconAddress,
+        beaconType    : info.beaconType,
       });
+      if (this.#stopped) return;
       if(signedUpdate === null) {
         await this.#sendAll(this.session.declineUpdate(cohortId));
         this.emit('update-declined', { cohortId });
@@ -337,6 +383,13 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
         this.emit('update-submitted', { cohortId });
       }
     } catch (err) {
+      if(err instanceof AggregationParticipantError && err.type === 'BEACON_TYPE_CONFLICT') {
+        // The refusal ends only this cohort (phase Failed). The runner reports it
+        // with cohort-failed, as for a validation rejection. The service gets no
+        // message. The other cohorts continue (ADR 152).
+        this.emit('cohort-failed', { cohortId: msg.body!.cohortId, reason: err.message });
+        return;
+      }
       this.emit('error', err as Error);
     }
   }
@@ -362,6 +415,7 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
       this.emit('validation-requested', validation);
 
       const decision = await this.#onValidateData(validation);
+      if (this.#stopped) return;
       if (decision.approved) {
         await this.#sendAll(this.session.approveValidation(cohortId));
       } else {
@@ -395,6 +449,7 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
       this.emit('signing-requested', req);
 
       const decision = await this.#onApproveSigning(req);
+      if (this.#stopped) return;
       if (!decision.approved) {
         this.emit('cohort-failed', { cohortId, reason: 'Signing rejected by participant' });
         return;
@@ -453,6 +508,7 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
       this.emit('fallback-requested', req);
 
       const decision = await this.#onApproveSigning(req);
+      if (this.#stopped) return;
       if (!decision.approved) {
         this.emit('cohort-failed', { cohortId, reason: 'Fallback signing rejected by participant' });
         return;
@@ -483,7 +539,7 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
     this.emit('cohort-complete', {
       cohortId,
       beaconAddress   : info.beaconAddress,
-      beaconType      : validation?.beaconType ?? '',
+      beaconType      : info.beaconType,
       included        : validation?.included ?? true,
       casAnnouncement : validation?.casAnnouncement,
       smtProof        : validation?.smtProof,

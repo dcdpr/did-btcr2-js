@@ -3,7 +3,7 @@ import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { getNetwork } from '@did-btcr2/bitcoin';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { schnorr } from '@noble/curves/secp256k1.js';
-import { Script, SigHash, Transaction, p2tr } from '@scure/btc-signer';
+import { Address, OutScript, Script, SigHash, Transaction, p2tr } from '@scure/btc-signer';
 import { expect } from 'chai';
 import {
   AggregationParticipant,
@@ -34,7 +34,7 @@ import {
   createFallbackSignatureMessage,
 } from '../src/index.js';
 import { DidBtcr2 } from '@did-btcr2/method';
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
+import { bytesToHex } from '@noble/hashes/utils';
 import { MessageBus, MockTransport } from './helpers/mock-transport.js';
 
 const TEST_RECOVERY_KEY = 'a'.repeat(64);
@@ -239,6 +239,30 @@ describe('Aggregate beacon fallback protocol (ADR 042)', () => {
     expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.Complete);
   });
 
+  for(const [ label, otherKey, reason ] of [
+    [ 'a signerPk that is not the cohort key of the sender', true, 'Fallback signerPk does not match the sender cohort key' ],
+    [ 'a signature that does not verify', false, 'Fallback signature failed verification' ],
+  ] as const) {
+    it(`drops a member fallback signature with ${label} as INVALID_FALLBACK_SIG`, async () => {
+      const { cohortId } = await formAndValidate('SMTBeacon');
+      await send(serviceTransport, serviceDid, service.startFallbackSigning(cohortId));
+      service.drainRejections(cohortId);
+      const cohort = service.getCohort(cohortId)!;
+
+      service.receive(createFallbackSignatureMessage({
+        from              : dids[0],
+        to                : serviceDid,
+        cohortId,
+        sessionId         : service.getSigningSessionId(cohortId)!,
+        signerPk          : cohort.participantKeys.get(otherKey ? dids[1] : dids[0])!.slice(1),
+        fallbackSignature : new Uint8Array(64).fill(9),
+      }) as never);
+
+      expect(service.drainRejections(cohortId)).to.deep.equal([{ from: dids[0], code: 'INVALID_FALLBACK_SIG', reason }]);
+      expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.FallbackRequested);
+    });
+  }
+
   it('refuses to sign a fallback tx that anchors a different signal (malicious service)', async () => {
     const { cohortId, script, value } = await formAndValidate('CASBeacon');
     const cohort = service.getCohort(cohortId)!;
@@ -297,19 +321,20 @@ describe('Aggregate beacon fallback runner: latch safety (ADR 042)', () => {
     transport.registerPeer(svcDid, svcKeys.publicKey.compressed);
     transport.start();
 
-    const dummyScript = p2tr(schnorr.getPublicKey(hexToBytes('77'.repeat(32))), undefined, getNetwork('mutinynet')).script;
     const svc = new AggregationServiceRunner({
       transport,
       did             : svcDid,
       keys            : svcKeys,
-      onProvideTxData : async ({ signalBytes }) => {
+      onProvideTxData : async ({ beaconAddress, signalBytes }) => {
+        // The transaction spends the beacon output, as buildAggregationBeaconTx does.
+        const script = OutScript.encode(Address(getNetwork('mutinynet')).decode(beaconAddress));
         const value = 100000n;
         const tx = new Transaction({ version: 2, allowUnknownOutputs: true });
-        tx.addInput({ txid: '00'.repeat(32), index: 0, witnessUtxo: { amount: value, script: dummyScript } });
-        tx.addOutput({ script: dummyScript, amount: value - 500n });
+        tx.addInput({ txid: '00'.repeat(32), index: 0, witnessUtxo: { amount: value, script } });
+        tx.addOutput({ script, amount: value - 500n });
         // Members bind their nonce approval to the validated signal.
         tx.addOutput({ script: Script.encode([ 'RETURN', signalBytes ]), amount: 0n });
-        return { tx, prevOutScripts: [ dummyScript ], prevOutValues: [ value ] };
+        return { tx, prevOutScripts: [ script ], prevOutValues: [ value ] };
       },
     });
     const participants = pKeys.map((k, i) => new AggregationParticipantRunner({

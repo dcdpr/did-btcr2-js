@@ -422,9 +422,14 @@ export class NostrTransport implements Transport {
     const pkHex = bytesToHex(entry.keys.publicKey.x);
 
     // No `since` filter: directed messages must be retrievable on reconnect /
-    // crash-recovery. Out-of-phase messages are silently dropped by the state
-    // machines (AggregationService, AggregationParticipant), so replayed stale
-    // messages are harmless.
+    // crash-recovery. Thus a relay can send an old message again to a new
+    // subscription. The state machines (AggregationService,
+    // AggregationParticipant) drop a message that is not for the current phase
+    // of its cohort. The service runner requests the tx data of a cohort one
+    // time only. But a replayed message is not always harmless, because a runner
+    // can act on it again. For example, a replayed COHORT_READY of an accepted
+    // cohort makes AggregationParticipantRunner call onProvideUpdate again and
+    // emit an `error` event (error type INVALID_PHASE).
     const sub = this.pool.subscribeMany(this.#relays, { kinds: [1, 1059], '#p': [pkHex] }, {
       onclose : (reasons: string[]) => this.#logger.debug(`Nostr directed subscription closed for ${did}`, reasons),
       onevent : this.#makeActorEventHandler(did),

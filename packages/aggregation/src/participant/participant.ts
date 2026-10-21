@@ -89,17 +89,47 @@ export interface CohortAdvert extends CohortConditions {
   serviceCommunicationPk: Uint8Array;
 }
 
-/** Joined cohort info, available after the cohort is finalized. */
+/** Joined cohort info, available after the participant accepts COHORT_READY. */
 export interface JoinedCohortInfo {
   cohortId: string;
   serviceDid: string;
   beaconAddress: string;
+  /**
+   * Beacon type of the cohort, from the advert ('CASBeacon' or 'SMTBeacon').
+   * The beacon service in the DID document must have this type. One beacon
+   * address must have one beacon type in the DID document.
+   *
+   * The beacon address does not depend on the beacon type or on the DID. Two
+   * cohorts with the same cohort keys, k, recovery key, recovery sequence,
+   * funding model, and network have the same beacon address. A member uses the
+   * same key in each cohort.
+   *
+   * The participant refuses a cohort if another cohort of this participant
+   * object has the same beacon address and another beacon type
+   * (BEACON_TYPE_CONFLICT). This check does not know the cohorts of an earlier
+   * participant object, for example before a restart. It also does not know the
+   * cohorts of another participant object with the same key.
+   * `AggregationRunner.solo` makes a new participant object for each run.
+   *
+   * Before the member signs, compare the beacon address with the beacon
+   * services of each DID document that uses this key. If a beacon service has
+   * this address and another beacon type, refuse the cohort. To refuse, return
+   * `{ approved: false }` from onValidateData (state machine:
+   * `rejectValidation`). A decline does not refuse the cohort, because the
+   * member still signs.
+   *
+   * Use one key for each DID. Each SMT signal at a beacon address of a DID must
+   * have an SMT proof for that DID. If two DIDs use one key, an SMT cohort of
+   * one DID can get the beacon address of the other DID.
+   */
+  beaconType: string;
   cohortKeys: Array<Uint8Array>;
 }
 
 /** Aggregated data awaiting participant validation (UI: review for approval). */
 export interface PendingValidation {
   cohortId: string;
+  /** Beacon type of the cohort, from the advert. The member validates with this type. */
   beaconType: string;
   signalBytesHex: string;
   casAnnouncement?: Record<string, string>;
@@ -107,10 +137,14 @@ export interface PendingValidation {
   /** Canonical hash of this participant's update; empty for a decliner. */
   expectedHash: string;
   /**
-   * True when the member's own slot is correct in the distributed data AND
-   * `signalBytesHex` is the signal that data derives to. Both halves are
-   * required: a slot that validates against data the coordinator does not
-   * intend to anchor authorizes nothing the member wanted.
+   * True if all of these conditions are true:
+   * - the slot of the member is correct in the distributed data;
+   * - `signalBytesHex` is the signal that the data derives to;
+   * - the message names the beacon type of the cohort.
+   *
+   * The member needs all three conditions. A correct slot in data that the
+   * coordinator does not anchor authorizes nothing. A signal of another beacon
+   * type announces no update under the beacon service of the member.
    */
   matches: boolean;
   /** True if this participant submitted an update; false if it declined (non-inclusion). */
@@ -122,7 +156,11 @@ export interface PendingSigningRequest {
   cohortId: string;
   sessionId: string;
   pendingTxHex: string;
-  /** Hex-encoded scriptPubKey of the UTXO being spent. Required for BIP-341 sighash. */
+  /**
+   * Hex-encoded scriptPubKey of the UTXO that the transaction spends. The member
+   * refuses to sign if it is not the beacon script of the cohort. After this
+   * check, the BIP-341 sighash uses the beacon script of the cohort.
+   */
   prevOutScriptHex: string;
   prevOutValue: string;
 }
@@ -136,6 +174,10 @@ export interface PendingFallbackRequest {
   cohortId: string;
   sessionId: string;
   pendingTxHex: string;
+  /**
+   * Hex-encoded scriptPubKey of the UTXO that the transaction spends. The member
+   * refuses to sign if it is not the beacon script of the cohort.
+   */
   prevOutScriptHex: string;
   prevOutValue: string;
   /** Fallback leaf script, hex (advisory; the member recomputes it from its own cohort). */
@@ -149,6 +191,13 @@ interface ParticipantCohortState {
   serviceDid: string;
   advert?: CohortAdvert;
   cohort?: AggregationCohort;
+  /**
+   * Beacon address of the cohort. The participant sets this field only when it
+   * accepts COHORT_READY. A refused COHORT_READY can leave an address in
+   * `cohort`, so {@link AggregationParticipant.joinedCohorts} and the beacon type
+   * check read this field.
+   */
+  beaconAddress?: string;
   submittedUpdate?: SecuredDocument;
   /**
    * This round's intent, persisted because the phase advances past
@@ -181,8 +230,9 @@ export interface AggregationParticipantParams {
    * able to sign an update of the DID: the type `Multikey`, the DID as the controller, and a
    * BIP340 Multikey key in base58btc text. If it cannot, `resolveBtcr2SenderPk` of
    * `@did-btcr2/method` derives no key from the genesis document, so a service transport
-   * that uses it refuses the opt-in. Typed as a plain record to keep the aggregation
-   * package DID-method-agnostic.
+   * that uses it refuses the opt-in. The genesis document must also have an `@context`
+   * with "https://www.w3.org/ns/did/v1.1" and "https://btcr2.dev/context/v1" (ADR 148).
+   * Typed as a plain record to keep the aggregation package DID-method-agnostic.
    */
   genesisDocument?: Record<string, unknown>;
 }
@@ -224,6 +274,19 @@ export class AggregationParticipant {
   /**
    * Process an incoming message. Updates internal state but never produces
    * outgoing messages: those come exclusively from action methods.
+   *
+   * If the member refuses a COHORT_READY, receive() throws. Both error classes
+   * extend MethodError.
+   *
+   * @throws {AggregationCohortError} If COHORT_READY does not agree with the
+   *   cohort of the member, or if the member cannot compute the beacon address.
+   *   The error type is, for example, `COHORT_VALIDATION_ERROR`,
+   *   `INVALID_COHORT_KEY`, `BEACON_ADDRESS_MISMATCH`,
+   *   `INVALID_FALLBACK_THRESHOLD`, or `UNSUPPORTED_FUNDING_MODEL`. The phase
+   *   stays OptedIn.
+   * @throws {AggregationParticipantError} `BEACON_TYPE_CONFLICT` if another
+   *   cohort of this participant object has the same beacon address and another
+   *   beacon type. The phase becomes Failed.
    */
   public receive(message: BaseMessage): void {
     // Reject messages whose wire version doesn't match what this build speaks.
@@ -375,16 +438,21 @@ export class AggregationParticipant {
   }
 
 
-  /** Cohorts that have been finalized: beacon address available. */
+  /**
+   * Cohorts whose COHORT_READY the participant accepted: the beacon address is
+   * available. A cohort whose COHORT_READY the participant refused is not in
+   * this map.
+   */
   public get joinedCohorts(): ReadonlyMap<string, JoinedCohortInfo> {
     const map = new Map<string, JoinedCohortInfo>();
     for(const [id, state] of this.#cohortStates) {
-      if(state.cohort && state.cohort.beaconAddress) {
+      if(state.cohort && state.beaconAddress) {
         map.set(id, {
           cohortId      : id,
           serviceDid    : state.serviceDid,
-          beaconAddress : state.cohort.beaconAddress,
-          cohortKeys    : state.cohort.cohortKeys,
+          beaconAddress : state.beaconAddress,
+          beaconType    : state.cohort.beaconType,
+          cohortKeys    : state.cohort.cohortKeys.map(k => k.slice()),
         });
       }
     }
@@ -404,6 +472,28 @@ export class AggregationParticipant {
     const cohortKeysHex = cohortKeys.map(k => bytesToHex(new Uint8Array(k)));
 
     state.cohort.validateMembership(participantPkHex, cohortKeysHex, beaconAddress);
+
+    // A resolver scans each beacon address one time and processes each signal
+    // with one beacon type. A resolver cannot process a signal of another type.
+    // Such a signal makes the DID invalid. Thus one beacon address gets one
+    // beacon type.
+    // The membership is final at finalizeKeygen, so the cohort cannot get
+    // another address. Thus the cohort fails. This cohort has no accepted
+    // address yet, so the loop does not find this cohort.
+    const beaconType = state.cohort.beaconType;
+    for(const other of this.#cohortStates.values()) {
+      if(other.beaconAddress !== beaconAddress) continue;
+      const otherBeaconType = other.cohort!.beaconType;
+      if(otherBeaconType === beaconType) continue;
+      state.phase = ParticipantCohortPhase.Failed;
+      throw new AggregationParticipantError(
+        `Cohort ${state.cohortId} has the beacon type ${beaconType} and the beacon address ${beaconAddress} of cohort ${other.cohortId}, which has the beacon type ${otherBeaconType}.`,
+        'BEACON_TYPE_CONFLICT',
+        { cohortId: state.cohortId, beaconType, beaconAddress, otherCohortId: other.cohortId, otherBeaconType }
+      );
+    }
+
+    state.beaconAddress = beaconAddress;
     state.phase = ParticipantCohortPhase.CohortReady;
   }
 
@@ -490,17 +580,23 @@ export class AggregationParticipant {
     const state = this.#serviceCohortState(message);
     // A submitter is in UpdateSubmitted; a decliner (cooperative non-inclusion)
     // is in NonIncluded. Both validate their own slot in the distributed data.
-    if(!state || (state.phase !== ParticipantCohortPhase.UpdateSubmitted && state.phase !== ParticipantCohortPhase.NonIncluded)) return;
+    if(!state || !state.cohort || (state.phase !== ParticipantCohortPhase.UpdateSubmitted && state.phase !== ParticipantCohortPhase.NonIncluded)) return;
     const cohortId = state.cohortId;
 
     const declined = state.included === false;
     // A submitter must have its update stored; a decliner has none by design.
     if(!declined && !state.submittedUpdate) return;
 
-    const beaconType = message.body?.beaconType;
-    if(!beaconType) return;
+    // Validate with the beacon type of the cohort, not the type the message
+    // names. The DID document of the member has a beacon service of the cohort
+    // type, and a resolver processes a signal by that type (beacons.md). A CAS
+    // map hash under an SMT beacon, or an SMT root under a CAS beacon, announces
+    // an update that the resolver cannot find.
+    const beaconType = state.cohort.beaconType;
     const strategy = getBeaconStrategy(beaconType);
     if(!strategy) return;
+    // If the message names another type, or no type, the member vetoes the signal.
+    const typeBound = message.body?.beaconType === beaconType;
 
     const signalBytesHex = message.body?.signalBytesHex ?? '';
     // Decliner validates its non-inclusion slot (CAS absence / SMT non-inclusion
@@ -529,7 +625,7 @@ export class AggregationParticipant {
       beaconType,
       signalBytesHex,
       expectedHash,
-      matches         : result.matches && signalBound,
+      matches         : result.matches && signalBound && typeBound,
       casAnnouncement : result.casAnnouncement,
       smtProof        : result.smtProof,
       included        : !declined,
@@ -655,6 +751,14 @@ export class AggregationParticipant {
    *   prevout script/value, which is all a BIP-341 sighash over more inputs
    *   would need, so a multi-input transaction is one the member cannot check
    *   or correctly sign;
+   * - the prevout script is the {@link AggregationCohort.beaconScript} of the
+   *   cohort of the member, because a beacon signal spends from the beacon
+   *   address. The coordinator supplies the prevout script. Two cohorts with the
+   *   same keys and k have the same fallback leaf. Thus a fallback request can
+   *   name the output of another cohort. If that output has another script,
+   *   the member refuses the request. After the check, the member signs over
+   *   its own beacon script on both paths, so a signature cannot spend an
+   *   output with another script;
    * - the outputs do not spend more than the input holds, so the transaction is
    *   at least capable of confirming and the fee it implies is a real number.
    *
@@ -668,6 +772,7 @@ export class AggregationParticipant {
     cohortId: string,
     state: ParticipantCohortState,
     tx: Transaction,
+    prevOutScriptHex: string,
     prevOutValue: bigint,
   ): void {
     const validation = state.validation;
@@ -704,6 +809,24 @@ export class AggregationParticipant {
       throw new AggregationParticipantError(
         `Transaction for cohort ${cohortId} spends ${tx.inputsLength} inputs; exactly one is signable.`,
         'INVALID_TX_STRUCTURE', { cohortId, inputs: tx.inputsLength }
+      );
+    }
+
+    const beaconScript = state.cohort?.beaconScript ?? new Uint8Array();
+    let prevOutScript: Uint8Array = new Uint8Array();
+    try {
+      prevOutScript = hexToBytes(prevOutScriptHex);
+    } catch {
+      // Not hex: the empty script matches no beacon script.
+    }
+    const spendsBeacon = beaconScript.length > 0
+      && prevOutScript.length === beaconScript.length
+      && prevOutScript.every((b, i) => b === beaconScript[i]);
+    if(!spendsBeacon) {
+      const beaconAddress = state.cohort?.beaconAddress;
+      throw new AggregationParticipantError(
+        `Transaction for cohort ${cohortId} does not spend the beacon address ${beaconAddress} of the cohort.`,
+        'PREVOUT_SCRIPT_MISMATCH', { cohortId, beaconAddress, prevOutScriptHex }
       );
     }
 
@@ -763,6 +886,10 @@ export class AggregationParticipant {
 
   /**
    * User action: approve signing and generate nonce contribution.
+   *
+   * @throws {AggregationParticipantError} `PREVOUT_SCRIPT_MISMATCH` if the
+   *   prevout script of the request is not the beacon script of the cohort. The
+   *   other transaction checks throw their own error types.
    */
   public approveNonce(cohortId: string): BaseMessage[] {
     const state = this.#cohortStates.get(cohortId);
@@ -787,14 +914,14 @@ export class AggregationParticipant {
 
     // Refuse to sign unless the tx announces the signal this member validated
     // and is otherwise a beacon transaction the member can account for.
-    this.#assertSignableBeaconTx(cohortId, state, tx, prevOutValue);
+    this.#assertSignableBeaconTx(cohortId, state, tx, state.signingRequest.prevOutScriptHex, prevOutValue);
 
-    // Derive UTXO metadata for Taproot sighash (BIP-341). Use the script
-    // supplied by the service in AUTHORIZATION_REQUEST rather than reading
-    // the change output: input and change may use different scripts in future
-    // beacon designs, and the prevOutScript must be the UTXO script, not the
-    // change script.
-    const prevOutScripts = [hexToBytes(state.signingRequest.prevOutScriptHex)];
+    // Derive UTXO metadata for Taproot sighash (BIP-341). The prevOutScript
+    // must be the UTXO script, not the change script: input and change may use
+    // different scripts in future beacon designs. The check above makes the
+    // script of the AUTHORIZATION_REQUEST equal to the beacon script of the
+    // cohort. Thus the sighash uses the copy of the cohort.
+    const prevOutScripts = [state.cohort.beaconScript];
     const prevOutValues = [prevOutValue];
 
     const session = new BeaconSigningSession({
@@ -933,10 +1060,15 @@ export class AggregationParticipant {
 
   /**
    * User action: authorize the fallback spend. Recomputes the k-of-n fallback
-   * leaf from the member's OWN cohort state (not the service-provided script),
-   * computes the BIP-341 script-path sighash over the requested transaction, and
-   * returns a standalone BIP-340 signature (no nonce round). The member completes
-   * once it has contributed; the service needs only k of these.
+   * leaf from the member's OWN cohort state (not the service-provided script).
+   * It then computes the BIP-341 script-path sighash over the requested
+   * transaction and the beacon script of the cohort. It returns a standalone
+   * BIP-340 signature (no nonce round). The member completes once it has
+   * contributed; the service needs only k of these.
+   *
+   * @throws {AggregationParticipantError} `PREVOUT_SCRIPT_MISMATCH` if the
+   *   prevout script of the request is not the beacon script of the cohort. The
+   *   other transaction checks throw their own error types.
    */
   public approveFallback(cohortId: string): BaseMessage[] {
     const state = this.#cohortStates.get(cohortId);
@@ -955,14 +1087,15 @@ export class AggregationParticipant {
 
     const req = state.fallbackRequest;
     const tx = Transaction.fromRaw(hexToBytes(req.pendingTxHex), { allowUnknownOutputs: true });
-    const prevOutScript = hexToBytes(req.prevOutScriptHex);
     const prevOutValue = this.#prevOutValue(cohortId, req.prevOutValue);
 
     // The coordinator drives output selection on the fallback path too, so the
     // same transaction checks apply, plus: it must be the optimistic round's
     // transaction, not a second one competing with it.
-    this.#assertSignableBeaconTx(cohortId, state, tx, prevOutValue);
+    this.#assertSignableBeaconTx(cohortId, state, tx, req.prevOutScriptHex, prevOutValue);
     this.#assertMatchesOptimisticTx(cohortId, state, req.pendingTxHex);
+    // Equal to req.prevOutScriptHex after the check above.
+    const prevOutScript = state.cohort.beaconScript;
 
     // Recompute the fallback leaf from our own cohort keys so a malicious service
     // cannot induce a signature over a different leaf than the one the funded

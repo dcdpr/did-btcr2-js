@@ -51,6 +51,10 @@ Two beacon types are supported:
 - **`CASBeacon`**: Aggregated updates form a CAS Announcement Map (DID to updateHash). The service publishes the map to a Content-Addressed Store (e.g., IPFS) and commits its hash on-chain.
 - **`SMTBeacon`**: Aggregated updates form a Sparse Merkle Tree. The SMT root is committed on-chain; participants get individual Merkle proofs.
 
+The beacon type is not an input of the beacon address. A CAS cohort and an SMT cohort with the same members, recovery key, recovery sequence, funding model, fallback threshold (k), and network get one beacon address. A member refuses the second cohort (`BEACON_TYPE_CONFLICT`) only if its `AggregationParticipant` object knows the first cohort. Then the second cohort does not complete.
+
+If the member uses a new `AggregationParticipant` object, the member signs the second cohort. The signal of the second cohort can make a DID of the member invalid. To offer both beacon types to the same members, use another `recoverySequence` for each beacon type (ADR 152).
+
 ---
 
 ## Two-Layer Architecture
@@ -217,23 +221,38 @@ The service is the coordinator. It creates a cohort, advertises it, accepts part
 
 ```typescript
 import { AggregationServiceRunner } from '@did-btcr2/aggregation';
+import { getNetwork } from '@did-btcr2/bitcoin';
+import { buildAggregationBeaconTx } from '@did-btcr2/method';
 
-const runner = new AggregationServiceRunner({
+// onProvideTxData reads `runner`. The runner calls onProvideTxData only after
+// the constructor returns.
+const runner: AggregationServiceRunner = new AggregationServiceRunner({
   transport,                     // from previous section
   did       : serviceDid,
   keys      : serviceKeys,
 
   config: {
-    minParticipants : 2,
-    network         : 'mutinynet',
-    beaconType      : 'CASBeacon',
+    minParticipants  : 2,
+    network          : 'mutinynet',
+    beaconType       : 'CASBeacon',
+    recoveryKey      : recoveryKeyHex, // x-only operator recovery key, 64 hex characters
+    recoverySequence : 144,            // blocks (BIP-68) before the recovery leaf is spendable
   },
 
-  // REQUIRED: provide the Bitcoin transaction to be MuSig2-signed
-  onProvideTxData: async ({ cohortId, beaconAddress, signalBytes }) => {
-    // In production: query Bitcoin for a UTXO at beaconAddress, build a tx
-    // that spends it with an OP_RETURN containing signalBytes.
-    return await buildBeaconTransaction(beaconAddress, signalBytes, bitcoin);
+  // REQUIRED: provide the Bitcoin transaction to be MuSig2-signed. The
+  // transaction must spend the beacon output. buildAggregationBeaconTx finds a
+  // UTXO at beaconAddress, adds a change output if change is due, and puts
+  // signalBytes in the last output (OP_RETURN).
+  onProvideTxData: async ({ cohortId, beaconAddress, signalBytes, feeEstimator }) => {
+    const cohort = runner.session.getCohort(cohortId)!;
+    return await buildAggregationBeaconTx({
+      beaconAddress,
+      internalPubkey : cohort.internalKey,
+      signalBytes,
+      bitcoin,                   // a BitcoinConnection
+      network        : getNetwork(cohort.network),
+      feeEstimator,
+    });
   },
 
   // Optional hardening (all have sensible defaults):
@@ -244,7 +263,7 @@ const runner = new AggregationServiceRunner({
 });
 ```
 
-The `config` object follows the spec's "Aggregation Cohort definition": at minimum you need participant count, network, and beacon type. Optional fields (max participants, time windows, fees) can be added in your `onOptInReceived` and `onReadyToFinalize` callbacks.
+The `config` object holds the cohort conditions. The spec example in "Step 1: Create Aggregation Cohort" names conditions such as the beacon type and the number of participants. `createCohort` refuses a config without a beacon type, a minimum participant count, a recovery key, or a recovery sequence. The recovery key and the recovery sequence are not spec conditions: ADR 042 adds them. `createCohort` does not check `network`, but the cohort needs a valid network to compute the beacon address. Other conditions, for example `maxParticipants`, the time between announcements, and the costs, are optional `config` members.
 
 #### `AggregationServiceRunnerOptions` (optional hardening)
 
@@ -298,6 +317,7 @@ So you understand what's happening behind the scenes:
      - If accepted, registers the peer's communication key, sends `COHORT_OPT_IN_ACCEPT`, emits `participant-accepted`
    - Once `minParticipants` is reached, calls `onReadyToFinalize`: your decision callback
    - If `finalize: true`, computes the n-of-n MuSig2 Taproot beacon address, sends `COHORT_READY` to all participants, emits `keygen-complete`
+   - After `finalizeKeygen`, the membership is final. The service drops a new `COHORT_OPT_IN`, and `acceptParticipant` throws `INVALID_PHASE`. If `onOptInReceived` approves an opt-in after this point, the runner ignores the approval. It emits `message-rejected` with the rejection code `MEMBERSHIP_FINAL`. See [Decision callback latency](#decision-callback-latency).
 
 2. **Update Submission (spec Step 2)**
    - For each incoming `SUBMIT_UPDATE` message: calls `session.receive()` and emits `update-received`
@@ -308,6 +328,7 @@ So you understand what's happening behind the scenes:
    - Sends `DISTRIBUTE_AGGREGATED_DATA` to all participants, emits `data-distributed`
    - For each incoming `VALIDATION_ACK`: tracks approval, emits `validation-received`
    - Once all participants approve, calls `onProvideTxData`: your data callback
+   - `startSigning` checks that `prevOutScripts[0]` is the output script of the beacon address. If it is not, `startSigning` throws `PREVOUT_SCRIPT_MISMATCH`, the runner emits `error`, and `run()` rejects.
    - Sends `AUTHORIZATION_REQUEST` to all participants with the unsigned tx, emits `signing-started`
 
 4. **Signing & Broadcast (spec Step 4)**
@@ -375,7 +396,7 @@ Two callbacks are required for the participant:
 - **`onProvideUpdate`**: build the BTCR2 update you want included in the aggregated batch.
 
 Two more callbacks are optional:
-- **`onValidateData`**: approve/reject aggregated data. Default approves if the data correctly includes your update.
+- **`onValidateData`**: approve/reject aggregated data. Default approves if `info.matches` is true. `info.matches` needs your update in the data, a signal that derives from the data, and the beacon type of the cohort in the message. If you declined the update, `info.matches` needs the data to show no update of yours.
 - **`onApproveSigning`**: approve/reject the actual signing. Default approves.
 
 ### Step 2: Subscribe to events (optional)
@@ -418,7 +439,7 @@ const result = await AggregationParticipantRunner.joinFirst({
   did             : myDid,
   keys            : myKeys,
   shouldJoin      : async (advert) => advert.serviceDid === expectedServiceDid,
-  onProvideUpdate : async ({ beaconAddress }) => buildAndSignUpdate(beaconAddress),
+  onProvideUpdate : async ({ beaconAddress, beaconType }) => buildAndSignUpdate(beaconAddress, beaconType),
 });
 
 console.log(`Joined cohort ${result.cohortId}, beacon: ${result.beaconAddress}`);
@@ -426,23 +447,33 @@ console.log(`Joined cohort ${result.cohortId}, beacon: ${result.beaconAddress}`)
 
 `joinFirst` waits for a matching cohort, joins it, drives the protocol to completion, and resolves with `{ cohortId, beaconAddress }`.
 
+A participant refuses a cohort if another cohort of the same runner has this beacon address and another beacon type. For this refusal, the runner emits `cohort-failed`. Its `reason` is the message of an `AggregationParticipantError` of type `BEACON_TYPE_CONFLICT`. The other cohorts of the runner continue. This check knows only the cohorts of one runner. A new runner, each `joinFirst` or `joinMatching` call, each `AggregationRunner.solo` run, and a process restart start with no cohorts.
+
+Thus your application must also do a check before the member signs:
+
+1. Compare the beacon address with the beacon services of each DID document that uses this key.
+2. If a beacon service of another type has this address, return `{ approved: false }` from `onValidateData`. `onValidateData` gets no beacon address. Keep the address of each `cohortId` from `onProvideUpdate`, or read `runner.session.joinedCohorts`.
+
+A null return from `onProvideUpdate` declines the update, but the member still signs. Thus a null return does not refuse the cohort. Use one key for each DID. Each SMT signal at a beacon address of a DID must have an SMT proof for that DID. If two DIDs use one key, an SMT cohort of one DID can get the beacon address of the other DID.
+
 ### What the participant runner does internally
 
 1. **Cohort Discovery (spec Step 1)**
    - Listens for `COHORT_ADVERT` broadcasts on the transport
+   - Drops an advert whose `beaconType` is not `CASBeacon` or `SMTBeacon`, with no event
    - For each advert: emits `cohort-discovered` and calls `shouldJoin(advert)`
    - If the filter accepts, registers the service's communication key, sends `COHORT_OPT_IN`, emits `cohort-joined`
    - Waits for `COHORT_OPT_IN_ACCEPT` (acknowledgment)
-   - Waits for `COHORT_READY` containing the cohort's MuSig2 beacon address; validates the address against locally-computed value, emits `cohort-ready`
+   - Waits for `COHORT_READY` containing the cohort's MuSig2 beacon address; validates the address against locally-computed value, emits `cohort-ready`. The participant refuses `COHORT_READY` if the address is not the address that it computes (`BEACON_ADDRESS_MISMATCH`). It also refuses `COHORT_READY` if another of its cohorts has this beacon address and another beacon type (`BEACON_TYPE_CONFLICT`). For `BEACON_TYPE_CONFLICT`, the phase becomes Failed and the runner emits `cohort-failed`. For `BEACON_ADDRESS_MISMATCH`, the phase stays OptedIn and the runner emits `error`.
 
 2. **Update Submission (spec Step 2)**
-   - Calls `onProvideUpdate({ cohortId, beaconAddress })`: your data callback
+   - Calls `onProvideUpdate({ cohortId, beaconAddress, beaconType })`: your data callback. The beacon service in the DID document must have the type `beaconType`.
    - Sends the resulting `SignedBTCR2Update` via `SUBMIT_UPDATE`, emits `update-submitted`
 
 3. **Validation (spec Step 3)**
    - Waits for `DISTRIBUTE_AGGREGATED_DATA` containing the CAS announcement (or SMT proof)
-   - Verifies that the aggregated data correctly includes the participant's submitted update
-   - Calls `onValidateData(info)`: your decision callback (default: approve if hash matches)
+   - Validates the aggregated data with the beacon type of the cohort (from the advert), not with the type that the message names. The data must hold the submitted update of the participant (or its non-inclusion, if it declined), and the signal must derive from the data. If the message names another beacon type, `info.matches` is false.
+   - Calls `onValidateData(info)`: your decision callback (default: approve if `info.matches` is true). If `info.matches` is false, the participant refuses to sign later, also if `onValidateData` approves.
    - Sends `VALIDATION_ACK` (approved or rejected)
    - On rejection, emits `cohort-failed` and stops processing this cohort
 
@@ -450,10 +481,11 @@ console.log(`Joined cohort ${result.cohortId}, beacon: ${result.beaconAddress}`)
    - Waits for `AUTHORIZATION_REQUEST` containing the unsigned tx
    - Calls `onApproveSigning(req)`: your decision callback (default: approve)
    - On rejection, emits `cohort-failed` and stops
-   - On approval: generates a MuSig2 nonce, sends `NONCE_CONTRIBUTION`
+   - On approval: checks the transaction, generates a MuSig2 nonce, sends `NONCE_CONTRIBUTION`. The participant refuses to sign a transaction whose prevout script is not the beacon script of the cohort (`PREVOUT_SCRIPT_MISMATCH`). It also refuses a transaction with more than one input (`INVALID_TX_STRUCTURE`). For a refusal, the runner emits `error` and sends no nonce.
    - Waits for `AGGREGATED_NONCE` from the service
    - Generates and sends the `SIGNATURE_AUTHORIZATION` (partial signature)
    - Emits `cohort-complete`
+   - The same transaction checks apply to a `FALLBACK_AUTHORIZATION_REQUEST` (the k-of-n script path). On both paths, the participant computes the sighash over the beacon script of its own cohort.
 
 ---
 
@@ -473,7 +505,7 @@ console.log(`Joined cohort ${result.cohortId}, beacon: ${result.beaconAddress}`)
 |---|---|---|---|
 | `onProvideUpdate` | ✅ yes | n/a | Build and sign the update to include in this cohort |
 | `shouldJoin` | optional | reject all | Filter which advertised cohorts to join |
-| `onValidateData` | optional | approve if hash matches | Approve/reject the aggregated data |
+| `onValidateData` | optional | approve if `info.matches` is true | Approve/reject the aggregated data |
 | `onApproveSigning` | optional | approve | Approve/reject signing the Bitcoin tx |
 
 > The defaults are designed so the simplest possible runner (provide only the required callbacks) works correctly for the happy path. Override the optional callbacks when you need user prompts, custom filters, fee policies, or audit logs.
@@ -497,7 +529,7 @@ console.log(`Joined cohort ${result.cohortId}, beacon: ${result.beaconAddress}`)
 | `nonce-received` | `{ participantDid }` | A participant's MuSig2 nonce arrives |
 | `signing-complete` | `AggregationResult` | Final signature computed (also resolves `run()`) |
 | `cohort-failed` | `{ cohortId, reason }` | Cohort entered a terminal failure state (validation rejection, TTL/phase timeout). Also rejects `run()`. |
-| `message-rejected` | `Rejection & { cohortId }` | The state machine dropped an incoming message. `code` distinguishes `WRONG_VERSION`, `UPDATE_TOO_LARGE`, `UPDATE_MALFORMED`, `UPDATE_VERIFICATION_FAILED`, `NOT_A_MEMBER`, `DUPLICATE_RESPONSE`, `INVALID_NONCE`, `INVALID_PARTIAL_SIG`, `INVALID_PARTICIPANT_KEY`. |
+| `message-rejected` | `Rejection & { cohortId }` | The state machine dropped an inbound message, or the runner dropped an operator approval that came too late. The rejection code `code` (a `RejectionReason`) for a dropped message is `WRONG_VERSION`, `UPDATE_TOO_LARGE`, `UPDATE_MALFORMED`, `UPDATE_SENDER_MISMATCH`, `NOT_A_MEMBER`, `DUPLICATE_RESPONSE`, `INVALID_NONCE`, `INVALID_PARTIAL_SIG`, `INVALID_FALLBACK_SIG`, or `INVALID_PARTICIPANT_KEY`. For a dropped approval, it is `MEMBERSHIP_FINAL` or `COHORT_FULL`. |
 | `error` | `Error` | Protocol or transport error (rejects `run()` for fatal errors) |
 
 ### `AggregationParticipantRunner` events
@@ -511,7 +543,7 @@ console.log(`Joined cohort ${result.cohortId}, beacon: ${result.beaconAddress}`)
 | `validation-requested` | `PendingValidation` | Aggregated data arrives (before `onValidateData`) |
 | `signing-requested` | `PendingSigningRequest` | Auth request arrives (before `onApproveSigning`) |
 | `cohort-complete` | `{ cohortId, beaconAddress }` | Partial signature sent: this participant is done |
-| `cohort-failed` | `{ cohortId, reason }` | Validation rejected, signing rejected, or protocol error |
+| `cohort-failed` | `{ cohortId, reason }` | Validation rejected, signing rejected, or a refused `COHORT_READY` (`BEACON_TYPE_CONFLICT`) |
 | `error` | `Error` | Non-fatal error |
 
 ---
@@ -567,17 +599,24 @@ import { AggregationService } from '@did-btcr2/aggregation';
 const session = new AggregationService({ did: serviceDid, publicKey: serviceKeys.publicKey });
 
 // Step 1: Cohort Formation
-const cohortId = session.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
+const cohortId = session.createCohort({
+  minParticipants  : 2,
+  network          : 'mutinynet',
+  beaconType       : 'CASBeacon',
+  recoveryKey      : recoveryKeyHex, // x-only operator recovery key, 64 hex characters
+  recoverySequence : 144,            // blocks (BIP-68) before the recovery leaf is spendable
+});
 const advertMsgs = session.advertise(cohortId);
 // You're responsible for sending advertMsgs over your transport
 
 // When opt-ins arrive, feed them in:
 session.receive(optInMessage);
 
-// Inspect state:
+// Inspect state. pendingOptIns is empty outside the Advertised phase.
 const pending = session.pendingOptIns(cohortId);
 
-// Accept and finalize:
+// Accept and finalize. After finalizeKeygen, the membership is final:
+// acceptParticipant throws INVALID_PHASE, and the service drops a new opt-in.
 const acceptMsgs = session.acceptParticipant(cohortId, participantDid);
 const readyMsgs = session.finalizeKeygen(cohortId);
 
@@ -622,7 +661,9 @@ const discovered = session.discoveredCohorts;
 // Join one:
 const optInMsgs = session.joinCohort(cohortId);
 
-// After receive() COHORT_READY, inspect joined cohort:
+// After receive() COHORT_READY, inspect the joined cohort. receive() throws if
+// the participant refuses COHORT_READY (for example BEACON_ADDRESS_MISMATCH or
+// BEACON_TYPE_CONFLICT). A refused cohort is not in joinedCohorts.
 session.receive(cohortReadyMessage);
 const joined = session.joinedCohorts.get(cohortId);
 
@@ -739,11 +780,11 @@ Both are unset by default: enable them in any production deployment.
 
 ### Message size limits
 
-`AggregationService` enforces `maxUpdateSizeBytes` (default 256 KiB) on the canonicalized size of each `SUBMIT_UPDATE` body, before the expensive BIP-340 proof verification. Oversized payloads are dropped silently at the state-machine level and surfaced as `message-rejected` events with code `UPDATE_TOO_LARGE`. This protects against cheap bandwidth/CPU exhaustion from a hostile participant. Tune downward if your DID documents are typically smaller.
+`AggregationService` enforces `maxUpdateSizeBytes` (default 256 KiB) on the canonicalized size of each `SUBMIT_UPDATE` body. It checks the size before it checks the proof of the update. Oversized payloads are dropped silently at the state-machine level and surfaced as `message-rejected` events with code `UPDATE_TOO_LARGE`. This protects against cheap bandwidth/CPU exhaustion from a hostile participant. Tune downward if your DID documents are typically smaller.
 
 ### Inbound messages never fail a cohort
 
-`AggregationService.receive()` does not throw on anything a sender controls. Every receive-path handler checks membership, round/session duplication, and cryptographic validity itself, and records a `Rejection` for what it drops rather than letting a cohort or signing-session invariant throw. This matters because `AggregationServiceRunner` treats an escaping error as a cohort failure (`removeCohort` + rejected completion), so a single throw on that path would be a cohort-kill available to anyone who can reach the service: a non-member ack, a never-accepted opt-in's submission, a duplicated nonce from a transport retry, or one malformed nonce.
+`AggregationService.receive()` does not throw on anything a sender controls. Every receive-path handler checks membership and round/session duplication itself. The handlers of a partial signature and of a fallback signature also verify the signature. The handler of an update does not verify the proof of the update (see [Sender authentication](#sender-authentication)). A handler records a `Rejection` for a message that it drops, so that no cohort or signing-session invariant throws. This matters because `AggregationServiceRunner` treats an escaping error as a cohort failure (`removeCohort` + rejected completion), so a single throw on that path would be a cohort-kill available to anyone who can reach the service: a non-member ack, a never-accepted opt-in's submission, a duplicated nonce from a transport retry, or one malformed nonce.
 
 This covers cohort formation as well. `COHORT_OPT_IN` carries the sender's own `participantPk` and `communicationPk`, and the wire guard asks only that they be bytes: a three-byte or off-curve key is checked on arrival and dropped as `INVALID_PARTICIPANT_KEY`. A stored one would not be refused until the operator accepted the sender, at which point sorting the cohort keys (or aggregating them at keygen) throws inside an operator action the runner is driving, i.e. the cohort dies for a message anyone could have sent. `AggregationCohort.isValidCohortKey()` is the shared check, and the `cohortKeys` setter applies it to every key it stores, so no inbound path can carry a malformed key as far as key aggregation.
 
@@ -758,7 +799,9 @@ Rejections are retained per cohort until drained, capped at `MAX_RETAINED_REJECT
 
 ### Sender authentication
 
-Every protocol message declares its own sender in `from`, and the protocol acts on that claim: a participant records the service DID an advert names and encrypts to the key it declares; a service seats the DID an opt-in names and verifies that member's updates against the key it declares. Each transport separately authenticates a *key*: Nostr by the event signature (`event.pubkey`), HTTP by the signed envelope (`envelope.from`). The two must be bound, or anyone able to reach the wire can speak as any DID.
+Every protocol message declares its own sender in `from`, and the protocol acts on that claim. A participant records the service DID that an advert names, and encrypts to the key that the advert declares. A service seats the DID that an opt-in names. The service accepts an update of that member only if `proof.verificationMethod` is a DID URL of that DID. Apart from this check, the service validates only the structure of the proof. It does not verify the signature: a resolver verifies it (ADR 152).
+
+Each transport separately authenticates a *key*: Nostr by the event signature (`event.pubkey`), HTTP by the signed envelope (`envelope.from`). The two must be bound, or anyone able to reach the wire can speak as any DID.
 
 Both transports enforce that bind on every receive path, and it is what `resolveSenderPk` is for:
 
@@ -779,9 +822,11 @@ Both transports enforce that bind on every receive path, and it is what `resolve
 The `onProvideTxData` callback receives the cohort's `beaconAddress` and `signalBytes`. Before MuSig2 signing can succeed, that address must already hold a UTXO. There are two common patterns:
 
 - **Pre-funded address**: the service operator funds the address out-of-band (e.g., via a watcher process) before the cohort starts signing. Simpler operationally.
-- **First-update funding**: a participant's first update funds the beacon address itself by sending a small change output to it. Requires a more complex `onProvideTxData` that builds a tx with both the funding input and the beacon's spending input.
+- **First-update funding**: a participant funds the beacon address for its first update. It pays a small amount to the address in its own transaction, before the signing round. The beacon transaction does not also spend the funding input.
 
 Either way, the runner doesn't manage funding: it only signs the tx you provide.
+
+The beacon transaction must have exactly one input, and that input must spend the beacon UTXO. Each member refuses a transaction with more inputs (`INVALID_TX_STRUCTURE`) or with another prevout script (`PREVOUT_SCRIPT_MISMATCH`). `buildAggregationBeaconTx` of `@did-btcr2/method` builds a transaction with one input.
 
 ### Transaction broadcasting
 
@@ -807,6 +852,17 @@ Decision callbacks are awaited inline in the protocol flow. If your `onOptInRece
 
 This is exactly the pattern an interactive client app should follow.
 
+One `onOptInReceived` call blocks only its own opt-in. The service runner processes other opt-ins while the call waits. Thus the cohort can change before the operator decides. The runner ignores an approval in these cases:
+
+- `finalizeKeygen` ran, so the membership is final. The runner emits `message-rejected` with the rejection code `MEMBERSHIP_FINAL`.
+- The cohort already has `maxParticipants` members. The runner emits `message-rejected` with the rejection code `COHORT_FULL`.
+- The same DID sent a new opt-in. Only the decision for the new opt-in applies. The runner emits no event for the old decision.
+- The runner stopped, or the cohort completed or failed. The runner emits no event.
+
+If the DID is not a member after an ignored approval, the participant gets no message and stays in the OptedIn phase. `AggregationParticipantRunner` has no timeout, so the participant application must set its own deadline (for example, call `stop()`).
+
+The service runner calls `onProvideTxData` at most one time for each cohort. If the cohort fails or the runner stops while `onProvideTxData` runs, the runner does not start the signing round. In the participant runner, a callback that waits at `stop()` has no effect after it returns: the runner sends no message for it.
+
 ### Error recovery
 
 There is no automatic retry for participant dropout. If a participant goes offline mid-protocol the cohort will either stall out until `phaseTimeoutMs`/`cohortTtlMs` fires, or deadlock indefinitely if neither is set. Your application should:
@@ -815,7 +871,7 @@ There is no automatic retry for participant dropout. If a participant goes offli
 - Listen for `cohort-failed` to drive operator UI / retry logic
 - Listen for `message-rejected` to surface individual submission failures back to the offending participant
 - Use a generous `minParticipants` floor so a single dropout isn't fatal
-- For long-running participant runners, restart on the `error` event if necessary
+- For long-running participant runners, restart on the `error` event if necessary. A new runner does not know the cohorts of the old runner, so its `BEACON_TYPE_CONFLICT` check does not see them.
 - Track which cohorts have completed via `signing-complete` / `cohort-complete`
 
 ### Wire-format version
@@ -828,28 +884,32 @@ Every `BaseMessage` carries a `version: number` field. The current version is ex
 
 ### Beacon strategy registry
 
-New beacon types can be added without touching the service or participant state machines. Implement `AggregateBeaconStrategy` and call `registerBeaconStrategy(strategy)`.
+The service and the participant accept only the beacon types in `KNOWN_BEACON_TYPES`: `CASBeacon` and `SMTBeacon`. The [spec](https://dcdpr.github.io/did-btcr2/beacons/aggregate-beacons.html) says: "DID controllers can use a CAS Beacon, an SMT Beacon, or both to participate in BTCR2 Update Aggregation." `createCohort` refuses another type, and the participant drops an advert of another type. Thus you cannot add a beacon type. `registerBeaconStrategy(strategy)` replaces the built-in strategy of the same type, for each cohort in the process. The example below wraps the built-in `CASBeacon` strategy and keeps its checks.
 
 ```typescript
 import type { AggregateBeaconStrategy } from '@did-btcr2/aggregation';
-import { registerBeaconStrategy } from '@did-btcr2/aggregation';
+import { getBeaconStrategy, registerBeaconStrategy } from '@did-btcr2/aggregation';
 
-const MyBeaconStrategy: AggregateBeaconStrategy = {
-  type : 'MyBeacon',
+// Get the built-in strategy before you replace it.
+const builtIn = getBeaconStrategy('CASBeacon')!;
+
+const LoggedCasStrategy: AggregateBeaconStrategy = {
+  type : 'CASBeacon',
 
   // Service-side: build the aggregated data on the cohort.
   buildAggregatedData(cohort) {
-    // Populate cohort.signalBytes and any strategy-specific state.
+    builtIn.buildAggregatedData(cohort);
+    console.log('CAS Announcement Map built for cohort', cohort.id);
   },
 
   // Service-side: per-participant payload for DISTRIBUTE_AGGREGATED_DATA.
   getDistributePayload(cohort, participantDid) {
-    return { /* custom body fields */ };
+    return builtIn.getDistributePayload(cohort, participantDid);
   },
 
-  // Participant-side: verify the aggregated view reflects the local update.
-  validateParticipantView({ participantDid, submittedUpdate, expectedHash, body }) {
-    return { matches: /* boolean */ };
+  // Participant-side: validate the aggregated data against the local update.
+  validateParticipantView(params) {
+    return builtIn.validateParticipantView(params);
   },
 
   // Participant-side: recompute the 32-byte signal from the data just
@@ -859,14 +919,14 @@ const MyBeaconStrategy: AggregateBeaconStrategy = {
   // never gets a signature. Do not read the announced signal back out of
   // `body`: that would bind the data to itself and authorize anything.
   deriveSignal(result) {
-    return /* Uint8Array | undefined */;
+    return builtIn.deriveSignal(result);
   },
 };
 
-registerBeaconStrategy(MyBeaconStrategy);
+registerBeaconStrategy(LoggedCasStrategy);
 ```
 
-Once registered, passing `beaconType: 'MyBeacon'` in `CohortConfig` routes through the new strategy on both the service and participant sides.
+After the call, each `CASBeacon` cohort in the process uses the new strategy, on the service side and on the participant side. The participant uses `validateParticipantView` and `deriveSignal` to decide if it signs. Thus a replacement must keep the checks of the built-in strategy.
 
 ### Discriminated message types
 
@@ -900,7 +960,7 @@ Some state-machine methods added for runner plumbing are also useful from custom
 
 | Method | Purpose |
 |---|---|
-| `session.drainRejections(cohortId)` | Pop the list of silent drops recorded since the last drain. The runner forwards these as `message-rejected` events. |
+| `session.drainRejections(cohortId)` | Pop the list of silent drops recorded since the last drain. The runner forwards these as `message-rejected` events. The state machine does not record `MEMBERSHIP_FINAL` or `COHORT_FULL`: the service runner emits these rejection codes for a dropped approval. |
 | `session.removeCohort(cohortId)` | Remove a cohort from `#cohortStates` once it's finished. Used by the runner on successful completion and on fail. |
 
 ---
@@ -917,7 +977,7 @@ Some state-machine methods added for runner plumbing are also useful from custom
 | Work with the raw state machine | [Power-User: State Machine Layer](#power-user-state-machine-layer) |
 | Run example scripts | [Running the E2E Demos](#running-the-e2e-demos) |
 | Deploy to production | [Production Deployment Notes](#production-deployment-notes) |
-| Add a new beacon type | [Beacon strategy registry](#beacon-strategy-registry) |
+| Replace a beacon strategy | [Beacon strategy registry](#beacon-strategy-registry) |
 | Narrow an incoming message | [Discriminated message types](#discriminated-message-types) |
 | Pick a public Nostr relay | [Relay selection](#relay-selection-nostr-transport-only) |
 | Configure the HTTP transport | [http-transport.md](./http-transport.md) |

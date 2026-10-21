@@ -3,8 +3,7 @@ import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { base64UrlToHash, blockHash, didToIndex, verifySerializedProof } from '@did-btcr2/smt';
 import { hexToBytes } from '@noble/hashes/utils';
-import { p2tr, Script, Transaction } from '@scure/btc-signer';
-import * as musig2 from '@scure/btc-signer/musig2';
+import { Script, Transaction } from '@scure/btc-signer';
 import { expect } from 'chai';
 import {
   AggregationCohort,
@@ -242,11 +241,11 @@ describe('Aggregate beacon cooperative non-inclusion', () => {
 
     async function driveSigningToComplete(cohortId: string): Promise<void> {
       const cohort = service.getCohort(cohortId)!;
-      const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-      const payment = p2tr(aggPk);
+      // The transaction spends the beacon output of the cohort.
+      const script = cohort.beaconScript;
       const prevOutValue = 100000n;
-      const tx = buildDummyTx(payment.script, prevOutValue, cohort.signalBytes!);
-      await send(serviceTransport, serviceDid, service.startSigning(cohortId, { tx, prevOutScripts: [payment.script], prevOutValues: [prevOutValue] }));
+      const tx = buildDummyTx(script, prevOutValue, cohort.signalBytes!);
+      await send(serviceTransport, serviceDid, service.startSigning(cohortId, { tx, prevOutScripts: [script], prevOutValues: [prevOutValue] }));
       await send(aliceTransport, aliceDid, alice.approveNonce(cohortId));
       await send(bobTransport, bobDid, bob.approveNonce(cohortId));
       await send(serviceTransport, serviceDid, service.sendAggregatedNonce(cohortId));

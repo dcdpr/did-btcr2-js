@@ -1,6 +1,5 @@
 import { canonicalize } from '@did-btcr2/common';
 import type { SecuredDocument } from '@did-btcr2/cryptosuite';
-import { BIP340Cryptosuite, SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import type { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
@@ -38,9 +37,10 @@ import { BeaconSigningSession } from '../core/signing-session.js';
 
 /**
  * Cohort configuration set by the service operator: the advertised cohort
- * {@link CohortConditions} plus the Bitcoin network. `beaconType` and
- * `minParticipants` are required; the other conditions are optional (absent =
- * unconstrained). See ADR 039.
+ * {@link CohortConditions} plus the Bitcoin network. The config must have
+ * `beaconType`, `minParticipants`, `recoveryKey`, and `recoverySequence`
+ * (ADR 042). The other conditions are optional (absent = unconstrained). See
+ * ADR 039.
  */
 export interface CohortConfig extends CohortConditions {
   network: string;
@@ -87,12 +87,24 @@ export interface SigningTxData {
   prevOutValues: bigint[];
 }
 
-/** Reason an incoming message was silently dropped by the state machine. */
+/**
+ * Reason the service dropped an inbound message or an operator approval. The
+ * state machine records the reason of a dropped message. The service runner
+ * emits MEMBERSHIP_FINAL and COHORT_FULL for an approval that it cannot apply.
+ */
 export type RejectionReason =
   | 'WRONG_VERSION'
   | 'UPDATE_TOO_LARGE'
-  | 'UPDATE_VERIFICATION_FAILED'
+  /**
+   * The submitted update is not well formed. One of these conditions is true:
+   * - the SUBMIT_UPDATE body has no signedUpdate;
+   * - JCS cannot canonicalize the update;
+   * - the update has no proof object;
+   * - the proof has no verificationMethod string or no non-empty proofValue string.
+   */
   | 'UPDATE_MALFORMED'
+  /** The proof verificationMethod of the update is not a DID URL of the sender DID. */
+  | 'UPDATE_SENDER_MISMATCH'
   /** The sender is not a member of the cohort the message names. */
   | 'NOT_A_MEMBER'
   /** The sender already answered this round or signing step; the first answer stands. */
@@ -101,10 +113,21 @@ export type RejectionReason =
   | 'INVALID_NONCE'
   /** The partial signature does not verify against the sender's key. */
   | 'INVALID_PARTIAL_SIG'
+  /** A fallback signature is not from the cohort key of the sender, or it does not verify. */
+  | 'INVALID_FALLBACK_SIG'
   /** An opt-in key is not a 33-byte compressed secp256k1 public key. */
-  | 'INVALID_PARTICIPANT_KEY';
+  | 'INVALID_PARTICIPANT_KEY'
+  /** The operator approved an opt-in after finalizeKeygen made the membership final. */
+  | 'MEMBERSHIP_FINAL'
+  /** The operator approved an opt-in when the cohort already had maxParticipants members. */
+  | 'COHORT_FULL';
 
-/** Record of a silently-dropped inbound message. Drained by the runner to emit events. */
+/**
+ * Record of an inbound message or an operator approval that the service
+ * dropped. The state machine records a dropped message, and the runner drains
+ * the records to emit events. The service runner emits MEMBERSHIP_FINAL and
+ * COHORT_FULL for a dropped approval.
+ */
 export interface Rejection {
   /** DID of the sender whose message was rejected. */
   from: string;
@@ -261,9 +284,11 @@ export class AggregationService {
   }
 
   /**
-   * Drain the rejection log for a cohort. Used by runners to surface silent
-   * drops (bad proof, oversized update, wrong version, etc.) as structured
-   * events without breaking the sans-I/O state machine contract.
+   * Drain the rejection log for a cohort. A runner uses it to report each
+   * message that the state machine dropped (for example a malformed proof, an
+   * oversized update, or a wrong wire version) as an event. The state machine
+   * stays sans-I/O. The log has no MEMBERSHIP_FINAL or COHORT_FULL record: the
+   * service runner emits these codes for an approval that it cannot apply.
    */
   drainRejections(cohortId: string): Array<Rejection> {
     const state = this.#cohortStates.get(cohortId);
@@ -339,10 +364,14 @@ export class AggregationService {
     return [message];
   }
 
-  /** Pending opt-ins awaiting operator approval. */
+  /**
+   * Pending opt-ins awaiting operator approval. Empty outside the Advertised
+   * phase: after finalizeKeygen the membership is final, and acceptParticipant
+   * refuses each opt-in that is still pending.
+   */
   pendingOptIns(cohortId: string): ReadonlyMap<string, PendingOptIn> {
     const state = this.#cohortStates.get(cohortId);
-    if(!state) return new Map();
+    if(!state || state.phase !== ServiceCohortPhase.Advertised) return new Map();
     // Return only those not yet accepted
     const map = new Map<string, PendingOptIn>();
     for(const [did, optIn] of state.pendingOptIns) {
@@ -387,10 +416,9 @@ export class AggregationService {
     }
 
     // Reject re-opt-in from already-accepted participants. Without this guard a
-    // participant could send a second opt-in with a different key, overwriting
-    // pendingOptIns[did] while cohortKeys still holds the original key - opening
-    // a desync window where #verifySubmittedUpdate accepts updates signed with
-    // a key that is NOT in the MuSig2 cohort.
+    // participant could send a second opt-in with a different key and overwrite
+    // pendingOptIns[did]. Then the opt-in record would no longer hold the key
+    // that cohortKeys holds for the participant.
     if(state.acceptedParticipants.has(participantDid)) return;
 
     state.pendingOptIns.set(participantDid, {
@@ -404,11 +432,21 @@ export class AggregationService {
   /**
    * Service operator accepts a participant's opt-in.
    * Returns the accept message to send.
+   * @throws {AggregationServiceError} INVALID_PHASE outside the Advertised phase.
+   * finalizeKeygen computes the beacon address from the cohort keys, so the
+   * membership is final after it. A key that the service adds later is not in the
+   * beacon address that the members got.
    */
   acceptParticipant(cohortId: string, participantDid: string): BaseMessage[] {
     const state = this.#cohortStates.get(cohortId);
     if(!state) {
       throw new AggregationServiceError(`Cohort ${cohortId} not found.`, 'COHORT_NOT_FOUND', { cohortId });
+    }
+    if(state.phase !== ServiceCohortPhase.Advertised) {
+      throw new AggregationServiceError(
+        `Cannot accept participant ${participantDid} into cohort ${cohortId}: phase is ${state.phase}.`,
+        'INVALID_PHASE', { cohortId, participantDid, phase: state.phase }
+      );
     }
     const optIn = state.pendingOptIns.get(participantDid);
     if(!optIn) {
@@ -536,18 +574,17 @@ export class AggregationService {
       return;
     }
 
-    // Membership first, and before any canonicalization or signature work: a
-    // pending opt-in that was never accepted still has a pendingOptIns entry, so
-    // it passes #verifySubmittedUpdate and would reach addUpdate, which throws
-    // UNKNOWN_PARTICIPANT out of receive() and fails the whole cohort. Mirrors
-    // the guard in #handleSubmitNonInclusion.
+    // Membership first, before any canonicalization or proof check. An update
+    // from a sender that is not a member would reach addUpdate. addUpdate throws
+    // UNKNOWN_PARTICIPANT out of receive() and fails the whole cohort.
+    // Mirrors the guard in #handleSubmitNonInclusion.
     if(!state.cohort.participants.includes(message.from)) {
       this.#reject(state, message.from, 'NOT_A_MEMBER', 'Sender is not a member of this cohort');
       return;
     }
 
-    // Cap the canonicalized update size before doing any heavier verification
-    // work. Without this guard, a participant could submit multi-MB payloads
+    // Cap the canonicalized update size before any other work on the body.
+    // Without this guard, a participant could submit multi-MB payloads
     // that the service would canonicalize, hash, and aggregate - cheap DoS.
     let canonicalSize: number;
     try {
@@ -564,13 +601,12 @@ export class AggregationService {
       return;
     }
 
-    // Verify the BIP-340 Data Integrity proof before aggregating. Without this check,
-    // a malicious cohort member could submit updates with garbage proofs, which the
-    // service would aggregate into the CAS announcement / SMT root and ultimately
-    // anchor on-chain with the cohort's MuSig2 signature.
-    if(!this.#verifySubmittedUpdate(state, message.from, signedUpdate)) {
-      this.#reject(state, message.from, 'UPDATE_VERIFICATION_FAILED',
-        'BIP-340 Data Integrity proof verification failed');
+    // Check the proof structure and the sender binding. The service does not
+    // verify the signature (ADR 152). It does not hold the current DID document
+    // of the sender, so it cannot know which methods of that document can sign.
+    const problem = this.#submittedUpdateProblem(message.from, signedUpdate);
+    if(problem) {
+      this.#reject(state, message.from, problem.code, problem.reason);
       return;
     }
 
@@ -616,7 +652,7 @@ export class AggregationService {
     // Membership is proven by the signed envelope sender. A non-member decline is
     // dropped as a rejection, never thrown: addNonInclusion would otherwise throw
     // UNKNOWN_PARTICIPANT out of receive() and fail the whole cohort, a DoS any
-    // non-member could trigger. Mirrors the SUBMIT_UPDATE verification path.
+    // non-member could trigger. Mirrors the membership check of SUBMIT_UPDATE.
     if(!state.cohort.participants.includes(message.from)) {
       this.#reject(state, message.from, 'NOT_A_MEMBER', 'Sender is not a member of this cohort');
       return;
@@ -640,56 +676,59 @@ export class AggregationService {
   }
 
   /**
-   * Verify the BIP-340 Schnorr Data Integrity proof on a submitted update using the
-   * participant's public key from their cohort opt-in. Returns `false` (and the
-   * update is silently dropped) if the proof is missing, the verificationMethod does
-   * not name the sender's DID, the participant has no opt-in on record, or the
-   * signature fails verification.
-   * @param {ServiceCohortState} state - the current state of the cohort to which the update was submitted
+   * Check the structure of the proof of a submitted update, and check that
+   * proof.verificationMethod is a DID URL of the sender DID. The service does
+   * not verify the signature. It does not hold the current DID document of the
+   * sender, so it cannot know which methods can sign an update. A method can
+   * sign an update if all of these conditions are true (update.md, resolve.md):
+   * - the method is a capabilityInvocation method of that document;
+   * - the method has the type Multikey and the DID as the controller;
+   * - the publicKeyMultibase of the method encodes a secp256k1 public key, as
+   *   the BIP340 Cryptosuite specifies.
+   *
+   * A resolver verifies the proof. An update with a bad proof harms only the
+   * DID of the sender. The CAS map key is that DID, and the SMT leaf index is
+   * the SHA-256 hash of that DID.
    * @param {string} sender - the DID of the participant who submitted the update
-   * @param {SecuredDocument} signedUpdate - the signed update containing the proof to verify
-   * @returns {boolean} - `true` if the proof is valid and the update can be accepted; `false` otherwise
+   * @param {SecuredDocument} signedUpdate - the submitted update
+   * @returns {{ code: RejectionReason; reason: string } | undefined} The problem,
+   * or undefined if the update passes the checks.
    */
-  #verifySubmittedUpdate(
-    state: ServiceCohortState,
+  #submittedUpdateProblem(
     sender: string,
     signedUpdate: SecuredDocument,
-  ): boolean {
-    const proof = signedUpdate.proof;
-    if(!proof?.verificationMethod || !proof.proofValue) return false;
-    // The body is attacker-shaped until proven otherwise: a non-string
-    // verificationMethod would make the split() below throw a raw TypeError out
-    // of receive() and fail the cohort.
-    if(typeof proof.verificationMethod !== 'string') return false;
-
-    // The proof must be signed by the sender's own key. Reject if the
-    // verificationMethod references a different DID. An absolute method id is
-    // the DID followed by a fragment, a query, or a path ('<did>#key-1',
-    // '<did>?key=1', '<did>/keys/1'). A DID contains no '#', '?', or '/', so
-    // the DID is the text before the first of these characters. A relative id
-    // ('#initialKey') passes this check, but the proof verification below
-    // refuses it, as the resolver does. The multikey below has the sender as
-    // its controller, so its full id is '<sender>#initialKey'. The cryptosuite
-    // refuses a proof that names another id.
-    const vmDid = proof.verificationMethod.startsWith('#')
-      ? sender
-      : proof.verificationMethod.split(/[?/#]/)[0];
-    if(vmDid !== sender) return false;
-
-    const optIn = state.pendingOptIns.get(sender);
-    if(!optIn) return false;
-
-    try {
-      const multikey = SchnorrMultikey.fromPublicKey({
-        id             : proof.verificationMethod,
-        controller     : sender,
-        publicKeyBytes : optIn.participantPk,
-      }) as SchnorrMultikey;
-      const suite = new BIP340Cryptosuite(multikey);
-      return suite.verifyProof(signedUpdate).verified === true;
-    } catch {
-      return false;
+  ): { code: RejectionReason; reason: string } | undefined {
+    // The sender controls the body, so each member can have any type. Read each
+    // member through `unknown`, so a wrong type gives a rejection and not a raw
+    // TypeError out of receive().
+    const proof: unknown = (signedUpdate as { proof?: unknown }).proof;
+    if(typeof proof !== 'object' || proof === null || Array.isArray(proof)) {
+      return { code: 'UPDATE_MALFORMED', reason: 'SUBMIT_UPDATE signedUpdate has no proof object' };
     }
+    const { verificationMethod, proofValue } = proof as Record<string, unknown>;
+    if(typeof verificationMethod !== 'string' || typeof proofValue !== 'string' || proofValue === '') {
+      return { code: 'UPDATE_MALFORMED', reason: 'Update proof has no verificationMethod or proofValue string' };
+    }
+
+    // An absolute method id is the DID followed by a fragment, a query, or a
+    // path ('<did>#key-1', '<did>?key=1', '<did>/keys/1'). This is the rule of
+    // Updater.sign on the write path (ADR 147 decision 6). The read path does
+    // not check this rule: a resolver accepts each absolute proof id that the
+    // capabilityInvocation of the document names. A DID contains no '#', '?',
+    // or '/'. Thus the sender DID must be the text before the first of these
+    // characters, and at least one character must follow it. This refuses a
+    // relative id ('#initialKey'), the bare DID, and a longer DID with the
+    // sender DID as its prefix.
+    const separator = verificationMethod.charAt(sender.length);
+    if(!verificationMethod.startsWith(sender)
+      || (separator !== '#' && separator !== '?' && separator !== '/')
+      || verificationMethod.length === sender.length + 1) {
+      return {
+        code   : 'UPDATE_SENDER_MISMATCH',
+        reason : 'Update proof verificationMethod is not a DID URL of the sender DID',
+      };
+    }
+    return undefined;
   }
 
 
@@ -794,8 +833,18 @@ export class AggregationService {
 
   /**
    * Start a signing session by creating auth requests for all participants.
-   * The caller provides the transaction data - typically built via
-   * `buildBeaconTransaction()` against a Bitcoin connection.
+   * The caller provides the transaction data. Usually the caller builds it with
+   * `buildAggregationBeaconTx({ beaconAddress, internalPubkey, signalBytes, bitcoin, network })`
+   * of `@did-btcr2/method` and a Bitcoin connection.
+   *
+   * Each check runs before the session starts, so a refusal leaves the cohort
+   * in the Validated phase.
+   *
+   * @throws {AggregationServiceError} `COHORT_NOT_FOUND`; `INVALID_PHASE` outside
+   *   the Validated phase; `MISSING_PREV_OUT_SCRIPT` if `txData.prevOutScripts[0]`
+   *   is missing; `PREVOUT_SCRIPT_MISMATCH` if it is not the
+   *   {@link AggregationCohort.beaconScript} of the cohort. Each member refuses
+   *   to sign such a transaction, so the round cannot complete.
    */
   startSigning(cohortId: string, txData: SigningTxData): BaseMessage[] {
     const state = this.#cohortStates.get(cohortId);
@@ -809,6 +858,25 @@ export class AggregationService {
       );
     }
 
+    const prevOutScript = txData.prevOutScripts[0];
+    if(!prevOutScript) {
+      throw new AggregationServiceError(
+        `Cannot start signing for cohort ${cohortId}: txData.prevOutScripts[0] is missing.`,
+        'MISSING_PREV_OUT_SCRIPT', { cohortId }
+      );
+    }
+    const beaconScript = state.cohort.beaconScript;
+    const spendsBeacon = beaconScript.length > 0
+      && prevOutScript.length === beaconScript.length
+      && prevOutScript.every((b, i) => b === beaconScript[i]);
+    if(!spendsBeacon) {
+      const beaconAddress = state.cohort.beaconAddress;
+      throw new AggregationServiceError(
+        `Cannot start signing for cohort ${cohortId}: txData.prevOutScripts[0] is not the output script of the beacon address ${beaconAddress}.`,
+        'PREVOUT_SCRIPT_MISMATCH', { cohortId, beaconAddress, prevOutScriptHex: bytesToHex(prevOutScript) }
+      );
+    }
+
     const session = new BeaconSigningSession({
       cohort         : state.cohort,
       pendingTx      : txData.tx,
@@ -817,14 +885,6 @@ export class AggregationService {
     });
     state.signingSession = session;
     state.phase = ServiceCohortPhase.SigningStarted;
-
-    const prevOutScript = txData.prevOutScripts[0];
-    if(!prevOutScript) {
-      throw new AggregationServiceError(
-        `Cannot start signing for cohort ${cohortId}: txData.prevOutScripts[0] is missing.`,
-        'MISSING_PREV_OUT_SCRIPT', { cohortId }
-      );
-    }
 
     const messages: BaseMessage[] = [];
     for(const participantDid of state.cohort.participants) {
@@ -1078,7 +1138,7 @@ export class AggregationService {
     }
     const memberXOnly = memberKey.slice(1);
     if(signerPk.length !== 32 || !memberXOnly.every((b, i) => b === signerPk[i])) {
-      this.#reject(state, message.from, 'UPDATE_MALFORMED', 'Fallback signerPk does not match the sender cohort key');
+      this.#reject(state, message.from, 'INVALID_FALLBACK_SIG', 'Fallback signerPk does not match the sender cohort key');
       return;
     }
 
@@ -1090,7 +1150,7 @@ export class AggregationService {
     let valid = false;
     try { valid = fallbackSignature.length === 64 && schnorr.verify(fallbackSignature, sighash, signerPk); } catch { valid = false; }
     if(!valid) {
-      this.#reject(state, message.from, 'UPDATE_VERIFICATION_FAILED', 'Fallback signature failed verification');
+      this.#reject(state, message.from, 'INVALID_FALLBACK_SIG', 'Fallback signature failed verification');
       return;
     }
 

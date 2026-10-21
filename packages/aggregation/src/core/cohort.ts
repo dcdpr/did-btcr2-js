@@ -112,6 +112,9 @@ export class AggregationCohort {
   /** The Taproot beacon address: key path is the MuSig2 aggregate, script path is fallback + recovery. */
   beaconAddress: string = '';
 
+  /** Output script (scriptPubKey) of the beacon address. computeBeaconAddress() sets it. */
+  #beaconScript: Uint8Array = new Uint8Array();
+
   /** Pending DID updates submitted by participants, keyed by DID. */
   pendingUpdates: Map<string, SecuredDocument> = new Map();
 
@@ -198,6 +201,23 @@ export class AggregationCohort {
   }
 
   /**
+   * Output script (scriptPubKey) of the beacon address, computed from the cohort
+   * keys and the recovery tree. Empty before {@link computeBeaconAddress}.
+   * Returns a copy.
+   *
+   * A beacon signal spends from the beacon address. Thus a member signs, and the
+   * service starts a signing round, only for a transaction that spends an output
+   * with this script. The BIP-341 script-path sighash commits to the spent script,
+   * not to the internal key. Two cohorts with the same keys and k have the same
+   * fallback leaf. The beacon script also commits to the recovery leaf. Two
+   * cohorts with the same keys, k, recovery key, recovery sequence, and funding
+   * model have the same beacon script.
+   */
+  get beaconScript(): Uint8Array {
+    return this.#beaconScript.slice();
+  }
+
+  /**
    * The resolved k of the k-of-n fallback leaf: the advertised
    * {@link fallbackThreshold}, or n-1 (floored at 1) when unadvertised, where n is
    * the current cohort size. This is the value the beacon address commits to and
@@ -211,10 +231,12 @@ export class AggregationCohort {
   /**
    * Computes the Taproot beacon address from the cohort keys and recovery params.
    *
-   * The output's key path is the n-of-n MuSig2 aggregate of the cohort keys; its
-   * script path is the recovery tree (a CSV recovery leaf so a missing signer
-   * cannot permanently lock the UTXO). Sets `internalKey`, `tapMerkleRoot`, and
-   * the `tapTweak` the MuSig2 session must apply for the key-path spend.
+   * The key path of the output is the n-of-n MuSig2 aggregate of the cohort
+   * keys. The script path is the recovery tree: the k-of-n fallback leaf and a
+   * CSV recovery leaf (ADR 042). Thus a missing signer cannot lock the UTXO
+   * permanently. Sets `internalKey`, `tapMerkleRoot`, the `tapTweak` the MuSig2
+   * session must apply for the key-path spend, `beaconAddress`, and
+   * {@link beaconScript}.
    *
    * The tweak is derived from the Merkle root the address was built with (read
    * back from the payment), never recomputed by hand, so the MuSig2 key-path
@@ -268,6 +290,7 @@ export class AggregationCohort {
       );
     }
     this.beaconAddress = payment.address;
+    this.#beaconScript = payment.script;
     return payment.address;
   }
 
