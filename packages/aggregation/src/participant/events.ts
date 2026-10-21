@@ -11,6 +11,7 @@ import type { CohortAdvert, PendingFallbackRequest, PendingSigningRequest, Pendi
 export interface CohortCompleteInfo {
   cohortId: string;
   beaconAddress: string;
+  /** Beacon type of the cohort, from the advert. */
   beaconType: string;
   /** True if this participant submitted an update; false if it declined (non-inclusion). */
   included: boolean;
@@ -63,7 +64,11 @@ export type AggregationParticipantEvents = {
    */
   'cohort-complete': [CohortCompleteInfo];
 
-  /** Cohort failed (rejected validation, signing error, etc.). */
+  /**
+   * Cohort failed. The member rejected the aggregated data, rejected a signing
+   * request, or refused a COHORT_READY with BEACON_TYPE_CONFLICT. The other
+   * cohorts of the runner continue.
+   */
   'cohort-failed': [{ cohortId: string; reason: string }];
 
   /** A non-fatal error occurred. */

@@ -16,6 +16,10 @@ const TEST_RECOVERY_SEQUENCE = 144;
 /** The text after the DID in the id of the method that signs: a fragment, a query, or a path. */
 const METHOD_ID_FORMS = [ '#key-1', '?key=1', '/keys/1' ];
 
+const SENDER_MISMATCH_REASON = 'Update proof verificationMethod is not a DID URL of the sender DID';
+const NO_PROOF_REASON = 'SUBMIT_UPDATE signedUpdate has no proof object';
+const NO_PROOF_STRINGS_REASON = 'Update proof has no verificationMethod or proofValue string';
+
 /** The KEY document of `keys`, as a plain JSON copy. */
 function keyDocument(keys: SchnorrKeyPair): Btcr2DidDocument {
   const document = Resolver.deterministic({
@@ -112,8 +116,8 @@ describe('AggregationService: the DID in the proof method id of a submitted upda
 
       expect(service.drainRejections(cohortId)).to.deep.equal([{
         from   : dids[0]!,
-        code   : 'UPDATE_VERIFICATION_FAILED',
-        reason : 'BIP-340 Data Integrity proof verification failed',
+        code   : 'UPDATE_SENDER_MISMATCH',
+        reason : SENDER_MISMATCH_REASON,
       }]);
       expect(service.collectedUpdates(cohortId).has(dids[0]!)).to.equal(false);
       expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.CohortSet);
@@ -145,10 +149,79 @@ describe('AggregationService: the DID in the proof method id of a submitted upda
 
     expect(service.drainRejections(cohortId)).to.deep.equal([{
       from   : dids[0]!,
-      code   : 'UPDATE_VERIFICATION_FAILED',
-      reason : 'BIP-340 Data Integrity proof verification failed',
+      code   : 'UPDATE_SENDER_MISMATCH',
+      reason : SENDER_MISMATCH_REASON,
     }]);
     expect(service.collectedUpdates(cohortId).has(dids[0]!)).to.equal(false);
     expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.CohortSet);
   });
+
+  it('accepts an update that a key other than the opt-in key signs', () => {
+    const { service, cohortId, keys, dids, submit } = formCohort();
+    // A rotated key: the document of the sender lists <did of the sender>#key-2 with another
+    // key in capabilityInvocation. A resolver accepts this update, so the service must too.
+    const update = signedUpdate(keys[0]!, '#key-2', SchnorrKeyPair.generate());
+    expect(update.proof.verificationMethod).to.equal(`${dids[0]}#key-2`);
+
+    submit(dids[0]!, update);
+
+    expect(service.drainRejections(cohortId)).to.deep.equal([]);
+    expect(service.collectedUpdates(cohortId).get(dids[0]!)).to.deep.equal(update);
+  });
+
+  it('accepts an update whose proofValue does not verify: the service checks only the structure', () => {
+    const { service, cohortId, keys, dids, submit } = formCohort();
+    const update = signedUpdate(keys[0]!, '#key-1', keys[0]!);
+    update.proof.proofValue = `z${'1'.repeat(86)}`;
+
+    submit(dids[0]!, update);
+
+    expect(service.drainRejections(cohortId)).to.deep.equal([]);
+    expect(service.collectedUpdates(cohortId).has(dids[0]!)).to.equal(true);
+  });
+
+  for(const [ label, methodId ] of [
+    [ 'the bare DID of the sender', (did: string) => did ],
+    [ 'the DID of the sender and a "#" with no fragment', (did: string) => `${did}#` ],
+    [ 'a longer DID with the DID of the sender as its prefix', (did: string) => `${did}x#key-1` ],
+  ] as const) {
+    it(`refuses an update whose proof names ${label}`, () => {
+      const { service, cohortId, keys, dids, submit } = formCohort();
+      const update = signedUpdate(keys[0]!, '#key-1', keys[0]!);
+      update.proof.verificationMethod = methodId(dids[0]!);
+
+      submit(dids[0]!, update);
+
+      expect(service.drainRejections(cohortId)).to.deep.equal([{
+        from   : dids[0]!,
+        code   : 'UPDATE_SENDER_MISMATCH',
+        reason : SENDER_MISMATCH_REASON,
+      }]);
+      expect(service.collectedUpdates(cohortId).has(dids[0]!)).to.equal(false);
+    });
+  }
+
+  for(const [ label, proof, reason ] of [
+    [ 'no proof', undefined, NO_PROOF_REASON ],
+    [ 'a null proof', null, NO_PROOF_REASON ],
+    [ 'a string proof', 'proof', NO_PROOF_REASON ],
+    [ 'an array proof', [], NO_PROOF_REASON ],
+    [ 'a proof with no proofValue', { proofValue: undefined }, NO_PROOF_STRINGS_REASON ],
+    [ 'a proof with an empty proofValue', { proofValue: '' }, NO_PROOF_STRINGS_REASON ],
+    [ 'a proof with a number proofValue', { proofValue: 42 }, NO_PROOF_STRINGS_REASON ],
+    [ 'a proof with no verificationMethod', { verificationMethod: undefined }, NO_PROOF_STRINGS_REASON ],
+  ] as const) {
+    it(`refuses an update with ${label} as UPDATE_MALFORMED`, () => {
+      const { service, cohortId, keys, dids, submit } = formCohort();
+      const update = signedUpdate(keys[0]!, '#key-1', keys[0]!) as unknown as Record<string, unknown>;
+      update.proof = proof !== null && typeof proof === 'object' && !Array.isArray(proof)
+        ? { ...(update.proof as Record<string, unknown>), ...proof }
+        : proof;
+
+      submit(dids[0]!, update as unknown as SignedBTCR2Update);
+
+      expect(service.drainRejections(cohortId)).to.deep.equal([{ from: dids[0]!, code: 'UPDATE_MALFORMED', reason }]);
+      expect(service.collectedUpdates(cohortId).has(dids[0]!)).to.equal(false);
+    });
+  }
 });

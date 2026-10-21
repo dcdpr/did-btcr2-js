@@ -1,8 +1,7 @@
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from '@did-btcr2/method';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
-import { p2tr, Script, Transaction } from '@scure/btc-signer';
-import * as musig2 from '@scure/btc-signer/musig2';
+import { Script, Transaction } from '@scure/btc-signer';
 import { expect } from 'chai';
 import {
   AggregationParticipantRunner,
@@ -56,17 +55,16 @@ function createSignedUpdate(did: string, keys: SchnorrKeyPair, version = 2): Sig
   return multikey.toCryptosuite().toDataIntegrityProof().addProof(unsigned, config) as SignedBTCR2Update;
 }
 
-/** A dummy P2TR signing payload over the cohort's aggregate key (matches the solo/e2e demos). */
+/** A dummy signing payload that spends the beacon output of the cohort. */
 function dummyTxData(cohort: AggregationCohort) {
-  const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-  const payment = p2tr(aggPk);
+  const script = cohort.beaconScript;
   const prevOutValue = 100000n;
   const tx = new Transaction({ version: 2, allowUnknownOutputs: true });
-  tx.addInput({ txid: '00'.repeat(32), index: 0, witnessUtxo: { amount: prevOutValue, script: payment.script } });
-  tx.addOutput({ script: payment.script, amount: prevOutValue - 500n });
+  tx.addInput({ txid: '00'.repeat(32), index: 0, witnessUtxo: { amount: prevOutValue, script } });
+  tx.addOutput({ script, amount: prevOutValue - 500n });
   // Members bind their nonce approval to the validated signal: anchor it in an OP_RETURN.
   if(cohort.signalBytes) tx.addOutput({ script: Script.encode([ 'RETURN', cohort.signalBytes ]), amount: 0n });
-  return { tx, prevOutScripts: [ payment.script ], prevOutValues: [ prevOutValue ] };
+  return { tx, prevOutScripts: [ script ], prevOutValues: [ prevOutValue ] };
 }
 
 const CAS = (minParticipants = 1): CohortConfig => ({ minParticipants, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });

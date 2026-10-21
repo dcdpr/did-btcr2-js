@@ -25,11 +25,11 @@ import { DidBtcr2, Resolver, Updater, resolveBtcr2SenderPk } from '@did-btcr2/me
  * Exit code: 0 on success, non-zero on any assertion failure.
  */
 import assert from 'node:assert/strict';
+import { getNetwork } from '@did-btcr2/bitcoin';
 import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { bytesToHex } from '@noble/hashes/utils';
-import { p2tr, SigHash, Transaction } from '@scure/btc-signer';
-import * as musig2 from '@scure/btc-signer/musig2';
+import { Address, OutScript, Script, SigHash, Transaction } from '@scure/btc-signer';
 import type { Transport } from '../../../src/index.js';
 import {
   AggregationParticipantRunner,
@@ -100,24 +100,29 @@ const service = new AggregationServiceRunner({
   config      : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: bytesToHex(serviceKeys.publicKey.compressed.slice(1)), recoverySequence: 144 },
   cohortTtlMs : TIMEOUT_MS,
 
-  onProvideTxData : async ({ cohortId }) => {
-    const cohort = service.session.getCohort(cohortId)!;
-    const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-    const payment = p2tr(aggPk);
+  onProvideTxData : async ({ beaconAddress, signalBytes }) => {
+    // Spend the beacon output: each member refuses another prevout script.
+    const script = OutScript.encode(Address(getNetwork('mutinynet')).decode(beaconAddress));
     const prevOutValue = 100_000n;
-    const tx = new Transaction({ version: 2 });
+    const tx = new Transaction({ version: 2, allowUnknownOutputs: true });
     tx.addInput({
       txid        : '00'.repeat(32),
       index       : 0,
-      witnessUtxo : { amount: prevOutValue, script: payment.script },
+      witnessUtxo : { amount: prevOutValue, script },
     });
-    tx.addOutput({ script: payment.script, amount: prevOutValue - 500n });
+    // Change back to the beacon address, then the signal in the last output.
+    tx.addOutput({ script, amount: prevOutValue - 500n });
+    tx.addOutput({ script: Script.encode(['RETURN', signalBytes]), amount: 0n });
 
-    capturedTweakedPk = payment.tweakedPubkey;
-    capturedSighash = tx.preimageWitnessV1(0, [payment.script], SigHash.DEFAULT, [prevOutValue]);
-    capturedBeaconAddress = cohort.beaconAddress;
+    // The output key of the beacon output is the Taproot-tweaked key: the
+    // tweak commits to the recovery script tree. The sighash covers the final tx.
+    const output = OutScript.decode(script);
+    if(output.type !== 'tr') throw new Error(`Beacon output is not P2TR: ${output.type}`);
+    capturedTweakedPk = output.pubkey;
+    capturedSighash = tx.preimageWitnessV1(0, [script], SigHash.DEFAULT, [prevOutValue]);
+    capturedBeaconAddress = beaconAddress;
 
-    return { tx, prevOutScripts: [payment.script], prevOutValues: [prevOutValue] };
+    return { tx, prevOutScripts: [script], prevOutValues: [prevOutValue] };
   },
 });
 

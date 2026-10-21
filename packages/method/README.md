@@ -190,6 +190,8 @@ Aggregation lets multiple DID controllers coordinate a single Bitcoin transactio
 ```typescript
 import { AggregationServiceRunner } from '@did-btcr2/aggregation/service';
 import { TransportFactory } from '@did-btcr2/aggregation';
+import { getNetwork } from '@did-btcr2/bitcoin';
+import { buildAggregationBeaconTx } from '@did-btcr2/method';
 
 // Pick a transport. Nostr (relay-based) or HTTP/REST (operator-hosted).
 const transport = TransportFactory.establish({
@@ -202,12 +204,32 @@ const transport = TransportFactory.establish({
 transport.registerActor(serviceDid, serviceKeys);
 transport.start();
 
-const runner = new AggregationServiceRunner({
+// onProvideTxData reads `runner`. The runner calls onProvideTxData only after
+// the constructor returns.
+const runner: AggregationServiceRunner = new AggregationServiceRunner({
   transport,
   did    : serviceDid,
   keys   : serviceKeys,
-  config : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' },
-  onProvideTxData: async ({ beaconAddress, signalBytes }) => buildBeaconTx(beaconAddress, signalBytes),
+  config : {
+    minParticipants  : 2,
+    network          : 'mutinynet',
+    beaconType       : 'CASBeacon',
+    recoveryKey      : recoveryKeyHex, // x-only operator recovery key, 64 hex characters
+    recoverySequence : 144,            // blocks (BIP-68) before the recovery leaf is spendable
+  },
+  // The transaction must spend the beacon output. buildAggregationBeaconTx finds
+  // a UTXO at beaconAddress and puts signalBytes in the last output (OP_RETURN).
+  onProvideTxData : async ({ cohortId, beaconAddress, signalBytes, feeEstimator }) => {
+    const cohort = runner.session.getCohort(cohortId)!;
+    return await buildAggregationBeaconTx({
+      beaconAddress,
+      internalPubkey : cohort.internalKey,
+      signalBytes,
+      bitcoin,                   // a BitcoinConnection
+      network        : getNetwork(cohort.network),
+      feeEstimator,
+    });
+  },
 });
 
 runner.on('signing-complete', (result) => console.log('done'));

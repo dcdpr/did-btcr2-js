@@ -27,6 +27,13 @@ export interface SoloCohortOptions {
    * is the operator and holds full keys, so when `recoveryKey` is omitted the
    * service's own x-only key is used as the CSV recovery key (it can actually
    * perform the recovery), with {@link DEFAULT_RECOVERY_SEQUENCE} as the delay.
+   *
+   * Two solo runs with the same actors, recovery terms, and network get one
+   * beacon address, also if the beacon types differ. Each run makes a new
+   * participant object, so the BEACON_TYPE_CONFLICT check does not see the
+   * earlier run. If a DID document has a beacon service at this address, a
+   * signal of another type makes that DID invalid. To use the other beacon type, set another
+   * `recoverySequence` or `recoveryKey` (ADR 152).
    */
   config: {
     network: string;
@@ -70,6 +77,10 @@ export class AggregationRunner {
    * The service advertises a cohort with `minParticipants: 1`; the participant
    * joins, submits its update, and the two complete keygen, data distribution,
    * validation, and a one-signer MuSig2 P2TR key-path signing round.
+   *
+   * Each call makes a new participant object. Thus a run does not know the
+   * cohorts of an earlier run. Before a run of another beacon type, read
+   * {@link SoloCohortOptions.config}.
    *
    * @param options Service + participant identities, cohort config, and the
    *   update / tx-data callbacks.

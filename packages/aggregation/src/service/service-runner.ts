@@ -38,7 +38,12 @@ export type OnReadyToFinalize = (info: {
   minRequired: number;
 }) => Promise<{ finalize: boolean }>;
 
-/** Data callback: provide the Bitcoin transaction data to sign. */
+/**
+ * Data callback: provide the Bitcoin transaction data to sign. The transaction
+ * must spend the beacon output: `prevOutScripts[0]` must be the output script of
+ * `beaconAddress`. If it is not, `startSigning` throws `PREVOUT_SCRIPT_MISMATCH`
+ * and the cohort fails.
+ */
 export type OnProvideTxData = (info: {
   cohortId: string;
   beaconAddress: string;
@@ -71,6 +76,11 @@ export interface AggregationServiceRunnerOptions {
   /**
    * Decide whether to accept a participant's opt-in.
    * Default: auto-accept all opt-ins.
+   *
+   * If one DID sends a new opt-in before the decision returns, only the
+   * decision for the new opt-in applies. The runner drops an approval of the
+   * old opt-in and emits no event. The runner drops a late approval with
+   * MEMBERSHIP_FINAL or COHORT_FULL.
    */
   onOptInReceived?: OnOptInReceived;
 
@@ -172,6 +182,12 @@ interface RunContext {
    * `await` so subsequent handlers observe it on their next resumption.
    */
   finalizing: boolean;
+  /**
+   * Latch for the start of signing. The runner sets it synchronously before it
+   * awaits onProvideTxData. A VALIDATION_ACK that arrives during the await then
+   * cannot call onProvideTxData or startSigning a second time.
+   */
+  signingRequested: boolean;
   /** Once settled (resolved or rejected), late timers/messages must not re-settle. */
   settled: boolean;
   /**
@@ -209,13 +225,24 @@ interface RunContext {
  * const transport = new NostrTransport({ relays: [RELAY] });
  * transport.registerActor(serviceDid, serviceKeys);
  *
- * const runner = new AggregationServiceRunner({
+ * // onProvideTxData reads `runner`. The runner calls onProvideTxData only after
+ * // the constructor returns.
+ * const runner: AggregationServiceRunner = new AggregationServiceRunner({
  *   transport,
  *   did: serviceDid,
  *   keys: serviceKeys,
- *   onProvideTxData: async ({ beaconAddress, signalBytes, feeEstimator }) => {
+ *   onProvideTxData: async ({ cohortId, beaconAddress, signalBytes, feeEstimator }) => {
+ *     // buildAggregationBeaconTx (@did-btcr2/method) spends the beacon output.
  *     // Forward feeEstimator so a dynamic rate injected at the runner is honored.
- *     return await buildBeaconTransaction(beaconAddress, signalBytes, bitcoin, feeEstimator);
+ *     const cohort = runner.session.getCohort(cohortId)!;
+ *     return await buildAggregationBeaconTx({
+ *       beaconAddress,
+ *       internalPubkey : cohort.internalKey,
+ *       signalBytes,
+ *       bitcoin,
+ *       network        : getNetwork(cohort.network),
+ *       feeEstimator,
+ *     });
  *   },
  * });
  *
@@ -223,8 +250,11 @@ interface RunContext {
  * runner.on('signing-complete', ({ cohortId, signature }) => console.log('done', cohortId));
  *
  * // Multi-cohort: advertise several cohorts; each completion resolves independently.
- * const a = runner.advertiseCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
- * const b = runner.advertiseCohort({ minParticipants: 3, network: 'mutinynet', beaconType: 'SMTBeacon' });
+ * // Each cohort config must have a recovery key and a recovery sequence (ADR 042).
+ * // Use another recoverySequence for each beacon type (ADR 152). Then a CAS cohort
+ * // and an SMT cohort with the same members get different beacon addresses.
+ * const a = runner.advertiseCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: recoveryKeyHex, recoverySequence: 144 });
+ * const b = runner.advertiseCohort({ minParticipants: 3, network: 'mutinynet', beaconType: 'SMTBeacon', recoveryKey: recoveryKeyHex, recoverySequence: 145 });
  * const [ra, rb] = await Promise.all([a.completion, b.completion]);
  *
  * // Single-cohort convenience (requires `config` in the options):
@@ -336,8 +366,9 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
       resolve,
       reject,
       completion,
-      finalizing : false,
-      settled    : false,
+      finalizing       : false,
+      signingRequested : false,
+      settled          : false,
     };
     this.#contexts.set(cohortId, ctx);
 
@@ -677,13 +708,45 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
 
       const decision = await this.#onOptInReceived(optIn);
       if(!decision.accepted) return;
+      // If the runner or the cohort stops, or the cohort completes or fails,
+      // while the operator decides, the runner drops the approval.
+      if(this.#stopped || ctx.settled) return;
+      // The runner already accepted this DID for another opt-in, so it drops
+      // this decision with no event.
+      if(this.session.getCohort(ctx.cohortId)?.participants.includes(msg.from)) return;
 
-      // Don't accept past the advertised maxParticipants: acceptParticipant
-      // would throw COHORT_FULL and fail the cohort. Silently ignore the surplus
-      // opt-in (the cohort is full).
+      // The operator decision is asynchronous, so the cohort can change before
+      // it returns. The runner then drops the approval in three cases: the
+      // membership is final, the opt-in record is old, or the cohort is full.
+      // For a final membership or a full cohort, acceptParticipant would throw
+      // and fail the cohort, so the runner emits message-rejected instead.
+      // If the DID is not a member, the participant gets no message and stays
+      // in the OptedIn phase. AggregationParticipantRunner has no timeout, so
+      // the participant application must set its own deadline (for example,
+      // call stop()).
+      if(this.session.getCohortPhase(ctx.cohortId) !== ServiceCohortPhase.Advertised) {
+        // finalizeKeygen ran for another opt-in: the membership is final.
+        this.emit('message-rejected', {
+          cohortId : ctx.cohortId,
+          from     : msg.from,
+          code     : 'MEMBERSHIP_FINAL',
+          reason   : 'The operator approved the opt-in after finalizeKeygen made the membership final',
+        });
+        return;
+      }
+      // A later opt-in from the same DID replaced this record. The decision is
+      // for an old record, so the runner drops it with no event. pendingOptIns
+      // returns the stored records, so an identity compare finds an old record.
+      if(this.session.pendingOptIns(ctx.cohortId).get(msg.from) !== optIn) return;
       const maxParticipants = ctx.config.maxParticipants;
       const cohortNow = this.session.getCohort(ctx.cohortId);
       if(maxParticipants !== undefined && cohortNow && cohortNow.participants.length >= maxParticipants) {
+        this.emit('message-rejected', {
+          cohortId : ctx.cohortId,
+          from     : msg.from,
+          code     : 'COHORT_FULL',
+          reason   : `The operator approved the opt-in after the cohort had ${maxParticipants} participants`,
+        });
         return;
       }
 
@@ -712,8 +775,9 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
         // (which can run all the way to signing-complete) would resolve the
         // cohort's completion promise before this event fires.
         const readyMsgs = this.session.finalizeKeygen(ctx.cohortId);
-        // Keygen done - stop re-advertising the cohort. New participants
-        // arriving after this point would be rejected anyway.
+        // Keygen done - stop re-advertising the cohort. The service drops an
+        // opt-in that arrives after this point, and the runner drops a late
+        // approval with MEMBERSHIP_FINAL.
         this.#stopAdvertRepeating(ctx);
         this.emit('keygen-complete', {
           cohortId      : ctx.cohortId,
@@ -782,8 +846,12 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
         return;
       }
 
-      // When all validations received, request tx data and start signing
-      if(phase === ServiceCohortPhase.Validated) {
+      // When all validations received, request tx data and start signing.
+      // The state machine drops an ack in the Validated phase, so an ack from
+      // a stranger, or a repeated member ack, also gets here. The latch makes
+      // sure that the runner requests the tx data one time only.
+      if(phase === ServiceCohortPhase.Validated && !ctx.signingRequested) {
+        ctx.signingRequested = true;
         const cohort = this.session.getCohort(ctx.cohortId)!;
         const txData = await this.#onProvideTxData({
           cohortId      : ctx.cohortId,
@@ -791,6 +859,8 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
           signalBytes   : cohort.signalBytes!,
           feeEstimator  : this.#feeEstimator,
         });
+        // The cohort can stop or fail while the operator gets the tx data.
+        if(ctx.settled) return;
         const authMsgs = this.session.startSigning(ctx.cohortId, txData);
         const sessionId = this.session.getSigningSessionId(ctx.cohortId) ?? '';
         this.emit('signing-started', { cohortId: ctx.cohortId, sessionId });

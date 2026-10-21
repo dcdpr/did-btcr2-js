@@ -1,8 +1,7 @@
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';
-import { p2tr, Script, Transaction } from '@scure/btc-signer';
-import * as musig2 from '@scure/btc-signer/musig2';
+import { Script, Transaction } from '@scure/btc-signer';
 import { expect } from 'chai';
 
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update, GenesisDocumentLike } from '@did-btcr2/method';
@@ -399,11 +398,11 @@ describe('x1 transport authentication (ADR 066)', () => {
         config          : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE },
         onProvideTxData : async () => {
           const cohort = service.session.cohorts[0];
-          const aggPk  = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-          const payment = p2tr(aggPk);
+          // The transaction spends the beacon output of the cohort.
+          const script: Uint8Array = cohort.beaconScript;
           const prevOutValue = 100000n;
-          const tx = buildDummyTx(payment.script, prevOutValue, cohort.signalBytes!);
-          return { tx, prevOutScripts: [payment.script], prevOutValues: [prevOutValue] };
+          const tx = buildDummyTx(script, prevOutValue, cohort.signalBytes!);
+          return { tx, prevOutScripts: [script], prevOutValues: [prevOutValue] };
         },
       });
 

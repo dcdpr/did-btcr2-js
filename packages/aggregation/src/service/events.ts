@@ -22,9 +22,10 @@ export type AggregationServiceEvents = {
   'update-received': [{ cohortId: string; participantDid: string }];
 
   /**
-   * An inbound message was silently dropped by the state machine (bad proof,
-   * oversized payload, wrong wire version, etc.). Fires for *any* rejection,
-   * not just SUBMIT_UPDATE.
+   * The state machine dropped an inbound message, for example a malformed
+   * proof, an oversized payload, or a wrong wire version. The runner also emits
+   * this event for an operator approval that came too late (MEMBERSHIP_FINAL,
+   * COHORT_FULL). Fires for *any* rejection, not just SUBMIT_UPDATE.
    */
   'message-rejected': [Rejection & { cohortId: string }];
 

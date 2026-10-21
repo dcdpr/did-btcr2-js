@@ -13,7 +13,7 @@
 
 import type { SerializedSMTProof } from '@did-btcr2/smt';
 import type { CohortConditions } from '../conditions.js';
-import { KNOWN_FUNDING_MODELS } from '../conditions.js';
+import { KNOWN_BEACON_TYPES, KNOWN_FUNDING_MODELS } from '../conditions.js';
 import { MAX_RECOVERY_SEQUENCE } from '../recovery-policy.js';
 import type { BaseMessage } from './base.js';
 import {
@@ -202,6 +202,11 @@ const intInRange = (b: unknown, k: string, min: number, max: number): boolean =>
   const v = b ? (b as Record<string, unknown>)[k] : undefined;
   return typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
 };
+/** Present as a string in the allowed set. */
+const hasStrOneOf = (b: unknown, k: string, allowed: readonly string[]): boolean => {
+  const v = b ? (b as Record<string, unknown>)[k] : undefined;
+  return typeof v === 'string' && allowed.includes(v);
+};
 /** Absent, or present as a string in the allowed set. */
 const optStrOneOf = (b: unknown, k: string, allowed: readonly string[]): boolean => {
   const v = b ? (b as Record<string, unknown>)[k] : undefined;
@@ -225,7 +230,11 @@ export function isCohortAdvertMessage(m: BaseMessage): m is CohortAdvertMessage 
     && hasStr(m.body, 'cohortId')
     && hasIntMin(m.body, 'minParticipants', 1)
     && optIntMin(m.body, 'maxParticipants', 1)
-    && hasStr(m.body, 'beaconType')
+    // Only an aggregate beacon type. A member validates the data and derives the
+    // signal with the strategy of the advertised type. The service refuses other
+    // types at createCohort. The participant drops an advert of another type, so
+    // a member cannot join it.
+    && hasStrOneOf(m.body, 'beaconType', KNOWN_BEACON_TYPES)
     && hasStr(m.body, 'network')
     // Recovery params are mandatory: a participant must see the recovery terms
     // (key + timelock) before funding the beacon UTXO (ADR 042). recoverySequence

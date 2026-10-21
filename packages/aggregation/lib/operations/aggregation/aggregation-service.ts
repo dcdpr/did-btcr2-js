@@ -14,10 +14,10 @@ import { DidBtcr2, resolveBtcr2SenderPk } from '@did-btcr2/method';
  * Then in two more terminals (one per participant):
  *   RELAY=ws://localhost:7777 SERVICE_DID=<did from above> bun lib/operations/aggregation/aggregation-participant.ts
  */
+import { getNetwork } from '@did-btcr2/bitcoin';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { bytesToHex } from '@noble/hashes/utils';
-import { p2tr, Transaction } from '@scure/btc-signer';
-import * as musig2 from '@scure/btc-signer/musig2';
+import { Address, OutScript, Script, Transaction } from '@scure/btc-signer';
 import {
   AggregationServiceRunner,
   NostrTransport,
@@ -42,20 +42,22 @@ const service = new AggregationServiceRunner({
   // Auto-accept all opt-ins (default behavior, explicit here for clarity)
   onOptInReceived : async () => ({ accepted: true }),
 
-  // Build a dummy P2TR transaction (in production: query Bitcoin for UTXO + build tx)
-  onProvideTxData : async ({ cohortId }) => {
-    const cohort = service.session.getCohort(cohortId)!;
-    const aggPk = musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys));
-    const payment = p2tr(aggPk);
+  // Build a dummy beacon transaction (in production: buildAggregationBeaconTx of
+  // @did-btcr2/method spends a funded UTXO of the beacon address)
+  onProvideTxData : async ({ beaconAddress, signalBytes }) => {
+    // Spend the beacon output: each member refuses another prevout script.
+    const script = OutScript.encode(Address(getNetwork('mutinynet')).decode(beaconAddress));
     const prevOutValue = 100000n;
-    const tx = new Transaction({ version: 2 });
+    const tx = new Transaction({ version: 2, allowUnknownOutputs: true });
     tx.addInput({
       txid        : '00'.repeat(32),
       index       : 0,
-      witnessUtxo : { amount: prevOutValue, script: payment.script },
+      witnessUtxo : { amount: prevOutValue, script },
     });
-    tx.addOutput({ script: payment.script, amount: prevOutValue - 500n });
-    return { tx, prevOutScripts: [payment.script], prevOutValues: [prevOutValue] };
+    // Change back to the beacon address, then the signal in the last output.
+    tx.addOutput({ script, amount: prevOutValue - 500n });
+    tx.addOutput({ script: Script.encode(['RETURN', signalBytes]), amount: 0n });
+    return { tx, prevOutScripts: [script], prevOutValues: [prevOutValue] };
   },
 });
 

@@ -20,9 +20,12 @@ export interface BeaconDistributePayload {
 
 /**
  * Pluggable strategy for beacon-type-specific aggregation, distribution, and
- * participant-side validation. Lets new beacon types be added without
- * modifying the service or participant state machines: register a new strategy
- * via {@link registerBeaconStrategy}.
+ * participant-side validation. The service and the participant accept only the
+ * types in `KNOWN_BEACON_TYPES`: CASBeacon and SMTBeacon. createCohort refuses
+ * another type, and the participant drops an advert of another type. A strategy
+ * that you register with {@link registerBeaconStrategy} replaces the built-in
+ * strategy of the same type for each cohort in the process. No cohort uses a
+ * strategy of another type.
  */
 export interface AggregateBeaconStrategy {
   /** String constant used as `beaconType` on CohortConfig / BaseMessage bodies. */

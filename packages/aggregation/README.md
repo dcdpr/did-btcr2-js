@@ -14,7 +14,7 @@ The role entry points let a client avoid bundling server code and a service avoi
 
 The fee estimator contract (`FeeEstimator`, `StaticFeeEstimator`) lives in `@did-btcr2/bitcoin`; this package consumes it.
 
-See the [did-btcr2-js monorepo](https://github.com/dcdpr/did-btcr2-js) and the architecture decision records (ADRs 008, 020, 027, 028-032, 038-046, 050) for the design.
+See the [did-btcr2-js monorepo](https://github.com/dcdpr/did-btcr2-js) and the architecture decision records (ADRs 008, 020, 027, 028-032, 038-046, 050, 152) for the design.
 
 ## License
 

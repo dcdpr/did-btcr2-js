@@ -3,9 +3,10 @@
  * cohort (did:btcr2 spec, "Step 1: Create Aggregation Cohort"). See ADR 039.
  *
  * The spec frames these as an optional menu ("the Aggregation Service can define
- * conditions such as ..."), so only `beaconType` and `minParticipants` are
- * required here; every other condition is optional and, when absent, means
- * unconstrained.
+ * conditions such as ..."), so this module requires only `beaconType` and
+ * `minParticipants` of that menu. It also requires the recovery terms
+ * `recoveryKey` and `recoverySequence` (ADR 042). Every other condition is
+ * optional and, when absent, means unconstrained.
  *
  * Enforcement is staged (ADR 039): `beaconType` and the participant bounds are
  * enforced by the state machine now; DIDs-per-participant, timing/cadence, and
@@ -35,7 +36,10 @@ export interface CohortCost {
   basis?: 'per-did' | 'per-participant';
 }
 
-/** The seven spec cohort conditions. Only beaconType + minParticipants are required. */
+/**
+ * The seven spec cohort conditions and the beacon output terms of ADR 042.
+ * Required: beaconType, minParticipants, recoveryKey, and recoverySequence.
+ */
 export interface CohortConditions {
   /** 1. Beacon mechanism: 'CASBeacon' or 'SMTBeacon'. Enforced. */
   beaconType: string;
@@ -66,11 +70,24 @@ export interface CohortConditions {
    * Operator recovery key, x-only (64-character hex / 32 bytes). The beacon
    * output commits to a CSV recovery leaf keyed to this key, so a missing signer
    * can never permanently lock the funded UTXO. Required (ADR 042).
+   *
+   * The recovery terms are inputs of the beacon address, but the beacon type is
+   * not. See {@link CohortConditions.recoverySequence} for a CAS cohort and an
+   * SMT cohort with the same members.
    */
   recoveryKey: string;
   /**
    * Relative-timelock (BIP-68 nSequence, in blocks) before the recovery leaf is
    * spendable. Required, >= 1 (ADR 042).
+   *
+   * A CAS cohort and an SMT cohort with the same members, recovery terms,
+   * funding model, k, and network get one beacon address. A member refuses the
+   * second cohort (BEACON_TYPE_CONFLICT) only if its participant object knows
+   * the first cohort. Then the second cohort does not complete. If the member uses
+   * a new participant object, the member signs the second cohort. The signal of
+   * the second cohort can make a DID of the member invalid. To offer both beacon
+   * types to the same members, use another recoverySequence for each beacon type
+   * (ADR 152).
    */
   recoverySequence: number;
   /**

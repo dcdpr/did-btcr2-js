@@ -2,12 +2,13 @@ import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from '@did-btcr2/method';
 import { DidBtcr2 } from '@did-btcr2/method';
-import { p2tr, Transaction } from '@scure/btc-signer';
+import { Script, Transaction } from '@scure/btc-signer';
 import * as musig2 from '@scure/btc-signer/musig2';
 import { expect } from 'chai';
 import type { BaseMessage } from '../src/index.js';
 import {
   AggregationCohort,
+  AggregationParticipantRunner,
   AggregationService,
   AggregationServiceRunner,
   BeaconSigningSession,
@@ -160,16 +161,17 @@ function toSigning() {
   dids.forEach(did => ack(did));
 
   const cohort = service.getCohort(cohortId)!;
-  const payment = p2tr(musig2.keyAggExport(musig2.keyAggregate(cohort.cohortKeys)));
+  // The transaction spends the beacon output of the cohort.
+  const script = cohort.beaconScript;
   const tx = new Transaction({ version: 2, allowUnknownOutputs: true });
-  tx.addInput({ txid: '00'.repeat(32), index: 0, witnessUtxo: { amount: VALUE, script: payment.script } });
-  tx.addOutput({ script: payment.script, amount: VALUE - 500n });
-  service.startSigning(cohortId, { tx, prevOutScripts: [payment.script], prevOutValues: [VALUE] });
+  tx.addInput({ txid: '00'.repeat(32), index: 0, witnessUtxo: { amount: VALUE, script } });
+  tx.addOutput({ script, amount: VALUE - 500n });
+  service.startSigning(cohortId, { tx, prevOutScripts: [script], prevOutValues: [VALUE] });
   const sessionId = service.getSigningSessionId(cohortId)!;
 
   // Member-side sessions, so the test can produce real nonces and partial sigs.
   const sessions = dids.map(() => new BeaconSigningSession({
-    cohort, pendingTx : tx, prevOutScripts : [payment.script], prevOutValues : [VALUE],
+    cohort, pendingTx : tx, prevOutScripts : [script], prevOutValues : [VALUE],
   }));
   const nonces = sessions.map((s, i) => s.generateNonceContribution(
     keys[i]!.publicKey.compressed, keys[i]!.secretKey.bytes,
@@ -227,8 +229,8 @@ describe('H5: one inbound message cannot kill a cohort', () => {
       const attackerDid = newDid(attackerKeys);
       const { service, serviceDid, cohortId, dids, keys, submit } = formCohort([{ did: attackerDid, keys: attackerKeys }]);
 
-      // The update is genuinely signed by the sender's own opt-in key, so it
-      // passes proof verification: only membership rules it out.
+      // The update has a valid proof that names a method of the sender DID, so
+      // it passes the proof check: only membership rules it out.
       expect(() => service.receive(createSubmitUpdateMessage({
         from         : attackerDid,
         to           : serviceDid,
@@ -253,7 +255,7 @@ describe('H5: one inbound message cannot kill a cohort', () => {
         from : dids[0]!, to : serviceDid, cohortId, signedUpdate : update,
       }))).to.not.throw();
 
-      expect(codes(service, cohortId)).to.deep.equal(['UPDATE_VERIFICATION_FAILED']);
+      expect(codes(service, cohortId)).to.deep.equal(['UPDATE_MALFORMED']);
       expect(service.collectedUpdates(cohortId).has(dids[0]!)).to.be.false;
     });
 
@@ -638,6 +640,84 @@ describe('H5: one inbound message cannot kill a cohort', () => {
 
       runner.stop();
       await completion.catch(() => { /* rejected by stop() */ });
+    });
+
+    it('a VALIDATION_ACK during onProvideTxData does not call onProvideTxData again', async () => {
+      const serviceKeys = SchnorrKeyPair.generate();
+      const serviceDid = newDid(serviceKeys);
+      const memberKeys = SchnorrKeyPair.generate();
+      const memberDid = newDid(memberKeys);
+      const attackerKeys = SchnorrKeyPair.generate();
+      const attackerDid = newDid(attackerKeys);
+
+      const bus = new MessageBus();
+      const serviceTransport = new MockTransport(bus);
+      serviceTransport.registerActor(serviceDid, serviceKeys);
+      const memberTransport = new MockTransport(bus);
+      memberTransport.registerActor(memberDid, memberKeys);
+      const senderTransport = new MockTransport(bus);
+      senderTransport.registerActor(attackerDid, attackerKeys);
+
+      // The operator gets the tx data only after the test opens the gate.
+      let calls = 0;
+      let providing!: () => void;
+      const provided = new Promise<void>(resolve => { providing = resolve; });
+      let release!: () => void;
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      const runner: AggregationServiceRunner = new AggregationServiceRunner({
+        transport              : serviceTransport,
+        did                    : serviceDid,
+        keys                   : serviceKeys,
+        advertRepeatIntervalMs : 0,
+        onProvideTxData        : async ({ cohortId }) => {
+          calls++;
+          providing();
+          await gate;
+          // The transaction spends the beacon output and anchors the signal.
+          const cohort = runner.session.getCohort(cohortId)!;
+          const script = cohort.beaconScript;
+          const tx = new Transaction({ version: 2, allowUnknownOutputs: true });
+          tx.addInput({ txid: '00'.repeat(32), index: 0, witnessUtxo: { amount: VALUE, script } });
+          tx.addOutput({ script, amount: VALUE - 500n });
+          tx.addOutput({ script: Script.encode([ 'RETURN', cohort.signalBytes! ]), amount: 0n });
+          return { tx, prevOutScripts: [ script ], prevOutValues: [ VALUE ] };
+        },
+      });
+      const errors: string[] = [];
+      runner.on('error', error => errors.push(error.message));
+      const member = new AggregationParticipantRunner({
+        transport       : memberTransport,
+        did             : memberDid,
+        keys            : memberKeys,
+        shouldJoin      : async () => true,
+        onProvideUpdate : async () => createSignedUpdate(memberDid, memberKeys),
+      });
+      await member.start();
+
+      const { cohortId, completion } = runner.advertiseCohort({
+        minParticipants  : 1,
+        network          : 'mutinynet',
+        beaconType       : 'CASBeacon',
+        recoveryKey      : TEST_RECOVERY_KEY,
+        recoverySequence : TEST_RECOVERY_SEQUENCE,
+      });
+      const outcome = completion.then(result => result, (error: unknown) => error);
+      await Promise.race([ provided, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout: onProvideTxData')), 2000)) ]);
+      expect(runner.session.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.Validated);
+
+      // A non-member ack and a repeated member ack arrive while the operator waits.
+      const acks = [ attackerDid, memberDid ].map(from => senderTransport.sendMessage(createValidationAckMessage({
+        from, to : serviceDid, cohortId, approved : true,
+      }), from, serviceDid));
+      release();
+      await Promise.all(acks);
+
+      const result = await Promise.race([ outcome, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout: completion')), 2000)) ]);
+      expect(calls, 'onProvideTxData calls').to.equal(1);
+      expect(errors).to.deep.equal([]);
+      expect((result as { signature: Uint8Array }).signature).to.have.length(64);
+      member.stop();
+      runner.stop();
     });
   });
 
