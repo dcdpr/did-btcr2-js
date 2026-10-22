@@ -1,4 +1,4 @@
-import { canonicalize, DateUtils } from '@did-btcr2/common';
+import { CanonicalizationError, canonicalize, DateUtils } from '@did-btcr2/common';
 import { Appendix } from './appendix.js';
 import { hasDidScheme, hasScheme, isDid, isDidUrl, isRelativeReference, isUri, isUrl } from './url-syntax.js';
 
@@ -167,27 +167,37 @@ function firstMessage<T>(items: T[], message: (item: T, index: number) => string
 /**
  * Returns the key of a set item. Two items with the same key are the same item.
  * @param {unknown} item The item.
- * @returns {string} The JCS text of a map, else the JSON text of the item.
+ * @returns {string | undefined} The JCS text of a map, else the JSON text of the item.
+ * `undefined` for a map with no JCS form (NaN, a lone surrogate): the hash step of the
+ * operation refuses such a document, with the error of the JCS step.
  */
-function itemKey(item: unknown): string {
-  return isJsonMap(item) ? canonicalize(item) : JSON.stringify(item);
+function itemKey(item: unknown): string | undefined {
+  if(!isJsonMap(item)) return JSON.stringify(item);
+  try {
+    return canonicalize(item);
+  } catch(error) {
+    if(error instanceof CanonicalizationError) return undefined;
+    throw error;
+  }
 }
 
 /**
  * Returns the message for the first item that repeats an earlier item, or `undefined`.
  * @param {string} path The path of the set.
  * @param {unknown[]} items The items of the set.
- * @param {(item: unknown) => string} key The key of an item. Two items with the same key are the same item.
+ * @param {(item: unknown) => string | undefined} key The key of an item. Two items with the same
+ * key are the same item. An item with no key is not compared.
  * @returns {string | undefined} The message, or `undefined` if no item repeats.
  */
 function duplicateMessage(
   path: string,
   items: unknown[],
-  key: (item: unknown) => string = itemKey
+  key: (item: unknown) => string | undefined = itemKey
 ): string | undefined {
   const seen = new Map<string, number>();
   for(const [index, item] of items.entries()) {
     const itemId = key(item);
+    if(itemId === undefined) continue;
     const first = seen.get(itemId);
     if(first !== undefined) {
       return `${path}[${index}] repeats ${path}[${first}]: a set contains each item one time`;

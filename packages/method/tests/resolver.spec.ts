@@ -681,6 +681,59 @@ describe('Resolver', () => {
         expect(canonicalize(reversedDocument)).to.equal(canonicalize(didDocument));
         expect(canonicalize(reversedDocument)).to.equal(canonicalize(currentDocument));
       });
+
+      describe('a data member named toJSON (ADR 154)', () => {
+        // The JCS text of a genesis document with a top-level data member named toJSON. JCS sorts
+        // the members of each object. A member named toJSON is data, as any other member.
+        const genesisText = '{"@context":["https://www.w3.org/ns/did/v1.1","https://btcr2.dev/context/v1"],'
+          + '"capabilityInvocation":["did:btcr2:_#key-0"],"id":"did:btcr2:_",'
+          + '"service":[{"id":"did:btcr2:_#service-0","serviceEndpoint":"bitcoin:12QG2GG9TWPD16SWyfWCsW4W3NhMFnnSFK","type":"SingletonBeacon"}],'
+          + '"toJSON":{"a":"first","b":"second"},'
+          + '"verificationMethod":[{"controller":"did:btcr2:_","id":"did:btcr2:_#key-0",'
+          + '"publicKeyMultibase":"zQ3shiAVyapkPizvsLJZ8mYqPZetmbNNjgLVWTe5CLKZjvs34","type":"Multikey"}]}';
+        const didOf = Identifier.encode(hash(genesisText), { idType: 'EXTERNAL', network: fixture.network });
+        // The hashes of the update come from the JCS texts, not from the code under test.
+        const currentText = genesisText.replaceAll('did:btcr2:_', didOf);
+        const targetText = currentText.replace('"capabilityInvocation"', '"alsoKnownAs":["https://example.com/alice"],"capabilityInvocation"');
+        const update = forgeSign(didOf, {
+          '@context'      : [ ...BTCR2_UPDATE_CONTEXT ],
+          patch           : [{ op: 'add', path: '/alsoKnownAs', value: [ 'https://example.com/alice' ] }],
+          sourceHash      : encode(hash(currentText)),
+          targetHash      : encode(hash(targetText)),
+          targetVersionId : 2,
+        }, `${didOf}#key-0`, fixture.secretKey);
+
+        /** Resolve `didOf` with `genesis` and the update in the sidecar, and one signal for the update. */
+        function resolveWithUpdate(genesis: object): DidResolutionResponse {
+          const resolver = DidBtcr2.resolve(didOf, { sidecar: { genesisDocument: genesis, updates: [ update ] } });
+          let state = resolver.resolve();
+          if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+          const need = state.needs[0] as NeedBeaconSignals;
+          resolver.provide(need, new Map([[ need.beaconServices[0]!, [{
+            tx            : {} as any,
+            signalBytes   : canonicalHash(update, { encoding: 'hex' }),
+            blockMetadata : { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
+          }] ]]));
+          state = resolver.resolve();
+          if(state.status !== 'resolved') throw new Error('expected resolved');
+          return state.result;
+        }
+
+        it('resolves the update of the genesis document, with the hashes of the JCS texts', () => {
+          const result = resolveWithUpdate(JSON.parse(genesisText));
+          expect(result.metadata.versionId).to.equal('2');
+          expect(canonicalize(result.didDocument)).to.equal(targetText);
+        });
+
+        it('gives the same DID and resolves the update if the genesis members are in the reverse order', () => {
+          const reversed = reversedMembers(JSON.parse(genesisText)) as Record<string, unknown>;
+          expect(Object.keys(reversed)[0]).to.equal('verificationMethod');
+          expect(Object.keys(reversed.toJSON as object)).to.deep.equal([ 'b', 'a' ]);
+          const result = resolveWithUpdate(reversed);
+          expect(result.metadata.versionId).to.equal('2');
+          expect(canonicalize(result.didDocument)).to.equal(targetText);
+        });
+      });
     });
   });
 
@@ -2210,6 +2263,148 @@ describe('Resolver', () => {
       expect(thrown, 'expected resolution to throw').to.exist;
       expect(thrown.message).to.match(/beacon-discovery/i);
       expect(thrown.type).to.equal(INTERNAL_ERROR);
+    });
+  });
+
+  describe('a value with no JCS form (ADR 154)', () => {
+    const fixture = deterministicData[2]; // regtest - has a known secretKey
+    const LONE = '\ud800';
+
+    /** The error that `fn` throws. Fails if it does not throw. */
+    function thrownBy(fn: () => unknown): any {
+      try {
+        fn();
+      } catch(error) {
+        return error;
+      }
+      throw new Error('expected a throw');
+    }
+
+    /** The message of a lone surrogate at `path`. */
+    function loneSurrogate(path: string): string {
+      return `Cannot canonicalize: the string at ${path} has a lone surrogate (RFC 8785 section 3.2.2.2).`;
+    }
+
+    /** The need after one signal with `signalHex` on the first beacon of `document`. The sidecar is empty. */
+    function needAfterSignal(document: DidDocument, signalHex: string): { resolver: Resolver; need: NeedSignedUpdate | NeedCASAnnouncement } {
+      const resolver = new Resolver(Identifier.decode(fixture.did), Resolver.sidecarData({} as Sidecar), document);
+      let state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+      const beaconNeed = state.needs[0] as NeedBeaconSignals;
+      resolver.provide(beaconNeed, new Map([[ beaconNeed.beaconServices[0]!, [{
+        tx            : {} as any,
+        signalBytes   : signalHex,
+        blockMetadata : { height: 100, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
+      }] ]]));
+      state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected a need for the update data');
+      return { resolver, need: state.needs[0] as NeedSignedUpdate | NeedCASAnnouncement };
+    }
+
+    /** The established document of the fixture DID with a CASBeacon as its first service. */
+    function casDocument(): DidDocument {
+      const document = JSON.parse(JSON.stringify(resolveDeterministic(fixture.did))) as DidDocument;
+      document.service![0]!.type = 'CASBeacon';
+      return document;
+    }
+
+    it('refuses a sidecar genesis document with a lone surrogate with INVALID_DID_DOCUMENT', () => {
+      const { did, genesisDocument } = externalData[0];
+      const thrown = thrownBy(() => DidBtcr2.resolve(did, { sidecar: { genesisDocument: { ...genesisDocument, note: LONE } } }).resolve());
+      expect(thrown).to.be.instanceOf(ResolveError);
+      expect(thrown.type).to.equal(INVALID_DID_DOCUMENT);
+      expect(thrown.message).to.equal(`Invalid genesis document: ${loneSurrogate('/note')}`);
+      expect(thrown.data).to.deep.equal({ cause: { type: 'LONE_SURROGATE', message: loneSurrogate('/note') } });
+    });
+
+    it('refuses a provided genesis document with the number 1e400 with INVALID_DID_DOCUMENT', () => {
+      const { did, genesisDocument } = externalData[0];
+      const resolver = DidBtcr2.resolve(did);
+      const state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected NeedGenesisDocument');
+      // JSON.parse reads 1e400 as Infinity.
+      resolver.provide(state.needs[0] as NeedGenesisDocument, JSON.parse(JSON.stringify(genesisDocument).replace('{', '{"note":1e400,')));
+      const thrown = thrownBy(() => resolver.resolve());
+      const inner = 'Cannot canonicalize: the number Infinity at /note is not a JSON number (RFC 8785 section 3.2.2.3).';
+      expect(thrown).to.be.instanceOf(ResolveError);
+      expect(thrown.type).to.equal(INVALID_DID_DOCUMENT);
+      expect(thrown.message).to.equal(`Invalid genesis document: ${inner}`);
+      expect(thrown.data).to.deep.equal({ cause: { type: 'NON_FINITE_NUMBER', message: inner } });
+    });
+
+    it('refuses a provided signed update with a lone surrogate with INVALID_SIGNAL_DATA', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ benignPatch(fixture.did) ]);
+      const signalHex = canonicalHash(u2!, { encoding: 'hex' });
+      const { resolver, need } = needAfterSignal(source, signalHex);
+      expect(need.kind).to.equal('NeedSignedUpdate');
+      const thrown = thrownBy(() => resolver.provide(need as NeedSignedUpdate, { ...u2!, sourceHash: LONE }));
+      expect(thrown).to.be.instanceOf(ResolveError);
+      expect(thrown.type).to.equal(INVALID_SIGNAL_DATA);
+      expect(thrown.message).to.equal(
+        `Signed update hash mismatch: expected ${signalHex}, but the update has no JCS form: ${loneSurrogate('/sourceHash')}`
+      );
+      expect(thrown.data).to.deep.equal({ expected: signalHex, cause: { type: 'LONE_SURROGATE', message: loneSurrogate('/sourceHash') } });
+    });
+
+    it('refuses a provided CAS Announcement with a lone surrogate with MISSING_UPDATE_DATA', () => {
+      const signalHex = 'abcdef01'.repeat(8);
+      const nameInner = 'Cannot canonicalize: a member name in the object at the top level has a lone surrogate (RFC 8785 section 3.2.2.2).';
+      const cases: Array<[ Record<string, string>, string ]> = [
+        [ { [fixture.did]: LONE }, loneSurrogate(`/${fixture.did}`) ],
+        [ { [LONE]: 'x' }, nameInner ],
+      ];
+      for(const [ announcement, inner ] of cases) {
+        const { resolver, need } = needAfterSignal(casDocument(), signalHex);
+        expect(need.kind).to.equal('NeedCASAnnouncement');
+        const thrown = thrownBy(() => resolver.provide(need as NeedCASAnnouncement, announcement));
+        expect(thrown).to.be.instanceOf(ResolveError);
+        expect(thrown.type).to.equal(MISSING_UPDATE_DATA);
+        expect(thrown.message).to.equal(
+          `CAS announcement hash mismatch: expected ${signalHex}, but the announcement has no JCS form: ${inner}`
+        );
+        expect(thrown.data).to.deep.equal({ expected: signalHex, cause: { type: 'LONE_SURROGATE', message: inner } });
+      }
+    });
+
+    it('leaves a sidecar update and a CAS Announcement with no JCS form out of the maps', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ benignPatch(fixture.did) ]);
+      const announcement = { [fixture.did]: canonicalHash(u2!) };
+      const { updateMap, casMap } = Resolver.sidecarData({
+        updates    : [ { ...u2!, sourceHash: LONE }, { ...u2!, targetVersionId: NaN }, u2! ],
+        casUpdates : [ { [fixture.did]: NaN } as any, { [LONE]: canonicalHash(u2!) }, announcement ],
+      } as Sidecar);
+      expect([ ...updateMap.keys() ]).to.deep.equal([ canonicalHash(u2!, { encoding: 'hex' }) ]);
+      expect([ ...casMap.keys() ]).to.deep.equal([ canonicalHash(announcement, { encoding: 'hex' }) ]);
+    });
+
+    it('passes an error of a toJSON method through, for a genesis document and a sidecar item', () => {
+      // Only a value with no JCS form gets the error of the operation. An error of user code is not one.
+      const broken = { toJSON(): never { throw new TypeError('toJSON failed'); } };
+      const { did, genesisDocument } = externalData[0];
+      const cases: Array<[ string, () => unknown ]> = [
+        [ 'genesis', () => DidBtcr2.resolve(did, { sidecar: { genesisDocument: { ...genesisDocument, note: broken } } }).resolve() ],
+        [ 'update', () => Resolver.sidecarData({ updates: [ broken ] } as unknown as Sidecar) ],
+        [ 'casUpdate', () => Resolver.sidecarData({ casUpdates: [ broken ] } as unknown as Sidecar) ],
+      ];
+      for(const [ label, fn ] of cases) {
+        const thrown = thrownBy(fn);
+        expect(thrown, label).to.be.instanceOf(TypeError);
+        expect(thrown.message, label).to.equal('toJSON failed');
+      }
+    });
+
+    it('resolves with an unused sidecar update and CAS Announcement that have no JCS form', () => {
+      const document = casDocument();
+      const [ u2 ] = buildUpdateChain(fixture.did, document, fixture.secretKey, [ benignPatch(fixture.did) ]);
+      const announcement = { [fixture.did]: canonicalHash(u2!) };
+      const sidecar = {
+        updates    : [ { ...u2!, patch: [{ op: 'add', path: '/note', value: NaN }] }, u2! ],
+        casUpdates : [ { other: LONE }, announcement ],
+      } as Sidecar;
+      const signal = [ canonicalHash(announcement, { encoding: 'hex' }) ];
+      expect(resolveFrom(fixture.did, document, sidecar, signal).metadata.versionId).to.equal('2');
     });
   });
 

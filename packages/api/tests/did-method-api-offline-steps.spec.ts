@@ -1,7 +1,7 @@
 import { expect } from 'chai';
-import { INVALID_DID_UPDATE } from '@did-btcr2/common';
+import { encode, hash, INVALID_DID_UPDATE } from '@did-btcr2/common';
 import { CompressedSecp256k1PublicKey, LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
-import { createApi, DidMethodApi, MethodError, UpdateError } from '../src/index.js';
+import { CanonicalizationError, createApi, DidMethodApi, MethodError, UpdateError } from '../src/index.js';
 import type { Btcr2DidDocument, PatchOperation, SourceState, UnsignedBTCR2Update } from '../src/index.js';
 
 /** A KEY DID, its initial document as the source of version 2, and its signer. */
@@ -410,6 +410,23 @@ describe('DidMethodApi offline update steps', () => {
     it('refuses a value that is not an object', () => {
       const { api } = offlineFixture();
       expect(() => api.btcr2.hashDocument('text' as never)).to.throw('document must be an object');
+    });
+
+    it('sorts the members of an object with a data member named toJSON', () => {
+      const { api } = offlineFixture();
+      const literal = encode(hash('{"a":2,"b":1,"toJSON":"x"}'), 'base64urlnopad');
+      expect(api.btcr2.hashDocument({ b: 1, toJSON: 'x', a: 2 })).to.equal(literal);
+      // A toJSON method gives the JSON form, also in sorted order.
+      const viaMethod = encode(hash('{"a":1,"b":{"x":2,"y":1}}'), 'base64urlnopad');
+      expect(api.btcr2.hashDocument({ b: { toJSON: () => ({ y: 1, x: 2 }) }, a: 1 })).to.equal(viaMethod);
+    });
+
+    it('refuses a document with no JCS form', () => {
+      const { api } = offlineFixture();
+      expect(() => api.btcr2.hashDocument({ a: NaN }))
+        .to.throw(CanonicalizationError).with.property('type', 'NON_FINITE_NUMBER');
+      expect(() => api.btcr2.hashDocument({ a: '\ud800' }))
+        .to.throw(CanonicalizationError).with.property('type', 'LONE_SURROGATE');
     });
   });
 

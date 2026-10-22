@@ -73,6 +73,15 @@ The `metadata` of the result is the DID document metadata of the specification. 
 
 An identifier that does not decode fails with an `IdentifierError` of type `INVALID_DID`, also if the Bech32m decoder rejects the body. A sidecar genesis document whose hash is not the genesis bytes of the identifier fails with a `ResolveError` of type `INVALID_DID`.
 
+Each hash step of the resolver uses JCS (RFC 8785). A value with no JCS form, for example a value that holds NaN, Infinity, or a lone surrogate, has no hash (ADR 154). The resolver handles such a value as follows:
+
+- A genesis document fails with a `ResolveError` of type `INVALID_DID_DOCUMENT`.
+- A signed update that `provide` gets for a `NeedSignedUpdate` fails with `INVALID_SIGNAL_DATA`, as an update with another hash does.
+- A CAS Announcement that `provide` gets for a `NeedCASAnnouncement` fails with `MISSING_UPDATE_DATA`, as an announcement with another hash does.
+- An update or a CAS Announcement in the sidecar data stays out of the lookup maps, so it has no effect. If a beacon signal needs it, the resolver asks for it with a data need.
+
+The `data.cause` of each of these errors gives the type and the message of the `CanonicalizationError`. On the write path, `Updater.construct` and `Updater.sign` refuse a source document or a patch with no JCS form with an `UpdateError` of type `INVALID_DID_UPDATE`.
+
 A genesis document from the sidecar or from the CAS gives the initial DID document. The resolver replaces each `did:btcr2:_` in the genesis document with the DID, and it adds no member (ADR 148). Then `@context` must contain the two btcr2 contexts, and the members must conform to DID Core v1.1 with the rules of a consumer (ADR 149). For example, each verification method needs a string `id` and `type` and a DID as its `controller`, and its key material must have a valid form. On the read path, the check does not read the syntax of a top-level `controller` item, an `alsoKnownAs` item, a service `id`, or a `serviceEndpoint`. A failed check gives a `DidDocumentError` of type `INVALID_DID_DOCUMENT`. For example, a genesis document without `@context` fails with the message `Invalid "@context"`. A genesis document without `service` gives a DID document without `service`, and the resolver asks for no beacon signal.
 
 Two resolution options select a version. The two options are mutually exclusive. A request with both, or with a value that does not parse, fails with `INVALID_OPTIONS` before any data need. The resolver processes the updates in version order. Each option selects the version as follows:

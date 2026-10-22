@@ -156,6 +156,18 @@ describe('identifier records (ADR 133)', () => {
     it('gives an empty object for two empty sets', () => {
       expect(mergeSidecar({}, {})).to.deep.equal({});
     });
+
+    it('keeps one copy of an entry with no JCS form', () => {
+      // A record file or a flag file can hold a "\ud800" escape; the entry has no hash.
+      const bad = { n: '\ud800' } as never;
+      const merged = mergeSidecar(
+        { updates: [ entry(1), bad ] },
+        { updates: [ { n: '\ud800' } as never, entry(1), entry(2) ] },
+      );
+      expect(merged).to.deep.equal({ updates: [ entry(1), bad, entry(2) ] });
+      // An update merges the record twice; the entry must not double.
+      expect(mergeSidecar(merged, merged)).to.deep.equal(merged);
+    });
   });
 
   describe('withRecordSidecar', () => {

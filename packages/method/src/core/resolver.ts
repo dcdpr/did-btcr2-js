@@ -1,5 +1,6 @@
 import { getNetwork } from '@did-btcr2/bitcoin';
 import {
+  CanonicalizationError,
   canonicalHash,
   canonicalHashBytes,
   canonicalize,
@@ -207,6 +208,19 @@ function isSMTProof(value: unknown): value is SMTProof {
     && value.hashes.every(h => typeof h === 'string')
     && (value.nonce === undefined || typeof value.nonce === 'string')
     && (value.updateId === undefined || typeof value.updateId === 'string');
+}
+
+/**
+ * Returns the JSON Document Hash of a sidecar item in hex, or `undefined` if the item has no
+ * JCS form (for example NaN or a lone surrogate). Other errors pass through.
+ */
+function sidecarItemHash(item: object): string | undefined {
+  try {
+    return canonicalHash(item, { encoding: 'hex' });
+  } catch(error) {
+    if(error instanceof CanonicalizationError) return undefined;
+    throw error;
+  }
 }
 
 /**
@@ -474,6 +488,8 @@ export class Resolver {
    * @param {DidComponents} didComponents BTCR2 DID components used to resolve the DID Document
    * @param {object} genesisDocument The genesis document for resolving the DID Document.
    * @returns {DidDocument} The resolved DID Document object
+   * @throws {ResolveError} `INVALID_DID_DOCUMENT` if the genesis document has no JCS form, for example
+   * if it holds NaN or a lone surrogate. `data.cause` holds the CanonicalizationError.
    * @throws {ResolveError} `INVALID_DID` if the hash of the genesis document is not the genesis bytes of the identifier
    * @throws {ResolveError} `INVALID_DID_DOCUMENT` if the id of the genesis document is not the placeholder
    * @throws {DidDocumentError} `INVALID_DID_DOCUMENT` if the result does not conform, for example
@@ -483,8 +499,18 @@ export class Resolver {
     didComponents: DidComponents,
     genesisDocument: object,
   ): DidDocument {
-    // Canonicalize and sha256 hash the genesis document
-    const genesisDocumentHash = canonicalHashBytes(genesisDocument);
+    // Canonicalize and sha256 hash the genesis document. A document with no JCS form has no
+    // hash, so it is not a valid genesis document.
+    let genesisDocumentHash: HashBytes;
+    try {
+      genesisDocumentHash = canonicalHashBytes(genesisDocument);
+    } catch(error) {
+      if(!(error instanceof CanonicalizationError)) throw error;
+      throw new ResolveError(
+        `Invalid genesis document: ${error.message}`,
+        INVALID_DID_DOCUMENT, { cause: errorCause(error) }
+      );
+    }
 
     // Compare genesis bytes from identifier against the document hash (byte comparison).
     // The specification raises INVALID_DID when the computed hash does not match genesis_bytes.
@@ -527,26 +553,31 @@ export class Resolver {
   /**
    * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process-sidecar-data | Process Sidecar Data}.
    * The SMT map (`smt_lookup_table`) holds a proof only if its `id` decodes to 32 bytes with
-   * the strict decoder (ADR 146).
+   * the strict decoder (ADR 146). The update map and the CAS map leave out an item that has no
+   * JCS form, for example an item that holds NaN or a lone surrogate.
    * @param {Sidecar} sidecar The sidecar data to process.
    * @returns {SidecarData} The maps of updates, CAS Announcements, and SMT proofs.
    */
   static sidecarData(sidecar: Sidecar = {} as Sidecar): SidecarData {
-    // BTCR2 Signed Updates map
+    // BTCR2 Signed Updates map. An item with no JCS form has no hash, so no signal can name
+    // it. Sidecar data that the resolver does not use has no effect on the result, so the map
+    // leaves the item out. A signal that needs it then finds no update in the map.
     const updateMap = new Map<string, SignedBTCR2Update>();
     if(sidecar.updates?.length)
       for(const update of sidecar.updates) {
-        updateMap.set(canonicalHash(update, { encoding: 'hex' }), update);
+        const updateHash = sidecarItemHash(update);
+        if(updateHash !== undefined) updateMap.set(updateHash, update);
       }
 
     // CAS Announcements map. The map keeps the JSON form of each announcement,
     // because the hash covers only that content. Thus an entry that JSON drops (for
-    // example an entry whose value is undefined) is not an entry for the DID.
+    // example an entry whose value is undefined) is not an entry for the DID. An item
+    // with no JCS form stays out of the map, as in the update map.
     const casMap = new Map<string, CASAnnouncement>();
     if(sidecar.casUpdates?.length)
       for(const update of sidecar.casUpdates) {
-        const announcement = JSON.parse(JSON.stringify(update));
-        casMap.set(canonicalHash(announcement, { encoding: 'hex' }), announcement);
+        const announcementHash = sidecarItemHash(update);
+        if(announcementHash !== undefined) casMap.set(announcementHash, JSON.parse(JSON.stringify(update)));
       }
 
     // SMT Proofs map (smt_lookup_table). The key is the hex of the decoded proof id,
@@ -1283,8 +1314,18 @@ export class Resolver {
         // Fail fast if the provided announcement is not the one the on-chain
         // signal requested: its canonical hash must equal the need's hash. The
         // specification ("Process CAS Beacon") treats an announcement whose hash is
-        // not map_update_hash as not available from CAS: MISSING_UPDATE_DATA.
-        const announcementHash = canonicalHash(data, { encoding: 'hex' });
+        // not map_update_hash as not available from CAS: MISSING_UPDATE_DATA. An
+        // announcement with no JCS form has no hash, so it gets the same error.
+        let announcementHash: string;
+        try {
+          announcementHash = canonicalHash(data, { encoding: 'hex' });
+        } catch(error) {
+          if(!(error instanceof CanonicalizationError)) throw error;
+          throw new ResolveError(
+            `CAS announcement hash mismatch: expected ${need.announcementHash}, but the announcement has no JCS form: ${error.message}`,
+            MISSING_UPDATE_DATA, { expected: need.announcementHash, cause: errorCause(error) }
+          );
+        }
         if(announcementHash !== need.announcementHash) {
           throw new ResolveError(
             `CAS announcement hash mismatch: expected ${need.announcementHash}, got ${announcementHash}.`,
@@ -1305,8 +1346,18 @@ export class Resolver {
         }
         // Fail fast if the provided update is not the one the on-chain signal
         // requested: the specification compares the JSON Document Hash of a
-        // retrieved update to update_hash, and a mismatch is INVALID_SIGNAL_DATA.
-        const updateHash = canonicalHash(data, { encoding: 'hex' });
+        // retrieved update to update_hash, and a mismatch is INVALID_SIGNAL_DATA. An
+        // update with no JCS form has no hash, so it gets the same error.
+        let updateHash: string;
+        try {
+          updateHash = canonicalHash(data, { encoding: 'hex' });
+        } catch(error) {
+          if(!(error instanceof CanonicalizationError)) throw error;
+          throw new ResolveError(
+            `Signed update hash mismatch: expected ${need.updateHash}, but the update has no JCS form: ${error.message}`,
+            INVALID_SIGNAL_DATA, { expected: need.updateHash, cause: errorCause(error) }
+          );
+        }
         if(updateHash !== need.updateHash) {
           throw new ResolveError(
             `Signed update hash mismatch: expected ${need.updateHash}, got ${updateHash}.`,

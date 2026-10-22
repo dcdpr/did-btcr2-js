@@ -144,6 +144,8 @@ export class SMTBeacon extends SinglePartyBeacon {
    *   proof (with the leaf nonce embedded). The proof MUST be captured for sidecar
    *   distribution: the nonce exists only here, so the on-chain signal is unresolvable without it.
    * @throws {BeaconError} if the bitcoin address is invalid, unfunded, or UTXO cannot cover the fee.
+   * @throws {CanonicalizationError} If the signed update has no JCS form, for example if it holds
+   *   NaN or a lone surrogate. Updater.sign refuses such an update before this step.
    */
   async broadcastSignal(
     signedUpdate: SignedBTCR2Update,

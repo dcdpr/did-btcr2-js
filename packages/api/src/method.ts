@@ -395,7 +395,8 @@ export class DidMethodApi {
    * @throws {ResolveError} `INVALID_DID` if the hash of the genesis document is
    *   not the genesis bytes of the DID.
    * @throws {ResolveError} `INVALID_DID_DOCUMENT` if the id of the genesis
-   *   document is not `did:btcr2:_`.
+   *   document is not `did:btcr2:_`, or if the genesis document has no JCS
+   *   form (RFC 8785), for example if it holds a lone surrogate.
    * @throws {DidDocumentError} `INVALID_DID_DOCUMENT` if the initial DID document
    *   does not conform, for example if the genesis document has no `"@context"`.
    */
@@ -484,8 +485,8 @@ export class DidMethodApi {
    * @param options Creation options (idType is set for you).
    * @returns The identifier, its genesis bytes, and the initial DID document.
    * @throws {DidDocumentError} `INVALID_DID_DOCUMENT` if the document is not a
-   *   valid genesis document, or if the initial DID document has no method
-   *   that can sign an update.
+   *   valid genesis document (for example, if it has no JCS form), or if the
+   *   initial DID document has no method that can sign an update.
    */
   createExternalFromDocument(
     genesisDocument: object,
@@ -519,8 +520,8 @@ export class DidMethodApi {
    * @param patch The JSON Patch operations that change the source document.
    * @returns The unsigned update.
    * @throws {UpdateError} `INVALID_DID_UPDATE` if `source.versionId` is not
-   *   an integer of 1 or more, or if the patch does not give a valid DID
-   *   document.
+   *   an integer of 1 or more, if the patch does not give a valid DID
+   *   document, or if the source document or the patch has no JCS form.
    */
   constructUpdate(source: SourceState, patch: PatchOperation[]): UnsignedBTCR2Update {
     if (source === null || typeof source !== 'object') {
@@ -598,6 +599,10 @@ export class DidMethodApi {
    * use this form.
    * @param document The JSON document.
    * @returns The hash, base64url with no padding.
+   * @throws {Error} If `document` is not an object.
+   * @throws {CanonicalizationError} If the document has no JCS form (RFC 8785):
+   *   `NON_FINITE_NUMBER` (NaN, Infinity, or -Infinity), `LONE_SURROGATE`, or
+   *   `NOT_JSON_DATA` (a BigInt or a cycle). `data.path` gives the location.
    */
   hashDocument(document: object): string {
     if (document === null || typeof document !== 'object') {

@@ -72,6 +72,8 @@ export class SingletonBeacon extends SinglePartyBeacon {
    * @param {BroadcastOptions} [options] Optional broadcast configuration (e.g. fee estimator).
    * @returns {Promise<BroadcastResult>} The signed update and the signal txid.
    * @throws {BeaconError} if the bitcoin address is invalid, unfunded, or UTXO cannot cover the fee.
+   * @throws {CanonicalizationError} If the signed update has no JCS form, for example if it holds
+   *   NaN or a lone surrogate. Updater.sign refuses such an update before this step.
    */
   async broadcastSignal(
     signedUpdate: SignedBTCR2Update,

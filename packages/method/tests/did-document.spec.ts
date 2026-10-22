@@ -539,3 +539,25 @@ describe('DidDocument sets no defaults (ADR 148)', () => {
     ]);
   });
 });
+
+describe('GenesisDocument.toGenesisBytes (ADR 154)', () => {
+  it('refuses a genesis document with no JCS form with INVALID_DID_DOCUMENT', () => {
+    const cases: Array<[ unknown, string, string ]> = [
+      [ '\ud800', 'LONE_SURROGATE', 'Cannot canonicalize: the string at /note has a lone surrogate (RFC 8785 section 3.2.2.2).' ],
+      [ Infinity, 'NON_FINITE_NUMBER', 'Cannot canonicalize: the number Infinity at /note is not a JSON number (RFC 8785 section 3.2.2.3).' ],
+    ];
+    for(const [ note, type, inner ] of cases) {
+      const genesis = { ...externalData[0]!.genesisDocument, note } as unknown as GenesisDocument;
+      let thrown: any;
+      try {
+        GenesisDocument.toGenesisBytes(genesis);
+      } catch(error) {
+        thrown = error;
+      }
+      expect(thrown, type).to.be.instanceOf(DidDocumentError);
+      expect(thrown.type).to.equal(INVALID_DID_DOCUMENT);
+      expect(thrown.message).to.equal(`Invalid genesis document: ${inner}`);
+      expect(thrown.data).to.deep.equal({ cause: { type, message: inner } });
+    }
+  });
+});

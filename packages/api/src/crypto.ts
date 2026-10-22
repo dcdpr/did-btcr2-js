@@ -157,6 +157,9 @@ export class CryptosuiteApi {
    * @param config Configuration for the proof creation.
    * @param cryptosuite Optional explicit cryptosuite; defaults to current.
    * @returns The created proof.
+   * @throws {CryptosuiteError} `PROOF_GENERATION_ERROR` if the proof options or the document
+   *   `@context` have no JCS form (the options are checked first), else
+   *   `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form.
    */
   createProof(
     document: UnsecuredDocument,
@@ -173,6 +176,9 @@ export class CryptosuiteApi {
    * @param document The document to verify the proof for.
    * @param cryptosuite Optional explicit cryptosuite; defaults to current.
    * @returns The full verification result.
+   * @throws {CryptosuiteError} `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form,
+   *   or `PROOF_GENERATION_ERROR` if the proof has no JCS form. The result is then an error,
+   *   not `verified: false`.
    */
   verifyProof(document: SecuredDocument, cryptosuite?: BIP340Cryptosuite): VerificationResult {
     const cs = cryptosuite ?? this.#requireCurrent();
@@ -236,6 +242,9 @@ export class DataIntegrityProofApi {
    * @param config Configuration for adding the proof.
    * @param proof Optional explicit proof instance; defaults to current.
    * @returns A document with a proof added.
+   * @throws {CryptosuiteError} `PROOF_GENERATION_ERROR` if the proof options or the document
+   *   `@context` have no JCS form (the options are checked first), else
+   *   `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form.
    */
   addProof<T extends UnsecuredDocument>(
     document: T,
@@ -253,6 +262,9 @@ export class DataIntegrityProofApi {
    * @param document The unsigned document to sign.
    * @param config The Data Integrity proof configuration.
    * @returns The signed document with proof attached.
+   * @throws {CryptosuiteError} `PROOF_GENERATION_ERROR` if the proof options or the document
+   *   `@context` have no JCS form (the options are checked first), else
+   *   `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form.
    */
   signDocument<T extends UnsecuredDocument>(
     multikey: SchnorrMultikey,
@@ -274,6 +286,9 @@ export class DataIntegrityProofApi {
    * @param expectedChallenge The expected challenge for the proof.
    * @param proof Optional explicit proof instance; defaults to current.
    * @returns The result of verifying the proof.
+   * @throws {CryptosuiteError} `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form,
+   *   or `PROOF_GENERATION_ERROR` if the proof has no JCS form. The result is then an error,
+   *   not `verified: false`.
    */
   verifyProof(
     document: string,
@@ -522,6 +537,9 @@ export class CryptoApi {
    * @param document The unsecured document to sign (any JSON object).
    * @param config The Data Integrity proof options.
    * @returns The secured document with proof attached.
+   * @throws {CryptosuiteError} `PROOF_GENERATION_ERROR` if the proof options or the document
+   *   `@context` have no JCS form (the options are checked first), else
+   *   `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form.
    */
   signDocument<T extends UnsecuredDocument>(document: T, config: DataIntegrityProofOptions): SecuredDocument<T> {
     return this.proof.addProof(document, config);
@@ -532,6 +550,9 @@ export class CryptoApi {
    * Shorthand for `crypto.cryptosuite.verifyProof(document)`.
    * @param document The secured document to verify.
    * @returns The full verification result.
+   * @throws {CryptosuiteError} `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form,
+   *   or `PROOF_GENERATION_ERROR` if the proof has no JCS form. The result is then an error,
+   *   not `verified: false`.
    */
   verifyDocument(document: SecuredDocument): VerificationResult {
     return this.cryptosuite.verifyProof(document);

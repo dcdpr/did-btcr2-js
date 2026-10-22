@@ -39,6 +39,8 @@ export class BIP340DataIntegrityProof implements DataIntegrityProof {
    * @param {UnsecuredDocument} unsignedDocument The document to add the proof to.
    * @param {DataIntegrityProofOptions} config The proof options for generating the proof.
    * @returns {SecuredDocument} A document with a proof added.
+   * @throws {CryptosuiteError} if the document or the proof options have no JCS form (see
+   * {@link BIP340Cryptosuite.createProof}).
    */
   addProof<T extends UnsecuredDocument>(unsignedDocument: T, config: DataIntegrityProofOptions): SecuredDocument<T> {
     // Generate the proof
@@ -91,6 +93,8 @@ export class BIP340DataIntegrityProof implements DataIntegrityProof {
    * @param {string[]} expectedDomain The expected domain of the proof.
    * @param {string} expectedChallenge The expected challenge of the proof.
    * @returns {VerificationResult} The result of verifying the proof.
+   * @throws {CryptosuiteError} if the document or the proof options have no JCS form, for example
+   * if the text holds a `\ud800` escape (see {@link BIP340Cryptosuite.verifyProof}).
    */
   verifyProof(
     document: string,

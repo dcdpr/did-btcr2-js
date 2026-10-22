@@ -1,3 +1,4 @@
+import { CryptosuiteError } from '@did-btcr2/common';
 import { SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { expect } from 'chai';
 import type {
@@ -170,6 +171,102 @@ describe('Cryptosuite', () => {
         cryptosuite.transformDocument(unsecuredDocument, freshConfig({ type: 'NotAProof' })));
       expect(JSON.parse(JSON.stringify(data)).suite).to.deep.equal(expectedSuite);
       expect(data.config.type).to.equal('NotAProof');
+    });
+  });
+
+  /**
+   * RFC 8785 section 3.2.2.2: data with no JCS form (a lone surrogate, NaN) stops JCS "with an
+   * appropriate error". VC Data Integrity section 3: the verifyProof of a suite "produces a
+   * cryptosuite verification result or an error". The suite raises a CryptosuiteError; it does
+   * not sign the data, and it does not return `verified: false` for it.
+   */
+  describe('No JCS form', () => {
+    const freshConfig = (overrides: Record<string, unknown> = {}): DataIntegrityProofOptions => ({
+      type               : 'DataIntegrityProof',
+      cryptosuite        : 'bip340-jcs-2025',
+      verificationMethod : `${controller}${id}`,
+      proofPurpose       : 'attestationMethod',
+      ...overrides
+    } as DataIntegrityProofOptions);
+
+    const errorFrom = (fn: () => unknown): any => {
+      try {
+        fn();
+      } catch (error) {
+        return error;
+      }
+      throw new Error('expected the call to throw');
+    };
+
+    const expectWrapped = (error: any, type: string, causeType: string, prefix: string) => {
+      expect(error).to.be.an.instanceOf(CryptosuiteError);
+      expect(error.type).to.equal(type);
+      expect(error.message.startsWith(`${prefix}: Cannot canonicalize`)).to.equal(true, error.message);
+      expect(error.data.cause.type).to.equal(causeType);
+      expect(error.message).to.equal(`${prefix}: ${error.data.cause.message}`);
+    };
+
+    it('createProof refuses a document with a lone surrogate', () => {
+      expectWrapped(
+        errorFrom(() => cryptosuite.createProof({ a: '\ud800' }, freshConfig())),
+        'PROOF_TRANSFORMATION_ERROR', 'LONE_SURROGATE', 'Invalid document'
+      );
+    });
+
+    it('createProof refuses a document with NaN', () => {
+      expectWrapped(
+        errorFrom(() => cryptosuite.createProof({ a: NaN }, freshConfig())),
+        'PROOF_TRANSFORMATION_ERROR', 'NON_FINITE_NUMBER', 'Invalid document'
+      );
+    });
+
+    it('createProof checks the document @context with the proof options first', () => {
+      const error = errorFrom(() => cryptosuite.createProof({ '@context': [ '\ud800' ], a: '\udc00' }, freshConfig()));
+      expectWrapped(error, 'PROOF_GENERATION_ERROR', 'LONE_SURROGATE', 'Invalid config');
+      expect(error.message).to.include('/@context/0');
+    });
+
+    it('createProof refuses proof options with a lone surrogate', () => {
+      expectWrapped(
+        errorFrom(() => cryptosuite.createProof({ a: 1 }, freshConfig({ domain: '\udc00' }))),
+        'PROOF_GENERATION_ERROR', 'LONE_SURROGATE', 'Invalid config'
+      );
+    });
+
+    it('verifyProof gives an error, not verified false, for a document with a lone surrogate', () => {
+      // U+FFFD is the character that a UTF-8 encoder writes for a lone surrogate.
+      const proof = cryptosuite.createProof({ a: '\ufffd' }, freshConfig());
+      expectWrapped(
+        errorFrom(() => cryptosuite.verifyProof({ a: '\ud800', proof })),
+        'PROOF_TRANSFORMATION_ERROR', 'LONE_SURROGATE', 'Invalid document'
+      );
+    });
+
+    it('verifyProof gives an error for proof options with a lone surrogate', () => {
+      const proof = cryptosuite.createProof({ a: 1 }, freshConfig({ domain: 'example.com' }));
+      expectWrapped(
+        errorFrom(() => cryptosuite.verifyProof({ a: 1, proof: { ...proof, domain: '\udc00' } })),
+        'PROOF_GENERATION_ERROR', 'LONE_SURROGATE', 'Invalid config'
+      );
+    });
+
+    it('the Data Integrity verifyProof gives the error for a \\ud800 escape in the text', () => {
+      const diProof = cryptosuite.toDataIntegrityProof();
+      const signed = JSON.stringify(diProof.addProof({ a: 'x' }, freshConfig()));
+      const text = signed.replace('"a":"x"', '"a":"\\ud800"');
+      expect(text).to.include('\\ud800');
+      expectWrapped(
+        errorFrom(() => diProof.verifyProof(text, 'attestationMethod')),
+        'PROOF_TRANSFORMATION_ERROR', 'LONE_SURROGATE', 'Invalid document'
+      );
+    });
+
+    it('an error of a toJSON method passes through unchanged', () => {
+      const inner = new Error('toJSON failed');
+      const error = errorFrom(() => cryptosuite.transformDocument(
+        { a: { toJSON: () => { throw inner; } } }, freshConfig()
+      ));
+      expect(error).to.equal(inner);
     });
   });
 });

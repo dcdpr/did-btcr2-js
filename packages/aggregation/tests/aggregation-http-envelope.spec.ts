@@ -1,5 +1,7 @@
+import { CanonicalizationError } from '@did-btcr2/common';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { expect } from 'chai';
+import type { BaseBody } from '../src/index.js';
 
 import {
   BaseMessage,
@@ -113,6 +115,28 @@ describe('HTTP transport envelope', () => {
 
       expect(() => verifyEnvelope(env, senderKeys.publicKey))
         .to.throw(HttpTransportError).with.property('type', 'ENVELOPE_SIG_INVALID');
+    });
+
+    it('rejects an envelope with no JCS form as ENVELOPE_MALFORMED', () => {
+      const env = signEnvelope(makeMessage(), { did: senderDid, keys: senderKeys });
+      (env.message.body as { cohortId: string }).cohortId = '\ud800';
+
+      let error: HttpTransportError | undefined;
+      try {
+        verifyEnvelope(env, senderKeys.publicKey);
+      } catch(e) {
+        error = e as HttpTransportError;
+      }
+      expect(error).to.be.instanceOf(HttpTransportError);
+      expect(error!.type).to.equal('ENVELOPE_MALFORMED');
+      expect(error!.data!.cause.type).to.equal('LONE_SURROGATE');
+      expect(error!.message).to.equal(`Envelope has no JCS form: ${error!.data!.cause.message}`);
+    });
+
+    it('signEnvelope refuses a message with no JCS form', () => {
+      const message = makeMessage({ body: { cohortId: 'c1', value: NaN } as BaseBody });
+      expect(() => signEnvelope(message, { did: senderDid, keys: senderKeys }))
+        .to.throw(CanonicalizationError).with.property('type', 'NON_FINITE_NUMBER');
     });
 
     it('rejects an envelope signed by a different key', () => {

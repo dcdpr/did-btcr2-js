@@ -61,7 +61,8 @@ function createSignedUpdate(did: string, keys: SchnorrKeyPair): SignedBTCR2Updat
  * delivered by hand so a test can tamper with one on the way. Members listed in
  * `decliners` take the cooperative non-inclusion path instead of submitting.
  */
-function formCohort(beaconType: string, decliners: number[] = []) {
+/** A cohort of two members in the CohortReady phase: the keys are final, and no member submitted. */
+function readyCohort(beaconType: string) {
   const serviceKeys = SchnorrKeyPair.generate();
   const serviceDid = DidBtcr2.create(serviceKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
   const keys = [ SchnorrKeyPair.generate(), SchnorrKeyPair.generate() ];
@@ -85,11 +86,17 @@ function formCohort(beaconType: string, decliners: number[] = []) {
   parts.forEach(p => toService(p.joinCohort(cohortId)));
   dids.forEach(did => toParts(service.acceptParticipant(cohortId, did)));
   toParts(service.finalizeKeygen(cohortId));
+
+  return { service, parts, serviceDid, dids, keys, cohortId, toParts, toService };
+}
+
+function formCohort(beaconType: string, decliners: number[] = []) {
+  const cohort = readyCohort(beaconType);
+  const { parts, dids, keys, cohortId, toService } = cohort;
   parts.forEach((p, i) => toService(decliners.includes(i)
     ? p.declineUpdate(cohortId)
     : p.submitUpdate(cohortId, createSignedUpdate(dids[i], keys[i]))));
-
-  return { service, parts, serviceDid, dids, keys, cohortId, toParts, toService };
+  return cohort;
 }
 
 /** The real script-tree beacon output script the cohort's address commits to. */
@@ -246,6 +253,36 @@ describe('Aggregate beacon announcement binding', () => {
       // Nothing to derive from: fail closed rather than bind to nothing.
       expect(getBeaconStrategy('CASBeacon')!.deriveSignal({ matches: true })).to.be.undefined;
       expect(getBeaconStrategy('SMTBeacon')!.deriveSignal({ matches: true })).to.be.undefined;
+    });
+
+    it('CAS: a map with no JCS form gives no signal; other errors pass through', () => {
+      const cas = getBeaconStrategy('CASBeacon')!;
+      expect(cas.deriveSignal({ matches: true, casAnnouncement: { a: '\ud800' } })).to.be.undefined;
+      const inner = new Error('toJSON failed');
+      const casAnnouncement = { a: { toJSON: () => { throw inner; } } } as unknown as Record<string, string>;
+      expect(() => cas.deriveSignal({ matches: true, casAnnouncement })).to.throw(inner);
+    });
+
+    it('submitUpdate refuses an update with no JCS form, and the member can submit again', () => {
+      // The member hashes its own update when it validates. An update with NaN has no hash.
+      const { parts, dids, keys, cohortId } = readyCohort('CASBeacon');
+      const update = { ...createSignedUpdate(dids[0], keys[0]), note: NaN };
+      expectRefusal(() => parts[0].submitUpdate(cohortId, update as never), 'UPDATE_MALFORMED',
+        /^Cannot submit update to cohort .*: the update has no JCS form: Cannot canonicalize: the number NaN at \/note/);
+      expect(parts[0].submitUpdate(cohortId, createSignedUpdate(dids[0], keys[0]))).to.have.length(1);
+    });
+
+    it('CAS: a member does not approve a distributed map with no JCS form', () => {
+      const { service, parts, cohortId, toParts } = formCohort('CASBeacon');
+      const messages = service.buildAndDistribute(cohortId);
+      const map = { ...service.getCohort(cohortId)!.casAnnouncement! };
+      // The map of the member still holds its own update. One more entry has a lone surrogate.
+      messages[0].body!.casAnnouncement = { ...map, 'did:btcr2:x1other': '\ud800' };
+      toParts(messages);
+
+      const validation = parts[0].getValidation(cohortId)!;
+      expect(validation.casAnnouncement!['did:btcr2:x1other']).to.equal('\ud800');
+      expect(validation.matches).to.be.false;
     });
 
     it('refuses to sign after an unbound announcement, even if the member approved it', () => {

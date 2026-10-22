@@ -1,4 +1,4 @@
-import { canonicalHash } from '@did-btcr2/common';
+import { CanonicalizationError, canonicalHash } from '@did-btcr2/common';
 import type { SecuredDocument } from '@did-btcr2/cryptosuite';
 import type { SerializedSMTProof} from '@did-btcr2/smt';
 import { schnorr } from '@noble/curves/secp256k1.js';
@@ -508,6 +508,17 @@ export class AggregationParticipant {
       throw new AggregationParticipantError(
         `Cannot submit update to cohort ${cohortId}: not in CohortReady phase.`,
         'INVALID_PHASE', { cohortId, phase: state?.phase }
+      );
+    }
+    // The member hashes its update when it validates the aggregated data. An update with no
+    // JCS form (NaN, a lone surrogate) has no hash, so the member refuses it here.
+    try {
+      canonicalHash(signedUpdate);
+    } catch(error) {
+      if(!(error instanceof CanonicalizationError)) throw error;
+      throw new AggregationParticipantError(
+        `Cannot submit update to cohort ${cohortId}: the update has no JCS form: ${error.message}`,
+        'UPDATE_MALFORMED', { cohortId, cause: { type: error.type, message: error.message } }
       );
     }
 

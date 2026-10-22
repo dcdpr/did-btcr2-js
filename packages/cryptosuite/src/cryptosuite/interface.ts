@@ -44,6 +44,7 @@ export interface Cryptosuite {
    * @param {UnsecuredDocument} insecureDocument The document to create a proof for.
    * @param {DataIntegrityProofOptions} config The proof options to use when creating the proof.
    * @returns {DataIntegrityProofObject} The proof for the document.
+   * @throws {CryptosuiteError} if the document or the proof options have no JCS form.
    */
   createProof(insecureDocument: UnsecuredDocument, config: DataIntegrityProofOptions): DataIntegrityProofObject;
 
@@ -51,6 +52,7 @@ export interface Cryptosuite {
    * Verify a proof for a secured document.
    * @param {SecuredDocument} secureDocument The secured document to verify.
    * @returns {VerificationResult} The result of the verification.
+   * @throws {CryptosuiteError} if the document or the proof options have no JCS form.
    */
   verifyProof(secureDocument: SecuredDocument): VerificationResult;
 
@@ -59,7 +61,8 @@ export interface Cryptosuite {
    * @param {UnsecuredDocument} document The document to transform.
    * @param {DataIntegrityProofOptions} config The proof options to use when transforming the document.
    * @returns {string} The canonicalized document.
-   * @throws {MethodError} if the document cannot be transformed.
+   * @throws {MethodError} if the type or the cryptosuite of the config is not the one of the suite.
+   * @throws {CryptosuiteError} `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form.
    */
   transformDocument(document: UnsecuredDocument, config: DataIntegrityProofOptions): string;
 
@@ -75,7 +78,7 @@ export interface Cryptosuite {
    * Configure the proof by canonicalzing it.
    * @param {DataIntegrityProofOptions} config The config to use when transforming the proof.
    * @returns {string} The canonicalized proof configuration.
-   * @throws {MethodError} if the proof configuration cannot be canonicalized.
+   * @throws {CryptosuiteError} if the config does not match the suite or has no JCS form.
    */
   proofConfiguration(config: DataIntegrityProofOptions): CanonicalizedProofConfig;
 

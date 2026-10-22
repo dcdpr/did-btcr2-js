@@ -170,6 +170,8 @@ export class CASBeacon extends SinglePartyBeacon {
    * @returns {Promise<BroadcastResult>} The signed update, the signal txid, and the CAS
    *   Announcement (capture it for sidecar distribution when no `casPublish` is supplied).
    * @throws {BeaconError} if the bitcoin address is invalid, unfunded, or UTXO cannot cover the fee.
+   * @throws {CanonicalizationError} If the signed update has no JCS form, for example if it holds
+   *   NaN or a lone surrogate. Updater.sign refuses such an update before this step.
    */
   async broadcastSignal(
     signedUpdate: SignedBTCR2Update,
