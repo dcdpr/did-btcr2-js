@@ -1,4 +1,4 @@
-import { canonicalize, hash } from '@did-btcr2/common';
+import { CanonicalizationError, canonicalize, hash } from '@did-btcr2/common';
 import type { SecuredDocument } from '@did-btcr2/cryptosuite';
 import type { SerializedSMTProof } from '@did-btcr2/smt';
 import { base64UrlToHash, blockHash, hashToBase64Url, verifyProof } from '@did-btcr2/smt';
@@ -101,9 +101,17 @@ const CAS_STRATEGY: AggregateBeaconStrategy = {
 
   // Same derivation the cohort uses to set signalBytes (see
   // AggregationCohort.buildCASAnnouncement): SHA-256 of the canonicalized map.
+  // The map comes from the service. A map with no JCS form (a lone surrogate,
+  // a number that JSON.parse read as Infinity) gives no signal, so the member
+  // does not approve it.
   deriveSignal({ casAnnouncement }) {
     if(!casAnnouncement) return undefined;
-    return hash(canonicalize(casAnnouncement));
+    try {
+      return hash(canonicalize(casAnnouncement));
+    } catch(error) {
+      if(error instanceof CanonicalizationError) return undefined;
+      throw error;
+    }
   },
 };
 

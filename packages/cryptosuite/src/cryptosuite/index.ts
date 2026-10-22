@@ -4,12 +4,14 @@ import type {
   SignatureBytes
 } from '@did-btcr2/common';
 import {
+  CanonicalizationError,
   canonicalize,
   CryptosuiteError,
   DateUtils,
   MethodError,
   PROOF_GENERATION_ERROR,
   PROOF_SERIALIZATION_ERROR,
+  PROOF_TRANSFORMATION_ERROR,
   PROOF_VERIFICATION_ERROR
 } from '@did-btcr2/common';
 import { sha256 } from '@noble/hashes/sha2';
@@ -91,6 +93,10 @@ export class BIP340Cryptosuite implements Cryptosuite {
    * @param {DidUpdatePayload} document The document to create a proof for.
    * @param {DataIntegrityProofOptions} config The options to use when creating the proof.
    * @returns {DataIntegrityProofObject} The proof for the document.
+   * @throws {CryptosuiteError} `PROOF_GENERATION_ERROR` if the proof options or the document
+   * `@context` have no JCS form: the options get the document `@context` and are checked first.
+   * Else `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form (see
+   * {@link BIP340Cryptosuite.proofConfiguration} and {@link BIP340Cryptosuite.transformDocument}).
    */
   createProof(
     document: UnsecuredDocument,
@@ -131,6 +137,9 @@ export class BIP340Cryptosuite implements Cryptosuite {
    * Verify a proof for a secure document.
    * @param {SecuredDocument} secureDocument The secured document to verify.
    * @returns {VerificationResult} The result of the verification.
+   * @throws {CryptosuiteError} `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form, or
+   * `PROOF_GENERATION_ERROR` if the proof options have no JCS form. The verification does not
+   * complete, so the result is an error and not `verified: false` (VC Data Integrity, section 3).
    */
   verifyProof(secureDocument: SecuredDocument): VerificationResult {
     // Destructure the proof from the secure document and create an unsecured document without the proof
@@ -163,7 +172,11 @@ export class BIP340Cryptosuite implements Cryptosuite {
    * @param {UnsecuredDocument} document The document to transform.
    * @param {DataIntegrityProofOptions} config The config to use when transforming the document.
    * @returns {string} The canonicalized document.
-   * @throws {MethodError} if the document cannot be transformed.
+   * @throws {MethodError} `PROOF_VERIFICATION_ERROR` if the type or the cryptosuite of the config
+   * is not the one of this suite.
+   * @throws {CryptosuiteError} `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form, for
+   * example if it holds a lone surrogate or NaN. `data.cause` gives the type and the message of the
+   * CanonicalizationError.
    */
   transformDocument(document: UnsecuredDocument, config: DataIntegrityProofOptions): string {
     // Get the type from the options and check if it matches this type
@@ -182,8 +195,17 @@ export class BIP340Cryptosuite implements Cryptosuite {
       );
     }
 
-    // Return the canonicalized document
-    return canonicalize(document);
+    // RFC 8785 section 3.2.2.2: data with no JCS form stops JCS "with an appropriate error".
+    // VC Data Integrity section 4.7 names PROOF_TRANSFORMATION_ERROR for the transformation.
+    try {
+      return canonicalize(document);
+    } catch(error) {
+      if(!(error instanceof CanonicalizationError)) throw error;
+      throw new CryptosuiteError(
+        `Invalid document: ${error.message}`,
+        PROOF_TRANSFORMATION_ERROR, { cause: { type: error.type, message: error.message } }
+      );
+    }
   }
 
   /**
@@ -210,7 +232,10 @@ export class BIP340Cryptosuite implements Cryptosuite {
    * Configure the proof by canonicalzing it.
    * @param {DataIntegrityProofOptions} config The config to use when transforming the proof.
    * @returns {string} The canonicalized proof configuration.
-   * @throws {CryptosuiteError} if the proof configuration cannot be canonicalized.
+   * @throws {CryptosuiteError} `PROOF_GENERATION_ERROR` if the type or the cryptosuite of the config
+   * is not the one of this suite, if `created` is not a valid XMLSchema DateTime, or if the config
+   * has no JCS form. For no JCS form, `data.cause` gives the type and the message of the
+   * CanonicalizationError.
    */
   proofConfiguration(config: DataIntegrityProofOptions): CanonicalizedProofConfig {
     // If the config type does not match the cryptosuite type, throw CryptosuiteError
@@ -239,7 +264,16 @@ export class BIP340Cryptosuite implements Cryptosuite {
         );
     }
 
-    return canonicalize(config);
+    // The other steps of "Proof Configuration" raise PROOF_GENERATION_ERROR; its JCS step does too.
+    try {
+      return canonicalize(config);
+    } catch(error) {
+      if(!(error instanceof CanonicalizationError)) throw error;
+      throw new CryptosuiteError(
+        `Invalid config: ${error.message}`,
+        PROOF_GENERATION_ERROR, { cause: { type: error.type, message: error.message } }
+      );
+    }
   }
 
   /**

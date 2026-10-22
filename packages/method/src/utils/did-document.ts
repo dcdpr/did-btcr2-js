@@ -5,6 +5,7 @@ import type {
   KeyBytes
 } from '@did-btcr2/common';
 import {
+  CanonicalizationError,
   canonicalize,
   DidDocumentError,
   hash,
@@ -17,6 +18,7 @@ import { p2pkh } from '@scure/btc-signer';
 import type { BeaconService } from '../core/beacon/interfaces.js';
 import { Identifier } from '../core/identifier.js';
 import { didCoreProblem, isJsonMap, NOT_A_JSON_OBJECT, type ConformanceRole } from './did-core-conformance.js';
+import { errorCause } from './error-cause.js';
 
 export const BTCR2_DID_DOCUMENT_CONTEXT = [
   'https://www.w3.org/ns/did/v1.1',
@@ -486,8 +488,18 @@ export class GenesisDocument extends DidDocument {
    * Convert a GenesisDocument to genesis bytes.
    * @param {GenesisDocument} genesisDocument The GenesisDocument to convert.
    * @returns {Bytes} The genesis bytes.
+   * @throws {DidDocumentError} `INVALID_DID_DOCUMENT` if the document has no JCS form, for example
+   * if it holds NaN or a lone surrogate. `data.cause` holds the CanonicalizationError.
    */
   static toGenesisBytes(genesisDocument: GenesisDocumentLike): HashBytes {
-    return hash(canonicalize(genesisDocument));
+    try {
+      return hash(canonicalize(genesisDocument));
+    } catch(error) {
+      if(!(error instanceof CanonicalizationError)) throw error;
+      throw new DidDocumentError(
+        `Invalid genesis document: ${error.message}`,
+        INVALID_DID_DOCUMENT, { cause: errorCause(error) }
+      );
+    }
   }
 }

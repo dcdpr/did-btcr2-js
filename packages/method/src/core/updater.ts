@@ -1,6 +1,6 @@
 import type { BitcoinConnection } from '@did-btcr2/bitcoin';
 import type { PatchOperation } from '@did-btcr2/common';
-import { canonicalHash, canonicalize, INVALID_DID_UPDATE, JSONPatch, UpdateError } from '@did-btcr2/common';
+import { CanonicalizationError, canonicalHash, canonicalize, INVALID_DID_UPDATE, JSONPatch, UpdateError } from '@did-btcr2/common';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import type { Signer } from '@did-btcr2/keypair';
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from './btcr2-update.js';
@@ -180,6 +180,25 @@ function absoluteMethodId(verificationMethodId: string, did: string): string {
 }
 
 /**
+ * Returns the JSON Document Hash of `sourceDocument`, the `sourceHash` of an update.
+ * @param {Btcr2DidDocument} sourceDocument The DID document that the update changes.
+ * @returns {string} The hash in base64url text.
+ * @throws {UpdateError} `INVALID_DID_UPDATE` if `sourceDocument` has no JCS form, for example if it
+ *   holds NaN or a lone surrogate. `data.cause` holds the CanonicalizationError.
+ */
+function sourceHashOf(sourceDocument: Btcr2DidDocument): string {
+  try {
+    return canonicalHash(sourceDocument);
+  } catch(error) {
+    if(!(error instanceof CanonicalizationError)) throw error;
+    throw new UpdateError(
+      `Invalid sourceDocument: ${error.message}`,
+      INVALID_DID_UPDATE, { field: 'sourceDocument', cause: errorCause(error) }
+    );
+  }
+}
+
+/**
  * Checks that `unsignedUpdate` is an update of `sourceDocument`. A resolver refuses an announced
  * update if its hashes do not match the documents, and then the DID no longer resolves. So the
  * write path must refuse such an update before it signs. The checks, in this order:
@@ -187,7 +206,7 @@ function absoluteMethodId(verificationMethodId: string, did: string): string {
  * 1. `unsignedUpdate` is an object with no `proof` member.
  * 2. `targetVersionId` is an integer of 2 or more, as in the shape rule of the read path.
  * 3. `@context` is the array that the specification pins for a BTCR2 Update.
- * 4. `sourceHash` is the hash of `sourceDocument`.
+ * 4. `sourceDocument` has a JCS form, and `sourceHash` is its hash.
  * 5. `patch` gives a valid DID document from `sourceDocument` ({@link Updater.construct}).
  * 6. `targetHash` is the hash of that document.
  *
@@ -230,7 +249,7 @@ function checkUnsignedUpdate(sourceDocument: Btcr2DidDocument, unsignedUpdate: U
   }
   // The read path decodes each hash with a strict base64url decoder and compares the bytes. The
   // decoder accepts one text for each hash, so the text comparison here gives the same result.
-  const sourceHash = canonicalHash(sourceDocument);
+  const sourceHash = sourceHashOf(sourceDocument);
   if(unsignedUpdate.sourceHash !== sourceHash) {
     throw new UpdateError(
       'Invalid unsignedUpdate: sourceHash is not the hash of sourceDocument.',
@@ -340,6 +359,8 @@ export class Updater {
    * @param {number} sourceVersionId The version ID of the source document.
    * @returns {UnsignedBTCR2Update} The constructed UnsignedBTCR2Update object.
    * @throws {UpdateError} `INVALID_DID_UPDATE` if `sourceVersionId` is not an integer of 1 or more.
+   * @throws {UpdateError} `INVALID_DID_UPDATE` if `sourceDocument` or `patches` has no JCS form, for
+   *   example if it holds NaN or a lone surrogate. `data.cause` holds the CanonicalizationError.
    * @throws {UpdateError} If the target document fails DID Core validation.
    */
   static construct(
@@ -363,7 +384,7 @@ export class Updater {
       patch           : patches,
       targetHash      : '',
       targetVersionId : sourceVersionId + 1,
-      sourceHash      : canonicalHash(sourceDocument),
+      sourceHash      : sourceHashOf(sourceDocument),
     };
 
     // Spec "Construct BTCR2 Unsigned Update": apply jsonPatch strictly. The first operation
@@ -373,6 +394,12 @@ export class Updater {
     let targetDocument: Record<string, any>;
     try {
       targetDocument = JSONPatch.apply(sourceDocument, patches, { strict: true });
+      // The update holds the operations as given, and a resolver hashes the update with JCS.
+      // JSONPatch.apply runs on a JSON copy of the operations, which writes NaN as null, so
+      // the target document can have a hash while the patch has no JCS form. The check runs
+      // after JSONPatch.apply, so that a patch that is not an array keeps the error of
+      // JSONPatch.apply.
+      canonicalize(patches);
     } catch(error) {
       throw new UpdateError(
         `Invalid patch: ${errorCause(error).message}`,
@@ -529,7 +556,7 @@ export class Updater {
    *   - `unsignedUpdate` is not an object, or it has a `proof` member.
    *   - `targetVersionId` is not an integer of 2 or more.
    *   - `@context` is not the array that the specification pins for a BTCR2 Update.
-   *   - `sourceHash` is not the hash of `sourceDocument`.
+   *   - `sourceDocument` has no JCS form, or `sourceHash` is not its hash.
    *   - `patch` does not give a valid DID document from `sourceDocument`. `data.cause` holds
    *     the error of {@link construct}.
    *   - `targetHash` is not the hash of the document that `patch` gives.

@@ -1,4 +1,4 @@
-import { canonicalHashBytes } from '@did-btcr2/common';
+import { CanonicalizationError, canonicalHashBytes } from '@did-btcr2/common';
 import type { CompressedSecp256k1PublicKey, SchnorrKeyPair } from '@did-btcr2/keypair';
 import { bytesToHex, hexToBytes, randomBytes } from '@noble/hashes/utils';
 
@@ -44,6 +44,9 @@ export interface VerifyEnvelopeOptions {
  * uses the platform's cryptographic RNG: `crypto.getRandomValues` in browsers,
  * `node:crypto` in Node). Deterministic when both `nonce` and `timestamp` are
  * supplied via {@link SignEnvelopeOptions}.
+ *
+ * @throws {CanonicalizationError} if the envelope has no JCS form, for example if
+ * the message holds a lone surrogate or NaN.
  */
 export function signEnvelope(
   message: EnvelopeMessage,
@@ -80,7 +83,8 @@ export function signEnvelope(
  * 3. The timestamp skew. A timestamp that gives no finite difference to the
  *    clock (for example a string that is not a number) fails this check.
  * 4. The nonce form: 16 to 64 bytes of lowercase hex, else `ENVELOPE_NONCE_INVALID`.
- * 5. The signature.
+ * 5. The signature. An envelope with no JCS form (RFC 8785), for example with a
+ *    lone surrogate, fails this check with `ENVELOPE_MALFORMED`.
  *
  * Does NOT check nonce uniqueness. Replay protection is the caller's
  * responsibility: the server transport keeps a time-based replay cache.
@@ -153,7 +157,17 @@ export function verifyEnvelope(
   }
 
   const { sig: _sig, ...unsigned } = envelope;
-  const digest = canonicalHashBytes(unsigned);
+  let digest: Uint8Array;
+  try {
+    digest = canonicalHashBytes(unsigned);
+  } catch(error) {
+    if(!(error instanceof CanonicalizationError)) throw error;
+    throw new HttpTransportError(
+      `Envelope has no JCS form: ${error.message}`,
+      'ENVELOPE_MALFORMED',
+      { cause: { type: error.type, message: error.message } },
+    );
+  }
 
   const ok = senderPk.verify(sigBytes, digest, { scheme: 'schnorr' });
   if(!ok) {

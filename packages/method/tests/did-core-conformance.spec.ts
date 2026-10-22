@@ -85,6 +85,27 @@ describe('DID Core v1.1 member rules', () => {
       });
     }
 
+    it('compares no set item that has no JCS form, so the duplicate check of a producer does not throw (ADR 154)', () => {
+      // The hash step of the operation refuses such a document with the error of the JCS step.
+      const changes: Array<[ string, DocumentChange ]> = [
+        [ 'verificationMethod', d => {
+          const method = d.verificationMethod[0];
+          d.verificationMethod = [ { ...method, note: '\ud800' }, { ...method, id: `${fixture.did}#key-1`, note: '\ud800' } ];
+        } ],
+        [ 'capabilityInvocation', d => {
+          const method = d.verificationMethod[0];
+          d.capabilityInvocation = [ { ...method, id: `${fixture.did}#key-1`, note: '\ud800' }, `${fixture.did}#key-0` ];
+        } ],
+        [ 'serviceEndpoint', d => {
+          d.service[0].serviceEndpoint = [ { uri: '\ud800' }, { uri: 'https://example.com' } ];
+        } ],
+      ];
+      for(const [ label, change ] of changes) {
+        expect(didCoreProblem(didDocument(change), 'producer'), label).to.equal(undefined);
+        expect(didCoreProblem(didDocument(change), 'consumer'), label).to.equal(undefined);
+      }
+    });
+
     it('gives the first problem in the order of DID Core section 5', () => {
       const document = didDocument(d => {
         d.service = null;

@@ -1,6 +1,6 @@
 import { expect, use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { INTERNAL_ERROR, INVALID_DID_UPDATE, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/common';
+import { INTERNAL_ERROR, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/common';
 import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import {
   BitcoinApi,
@@ -608,6 +608,21 @@ describe('DidBtcr2Api', () => {
         expect(result.error).to.equal(INTERNAL_ERROR);
         expect(result.errorMessage).to.be.a('string');
         expect(result.raw).to.exist;
+      }
+    });
+
+    it('gives INVALID_DID_DOCUMENT for a sidecar genesis document with no JCS form', async () => {
+      const api = createApi();
+      const genesis = JSON.parse(JSON.stringify(api.btcr2.buildGenesisDocument({
+        network             : 'regtest',
+        verificationMethods : [{ publicKey: SchnorrKeyPair.generate().publicKey.compressed }],
+      })));
+      const did = api.btcr2.createExternal(new Uint8Array(32).fill(7), { network: 'regtest' });
+      const result = await api.tryResolveDid(did, { sidecar: { genesisDocument: { ...genesis, note: '\ud800' } } });
+      expect(result.ok).to.equal(false);
+      if (!result.ok) {
+        expect(result.error).to.equal(INVALID_DID_DOCUMENT);
+        expect(result.errorMessage).to.include('lone surrogate');
       }
     });
 

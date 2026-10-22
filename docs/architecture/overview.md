@@ -89,7 +89,7 @@ This is the standard **Facade + Strategy + Observer** pattern combination. The s
 
 Every place where we hash a DID document, an update payload, a CAS announcement, or a signature input, we use **JCS** (JSON Canonicalization Scheme, RFC 8785) followed by SHA-256. Encoding defaults to base64url. The implementation lives in `common/src/canonicalization.ts` as standalone functions: `canonicalize`, `hash`, `encode`, `decode`, `canonicalHash`.
 
-The canonicalization step uses `JSON.parse(JSON.stringify(value))` round-tripping before JCS to normalize class instances with `toJSON()` methods (e.g., `Btcr2DidDocument`). This is intentional: it ensures that identical document content always produces identical hashes, regardless of which class instances were used to construct it.
+The canonicalization step first makes the JSON form of the value: `JSON.stringify` calls each `toJSON()` method, for example of a `Btcr2DidDocument`. Thus a class instance and a plain object with the same content give the same hash. A check in this step refuses NaN, Infinity, a BigInt, and a cycle, because `JSON.stringify` writes NaN and Infinity as `null`. Then an own RFC 8785 serializer writes the JSON form. It sorts each object by the UTF-16 code units of its member names, also an object with a data member named `toJSON`. It refuses a lone surrogate (ADR 154).
 
 ### Hierarchical errors
 

@@ -306,8 +306,8 @@ export class Identifier {
    * The `genesisBytesMatch` check runs only if `options.genesisBytes` is present: the supplied bytes
    * must equal the genesis bytes of the identifier, for a KEY or an EXTERNAL identifier. The
    * `genesisDocument` check runs only if `options.genesisDocument` is present. For an EXTERNAL
-   * identifier it confirms that the document is a valid Genesis Document and that its canonical
-   * SHA-256 hash equals the genesis bytes. For a KEY identifier it fails.
+   * identifier it confirms that the document is a valid Genesis Document, that it has a JCS form,
+   * and that its canonical SHA-256 hash equals the genesis bytes. For a KEY identifier it fails.
    *
    * @param {string} identifier The did:btcr2 identifier to validate.
    * @param {IdentifierValidateOptions} [options] The validation options.
@@ -448,7 +448,13 @@ export class Identifier {
       } catch (error: unknown) {
         return fail('genesisDocument', `Invalid genesis document: ${error instanceof Error ? error.message : String(error)}`, { idType, network });
       }
-      const documentHash = canonicalHashBytes(document);
+      // A document with no JCS form (NaN, a lone surrogate) has no hash. The method does not throw.
+      let documentHash: Bytes;
+      try {
+        documentHash = canonicalHashBytes(document);
+      } catch (error: unknown) {
+        return fail('genesisDocument', `Invalid genesis document: ${error instanceof Error ? error.message : String(error)}`, { idType, network });
+      }
       if (!equalBytes(documentHash, genesisBytes)) {
         return fail(
           'genesisDocument',

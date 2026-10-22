@@ -668,7 +668,8 @@ const optInMsgs = session.joinCohort(cohortId);
 session.receive(cohortReadyMessage);
 const joined = session.joinedCohorts.get(cohortId);
 
-// Submit update:
+// Submit update. submitUpdate throws UPDATE_MALFORMED if the update has no
+// JCS form (RFC 8785), for example if it holds NaN or a lone surrogate.
 const submitMsgs = session.submitUpdate(cohortId, signedUpdate);
 
 // After receive() DISTRIBUTE_AGGREGATED_DATA, inspect validation:

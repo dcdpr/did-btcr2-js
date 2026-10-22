@@ -82,6 +82,8 @@ export { DEFAULT_MIN_CONF } from '@did-btcr2/method';
 // Error classes. `DidMethodError` is the base class of each error that the
 // facade throws; its `type` is the error code.
 export {
+  CanonicalizationError,
+  CryptosuiteError,
   DidDocumentError,
   DidMethodError,
   IdentifierError,

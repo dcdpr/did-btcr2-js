@@ -8,7 +8,7 @@ Part of the [`did-btcr2-js`](https://github.com/dcdpr/did-btcr2-js) monorepo.
 
 This package is the foundational layer that every other `@did-btcr2/*` package depends on. It has no workspace dependencies of its own. Its responsibilities:
 
-- **Canonicalization + hashing.** JCS (JSON Canonicalization Scheme, RFC 8785) plus SHA-256, with three encodings: hex, base58, and base64urlnopad (default). Used everywhere document hashes are produced or compared.
+- **Canonicalization + hashing.** JCS (JSON Canonicalization Scheme, RFC 8785) plus SHA-256, with three encodings: hex, base58, and base64urlnopad (default). Used everywhere document hashes are produced or compared. `canonicalize` sorts the members of each object, also of an object with a data member named `toJSON`. It refuses a value with no JCS form with a `CanonicalizationError`. The types are `NON_FINITE_NUMBER` (NaN, Infinity, or -Infinity), `LONE_SURROGATE` (a string or a member name), and `NOT_JSON_DATA` (a BigInt or a cycle). `data.path` gives the location of the value (ADR 154).
 - **JSON Patch helpers.** RFC 6902 operations and the typed `PatchOperation` interface used by the DID update path.
 - **Shared types.** Byte-aliases (`KeyBytes`, `HashBytes`, `SignatureBytes`, etc.), DID-related enums (`IdentifierTypes`, `IdentifierHrp`, `BitcoinNetworkNames`), and the `JSONObject` family used by canonical signing.
 - **Error hierarchy.** A single `DidMethodError` base with one subclass per failure domain (`MethodError`, `IdentifierError`, `UpdateError`, `ResolveError`, `KeyManagerError`, `KeyPairError`, `MultikeyError`, `CryptosuiteError`, etc.) Every typed error carries a `type` string tag and a structured `data` payload.
@@ -74,7 +74,7 @@ throw new MethodError('beacon address mismatch', 'BEACON_VALIDATION', {
 ## Architecture Principles
 
 - **Zero workspace dependencies.** This package is the root of the dependency graph; everything else can depend on it without cycles.
-- **Browser-compatible.** Pure TypeScript, no Node.js-only APIs. Runtime dependencies: `@noble/hashes`, `@scure/base`, `fast-json-patch`, and `json-canonicalize`. `@scure/bip32` is an optional peer dependency for HD-key consumers.
+- **Browser-compatible.** Pure TypeScript, no Node.js-only APIs. Runtime dependencies: `@noble/hashes`, `@scure/base`, and `fast-json-patch`. `@scure/bip32` is an optional peer dependency for HD-key consumers.
 - **Stable encoding contracts.** `base64urlnopad` is the default for hash encoding; protocol fields that carry raw bytes are hex-encoded, so downstream callers normalize to a common encoding before comparing.
 
 ## Build & Test

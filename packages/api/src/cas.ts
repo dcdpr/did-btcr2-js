@@ -412,6 +412,8 @@ export class CasApi {
    * matches what `canonicalHash` (from @did-btcr2/common) would produce.
    * @param object The JSON object to publish.
    * @returns The base64url-encoded SHA-256 hash (content address).
+   * @throws {CanonicalizationError} If the object has no JCS form (RFC 8785),
+   *   for example if it holds NaN or a lone surrogate. The api then publishes nothing.
    */
   async publish(object: object): Promise<string> {
     const bytes = new TextEncoder().encode(canonicalize(object as Record<string, any>));

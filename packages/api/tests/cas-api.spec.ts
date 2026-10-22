@@ -5,6 +5,7 @@ import * as raw from 'multiformats/codecs/raw';
 import { sha256 } from 'multiformats/hashes/sha2';
 import {
   BlockstoreCasExecutor,
+  CanonicalizationError,
   CasApi,
   createApi,
   DEFAULT_CAS_GATEWAY,
@@ -467,5 +468,31 @@ describe('CasApi', () => {
       const error = await rejection(casWith(array).retrieve(hash('[1,2]')));
       expect(error.message).to.match(/is not a JSON object/);
     });
+  });
+});
+
+describe('CasApi.publish and the JCS form', () => {
+  it('publishes the JCS form of an object with a data member named toJSON', async () => {
+    const blockstore = new FakeBlockstore();
+    const cas = new CasApi({ blockstore });
+    const text = '{"a":2,"b":1,"toJSON":"x"}';
+    const published = await cas.publish({ b: 1, toJSON: 'x', a: 2 });
+    expect(published).to.equal(encode(hash(text), 'base64urlnopad'));
+    const [ stored ] = [ ...blockstore.store.values() ];
+    expect(new TextDecoder().decode(stored)).to.equal(text);
+  });
+
+  it('refuses an object with no JCS form and publishes nothing', async () => {
+    const blockstore = new FakeBlockstore();
+    const cas = new CasApi({ blockstore });
+    let caught: unknown;
+    try {
+      await cas.publish({ a: '\ud800' });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).to.be.instanceOf(CanonicalizationError);
+    expect((caught as CanonicalizationError).type).to.equal('LONE_SURROGATE');
+    expect(blockstore.puts).to.have.length(0);
   });
 });

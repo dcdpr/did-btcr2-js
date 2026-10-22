@@ -46,6 +46,7 @@ Exactly one of the three modes runs. The present inputs select the mode. `--key`
 Exactly one of the two modes runs. No input fails with `External identifiers (-t x) require --document <path>, the genesis document, or --bytes <hex>, its 32-byte hash. ...`. Both inputs fail with `Provide at most one of --bytes or --document.` `-t x` with `--key` fails with `--key applies only to deterministic identifiers (-t k).`
 
 1. **Document** (`--document <path>`). The api hashes the file as written (JCS canonical form, SHA-256) and encodes the identifier. The result carries the hash as `genesisBytes`. Keep the file: the identifier resolves only with it. On a network with a faucet, the funding hint of `--verbose` names the first beacon of the document.
+   - A file with no JCS form (RFC 8785) fails (ADR 154). For example, the member `"note": "\ud800"` (a lone surrogate) fails with `Invalid genesis document: Cannot canonicalize: the string at /note has a lone surrogate (RFC 8785 section 3.2.2.2).` The number `1e400` (Infinity) fails too.
 2. **Raw bytes** (`--bytes <hex>`). The 32-byte genesis document hash, computed elsewhere. The command prints no funding hint, because it does not know the beacons.
 
 ### The identifier record

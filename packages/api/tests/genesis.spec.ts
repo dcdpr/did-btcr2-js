@@ -227,6 +227,23 @@ describe('genesis document builder', () => {
       expect(report.valid, JSON.stringify(report.checks)).to.equal(true);
     });
 
+    it('refuses a document with no JCS form as INVALID_DID_DOCUMENT', () => {
+      const methodApi = new DidMethodApi();
+      const doc = {
+        ...plain(methodApi.buildGenesisDocument({ network: 'regtest', verificationMethods: [{ publicKey: publicKey() }] })),
+        note : '\ud800',
+      };
+      let caught: unknown;
+      try {
+        methodApi.createExternalFromDocument(doc, { network: 'regtest' });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).to.be.instanceOf(DidDocumentError);
+      expect((caught as DidDocumentError).type).to.equal(INVALID_DID_DOCUMENT);
+      expect((caught as DidDocumentError).message).to.include('lone surrogate');
+    });
+
     it('accepts the document instance as well as its plain form', () => {
       const methodApi = new DidMethodApi();
       const instance = methodApi.buildGenesisDocument({ network: 'regtest', verificationMethods: [{ publicKey: publicKey() }] });

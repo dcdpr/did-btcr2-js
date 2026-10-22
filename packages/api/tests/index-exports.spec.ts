@@ -162,7 +162,8 @@ const RUNTIME_SURFACE = [
   'DEFAULT_CAS_GATEWAY', 'DEFAULT_CAS_TIMEOUT_MS', 'DEFAULT_MIN_CONF', 'NETWORK_PRESETS',
   'VERIFICATION_RELATIONSHIPS', 'explorerAddressUrl', 'explorerTxUrl', 'faucetUrl',
   // The error classes
-  'DidDocumentError', 'DidMethodError', 'IdentifierError', 'MethodError', 'ResolveError', 'UpdateError',
+  'CanonicalizationError', 'CryptosuiteError', 'DidDocumentError', 'DidMethodError', 'IdentifierError',
+  'MethodError', 'ResolveError', 'UpdateError',
 ];
 
 /**

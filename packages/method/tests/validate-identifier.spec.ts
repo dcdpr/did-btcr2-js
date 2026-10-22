@@ -240,6 +240,19 @@ describe('Validate Identifier', () => {
       expect(last(report).detail).to.include('did:btcr2:_');
     });
 
+    it('fails a genesis document with no JCS form, and does not throw (ADR 154)', () => {
+      const { did, document } = externalFixture();
+      const cases: Array<[ unknown, string ]> = [
+        [ '\ud800', 'Cannot canonicalize: the string at /note has a lone surrogate (RFC 8785 section 3.2.2.2).' ],
+        [ NaN, 'Cannot canonicalize: the number NaN at /note is not a JSON number (RFC 8785 section 3.2.2.3).' ],
+      ];
+      for(const [ note, inner ] of cases) {
+        const report = Identifier.validate(did, { genesisDocument: { ...document, note } });
+        expect(report.valid).to.equal(false);
+        expect(last(report)).to.deep.equal({ name: 'genesisDocument', ok: false, detail: `Invalid genesis document: ${inner}` });
+      }
+    });
+
     it('fails a genesis document that is not a valid Genesis Document', () => {
       // A DID document must have "@context". The identifier encodes the hash of the
       // broken document, so only the document check can fail.

@@ -36,6 +36,9 @@ export enum MethodErrorCode {
   /** The proof generation operation failed. */
   PROOF_GENERATION_ERROR = 'PROOF_GENERATION_ERROR',
 
+  /** The transformation of a document into the data to hash failed. */
+  PROOF_TRANSFORMATION_ERROR = 'PROOF_TRANSFORMATION_ERROR',
+
   /** The proof serialization operation failed. */
   PROOF_SERIALIZATION_ERROR = 'PROOF_SERIALIZATION_ERROR',
 
@@ -75,6 +78,7 @@ export const {
   NOT_FOUND,
   PROOF_VERIFICATION_ERROR,
   PROOF_GENERATION_ERROR,
+  PROOF_TRANSFORMATION_ERROR,
   PROOF_SERIALIZATION_ERROR,
   PROOF_PARSING_ERROR,
   VERIFICATION_METHOD_ERROR,

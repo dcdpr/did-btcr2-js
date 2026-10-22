@@ -1334,6 +1334,65 @@ describe('Updater', () => {
         }
       });
 
+      describe('a value with no JCS form (ADR 154)', () => {
+        const LONE = '\ud800';
+        const NAN_NOTE = 'Cannot canonicalize: the number NaN at /note is not a JSON number (RFC 8785 section 3.2.2.3).';
+        const NAN_PATCH = 'Cannot canonicalize: the number NaN at /0/value is not a JSON number (RFC 8785 section 3.2.2.3).';
+
+        /** The message of a lone surrogate at `path`. */
+        function loneSurrogate(path: string): string {
+          return `Cannot canonicalize: the string at ${path} has a lone surrogate (RFC 8785 section 3.2.2.2).`;
+        }
+
+        it('Updater.construct refuses a sourceDocument with no JCS form', () => {
+          const thrown = thrownBy(() => Updater.construct({ ...sourceDocument, note: NaN } as Btcr2DidDocument, ALSO_KNOWN_AS, 1));
+          expectRefusal(thrown, {
+            message : `Invalid sourceDocument: ${NAN_NOTE}`,
+            data    : { field: 'sourceDocument', cause: { type: 'NON_FINITE_NUMBER', message: NAN_NOTE } }
+          });
+        });
+
+        it('Updater.sign refuses a sourceDocument with no JCS form', () => {
+          const unsigned = Updater.construct(sourceDocument, ALSO_KNOWN_AS, 1);
+          const thrown = thrownBy(() => Updater.sign({ ...sourceDocument, note: LONE } as Btcr2DidDocument, unsigned, '#initialKey', signer));
+          expectRefusal(thrown, {
+            message : `Invalid sourceDocument: ${loneSurrogate('/note')}`,
+            data    : { field: 'sourceDocument', cause: { type: 'LONE_SURROGATE', message: loneSurrogate('/note') } }
+          });
+        });
+
+        it('Updater.construct refuses a patch with no JCS form, also if the target document has a JCS form', () => {
+          // JSONPatch.apply writes NaN as null, so the target document of the first case has a JCS form.
+          const cases: Array<[ PatchOperation[], string, string ]> = [
+            [ [{ op: 'add', path: '/note', value: NaN }], 'NON_FINITE_NUMBER', NAN_PATCH ],
+            [ [{ op: 'add', path: '/alsoKnownAs', value: [ `https://example.com/${LONE}` ] }], 'LONE_SURROGATE', loneSurrogate('/0/value/0') ],
+            [ [{ op: 'add', path: `/note${LONE}`, value: 'x' }], 'LONE_SURROGATE', loneSurrogate('/0/path') ],
+          ];
+          for(const [ patch, type, inner ] of cases) {
+            expectRefusal(thrownBy(() => Updater.construct(sourceDocument, patch, 1)), {
+              message : `Invalid patch: ${inner}`,
+              data    : { cause: { type, message: inner } }
+            });
+          }
+        });
+
+        it('Updater.sign refuses a patch with no JCS form, with the error of Updater.construct as the cause', () => {
+          const inner = `Invalid patch: ${NAN_PATCH}`;
+          expectRefusal(signThrows(updateWith({ patch: [{ op: 'add', path: '/note', value: NaN }] })), {
+            message : `Invalid unsignedUpdate: the patch does not give a valid DID document from sourceDocument: ${inner}`,
+            data    : { field: 'patch', cause: { type: INVALID_DID_UPDATE, message: inner } }
+          });
+        });
+
+        it('Updater.sign refuses an extra member with no JCS form, with the error of the cryptosuite as the cause', () => {
+          const inner = `Invalid document: ${NAN_NOTE}`;
+          expectRefusal(signThrows(updateWith({ note: NaN })), {
+            message : `Invalid update: cannot make the proof with "${INITIAL_KEY}": ${inner}`,
+            data    : { verificationMethodId: INITIAL_KEY, cause: { type: 'PROOF_TRANSFORMATION_ERROR', message: inner } }
+          });
+        });
+      });
+
       it('refuses a targetHash that is not the hash of the document that the patch gives', () => {
         const unsigned = updateWith({});
         const changedPatch = updateWith({ patch: OTHER_PATCH });

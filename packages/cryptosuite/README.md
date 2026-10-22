@@ -103,7 +103,7 @@ const proof = multikey.toCryptosuite().createProof(unsigned, config);
 
 ## Architecture Principles
 
-- **Canonicalization is the contract.** All proofs hash the JCS-canonicalized payload. `@did-btcr2/common` owns the canonicalization function; the cryptosuite just calls it.
+- **Canonicalization is the contract.** All proofs hash the JCS-canonicalized payload. `@did-btcr2/common` owns the canonicalization function; the cryptosuite just calls it. A document with no JCS form (RFC 8785), for example a document that holds NaN or a lone surrogate, gets no proof and no verification result. `createProof` and `verifyProof` throw a `CryptosuiteError` of type `PROOF_TRANSFORMATION_ERROR` for such a document, or of type `PROOF_GENERATION_ERROR` for such proof options (ADR 154). `createProof` checks the proof options first, and the options get the document `@context`. Thus a document `@context` with no JCS form gives `PROOF_GENERATION_ERROR`.
 - **Signer-agnostic.** Proof construction takes a `Signer`. `LocalSigner`, `KeyManagerSigner`, and arbitrary user-provided implementations all work without code changes in this package.
 - **Strict construction.** A `SchnorrMultikey` constructed with a mismatched `keyPair` and `externalSigner` rejects at construction. A multibase string with the wrong `[0xe7, 0x01]` prefix rejects in `fromVerificationMethod`.
 - **No `bitcoinjs-lib`.** Curve, Schnorr, and hash operations delegate to `@noble/curves` and `@noble/hashes`. Proof encoding uses `multiformats` (base58btc), and verification-method types come from `@web5/dids`.

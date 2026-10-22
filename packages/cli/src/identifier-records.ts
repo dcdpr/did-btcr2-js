@@ -1,5 +1,5 @@
 import type { DidUpdateResult, ResolutionOptions, Sidecar } from '@did-btcr2/api';
-import { DidApi, DidMethodApi } from '@did-btcr2/api';
+import { CanonicalizationError, DidApi, DidMethodApi } from '@did-btcr2/api';
 import { readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { CLIError } from './error.js';
@@ -245,7 +245,8 @@ function assertValidName(name: string): void {
  * Merges two sets of sidecar data. The genesis document of `primary` wins. Each
  * array holds the entries of `primary`, then each entry of `secondary` that has
  * another canonical hash. The resolver keys each entry by its hash, so an entry
- * that no beacon signal names has no effect.
+ * that no beacon signal names has no effect. An entry with no JCS form has no
+ * hash: the merge keeps one copy of each such entry, by its JSON text.
  */
 export function mergeSidecar(primary: Sidecar, secondary: Sidecar): Sidecar {
   const merged: Sidecar = {};
@@ -260,17 +261,32 @@ export function mergeSidecar(primary: Sidecar, secondary: Sidecar): Sidecar {
   return merged;
 }
 
-/** The entries of `a`, then each entry of `b` with a new canonical hash. */
+/** The entries of `a`, then each entry of `b` with a new key (see {@link entryKey}). */
 function union<T extends object>(a: T[] | undefined, b: T[] | undefined): T[] {
   const seen = new Set<string>();
   const out: T[] = [];
   for (const entry of [ ...(a ?? []), ...(b ?? []) ]) {
-    const hash = methodApi.hashDocument(entry);
-    if (seen.has(hash)) continue;
-    seen.add(hash);
+    const key = entryKey(entry);
+    if (seen.has(key)) continue;
+    seen.add(key);
     out.push(entry);
   }
   return out;
+}
+
+/**
+ * The canonical hash of a sidecar entry. An entry with no JCS form (a lone
+ * surrogate, a number that JSON.parse read as Infinity) has no hash; its key is
+ * its JSON text. Each update writes the record again, so without a key such an
+ * entry doubles at each write.
+ */
+function entryKey(entry: object): string {
+  try {
+    return methodApi.hashDocument(entry);
+  } catch (error) {
+    if (!(error instanceof CanonicalizationError)) throw error;
+    return `json:${JSON.stringify(entry)}`;
+  }
 }
 
 /** Whether a set of sidecar data holds no entry. */
