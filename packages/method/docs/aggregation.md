@@ -100,7 +100,7 @@ The aggregation subsystem is built in two layers, both public:
 
 Every actor (service or participant) needs a `Transport` to send and receive messages. Two production transports ship, both implementing the same `Transport` interface:
 
-- **`NostrTransport`**: relay-based. Censorship-resistant via multi-relay redundancy. NIP-44 envelope encryption for directed messages. Requires at least one running relay.
+- **`NostrTransport`**: relay-based. Censorship-resistant via multi-relay redundancy. Each message with a recipient goes as a kind 1059 event, with NIP-44 v2 encryption for the key of the recipient. Only a `COHORT_ADVERT` can go with no recipient, as a public kind 1 event. A plaintext above 65,535 bytes gives `MESSAGE_TOO_LARGE`, so a Nostr cohort has a size limit (see [Relay selection](#relay-selection-nostr-transport-only)). Requires at least one running relay.
 - **`HttpClientTransport` + `HttpServerTransport`**: HTTP/REST. Operator-hosted. Browser-compatible clients via `fetch` + fetch-based SSE. Framework-agnostic server (caller mounts `handleRequest` / `handleSse` in Hono / Express / Fastify / Workers / Bun). TLS-only confidentiality; signed-envelope authenticity per request.
 
 Runners and state machines are transport-agnostic: you pick a transport at construction time and the rest of the system doesn't care. Pick `NostrTransport` when you want censorship resistance and multi-relay redundancy; pick the HTTP pair when you want operational familiarity, browser-native clients, or REST-tooling interop.
@@ -166,7 +166,8 @@ Both transports carry identical protocol semantics. Differences that matter at d
 |---|:---:|:---:|
 | Wire infrastructure | One or more Nostr relays | One HTTP server (operator-hosted) |
 | Censorship resistance | High (multi-relay redundancy) | Low-to-medium (single operator) |
-| Confidentiality against the wire | Strong (NIP-44) | TLS only (operator sees plaintext) |
+| Confidentiality against the wire | Strong (NIP-44 v2 for each message with a recipient; adverts are public) | TLS only (operator sees plaintext) |
+| Largest cohort (did:btcr2 KEY DIDs) | About 533 members for CAS, about 804 for SMT (the 65,535-byte plaintext limit of the transport) | No transport limit by default (see [`maxSseEventBytes`](./http-transport.md#sse-event-size-limit)) |
 | Browser participants | Requires a Nostr library | Native (`fetch` + streaming) |
 | Ops / debugging surface | Relay internals | curl, access logs, OpenAPI |
 | Test harness | Needs a relay | Plain HTTP mock or in-process parity test |
@@ -744,7 +745,7 @@ In production, each actor (service or participant) runs in its own process, with
 
 ### Relay selection (Nostr transport only)
 
-Aggregation requires reliable delivery, especially for the encrypted directed messages (NIP-44 kind 1059). Use 2–3 relays for redundancy. Public relays may rate-limit or drop kind 1059 events under load. If you need guaranteed delivery, run your own relay.
+Aggregation requires reliable delivery of kind 1059 events. Each message with a recipient goes as a kind 1059 event, also the cohort formation messages (`COHORT_OPT_IN`, `COHORT_OPT_IN_ACCEPT`, `COHORT_READY`). Use 2–3 relays for redundancy. Public relays may rate-limit or drop kind 1059 events under load. If you need guaranteed delivery, run your own relay.
 
 Observed behavior against common public relays (as of the e2e-verify-signing runs in the `refactor/aggregation` branch):
 
@@ -758,6 +759,17 @@ Observed behavior against common public relays (as of the e2e-verify-signing run
 
 **The reliable production paths are (a) your own relay, or (b) a relay you've verified end-to-end with `e2e-verify-signing.ts` against your expected message volume.** The `broadcastLookbackMs` filter and `advertRepeatIntervalMs` re-publish are hedges that help on some flaky relays but can't overcome a relay that simply doesn't route kind 1 events between subscribers the way the protocol expects.
 
+The transport does no NIP-42 AUTH. A relay that serves kind 1059 events only to an authenticated recipient (the NIP-59 AUTH guard) closes the directed subscription. The transport does not work with such a relay.
+
+A kind 1059 event of this transport is not a NIP-59 gift wrap. The sender key signs it, and it has no seal. A relay thus sees the x-only keys of the sender and the recipient in the two `p` tags. It also sees the real `created_at` time and the ciphertext length (ADR 153).
+
+This transport encrypts at most 65,535 bytes of plaintext in one message. This is the largest plaintext of the 2-byte NIP-44 v2 length prefix. A receiver on nostr-tools before 2.23.4 refuses a longer prefix. A larger message gives `MESSAGE_TOO_LARGE`, and the cohort fails. For did:btcr2 KEY DIDs, this limits the cohort size:
+
+- A CAS cohort: about 533 members. `DISTRIBUTE_AGGREGATED_DATA` holds about 122 bytes for each member. The service sends it after it collects the update of each member.
+- An SMT cohort: about 804 members. `COHORT_READY` holds 81 bytes for each cohort key. The service sends it after keygen.
+
+No code compares `maxParticipants` with this limit. For a Nostr cohort, set `maxParticipants` below it.
+
 ### Reliability hedges (Nostr transport)
 
 The Nostr transport and runner expose two mechanisms to improve delivery on imperfect relays:
@@ -767,7 +779,7 @@ The Nostr transport and runner expose two mechanisms to improve delivery on impe
 
 Set either to `0` to opt out.
 
-The HTTP transport doesn't need either hedge: the server retains the current advert and emits it to every new broadcast-SSE subscriber on connect; the inbox SSE stream replays buffered messages via `Last-Event-ID` on reconnect. See [http-transport.md](./http-transport.md) for the HTTP transport's own deployment knobs (CORS, rate limiting, inbox buffer size, advert TTL).
+The HTTP transport doesn't need either hedge: the server retains the current advert and emits it to every new broadcast-SSE subscriber on connect. The HTTP client keeps the id of the last inbox event of each actor, and it sends that id in `Last-Event-ID` at each reconnect. The server then sends only the later buffered messages. At delivery, the server signs a buffered message or a local advert again if its envelope is older than `clockSkewSec / 2`. Thus the client skew check accepts it. If an inbox event is larger than `maxSseEventBytes`, the client skips that event by its id (ADR 153). The cases with no skip are in [SSE event size limit](./http-transport.md#sse-event-size-limit). See [http-transport.md](./http-transport.md) for the HTTP transport's own deployment knobs (CORS, rate limiting, inbox buffer size, advert TTL, event size limit).
 
 ### Cohort TTL and phase timeouts
 
@@ -812,6 +824,11 @@ Both transports enforce that bind on every receive path, and it is what `resolve
 - `resolveBtcr2SenderPk` also returns no key for an EXTERNAL (`x1`) sender if the resolver refuses its genesis document. For example, the resolver refuses a genesis document without `@context` (ADR 148). A genesis document without `service` gives the key, if the `capabilityInvocation[0]` method agrees with the conditions above.
 
 `AggregationParticipant` then holds every service-originated message (`COHORT_READY`, `DISTRIBUTE_AGGREGATED_DATA`, `AUTHORIZATION_REQUEST`, `AGGREGATED_NONCE`, `FALLBACK_AUTHORIZATION_REQUEST`) to `from === serviceDid` for the cohort it names, and the nonce and fallback messages to the active signing session's id, so a stranger cannot drive a member's cohort even on a transport that does not authenticate at all. `InMemoryTransport` is exactly that transport: it is an in-process test harness and performs no inbound authentication.
+
+The transport key of a DID is its genesis key: `resolveBtcr2SenderPk` reads no current DID document. For a KEY (`k1`) DID, this is the key in the DID. For an EXTERNAL (`x1`) DID, it is the key of the `capabilityInvocation[0]` method of the genesis document. `resolveBtcr2SenderPk` gives this key also after an update removes that key from the DID document (ADR 153). After a leak of that key, the holder can thus authenticate as the DID and join a cohort as the DID. The aggregate beacon of a cohort can be in the DID document. In that cohort, the holder can also make the cohort announce an update that no resolver can get. The DID then becomes invalid (an invalidation attack). After a rotation of that key:
+
+- A transport accepts the current key only after `registerPeer(did, currentKey)`, or with a custom `resolveSenderPk` that calls `getAggregationCommunicationKey(currentDocument)`. `registerPeer` is a method of each transport. `getAggregationCommunicationKey` comes from `@did-btcr2/method`, and the caller resolves `currentDocument`. The peer registry comes before `resolveSenderPk`, so a registered old key stays in use until a new `registerPeer` call replaces it.
+- The controller must remove from the DID document each aggregate beacon whose cohort key for the DID is the old key.
 
 ### Injectable logger
 

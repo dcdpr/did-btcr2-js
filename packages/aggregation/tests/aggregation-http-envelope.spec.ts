@@ -174,6 +174,26 @@ describe('HTTP transport envelope', () => {
       verifyEnvelope(env, senderKeys.publicKey, { now: () => (ts + 1) * 1000 });
     });
 
+    // A timestamp that is not a number gives a NaN difference to the clock. The check
+    // must refuse it at every clock value, else a replay passes the skew check forever.
+    const nonNumericTimestamps: Array<[string, unknown]> = [
+      ['a string that is not a number', 'abc'],
+      ['an object', {}],
+    ];
+    for(const [label, timestamp] of nonNumericTimestamps) {
+      it(`refuses a timestamp of ${label} with ENVELOPE_TIMESTAMP_SKEW`, () => {
+        const env = signEnvelope(
+          makeMessage(),
+          { did: senderDid, keys: senderKeys },
+          { timestamp: timestamp as number },
+        );
+        for(const nowMs of [0, 1_700_000_000_000]) {
+          expect(() => verifyEnvelope(env, senderKeys.publicKey, { now: () => nowMs }))
+            .to.throw(HttpTransportError).with.property('type', 'ENVELOPE_TIMESTAMP_SKEW');
+        }
+      });
+    }
+
     it('enforces expectedFrom', () => {
       const env = signEnvelope(makeMessage(), { did: senderDid, keys: senderKeys });
 
@@ -204,6 +224,57 @@ describe('HTTP transport envelope', () => {
     });
   });
 
+  describe('verifyEnvelope nonce form (16 to 64 bytes of lowercase hex)', () => {
+    // The signature covers the nonce, so each case signs with the override nonce: the
+    // nonce check, not the signature check, must refuse it.
+    const signWithNonce = (nonce: unknown, timestamp?: number) => signEnvelope(
+      makeMessage(),
+      { did: senderDid, keys: senderKeys },
+      { nonce: nonce as string, ...(timestamp !== undefined ? { timestamp } : {}) },
+    );
+
+    const refused: Array<[string, unknown]> = [
+      ['31 hex chars (odd length)', 'a'.repeat(31)],
+      ['33 hex chars (odd length)', 'a'.repeat(33)],
+      ['30 hex chars (15 bytes)', 'ab'.repeat(15)],
+      ['130 hex chars (65 bytes)', 'ab'.repeat(65)],
+      ['uppercase hex', 'AB'.repeat(16)],
+      ['non-hex characters', 'zz'.repeat(16)],
+      ['an empty string', ''],
+      ['a number', 1234567890123456],
+      // The text form of this array is valid hex: only the string type check refuses it.
+      ['an array whose text is valid hex', ['ab'.repeat(16)]],
+    ];
+    for(const [label, nonce] of refused) {
+      it(`refuses a nonce of ${label} with ENVELOPE_NONCE_INVALID`, () => {
+        const env = signWithNonce(nonce);
+        expect(() => verifyEnvelope(env, senderKeys.publicKey))
+          .to.throw(HttpTransportError).with.property('type', 'ENVELOPE_NONCE_INVALID');
+      });
+    }
+
+    it('accepts a nonce of 32 lowercase hex chars (16 bytes)', () => {
+      verifyEnvelope(signWithNonce('ab'.repeat(16)), senderKeys.publicKey);
+    });
+
+    it('accepts a nonce of 128 lowercase hex chars (64 bytes)', () => {
+      verifyEnvelope(signWithNonce('cd'.repeat(64)), senderKeys.publicKey);
+    });
+
+    it('checks the timestamp skew before the nonce form', () => {
+      const env = signWithNonce('a'.repeat(31), Math.floor(Date.now() / 1000) - 10 * 60);
+      expect(() => verifyEnvelope(env, senderKeys.publicKey))
+        .to.throw(HttpTransportError).with.property('type', 'ENVELOPE_TIMESTAMP_SKEW');
+    });
+
+    it('checks the nonce form before the signature', () => {
+      const env = signWithNonce('a'.repeat(31));
+      env.sig = 'zz';
+      expect(() => verifyEnvelope(env, senderKeys.publicKey))
+        .to.throw(HttpTransportError).with.property('type', 'ENVELOPE_NONCE_INVALID');
+    });
+  });
+
   describe('Uint8Array wire encoding', () => {
     // Regression: without normalizeForWire/reviveFromWire, JSON.stringify on a
     // Uint8Array serializes it as an index-keyed object ({"0":1,"1":2,...}),
@@ -221,6 +292,17 @@ describe('HTTP transport envelope', () => {
       const revived = reviveFromWire({ __bytes: 'deadbeef' });
       expect(revived).to.be.instanceOf(Uint8Array);
       expect(Array.from(revived as Uint8Array)).to.deep.equal([0xde, 0xad, 0xbe, 0xef]);
+    });
+
+    it('reviveFromWire keeps a __proto__ member as an own member and sets no prototype', () => {
+      const parsed = JSON.parse('{"body":{"cohortId":"c1","__proto__":{"communicationPk":{"__bytes":"0a0b"}}}}');
+      const revived = reviveFromWire(parsed) as { body: Record<string, unknown> };
+      expect(Object.getPrototypeOf(revived.body)).to.equal(Object.prototype);
+      expect(Object.keys(revived.body)).to.deep.equal(['cohortId', '__proto__']);
+      expect(revived.body.communicationPk).to.equal(undefined);
+      const member = Object.getOwnPropertyDescriptor(revived.body, '__proto__')?.value as Record<string, unknown>;
+      expect(member.communicationPk).to.be.instanceOf(Uint8Array);
+      expect({ ...revived.body }.communicationPk).to.equal(undefined);
     });
 
     it('normalize + revive round-trips through nested structures', () => {

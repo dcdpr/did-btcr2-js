@@ -19,7 +19,8 @@ import {
   type SignedEnvelope,
 } from '../core/transport/http/protocol.js';
 import { RateLimiter } from './rate-limiter.js';
-import { verifyRequestAuth } from '../core/transport/http/request-auth.js';
+import { type ParsedRequestAuth, verifyRequestAuth } from '../core/transport/http/request-auth.js';
+import { isEnvelopeShape } from '../core/transport/http/wire-checks.js';
 
 /** Framework-agnostic incoming-request shape. */
 export interface HttpRequestLike {
@@ -66,7 +67,11 @@ export interface HttpServerTransportConfig {
   logger?: Logger;
   /** CORS policy. Defaults to `{ mode: 'permissive' }`. */
   cors?: CorsPolicy;
-  /** Envelope / request-auth clock-skew tolerance, seconds. */
+  /**
+   * Envelope / request-auth clock-skew tolerance, seconds. Default 60. A replay cache
+   * entry lives for 2 x this value. The server signs a buffered inbox event or a local
+   * advert again at delivery if its envelope is older than half of this value.
+   */
   clockSkewSec?: number;
   /** Per-recipient inbox buffer size. Default 100. */
   inboxBufferSize?: number;
@@ -78,7 +83,16 @@ export interface HttpServerTransportConfig {
   nonceCache?: NonceCache;
   /** SSE heartbeat interval, milliseconds. Default 20000. Set 0 to disable. */
   heartbeatIntervalMs?: number;
-  /** Clock injection point for tests. Returns unix milliseconds. */
+  /**
+   * Clock injection point for tests. Returns unix milliseconds. Default `Date.now`.
+   *
+   * This clock drives:
+   * - the envelope and request-auth skew checks
+   * - the replay cache expiry
+   * - the rate limiter
+   * - the advert TTL
+   * - the timestamp of each envelope that the server signs.
+   */
   now?: () => number;
   /**
    * Maximum accepted request-body size for the authenticated POST routes, measured as the
@@ -118,16 +132,41 @@ interface BroadcastSubscriber {
   heartbeatTimer?: ReturnType<typeof setInterval>;
 }
 
+/**
+ * A buffered inbox event. The server signs the envelope again at delivery if it is
+ * older than `clockSkewSec / 2`, and keeps the new envelope for later subscribers.
+ */
+interface PendingDelivery {
+  /** The signed envelope that the server delivers. */
+  envelope: SignedEnvelope;
+  /** The JSON form of {@link PendingDelivery.envelope}: the SSE data. */
+  dataJson: string;
+}
+
 interface InboxState {
-  buffer: InboxBuffer;
+  buffer: InboxBuffer<PendingDelivery>;
   subscribers: Set<InboxSubscriber>;
 }
 
 interface CurrentAdvert {
+  /** The signed advert envelope that the server delivers. */
+  envelope: SignedEnvelope;
+  /** The JSON form of {@link CurrentAdvert.envelope}: the SSE data. */
   dataJson: string;
   id: string;
   expiresAtMs: number;
+  /**
+   * `true` for an advert of {@link HttpServerTransport.publishRepeating}: the server
+   * signs it again at delivery if it is older than `clockSkewSec / 2`. `false` for an
+   * advert of `POST /v1/adverts`: the server relays it verbatim, and its poster
+   * publishes it again on its own interval. A local advert within its TTL stays: a
+   * `POST /v1/adverts` does not replace it.
+   */
+  local: boolean;
 }
+
+/** Result of the replay and rate-limit gates of an authenticated route. */
+type Admission = 'admitted' | 'replay' | 'rate_limited';
 
 const INBOX_PATH_PREFIX = '/v1/actors/';
 const INBOX_PATH_SUFFIX = '/inbox';
@@ -172,6 +211,11 @@ export class HttpServerTransport implements Transport {
 
   #currentAdvert?: CurrentAdvert;
   #advertSeq = 0;
+
+  /** Replay cache evictions since the last eviction warning. */
+  #evictionsSinceWarn = 0;
+  /** Unix second of the last eviction warning. */
+  #lastEvictionWarnSec?: number;
 
   constructor(config: HttpServerTransportConfig = {}) {
     this.#logger          = config.logger ?? CONSOLE_LOGGER;
@@ -274,13 +318,17 @@ export class HttpServerTransport implements Transport {
         { did: sender },
       );
     }
-    const envelope = signEnvelope(message, { did: sender, keys: actor.keys }, { to: recipient });
-    const dataJson = JSON.stringify(envelope);
+    // Sign once for every live subscriber. A sign throw goes to the caller.
+    const envelope = signEnvelope(message, { did: sender, keys: actor.keys }, {
+      to        : recipient,
+      timestamp : Math.floor(this.#now() / 1000),
+    });
+    const pending: PendingDelivery = { envelope, dataJson: JSON.stringify(envelope) };
 
     const inbox  = this.#getOrCreateInbox(recipient);
-    const stored = inbox.buffer.append(SSE_EVENT.MESSAGE, dataJson);
+    const stored = inbox.buffer.append(SSE_EVENT.MESSAGE, pending);
     for(const sub of inbox.subscribers) {
-      this.#safeWrite(sub.stream, stored.event, stored.data, stored.id);
+      this.#safeWrite(sub.stream, stored.event, pending.dataJson, stored.id);
     }
   }
 
@@ -294,12 +342,15 @@ export class HttpServerTransport implements Transport {
     if(!actor) {
       throw new HttpTransportError(`Unknown sender: ${sender}`, 'UNKNOWN_SENDER', { did: sender });
     }
-    const envelope = signEnvelope(message, { did: sender, keys: actor.keys });
+    // Sign once for every live subscriber. A sign throw goes to the caller. A late
+    // subscriber gets an envelope that the server signs again if this one is stale.
+    const nowMs    = this.#now();
+    const envelope = signEnvelope(message, { did: sender, keys: actor.keys }, { timestamp: Math.floor(nowMs / 1000) });
     const dataJson = JSON.stringify(envelope);
     const id       = String(++this.#advertSeq);
-    const expiresAtMs = this.#now() + this.#advertTtlMs;
+    const expiresAtMs = nowMs + this.#advertTtlMs;
 
-    this.#currentAdvert = { dataJson, id, expiresAtMs };
+    this.#currentAdvert = { envelope, dataJson, id, expiresAtMs, local: true };
     for(const sub of this.#broadcastSubscribers) {
       this.#safeWrite(sub.stream, SSE_EVENT.ADVERT, dataJson, id);
     }
@@ -317,47 +368,69 @@ export class HttpServerTransport implements Transport {
    * Handle a POST / GET request (non-SSE). The caller dispatches SSE paths to
    * {@link handleSse} instead. Returns a fully formed response; the caller's
    * adapter turns it into an HTTP write.
+   *
+   * The method never rejects. A request target that is not a valid URL gets 404
+   * `{ error: 'not_found' }`. An unexpected throw (for example from the injected
+   * `resolveSenderPk`) gets a `logger.error` line and 500 `{ error: 'internal_error' }`.
    */
   async handleRequest(req: HttpRequestLike): Promise<HttpResponseLike> {
-    const method = req.method.toUpperCase();
-    if(method === 'OPTIONS') return this.#respond(204, '', req);
+    try {
+      const method = req.method.toUpperCase();
+      if(method === 'OPTIONS') return this.#respond(204, '', req);
 
-    const path = extractPath(req.url);
+      const path = extractPath(req.url);
+      if(path === undefined) return this.#respondJson(404, { error: 'not_found' }, req);
 
-    if(method === 'GET' && path === HTTP_ROUTE.WELL_KNOWN) {
-      return this.#respondJson(200, this.#wellKnownMetadata(), req);
+      if(method === 'GET' && path === HTTP_ROUTE.WELL_KNOWN) {
+        return this.#respondJson(200, this.#wellKnownMetadata(), req);
+      }
+      if(method === 'POST' && path === HTTP_ROUTE.MESSAGES) {
+        return await this.#handleMessagesPost(req);
+      }
+      if(method === 'POST' && path === HTTP_ROUTE.ADVERTS) {
+        return await this.#handleAdvertsPost(req);
+      }
+      return this.#respondJson(404, { error: 'not_found' }, req);
+    } catch(err) {
+      return this.#internalError(req, err);
     }
-    if(method === 'POST' && path === HTTP_ROUTE.MESSAGES) {
-      return await this.#handleMessagesPost(req);
-    }
-    if(method === 'POST' && path === HTTP_ROUTE.ADVERTS) {
-      return await this.#handleAdvertsPost(req);
-    }
-    return this.#respondJson(404, { error: 'not_found' }, req);
   }
 
   /**
    * Open an SSE stream for a GET request. The caller is responsible for
    * flushing writes and propagating the `onClose` callback when the HTTP
    * connection ends.
+   *
+   * The method never throws. A request target that is not a valid URL closes the
+   * stream. An unexpected throw gets a `logger.error` line and closes the stream;
+   * the close fires the `onClose` cleanup of a subscriber that the method added.
    */
   handleSse(req: HttpRequestLike, stream: SseStream): void {
-    if(req.method.toUpperCase() !== 'GET') {
-      stream.close();
-      return;
-    }
-    const path = extractPath(req.url);
+    try {
+      if(req.method.toUpperCase() !== 'GET') {
+        stream.close();
+        return;
+      }
+      const path = extractPath(req.url);
+      if(path === undefined) {
+        stream.close();
+        return;
+      }
 
-    if(path === HTTP_ROUTE.ADVERTS) {
-      this.#openBroadcastSubscription(stream);
-      return;
+      if(path === HTTP_ROUTE.ADVERTS) {
+        this.#openBroadcastSubscription(stream);
+        return;
+      }
+      const inboxMatch = matchInboxPath(path);
+      if(inboxMatch) {
+        this.#openInboxSubscription(req, stream, inboxMatch.did, path);
+        return;
+      }
+      stream.close();
+    } catch(err) {
+      this.#logUnexpected('SSE request failed with an unexpected error:', err);
+      try { stream.close(); } catch { /* already closed */ }
     }
-    const inboxMatch = matchInboxPath(path);
-    if(inboxMatch) {
-      this.#openInboxSubscription(req, stream, inboxMatch.did, path);
-      return;
-    }
-    stream.close();
   }
 
   // ----------------------------------------------------------------
@@ -368,14 +441,22 @@ export class HttpServerTransport implements Transport {
     const tooLarge = this.#enforceBodySize(req);
     if(tooLarge) return tooLarge;
 
-    const envelope = parseJsonBody<SignedEnvelope>(req.body);
-    if(!envelope) return this.#respondJson(400, { error: 'invalid_json' }, req);
+    // Only no body, a body that does not parse, and `null` are invalid JSON. Every other
+    // value that is not an envelope (for example `0` or `false`) is a malformed envelope.
+    const body = parseJsonBody(req.body);
+    if(body === undefined || body === null) return this.#respondJson(400, { error: 'invalid_json' }, req);
+    if(!isEnvelopeShape(body)) return this.#respondJson(400, { error: 'malformed_envelope' }, req);
+    const envelope = body;
+
+    // Read the clock once for the skew check, the replay cache, and the rate limiter.
+    const nowMs = this.#now();
+    const now   = (): number => nowMs;
 
     const senderPk = this.#resolveSenderPk(envelope.from);
     let bootstrappedPk: CompressedSecp256k1PublicKey | undefined;
     if(senderPk) {
       try {
-        verifyEnvelope(envelope, senderPk, { clockSkewSec: this.#clockSkewSec });
+        verifyEnvelope(envelope, senderPk, { clockSkewSec: this.#clockSkewSec, now });
       } catch(err) {
         this.#logger.debug('POST /v1/messages: envelope verification failed:', err);
         return this.#respondJson(401, { error: 'invalid_envelope' }, req);
@@ -388,17 +469,13 @@ export class HttpServerTransport implements Transport {
       // communicationPk, and verifies the envelope. The derived key is not registered
       // until the request clears every gate below (there is no trust-on-first-use, and a
       // request that is later rejected leaves no peer-registry state behind).
-      bootstrappedPk = this.#bootstrapSenderPk(envelope);
+      bootstrappedPk = this.#bootstrapSenderPk(envelope, now);
       if(!bootstrappedPk) return this.#respondJson(401, { error: 'unknown_sender' }, req);
     }
 
-    if(!this.#nonceCache.store(envelope.from, envelope.nonce, envelope.timestamp)) {
-      return this.#respondJson(409, { error: 'replay' }, req);
-    }
-
-    if(!this.#rateLimiter.consume(envelope.from, this.#now())) {
-      return this.#respondJson(429, { error: 'rate_limited' }, req);
-    }
+    const admission = this.#admit(envelope.from, envelope.nonce, nowMs);
+    if(admission === 'replay') return this.#respondJson(409, { error: 'replay' }, req);
+    if(admission === 'rate_limited') return this.#respondJson(429, { error: 'rate_limited' }, req);
 
     if(!envelope.to) {
       return this.#respondJson(400, { error: 'missing_recipient' }, req);
@@ -408,7 +485,13 @@ export class HttpServerTransport implements Transport {
       return this.#respondJson(404, { error: 'unknown_recipient' }, req);
     }
 
-    const revived = reviveFromWire(envelope.message) as Record<string, unknown>;
+    let revived: Record<string, unknown>;
+    try {
+      revived = reviveFromWire(envelope.message) as Record<string, unknown>;
+    } catch(err) {
+      this.#logger.debug('POST /v1/messages: message revive failed:', err);
+      return this.#respondJson(400, { error: 'malformed_message' }, req);
+    }
     const flat = flattenMessage(revived);
 
     // Bind the inner message to the authenticated envelope: a sender may only speak as
@@ -445,24 +528,43 @@ export class HttpServerTransport implements Transport {
     const tooLarge = this.#enforceBodySize(req);
     if(tooLarge) return tooLarge;
 
-    const envelope = parseJsonBody<SignedEnvelope>(req.body);
-    if(!envelope) return this.#respondJson(400, { error: 'invalid_json' }, req);
+    const body = parseJsonBody(req.body);
+    if(body === undefined || body === null) return this.#respondJson(400, { error: 'invalid_json' }, req);
+    if(!isEnvelopeShape(body)) return this.#respondJson(400, { error: 'malformed_envelope' }, req);
+    const envelope = body;
+
+    // Read the clock once for the skew check, the replay cache, the rate limiter, and the TTL.
+    const nowMs = this.#now();
 
     const senderPk = this.#resolveSenderPk(envelope.from);
     if(!senderPk) return this.#respondJson(401, { error: 'unknown_sender' }, req);
 
+    // An advert is a broadcast: `expectedTo: undefined` refuses an envelope with a
+    // recipient. Else a recipient could post an inbox envelope of an actor here, and
+    // the server would relay it to every broadcast subscriber as the current advert.
     try {
-      verifyEnvelope(envelope, senderPk, { clockSkewSec: this.#clockSkewSec });
-    } catch {
+      verifyEnvelope(envelope, senderPk, {
+        clockSkewSec : this.#clockSkewSec,
+        now          : () => nowMs,
+        expectedTo   : undefined,
+      });
+    } catch(err) {
+      this.#logger.debug('POST /v1/adverts: envelope verification failed:', err);
       return this.#respondJson(401, { error: 'invalid_envelope' }, req);
     }
 
-    if(!this.#nonceCache.store(envelope.from, envelope.nonce, envelope.timestamp)) {
-      return this.#respondJson(409, { error: 'replay' }, req);
+    // A local advert within its TTL stays. GET /v1/adverts gives its envelope to anyone,
+    // and the server stored no nonce for an envelope that it signed. Thus a POST of that
+    // envelope passes each gate. A posted copy gets no new signature at delivery, and the
+    // stop function of publishRepeating does not clear it.
+    const current = this.#currentAdvert;
+    if(current?.local && current.expiresAtMs > nowMs) {
+      return this.#respondJson(409, { error: 'local_advert' }, req);
     }
-    if(!this.#rateLimiter.consume(envelope.from, this.#now())) {
-      return this.#respondJson(429, { error: 'rate_limited' }, req);
-    }
+
+    const admission = this.#admit(envelope.from, envelope.nonce, nowMs);
+    if(admission === 'replay') return this.#respondJson(409, { error: 'replay' }, req);
+    if(admission === 'rate_limited') return this.#respondJson(429, { error: 'rate_limited' }, req);
 
     // Only registered actors can publish adverts on this server.
     if(!this.#actors.has(envelope.from)) {
@@ -473,19 +575,31 @@ export class HttpServerTransport implements Transport {
     // does. The advert is relayed verbatim to every broadcast subscriber, and a
     // participant reads the service DID it will join from the inner `from`, so an
     // unbound advert lets one actor advertise a cohort in another DID's name.
-    const flat = flattenMessage(reviveFromWire(envelope.message) as Record<string, unknown>);
+    let revived: Record<string, unknown>;
+    try {
+      revived = reviveFromWire(envelope.message) as Record<string, unknown>;
+    } catch(err) {
+      this.#logger.debug('POST /v1/adverts: message revive failed:', err);
+      return this.#respondJson(400, { error: 'malformed_message' }, req);
+    }
+    const flat = flattenMessage(revived);
     if(flat.from !== envelope.from) {
       return this.#respondJson(401, { error: 'sender_mismatch' }, req);
     }
 
-    const id = String(++this.#advertSeq);
+    // The server relays a posted advert verbatim and does not sign it again: its
+    // poster publishes it again on its own interval.
+    const id       = String(++this.#advertSeq);
+    const dataJson = JSON.stringify(envelope);
     this.#currentAdvert = {
-      dataJson    : JSON.stringify(envelope),
+      envelope,
+      dataJson,
       id,
-      expiresAtMs : this.#now() + this.#advertTtlMs,
+      expiresAtMs : nowMs + this.#advertTtlMs,
+      local       : false,
     };
     for(const sub of this.#broadcastSubscribers) {
-      this.#safeWrite(sub.stream, SSE_EVENT.ADVERT, this.#currentAdvert.dataJson, id);
+      this.#safeWrite(sub.stream, SSE_EVENT.ADVERT, dataJson, id);
     }
     return this.#respondJson(202, { ok: true }, req);
   }
@@ -498,9 +612,14 @@ export class HttpServerTransport implements Transport {
       this.#broadcastSubscribers.delete(sub);
     });
 
-    // Replay current advert if still within TTL.
-    if(this.#currentAdvert && this.#currentAdvert.expiresAtMs > this.#now()) {
-      this.#safeWrite(stream, SSE_EVENT.ADVERT, this.#currentAdvert.dataJson, this.#currentAdvert.id);
+    // Replay the current advert if it is within its TTL. A stale local advert gets a
+    // new signature first, and the new envelope replaces the cached one. A posted
+    // advert goes out verbatim.
+    const nowMs  = this.#now();
+    const advert = this.#currentAdvert;
+    if(advert && advert.expiresAtMs > nowMs
+      && (!advert.local || this.#refreshForDelivery(advert, Math.floor(nowMs / 1000)))) {
+      this.#safeWrite(stream, SSE_EVENT.ADVERT, advert.dataJson, advert.id);
     }
 
     if(this.#heartbeatMs > 0) {
@@ -522,26 +641,27 @@ export class HttpServerTransport implements Transport {
       stream.close();
       return;
     }
-    let parsedTs = 0;
-    let parsedNonce = '';
+    // Read the clock once for the skew check, the replay cache, the rate limiter, and the
+    // delivery of the buffered events.
+    const nowMs = this.#now();
+    let parsed: ParsedRequestAuth;
     try {
-      const parsed = verifyRequestAuth(auth, path, senderPk, {
+      parsed = verifyRequestAuth(auth, path, senderPk, {
         clockSkewSec : this.#clockSkewSec,
-        now          : () => this.#now(),
+        now          : () => nowMs,
       });
-      if(parsed.did !== did) { stream.close(); return; }
-      parsedTs    = parsed.ts;
-      parsedNonce = parsed.nonce;
     } catch(err) {
       this.#logger.debug(`Inbox subscribe: auth verification failed for ${did}:`, err);
       stream.close();
       return;
     }
-    if(!this.#nonceCache.store(did, parsedNonce, parsedTs)) {
+    if(parsed.did !== did) {
       stream.close();
       return;
     }
-    if(!this.#rateLimiter.consume(did, this.#now())) {
+    const admission = this.#admit(did, parsed.nonce, nowMs);
+    if(admission !== 'admitted') {
+      this.#logger.debug(`Inbox subscribe: refused for ${did}: ${admission}`);
       stream.close();
       return;
     }
@@ -554,10 +674,15 @@ export class HttpServerTransport implements Transport {
       inbox.subscribers.delete(sub);
     });
 
-    // Replay buffered events since the client's Last-Event-ID, if any.
+    // Replay buffered events since the client's Last-Event-ID, if any. A stale event
+    // gets a new signature, and the new envelope replaces the buffered one, so a later
+    // subscriber uses it again. The event id does not change. An event that the server
+    // cannot sign again is skipped; the next events still go out.
     const lastEventId = req.headers['last-event-id'];
+    const nowSec      = Math.floor(nowMs / 1000);
     for(const stored of inbox.buffer.since(lastEventId)) {
-      this.#safeWrite(stream, stored.event, stored.data, stored.id);
+      if(!this.#refreshForDelivery(stored.data, nowSec)) continue;
+      this.#safeWrite(stream, stored.event, stored.data.dataJson, stored.id);
     }
 
     if(this.#heartbeatMs > 0) {
@@ -574,7 +699,7 @@ export class HttpServerTransport implements Transport {
   #getOrCreateInbox(did: string): InboxState {
     let inbox = this.#inboxes.get(did);
     if(!inbox) {
-      inbox = { buffer: new InboxBuffer(this.#inboxBufferSize), subscribers: new Set() };
+      inbox = { buffer: new InboxBuffer<PendingDelivery>(this.#inboxBufferSize), subscribers: new Set() };
       this.#inboxes.set(did, inbox);
     }
     return inbox;
@@ -603,14 +728,21 @@ export class HttpServerTransport implements Transport {
    * signature against it. Returns the derived key on success, or `undefined` on any
    * failure. It performs no registration and mutates no state: the caller registers the
    * returned key only after the request clears its remaining gates (there is no
-   * trust-on-first-use).
+   * trust-on-first-use). A message that does not revive (for example a malformed
+   * `__bytes` sentinel) also returns `undefined`.
    */
-  #bootstrapSenderPk(envelope: SignedEnvelope): CompressedSecp256k1PublicKey | undefined {
+  #bootstrapSenderPk(envelope: SignedEnvelope, now: () => number): CompressedSecp256k1PublicKey | undefined {
     if(!this.#resolveSenderPkFn) return undefined;
 
     // Inspect the still-untrusted message only to derive a candidate key; nothing is
     // trusted until the envelope verifies against that key below.
-    const flat = flattenMessage(reviveFromWire(envelope.message) as Record<string, unknown>);
+    let flat: Record<string, unknown>;
+    try {
+      flat = flattenMessage(reviveFromWire(envelope.message) as Record<string, unknown>);
+    } catch(err) {
+      this.#logger.debug('POST /v1/messages: bootstrap message revive failed:', err);
+      return undefined;
+    }
     if(flat.type !== COHORT_OPT_IN) return undefined;
 
     const genesisDocument = flat.genesisDocument;
@@ -625,13 +757,106 @@ export class HttpServerTransport implements Transport {
     }
 
     try {
-      verifyEnvelope(envelope, derived, { clockSkewSec: this.#clockSkewSec });
+      verifyEnvelope(envelope, derived, { clockSkewSec: this.#clockSkewSec, now });
     } catch(err) {
       this.#logger.debug('POST /v1/messages: bootstrap envelope verification failed:', err);
       return undefined;
     }
 
     return derived;
+  }
+
+  /**
+   * The replay and rate-limit gates of an authenticated route. The caller verifies
+   * the envelope or the auth header first. The order is:
+   * 1. The replay lookup: a live `(did, nonce)` entry is a replay. This stores nothing.
+   * 2. The rate limiter. A throttled request stores no nonce, so it can come again
+   *    after the refill.
+   * 3. The nonce store. The entry lives until `nowSec + 2 * clockSkewSec`: a replay
+   *    can pass the skew check only until then.
+   *
+   * A replay costs no token, so a replay of a captured envelope cannot drain the
+   * bucket of its sender.
+   */
+  #admit(did: string, nonce: string, nowMs: number): Admission {
+    const nowSec = Math.floor(nowMs / 1000);
+    if(this.#nonceCache.has(did, nonce, nowSec)) return 'replay';
+    if(!this.#rateLimiter.consume(did, nowMs)) return 'rate_limited';
+    const result = this.#nonceCache.store(did, nonce, nowSec + 2 * this.#clockSkewSec, nowSec);
+    if(result === 'evicted') this.#noteEviction(nowSec);
+    return 'admitted';
+  }
+
+  /**
+   * Count a replay cache eviction. Write at most one warning per `clockSkewSec`
+   * window. The warning gives the count of evictions since the previous warning
+   * (or since the start). A clock step back starts a new window.
+   */
+  #noteEviction(nowSec: number): void {
+    this.#evictionsSinceWarn++;
+    const last = this.#lastEvictionWarnSec;
+    if(last !== undefined && nowSec >= last && nowSec - last < this.#clockSkewSec) return;
+    this.#logger.warn(
+      `Replay cache full: live entries evicted since the previous warning or the start: ${this.#evictionsSinceWarn}. `
+      + 'A replay of an evicted envelope passes until its timestamp leaves the skew window.',
+      { evicted: this.#evictionsSinceWarn, windowSec: this.#clockSkewSec },
+    );
+    this.#evictionsSinceWarn  = 0;
+    this.#lastEvictionWarnSec = nowSec;
+  }
+
+  /**
+   * Make sure that a held envelope is fresh for a delivery at `nowSec`. If the
+   * envelope is older than `clockSkewSec / 2`, sign its message again and replace the
+   * envelope and its JSON form in `held`. Returns `false` if the server cannot sign
+   * again: the caller skips the event.
+   */
+  #refreshForDelivery(held: PendingDelivery, nowSec: number): boolean {
+    if(nowSec - held.envelope.timestamp <= this.#clockSkewSec / 2) return true;
+    const envelope = this.#signAgain(held.envelope, nowSec);
+    if(!envelope) return false;
+    held.envelope = envelope;
+    held.dataJson = JSON.stringify(envelope);
+    return true;
+  }
+
+  /**
+   * Sign the wire form of `envelope.message` again with the current actor keys of
+   * `envelope.from`, the same recipient, and the timestamp `nowSec`. Returns
+   * `undefined` with a log line if the sender is no longer an actor or the sign throws.
+   */
+  #signAgain(envelope: SignedEnvelope, nowSec: number): SignedEnvelope | undefined {
+    const actor = this.#actors.get(envelope.from);
+    if(!actor) {
+      this.#logger.debug(`SSE delivery: ${envelope.from} is no longer an actor; event skipped`);
+      return undefined;
+    }
+    try {
+      return signEnvelope(envelope.message, { did: envelope.from, keys: actor.keys }, {
+        to        : envelope.to,
+        timestamp : nowSec,
+      });
+    } catch(err) {
+      this.#logger.warn(`SSE delivery: sign failed for an event of ${envelope.from}; event skipped:`, err);
+      return undefined;
+    }
+  }
+
+  /** The 500 answer to an unexpected throw. It does not throw. */
+  #internalError(req: HttpRequestLike, err: unknown): HttpResponseLike {
+    this.#logUnexpected('HTTP request failed with an unexpected error:', err);
+    let cors: Record<string, string> = {};
+    try { cors = this.#corsHeaders(req); } catch { /* a malformed request: no CORS headers */ }
+    return {
+      status  : 500,
+      headers : { 'content-type': 'application/json', ...cors },
+      body    : JSON.stringify({ error: 'internal_error' }),
+    };
+  }
+
+  /** Write an error line for an unexpected throw. A logger throw does not go to the caller. */
+  #logUnexpected(message: string, err: unknown): void {
+    try { this.#logger.error(message, err); } catch { /* the logger failed */ }
   }
 
   /**
@@ -708,9 +933,11 @@ export class HttpServerTransport implements Transport {
 // Module-local pure helpers
 // ----------------------------------------------------------------
 
-function extractPath(reqUrl: string): string {
+/** Return the path of a request target, or `undefined` if an absolute URL does not parse. */
+function extractPath(reqUrl: string): string | undefined {
   if(reqUrl.startsWith('http://') || reqUrl.startsWith('https://')) {
-    return new URL(reqUrl).pathname;
+    try { return new URL(reqUrl).pathname; }
+    catch { return undefined; }
   }
   const q = reqUrl.indexOf('?');
   return q === -1 ? reqUrl : reqUrl.slice(0, q);
@@ -724,15 +951,22 @@ function matchInboxPath(path: string): { did: string } | undefined {
   catch { return undefined; }
 }
 
-function parseJsonBody<T>(body: string | undefined): T | undefined {
+/** Parse a JSON request body. Returns `undefined` for no body or a body that does not parse. */
+function parseJsonBody(body: string | undefined): unknown {
   if(body === undefined || body === '') return undefined;
-  try { return JSON.parse(body) as T; }
+  try { return JSON.parse(body) as unknown; }
   catch { return undefined; }
 }
 
+/**
+ * Copy the members of `msg.body` to the top level of the message. The result keeps the
+ * outer `body` as its `body` member. Thus a `body` member inside `body` cannot replace
+ * it, and the checks of the transport and the state machines read the same members.
+ */
 function flattenMessage(msg: Record<string, unknown>): Record<string, unknown> {
-  if(msg.body && typeof msg.body === 'object') {
-    return { ...msg, ...(msg.body as Record<string, unknown>) };
+  const body = msg.body;
+  if(body && typeof body === 'object') {
+    return { ...msg, ...(body as Record<string, unknown>), body };
   }
   return msg;
 }

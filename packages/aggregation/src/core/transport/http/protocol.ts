@@ -17,7 +17,10 @@ export const HTTP_ROUTE = {
   WELL_KNOWN  : '/v1/.well-known/aggregation',
 } as const;
 
-/** Server-Sent Events event names used by the broadcast + inbox streams. */
+/**
+ * Server-Sent Events event names of the broadcast and inbox streams. The server sends
+ * each heartbeat as an SSE comment line, not as a `heartbeat` event.
+ */
 export const SSE_EVENT = {
   ADVERT    : 'advert',
   MESSAGE   : 'message',
@@ -32,7 +35,8 @@ export const DEFAULT_NONCE_LEN_BYTES = 16;
 
 /**
  * Tamper-evident wrapper around an aggregation {@link BaseMessage}. Every
- * authenticated HTTP request and inbox SSE event carries one of these.
+ * authenticated POST request, inbox SSE event, and advert SSE event carries one of
+ * these. An inbox subscription request carries a `BTCR2-Sig` auth header instead.
  *
  * The signature is BIP340 Schnorr over the SHA-256 of the JCS-canonicalized
  * envelope **excluding** the `sig` field. Receivers reconstruct the same
@@ -48,7 +52,10 @@ export interface SignedEnvelope {
   to?: string;
   /** Unix seconds at which the envelope was produced. */
   timestamp: number;
-  /** Hex-encoded random nonce, {@link DEFAULT_NONCE_LEN_BYTES} bytes. */
+  /**
+   * Random anti-replay nonce: 16 to 64 bytes of lowercase hex. The default
+   * length is {@link DEFAULT_NONCE_LEN_BYTES} bytes.
+   */
   nonce: string;
   /** Aggregation message payload (plain-JSON form, `toJSON`-normalized). */
   message: Record<string, unknown>;

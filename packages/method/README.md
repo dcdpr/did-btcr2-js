@@ -242,6 +242,8 @@ This package exports `resolveBtcr2SenderPk`, which gives the communication key o
 
 If the resolver refuses the genesis document, `resolveBtcr2SenderPk` also returns `undefined`. For example, the resolver refuses a genesis document without `@context` (ADR 148). A genesis document without `service` gives the key, if the method agrees with the three conditions.
 
+`resolveBtcr2SenderPk` reads no current DID document, so it gives the genesis key also after an update removes that key (ADR 153). After a leak of that key, the holder can act as the DID in a cohort and can make the DID invalid. The steps after a key rotation are in [Sender authentication](./docs/aggregation.md#sender-authentication).
+
 ## Architecture Principles
 
 - **Sans-I/O core.** The Resolver (read path) and Updater (write path) state machines perform zero I/O. They compute state transitions and emit typed needs. Callers handle all network operations. The aggregation state machines in `@did-btcr2/aggregation` follow the same pattern.

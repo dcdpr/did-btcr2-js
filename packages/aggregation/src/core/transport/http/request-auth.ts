@@ -4,6 +4,7 @@ import { bytesToHex, hexToBytes, randomBytes } from '@noble/hashes/utils';
 
 import { HttpTransportError } from './errors.js';
 import { DEFAULT_CLOCK_SKEW_SEC, DEFAULT_NONCE_LEN_BYTES, HTTP_ENVELOPE_VERSION } from './protocol.js';
+import { isValidNonce } from './wire-checks.js';
 
 /**
  * `Authorization`-header scheme used to authenticate SSE subscription
@@ -22,7 +23,10 @@ export interface ParsedRequestAuth {
   did: string;
   /** Unix-seconds timestamp. */
   ts: number;
-  /** Hex-encoded anti-replay nonce. */
+  /**
+   * Anti-replay nonce: 16 to 64 bytes of lowercase hex. The default length is
+   * {@link DEFAULT_NONCE_LEN_BYTES} bytes.
+   */
   nonce: string;
   /** Hex-encoded 64-byte BIP340 signature. */
   sig: string;
@@ -104,6 +108,10 @@ export interface VerifyRequestAuthOptions {
  *
  * `expectedPath` must match the path the signature commits to. `senderPk`
  * must correspond to the DID the signer claims.
+ *
+ * The check order is: the version, the timestamp skew, the nonce form (16 to
+ * 64 bytes of lowercase hex, else `REQUEST_AUTH_NONCE_INVALID`), then the
+ * signature. Replay protection is the caller's responsibility.
  */
 export function verifyRequestAuth(
   headerValue:  string,
@@ -130,6 +138,13 @@ export function verifyRequestAuth(
       `Auth timestamp out of skew: ${diff}s > ${skewSec}s`,
       'REQUEST_AUTH_TIMESTAMP_SKEW',
       { diff, skewSec },
+    );
+  }
+
+  if(!isValidNonce(parsed.nonce)) {
+    throw new HttpTransportError(
+      'Auth nonce must be 16 to 64 bytes of lowercase hex',
+      'REQUEST_AUTH_NONCE_INVALID',
     );
   }
 

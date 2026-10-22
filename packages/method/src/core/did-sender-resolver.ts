@@ -88,7 +88,7 @@ export function getAggregationCommunicationKey(
 
 /**
  * Resolve a did:btcr2 sender's communication public key from its DID, for the
- * aggregation HTTP transport's `resolveSenderPk` option.
+ * `resolveSenderPk` option of the aggregation transports (Nostr, HTTP client, and HTTP server).
  *
  * A KEY (`k1`) identifier decodes directly to its genesis public key: the DID string is
  * the key. An EXTERNAL (`x1`) identifier is a commitment to the hash of a genesis
@@ -103,6 +103,20 @@ export function getAggregationCommunicationKey(
  * The aggregation transport is DID-method-agnostic and does not name `Identifier`; method
  * supplies this resolver when it wires the transport so a sender that is not a
  * pre-registered peer can still be authenticated from its DID.
+ *
+ * The function reads no current DID document. It returns the genesis key: the key of a KEY
+ * identifier, or the `capabilityInvocation[0]` key of the genesis document of an EXTERNAL
+ * identifier. It returns this key also after an update removes the key from the DID
+ * document. Thus, after a leak of that key, the holder can authenticate as the DID and join
+ * a cohort as the DID. The aggregate beacon of a cohort can be in the DID document. In that
+ * cohort, the holder can also make the cohort announce an update that no resolver can get.
+ * The DID then becomes invalid (an invalidation attack). After a rotation of that key:
+ * - A transport accepts the current key only after `registerPeer(did, currentKey)`, or with
+ *   a custom `resolveSenderPk` that calls {@link getAggregationCommunicationKey} on the
+ *   current DID document. The peer registry comes before `resolveSenderPk`, so a registered
+ *   old key stays in use until a new `registerPeer` call replaces it.
+ * - The controller must remove from the DID document each aggregate beacon whose cohort key
+ *   for the DID is the old key.
  *
  * @param {string} did The sender's DID.
  * @param {object} [opts] Optional resolution inputs.

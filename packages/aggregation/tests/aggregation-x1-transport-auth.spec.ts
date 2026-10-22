@@ -136,9 +136,13 @@ describe('x1 transport authentication (ADR 066)', () => {
     from: string,
     signWith: SchnorrKeyPair,
     body: Record<string, unknown>,
+    timestamp?: number,
   ): string => {
     const msg = new BaseMessage({ type: COHORT_OPT_IN, from, to: serverDid, body: body as BaseBody });
-    return JSON.stringify(signEnvelope(msg, { did: from, keys: signWith }, { to: serverDid }));
+    return JSON.stringify(signEnvelope(msg, { did: from, keys: signWith }, {
+      to : serverDid,
+      ...(timestamp !== undefined ? { timestamp } : {}),
+    }));
   };
 
   const post = (body: string): Promise<{ status: number }> =>
@@ -161,6 +165,52 @@ describe('x1 transport authentication (ADR 066)', () => {
       const derived = resolveBtcr2SenderPk(x1.did, { genesisDocument: x1.genesisDocument })!;
       expect(hexOf(server.getPeerPk(x1.did)!)).to.equal(hexOf(derived.compressed));
       expect(hexOf(derived.compressed)).to.equal(hexOf(x1.keys.publicKey.compressed));
+    });
+
+    it('verifies a bootstrap opt-in with the injected clock of the server', async () => {
+      // The injected clock is far from the wall clock: the bootstrap skew check must use it.
+      const t0Ms = 1_700_000_000_000;
+      server = makeServer({ now: () => t0Ms });
+      server.registerActor(serverDid, serverKeys);
+      const x1 = makeExternalIdentity();
+
+      const res = await post(optInEnvelope(x1.did, x1.keys, {
+        cohortId        : 'c1',
+        participantPk   : x1.keys.publicKey.compressed,
+        communicationPk : x1.keys.publicKey.compressed,
+        genesisDocument : x1.genesisDocument,
+      }, t0Ms / 1000));
+
+      expect(res.status).to.equal(202);
+      expect(hexOf(server.getPeerPk(x1.did)!)).to.equal(hexOf(x1.keys.publicKey.compressed));
+    });
+
+    it('keeps the outer body of a bootstrap opt-in: a key in body.body does not reach the handler as body', async () => {
+      server = makeServer();
+      server.registerActor(serverDid, serverKeys);
+      const received: Array<Record<string, unknown>> = [];
+      server.registerMessageHandler(serverDid, COHORT_OPT_IN, (msg: Record<string, unknown>) => { received.push(msg); });
+      const x1 = makeExternalIdentity();
+      const stranger = SchnorrKeyPair.generate();
+
+      const res = await post(optInEnvelope(x1.did, x1.keys, {
+        cohortId        : 'c1',
+        participantPk   : x1.keys.publicKey.compressed,
+        communicationPk : x1.keys.publicKey.compressed,
+        genesisDocument : x1.genesisDocument,
+        body            : {
+          cohortId        : 'c1',
+          participantPk   : stranger.publicKey.compressed,
+          communicationPk : stranger.publicKey.compressed,
+        },
+      }));
+
+      expect(res.status).to.equal(202);
+      expect(received).to.have.lengthOf(1);
+      const body = received[0].body as Record<string, unknown>;
+      expect(hexOf(body.communicationPk as Uint8Array)).to.equal(hexOf(x1.keys.publicKey.compressed));
+      expect(hexOf(body.participantPk as Uint8Array)).to.equal(hexOf(x1.keys.publicKey.compressed));
+      expect(hexOf(server.getPeerPk(x1.did)!)).to.equal(hexOf(x1.keys.publicKey.compressed));
     });
 
     it('rejects an x1 opt-in that carries no genesis document (401)', async () => {
