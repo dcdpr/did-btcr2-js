@@ -102,4 +102,52 @@ describe('HTTP transport request-auth', () => {
         .to.throw(HttpTransportError);
     });
   });
+
+  describe('verifyRequestAuth nonce form (16 to 64 bytes of lowercase hex)', () => {
+    // The signature covers the nonce, so each case signs with the override nonce: the
+    // nonce check, not the signature check, must refuse it.
+    const authWithNonce = (nonce: unknown, timestamp?: number): string => buildRequestAuth(
+      did, keys, path,
+      { nonce: nonce as string, ...(timestamp !== undefined ? { timestamp } : {}) },
+    );
+
+    const refused: Array<[string, unknown]> = [
+      ['31 hex chars (odd length)', 'a'.repeat(31)],
+      ['33 hex chars (odd length)', 'a'.repeat(33)],
+      ['30 hex chars (15 bytes)', 'ab'.repeat(15)],
+      ['130 hex chars (65 bytes)', 'ab'.repeat(65)],
+      ['uppercase hex', 'AB'.repeat(16)],
+      ['non-hex characters', 'zz'.repeat(16)],
+      // The header carries the decimal text of the number: 16 digits, 8 bytes.
+      ['a number', 1234567890123456],
+    ];
+    for(const [label, nonce] of refused) {
+      it(`refuses a nonce of ${label} with REQUEST_AUTH_NONCE_INVALID`, () => {
+        expect(() => verifyRequestAuth(authWithNonce(nonce), path, keys.publicKey))
+          .to.throw(HttpTransportError).with.property('type', 'REQUEST_AUTH_NONCE_INVALID');
+      });
+    }
+
+    it('accepts a nonce of 32 lowercase hex chars (16 bytes)', () => {
+      const parsed = verifyRequestAuth(authWithNonce('ab'.repeat(16)), path, keys.publicKey);
+      expect(parsed.nonce).to.equal('ab'.repeat(16));
+    });
+
+    it('accepts a nonce of 128 lowercase hex chars (64 bytes)', () => {
+      const parsed = verifyRequestAuth(authWithNonce('cd'.repeat(64)), path, keys.publicKey);
+      expect(parsed.nonce).to.equal('cd'.repeat(64));
+    });
+
+    it('checks the timestamp skew before the nonce form', () => {
+      const header = authWithNonce('a'.repeat(31), Math.floor(Date.now() / 1000) - 10 * 60);
+      expect(() => verifyRequestAuth(header, path, keys.publicKey))
+        .to.throw(HttpTransportError).with.property('type', 'REQUEST_AUTH_TIMESTAMP_SKEW');
+    });
+
+    it('checks the nonce form before the signature', () => {
+      const header = `${REQUEST_AUTH_SCHEME} v=${HTTP_ENVELOPE_VERSION},did=${did},ts=${Math.floor(Date.now() / 1000)},nonce=${'a'.repeat(31)},sig=zzzzzz`;
+      expect(() => verifyRequestAuth(header, path, keys.publicKey))
+        .to.throw(HttpTransportError).with.property('type', 'REQUEST_AUTH_NONCE_INVALID');
+    });
+  });
 });

@@ -11,7 +11,7 @@ import type { Logger } from '../logger.js';
 import { CONSOLE_LOGGER } from '../logger.js';
 import type { BaseMessage } from '../messages/base.js';
 import { COHORT_ADVERT } from '../messages/constants.js';
-import { isAggregationMessageType, isKeygenMessageType, isSignMessageType, isUpdateMessageType } from '../messages/guards.js';
+import { isAggregationMessageType } from '../messages/guards.js';
 import { TransportAdapterError } from './error.js';
 import type { MessageHandler, Transport } from './transport.js';
 
@@ -64,6 +64,21 @@ export interface NostrTransportConfig {
 /** Default `since` lookback for broadcast (COHORT_ADVERT) subscriptions: 5 minutes. */
 export const DEFAULT_BROADCAST_LOOKBACK_MS = 5 * 60 * 1000;
 
+/**
+ * The largest plaintext of this transport, in UTF-8 bytes: the largest plaintext of the
+ * 2-byte NIP-44 v2 length prefix. A receiver on nostr-tools 2.23.3 or earlier refuses a
+ * payload with a longer prefix.
+ */
+const MAX_NIP44_PLAINTEXT_BYTES = 65_535;
+
+/** Counts the UTF-8 bytes of a plaintext, as nostr-tools does before it encrypts. */
+const UTF8_ENCODER = new TextEncoder();
+
+/** Returns `true` for a parsed JSON object: not null, not an array, and not a primitive value. */
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /** Internal registration for a single actor sharing this transport. */
 interface ActorEntry {
   keys: SchnorrKeyPair;
@@ -80,10 +95,19 @@ interface ActorEntry {
  * {@link registerActor}; the transport resolves the correct identity when
  * sending or receiving.
  *
- * Message routing:
- * - Keygen messages (COHORT_ADVERT, COHORT_OPT_IN, COHORT_OPT_IN_ACCEPT, COHORT_READY) to kind 1 (plaintext)
- * - Update messages (SUBMIT_UPDATE, DISTRIBUTE_AGGREGATED_DATA, VALIDATION_ACK) to kind 1059 (NIP-44 encrypted)
- * - Sign messages to kind 1059 (NIP-44 encrypted)
+ * Message routing (see {@link sendMessage}):
+ * - A message with a recipient goes as a kind 1059 event. The content is NIP-44 v2
+ *   ciphertext for the recipient key. The tags are two `p` tags: the sender, then the recipient.
+ * - A COHORT_ADVERT with no recipient goes as a kind 1 event. The content is the plaintext
+ *   JSON. The tags are a `p` tag for the sender and a `t` tag for COHORT_ADVERT.
+ * - The transport refuses each other message that has no recipient.
+ *
+ * Receive paths:
+ * - The directed subscription of an actor filters on kind 1059 and a `p` tag for the
+ *   actor key. The handler drops each event of a different kind.
+ * - The broadcast subscription filters on kind 1 and the COHORT_ADVERT `t` tag.
+ * - A handler that throws or rejects gives a warn line. A logger that throws does not
+ *   stop a receive path.
  *
  * Inbound authentication: every event delivered by the relay pool carries a BIP-340
  * signature over its content, verified by `nostr-tools` before it reaches a handler here,
@@ -122,7 +146,6 @@ export class NostrTransport implements Transport {
    * Must be called before start() to ensure subscriptions are created for the actor.
    * @param {string} did - The DID of the actor.
    * @param {SchnorrKeyPair} keys - The Schnorr key pair for the actor.
-   * @throws {TransportAdapterError} If the actor is already registered or if the transport has already started.
    * @example
    * const transport = new NostrTransport();
    * const keys = SchnorrKeyPair.generate();
@@ -145,7 +168,6 @@ export class NostrTransport implements Transport {
    * mapping. Idempotent.
    * @param {string} did - The DID of the actor to unregister.
    * @returns {void}
-   * @throws {TransportAdapterError} If the transport is not started or if the pool is unavailable.
    * @example
    * transport.unregisterActor(did);
    */
@@ -235,11 +257,11 @@ export class NostrTransport implements Transport {
 
   /**
    * Starts the transport by connecting to the configured Nostr relays and setting up subscriptions
-   * for all registered actors. This method must be called after registering actors via registerActor()
-   * and before sending or receiving messages. The transport will subscribe to broadcast events (kind 1)
-   * for cohort adverts and directed events (kinds 1 and 1059) for each registered actor based on their
-   * public keys. Incoming events are processed and dispatched to the appropriate handlers based on
-   * message type. If the transport is already started, this method has no effect.
+   * for all registered actors. Call this method after registerActor() and before the first send.
+   * The transport subscribes to broadcast events (kind 1) for cohort adverts. It also subscribes to
+   * directed events (kind 1059 only) for the public key of each registered actor. It dispatches
+   * each incoming event to the handler for its message type. If the transport is already started,
+   * this method has no effect.
    * @returns {NostrTransport}
    */
   start(): NostrTransport {
@@ -267,8 +289,8 @@ export class NostrTransport implements Transport {
       broadcastFilter.since = Math.floor((Date.now() - this.#broadcastLookbackMs) / 1000);
     }
     this.pool.subscribeMany(this.#relays, broadcastFilter, {
-      onclose : (reasons: string[]) => this.#logger.debug('Nostr broadcast subscription closed', reasons),
-      onevent : this.#handleBroadcastEvent.bind(this),
+      onclose : (reasons: string[]) => this.#logDebug('Nostr broadcast subscription closed', reasons),
+      onevent : this.#guardEventHandler(this.#handleBroadcastEvent.bind(this), 'Broadcast event'),
     });
 
     // Directed subscriptions for any actors already registered
@@ -281,16 +303,35 @@ export class NostrTransport implements Transport {
   }
 
   /**
-   * Sends a message by publishing a Nostr event to the configured relays. The message is serialized
-   * as JSON and included in the event content.
+   * Sends a message as a Nostr event to the configured relays.
+   *
+   * The recipient rule:
+   * - If `to` is set, the recipient DID must be a registered peer (see {@link registerPeer}).
+   *   The event is kind 1059, and its content is NIP-44 v2 ciphertext for the recipient key.
+   *   The tags are exactly `['p', <sender x-only key>]` and `['p', <recipient x-only key>]`.
+   * - If `to` is not set, only a COHORT_ADVERT is allowed. The event is kind 1, and its
+   *   content is the plaintext JSON. The tags are `['p', <sender x-only key>]` and
+   *   `['t', COHORT_ADVERT]`.
+   *
+   * A message type that is not an aggregation message type gives a warn line, and the
+   * method publishes nothing.
    * @param {BaseMessage} message - The aggregation message to send. Must include a valid `type` property.
    * @param {Did} sender - The DID of the registered actor sending the message. Must have been
    * registered via registerActor().
-   * @param {Did} [to] - Optional recipient DID for directed messages. Required for encrypted message
-   * types. If provided, must have been registered via registerPeer().
-   * @returns {Promise<void>} Resolves when the message has been published to the relays. Note that
-   * publication is best-effort: the method will resolve as long as at least one relay accepts the
-   * event, even if others reject it.
+   * @param {Did} [to] - The recipient DID. Each message type except COHORT_ADVERT needs it.
+   * If set, the recipient DID must be a registered peer (see registerPeer()).
+   * @returns {Promise<void>} Resolves when at least one relay accepts the event. Publication
+   * is best effort: the other relays can refuse the event. If the transport is not started
+   * or has no relay, the method resolves and publishes nothing.
+   * @throws {TransportAdapterError} With one of these error types:
+   * - `SEND_MESSAGE_ERROR`: the message has no type, or a message other than a
+   *   COHORT_ADVERT has no recipient.
+   * - `UNKNOWN_ACTOR_ERROR`: the sender is not a registered actor.
+   * - `UNKNOWN_PEER_ERROR`: the recipient is not a registered peer.
+   * - `MESSAGE_TOO_LARGE`: the plaintext JSON of a message with a recipient is larger
+   *   than 65,535 UTF-8 bytes, the limit of this transport (the 2-byte NIP-44 v2 length
+   *   prefix). The method publishes nothing.
+   * - `PUBLISH_ERROR`: all relays refuse the event.
    */
   async sendMessage(message: BaseMessage, sender: Did, to?: Did): Promise<void> {
     const type = message.type;
@@ -310,28 +351,28 @@ export class NostrTransport implements Transport {
       );
     }
 
-    const senderKeys = actor.keys;
-
-    // Sender p-tag matches the event signing key
-    const tags: string[][] = [
-      ['p', bytesToHex(senderKeys.publicKey.x)],
-      ['t', type],
-    ];
-
-    if(to) {
-      const recipientPkBytes = this.#peerRegistry.get(to);
-      if(recipientPkBytes) {
-        const recipientPk = new CompressedSecp256k1PublicKey(recipientPkBytes);
-        tags.push(['p', bytesToHex(recipientPk.x)]);
-      }
+    if(!isAggregationMessageType(type)) {
+      this.#logger.warn(`Unsupported message type: ${type}`);
+      return;
     }
 
-    // Keygen messages: plaintext, kind 1
-    if(isKeygenMessageType(type)) {
+    const senderKeys = actor.keys;
+    // Sender p-tag matches the event signing key
+    const senderPkHex = bytesToHex(senderKeys.publicKey.x);
+
+    // No recipient: only a cohort advert goes out, as a public kind 1 event. A relay
+    // subscriber receives it through the broadcast filter (kind 1 and the advert t tag).
+    if(!to) {
+      if(type !== COHORT_ADVERT) {
+        throw new TransportAdapterError(
+          `A ${type} message needs a recipient DID. Only a ${COHORT_ADVERT} message can go with no recipient.`,
+          'SEND_MESSAGE_ERROR', { adapter: this.name, type }
+        );
+      }
       const event = finalizeEvent({
         kind       : 1,
         created_at : Math.floor(Date.now() / 1000),
-        tags,
+        tags       : [ [ 'p', senderPkHex ], [ 't', COHORT_ADVERT ] ],
         content    : JSON.stringify(message, NostrTransport.#jsonReplacer),
       } as EventTemplate, senderKeys.secretKey.bytes);
       this.#logger.debug(`Publishing kind 1 [${type}]`);
@@ -339,40 +380,37 @@ export class NostrTransport implements Transport {
       return;
     }
 
-    // Update and sign messages: NIP-44 encrypted, kind 1059
-    if(isUpdateMessageType(type) || isSignMessageType(type)) {
-      if(!to) {
-        throw new TransportAdapterError(
-          `Encrypted messages require a recipient DID, got undefined for type: ${type}`,
-          'SEND_MESSAGE_ERROR', { adapter: this.name }
-        );
-      }
-      const recipientPkBytes = this.#peerRegistry.get(to);
-      if(!recipientPkBytes) {
-        throw new TransportAdapterError(
-          `Unknown peer DID: ${to}. Register peer via registerPeer() before sending encrypted messages.`,
-          'UNKNOWN_PEER_ERROR', { adapter: this.name, did: to }
-        );
-      }
-      const recipientPk = new CompressedSecp256k1PublicKey(recipientPkBytes);
-      const conversationKey = nip44.v2.utils.getConversationKey(
-        senderKeys.secretKey.bytes,
-        bytesToHex(recipientPk.x)
+    // A recipient: each message type goes as NIP-44 v2 ciphertext, kind 1059. The tags
+    // name no message type, so a relay sees only the two keys.
+    const recipientPkBytes = this.#peerRegistry.get(to);
+    if(!recipientPkBytes) {
+      throw new TransportAdapterError(
+        `Unknown peer DID: ${to}. Register the peer with registerPeer() before you send a message to it.`,
+        'UNKNOWN_PEER_ERROR', { adapter: this.name, did: to }
       );
-      const content = nip44.v2.encrypt(JSON.stringify(message, NostrTransport.#jsonReplacer), conversationKey);
+    }
+    const recipientPkHex = bytesToHex(new CompressedSecp256k1PublicKey(recipientPkBytes).x);
 
-      const event = finalizeEvent({
-        kind       : 1059,
-        created_at : Math.floor(Date.now() / 1000),
-        tags,
-        content,
-      } as EventTemplate, senderKeys.secretKey.bytes);
-      this.#logger.debug(`Publishing kind 1059 [${type}]`);
-      await this.#publishToRelays(event);
-      return;
+    const plaintext = JSON.stringify(message, NostrTransport.#jsonReplacer);
+    const plaintextBytes = UTF8_ENCODER.encode(plaintext).byteLength;
+    if(plaintextBytes > MAX_NIP44_PLAINTEXT_BYTES) {
+      throw new TransportAdapterError(
+        `The plaintext of the ${type} message is ${plaintextBytes} bytes. The limit of this transport `
+        + `(the 2-byte NIP-44 v2 length prefix) is ${MAX_NIP44_PLAINTEXT_BYTES} bytes.`,
+        'MESSAGE_TOO_LARGE',
+        { adapter: this.name, type, plaintextBytes, maxPlaintextBytes: MAX_NIP44_PLAINTEXT_BYTES }
+      );
     }
 
-    this.#logger.warn(`Unsupported message type: ${type}`);
+    const conversationKey = nip44.v2.utils.getConversationKey(senderKeys.secretKey.bytes, recipientPkHex);
+    const event = finalizeEvent({
+      kind       : 1059,
+      created_at : Math.floor(Date.now() / 1000),
+      tags       : [ [ 'p', senderPkHex ], [ 'p', recipientPkHex ] ],
+      content    : nip44.v2.encrypt(plaintext, conversationKey),
+    } as EventTemplate, senderKeys.secretKey.bytes);
+    this.#logger.debug(`Publishing kind 1059 [${type}]`);
+    await this.#publishToRelays(event);
   }
 
   /**
@@ -392,12 +430,12 @@ export class NostrTransport implements Transport {
     // promise that we swallow to avoid unhandled rejections - the caller can
     // observe delivery via receive-side handlers.
     void this.sendMessage(message, sender, recipient).catch((err) => {
-      this.#logger.debug('publishRepeating first send failed:', err);
+      this.#logDebug('publishRepeating first send failed:', err);
     });
     const timer = setInterval(() => {
       if(stopped) return;
       void this.sendMessage(message, sender, recipient).catch((err) => {
-        this.#logger.debug('publishRepeating retry failed:', err);
+        this.#logDebug('publishRepeating retry failed:', err);
       });
     }, intervalMs);
     return () => {
@@ -414,7 +452,6 @@ export class NostrTransport implements Transport {
    * @param {string} did - The DID of the actor to create the subscription for.
    * @param {ActorEntry} entry - The actor's registration entry containing keys and handlers.
    * @returns {void}
-   * @throws {TransportAdapterError} If the transport is not started or if the pool is unavailable.
    */
   #subscribeDirected(did: string, entry: ActorEntry): void {
     if(!this.pool) return;
@@ -430,54 +467,60 @@ export class NostrTransport implements Transport {
     // can act on it again. For example, a replayed COHORT_READY of an accepted
     // cohort makes AggregationParticipantRunner call onProvideUpdate again and
     // emit an `error` event (error type INVALID_PHASE).
-    const sub = this.pool.subscribeMany(this.#relays, { kinds: [1, 1059], '#p': [pkHex] }, {
-      onclose : (reasons: string[]) => this.#logger.debug(`Nostr directed subscription closed for ${did}`, reasons),
-      onevent : this.#makeActorEventHandler(did),
+    const sub = this.pool.subscribeMany(this.#relays, { kinds: [1059], '#p': [pkHex] }, {
+      onclose : (reasons: string[]) => this.#logDebug(`Nostr directed subscription closed for ${did}`, reasons),
+      onevent : this.#guardEventHandler(this.#makeActorEventHandler(did), `Directed event for ${did}`),
     });
     entry.subscriptions.push(sub);
   }
 
   /**
-   * Creates an event handler function for a specific actor that processes incoming events, decrypts
-   * if necessary, and dispatches messages to the actor's registered handlers based on message type.
+   * Creates the directed event handler of one actor. The handler accepts only a kind 1059
+   * event, and it drops each event of a different kind. It decrypts the NIP-44 v2 content
+   * with the actor key and the event signer key, and it parses the plaintext JSON. It drops
+   * a plaintext that is not a JSON object. It then binds the sender (see
+   * {@link #authenticateSender}) and dispatches the message to the handler of the actor.
    * @param {string} actorDid - The DID of the actor to create the event handler for.
    * @returns {(event: Event) => Promise<void>} An asynchronous event handler function that
-   * processes incoming events for the specified actor.
+   * processes incoming events for the specified actor. {@link #guardEventHandler} wraps it.
    */
   #makeActorEventHandler(actorDid: string): (event: Event) => Promise<void> {
     return async (event: Event) => {
       const actor = this.#actors.get(actorDid);
       if(!actor) return;
 
-      // Relay self-echo: sendMessage() adds the sender's own pubkey to the
-      // event's `p` tags (so recipients can reply). The directed subscription
-      // filter `{'#p': [actor_pk]}` therefore matches every event this actor
-      // publishes. Skip - we don't need to process our own outgoing events,
-      // and attempting to NIP-44-decrypt them fails with "invalid MAC" because
-      // the content was encrypted for the recipient, not self.
-      if(event.pubkey === bytesToHex(actor.keys.publicKey.x)) return;
-
-      let message: Record<string, unknown>;
-
-      try {
-        if(event.kind === 1) {
-          message = JSON.parse(event.content, NostrTransport.#jsonReviver);
-        } else if(event.kind === 1059) {
-          const conversationKey = nip44.v2.utils.getConversationKey(
-            actor.keys.secretKey.bytes,
-            event.pubkey
-          );
-          const plaintext = nip44.v2.decrypt(event.content, conversationKey);
-          message = JSON.parse(plaintext, NostrTransport.#jsonReviver);
-        } else {
-          return;
-        }
-      } catch(err) {
-        this.#logger.debug(`Failed to parse event ${event.id} for ${actorDid}:`, err);
+      // The directed path accepts only NIP-44 v2 ciphertext. The relay filter asks for kind
+      // 1059 only, but the handler does not trust the filter: it checks the kind again.
+      if(event.kind !== 1059) {
+        this.#logDebug(`Dropping event ${event.id} for ${actorDid}: kind ${event.kind} is not 1059`);
         return;
       }
 
-      const flat = this.#flattenAndAuthenticate(message, event);
+      // Relay self-echo: sendMessage() adds a `p` tag for the sender key. Thus the
+      // directed filter `{ kinds: [1059], '#p': [actor_pk] }` matches each event that
+      // this actor sends. The transport skips each event that it signed. The sender
+      // encrypted the content for the recipient, so a NIP-44 decrypt with the actor key
+      // fails with "invalid MAC".
+      if(event.pubkey === bytesToHex(actor.keys.publicKey.x)) return;
+
+      let parsed: unknown;
+      try {
+        const conversationKey = nip44.v2.utils.getConversationKey(
+          actor.keys.secretKey.bytes,
+          event.pubkey
+        );
+        const plaintext = nip44.v2.decrypt(event.content, conversationKey);
+        parsed = JSON.parse(plaintext, NostrTransport.#jsonReviver);
+      } catch(err) {
+        this.#logDebug(`Failed to parse event ${event.id} for ${actorDid}:`, err);
+        return;
+      }
+      if(!isJsonObject(parsed)) {
+        this.#logDebug(`Dropping event ${event.id} for ${actorDid}: the plaintext is not a JSON object`);
+        return;
+      }
+
+      const flat = this.#flattenAndAuthenticate(parsed, event);
       if(!flat) return;
 
       this.#dispatchMessage(flat, actor);
@@ -488,33 +531,46 @@ export class NostrTransport implements Transport {
    * Handles incoming broadcast events (kind 1) by parsing the event content, validating it as an
    * aggregation message, and dispatching it to all registered actors that have handlers for the
    * message type. This is used for COHORT_ADVERT messages that need to be received by all actors
-   * regardless of DID.
+   * regardless of DID. The handler drops a content that is not a JSON object.
    * @param {Event} event - The Nostr event to handle, expected to be a kind 1 broadcast containing
-   * a COHORT_ADVERT message. The event content is parsed and dispatched to all registered actors
-   * that have handlers for the
-   * @returns
+   * a COHORT_ADVERT message.
+   * @returns {Promise<void>} Resolves when the handler of each actor settles. The promise does
+   * not reject for a handler failure. {@link #guardEventHandler} wraps this method.
    */
   async #handleBroadcastEvent(event: Event): Promise<void> {
     if(event.kind !== 1) return;
 
-    let parsed: Record<string, unknown>;
+    let parsed: unknown;
     try {
       parsed = JSON.parse(event.content, NostrTransport.#jsonReviver);
     } catch(err) {
-      this.#logger.debug(`Failed to parse broadcast event ${event.id}:`, err);
+      this.#logDebug(`Failed to parse broadcast event ${event.id}:`, err);
+      return;
+    }
+    if(!isJsonObject(parsed)) {
+      this.#logDebug(`Dropping broadcast event ${event.id}: the content is not a JSON object`);
       return;
     }
 
     const message = this.#flattenAndAuthenticate(parsed, event);
     if(!message) return;
 
-    const messageType = message.type as string;
-    if(!messageType || !isAggregationMessageType(messageType)) return;
+    const messageType = message.type;
+    if(typeof messageType !== 'string' || !isAggregationMessageType(messageType)) return;
+    // #authenticateSender accepts only a non-empty string `from`.
+    const sender = message.from as string;
 
-    // Dispatch to ALL actors that have a handler for this message type
+    // Dispatch to ALL actors that have a handler for this message type, one after the
+    // other. A handler that throws or rejects gives a warn line, and the handlers of the
+    // later actors still run.
     for(const actor of this.#actors.values()) {
       const handler = actor.handlers.get(messageType);
-      if(handler) await handler(message);
+      if(!handler) continue;
+      try {
+        await handler(message);
+      } catch(err) {
+        this.#logHandlerFailure('Broadcast', messageType, sender, err);
+      }
     }
   }
 
@@ -525,13 +581,17 @@ export class NostrTransport implements Transport {
    *
    * Flattening happens first because the fields the binding consults (`communicationPk`,
    * `genesisDocument`) ride in `body`, and the handlers downstream read the flat shape.
+   * The flat message keeps the outer `body` as its `body` member. Thus a `body` member
+   * inside `body` cannot replace it, and the binding and the state machines read the
+   * same `communicationPk`.
    * @param {Record<string, unknown>} message The parsed (unflattened) event payload.
    * @param {Event} event The Nostr event that carried it.
    * @returns {Record<string, unknown> | undefined} The authenticated flat message, or undefined.
    */
   #flattenAndAuthenticate(message: Record<string, unknown>, event: Event): Record<string, unknown> | undefined {
-    const flat = (message.body && typeof message.body === 'object')
-      ? { ...message, ...(message.body as Record<string, unknown>) }
+    const body = message.body;
+    const flat = (body && typeof body === 'object')
+      ? { ...message, ...(body as Record<string, unknown>), body }
       : message;
     return this.#authenticateSender(flat, event) ? flat : undefined;
   }
@@ -562,7 +622,7 @@ export class NostrTransport implements Transport {
   #authenticateSender(message: Record<string, unknown>, event: Event): boolean {
     const from = message.from;
     if(typeof from !== 'string' || from.length === 0) {
-      this.#logger.debug(`Dropping event ${event.id}: message declares no sender DID`);
+      this.#logDebug(`Dropping event ${event.id}: message declares no sender DID`);
       return false;
     }
 
@@ -574,19 +634,19 @@ export class NostrTransport implements Transport {
         : undefined,
     );
     if(!senderPk) {
-      this.#logger.debug(`Dropping event ${event.id}: cannot resolve a key for sender ${from}`);
+      this.#logDebug(`Dropping event ${event.id}: cannot resolve a key for sender ${from}`);
       return false;
     }
 
     if(bytesToHex(senderPk.x) !== event.pubkey.toLowerCase()) {
-      this.#logger.debug(`Dropping event ${event.id}: ${from} did not sign it`);
+      this.#logDebug(`Dropping event ${event.id}: ${from} did not sign it`);
       return false;
     }
 
     const communicationPk = message.communicationPk;
     if(communicationPk !== undefined) {
       if(!(communicationPk instanceof Uint8Array) || !equalBytes(communicationPk, senderPk.compressed)) {
-        this.#logger.debug(`Dropping event ${event.id}: ${from} advertises a key it did not authenticate with`);
+        this.#logDebug(`Dropping event ${event.id}: ${from} advertises a key it did not authenticate with`);
         return false;
       }
     }
@@ -596,7 +656,8 @@ export class NostrTransport implements Transport {
 
   /**
    * Resolve a sender's communication public key: a registered peer's key first, then the
-   * injected DID resolver. Mirrors the HTTP transports' resolution order.
+   * injected DID resolver. Mirrors the HTTP transports' resolution order. If the injected
+   * resolver throws, the method writes a debug line and returns `undefined`.
    * @param {string} did The sender's DID.
    * @param {object} [opts] Optional resolution inputs (an `x1` sender's genesis document).
    * @returns {CompressedSecp256k1PublicKey | undefined} The key, or undefined if unresolvable.
@@ -610,7 +671,12 @@ export class NostrTransport implements Transport {
       try { return new CompressedSecp256k1PublicKey(peerBytes); }
       catch { /* fall through to the injected resolver */ }
     }
-    return this.#resolveSenderPkFn?.(did, opts);
+    try {
+      return this.#resolveSenderPkFn?.(did, opts);
+    } catch(err) {
+      this.#logDebug(`Sender key resolution failed for ${did}:`, err);
+      return undefined;
+    }
   }
 
   /**
@@ -618,18 +684,65 @@ export class NostrTransport implements Transport {
    * The message is expected to have already been parsed from the Nostr event content, flattened,
    * and authenticated against the event's signing key by {@link #flattenAndAuthenticate}. The
    * message is then dispatched to the handler registered for its type, if one exists.
+   *
+   * The call is fire and forget. A handler that throws or rejects gives a warn line with
+   * the message type and the sender DID.
    * @param {Record<string, unknown>} message - The flattened, authenticated message.
    * @param {ActorEntry} actor - The registered actor entry containing keys and handlers to dispatch the message to.
    * @returns {void}
-   * @throws {TransportAdapterError} If the message type is unsupported or if no handler is registered
-   * for the message type.
    */
   #dispatchMessage(message: Record<string, unknown>, actor: ActorEntry): void {
-    const messageType = message.type as string;
-    if(!messageType || !isAggregationMessageType(messageType)) return;
+    const messageType = message.type;
+    if(typeof messageType !== 'string' || !isAggregationMessageType(messageType)) return;
 
     const handler = actor.handlers.get(messageType);
-    if(handler) handler(message);
+    if(!handler) return;
+    // #authenticateSender accepts only a non-empty string `from`.
+    const sender = message.from as string;
+    try {
+      void Promise.resolve(handler(message)).catch((err: unknown) => {
+        this.#logHandlerFailure('Directed', messageType, sender, err);
+      });
+    } catch(err) {
+      this.#logHandlerFailure('Directed', messageType, sender, err);
+    }
+  }
+
+  /**
+   * Wrap an event handler for the `onevent` callback of a relay subscription. The relay
+   * pool calls `onevent` and does not catch a rejection. The wrapper catches a synchronous
+   * throw and a rejection of `handler`, and writes an error line. The wrapper returns nothing.
+   * @param {(event: Event) => Promise<void>} handler - The event handler to wrap.
+   * @param {string} label - The start of the error line, for example `Broadcast event`.
+   * @returns {(event: Event) => void} The `onevent` callback.
+   */
+  #guardEventHandler(handler: (event: Event) => Promise<void>, label: string): (event: Event) => void {
+    return (event: Event): void => {
+      try {
+        void Promise.resolve(handler(event)).catch((err: unknown) => {
+          this.#logUnexpected(`${label} dropped after an unexpected error:`, err);
+        });
+      } catch(err) {
+        this.#logUnexpected(`${label} dropped after an unexpected error:`, err);
+      }
+    };
+  }
+
+  /** Write a debug line. A logger throw does not leave this method. */
+  #logDebug(message: string, ...args: unknown[]): void {
+    try { this.#logger.debug(message, ...args); } catch { /* the logger failed */ }
+  }
+
+  /** Write a warn line for a handler that throws or rejects. A logger throw does not leave this method. */
+  #logHandlerFailure(stream: 'Broadcast' | 'Directed', messageType: string, sender: string, err: unknown): void {
+    try {
+      this.#logger.warn(`${stream} handler for ${messageType} from ${sender} failed:`, err);
+    } catch { /* the logger failed */ }
+  }
+
+  /** Write an error line for an unexpected throw. A logger throw does not leave this method. */
+  #logUnexpected(message: string, err: unknown): void {
+    try { this.#logger.error(message, err); } catch { /* the logger failed */ }
   }
 
   /**

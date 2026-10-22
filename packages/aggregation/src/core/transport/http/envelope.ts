@@ -10,6 +10,7 @@ import {
   HTTP_ENVELOPE_VERSION,
   type SignedEnvelope,
 } from './protocol.js';
+import { isValidNonce } from './wire-checks.js';
 
 /** Any shape acceptable as an envelope payload. `BaseMessage` instances are
  *  `toJSON`-normalized before signing so class vs. POJO callers produce the
@@ -73,8 +74,16 @@ export function signEnvelope(
  * communication public key. Throws {@link HttpTransportError} on any failure;
  * returns normally on success.
  *
- * Does NOT check nonce uniqueness - replay protection is the caller's
- * responsibility (the server-side transport maintains an LRU cache).
+ * The check order is:
+ * 1. The version.
+ * 2. The expected sender and recipient.
+ * 3. The timestamp skew. A timestamp that gives no finite difference to the
+ *    clock (for example a string that is not a number) fails this check.
+ * 4. The nonce form: 16 to 64 bytes of lowercase hex, else `ENVELOPE_NONCE_INVALID`.
+ * 5. The signature.
+ *
+ * Does NOT check nonce uniqueness. Replay protection is the caller's
+ * responsibility: the server transport keeps a time-based replay cache.
  */
 export function verifyEnvelope(
   envelope: SignedEnvelope,
@@ -109,11 +118,20 @@ export function verifyEnvelope(
   const nowMs   = opts.now ? opts.now() : Date.now();
   const nowSec  = Math.floor(nowMs / 1000);
   const diff    = Math.abs(nowSec - envelope.timestamp);
-  if(diff > skewSec) {
+  // A wire timestamp that is not a number gives NaN, and `NaN > skewSec` is false.
+  // Refuse it here, else a replay of the envelope passes the skew check at every time.
+  if(!Number.isFinite(diff) || diff > skewSec) {
     throw new HttpTransportError(
       `Envelope timestamp out of skew: ${diff}s > ${skewSec}s`,
       'ENVELOPE_TIMESTAMP_SKEW',
       { diff, skewSec, timestamp: envelope.timestamp, now: nowSec },
+    );
+  }
+
+  if(!isValidNonce(envelope.nonce)) {
+    throw new HttpTransportError(
+      'Envelope nonce must be 16 to 64 bytes of lowercase hex',
+      'ENVELOPE_NONCE_INVALID',
     );
   }
 
@@ -185,6 +203,10 @@ export function normalizeForWire(value: unknown): unknown {
  * Recursively convert `{ __bytes: hex }` sentinels back into `Uint8Array`
  * values. Call on `envelope.message` *after* successful verification and
  * before handing the payload to a runner's handler.
+ *
+ * Each member becomes an own property of the result, also a member with the name
+ * `__proto__`. An assignment of `__proto__` sets the prototype of the result. A reader
+ * then finds inherited members that a spread copy does not have.
  */
 export function reviveFromWire(value: unknown): unknown {
   if(value && typeof value === 'object' && !Array.isArray(value)) {
@@ -194,7 +216,14 @@ export function reviveFromWire(value: unknown): unknown {
       return hexToBytes(rec.__bytes);
     }
     const out: Record<string, unknown> = {};
-    for(const [k, v] of Object.entries(rec)) out[k] = reviveFromWire(v);
+    for(const [k, v] of Object.entries(rec)) {
+      Object.defineProperty(out, k, {
+        value        : reviveFromWire(v),
+        enumerable   : true,
+        writable     : true,
+        configurable : true,
+      });
+    }
     return out;
   }
   if(Array.isArray(value)) {

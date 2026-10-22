@@ -179,7 +179,10 @@ function plainEvent(type: string, from: string, body: Record<string, unknown>, s
   } as EventTemplate, signWith.secretKey.bytes);
 }
 
-/** A NIP-44 encrypted (kind 1059) aggregation event addressed to `recipient`. */
+/**
+ * A NIP-44 encrypted (kind 1059) aggregation event addressed to `recipient`. The tags are
+ * the two `p` tags only, the form that NostrTransport.sendMessage uses.
+ */
 function sealedEvent(
   type: string,
   from: string,
@@ -195,7 +198,7 @@ function sealedEvent(
   return finalizeEvent({
     kind       : 1059,
     created_at : Math.floor(Date.now() / 1000),
-    tags       : [ [ 'p', bytesToHex(signWith.publicKey.x) ], [ 'p', bytesToHex(recipient.publicKey.x) ], [ 't', type ] ],
+    tags       : [ [ 'p', bytesToHex(signWith.publicKey.x) ], [ 'p', bytesToHex(recipient.publicKey.x) ] ],
     content    : nip44.v2.encrypt(JSON.stringify(message, wireReplacer), conversationKey),
   } as EventTemplate, signWith.secretKey.bytes);
 }
@@ -442,11 +445,11 @@ describe('Transport sender authentication (audit H6)', () => {
       t.start();
 
       relay.directed(
-        plainEvent(COHORT_OPT_IN, victimDid, {
+        sealedEvent(COHORT_OPT_IN, victimDid, {
           cohortId        : 'c1',
           participantPk   : attackerKeys.publicKey.compressed,
           communicationPk : attackerKeys.publicKey.compressed,
-        }, attackerKeys),
+        }, attackerKeys, aliceKeys),
         bytesToHex(aliceKeys.publicKey.x),
       );
       expect(received).to.be.empty;
@@ -461,12 +464,12 @@ describe('Transport sender authentication (audit H6)', () => {
       t.start();
 
       relay.directed(
-        plainEvent(COHORT_OPT_IN, external.did, {
+        sealedEvent(COHORT_OPT_IN, external.did, {
           cohortId        : 'c1',
           participantPk   : external.keys.publicKey.compressed,
           communicationPk : external.keys.publicKey.compressed,
           genesisDocument : external.genesisDocument,
-        }, external.keys),
+        }, external.keys, aliceKeys),
         bytesToHex(aliceKeys.publicKey.x),
       );
       expect(received).to.have.lengthOf(1);
@@ -483,12 +486,12 @@ describe('Transport sender authentication (audit H6)', () => {
       t.start();
 
       relay.directed(
-        plainEvent(COHORT_OPT_IN, victim.did, {
+        sealedEvent(COHORT_OPT_IN, victim.did, {
           cohortId        : 'c1',
           participantPk   : impostor.keys.publicKey.compressed,
           communicationPk : impostor.keys.publicKey.compressed,
           genesisDocument : impostor.genesisDocument,
-        }, impostor.keys),
+        }, impostor.keys, aliceKeys),
         bytesToHex(aliceKeys.publicKey.x),
       );
       expect(received).to.be.empty;
@@ -584,7 +587,7 @@ describe('Transport sender authentication (audit H6)', () => {
       inboxPath = HTTP_ROUTE.ACTOR_INBOX.replace('{did}', encodeURIComponent(aliceDid));
 
       client = new HttpClientTransport({
-        baseUrl         : 'http://aggregator.invalid/',
+        baseUrl         : 'https://aggregator.invalid/',
         fetchImpl       : sse.fetch,
         logger          : SILENT_LOGGER,
         resolveSenderPk : resolveBtcr2SenderPk,
