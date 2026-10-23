@@ -155,7 +155,20 @@ See [`src/core/updater.ts`](./src/core/updater.ts) for the full `UpdaterDataNeed
 
 An update carries the `@context` array that the specification pins, in this order: `https://w3id.org/json-ld-patch/v1`, `https://w3id.org/zcap/v1`, `https://w3id.org/security/data-integrity/v2`, `https://btcr2.dev/context/v1`. `Updater.construct()` writes the array, and the proof of the signed update repeats it. The package exports the array as `BTCR2_UPDATE_CONTEXT`. The array is inside the hashed and signed bytes, so an update with a different array is a different update. The resolver rejects an update with a different array, or with a proof `@context` that differs from the update `@context`, with a `ResolveError` of type `INVALID_DID_UPDATE`.
 
-Both update paths apply the checks of the specification. Each failure that the specification names is an `UpdateError` on the write path, or a `ResolveError` on the read path, of type `INVALID_DID_UPDATE`. The inner error of the cryptosuite, the multikey, or the patch rides along as `data.cause`. The patch is applied strictly per RFC 6902. An unknown `op`, a missing `value`, a `remove` or `replace` of a missing path, a `move` or `copy` from a missing path, and a failed `test` fail the patch at the first failing operation. The patched document must keep the DID as its `id`, and it must conform to DID Core. The write path applies the rules of a producer, and the read path applies the rules of a consumer (ADR 149). A producer also refuses an item that occurs two times in a set, two methods or services with one `id`, a `secretKeyMultibase`, and a URL with a wrong syntax.
+Both update paths apply the checks of the specification. Each failure that the specification names is an `UpdateError` on the write path, or a `ResolveError` on the read path, of type `INVALID_DID_UPDATE`. The inner error of the cryptosuite, the multikey, or the patch rides along as `data.cause`.
+
+Both paths apply the patch with the rules of RFC 6902 and RFC 6901 (ADR 155). The first operation that fails, a failed `test` included, fails the whole patch. These operations fail, for example:
+
+- an unknown `op`, or an `add` with no `value`
+- a pointer with a wrong syntax
+- an array index with a leading zero or past the end
+- a `remove` or a `replace` of a location that does not exist
+- a `move` into a child of its `from`
+- a path to an inherited JavaScript member, such as `toString`
+
+Each member name is data, also `constructor` and `__proto__`.
+
+The patched document must keep the DID as its `id`, and it must conform to DID Core. The write path applies the rules of a producer, and the read path applies the rules of a consumer (ADR 149). A producer also refuses an item that occurs two times in a set, two methods or services with one `id`, a `secretKeyMultibase`, and a URL with a wrong syntax.
 
 `Updater.signingMethod(sourceDocument, verificationMethodId)` returns the verification method that signs an update. `DidBtcr2.update()` calls it before it returns the `Updater`, and `Updater.sign()` calls it again. An entry of `capabilityInvocation` must identify `verificationMethodId`, as a reference or as an embedded method object. `Updater.signingMethod()` resolves the id of each entry and `verificationMethodId` to absolute DID URLs before it compares them. A reference entry must name a member of `verificationMethod`. The resolver applies the same lookup and the same method conditions to `update.proof` (ADR 147).
 

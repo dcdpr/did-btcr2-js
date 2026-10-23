@@ -361,6 +361,9 @@ export class Updater {
    * @throws {UpdateError} `INVALID_DID_UPDATE` if `sourceVersionId` is not an integer of 1 or more.
    * @throws {UpdateError} `INVALID_DID_UPDATE` if `sourceDocument` or `patches` has no JCS form, for
    *   example if it holds NaN or a lone surrogate. `data.cause` holds the CanonicalizationError.
+   * @throws {UpdateError} `INVALID_DID_UPDATE` if `patches` is malformed or fails to apply by the
+   *   rules of RFC 6902 and RFC 6901. `data.cause` holds the MethodError of type
+   *   `JSON_PATCH_APPLY_ERROR`.
    * @throws {UpdateError} If the target document fails DID Core validation.
    */
   static construct(
@@ -387,13 +390,14 @@ export class Updater {
       sourceHash      : sourceHashOf(sourceDocument),
     };
 
-    // Spec "Construct BTCR2 Unsigned Update": apply jsonPatch strictly. The first operation
-    // that fails, including a failed test, fails the whole patch. A patch that a lenient
-    // library applies with no effect is refused here, before it is signed and announced: a
-    // conformant resolver would reject the announced update.
+    // Spec "Construct BTCR2 Unsigned Update": "An INVALID_DID_UPDATE error MUST be raised if
+    // jsonPatch is malformed or fails to apply." JSONPatch.apply uses the rules of RFC 6902
+    // and RFC 6901: the first operation that fails, a failed test included, fails the whole
+    // patch. The refusal comes before the update is signed and announced, because a
+    // conformant resolver refuses the same patch.
     let targetDocument: Record<string, any>;
     try {
-      targetDocument = JSONPatch.apply(sourceDocument, patches, { strict: true });
+      targetDocument = JSONPatch.apply(sourceDocument, patches);
       // The update holds the operations as given, and a resolver hashes the update with JCS.
       // JSONPatch.apply runs on a JSON copy of the operations, which writes NaN as null, so
       // the target document can have a hash while the patch has no JCS form. The check runs
