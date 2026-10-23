@@ -70,8 +70,7 @@
   },
   "dependencies": {
     "@noble/hashes": "^1.7.1",
-    "@scure/base": "^1.2.6",
-    "fast-json-patch": "^3.1.1"
+    "@scure/base": "^1.2.6"
   },
   "peerDependencies": {
     "@scure/bip32": "^1.5.0"
@@ -96,6 +95,7 @@
     "eslint": "^9.21.0",
     "eslint-plugin-mocha": "^10.5.0",
     "globals": "^16.0.0",
+    "json-patch-test-suite": "github:json-patch/json-patch-tests#2a928f9044aad35c74e2788d498bcf2c6b91adea",
     "mocha": "^11.1.0",
     "rimraf": "^6.0.1",
     "typescript": "~5.7.3"

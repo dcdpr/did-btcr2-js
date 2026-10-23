@@ -372,9 +372,6 @@ importers:
       '@scure/bip32':
         specifier: ^1.5.0
         version: 1.7.0
-      fast-json-patch:
-        specifier: ^3.1.1
-        version: 3.1.1
     devDependencies:
       '@eslint/js':
         specifier: ^9.21.0
@@ -418,6 +415,9 @@ importers:
       globals:
         specifier: ^16.0.0
         version: 16.4.0
+      json-patch-test-suite:
+        specifier: github:json-patch/json-patch-tests#2a928f9044aad35c74e2788d498bcf2c6b91adea
+        version: https://codeload.github.com/json-patch/json-patch-tests/tar.gz/2a928f9044aad35c74e2788d498bcf2c6b91adea
       mocha:
         specifier: ^11.1.0
         version: 11.7.2
@@ -2386,9 +2386,6 @@ packages:
     resolution: {integrity: sha512-7MptL8U0cqcFdzIzwOTHoilX9x5BrNqye7Z/LuC7kCMRio1EMSyqRK3BEAUD7sXRq4iT4AzTVuZdhgQ2TCvYLg==}
     engines: {node: '>=8.6.0'}
 
-  fast-json-patch@3.1.1:
-    resolution: {integrity: sha512-vf6IHUX2SBcA+5/+4883dsIjpBTqmfBjmYiWK1savxQmFk4JfBMLa7ynTYOs1Rolp/T1betJxHiGD3g1Mn8lUQ==}
-
   fast-json-stable-stringify@2.1.0:
     resolution: {integrity: sha512-lhd/wF+Lk98HZoTCtlVraHtfh5XYijIjalXck7saUtuanSDyLMxnHhSXEDJqHxD7msR8D0uCmqlkwjCV8xvwHw==}
 
@@ -2743,6 +2740,10 @@ packages:
 
   json-buffer@3.0.1:
     resolution: {integrity: sha512-4bV5BfR2mqfQTJm+V5tPPdf+ZpuhiIvTuAB5g8kcrXOZpTT/QwwVRWBywX1ozr6lEuPdbHxwaJlm9G6mI2sfSQ==}
+
+  json-patch-test-suite@https://codeload.github.com/json-patch/json-patch-tests/tar.gz/2a928f9044aad35c74e2788d498bcf2c6b91adea:
+    resolution: {gitHosted: true, integrity: sha512-E6RpSUlj2FoXeXBJ0hzHi2AN3m0sXPn5algHagMD28ak2afpEJ6vCDskxzvV7A+tP+8MEZepquBMgQmUCpPykA==, tarball: https://codeload.github.com/json-patch/json-patch-tests/tar.gz/2a928f9044aad35c74e2788d498bcf2c6b91adea}
+    version: 1.1.0
 
   json-schema-traverse@0.4.1:
     resolution: {integrity: sha512-xbbCH5dCYU5T8LcEhhuh7HJ88HXuW3qsI3Y0zOZFKfZEHcpWiHU/Jxzk629Brsab/mMiHQti9wMP+845RPe3Vg==}
@@ -5463,8 +5464,6 @@ snapshots:
       merge2: 1.4.1
       micromatch: 4.0.8
 
-  fast-json-patch@3.1.1: {}
-
   fast-json-stable-stringify@2.1.0: {}
 
   fast-levenshtein@2.0.6: {}
@@ -5808,6 +5807,8 @@ snapshots:
       argparse: 2.0.1
 
   json-buffer@3.0.1: {}
+
+  json-patch-test-suite@https://codeload.github.com/json-patch/json-patch-tests/tar.gz/2a928f9044aad35c74e2788d498bcf2c6b91adea: {}
 
   json-schema-traverse@0.4.1: {}
 

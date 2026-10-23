@@ -263,7 +263,7 @@ function assertTargetCanSign(
     // with the rules of the update path. The result has only the hash, so
     // the guard applies the patch again for the document.
     Updater.construct(sourceDocument, patch, sourceVersionId);
-    targetDocument = JSONPatch.apply(sourceDocument, patch, { strict: true }) as Btcr2DidDocument;
+    targetDocument = JSONPatch.apply(sourceDocument, patch) as Btcr2DidDocument;
   } catch {
     return;
   }
@@ -612,21 +612,23 @@ export class DidMethodApi {
   }
 
   /**
-   * Apply JSON Patch operations to a document, with zero I/O. The source
-   * document does not change. The first operation that fails, a failed `test`
-   * included, fails the whole patch, as in an update. For a DID document, the
-   * result is the target document of an update with this patch. The api does
-   * not validate the result as a DID document; {@link DidMethodApi.constructUpdate} does.
+   * Apply JSON Patch operations to a document, with zero I/O. The rules are
+   * the rules of RFC 6902 and RFC 6901, as in an update. The source document
+   * does not change. The first operation that fails, a failed `test`
+   * included, fails the whole patch. For a DID document, the result is the
+   * target document of an update with this patch. The api does not validate
+   * the result as a DID document; {@link DidMethodApi.constructUpdate} does.
    * @param document The source document.
    * @param patch The JSON Patch operations.
-   * @returns A new document with the operations applied.
+   * @returns A new document with the operations applied. A patch that adds
+   *   or replaces the whole document (`''`) can give any JSON value.
    * @throws {MethodError} `JSON_PATCH_APPLY_ERROR` if an operation is not valid or does not apply.
    */
   applyPatch(document: object, patch: PatchOperation[]): Record<string, unknown> {
     if (document === null || typeof document !== 'object') {
       throw new Error('document must be an object.');
     }
-    return JSONPatch.apply(document, patch, { strict: true });
+    return JSONPatch.apply(document, patch);
   }
 
   /**

@@ -248,11 +248,14 @@ function substitute(value: unknown, ctx: { did: string; keys: Map<string, Schnor
 
 // ─── Update construction and tampers ─────────────────────────────────────────
 
-/** `Updater.construct` without the strict checks, for a patch that is invalid on purpose. */
+/**
+ * `Updater.construct` without its checks, for a patch that is invalid on purpose. If the
+ * patch fails to apply, the target hash is the hash of the source document.
+ */
 function constructLenient(sourceDocument: Btcr2DidDocument, patches: PatchOperation[], sourceVersionId: number): UnsignedBTCR2Update {
   let target: object = sourceDocument;
   try {
-    target = JSONPatch.apply(sourceDocument, patches, { strict: false }) as object;
+    target = JSONPatch.apply(sourceDocument, patches) as object;
   } catch {
     target = sourceDocument;
   }
@@ -557,7 +560,7 @@ function runScenario(scenario: Scenario, cohorts: CohortDef[]): void {
     previousSource = source;
     const deactivatedNow = (currentDocument as { deactivated?: boolean }).deactivated === true;
     if (!u.tamper && !u.fork && !deactivatedNow && !u.removedBeacon && !u.belowCurrentHeight) {
-      currentDocument = JSONPatch.apply(source.document, patches, { strict: true }) as Btcr2DidDocument;
+      currentDocument = JSONPatch.apply(source.document, patches) as Btcr2DidDocument;
       currentVersion = unsigned.targetVersionId;
       documents[currentVersion - 1] = currentDocument;
     }

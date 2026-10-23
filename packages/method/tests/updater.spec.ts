@@ -158,6 +158,94 @@ describe('Updater', () => {
     }
   });
 
+  describe('the JSON Patch rules of RFC 6902 and RFC 6901 (ADR 155)', () => {
+    // Spec "Construct BTCR2 Unsigned Update": "An INVALID_DID_UPDATE error MUST be raised if
+    // jsonPatch is malformed or fails to apply." The cases are patches that apply at common
+    // 10, but are malformed or fail to apply by the RFC text, and member names that common
+    // 10 refused, but that RFC 6901 section 4 permits.
+    const AKA = 'https://example.com/a';
+    const ADD_AKA: PatchOperation = { op: 'add', path: '/alsoKnownAs', value: [ AKA ] };
+
+    function constructThrows(patches: PatchOperation[]): any {
+      try {
+        Updater.construct(sourceDocument, patches, 1);
+      } catch(error) {
+        return error;
+      }
+      throw new Error('expected Updater.construct to throw');
+    }
+
+    /** The source document with the members of `extra` as own data members. */
+    function withOwnMembers(extra: Record<string, unknown>): Record<string, unknown> {
+      const target = JSON.parse(JSON.stringify(sourceDocument)) as Record<string, unknown>;
+      for(const [ name, value ] of Object.entries(extra)) {
+        Object.defineProperty(target, name, { value, enumerable: true, writable: true, configurable: true });
+      }
+      return target;
+    }
+
+    const refused: Array<[ string, PatchOperation[], string ]> = [
+      [
+        'an array index with a leading zero (RFC 6901 section 4)',
+        [ ADD_AKA, { op: 'add', path: '/alsoKnownAs/00', value: 'https://example.com/b' } ],
+        'JSON Patch application failed at operation 1 (add /alsoKnownAs/00): "00" is not an array index (RFC 6901 section 4)'
+      ],
+      [
+        'a remove of an inherited member (RFC 6902 section 4.2)',
+        [{ op: 'remove', path: '/service/0/toString' }],
+        'JSON Patch application failed at operation 0 (remove /service/0/toString): path "/service/0/toString" does not exist'
+      ],
+      [
+        'a move into a child of the from location (RFC 6902 section 4.4)',
+        [{ op: 'move', from: '/service/0', path: '/service/0/child' }],
+        'Invalid JSON Patch operations: Operation.from is a proper prefix of Operation.path: a location cannot move into one of its children (RFC 6902 section 4.4)'
+      ],
+      [
+        'a copy to an index past the end of the array (RFC 6902 section 4.1)',
+        [ ADD_AKA, { op: 'copy', from: '/alsoKnownAs/0', path: '/alsoKnownAs/2' } ],
+        'JSON Patch application failed at operation 1 (copy /alsoKnownAs/2): index 2 is greater than the number of elements (1) (RFC 6902 section 4.1)'
+      ],
+    ];
+    for(const [ label, patches, message ] of refused) {
+      it(`Updater.construct refuses ${label}`, () => {
+        const thrown = constructThrows(patches);
+        expect(thrown).to.be.instanceOf(UpdateError);
+        expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+        expect(thrown.message).to.equal(`Invalid patch: ${message}`);
+        expect(thrown.data.cause.type).to.equal('JSON_PATCH_APPLY_ERROR');
+      });
+    }
+
+    it('the state machine refuses an array index with a leading zero before it asks for a signature', () => {
+      const updater = DidBtcr2.update({
+        sourceDocument,
+        patches         : [{ op: 'remove', path: '/service/00' }],
+        sourceVersionId : 1,
+        verificationMethodId,
+        beaconId,
+      });
+      expect(() => updater.advance()).to.throw(UpdateError, 'Invalid patch: JSON Patch application failed at operation 0 (remove /service/00): path "/service/00" does not exist');
+    });
+
+    const accepted: Array<[ string, PatchOperation[], Record<string, unknown> ]> = [
+      [ 'constructor', [{ op: 'add', path: '/constructor', value: 'c' }], { constructor: 'c' } ],
+      // An object literal with the key __proto__ sets the prototype, so JSON.parse makes the member.
+      [ '__proto__', [{ op: 'add', path: '/__proto__', value: { polluted: true } }], JSON.parse('{"__proto__":{"polluted":true}}') ],
+      [
+        'hasOwnProperty',
+        [{ op: 'add', path: '/hasOwnProperty', value: 'h' }, { op: 'test', path: '/hasOwnProperty', value: 'h' }],
+        { hasOwnProperty: 'h' }
+      ],
+    ];
+    for(const [ label, patches, extra ] of accepted) {
+      it(`Updater.construct accepts the member name ${label} as an own data member`, () => {
+        const unsigned = Updater.construct(sourceDocument, patches, 1);
+        expect(unsigned.targetHash).to.equal(canonicalHash(withOwnMembers(extra)));
+        expect(({} as Record<string, unknown>).polluted).to.equal(undefined);
+      });
+    }
+  });
+
   describe('strict patch, proof verification before funding, and deactivate (ADR 112)', () => {
     it('Updater.construct refuses a patch that removes a missing path, and carries the patch error as the cause', () => {
       let thrown: any;

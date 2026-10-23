@@ -882,11 +882,12 @@ export class Resolver {
       throw new ResolveError('Invalid update: proof not verified', INVALID_DID_UPDATE, { verificationMethodId });
     }
 
-    // Spec "Apply update": apply update.patch strictly. The first operation that fails,
-    // including a failed test, fails the whole patch.
+    // Spec "Apply update": "Raise an INVALID_DID_UPDATE error if update.patch is malformed or
+    // fails to apply." JSONPatch.apply uses the rules of RFC 6902 and RFC 6901: the first
+    // operation that fails, a failed test included, fails the whole patch.
     let updatedDocument: DidDocument;
     try {
-      updatedDocument = JSONPatch.apply(currentDocument, update.patch, { strict: true }) as DidDocument;
+      updatedDocument = JSONPatch.apply(currentDocument, update.patch) as DidDocument;
     } catch(error) {
       throw new ResolveError(
         `Invalid update: ${errorCause(error).message}`,
@@ -1189,7 +1190,7 @@ export class Resolver {
   /**
    * Save the current state as `requested_state` ("Process Next Update", steps 1 and 5)
    * if no saved state exists. The function does not copy the document. An apply sets
-   * `#currentDocument` to a new object, because `JSONPatch.apply` patches a clone. Thus
+   * `#currentDocument` to a new object, because `JSONPatch.apply` patches a copy. Thus
    * the saved object does not change.
    */
   #saveRequestedState(): void {

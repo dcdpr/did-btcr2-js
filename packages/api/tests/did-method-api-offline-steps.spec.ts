@@ -445,6 +445,40 @@ describe('DidMethodApi offline update steps', () => {
         { op: 'test', path: '/a', value: 9 },
       ])).to.throw(MethodError);
     });
+
+    // The rules of RFC 6902 and RFC 6901, as in an update (ADR 155).
+    const refusals: Array<[ string, object, PatchOperation[], string ]> = [
+      [
+        'an array index with a leading zero',
+        { list: [ 'x' ] }, [{ op: 'add', path: '/list/00', value: 'y' }],
+        'JSON Patch application failed at operation 0 (add /list/00): "00" is not an array index (RFC 6901 section 4)'
+      ],
+      [
+        'a remove of an inherited member',
+        { a: 1 }, [{ op: 'remove', path: '/toString' }],
+        'JSON Patch application failed at operation 0 (remove /toString): path "/toString" does not exist'
+      ],
+      [
+        'a remove of the whole document',
+        { a: 1 }, [{ op: 'remove', path: '' }],
+        'JSON Patch application failed at operation 0 (remove ): a remove of the whole document gives no document (RFC 6902 section 4.2)'
+      ],
+    ];
+    for (const [ label, document, patch, message ] of refusals) {
+      it(`refuses ${label}`, () => {
+        const { api } = offlineFixture();
+        expect(() => api.btcr2.applyPatch(document, patch))
+          .to.throw(MethodError, message).with.property('type', 'JSON_PATCH_APPLY_ERROR');
+      });
+    }
+
+    it('adds the member name __proto__ as an own data member and changes no prototype', () => {
+      const { api } = offlineFixture();
+      const result = api.btcr2.applyPatch({ a: 1 }, [{ op: 'add', path: '/__proto__', value: { polluted: true } }]);
+      expect(Object.getOwnPropertyDescriptor(result, '__proto__')?.value).to.deep.equal({ polluted: true });
+      expect(Object.getPrototypeOf(result)).to.equal(Object.prototype);
+      expect(({} as Record<string, unknown>).polluted).to.equal(undefined);
+    });
   });
 
   describe('rootCapability()', () => {

@@ -3855,6 +3855,78 @@ describe('Resolver', () => {
         expectInvalidUpdate(thrownBy([ update ]), /Test operation failed/);
       });
 
+      // Spec "Apply update": "Raise an INVALID_DID_UPDATE error if update.patch is malformed
+      // or fails to apply." Each refused patch is malformed or fails to apply by RFC 6902 and
+      // RFC 6901. The target hash of each update is the hash of the document that common 10
+      // gave, so a resolver with common 10 applies the update.
+      const AKA = 'https://example.com/a';
+      const ADD_AKA: PatchOperation = { op: 'add', path: '/alsoKnownAs', value: [ AKA ] };
+      const withAka = (source: DidDocument, alsoKnownAs: string[]): object => ({ ...source, alsoKnownAs });
+      const rfcRefusals: Array<[ string, PatchOperation[], (source: DidDocument) => object, string ]> = [
+        [
+          'an array index with a leading zero (RFC 6901 section 4)',
+          [ ADD_AKA, { op: 'add', path: '/alsoKnownAs/00', value: 'https://example.com/b' } ],
+          (source) => withAka(source, [ 'https://example.com/b', AKA ]),
+          'JSON Patch application failed at operation 1 (add /alsoKnownAs/00): "00" is not an array index (RFC 6901 section 4)'
+        ],
+        [
+          'a remove of an inherited member (RFC 6902 section 4.2)',
+          [{ op: 'remove', path: '/service/0/toString' }],
+          (source) => source,
+          'JSON Patch application failed at operation 0 (remove /service/0/toString): path "/service/0/toString" does not exist'
+        ],
+        [
+          'a move into a child of the from location (RFC 6902 section 4.4)',
+          [{ op: 'move', from: '/service/0', path: '/service/0/child' }],
+          (source) => source,
+          'Invalid JSON Patch operations: Operation.from is a proper prefix of Operation.path: a location cannot move into one of its children (RFC 6902 section 4.4)'
+        ],
+        [
+          'a copy to an index past the end of the array (RFC 6902 section 4.1)',
+          [ ADD_AKA, { op: 'copy', from: '/alsoKnownAs/0', path: '/alsoKnownAs/2' } ],
+          (source) => withAka(source, [ AKA, AKA ]),
+          'JSON Patch application failed at operation 1 (copy /alsoKnownAs/2): index 2 is greater than the number of elements (1) (RFC 6902 section 4.1)'
+        ],
+      ];
+      for(const [ label, patch, commonTenTarget, message ] of rfcRefusals) {
+        it(`rejects a patch with ${label}`, () => {
+          const source = resolveDeterministic(fixture.did);
+          const thrown = thrownBy([ signWith(unsignedV2(source, patch, commonTenTarget(source))) ]);
+          expectInvalidUpdate(thrown, /^Invalid update: /);
+          expect(thrown.message).to.equal(`Invalid update: ${message}`);
+          expect(thrown.data.cause.type).to.equal('JSON_PATCH_APPLY_ERROR');
+        });
+      }
+
+      // RFC 6901 section 4 permits each member name. The patched document holds the name as
+      // an own data member, and no prototype changes.
+      const memberNames: Array<{ name: string; value: unknown; patch: PatchOperation[] }> = [
+        { name: 'constructor', value: 'c', patch: [{ op: 'add', path: '/constructor', value: 'c' }] },
+        { name: '__proto__', value: { polluted: true }, patch: [{ op: 'add', path: '/__proto__', value: { polluted: true } }] },
+        {
+          name  : 'hasOwnProperty',
+          value : 'h',
+          patch : [{ op: 'add', path: '/hasOwnProperty', value: 'h' }, { op: 'test', path: '/hasOwnProperty', value: 'h' }]
+        },
+      ];
+      for(const { name, value, patch } of memberNames) {
+        it(`applies a patch that adds the member name ${name} as an own data member`, () => {
+          const source = resolveDeterministic(fixture.did);
+          // JSON.parse makes an own data member, also for the name __proto__.
+          const member = `${JSON.stringify(name)}:${JSON.stringify(value)}`;
+          const target = JSON.parse(`${JSON.stringify(source).slice(0, -1)},${member}}`) as DidDocument;
+          const update = signWith(unsignedV2(source, patch, target));
+          const { didDocument, metadata } = driveSignalSequence(
+            fixture.did, [ update ], [ update ], [{ time: HEADER_TIME, mediantime: MEDIANTIME }]
+          );
+          expect(metadata.versionId).to.equal('2');
+          expect(canonicalHash(didDocument)).to.equal(canonicalHash(target));
+          expect(Object.getPrototypeOf(didDocument)).to.equal(Object.prototype);
+          expect(Object.getOwnPropertyDescriptor(didDocument, name)?.value).to.deep.equal(value);
+          expect(({} as Record<string, unknown>).polluted).to.equal(undefined);
+        });
+      }
+
       it('rejects a patch that changes the document id', () => {
         const source = resolveDeterministic(fixture.did);
         const patch: PatchOperation[] = [{ op: 'replace', path: '/id', value: deterministicData[0].did }];
