@@ -22,6 +22,7 @@ import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import type { LocalSigner } from '@did-btcr2/keypair';
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from '@did-btcr2/method';
 import { Appendix, BTCR2_UPDATE_CONTEXT } from '@did-btcr2/method';
+import { resolutionErrorCodeOfType, resolutionErrorOfCode } from '../src/helpers.js';
 
 // ─── Networks ────────────────────────────────────────────────────────────────
 
@@ -819,8 +820,14 @@ export function okEnvelope(didDocument: object, versionId: number, deactivated: 
   };
 }
 
-/** The DID Resolution result the api returns for a failed resolve. */
-export function errorEnvelope(error: string): object {
+/**
+ * The DID Resolution result the api returns for a failed resolve, as far as it is known offline.
+ * The error object has the `type` and `title` of the code. The `detail` is the text of this
+ * implementation, so the offline generator does not write it.
+ */
+export function errorEnvelope(code: string): object {
+  const error = resolutionErrorOfCode(code);
+  if (!error) throw new Error(`errorEnvelope: ${code} is not a DID Resolution error code`);
   return {
     didResolutionMetadata : { error },
     didDocument           : null,
@@ -836,12 +843,16 @@ export type Expected =
 /** Read the expectation of a `resolve/output.json` (main or sub-vector). */
 export function readExpected(outputPath: string): Expected {
   const out = readJSON<{
-    didResolutionMetadata?: { error?: string };
+    didResolutionMetadata?: { error?: string | { type?: unknown } };
     didDocument?: object | null;
     didDocumentMetadata?: { versionId?: string; deactivated?: boolean };
   }>(outputPath);
-  if (out.didResolutionMetadata?.error || !out.didDocument) {
-    return { kind: 'error', error: out.didResolutionMetadata?.error ?? 'unknown' };
+  const error = out.didResolutionMetadata?.error;
+  if (error || !out.didDocument) {
+    // A vector of an earlier format records the bare code. A vector of the current format records
+    // the error object of the code.
+    if (typeof error === 'string') return { kind: 'error', error };
+    return { kind: 'error', error: error ? resolutionErrorCodeOfType(error.type) : 'unknown' };
   }
   return {
     kind        : 'ok',

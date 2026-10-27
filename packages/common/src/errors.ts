@@ -65,7 +65,13 @@ export enum MethodErrorCode {
    * {@link https://www.w3.org/TR/did-resolution-1.0/#errors | DID Resolution v1.0}
    * and reused by did:btcr2 for its own resolution options.
    */
-  INVALID_OPTIONS = 'INVALID_OPTIONS'
+  INVALID_OPTIONS = 'INVALID_OPTIONS',
+
+  /**
+   * The resolver does not support a resolution option, or a value of it. Defined by
+   * {@link https://www.w3.org/TR/did-resolution-1.0/#errors | DID Resolution v1.0}.
+   */
+  FEATURE_NOT_SUPPORTED = 'FEATURE_NOT_SUPPORTED'
 }
 
 export const {
@@ -85,7 +91,8 @@ export const {
   LATE_PUBLISHING,
   MISSING_UPDATE_DATA,
   INVALID_SIGNAL_DATA,
-  INVALID_OPTIONS
+  INVALID_OPTIONS,
+  FEATURE_NOT_SUPPORTED
 } = MethodErrorCode;
 
 type ErrorOptions = {

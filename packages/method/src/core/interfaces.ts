@@ -1,4 +1,3 @@
-import type { DidResolutionOptions } from '@web5/dids';
 import type { Sidecar } from './types.js';
 
 export interface RootCapability {
@@ -15,8 +14,36 @@ export interface RootCapability {
  * Resolution is now fully sans-I/O via the {@link Resolver} state machine.
  * External data (Bitcoin signals, CAS data) is provided through the
  * `resolver.resolve()` / `resolver.provide()` protocol.
+ *
+ * The resolver supports only the options of this interface. An option with another name fails
+ * with a `ResolveError` of type `FEATURE_NOT_SUPPORTED` (DID Resolution v1, section 4.4, step 3).
+ * An option value that is not valid fails with `INVALID_OPTIONS` (step 4). An option with the
+ * value `undefined` is absent.
  */
-export interface ResolutionOptions extends DidResolutionOptions {
+export interface ResolutionOptions {
+  /**
+   * The media type of the requested representation, as an HTTP Accept header value (RFC 9110,
+   * section 12.5.1), for example `"application/did"`. The resolver returns the DID document as
+   * a data structure, so the value has no effect. A value that does not match the Accept grammar
+   * fails with `INVALID_OPTIONS`.
+   */
+  accept?: string;
+
+  /**
+   * A request to expand each relative DID URL of the DID document into an absolute DID URL. The
+   * resolver does not support the expansion: `true` fails with a `ResolveError` of type
+   * `FEATURE_NOT_SUPPORTED`, and `false` has no effect. The resolver returns each relative DID URL
+   * unchanged. A value that is not a boolean fails with `INVALID_OPTIONS`.
+   */
+  expandRelativeUrls?: boolean;
+
+  /**
+   * A request to bypass a cache. DID Resolution v1 gives the values `"true"` and `"false"`. The
+   * resolver keeps no cache, so the value has no effect. `true`, `false`, `"true"`, and `"false"`
+   * are valid. Another value fails with `INVALID_OPTIONS`.
+   */
+  noCache?: boolean | 'true' | 'false';
+
   /**
    * The version of the DID document to resolve, as an ASCII string of an integer
    * (for example `"2"`). The versions start at `"1"`, the genesis document. The
@@ -50,6 +77,7 @@ export interface ResolutionOptions extends DidResolutionOptions {
   /**
    * Data transmitted via {@link https://dcdpr.github.io/did-btcr2/data-structures.html#sidecar-data-example-panel-show | Sidecar (data structure)}.
    * Includes Singleton beacon updates, CAS announcements, and SMT proofs.
+   * A value that is not an object fails with `INVALID_OPTIONS`.
    */
   sidecar?: Sidecar;
 
@@ -63,6 +91,7 @@ export interface ResolutionOptions extends DidResolutionOptions {
    * the requested version, because the resolver processes the full history (ADR 145).
    * Exceeding a configured limit surfaces as an INTERNAL_ERROR, the
    * document is well-formed, the resolver simply stopped at the caller's limit.
+   * A value that is not a number fails with `INVALID_OPTIONS`.
    */
   maxDiscoveryRounds?: number;
 

@@ -1,5 +1,19 @@
-import { DidMethodError, INTERNAL_ERROR, MethodErrorCode } from '@did-btcr2/common';
-import type { Logger } from './types.js';
+import {
+  DidMethodError,
+  FEATURE_NOT_SUPPORTED,
+  INTERNAL_ERROR,
+  INVALID_DID,
+  INVALID_DID_DOCUMENT,
+  INVALID_DID_UPDATE,
+  INVALID_DID_URL,
+  INVALID_OPTIONS,
+  INVALID_SIGNAL_DATA,
+  LATE_PUBLISHING,
+  METHOD_NOT_SUPPORTED,
+  MISSING_UPDATE_DATA,
+  NOT_FOUND
+} from '@did-btcr2/common';
+import type { Logger, ResolutionError } from './types.js';
 
 const noopFn = () => {};
 
@@ -127,26 +141,52 @@ export function messageText(value: unknown): string | undefined {
   return String(value);
 }
 
-/** The error codes that a DID Resolution result can carry in `didResolutionMetadata.error`. */
-const RESOLUTION_ERROR_CODES: ReadonlySet<string> = new Set<string>(Object.values(MethodErrorCode));
+/** The base URL of the error types of DID Resolution v1, section 10. */
+const DID_ERROR_TYPES = 'https://www.w3.org/ns/did#';
+
+/** The base URL of the error types of the did:btcr2 specification (the anchors of errors.html). */
+const BTCR2_ERROR_TYPES = 'https://dcdpr.github.io/did-btcr2/errors.html#';
+
+/**
+ * The `type` and `title` of each error code that a DID Resolution result can carry. The 9 codes of
+ * {@link https://www.w3.org/TR/did-resolution-1.0/#errors | DID Resolution v1, section 10} use the
+ * URL of that section. The 4 codes of the did:btcr2 specification use the anchor of the code on
+ * {@link https://dcdpr.github.io/did-btcr2/errors.html | the did:btcr2 errors page}.
+ */
+const RESOLUTION_ERRORS: ReadonlyMap<string, { readonly type: string; readonly title: string }> = new Map([
+  [INVALID_DID, { type: `${DID_ERROR_TYPES}INVALID_DID`, title: 'Invalid DID' }],
+  [INVALID_DID_DOCUMENT, { type: `${DID_ERROR_TYPES}INVALID_DID_DOCUMENT`, title: 'Invalid DID document' }],
+  [NOT_FOUND, { type: `${DID_ERROR_TYPES}NOT_FOUND`, title: 'DID not found' }],
+  ['REPRESENTATION_NOT_SUPPORTED', { type: `${DID_ERROR_TYPES}REPRESENTATION_NOT_SUPPORTED`, title: 'Representation not supported' }],
+  [INVALID_DID_URL, { type: `${DID_ERROR_TYPES}INVALID_DID_URL`, title: 'Invalid DID URL' }],
+  [METHOD_NOT_SUPPORTED, { type: `${DID_ERROR_TYPES}METHOD_NOT_SUPPORTED`, title: 'DID method not supported' }],
+  [INVALID_OPTIONS, { type: `${DID_ERROR_TYPES}INVALID_OPTIONS`, title: 'Invalid resolution options' }],
+  [INTERNAL_ERROR, { type: `${DID_ERROR_TYPES}INTERNAL_ERROR`, title: 'Internal error' }],
+  [FEATURE_NOT_SUPPORTED, { type: `${DID_ERROR_TYPES}FEATURE_NOT_SUPPORTED`, title: 'Feature not supported' }],
+  [INVALID_DID_UPDATE, { type: `${BTCR2_ERROR_TYPES}invalid_did_update`, title: 'Invalid DID update' }],
+  [INVALID_SIGNAL_DATA, { type: `${BTCR2_ERROR_TYPES}invalid_signal_data`, title: 'Invalid signal data' }],
+  [LATE_PUBLISHING, { type: `${BTCR2_ERROR_TYPES}late_publishing`, title: 'Late publishing' }],
+  [MISSING_UPDATE_DATA, { type: `${BTCR2_ERROR_TYPES}missing_update_data`, title: 'Missing update data' }],
+]);
 
 /**
  * The DID Resolution error code of a caught value.
  *
  * Walks `err.cause` links from the top (capped at 16 hops, cycle-safe) and
  * returns the `type` of the first link that is a {@link DidMethodError} whose
- * type is a member of {@link MethodErrorCode}. The nearest typed link wins, so
- * a wrapper that re-types a deeper failure decides the code. Every other value
- * maps to `INTERNAL_ERROR`, the code DID Resolution v1 gives to an unexpected
- * error. Never throws.
+ * type is one of the 13 error codes of a DID Resolution result: the 9 codes of
+ * DID Resolution v1, section 10, and the 4 codes of the did:btcr2 specification.
+ * The nearest typed link wins, so a wrapper that re-types a deeper failure
+ * decides the code. Every other value maps to `INTERNAL_ERROR`, the code DID
+ * Resolution v1 gives to an unexpected error. Never throws.
  *
  * @param err The caught value.
- * @returns A member of {@link MethodErrorCode}.
+ * @returns One of the 13 error codes.
  */
 export function resolutionErrorCode(err: unknown): string {
   let current: unknown = err;
   for (let hops = 0; hops < 16; hops++) {
-    if (current instanceof DidMethodError && RESOLUTION_ERROR_CODES.has(current.type)) {
+    if (current instanceof DidMethodError && RESOLUTION_ERRORS.has(current.type)) {
       return current.type;
     }
     let next: unknown;
@@ -157,6 +197,47 @@ export function resolutionErrorCode(err: unknown): string {
     }
     if (next === undefined || next === null) break;
     current = next;
+  }
+  return INTERNAL_ERROR;
+}
+
+/**
+ * The error object of a failed DID resolution, in the form of
+ * {@link https://www.rfc-editor.org/rfc/rfc9457 | RFC 9457} that
+ * {@link https://www.w3.org/TR/did-resolution-1.0/#errors | DID Resolution v1, section 10} uses.
+ * `type` is the URL of the error code of {@link resolutionErrorCode}, `title` is a short text for
+ * the code, and `detail` is the root cause message ({@link rootCauseMessage}). The object has no
+ * `status` member. Never throws.
+ *
+ * @param err The caught value.
+ * @returns A new error object.
+ */
+export function resolutionError(err: unknown): ResolutionError {
+  const { type, title } = RESOLUTION_ERRORS.get(resolutionErrorCode(err))!;
+  return { type, title, detail: rootCauseMessage(err) };
+}
+
+/**
+ * The `type` and `title` of an error code, as {@link resolutionError} gives them.
+ *
+ * @param code An error code, for example `INVALID_DID`.
+ * @returns A new object, or `undefined` if the code is not one of the 13 error codes.
+ */
+export function resolutionErrorOfCode(code: string): Omit<ResolutionError, 'detail'> | undefined {
+  const entry = RESOLUTION_ERRORS.get(code);
+  return entry === undefined ? undefined : { type: entry.type, title: entry.title };
+}
+
+/**
+ * The error code of an error type URL. The function is the inverse of the map of
+ * {@link resolutionError}. Every other value maps to `INTERNAL_ERROR`.
+ *
+ * @param type The `type` member of an error object.
+ * @returns One of the 13 error codes.
+ */
+export function resolutionErrorCodeOfType(type: unknown): string {
+  for (const [code, entry] of RESOLUTION_ERRORS) {
+    if (entry.type === type) return code;
   }
   return INTERNAL_ERROR;
 }

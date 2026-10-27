@@ -14,6 +14,7 @@ import type { DidCreateOptions } from '../did-btcr2.js';
 // did-document.js imports this module. Both modules use the other only inside a
 // method body, never at module evaluation, so the cycle is safe in ESM and CJS.
 import { GenesisDocument, ID_PLACEHOLDER_VALUE } from '../utils/did-document.js';
+import { isDid } from '../utils/url-syntax.js';
 
 /**
  * Components of a did:btcr2 identifier.
@@ -190,34 +191,37 @@ export class Identifier {
    * Implements {@link https://dcdpr.github.io/did-btcr2/algorithms.html#did-btcr2-identifier-decoding | DID-BTCR2 Identifier Decoding}.
    * @param {string} identifier The BTCR2 DID to be parsed
    * @returns {DidComponents} The parsed identifier components. See {@link DidComponents} for details.
-   * @throws {DidError} if an error occurs while parsing the identifier
-   * @throws {DidErrorCode.InvalidDid} if identifier is invalid
-   * @throws {DidErrorCode.MethodNotSupported} if the method is not supported
+   * @throws {IdentifierError} `INVALID_DID` if the identifier is not a string, not a DID (DID Core
+   * v1.1, section 3.1), or not a valid did:btcr2 identifier.
+   * @throws {IdentifierError} `METHOD_NOT_SUPPORTED` if the identifier is a DID of another method.
    */
   static decode(identifier: string): DidComponents {
-    // 1. Split the identifier into scheme, method, and encoded id at the colon character.
-    const components = identifier.split(':');
-
-    // 2. There MUST be exactly three colon-separated components.
-    if (components.length !== 3){
+    // 1. DID Resolution v1, section 4.4, steps 1 and 2: the identifier MUST conform to the DID
+    //    syntax. A DID of another method is not supported.
+    if (typeof identifier !== 'string') {
+      throw new IdentifierError('Invalid did: expected a string.', INVALID_DID, { identifier });
+    }
+    if (!isDid(identifier)) {
       throw new IdentifierError(`Invalid did: ${identifier}`, INVALID_DID, { identifier });
     }
 
+    // 2. Split the identifier into scheme, method, and encoded id at the colon character.
+    const components = identifier.split(':');
     const [scheme, method, encoded] = components;
 
-    // 3. The scheme MUST be "did".
-    if (scheme !== 'did') {
-      throw new IdentifierError(`Invalid did: ${identifier}`, INVALID_DID, { identifier });
-    }
-
-    // 4. The method MUST be "btcr2".
+    // 3. The method MUST be "btcr2".
     if (method !== 'btcr2') {
       throw new IdentifierError(`Invalid did method: ${method}`, METHOD_NOT_SUPPORTED, { identifier });
     }
 
-    // 5. The method-specific id MUST be present.
-    if (!encoded) {
-      throw new IdentifierError(`Invalid method-specific id: ${identifier}`, INVALID_DID, { identifier });
+    // 4. There MUST be exactly three colon-separated components.
+    if (components.length !== 3){
+      throw new IdentifierError(`Invalid did: ${identifier}`, INVALID_DID, { identifier });
+    }
+
+    // 5. The scheme MUST be "did". The DID syntax also allows uppercase letters in the scheme.
+    if (scheme !== 'did') {
+      throw new IdentifierError(`Invalid did: ${identifier}`, INVALID_DID, { identifier });
     }
 
     // 6. The method-specific id MUST be lowercase. A Bech32m decoder accepts an all-uppercase

@@ -1,6 +1,6 @@
-import { DidMethodError, INTERNAL_ERROR, INVALID_DID, NOT_FOUND, ResolveError } from '@did-btcr2/common';
+import { DidMethodError, FEATURE_NOT_SUPPORTED, INTERNAL_ERROR, INVALID_DID, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, INVALID_DID_URL, INVALID_OPTIONS, INVALID_SIGNAL_DATA, LATE_PUBLISHING, METHOD_NOT_SUPPORTED, MISSING_UPDATE_DATA, NOT_FOUND, PROOF_VERIFICATION_ERROR, ResolveError } from '@did-btcr2/common';
 import { expect } from 'chai';
-import { messageText, resolutionErrorCode, rootCauseMessage } from '../src/helpers.js';
+import { messageText, resolutionError, resolutionErrorCode, resolutionErrorCodeOfType, resolutionErrorOfCode, rootCauseMessage } from '../src/helpers.js';
 
 /**
  * rootCauseMessage unit matrix: the helper must surface the deepest
@@ -169,6 +169,83 @@ describe('resolutionErrorCode()', () => {
   it('survives a throwing cause getter', () => {
     const hostile = { get cause(): unknown { throw new Error('trap'); } };
     expect(resolutionErrorCode(hostile)).to.equal(INTERNAL_ERROR);
+  });
+
+  it('returns INTERNAL_ERROR for a typed error whose code is not one of the 13 error codes', () => {
+    expect(resolutionErrorCode(new ResolveError('x', PROOF_VERIFICATION_ERROR))).to.equal(INTERNAL_ERROR);
+  });
+
+  it('returns REPRESENTATION_NOT_SUPPORTED, a DID Resolution code that common does not define', () => {
+    expect(resolutionErrorCode(new ResolveError('x', 'REPRESENTATION_NOT_SUPPORTED'))).to.equal('REPRESENTATION_NOT_SUPPORTED');
+  });
+});
+
+/** The 13 error codes, with the type URL and the title of each. */
+const ERROR_TABLE: ReadonlyArray<[string, string, string]> = [
+  [INVALID_DID, 'https://www.w3.org/ns/did#INVALID_DID', 'Invalid DID'],
+  [INVALID_DID_DOCUMENT, 'https://www.w3.org/ns/did#INVALID_DID_DOCUMENT', 'Invalid DID document'],
+  [NOT_FOUND, 'https://www.w3.org/ns/did#NOT_FOUND', 'DID not found'],
+  ['REPRESENTATION_NOT_SUPPORTED', 'https://www.w3.org/ns/did#REPRESENTATION_NOT_SUPPORTED', 'Representation not supported'],
+  [INVALID_DID_URL, 'https://www.w3.org/ns/did#INVALID_DID_URL', 'Invalid DID URL'],
+  [METHOD_NOT_SUPPORTED, 'https://www.w3.org/ns/did#METHOD_NOT_SUPPORTED', 'DID method not supported'],
+  [INVALID_OPTIONS, 'https://www.w3.org/ns/did#INVALID_OPTIONS', 'Invalid resolution options'],
+  [INTERNAL_ERROR, 'https://www.w3.org/ns/did#INTERNAL_ERROR', 'Internal error'],
+  [FEATURE_NOT_SUPPORTED, 'https://www.w3.org/ns/did#FEATURE_NOT_SUPPORTED', 'Feature not supported'],
+  [INVALID_DID_UPDATE, 'https://dcdpr.github.io/did-btcr2/errors.html#invalid_did_update', 'Invalid DID update'],
+  [INVALID_SIGNAL_DATA, 'https://dcdpr.github.io/did-btcr2/errors.html#invalid_signal_data', 'Invalid signal data'],
+  [LATE_PUBLISHING, 'https://dcdpr.github.io/did-btcr2/errors.html#late_publishing', 'Late publishing'],
+  [MISSING_UPDATE_DATA, 'https://dcdpr.github.io/did-btcr2/errors.html#missing_update_data', 'Missing update data'],
+];
+
+describe('resolutionError()', () => {
+  for (const [code, type, title] of ERROR_TABLE) {
+    it(`gives the type and the title of ${code}`, () => {
+      const err = new Error('wrap', { cause: new ResolveError('root', code) });
+      expect(resolutionError(err)).to.deep.equal({ type, title, detail: 'root' });
+    });
+  }
+
+  it('gives INTERNAL_ERROR and the root cause message for an untyped value', () => {
+    expect(resolutionError(null)).to.deep.equal({
+      type   : 'https://www.w3.org/ns/did#INTERNAL_ERROR',
+      title  : 'Internal error',
+      detail : 'Unknown error',
+    });
+  });
+
+  it('gives a new object for each call', () => {
+    const first = resolutionError(new ResolveError('x', NOT_FOUND));
+    first.title = 'changed';
+    expect(resolutionError(new ResolveError('x', NOT_FOUND)).title).to.equal('DID not found');
+  });
+});
+
+describe('resolutionErrorOfCode()', () => {
+  for (const [code, type, title] of ERROR_TABLE) {
+    it(`gives the type and the title of ${code}`, () => {
+      expect(resolutionErrorOfCode(code)).to.deep.equal({ type, title });
+    });
+  }
+
+  it('gives undefined for a code that is not one of the 13 error codes', () => {
+    expect(resolutionErrorOfCode(PROOF_VERIFICATION_ERROR)).to.equal(undefined);
+    expect(resolutionErrorOfCode('LATE_PUBLISHING_ERROR')).to.equal(undefined);
+    expect(resolutionErrorOfCode('constructor')).to.equal(undefined);
+  });
+});
+
+describe('resolutionErrorCodeOfType()', () => {
+  for (const [code, type] of ERROR_TABLE) {
+    it(`gives ${code} for its type URL`, () => {
+      expect(resolutionErrorCodeOfType(type)).to.equal(code);
+    });
+  }
+
+  it('gives INTERNAL_ERROR for another URL, a bare code, and a value that is not a string', () => {
+    expect(resolutionErrorCodeOfType('https://www.w3.org/ns/did#PROOF_VERIFICATION_ERROR')).to.equal(INTERNAL_ERROR);
+    expect(resolutionErrorCodeOfType(NOT_FOUND)).to.equal(INTERNAL_ERROR);
+    expect(resolutionErrorCodeOfType(undefined)).to.equal(INTERNAL_ERROR);
+    expect(resolutionErrorCodeOfType({})).to.equal(INTERNAL_ERROR);
   });
 });
 

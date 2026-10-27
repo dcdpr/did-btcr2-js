@@ -15,6 +15,7 @@ import type { BeaconService } from './core/beacon/interfaces.js';
 import { DEACTIVATION_PATCH } from './core/btcr2-update.js';
 import { Identifier } from './core/identifier.js';
 import type { ResolutionOptions } from './core/interfaces.js';
+import { checkResolutionOptions } from './core/resolution-options.js';
 import { Resolver } from './core/resolver.js';
 import { Updater } from './core/updater.js';
 import { Appendix } from './utils/appendix.js';
@@ -90,6 +91,11 @@ export class DidBtcr2 implements DidMethod {
    * @param {string} did The did:btcr2 identifier to be resolved.
    * @param {ResolutionOptions} resolutionOptions Options used during the resolution process.
    * @returns {Resolver} A sans-I/O state machine the caller drives to completion.
+   * @throws {IdentifierError} `INVALID_DID` if the DID is not a valid did:btcr2 identifier, or
+   * `METHOD_NOT_SUPPORTED` if the DID is valid and names another method.
+   * @throws {ResolveError} `FEATURE_NOT_SUPPORTED` for an option that the resolver does not
+   * support, or `INVALID_OPTIONS` for an option value that is not valid. The method throws
+   * before it returns the {@link Resolver}, so the caller does no I/O for a refused request.
    * @example
    * ```ts
    * const resolver = DidBtcr2.resolve(did, { sidecar });
@@ -105,8 +111,13 @@ export class DidBtcr2 implements DidMethod {
     did: string,
     resolutionOptions: ResolutionOptions = {}
   ): Resolver {
-    // Decode the did to be resolved
+    // DID Resolution v1, section 4.4, steps 1 and 2: decode the DID. The DID syntax comes first,
+    // then the method.
     const didComponents = Identifier.decode(did);
+
+    // Steps 3 and 4: refuse an option that the resolver does not support, then an option value
+    // that is not valid. The Resolver constructor checks versionId, versionTime, and minConf.
+    checkResolutionOptions(resolutionOptions);
 
     // Process sidecar if provided
     const sidecarData = Resolver.sidecarData(resolutionOptions.sidecar);

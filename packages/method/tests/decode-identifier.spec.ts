@@ -1,4 +1,4 @@
-import { IdentifierError, INVALID_DID } from '@did-btcr2/common';
+import { IdentifierError, INVALID_DID, METHOD_NOT_SUPPORTED } from '@did-btcr2/common';
 import { bytesToHex } from '@noble/hashes/utils';
 import { bech32m, hex } from '@scure/base';
 import { expect } from 'chai';
@@ -66,6 +66,47 @@ describe('Decode Identifier', () => {
       const encoded = did.slice('did:btcr2:'.length);
       const mixed = `did:btcr2:${encoded.slice(0, 4).toUpperCase()}${encoded.slice(4)}`;
       expect(() => Identifier.decode(mixed)).to.throw(/lowercase/i);
+    });
+  });
+
+  // DID Resolution v1, section 4.4: step 1 checks the DID syntax (INVALID_DID), then step 2
+  // refuses a DID of another method (METHOD_NOT_SUPPORTED).
+  describe('DID syntax before the method', () => {
+    const [{ did }] = data;
+    const encoded = did.slice('did:btcr2:'.length);
+
+    function errorType(identifier: string): unknown {
+      try {
+        Identifier.decode(identifier);
+      } catch (error: unknown) {
+        expect(error, identifier).to.be.instanceOf(IdentifierError);
+        return (error as IdentifierError).type;
+      }
+      return expect.fail(`decode must throw for ${identifier}`);
+    }
+
+    it('gives INVALID_DID for a value that is not a DID', () => {
+      for(const identifier of [
+        `did:BTCR2:${encoded}`, 'did:ex%zz:1', 'did::x', 'did:btcr2:', 'did:btcr2', `did:btcr2:${encoded}#key-0`, `did:btc r2:${encoded}`, ''
+      ]) expect(errorType(identifier), identifier).to.equal(INVALID_DID);
+    });
+
+    it('gives METHOD_NOT_SUPPORTED for each DID of another method', () => {
+      for(const identifier of [ 'did:example:123', 'did:example:a:b', 'DID:example:1', 'did:btcr3:x', 'did:web:example.com%3A8443' ])
+        expect(errorType(identifier), identifier).to.equal(METHOD_NOT_SUPPORTED);
+    });
+
+    it('gives INVALID_DID with a fixed message for a value that is not a string', () => {
+      for(const identifier of [ 42, null, undefined, {}, Object.create(null), [did] ]) {
+        expect(() => Identifier.decode(identifier as unknown as string))
+          .to.throw(IdentifierError, 'Invalid did: expected a string.')
+          .with.property('type', INVALID_DID);
+      }
+    });
+
+    it('gives INVALID_DID for a did:btcr2 DID with another scheme text or more colons', () => {
+      expect(errorType(`DID:btcr2:${encoded}`)).to.equal(INVALID_DID);
+      expect(errorType(`did:btcr2:${encoded}:x`)).to.equal(INVALID_DID);
     });
   });
 

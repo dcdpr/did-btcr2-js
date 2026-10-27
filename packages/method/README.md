@@ -71,7 +71,7 @@ Pass `{ minConf: 1 }` to see a fresh update after one block, at a higher exposur
 
 The `metadata` of the result is the DID document metadata of the specification. `versionId`, `confirmations`, and `deactivated` are always present. `confirmations` is `0` and `updated` is absent if the resolved version is 1. Otherwise, `confirmations` and `updated` report the block of the update that yields the resolved version. `updated` is the `mediantime` of that block. A duplicate re-announcement does not change them.
 
-An identifier that does not decode fails with an `IdentifierError` of type `INVALID_DID`, also if the Bech32m decoder rejects the body. A sidecar genesis document whose hash is not the genesis bytes of the identifier fails with a `ResolveError` of type `INVALID_DID`.
+An identifier that does not conform to the DID syntax fails with an `IdentifierError` of type `INVALID_DID`. A valid DID of another method, for example `did:example:a:b`, fails with the type `METHOD_NOT_SUPPORTED` (ADR 157). A did:btcr2 identifier that does not decode fails with `INVALID_DID`, also if the Bech32m decoder rejects the body. A sidecar genesis document whose hash is not the genesis bytes of the identifier fails with a `ResolveError` of type `INVALID_DID`.
 
 Each hash step of the resolver uses JCS (RFC 8785). A value with no JCS form, for example a value that holds NaN, Infinity, or a lone surrogate, has no hash (ADR 154). The resolver handles such a value as follows:
 
@@ -90,6 +90,14 @@ Two resolution options select a version. The two options are mutually exclusive.
 - **`versionTime`** is an XML Datetime in UTC with the `Z` designator and no fraction, for example `"2026-07-01T00:00:00Z"`. The resolver keeps the state before the first new version whose block `mediantime` (median time past) is after that instant. A `mediantime` equal to the instant is not after it. If no new version is after the instant, the result is the current version. Every conformant resolver reads the same `mediantime` from the block chain, so every resolver selects the same version.
 
 After the resolver keeps the state, it processes the rest of the history. Then it returns the kept state (ADR 145). Thus an error in a later update fails a historical request, as it fails a request for the current version. Examples are `LATE_PUBLISHING` for a second, different update with the same version, and `INVALID_DID_UPDATE` for an invalid later update. The resolver also emits the data needs of each later update, for example `NeedBeaconSignals` for a beacon that a later update adds. An opt-in `maxDiscoveryRounds` counts the discovery rounds of the full history.
+
+`DidBtcr2.resolve` checks the resolution options after the DID and before it returns the `Resolver`, in the order of DID Resolution v1, section 4.4 (ADR 157). An option with the value `undefined` is absent.
+
+- An option name that `ResolutionOptions` does not hold fails with a `ResolveError` of type `FEATURE_NOT_SUPPORTED`.
+- `expandRelativeUrls: true` fails with `FEATURE_NOT_SUPPORTED`. The resolver returns each relative DID URL of the DID document unchanged. `false` has no effect.
+- `accept` must be an Accept header value (RFC 9110, section 12.5.1), for example `'application/did'`. The resolver returns a data structure, so the value has no effect.
+- `noCache` must be `true`, `false`, `'true'`, or `'false'`. The resolver keeps no cache, so the value has no effect.
+- A wrong value of `accept`, `expandRelativeUrls`, `noCache`, `sidecar` (not an object), or `maxDiscoveryRounds` (not a number) fails with `INVALID_OPTIONS`.
 
 The resolver processes one update per pass, as the specification describes. After each applied update it scans the beacon addresses that the document now carries and that it did not scan yet, then it continues with the next update. The resolver ignores a signal at a beacon address that an applied update removed from the document: the signal stamps no metadata and changes no version. A `BeaconSignal` carries the block `height`, the header `time`, the `mediantime`, and the `confirmations` of its block. Both discovery paths fill `mediantime`: the indexer path reads the Esplora block record once per distinct block, the fullnode path reads the RPC block.
 
