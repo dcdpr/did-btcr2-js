@@ -4,18 +4,17 @@ import { INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/common';
 import type { Signer } from '@did-btcr2/keypair';
 import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import type { KeyIdentifier } from '@did-btcr2/key-manager';
-import type { Btcr2DidDocument, DidCreateOptions, ResolutionOptions } from '@did-btcr2/method';
+import type { DidCreateOptions, ResolutionOptions } from '@did-btcr2/method';
 import { DEFAULT_MIN_CONF } from '@did-btcr2/method';
-import type { DidResolutionResult } from '@web5/dids';
 import { BitcoinApi } from './bitcoin.js';
 import { CasApi, DEFAULT_CAS_GATEWAY, type CasConfig } from './cas.js';
 import { CryptoApi } from './crypto.js';
 import { DidApi } from './did.js';
-import { assertString, NOOP_LOGGER, resolutionErrorCode, rootCauseMessage } from './helpers.js';
+import { assertString, NOOP_LOGGER, resolutionError, resolutionErrorCode, resolutionErrorCodeOfType } from './helpers.js';
 import { KeyManagerApi } from './key-manager.js';
 import { DidMethodApi, type DidUpdateOptions, type DidUpdateResult, type SourceState, type UpdateSource } from './method.js';
 import { SmtApi } from './smt.js';
-import type { ApiConfig, BitcoinApiConfig, Logger, ResolutionResult } from './types.js';
+import type { ApiConfig, BitcoinApiConfig, DidResolutionResult, Logger, ResolutionResult } from './types.js';
 
 /**
  * Main DidBtcr2Api facade: the primary entry point for the SDK.
@@ -179,40 +178,41 @@ export class DidBtcr2Api {
    *          `ok: false` with error details on failure. `error` is the DID
    *          Resolution error code of the nearest typed failure in the cause
    *          chain (for example `NOT_FOUND`, `INVALID_DID`, `MISSING_UPDATE_DATA`),
-   *          else `INTERNAL_ERROR`.
+   *          else `INTERNAL_ERROR`. `raw.didResolutionMetadata.error` is the
+   *          error object of the code ({@link ResolutionError}). A DID that is
+   *          not a string, or the empty string, gives `INVALID_DID`.
    */
   async tryResolveDid(did: string, options?: ResolutionOptions): Promise<ResolutionResult> {
     this.#assertNotDisposed();
-    assertString(did, 'did');
     try {
       const raw = await this.btcr2.resolve(did, options);
       if (raw.didDocument) {
         return {
           ok       : true,
-          document : raw.didDocument as Btcr2DidDocument,
+          document : raw.didDocument,
           metadata : raw.didDocumentMetadata,
           raw,
         };
       }
+      const failure = raw.didResolutionMetadata.error;
       return {
         ok           : false,
-        error        : raw.didResolutionMetadata?.error ?? 'unknown',
-        errorMessage : raw.didResolutionMetadata?.errorMessage as string | undefined,
+        error        : resolutionErrorCodeOfType(failure?.type),
+        errorMessage : failure?.detail,
         raw,
       };
     } catch (err) {
-      const errorMessage = rootCauseMessage(err);
-      const error = resolutionErrorCode(err);
+      const error = resolutionError(err);
       return {
         ok           : false,
-        error,
-        errorMessage,
+        error        : resolutionErrorCode(err),
+        errorMessage : error.detail,
         cause        : err,
         raw          : {
-          didDocument            : null,
-          didDocumentMetadata    : {},
-          didResolutionMetadata  : { error, errorMessage },
-        } as unknown as DidResolutionResult,
+          didResolutionMetadata : { error },
+          didDocument           : null,
+          didDocumentMetadata   : {},
+        },
       };
     }
   }
@@ -330,8 +330,8 @@ export class DidBtcr2Api {
     const resolution = await this.resolveDid(did, resolutionOptions);
     if (!resolution.didDocument) {
       const meta = resolution.didResolutionMetadata;
-      const detail = meta?.error ? `: ${meta.error}` : '.';
-      const extra = meta?.errorMessage ? ` ${meta.errorMessage}` : '';
+      const detail = meta.error ? `: ${resolutionErrorCodeOfType(meta.error.type)}` : '.';
+      const extra = meta.error?.detail ? ` ${meta.error.detail}` : '';
       throw new Error(
         `Failed to resolve DID ${did} for update${detail}${extra}`,
         { cause: meta }
@@ -370,7 +370,7 @@ export class DidBtcr2Api {
       );
     }
 
-    return { document: resolution.didDocument as Btcr2DidDocument, versionId };
+    return { document: resolution.didDocument, versionId };
   }
 
   /**

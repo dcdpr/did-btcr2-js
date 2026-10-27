@@ -6,7 +6,7 @@ import type { Signer } from '@did-btcr2/keypair';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import type { BeaconFunding, BeaconService, BroadcastOptions, BroadcastResult, Btcr2DidDocument, CASAnnouncement, CASBroadcastOptions, DidCreateOptions, DidDocument, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, ResolutionOptions, RootCapability, SignedBTCR2Update, SMTProof, UnsignedBTCR2Update } from '@did-btcr2/method';
 import { Appendix, BeaconError, BeaconFactory, BeaconSignalDiscovery, BeaconUtils, DEACTIVATION_PATCH, DidBtcr2, GenesisDocument, Identifier, Resolver, selectBeaconFunding, Updater } from '@did-btcr2/method';
-import type { DidResolutionResult, DidVerificationMethod } from '@web5/dids';
+import type { DidVerificationMethod } from '@web5/dids';
 import type { BitcoinApi } from './bitcoin.js';
 import type { CasApi } from './cas.js';
 import type { GenesisDocumentSpec } from './genesis.js';
@@ -14,7 +14,7 @@ import { assertGenesisDocument, buildGenesisDocument } from './genesis.js';
 import { assertBytes, assertCompressedPubkey, assertString, messageText, NOOP_LOGGER, rootCauseMessage } from './helpers.js';
 import type { MessageReport, SignedMessage, SignMessageOptions } from './message.js';
 import { signMessage, verifyMessage } from './message.js';
-import type { Logger } from './types.js';
+import type { DidResolutionResult, Logger } from './types.js';
 
 /**
  * Result of {@link DidMethodApi.createExternalFromDocument}: the EXTERNAL
@@ -711,13 +711,18 @@ export class DidMethodApi {
    *   DID in a CAS Announcement is not a base64url SHA-256 hash (ADR 146). From the CAS,
    *   an announcement with a value that is not a string gives a `ResolveError`
    *   of type `INVALID_DID_UPDATE`.
+   * - `IdentifierError` of type `INVALID_DID`: the DID is not a string, or it does not
+   *   conform to the DID syntax. Of type `METHOD_NOT_SUPPORTED`: the DID is valid and
+   *   names another method.
+   * - `ResolveError` of type `FEATURE_NOT_SUPPORTED`: an option that the resolver does not
+   *   support, or `expandRelativeUrls: true`. Of type `INVALID_OPTIONS`: an option value
+   *   that is not valid.
    * @param did The DID to resolve.
    * @param options Resolution options.
    * @returns The resolution result. `didResolutionMetadata.contentType` is
    *          `application/did`, the media type of a bare DID document.
    */
   async resolve(did: string, options?: ResolutionOptions): Promise<DidResolutionResult> {
-    assertString(did, 'did');
     this.#log.debug('Resolving DID', did);
     try {
       const resolver = DidBtcr2.resolve(did, options);
@@ -868,13 +873,15 @@ export class DidMethodApi {
       // media type application/did in the resolution metadata.
       return {
         didResolutionMetadata : { contentType: 'application/did' },
-        didDocument           : state.result.didDocument as unknown as DidResolutionResult['didDocument'],
+        didDocument           : state.result.didDocument as Btcr2DidDocument,
         didDocumentMetadata   : state.result.metadata,
       };
     } catch (err) {
       this.#log.error('DID resolution failed', did, err);
+      // The message prints a DID that is not a string as no text (ADR 156).
+      const text = messageText(did);
       throw new Error(
-        `Failed to resolve DID ${did}: ${rootCauseMessage(err)}`,
+        `Failed to resolve DID${text === undefined ? '' : ` ${text}`}: ${rootCauseMessage(err)}`,
         { cause: err }
       );
     }

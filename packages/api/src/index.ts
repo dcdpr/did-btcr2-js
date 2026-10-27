@@ -68,9 +68,11 @@ export type { SmtEntry, SmtTree } from './smt.js';
 export type {
   ApiConfig,
   BitcoinApiConfig,
+  DidResolutionResult,
   DidString,
   IdType,
   Logger,
+  ResolutionError,
   ResolutionResult,
   SignalDiscoveryMode,
   TxId
@@ -181,5 +183,5 @@ export type {
   SMTProof,
   UnsignedBTCR2Update
 } from '@did-btcr2/method';
-export type { Did, DidResolutionResult, DidService, DidVerificationMethod } from '@web5/dids';
+export type { Did, DidService, DidVerificationMethod } from '@web5/dids';
 export type { CID } from 'multiformats/cid';

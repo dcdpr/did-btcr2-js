@@ -36,7 +36,7 @@ import { DidDocument, ID_PLACEHOLDER_VALUE } from '../utils/did-document.js';
 import { isDateTimeStamp } from '../utils/did-core-conformance.js';
 import { hasNonZeroPadBits, smtProofRootHex } from '../utils/base64url-hash.js';
 import { errorCause } from '../utils/error-cause.js';
-import { messageText } from '../utils/message-text.js';
+import { gotValue, messageText } from '../utils/message-text.js';
 import { signingMethodProblem } from '../utils/signing-method.js';
 import { BeaconFactory } from './beacon/factory.js';
 import type { BeaconService, BeaconSignal, BlockMetadata } from './beacon/interfaces.js';
@@ -237,15 +237,6 @@ function validateMinConf(value: unknown): number {
     `Invalid resolution option minConf: expected a positive integer (minimum 1)${gotValue(value)}.`,
     INVALID_OPTIONS, { minConf: value }
   );
-}
-
-/**
- * The end of an option message: `, got ` and the value, a string in quotes and another primitive
- * as is. An object or a function gives no text (see {@link messageText}); `data` holds the value.
- */
-function gotValue(value: unknown): string {
-  const text = typeof value === 'string' ? JSON.stringify(value) : messageText(value);
-  return text === undefined ? '' : `, got ${text}`;
 }
 
 /** An ASCII string of an integer: an optional minus sign, then digits. */

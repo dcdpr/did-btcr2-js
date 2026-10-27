@@ -7,6 +7,7 @@ import {
   canonicalHashBytes,
   canonicalize,
   DidDocumentError,
+  INVALID_DID,
   INVALID_DID_DOCUMENT,
   INVALID_DID_UPDATE,
   MISSING_UPDATE_DATA,
@@ -339,11 +340,19 @@ describe('DidMethodApi', () => {
       expect(urls.some(url => url.endsWith('/address/12QG2GG9TWPD16SWyfWCsW4W3NhMFnnSFK/txs/chain?max_txs=25'))).to.equal(true);
     });
 
-    it('rejects empty DID string', async () => {
+    it('rejects the empty DID string with an INVALID_DID cause', async () => {
       const methodApi = new DidMethodApi();
-      await expect(methodApi.resolve('')).to.be.rejectedWith(
-        'did must be a non-empty string'
-      );
+      const error = await methodApi.resolve('').then(() => undefined, (e: unknown) => e);
+      expect(error).to.be.instanceOf(Error);
+      expect((error as Error).message).to.equal('Failed to resolve DID : Invalid did: ');
+      expect(resolutionErrorCode(error)).to.equal(INVALID_DID);
+    });
+
+    it('rejects a DID that is not a string with an INVALID_DID cause', async () => {
+      const methodApi = new DidMethodApi();
+      const error = await methodApi.resolve(Object.create(null)).then(() => undefined, (e: unknown) => e);
+      expect((error as Error).message).to.equal('Failed to resolve DID: Invalid did: expected a string.');
+      expect(resolutionErrorCode(error)).to.equal(INVALID_DID);
     });
 
     it('wraps upstream errors with cause', async () => {

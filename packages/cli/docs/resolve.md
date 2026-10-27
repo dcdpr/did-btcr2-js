@@ -57,6 +57,11 @@ The JSON object is the `ResolutionOptions` type of `@did-btcr2/method`. Each fie
 | `versionTime` | string | An XML datetime in UTC with the `Z` designator and no fraction (for example `'2026-07-01T00:00:00Z'`). The resolver keeps the DID document before the first new version whose block `mediantime` (median time past) is after that instant. A `mediantime` equal to the instant is not after it. The resolver then processes the rest of the history and returns the kept DID document, or the current DID document if it kept none. An error in a later update fails the resolution. A value in another form fails with `INVALID_OPTIONS`. |
 | `maxDiscoveryRounds` | number | An opt-in upper bound on the number of beacon discovery rounds. Unset, absent, or not positive means no limit. The resolver always stops, because it does not query a beacon address twice. A positive value is a resource guard. A run over the limit fails with `INTERNAL_ERROR`. With `versionId` or `versionTime`, the count includes the rounds after the requested version. |
 | `sidecar` | object | The off-chain data bundle. See below. |
+| `accept` | string | An HTTP Accept header value (RFC 9110, section 12.5.1), for example `"application/did"`. The value has no effect. Another string fails with `INVALID_OPTIONS`. |
+| `expandRelativeUrls` | boolean | `false` has no effect. `true` fails with `FEATURE_NOT_SUPPORTED`: the resolver returns each relative DID URL unchanged. |
+| `noCache` | boolean or string | `true`, `false`, `"true"`, or `"false"`. The resolver keeps no cache, so the value has no effect. |
+
+Another field fails with `FEATURE_NOT_SUPPORTED`, and a wrong value of a field in the table fails with `INVALID_OPTIONS` (ADR 157). The resolver checks the options before any network request.
 
 The `sidecar` fields:
 
@@ -82,7 +87,7 @@ How the `@did-btcr2/api` layer satisfies each data need:
 - There are no stderr hints. Unlike `create`, `update`, and `deactivate`, `resolve` prints no faucet or explorer links.
 - **Profile network warning** (ADR 131): if the active profile declares a network that is not the network of the identifier, the command prints a warning on stderr: `Warning: the identifier network is "<network>", but the active profile "<name>" declares network "<declared>". The endpoints of the profile can be for another network.` The command then uses the endpoints of the profile. The warning never blocks. `--quiet` suppresses it. In JSON mode it still prints, on stderr.
 
-Exit codes: `0` on success, `1` on an error. Errors go to stderr. A CLI-typed error (an invalid identifier network, bad `-r` or `-p` input, a config problem) prints the message only, unless `--verbose` is set. Then it prints the full structured error. A resolution failure from the api layer (a network failure, missing sidecar data, an unreachable endpoint) is a plain `Error` with a `cause` chain. It prints with its stack, with or without `--verbose`. An identifier that does not decode, also one with a correct prefix but an invalid Bech32m body, fails as a method error of type `INVALID_DID` and prints as one line (`Invalid did: ...` or `Invalid method-specific id (Bech32m decoding failed: ...)`).
+Exit codes: `0` on success, `1` on an error. Errors go to stderr. A CLI-typed error (an invalid identifier network, bad `-r` or `-p` input, a config problem) prints the message only, unless `--verbose` is set. Then it prints the full structured error. A resolution failure from the api layer (a network failure, missing sidecar data, an unreachable endpoint) is a plain `Error` with a `cause` chain. It prints with its stack, with or without `--verbose`. An identifier that does not decode, also one with a correct prefix but an invalid Bech32m body, fails as a method error of type `INVALID_DID` and prints as one line (`Invalid did: ...` or `Invalid method-specific id (Bech32m decoding failed: ...)`). A valid DID of another method fails with the type `METHOD_NOT_SUPPORTED` (`Invalid did method: ...`). A refused resolution option is an api-layer failure: `Failed to resolve DID <did>: ...` with the reason.
 
 ## Environment and configuration
 

@@ -1,7 +1,6 @@
 import type { HttpExecutor, NetworkName, RestConfig, RpcConfig } from '@did-btcr2/bitcoin';
 import type { KeyManager } from '@did-btcr2/key-manager';
-import type { Btcr2DidDocument } from '@did-btcr2/method';
-import type { DidResolutionResult } from '@web5/dids';
+import type { Btcr2DidDocument, DidResolutionResponse } from '@did-btcr2/method';
 import type { CasConfig } from './cas.js';
 
 /**
@@ -45,13 +44,62 @@ export type DidString = string & { readonly __brand: 'DidString' };
 export type TxId = string & { readonly __brand: 'TxId' };
 
 /**
+ * The error object of a failed DID resolution. The object has the members of
+ * {@link https://www.rfc-editor.org/rfc/rfc9457 | RFC 9457} that
+ * {@link https://www.w3.org/TR/did-resolution-1.0/#errors | DID Resolution v1, section 10} names.
+ *
+ * @example
+ * ```json
+ * {
+ *   "type": "https://www.w3.org/ns/did#INVALID_DID",
+ *   "title": "Invalid DID",
+ *   "detail": "Invalid did: did:btcr2:"
+ * }
+ * ```
+ */
+export type ResolutionError = {
+  /**
+   * The URL of the error type. The 9 error types of DID Resolution v1 use
+   * `https://www.w3.org/ns/did#<CODE>`. The 4 error types of the did:btcr2 specification use
+   * `https://dcdpr.github.io/did-btcr2/errors.html#<anchor>`, for example `#missing_update_data`.
+   */
+  type: string;
+  /** A short text for the error type, for example `Invalid DID`. */
+  title: string;
+  /** The text of the failure: the message of the deepest cause. */
+  detail: string;
+};
+
+/**
+ * The DID resolution result of
+ * {@link https://www.w3.org/TR/did-resolution-1.0/#did-resolution-result | DID Resolution v1}
+ * that the api returns. A failed resolution gives a `null` document, an empty document metadata
+ * map, and an {@link ResolutionError} in the resolution metadata.
+ */
+export type DidResolutionResult = {
+  /** The DID resolution metadata. */
+  didResolutionMetadata: {
+    /** The media type of the DID document: `application/did`. Absent on a failure. */
+    contentType?: string;
+    /** The error object. Absent on a success. */
+    error?: ResolutionError;
+  };
+  /** The resolved DID document, or `null` on a failure. */
+  didDocument: Btcr2DidDocument | null;
+  /** The DID document metadata. A failure gives an empty map. */
+  didDocumentMetadata: Partial<DidResolutionResponse['metadata']>;
+};
+
+/**
  * Result of a DID resolution attempt. Wraps the standard
  * {@link DidResolutionResult} with a discriminated `ok` flag for ergonomic
  * pattern matching without exception handling.
  *
- * On failure, `errorMessage` is the root cause message (the deepest cause in
- * the chain) and `cause` is the original thrown value, preserved for callers
- * that need the full chain or a typed error.
+ * On failure, `error` is the error code (for example `INVALID_DID`),
+ * `errorMessage` is the root cause message (the deepest cause in the chain),
+ * and `cause` is the original thrown value, preserved for callers that need
+ * the full chain or a typed error. `raw.didResolutionMetadata.error` holds the
+ * {@link ResolutionError} object.
  *
  * @example
  * ```ts

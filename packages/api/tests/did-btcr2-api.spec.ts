@@ -1,6 +1,6 @@
 import { expect, use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { INTERNAL_ERROR, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, INVALID_OPTIONS, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/common';
+import { FEATURE_NOT_SUPPORTED, INTERNAL_ERROR, INVALID_DID, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, INVALID_OPTIONS, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/common';
 import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import {
   BitcoinApi,
@@ -218,6 +218,18 @@ describe('DidBtcr2Api', () => {
       const api = createApi();
       const { did } = api.did.generate();
       await expect(api.updateDid(did, patch, stubSigner, ids)).to.be.rejected;
+    });
+
+    it('names the error code and the detail of a failed source resolution that returns', async () => {
+      const api = createApi();
+      const { did } = api.did.generate();
+      const error = { type: 'https://dcdpr.github.io/did-btcr2/errors.html#late_publishing', title: 'Late publishing', detail: 'late' };
+      (api.btcr2 as any).resolve = async () => ({ didResolutionMetadata: { error }, didDocument: null, didDocumentMetadata: {} });
+      await expect(api.updateDid(did, patch, stubSigner, ids))
+        .to.be.rejectedWith(`Failed to resolve DID ${did} for update: LATE_PUBLISHING late`);
+      (api.btcr2 as any).resolve = async () => ({ didResolutionMetadata: {}, didDocument: null, didDocumentMetadata: {} });
+      await expect(api.updateDid(did, patch, stubSigner, ids))
+        .to.be.rejectedWith(new RegExp(`^Failed to resolve DID ${did} for update\\.$`));
     });
 
     it('should reject empty DID string', async () => {
@@ -638,11 +650,94 @@ describe('DidBtcr2Api', () => {
       }
     });
 
-    it('rejects empty DID string', async () => {
+    it('gives an INVALID_DID result for the empty DID string', async () => {
       const api = createApi();
-      await expect(api.tryResolveDid('')).to.be.rejectedWith(
-        'did must be a non-empty string'
+      const result = await api.tryResolveDid('');
+      expect(result.ok).to.equal(false);
+      if (!result.ok) {
+        expect(result.error).to.equal(INVALID_DID);
+        expect(result.errorMessage).to.equal('Invalid did: ');
+        expect(result.raw).to.deep.equal({
+          didResolutionMetadata : { error: { type: 'https://www.w3.org/ns/did#INVALID_DID', title: 'Invalid DID', detail: 'Invalid did: ' } },
+          didDocument           : null,
+          didDocumentMetadata   : {},
+        });
+      }
+    });
+
+    for (const [label, value] of [['a number', 42], ['null', null], ['an object', {}], ['a null-prototype object', Object.create(null)]] as const) {
+      it(`gives an INVALID_DID result for a DID that is ${label}`, async () => {
+        const api = createApi();
+        const result = await api.tryResolveDid(value as unknown as string);
+        expect(result.ok).to.equal(false);
+        if (!result.ok) {
+          expect(result.error).to.equal(INVALID_DID);
+          expect(result.errorMessage).to.equal('Invalid did: expected a string.');
+        }
+      });
+    }
+
+    it('gives the did:btcr2 errors page URL for a did:btcr2 error type', async () => {
+      const api = createApi();
+      const { did } = api.did.generate();
+      (api.btcr2 as any).resolve = () => Promise.reject(
+        new Error(`Failed to resolve DID ${did}: missing`, { cause: new ResolveError('Signed update not found', MISSING_UPDATE_DATA) })
       );
+      const result = await api.tryResolveDid(did);
+      expect(result.ok).to.equal(false);
+      if (!result.ok) {
+        expect(result.error).to.equal(MISSING_UPDATE_DATA);
+        expect(result.raw.didResolutionMetadata.error).to.deep.equal({
+          type   : 'https://dcdpr.github.io/did-btcr2/errors.html#missing_update_data',
+          title  : 'Missing update data',
+          detail : 'Signed update not found',
+        });
+      }
+    });
+
+    it('gives FEATURE_NOT_SUPPORTED for an unknown option and for expandRelativeUrls true', async () => {
+      const api = createApi();
+      const { did } = api.did.generate();
+      for (const options of [{ foo: 1 }, { expandRelativeUrls: true }]) {
+        const result = await api.tryResolveDid(did, options as ResolutionOptions);
+        expect(result.ok).to.equal(false);
+        if (!result.ok) {
+          expect(result.error).to.equal(FEATURE_NOT_SUPPORTED);
+          expect(result.raw.didResolutionMetadata.error?.type).to.equal('https://www.w3.org/ns/did#FEATURE_NOT_SUPPORTED');
+        }
+      }
+    });
+
+    it('gives INVALID_OPTIONS for a noCache value that is not a boolean or "true" or "false"', async () => {
+      const api = createApi();
+      const { did } = api.did.generate();
+      const result = await api.tryResolveDid(did, { noCache: 'yes' } as unknown as ResolutionOptions);
+      expect(result.ok).to.equal(false);
+      if (!result.ok) {
+        expect(result.error).to.equal(INVALID_OPTIONS);
+        expect(result.raw.didResolutionMetadata.error?.title).to.equal('Invalid resolution options');
+      }
+    });
+
+    it('takes the code of a failed result that resolve returns from the error type', async () => {
+      const api = createApi();
+      const { did } = api.did.generate();
+      const error = { type: 'https://www.w3.org/ns/did#NOT_FOUND', title: 'DID not found', detail: 'gone' };
+      (api.btcr2 as any).resolve = async () => ({ didResolutionMetadata: { error }, didDocument: null, didDocumentMetadata: {} });
+      const result = await api.tryResolveDid(did);
+      expect(result.ok).to.equal(false);
+      if (!result.ok) {
+        expect(result.error).to.equal(NOT_FOUND);
+        expect(result.errorMessage).to.equal('gone');
+        expect(result.cause).to.equal(undefined);
+      }
+      (api.btcr2 as any).resolve = async () => ({ didResolutionMetadata: {}, didDocument: null, didDocumentMetadata: {} });
+      const empty = await api.tryResolveDid(did);
+      expect(empty.ok).to.equal(false);
+      if (!empty.ok) {
+        expect(empty.error).to.equal(INTERNAL_ERROR);
+        expect(empty.errorMessage).to.equal(undefined);
+      }
     });
 
     it('carries the root cause, not the wrapper, in errorMessage', async () => {
@@ -658,9 +753,13 @@ describe('DidBtcr2Api', () => {
         // The original thrown wrapper rides along for callers that need the chain.
         expect(result.cause).to.be.instanceOf(Error);
         expect((result.cause as Error).message).to.include(`Failed to resolve DID ${did}: `);
-        // The raw metadata mirrors the top-level fields.
-        expect(result.raw.didResolutionMetadata.error).to.equal(INTERNAL_ERROR);
-        expect(result.raw.didResolutionMetadata.errorMessage).to.equal(result.errorMessage);
+        // The raw metadata holds the error object of the top-level code.
+        expect(result.error).to.equal(INTERNAL_ERROR);
+        expect(result.raw.didResolutionMetadata.error).to.deep.equal({
+          type   : 'https://www.w3.org/ns/did#INTERNAL_ERROR',
+          title  : 'Internal error',
+          detail : result.errorMessage,
+        });
       }
     });
 
@@ -673,7 +772,7 @@ describe('DidBtcr2Api', () => {
       if (!result.ok) {
         expect(result.errorMessage).to.equal('Unknown error');
         expect(result.cause).to.equal(null);
-        expect(result.raw.didResolutionMetadata.errorMessage).to.equal('Unknown error');
+        expect(result.raw.didResolutionMetadata.error?.detail).to.equal('Unknown error');
       }
     });
 
@@ -688,7 +787,7 @@ describe('DidBtcr2Api', () => {
       if (!result.ok) {
         expect(result.error).to.equal(NOT_FOUND);
         expect(result.errorMessage).to.equal('Genesis document not found in CAS');
-        expect(result.raw.didResolutionMetadata.error).to.equal(NOT_FOUND);
+        expect(result.raw.didResolutionMetadata.error?.type).to.equal('https://www.w3.org/ns/did#NOT_FOUND');
       }
     });
 

@@ -180,7 +180,8 @@ describe('index exports', () => {
       'DidDocument', 'DidDocumentBuilder', 'GenesisDocument', 'Identifier', 'IdentifierTypes', 'JSONPatch',
       'KeyManagerSigner', 'LocalKeyManager', 'LocalSigner', 'Resolver', 'SchnorrKeyPair', 'Updater',
       'NOOP_LOGGER', 'assertBytes', 'assertCompressedPubkey', 'assertGenesisDocument', 'assertString',
-      'buildGenesisDocument', 'resolutionErrorCode', 'rootCauseMessage',
+      'buildGenesisDocument', 'resolutionError', 'resolutionErrorCode', 'resolutionErrorCodeOfType',
+      'resolutionErrorOfCode', 'rootCauseMessage',
     ]) {
       expect(surface, name).to.not.have.property(name);
     }
