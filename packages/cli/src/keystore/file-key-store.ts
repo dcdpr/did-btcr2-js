@@ -4,6 +4,7 @@ import type { KeyEntry, KeyIdentifier, KeyValueStore } from '@did-btcr2/key-mana
 import { sha256 } from '@noble/hashes/sha2.js';
 import { utf8ToBytes } from '@noble/hashes/utils.js';
 import { base64urlnopad } from '@scure/base';
+import { messageText } from '../message-text.js';
 import type { KeystoreProtectionLabel } from '../types.js';
 import { assertSecurePerms, ensureDir, writeFileAtomic } from './atomic.js';
 import { DEFAULT_ARGON_PARAMS, decryptSecret, encryptSecret } from './envelope.js';
@@ -164,8 +165,9 @@ export class FileKeyStore implements KeyValueStore<KeyIdentifier, KeyEntry> {
       );
     }
     if (parsed.v !== KEYSTORE_VERSION) {
+      const text = messageText(parsed.v);
       throw new KeyStoreError(
-        `Unsupported keystore version: ${String(parsed.v)}.`,
+        `Unsupported keystore version${text === undefined ? '' : `: ${text}`}.`,
         'KEYSTORE_VERSION_ERROR',
         { version: parsed.v },
       );

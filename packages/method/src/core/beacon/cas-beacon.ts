@@ -66,7 +66,7 @@ export class CASBeacon extends SinglePartyBeacon {
   }
 
   /**
-   * Implements {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process-cas-beacon | 7.2.e.1 Process CAS Beacon}.
+   * Implements {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process-cas-beacon | Process CAS Beacon}.
    *
    * For each signal, the signalBytes contain the hex-encoded hash of a CAS Announcement.
    * The CAS Announcement maps DIDs to their base64url-encoded update hashes.

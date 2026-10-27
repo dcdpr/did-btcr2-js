@@ -72,7 +72,24 @@ describe('keystore envelope', () => {
     const env = encryptSecret(SECRET, PASS, FAST);
     const tampered = { ...env, v: 2 } as unknown as SecretEnvelope;
     expect(() => decryptSecret(tampered, PASS))
-      .to.throw(KeyStoreError).with.property('type', 'ENVELOPE_VERSION_ERROR');
+      .to.throw(KeyStoreError, 'Unsupported keystore envelope version: 2.').with.property('type', 'ENVELOPE_VERSION_ERROR');
+  });
+
+  it('rejects an envelope version object with no text form; the message has no value (ADR 156)', () => {
+    const env = encryptSecret(SECRET, PASS, FAST);
+    const v = JSON.parse('{"toString":1,"valueOf":1}');
+    const error = (() => {
+      try {
+        decryptSecret({ ...env, v } as unknown as SecretEnvelope, PASS);
+      } catch (e) {
+        return e as KeyStoreError;
+      }
+      return undefined;
+    })();
+    expect(error).to.be.instanceOf(KeyStoreError);
+    expect(error!.type).to.equal('ENVELOPE_VERSION_ERROR');
+    expect(error!.message).to.equal('Unsupported keystore envelope version.');
+    expect(error!.data).to.deep.equal({ version: v });
   });
 
   it('uses a fresh salt and nonce per encryption', () => {

@@ -18,6 +18,7 @@ import {
   ID_PLACEHOLDER_VALUE
 } from '@did-btcr2/method';
 import type { DidService } from '@web5/dids';
+import { messageText } from './helpers.js';
 
 /**
  * A verification relationship of a DID document.
@@ -214,8 +215,10 @@ function buildVerificationMethods(specs: GenesisVerificationMethodSpec[]): DidVe
     }
     for (const relationship of vm.relationships ?? []) {
       if (!VERIFICATION_RELATIONSHIPS.includes(relationship)) {
+        const text = messageText(relationship);
         throw invalid(
-          `verificationMethods[${index}].relationships contains "${String(relationship)}". `
+          `verificationMethods[${index}].relationships contains `
+          + (text === undefined ? 'a value that is not a string. ' : `"${text}". `)
           + `Expected one of ${VERIFICATION_RELATIONSHIPS.join(', ')}.`,
           { relationship },
         );
@@ -268,8 +271,9 @@ function buildBeaconServices(specs: GenesisBeaconSpec[], network: ReturnType<typ
   return specs.map((beacon, index) => {
     const label = `beacons[${index}]`;
     if (!BEACON_TYPES.includes(beacon.type)) {
+      const text = messageText(beacon.type);
       throw invalid(
-        `${label}.type is "${String(beacon.type)}". Expected one of ${BEACON_TYPES.join(', ')}.`,
+        `${label}.type is ${text === undefined ? 'not a string' : `"${text}"`}. Expected one of ${BEACON_TYPES.join(', ')}.`,
         { type: beacon.type },
       );
     }
@@ -301,8 +305,10 @@ function deriveAddress(
 ): string {
   const kind = addressType ?? DEFAULT_BEACON_ADDRESS_TYPE;
   if (!BEACON_ADDRESS_TYPES.includes(kind)) {
+    const text = messageText(kind);
     throw invalid(
-      `${label}.addressType is "${String(kind)}". Expected one of ${BEACON_ADDRESS_TYPES.join(', ')}.`,
+      `${label}.addressType is ${text === undefined ? 'not a string' : `"${text}"`}. `
+      + `Expected one of ${BEACON_ADDRESS_TYPES.join(', ')}.`,
       { addressType: kind },
     );
   }

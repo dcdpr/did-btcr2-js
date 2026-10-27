@@ -178,6 +178,55 @@ describe('genesis document builder', () => {
           expect(() => buildGenesisDocument(spec())).to.throw(DidDocumentError, message);
         });
       }
+
+      // String() throws for an object with no text form. The message has no value, and the
+      // data holds the value (ADR 156).
+      const noText = (): any => JSON.parse('{"toString":1,"valueOf":1}');
+      const objectCases: Array<[string, (value: any) => GenesisDocumentSpec, string, string]> = [
+        [
+          'a relationship',
+          (value) => ({ ...base(), verificationMethods: [{ publicKey: key, relationships: [ value ] }] }),
+          'verificationMethods[0].relationships contains a value that is not a string. '
+          + 'Expected one of authentication, assertionMethod, capabilityInvocation, capabilityDelegation.',
+          'relationship',
+        ],
+        [
+          'a beacon type',
+          (value) => ({ ...base(), beacons: [{ type: value, publicKey: key }] }),
+          'beacons[0].type is not a string. Expected one of SingletonBeacon, CASBeacon, SMTBeacon.',
+          'type',
+        ],
+        [
+          'an address type',
+          (value) => ({ ...base(), beacons: [{ type: 'SingletonBeacon', publicKey: key, addressType: value }] }),
+          'beacons[0].addressType is not a string. Expected one of p2pkh, p2wpkh, p2tr.',
+          'addressType',
+        ],
+      ];
+      for (const [name, spec, message, field] of objectCases) {
+        it(`refuses ${name} that is an object with no text form; the message has no value (ADR 156)`, () => {
+          const value = noText();
+          let caught: unknown;
+          try {
+            buildGenesisDocument(spec(value));
+          } catch (error) {
+            caught = error;
+          }
+          expect(caught).to.be.instanceOf(DidDocumentError);
+          expect((caught as DidDocumentError).type).to.equal(INVALID_DID_DOCUMENT);
+          expect((caught as DidDocumentError).message).to.equal(message);
+          expect((caught as DidDocumentError).data).to.deep.equal({ [field]: value });
+        });
+      }
+
+      it('a genesis message prints a primitive value in quotes', () => {
+        expect(() => buildGenesisDocument({ ...base(), beacons: [{ type: 42 as any, publicKey: key }] }))
+          .to.throw(DidDocumentError, 'beacons[0].type is "42". Expected one of');
+        expect(() => buildGenesisDocument({ ...base(), verificationMethods: [{ publicKey: key, relationships: [ 42 as any ] }] }))
+          .to.throw(DidDocumentError, 'verificationMethods[0].relationships contains "42". Expected one of');
+        expect(() => buildGenesisDocument({ ...base(), beacons: [{ type: 'SingletonBeacon', publicKey: key, addressType: 42 as any }] }))
+          .to.throw(DidDocumentError, 'beacons[0].addressType is "42". Expected one of');
+      });
     });
   });
 

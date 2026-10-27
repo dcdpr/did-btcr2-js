@@ -105,7 +105,7 @@ import { BitcoinConnection } from '@did-btcr2/bitcoin';
 // Build a Signer from a raw secret key. For KMS-backed keys use KeyManagerSigner
 // from '@did-btcr2/key-manager' instead.
 const signer = new LocalSigner(secretKeyBytes);
-const bitcoin = new BitcoinConnection({ network: 'mutinynet' });
+const bitcoin = new BitcoinConnection({ network: 'mutinynet', rest: { host: 'https://mutinynet.com/api' } });
 
 // Ids are resolved against the source document before matching, so either the
 // absolute DID URL (`${did}#initialKey`) or the relative one (`#initialKey`)
@@ -201,6 +201,8 @@ The public key of the signer must be the key of the method. If the two keys diff
 
 `Updater.construct()` refuses a `sourceVersionId` that is not an integer of 1 or more, with `Invalid sourceVersionId: expected an integer of 1 or more.` `DidBtcr2.update()` also refuses such a `sourceVersionId`.
 
+`Updater.construct()` also refuses a `sourceDocument` that is not an object, with `Invalid sourceDocument: expected a DID document object.` It refuses a `sourceDocument.id` that is not a string, with a message that starts with `Invalid sourceDocument: expected a string id`. Each refusal is an `UpdateError` of type `INVALID_DID_UPDATE` (ADR 156).
+
 On the read path, the resolver checks each proof field by string equality before it verifies the signature. `type` is `DataIntegrityProof`, `cryptosuite` is `bip340-jcs-2025`, `proofPurpose` is `capabilityInvocation`, `capabilityAction` is `Write`, `capability` is `urn:zcap:root:${encodeURIComponent(did)}`, and `invocationTarget` is the DID. A proof can carry `created` and `expires`. Each value must be an XML Datetime with a timezone. `created` must not be after the header time of the block that contains the Beacon Signal. `expires` must not be before the `mediantime` of that block, and not before `created`. The write path sets neither field.
 
 `DidBtcr2.deactivate()` is `DidBtcr2.update()` with the patch `[{ "op": "add", "path": "/deactivated", "value": true }]`, exported as `DEACTIVATION_PATCH`. Resolution stops at the deactivation for good. The factory does not refuse a source document that is deactivated already. The api does.
@@ -272,6 +274,7 @@ If the resolver refuses the genesis document, `resolveBtcr2SenderPk` also return
 - **Layered APIs.** High-level facades encapsulate boilerplate; low-level state machines stay available for tests, custom transports, and fine-grained control.
 - **Pluggable transport.** The `@did-btcr2/aggregation` package decouples protocol logic from the wire format via a `Transport` interface, shipping Nostr (relay-based) and HTTP/REST (framework-agnostic, browser-compatible) adapters, plus a DIDComm stub. Add your own for libp2p or anything else.
 - **Browser-compatible.** All code targets both Node.js (>= 22) and modern browsers. No Node-only APIs in the core.
+- **Primitive values in error messages.** An error message holds a value of the caller only if the value is a primitive, for example a string or a number. For an object or a function, the message holds no value. The error `data` always holds the value (ADR 156).
 
 ## Build & Test
 

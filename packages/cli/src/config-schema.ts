@@ -1,4 +1,5 @@
 import { CLIError } from './error.js';
+import { messageText } from './message-text.js';
 import { SUPPORTED_NETWORKS } from './types.js';
 
 /** The CAS keys of a profile `cas` block and of `defaults.cas` (ADR 129). */
@@ -86,6 +87,12 @@ export function isKnownConfigPath(dotted: string): boolean {
   return lookupSchemaNode(dotted) !== undefined;
 }
 
+/** The value part of an enum message: `: "<value>"` for a primitive, and no text for an object. */
+function shownValue(value: unknown): string {
+  const text = messageText(value);
+  return text === undefined ? '' : `: "${text}"`;
+}
+
 /**
  * Validates a value against a leaf kind, throwing a {@link CLIError} for a value
  * that does not match: an out-of-range enum, a non-number for a `number` leaf, or
@@ -95,21 +102,21 @@ export function isKnownConfigPath(dotted: string): boolean {
 function assertLeafValue(kind: SchemaLeaf, dotted: string, value: unknown): void {
   if (kind === 'enum:network' && !SUPPORTED_NETWORKS.includes(value as never)) {
     throw new CLIError(
-      `Invalid value for ${dotted}: "${String(value)}". Expected one of ${SUPPORTED_NETWORKS.join(', ')}.`,
+      `Invalid value for ${dotted}${shownValue(value)}. Expected one of ${SUPPORTED_NETWORKS.join(', ')}.`,
       'INVALID_ARGUMENT_ERROR',
       { path: dotted, value },
     );
   }
   if (kind === 'enum:output' && value !== 'json' && value !== 'text') {
     throw new CLIError(
-      `Invalid value for ${dotted}: "${String(value)}". Expected "json" or "text".`,
+      `Invalid value for ${dotted}${shownValue(value)}. Expected "json" or "text".`,
       'INVALID_ARGUMENT_ERROR',
       { path: dotted, value },
     );
   }
   if (kind === 'enum:signalDiscovery' && value !== 'indexer' && value !== 'fullnode') {
     throw new CLIError(
-      `Invalid value for ${dotted}: "${String(value)}". Expected "indexer" or "fullnode".`,
+      `Invalid value for ${dotted}${shownValue(value)}. Expected "indexer" or "fullnode".`,
       'INVALID_ARGUMENT_ERROR',
       { path: dotted, value },
     );

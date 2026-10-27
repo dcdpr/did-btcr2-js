@@ -56,6 +56,8 @@ export class DidBtcr2Api {
    * Bitcoin API sub-facade (lazily initialized).
    * Only available when `btc` config was provided to the constructor.
    * @throws {Error} If the instance has been disposed or no Bitcoin config was provided.
+   * @throws {MethodError} `INVALID_OPTIONS` at the first access if the `btc` config holds a
+   *   value that {@link BitcoinApi} refuses.
    */
   get btc(): BitcoinApi {
     this.#assertNotDisposed();
@@ -90,6 +92,8 @@ export class DidBtcr2Api {
   /**
    * DID Method API sub-facade (lazily initialized with bitcoin + CAS wiring).
    * @throws {Error} If the instance has been disposed.
+   * @throws {MethodError} `INVALID_OPTIONS` at the first access if the `btc` config holds a
+   *   value that {@link BitcoinApi} refuses.
    */
   get btcr2(): DidMethodApi {
     this.#assertNotDisposed();

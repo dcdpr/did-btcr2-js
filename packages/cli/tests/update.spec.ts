@@ -146,6 +146,20 @@ describe('update and deactivate (signing)', () => {
     expect(captured.method).to.equal(undefined);
   });
 
+  it('update refuses a --source-document whose id is an object with no text form; the message has no value (ADR 156)', async () => {
+    const cli = new DidBtcr2Cli(createTestApiFactory(), stubFactory());
+    const error = await expect(
+      sub(cli, 'update').parseAsync(
+        ['-i', did, '-p', PATCHES, '-s', '{"id":{"toString":1,"valueOf":1}}', '--source-version-id', '2'],
+        { from: 'user' },
+      ),
+    ).to.be.rejectedWith(CLIError);
+    expect(error.message).to.equal(`--source-document has an id that is not a string, but the identifier under update is ${did}.`);
+    expect(error.type).to.equal('INVALID_ARGUMENT_ERROR');
+    expect(error.data).to.deep.equal({ did, sourceDocumentId: { toString: 1, valueOf: 1 } });
+    expect(captured.method).to.equal(undefined);
+  });
+
   it('update refuses a half source pair before it reads any key', async () => {
     // The keystore is empty. A check after key resolution fails with "no active key" instead.
     for (const half of [['-s', sourceDoc()], ['--source-version-id', '2']]) {

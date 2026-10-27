@@ -20,10 +20,16 @@ import { Identifier } from '../core/identifier.js';
 import { didCoreProblem, isJsonMap, NOT_A_JSON_OBJECT, type ConformanceRole } from './did-core-conformance.js';
 import { errorCause } from './error-cause.js';
 
-export const BTCR2_DID_DOCUMENT_CONTEXT = [
+/**
+ * The context URLs that the `@context` array of a did:btcr2 DID document must hold. The array is
+ * frozen, because a write to the shared value changes the check of each later document. A caller
+ * that builds a document copies the array. See
+ * {@link https://dcdpr.github.io/did-btcr2/data-structures.html#did-document | DID Document (data structure)}.
+ */
+export const BTCR2_DID_DOCUMENT_CONTEXT = Object.freeze([
   'https://www.w3.org/ns/did/v1.1',
   'https://btcr2.dev/context/v1',
-];
+] as const);
 
 /** The `type` of the verification method that signs an update. */
 export const MULTIKEY_VERIFICATION_METHOD_TYPE = 'Multikey';

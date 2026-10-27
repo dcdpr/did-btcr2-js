@@ -139,4 +139,24 @@ describe('FileKeyStore', () => {
     writeFileSync(path, 'not json', { mode: 0o600 });
     expect(() => openStore(path)).to.throw(KeyStoreError).with.property('type', 'KEYSTORE_CORRUPT_ERROR');
   });
+
+  it('rejects an unknown keystore version, and the message prints a primitive version', () => {
+    writeFileSync(path, '{"v":2,"keys":{}}', { mode: 0o600 });
+    expect(() => openStore(path))
+      .to.throw(KeyStoreError, 'Unsupported keystore version: 2.').with.property('type', 'KEYSTORE_VERSION_ERROR');
+  });
+
+  it('rejects a keystore version object with no text form; the message has no value (ADR 156)', () => {
+    writeFileSync(path, '{"v":{"toString":1,"valueOf":1},"keys":{}}', { mode: 0o600 });
+    let thrown: any;
+    try {
+      openStore(path);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).to.be.instanceOf(KeyStoreError);
+    expect(thrown.type).to.equal('KEYSTORE_VERSION_ERROR');
+    expect(thrown.message).to.equal('Unsupported keystore version.');
+    expect(thrown.data).to.deep.equal({ version: { toString: 1, valueOf: 1 } });
+  });
 });

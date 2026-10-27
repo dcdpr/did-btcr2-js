@@ -36,6 +36,7 @@ import { DidDocument, ID_PLACEHOLDER_VALUE } from '../utils/did-document.js';
 import { isDateTimeStamp } from '../utils/did-core-conformance.js';
 import { hasNonZeroPadBits, smtProofRootHex } from '../utils/base64url-hash.js';
 import { errorCause } from '../utils/error-cause.js';
+import { messageText } from '../utils/message-text.js';
 import { signingMethodProblem } from '../utils/signing-method.js';
 import { BeaconFactory } from './beacon/factory.js';
 import type { BeaconService, BeaconSignal, BlockMetadata } from './beacon/interfaces.js';
@@ -233,14 +234,18 @@ function validateMinConf(value: unknown): number {
   if(value === undefined) return DEFAULT_MIN_CONF;
   if(typeof value === 'number' && Number.isInteger(value) && value >= 1) return value;
   throw new ResolveError(
-    `Invalid resolution option minConf: expected a positive integer (minimum 1), got ${shown(value)}.`,
+    `Invalid resolution option minConf: expected a positive integer (minimum 1)${gotValue(value)}.`,
     INVALID_OPTIONS, { minConf: value }
   );
 }
 
-/** Render an option value for an error message: a string in quotes, any other value as is. */
-function shown(value: unknown): string {
-  return typeof value === 'string' ? JSON.stringify(value) : String(value);
+/**
+ * The end of an option message: `, got ` and the value, a string in quotes and another primitive
+ * as is. An object or a function gives no text (see {@link messageText}); `data` holds the value.
+ */
+function gotValue(value: unknown): string {
+  const text = typeof value === 'string' ? JSON.stringify(value) : messageText(value);
+  return text === undefined ? '' : `, got ${text}`;
 }
 
 /** An ASCII string of an integer: an optional minus sign, then digits. */
@@ -259,7 +264,7 @@ function validateVersionId(value: unknown): number | undefined {
     return Number(value);
   }
   throw new ResolveError(
-    `Invalid resolution option versionId: expected an ASCII string of an integer, got ${shown(value)}.`,
+    `Invalid resolution option versionId: expected an ASCII string of an integer${gotValue(value)}.`,
     INVALID_OPTIONS, { versionId: value }
   );
 }
@@ -282,7 +287,7 @@ function validateVersionTime(value: unknown): number | undefined {
   }
   throw new ResolveError(
     'Invalid resolution option versionTime: expected an XML Datetime in UTC without a fraction '
-    + `(for example "2026-07-01T00:00:00Z"), got ${shown(value)}.`,
+    + `(for example "2026-07-01T00:00:00Z")${gotValue(value)}.`,
     INVALID_OPTIONS, { versionTime: value }
   );
 }
@@ -457,7 +462,7 @@ export class Resolver {
   }
 
   /**
-   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#if-genesis_bytes-is-a-secp256k1-public-key | 7.2.d.1 if genesis bytes is a secp256k1 Public Key}.
+   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#if-genesis_bytes-is-a-secp256k1-public-key | If genesis_bytes is a secp256k1 Public Key}.
    * @param {DidComponents} didComponents The decoded components of the did.
    * @returns {DidDocument} The resolved DID Document object.
    */
@@ -484,7 +489,7 @@ export class Resolver {
   }
 
   /**
-   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#if-genesis_bytes-is-a-sha-256-hash | 7.2.d.2 if genesis_bytes is a SHA-256 Hash}.
+   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#if-genesis_bytes-is-a-sha-256-hash | If genesis_bytes is a SHA-256 Hash}.
    * @param {DidComponents} didComponents BTCR2 DID components used to resolve the DID Document
    * @param {object} genesisDocument The genesis document for resolving the DID Document.
    * @returns {DidDocument} The resolved DID Document object
@@ -898,8 +903,10 @@ export class Resolver {
     // Spec "Apply update": the patched document keeps the DID as its id and conforms to
     // DID Core v1.1.
     if(updatedDocument?.id !== did) {
+      const text = messageText(updatedDocument?.id);
       throw new ResolveError(
-        `Invalid update: the patched document id is not the DID (expected "${did}", got "${String(updatedDocument?.id)}")`,
+        `Invalid update: the patched document id is not the DID (expected "${did}"`
+        + (text === undefined ? ')' : `, got "${text}")`),
         INVALID_DID_UPDATE, { did, id: updatedDocument?.id }
       );
     }

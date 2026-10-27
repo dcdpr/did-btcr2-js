@@ -184,12 +184,12 @@ The SMT proof verification (spec section SMT Proof Verification) selects the lea
 
 ## Spec Conformance
 
-**Resolution (spec section 7.2.e.1):** Each beacon type implements the spec's "Process [Type] Beacon" algorithm:
+**Resolution (spec [Find Beacon Signals](https://dcdpr.github.io/did-btcr2/operations/resolve.html#find-beacon-signals)):** Each beacon type implements the spec's "Process [Type] Beacon" algorithm:
 - Singleton: signal bytes -> update hash -> lookup. Direct match to spec.
 - CAS: signal bytes -> announcement hash -> lookup announcement -> extract DID entry -> lookup update. Matches spec's two-phase CAS lookup.
 - SMT: signal bytes -> root hash -> lookup proof -> verify inclusion -> extract updateId -> lookup update. Matches spec's proof verification requirement that only SMT beacons perform Merkle verification.
 
-**Announcement (spec section 8.2):** The `broadcastSignal()` methods construct transactions per spec: spend beacon UTXO, OP_RETURN with signal bytes, change output back to beacon address. The beacon address chain acts as the append-only signal log.
+**Announcement (spec [Announce DID Update](https://dcdpr.github.io/did-btcr2/operations/update.html#announce-did-update)):** The `broadcastSignal()` methods construct transactions per spec: spend beacon UTXO, OP_RETURN with signal bytes, change output back to beacon address. The beacon address chain acts as the append-only signal log.
 
 **Aggregation:** The coordinator/participant protocol implements the spec's multi-party beacon coordination:
 - Cohort formation with Taproot MuSig2 addresses
