@@ -12,6 +12,7 @@ import { CLIError } from '../error.js';
 import { GENESIS_DOCUMENT_HELP } from '../genesis-document-file.js';
 import { IdentifierRecords, withRecordSidecar } from '../identifier-records.js';
 import { resolveKeyRef } from '../keystore/resolve-key-ref.js';
+import { messageText } from '../message-text.js';
 import { warnProfileNetworkMismatch } from '../network-option.js';
 import { hasResolutionFlags, MIN_CONF_HELP, parseMinConf, readResolutionOptions, type ResolutionOptionFlags } from '../resolution-options.js';
 import { blankToUndef, type GlobalOptions, type NetworkOption, type UpdateCommandOptions } from '../types.js';
@@ -145,8 +146,11 @@ export async function prepareWrite(
   }
   const sourceDocument = options.sourceDocument as Btcr2DidDocument | undefined;
   if (hasDocument && sourceDocument?.id !== did) {
+    const text = messageText(sourceDocument?.id);
     throw new CLIError(
-      `--source-document has the id ${String(sourceDocument?.id)}, but the identifier under update is ${did}.`,
+      text === undefined
+        ? `--source-document has an id that is not a string, but the identifier under update is ${did}.`
+        : `--source-document has the id ${text}, but the identifier under update is ${did}.`,
       'INVALID_ARGUMENT_ERROR',
       { did, sourceDocumentId: sourceDocument?.id },
     );

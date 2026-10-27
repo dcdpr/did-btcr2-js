@@ -1,6 +1,6 @@
 import { expect, use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { INTERNAL_ERROR, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/common';
+import { INTERNAL_ERROR, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, INVALID_OPTIONS, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/common';
 import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
 import {
   BitcoinApi,
@@ -623,6 +623,18 @@ describe('DidBtcr2Api', () => {
       if (!result.ok) {
         expect(result.error).to.equal(INVALID_DID_DOCUMENT);
         expect(result.errorMessage).to.include('lone surrogate');
+      }
+    });
+
+    it('gives INVALID_OPTIONS for a versionId object with no text form, not INTERNAL_ERROR (ADR 156)', async () => {
+      const api = createApi();
+      const { did } = api.did.generate();
+      const versionId = JSON.parse('{"toString":1,"valueOf":1}');
+      const result = await api.tryResolveDid(did, { versionId });
+      expect(result.ok).to.equal(false);
+      if (!result.ok) {
+        expect(result.error).to.equal(INVALID_OPTIONS);
+        expect(result.errorMessage).to.equal('Invalid resolution option versionId: expected an ASCII string of an integer.');
       }
     });
 

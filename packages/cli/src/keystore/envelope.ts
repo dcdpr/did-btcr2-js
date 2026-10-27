@@ -2,6 +2,7 @@ import { xchacha20poly1305 } from '@noble/ciphers/chacha.js';
 import { randomBytes, utf8ToBytes } from '@noble/hashes/utils.js';
 import { base64urlnopad } from '@scure/base';
 import { argon2Sync } from 'node:crypto';
+import { messageText } from '../message-text.js';
 import { KeyStoreError } from './error.js';
 
 /** Current keystore secret-envelope format version. */
@@ -159,8 +160,9 @@ export function encryptSecret(
  */
 export function decryptSecret(env: SecretEnvelope, passphrase: string): Uint8Array {
   if (env.v !== ENVELOPE_VERSION) {
+    const text = messageText(env.v);
     throw new KeyStoreError(
-      `Unsupported keystore envelope version: ${String(env.v)}.`,
+      `Unsupported keystore envelope version${text === undefined ? '' : `: ${text}`}.`,
       'ENVELOPE_VERSION_ERROR',
       { version: env.v },
     );

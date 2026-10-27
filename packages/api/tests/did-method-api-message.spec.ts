@@ -175,6 +175,16 @@ describe('DidMethodApi message signatures', () => {
         .to.throw(MethodError, 'No assertionMethod method');
     });
 
+    it('refuses a method whose type or controller is an object with no text form, with no TypeError (ADR 156)', () => {
+      for (const field of [ 'type', 'controller' ] as const) {
+        const { api, document, signer } = fixture();
+        (document.verificationMethod![0] as unknown as Record<string, unknown>)[field] = JSON.parse('{"toString":1,"valueOf":1}');
+        expect(() => api.btcr2.signMessage(document, MESSAGE, signer), field)
+          .to.throw(MethodError, 'No assertionMethod method')
+          .with.property('type', 'VERIFICATION_METHOD_ERROR');
+      }
+    });
+
     it('refuses before the signer call: a deactivated document, a lone surrogate, a non-string message', () => {
       const { api, document, signer } = fixture();
       const spy = spySigner(signer);
@@ -322,6 +332,43 @@ describe('DidMethodApi message signatures', () => {
         const report = api.btcr2.verifyMessage(changed, signed);
         expect(failure(report).name).to.equal('assertionMethod');
         expect(failure(report).detail).to.include(detail);
+      }
+    });
+
+    it('fails the assertionMethod check for a type or a controller with no text form, and names no value (ADR 156)', () => {
+      const { api, did, document, signed } = signedFixture();
+      const noText = (): unknown => JSON.parse('{"toString":1,"valueOf":1}');
+      const cases: Array<[ Btcr2DidDocument, string ]> = [
+        [
+          { ...document, verificationMethod: [{ ...document.verificationMethod![0], type: noText() } as never] },
+          `The type of the method ${did}#initialKey is not Multikey.`,
+        ],
+        [
+          { ...document, verificationMethod: [{ ...document.verificationMethod![0], controller: noText() } as never] },
+          `The controller of the method ${did}#initialKey is not ${did}.`,
+        ],
+      ];
+      for (const [ changed, detail ] of cases) {
+        const report = api.btcr2.verifyMessage(changed, signed);
+        expect(report.verified).to.equal(false);
+        expect(failure(report)).to.deep.equal({ name: 'assertionMethod', ok: false, detail });
+      }
+    });
+
+    it('names a primitive type and controller in the assertionMethod detail', () => {
+      const { api, did, document, signed } = signedFixture();
+      const cases: Array<[ Btcr2DidDocument, string ]> = [
+        [
+          { ...document, verificationMethod: [{ ...document.verificationMethod![0], type: 'JsonWebKey' }] },
+          `The method ${did}#initialKey has the type JsonWebKey, not Multikey.`,
+        ],
+        [
+          { ...document, verificationMethod: [{ ...document.verificationMethod![0], controller: 'did:btcr2:k1other' }] },
+          `The controller of the method ${did}#initialKey is did:btcr2:k1other, not ${did}.`,
+        ],
+      ];
+      for (const [ changed, detail ] of cases) {
+        expect(failure(api.btcr2.verifyMessage(changed, signed)).detail).to.equal(detail);
       }
     });
 

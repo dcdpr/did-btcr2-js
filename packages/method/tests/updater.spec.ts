@@ -14,7 +14,7 @@ import type { DidResolutionResponse, NeedBeaconSignals } from '../src/core/resol
 import type { SignedBTCR2Update, UnsignedBTCR2Update } from '../src/core/btcr2-update.js';
 import { BTCR2_UPDATE_CONTEXT, DEACTIVATION_PATCH } from '../src/core/btcr2-update.js';
 import { Updater } from '../src/core/updater.js';
-import type { NeedBroadcast, NeedFunding, NeedSigningKey } from '../src/core/updater.js';
+import type { FundingProof, NeedBroadcast, NeedFunding, NeedSigningKey } from '../src/core/updater.js';
 import { DidVerificationMethod } from '../src/utils/did-document.js';
 import type { Btcr2DidDocument } from '../src/utils/did-document.js';
 import data from './data/deterministic-data.js';
@@ -156,6 +156,21 @@ describe('Updater', () => {
         expect(thrown.message).to.match(/sourceVersionId/);
       });
     }
+
+    it('the sourceVersionId message prints a primitive value (ADR 156)', () => {
+      const thrown = factoryThrows({ sourceVersionId: '1' });
+      expect(thrown.message).to.equal('Invalid sourceVersionId: expected an integer of at least 1, got 1.');
+    });
+
+    it('refuses a sourceVersionId object with no text form; the message has no value, and data holds it (ADR 156)', () => {
+      for(const bad of [ Object.create(null), JSON.parse('{"toString":1,"valueOf":1}') ]) {
+        const thrown = factoryThrows({ sourceVersionId: bad });
+        expect(thrown).to.be.instanceOf(UpdateError);
+        expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+        expect(thrown.message).to.equal('Invalid sourceVersionId: expected an integer of at least 1.');
+        expect(thrown.data.sourceVersionId).to.equal(bad);
+      }
+    });
   });
 
   describe('the JSON Patch rules of RFC 6902 and RFC 6901 (ADR 155)', () => {
@@ -480,7 +495,27 @@ describe('Updater', () => {
       if(state.status !== 'action-required') throw new Error('expected action-required');
       expect(() =>
         updater.provide(state.needs[0] as NeedFunding, { utxoCount: 0 })
-      ).to.throw(/utxoCount >= 1/);
+      ).to.throw('NeedFunding proof must have utxoCount >= 1; got 0.');
+    });
+
+    it('NeedFunding refuses a utxoCount object with no text form; the message has no value (ADR 156)', () => {
+      let state = updater.advance();
+      if(state.status !== 'action-required') throw new Error('expected action-required');
+      updater.provide(state.needs[0] as NeedSigningKey, signer);
+
+      state = updater.advance();
+      if(state.status !== 'action-required') throw new Error('expected action-required');
+      const utxoCount = Object.create(null);
+      let thrown: any;
+      try {
+        updater.provide(state.needs[0] as NeedFunding, { utxoCount } as unknown as FundingProof);
+      } catch(error) {
+        thrown = error;
+      }
+      expect(thrown).to.be.instanceOf(UpdateError);
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.equal('NeedFunding proof must have utxoCount >= 1.');
+      expect(thrown.data).to.deep.equal({ utxoCount });
     });
 
     it('completes after full Construct -> Sign -> Fund -> Broadcast cycle', () => {
@@ -601,6 +636,57 @@ describe('Updater', () => {
         expect(thrown.message).to.equal('Invalid sourceVersionId: expected an integer of 1 or more.');
         expect(thrown.data).to.deep.equal({ sourceVersionId });
       }
+    });
+
+    /** Call Updater.construct and return what it threw, or undefined. */
+    function constructThrows(document: unknown, patches: unknown): any {
+      try {
+        Updater.construct(document as Btcr2DidDocument, patches as PatchOperation[], 1);
+      } catch(error) {
+        return error;
+      }
+      return undefined;
+    }
+
+    it('Updater.construct() refuses a source document that is not an object (ADR 156)', () => {
+      // A patch that replaces the whole document gives a target with an id, so only the
+      // source check refuses the input.
+      const patch = [{ op: 'replace', path: '', value: sourceDocument }];
+      for(const document of [ null, 'did', [ sourceDocument ] ]) {
+        const thrown = constructThrows(document, patch);
+        expect(thrown, String(document)).to.be.instanceOf(UpdateError);
+        expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+        expect(thrown.message).to.equal('Invalid sourceDocument: expected a DID document object.');
+        expect(thrown.data).to.deep.equal({ sourceDocument: document });
+      }
+    });
+
+    it('Updater.construct() refuses a source document whose id is not a string; the message prints only a primitive id (ADR 156)', () => {
+      const cases: Array<[ unknown, string ]> = [
+        [ 42, 'Invalid sourceDocument: expected a string id; got 42.' ],
+        [ undefined, 'Invalid sourceDocument: expected a string id; got undefined.' ],
+        [ { a: 1 }, 'Invalid sourceDocument: expected a string id.' ],
+        [ Object.create(null), 'Invalid sourceDocument: expected a string id.' ],
+      ];
+      for(const [ id, message ] of cases) {
+        // An empty patch keeps the id, so the id check after the patch does not apply.
+        const thrown = constructThrows({ ...sourceDocument, id }, []);
+        expect(thrown, message).to.be.instanceOf(UpdateError);
+        expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+        expect(thrown.message).to.equal(message);
+        expect(thrown.data).to.deep.equal({ sourceId: id });
+      }
+    });
+
+    it('Updater.construct() refuses a patch that changes the id to an object with no text form; the message has no value (ADR 156)', () => {
+      // Spec "Construct BTCR2 Unsigned Update": "An INVALID_DID_UPDATE error MUST be raised if
+      // targetDidDocument.id is not equal to sourceDidDocument.id." String() throws for this value.
+      const id = JSON.parse('{"toString":1,"valueOf":1}');
+      const thrown = constructThrows(sourceDocument, [{ op: 'replace', path: '/id', value: id }]);
+      expect(thrown).to.be.instanceOf(UpdateError);
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.equal('Patches must not change the DID document id.');
+      expect(thrown.data).to.deep.equal({ sourceId: did, targetId: id });
     });
 
     it('Updater.construct() emits the @context array that the specification pins, in order', () => {
@@ -906,6 +992,34 @@ describe('Updater', () => {
       };
     }
 
+    /**
+     * The refusal of an object with no text form (String() throws for it) as the id of the
+     * source document (`did`) or as the id of the method (`methodId`). The message has no
+     * value, and the data holds the object (ADR 156).
+     */
+    function noTextForm(title: string, value: () => object, place: 'did' | 'methodId'): Refusal {
+      const object = value();
+      return place === 'did'
+        ? {
+          title,
+          methodId : '#initialKey',
+          make     : () => ({
+            document : { ...sourceCopy(), id: object } as unknown as Btcr2DidDocument,
+            message  : 'Expected a did:btcr2 identifier for the root capability.',
+            data     : { did: object }
+          })
+        }
+        : {
+          title,
+          methodId : object as unknown as string,
+          make     : () => ({
+            document : sourceCopy(),
+            message  : 'Invalid verificationMethodId: expected a DID URL or a relative DID URL that starts with "#".',
+            data     : { verificationMethodId: object }
+          })
+        };
+    }
+
     /** The refusal of a source document whose `field` is present and is not an array. */
     function notAnArray(field: 'capabilityInvocation' | 'verificationMethod', kind: string, value: () => unknown): Refusal {
       return {
@@ -1010,6 +1124,10 @@ describe('Updater', () => {
       notDidBtcr2(''),
       notDidBtcr2(42),
       notDidBtcr2(undefined),
+      noTextForm('a source document whose id is an object with no prototype', () => Object.create(null), 'did'),
+      noTextForm('a source document whose id is the JSON object {"toString":1,"valueOf":1}', () => JSON.parse('{"toString":1,"valueOf":1}'), 'did'),
+      noTextForm('an id that is an object with no prototype', () => Object.create(null), 'methodId'),
+      noTextForm('an id that is the JSON object {"toString":1,"valueOf":1}', () => JSON.parse('{"toString":1,"valueOf":1}'), 'methodId'),
       notAnArray('capabilityInvocation', 'a string', () => INITIAL_KEY),
       notAnArray('capabilityInvocation', 'null', () => null),
       notAnArray('verificationMethod', 'an object', () => sourceCopy().verificationMethod![0]),
@@ -1408,6 +1526,10 @@ describe('Updater', () => {
           [
             [{ op: 'replace', path: '/id', value: OTHER_DID }],
             `Patches must not change the DID document id (source "${did}" to target "${OTHER_DID}").`
+          ],
+          [
+            [{ op: 'replace', path: '/id', value: JSON.parse('{"toString":1,"valueOf":1}') }],
+            'Patches must not change the DID document id.'
           ],
           [
             [{ op: 'replace', path: '/verificationMethod/0/type', value: 42 }],

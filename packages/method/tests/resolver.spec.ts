@@ -3396,6 +3396,42 @@ describe('Resolver', () => {
       expect(constructorError({ versionId: 2 })?.type).to.equal(INVALID_OPTIONS);
     });
 
+    it('an option message prints a string value in quotes and another primitive as is (ADR 156)', () => {
+      const cases: Array<[ object, string ]> = [
+        [ { versionId: 'abc' }, 'Invalid resolution option versionId: expected an ASCII string of an integer, got "abc".' ],
+        [ { versionId: 2 }, 'Invalid resolution option versionId: expected an ASCII string of an integer, got 2.' ],
+        [ { minConf: 0 }, 'Invalid resolution option minConf: expected a positive integer (minimum 1), got 0.' ],
+        [
+          { versionTime: 'yesterday' },
+          'Invalid resolution option versionTime: expected an XML Datetime in UTC without a fraction '
+          + '(for example "2026-07-01T00:00:00Z"), got "yesterday".'
+        ],
+      ];
+      for(const [ options, message ] of cases) {
+        expect(constructorError(options)?.message).to.equal(message);
+      }
+    });
+
+    it('rejects an option object with no text form with INVALID_OPTIONS; the message has no value (ADR 156)', () => {
+      // Spec (resolve.md): "Raise an INVALID_OPTIONS error if either value does not parse."
+      // String() throws for each value, so the message names no value, and the data holds it.
+      const messages: Record<string, string> = {
+        minConf     : 'Invalid resolution option minConf: expected a positive integer (minimum 1).',
+        versionId   : 'Invalid resolution option versionId: expected an ASCII string of an integer.',
+        versionTime : 'Invalid resolution option versionTime: expected an XML Datetime in UTC without a fraction '
+          + '(for example "2026-07-01T00:00:00Z").',
+      };
+      for(const [ option, message ] of Object.entries(messages)) {
+        for(const value of [ Object.create(null), JSON.parse('{"toString":1,"valueOf":1}'), { a: 1 } ]) {
+          const thrown = constructorError({ [option]: value });
+          expect(thrown, option).to.be.instanceOf(ResolveError);
+          expect(thrown.type).to.equal(INVALID_OPTIONS);
+          expect(thrown.message).to.equal(message);
+          expect(thrown.data).to.deep.equal({ [option]: value });
+        }
+      }
+    });
+
     for(const value of [
       '2025-13-01T00:00:00Z', 'yesterday', '', '2025-01-01', '2025-01-01T00:00:00',
       '2025-01-01T00:00:00+00:00', '2025-01-01T00:00:00.5Z', '2025-02-30T00:00:00Z', 1735689600
@@ -3931,7 +3967,24 @@ describe('Resolver', () => {
         const source = resolveDeterministic(fixture.did);
         const patch: PatchOperation[] = [{ op: 'replace', path: '/id', value: deterministicData[0].did }];
         const update = signWith(unsignedV2(source, patch, JSONPatch.apply(source, patch)));
-        expectInvalidUpdate(thrownBy([ update ]), /the patched document id is not the DID/);
+        const thrown = thrownBy([ update ]);
+        expectInvalidUpdate(thrown, /the patched document id is not the DID/);
+        expect(thrown.message).to.equal(
+          `Invalid update: the patched document id is not the DID (expected "${fixture.did}", got "${deterministicData[0].did}")`
+        );
+      });
+
+      it('rejects a patch that changes the document id to an object with no text form; the message has no value (ADR 156)', () => {
+        // Spec "Apply update": the patched document keeps the DID as its id. String() throws for
+        // this JSON value, so the message names no id, and the data holds the object.
+        const source = resolveDeterministic(fixture.did);
+        const id = JSON.parse('{"toString":1,"valueOf":1}') as object;
+        const patch: PatchOperation[] = [{ op: 'replace', path: '/id', value: id }];
+        const update = signWith(unsignedV2(source, patch, JSONPatch.apply(source, patch)));
+        const thrown = thrownBy([ update ]);
+        expectInvalidUpdate(thrown, /the patched document id is not the DID/);
+        expect(thrown.message).to.equal(`Invalid update: the patched document id is not the DID (expected "${fixture.did}")`);
+        expect(thrown.data).to.deep.equal({ did: fixture.did, id });
       });
 
       it('rejects a patched document that does not conform to DID Core', () => {

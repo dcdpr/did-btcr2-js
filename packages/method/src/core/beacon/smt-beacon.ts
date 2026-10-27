@@ -35,7 +35,7 @@ export class SMTBeacon extends SinglePartyBeacon {
   }
 
   /**
-   * Implements {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process-smt-beacon | 7.2.e.1 Process SMT Beacon}.
+   * Implements {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process-smt-beacon | Process SMT Beacon}.
    *
    * For each signal, the signalBytes contain the hex-encoded SMT root hash
    * (`smt_root`). For each signal, this method:

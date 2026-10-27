@@ -41,7 +41,7 @@ If you're integrating did:btcr2 into an app, start here. If you're customizing t
 - **A historical request (ADR 145).** For a request with `versionId` or `versionTime`, the resolver processes the full history and returns the state at the requested version. Thus an error in a later update fails the request. The api also gets the data of each later update, from the sidecar or from the CAS. Each beacon signal at an SMT beacon needs its proof in `sidecar.smtProofs`, also a signal that announces no update for the DID. `maxDiscoveryRounds` counts the rounds of the full history.
 - **The errors of `versionId` and `versionTime`.** A request with both, or with a value that does not parse, fails with `INVALID_OPTIONS`. A version that the history does not reach fails with `NOT_FOUND`. `tryResolveDid` reports both codes in `error`.
 
-The api wires the configured `BitcoinApi` into the sans-I/O Resolver and Updater state machines, fulfilling `NeedBeaconSignals`, `NeedFunding`, `NeedBroadcast`, and CAS-related needs (`NeedGenesisDocument`, `NeedCASAnnouncement`, `NeedSignedUpdate`) automatically. How `NeedBeaconSignals` is fulfilled follows the connection's `btc.signalDiscovery` mode: `'indexer'` (the default) reads beacon-address transaction listings from the Esplora-compatible REST backend, while `'fullnode'` scans every block from genesis over Bitcoin Core RPC and needs an `rpc` config (rejected at construction without one), a node with `-txindex=1`, and Bitcoin Core >= 25; the linear scan makes it practical only on regtest.
+The api wires the configured `BitcoinApi` into the sans-I/O Resolver and Updater state machines, fulfilling `NeedBeaconSignals`, `NeedFunding`, `NeedBroadcast`, and CAS-related needs (`NeedGenesisDocument`, `NeedCASAnnouncement`, `NeedSignedUpdate`) automatically. How `NeedBeaconSignals` is fulfilled follows the connection's `btc.signalDiscovery` mode: `'indexer'` (the default) reads beacon-address transaction listings from the Esplora-compatible REST backend, while `'fullnode'` scans every block from genesis over Bitcoin Core RPC and needs an `rpc` config (the `BitcoinApi` constructor refuses `'fullnode'` without one), a node with `-txindex=1`, and Bitcoin Core >= 25; the linear scan makes it practical only on regtest.
 
 `NeedSMTProof` is not auto-fulfilled by the facade: an SMT proof has no content address on chain (the signal is the tree root, and the proof of one DID is not derivable from it), so it must be provided upfront via `options.sidecar.smtProofs`; resolution fails with `MISSING_UPDATE_DATA` and that pointer otherwise. The resolver ignores a sidecar proof whose `id` does not decode to 32 bytes, for example an `id` with non-zero pad bits (ADR 146).
 
@@ -66,6 +66,16 @@ The api refuses an api option that is not valid with an `UpdateError` of type `I
 - both `announce.feeRate` and `announce.feeEstimator`
 - an `announce.feeRate` that is not a positive finite number
 - no Bitcoin connection: no `announce.bitcoin`, and no `BitcoinApi` on the `DidBtcr2Api` instance
+
+The `BitcoinApi` constructor refuses these `btc` config values with a `MethodError` of type `INVALID_OPTIONS` (ADR 156):
+
+- a `signalDiscovery` value other than `undefined`, `'indexer'`, and `'fullnode'`, for example `'Fullnode'` or `null`
+- a `network` that is not a key of `DEFAULT_BITCOIN_NETWORK_CONFIG`, for example `'toString'`
+- `signalDiscovery: 'fullnode'` with no `rpc` config for the network
+
+`createApi` makes the `BitcoinApi` at the first access of `api.btc` or `api.btcr2`. Thus the refusal comes at that access. `tryResolveDid` reports it as the error `INVALID_OPTIONS`.
+
+An error message holds a value of the caller only if the value is a primitive, for example a string or a number. For an object or a function, the message holds no value. The error `data` always holds the value (ADR 156).
 
 ## Install
 

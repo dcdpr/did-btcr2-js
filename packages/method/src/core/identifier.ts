@@ -103,7 +103,8 @@ export interface IdentifierReport {
 const DID_PREFIX = 'did:btcr2:';
 
 /**
- * Implements {@link https://dcdpr.github.io/did-btcr2/#syntax | 3 Syntax}.
+ * Implements the {@link https://dcdpr.github.io/did-btcr2/algorithms.html#did-btcr2-identifier-encoding | DID-BTCR2 Identifier Encoding}
+ * and {@link https://dcdpr.github.io/did-btcr2/algorithms.html#did-btcr2-identifier-decoding | DID-BTCR2 Identifier Decoding} algorithms.
  * A did:btcr2 DID consists of a did:btcr2 prefix, followed by an id-bech32 value, which is a Bech32m encoding of:
  *    - the specification version;
  *    - the Bitcoin network identifier; and
@@ -115,7 +116,7 @@ const DID_PREFIX = 'did:btcr2:';
  */
 export class Identifier {
   /**
-   * Implements {@link https://dcdpr.github.io/did-btcr2/#didbtcr2-identifier-encoding | 3.2 did:btcr2 Identifier Encoding}.
+   * Implements {@link https://dcdpr.github.io/did-btcr2/algorithms.html#did-btcr2-identifier-encoding | DID-BTCR2 Identifier Encoding}.
    *
    * A did:btcr2 DID consists of a did:btcr2 prefix, followed by an id-bech32 value, which is a Bech32m encoding of:
    *  - the specification version;
@@ -186,7 +187,7 @@ export class Identifier {
   }
 
   /**
-   * Implements {@link https://dcdpr.github.io/did-btcr2/#didbtcr2-identifier-decoding | 3.3 did:btcr2 Identifier Decoding}.
+   * Implements {@link https://dcdpr.github.io/did-btcr2/algorithms.html#did-btcr2-identifier-decoding | DID-BTCR2 Identifier Decoding}.
    * @param {string} identifier The BTCR2 DID to be parsed
    * @returns {DidComponents} The parsed identifier components. See {@link DidComponents} for details.
    * @throws {DidError} if an error occurs while parsing the identifier
@@ -296,7 +297,7 @@ export class Identifier {
 
   /**
    * Validates that a did:btcr2 identifier conforms to
-   * {@link https://dcdpr.github.io/did-btcr2/#didbtcr2-identifier-decoding | 3.3 did:btcr2 Identifier Decoding}
+   * {@link https://dcdpr.github.io/did-btcr2/algorithms.html#did-btcr2-identifier-decoding | DID-BTCR2 Identifier Decoding}
    * and returns a report of the checks. The method does not throw on an invalid identifier.
    *
    * The checks run in this order: `prefix`, `lowercase`, `bech32m`, `version`, `network`,

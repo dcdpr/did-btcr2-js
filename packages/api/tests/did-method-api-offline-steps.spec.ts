@@ -57,6 +57,16 @@ describe('DidMethodApi offline update steps', () => {
         .to.throw(UpdateError, 'must not change the DID document id');
     });
 
+    it('refuses a patch that changes the id to an object with no text form; the message has no value (ADR 156)', () => {
+      const { api, did, source } = offlineFixture();
+      const id = JSON.parse('{"toString":1,"valueOf":1}');
+      const error = thrown(() => api.btcr2.constructUpdate(source, [{ op: 'replace', path: '/id', value: id }]));
+      expect(error).to.be.instanceOf(UpdateError);
+      expect(error.type).to.equal(INVALID_DID_UPDATE);
+      expect(error.message).to.equal('Patches must not change the DID document id.');
+      expect(error.data).to.deep.equal({ sourceId: did, targetId: id });
+    });
+
     it('refuses a source that is not an object', () => {
       const { api } = offlineFixture();
       expect(() => api.btcr2.constructUpdate(null as never, ADD_SERVICE)).to.throw('source must be an object');

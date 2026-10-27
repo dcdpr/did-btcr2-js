@@ -1,7 +1,9 @@
 import { expect, use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import type { HttpExecutor, NetworkName } from '@did-btcr2/bitcoin';
-import { BitcoinApi, DEFAULT_BITCOIN_NETWORK_CONFIG } from '../src/index.js';
+import { INVALID_OPTIONS, MethodError } from '@did-btcr2/common';
+import type { BitcoinApiConfig, SignalDiscoveryMode } from '../src/index.js';
+import { BitcoinApi, createApi, DEFAULT_BITCOIN_NETWORK_CONFIG } from '../src/index.js';
 
 use(chaiAsPromised);
 
@@ -19,6 +21,25 @@ function mockExecutor(
     });
   };
   return { executor, requests };
+}
+
+/** The error that `fn` throws. The test fails if `fn` returns. */
+function thrown(fn: () => unknown): unknown {
+  try {
+    fn();
+  } catch (error) {
+    return error;
+  }
+  throw new Error('expected a throw');
+}
+
+/** Make sure that `error` is a MethodError with the type INVALID_OPTIONS and the given data. */
+function expectInvalidOptions(error: unknown, data: Record<string, unknown>): MethodError {
+  expect(error).to.be.instanceOf(MethodError);
+  const methodError = error as MethodError;
+  expect(methodError.type).to.equal(INVALID_OPTIONS);
+  expect(methodError.data).to.deep.equal(data);
+  return methodError;
 }
 
 /**
@@ -81,8 +102,82 @@ describe('BitcoinApi', () => {
   it('rejects signalDiscovery: fullnode on a network with no RPC config', () => {
     // mempool.space-backed networks resolve no rpc by default, so this would otherwise
     // fail only once a resolution reached the scan.
-    expect(() => new BitcoinApi({ network: 'bitcoin', signalDiscovery: 'fullnode' }))
-      .to.throw('no rpc config was resolved');
+    const error = thrown(() => new BitcoinApi({ network: 'bitcoin', signalDiscovery: 'fullnode' }));
+    const methodError = expectInvalidOptions(error, { network: 'bitcoin', signalDiscovery: 'fullnode' });
+    expect(methodError.message).to.include('no rpc config was resolved for network \'bitcoin\'');
+  });
+
+  it('accepts signalDiscovery: undefined and indexer', () => {
+    expect(new BitcoinApi({ network: 'regtest', signalDiscovery: undefined }).signalDiscovery).to.equal('indexer');
+    expect(new BitcoinApi({ network: 'regtest', signalDiscovery: 'indexer' }).signalDiscovery).to.equal('indexer');
+  });
+
+  describe('signalDiscovery refusals', () => {
+    const message = '`signalDiscovery` must be \'indexer\' or \'fullnode\'';
+    const primitives: unknown[] = ['Fullnode', 'INDEXER', 'rpc', '', ' indexer', 42, 0, true, null];
+    for (const value of primitives) {
+      it(`refuses ${JSON.stringify(value)} and prints the value`, () => {
+        const config = { network: 'regtest', signalDiscovery: value } as unknown as BitcoinApiConfig;
+        const error = expectInvalidOptions(thrown(() => new BitcoinApi(config)), { signalDiscovery: value });
+        expect(error.message).to.equal(`${message}; got '${String(value)}'.`);
+      });
+    }
+
+    it('refuses a symbol and prints its text', () => {
+      const value = Symbol('fullnode');
+      const config = { network: 'regtest', signalDiscovery: value } as unknown as BitcoinApiConfig;
+      const error = expectInvalidOptions(thrown(() => new BitcoinApi(config)), { signalDiscovery: value });
+      expect(error.message).to.equal(`${message}; got 'Symbol(fullnode)'.`);
+    });
+
+    const objects: [string, unknown][] = [
+      ['an object without a prototype', Object.create(null)],
+      ['an object with a toString member that is not a function', { toString: 1, valueOf: 1 }],
+      ['an object whose text is fullnode', { toString: () => 'fullnode' }],
+      ['an array', ['fullnode']],
+      ['a function', () => 'fullnode'],
+    ];
+    for (const [label, value] of objects) {
+      it(`refuses ${label} and prints no value`, () => {
+        const config = { network: 'regtest', signalDiscovery: value } as unknown as BitcoinApiConfig;
+        const error = expectInvalidOptions(thrown(() => new BitcoinApi(config)), { signalDiscovery: value });
+        expect(error.message).to.equal(`${message}.`);
+      });
+    }
+
+    it('checks signalDiscovery before the network and before the executor', () => {
+      let calls = 0;
+      const config = {
+        network         : 'nope',
+        signalDiscovery : 'Fullnode',
+        executor        : () => { calls++; throw new Error('no I/O'); },
+      } as unknown as BitcoinApiConfig;
+      expectInvalidOptions(thrown(() => new BitcoinApi(config)), { signalDiscovery: 'Fullnode' });
+      expect(calls).to.equal(0);
+    });
+
+    it('refuses the value at the first btc access of createApi, not at createApi', () => {
+      const api = createApi({ btc: { network: 'regtest', signalDiscovery: 'Fullnode' as SignalDiscoveryMode } });
+      expectInvalidOptions(thrown(() => api.btc), { signalDiscovery: 'Fullnode' });
+      // The getter keeps no instance after a refusal, so a second access refuses again.
+      expectInvalidOptions(thrown(() => api.btc), { signalDiscovery: 'Fullnode' });
+    });
+
+    it('refuses the value at the first btcr2 access of createApi', () => {
+      const api = createApi({ btc: { network: 'regtest', signalDiscovery: null as unknown as SignalDiscoveryMode } });
+      expectInvalidOptions(thrown(() => api.btcr2), { signalDiscovery: null });
+    });
+
+    it('gives INVALID_OPTIONS from tryResolveDid and a MethodError from resolveDid', async () => {
+      const did = 'did:btcr2:k1qqpuwwde82nennsavvf0lqfnlvx7frrgzs57lchr02q8mz49qzaaxmqphnvcx';
+      const api = createApi({ btc: { network: 'regtest', signalDiscovery: 'rpc' as SignalDiscoveryMode } });
+      const result = await api.tryResolveDid(did);
+      expect(result.ok).to.equal(false);
+      expect(result.ok === false && result.error).to.equal(INVALID_OPTIONS);
+      expect(result.ok === false && result.errorMessage).to.equal('`signalDiscovery` must be \'indexer\' or \'fullnode\'; got \'rpc\'.');
+      const error = await api.resolveDid(did).then(() => undefined, (caught: unknown) => caught);
+      expectInvalidOptions(error, { signalDiscovery: 'rpc' });
+    });
   });
 
   it('btcToSats() converts correctly', () => {
@@ -251,8 +346,41 @@ describe('BitcoinApi', () => {
   });
 
   it('throws a friendly error for an unknown network', () => {
-    expect(() => new BitcoinApi({ network: 'nope' as unknown as NetworkName }))
-      .to.throw(/Unknown Bitcoin network 'nope'/);
+    const error = thrown(() => new BitcoinApi({ network: 'nope' as unknown as NetworkName }));
+    const methodError = expectInvalidOptions(error, { network: 'nope' });
+    expect(methodError.message).to.equal(
+      'Unknown Bitcoin network \'nope\'. Available: bitcoin, testnet3, testnet4, signet, mutinynet, regtest.'
+    );
+  });
+
+  // An index lookup also finds the members that every object inherits.
+  for (const network of ['toString', 'constructor', '__proto__', 'valueOf', 'hasOwnProperty']) {
+    it(`refuses the inherited member name '${network}' as a network`, () => {
+      const error = thrown(() => new BitcoinApi({ network: network as unknown as NetworkName }));
+      const methodError = expectInvalidOptions(error, { network });
+      expect(methodError.message).to.match(new RegExp(`^Unknown Bitcoin network '${network}'\\. Available: `));
+    });
+  }
+
+  const objectNetworks: [string, unknown][] = [
+    ['an object without a prototype', Object.create(null)],
+    ['an object whose text is regtest', { toString: () => 'regtest' }],
+    ['an array that holds regtest', ['regtest']],
+  ];
+  for (const [label, network] of objectNetworks) {
+    it(`refuses ${label} as a network and prints no value`, () => {
+      const error = thrown(() => new BitcoinApi({ network: network as NetworkName }));
+      const methodError = expectInvalidOptions(error, { network });
+      expect(methodError.message).to.equal(
+        'Unknown Bitcoin network. Available: bitcoin, testnet3, testnet4, signet, mutinynet, regtest.'
+      );
+    });
+  }
+
+  it('refuses a missing network', () => {
+    const error = thrown(() => new BitcoinApi({} as BitcoinApiConfig));
+    const methodError = expectInvalidOptions(error, { network: undefined });
+    expect(methodError.message).to.match(/^Unknown Bitcoin network 'undefined'\. Available: /);
   });
 
   it('exposes the per-network defaults map', () => {

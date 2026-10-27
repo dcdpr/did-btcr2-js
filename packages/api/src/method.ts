@@ -11,7 +11,7 @@ import type { BitcoinApi } from './bitcoin.js';
 import type { CasApi } from './cas.js';
 import type { GenesisDocumentSpec } from './genesis.js';
 import { assertGenesisDocument, buildGenesisDocument } from './genesis.js';
-import { assertBytes, assertCompressedPubkey, assertString, NOOP_LOGGER, rootCauseMessage } from './helpers.js';
+import { assertBytes, assertCompressedPubkey, assertString, messageText, NOOP_LOGGER, rootCauseMessage } from './helpers.js';
 import type { MessageReport, SignedMessage, SignMessageOptions } from './message.js';
 import { signMessage, verifyMessage } from './message.js';
 import type { Logger } from './types.js';
@@ -982,8 +982,10 @@ export class DidMethodApi {
         );
       }
       if(typeof feeRate !== 'number' || !Number.isFinite(feeRate) || feeRate <= 0) {
+        const text = messageText(feeRate);
         throw new UpdateError(
-          `\`announce.feeRate\` must be a positive finite number of sats/vB; got ${String(feeRate)}.`,
+          '`announce.feeRate` must be a positive finite number of sats/vB'
+          + (text === undefined ? '.' : `; got ${text}.`),
           INVALID_OPTIONS, { feeRate }
         );
       }

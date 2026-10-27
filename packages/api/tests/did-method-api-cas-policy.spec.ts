@@ -762,6 +762,27 @@ describe('DidMethodApi update() CAS publication policy', () => {
         expect(counters.utxoCalls).to.equal(0);
       });
     }
+
+    it('the announce.feeRate message prints a primitive value (ADR 156)', async () => {
+      const fixture = updateFixture('SingletonBeacon');
+      const { order, counters } = recorders();
+      const error = await expect(new DidMethodApi().update(...updateArgs(fixture, order, counters, { announce: { feeRate: 0 } })))
+        .to.be.rejectedWith(UpdateError);
+      expect(error.message).to.equal('`announce.feeRate` must be a positive finite number of sats/vB; got 0.');
+    });
+
+    it('refuses an announce.feeRate object with no text form, before any read; the message has no value (ADR 156)', async () => {
+      for (const feeRate of [ Object.create(null), JSON.parse('{"toString":1,"valueOf":1}') ]) {
+        const fixture = updateFixture('SingletonBeacon');
+        const { order, counters } = recorders();
+        const error = await expect(new DidMethodApi().update(...updateArgs(fixture, order, counters, { announce: { feeRate } })))
+          .to.be.rejectedWith(UpdateError);
+        expect(error.type).to.equal(INVALID_OPTIONS);
+        expect(error.message).to.equal('`announce.feeRate` must be a positive finite number of sats/vB.');
+        expect(error.data.feeRate).to.equal(feeRate);
+        expect(counters.utxoCalls).to.equal(0);
+      }
+    });
   });
 
   describe('DidBtcr2Api.updateDid passthrough', () => {

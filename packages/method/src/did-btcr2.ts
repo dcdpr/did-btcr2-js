@@ -19,6 +19,7 @@ import { Resolver } from './core/resolver.js';
 import { Updater } from './core/updater.js';
 import { Appendix } from './utils/appendix.js';
 import type { Btcr2DidDocument, DidVerificationMethod } from './utils/did-document.js';
+import { messageText } from './utils/message-text.js';
 
 export interface DidCreateOptions {
   /** Type of identifier to create (key or external) */
@@ -49,7 +50,7 @@ export class DidBtcr2 implements DidMethod {
   static methodName: string = 'btcr2';
 
   /**
-   * Implements section {@link https://dcdpr.github.io/did-btcr2/operations/create.html | 7.1 Create}.
+   * Implements section {@link https://dcdpr.github.io/did-btcr2/operations/create.html | Create}.
    * @param {KeyBytes | DocumentBytes} genesisBytes The bytes used to create the genesis document for a did:btcr2 identifier.
    * This can be either the bytes of the genesis document itself or the bytes of a key that will be used to create the genesis document.
    * @param {DidCreateOptions} options Options for creating the identifier, including the idType (key or external), version, and network.
@@ -80,7 +81,7 @@ export class DidBtcr2 implements DidMethod {
   }
 
   /**
-   * Entry point for section {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html | 7.2 Resolve}.
+   * Entry point for section {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html | Resolve}.
    *
    * Factory method that performs pure setup and returns a {@link Resolver} state machine.
    * The caller drives resolution by calling `resolver.resolve()` and `resolver.provide()`.
@@ -128,7 +129,7 @@ export class DidBtcr2 implements DidMethod {
   }
 
   /**
-   * Entry point for section {@link https://dcdpr.github.io/did-btcr2/#update | 7.3 Update}.
+   * Entry point for section {@link https://dcdpr.github.io/did-btcr2/operations/update.html | Update}.
    *
    * Factory method that validates the update parameters and returns a sans-I/O
    * {@link Updater} state machine. The caller drives the updater through its
@@ -169,8 +170,9 @@ export class DidBtcr2 implements DidMethod {
     // targetVersionId is sourceVersionId + 1. Without the guard, Number(undefined) + 1 is
     // NaN, and the update carries no usable version.
     if(!Number.isInteger(sourceVersionId) || sourceVersionId < 1) {
+      const text = messageText(sourceVersionId);
       throw new UpdateError(
-        `Invalid sourceVersionId: expected an integer of at least 1, got ${String(sourceVersionId)}.`,
+        'Invalid sourceVersionId: expected an integer of at least 1' + (text === undefined ? '.' : `, got ${text}.`),
         INVALID_DID_UPDATE, { sourceVersionId }
       );
     }
@@ -213,7 +215,7 @@ export class DidBtcr2 implements DidMethod {
   }
 
   /**
-   * Entry point for section {@link https://dcdpr.github.io/did-btcr2/operations/deactivate.html | 7.4 Deactivate}.
+   * Entry point for section {@link https://dcdpr.github.io/did-btcr2/operations/deactivate.html | Deactivate}.
    *
    * Deactivate is the Update operation with the predetermined patch {@link DEACTIVATION_PATCH}:
    * it adds the `deactivated` property with the value `true`. The factory returns the

@@ -316,7 +316,7 @@ export function decode(encoded: string, encoding: CanonicalizationEncoding = 'ba
 }
 
 /**
- * Implements {@link https://dcdpr.github.io/did-btcr2/algorithms.html#json-document-hashing | 8.c JSON Document Hashing}.
+ * Implements {@link https://dcdpr.github.io/did-btcr2/algorithms.html#json-document-hashing | JSON Document Hashing}.
  *
  * Pipeline: Canonicalize (JCS) -> Hash (SHA-256) -> raw bytes.
  *
@@ -331,7 +331,7 @@ export function canonicalHashBytes(object: Record<any, any>, algorithm: Canonica
 }
 
 /**
- * Implements {@link https://dcdpr.github.io/did-btcr2/algorithms.html#json-document-hashing | 8.c JSON Document Hashing}.
+ * Implements {@link https://dcdpr.github.io/did-btcr2/algorithms.html#json-document-hashing | JSON Document Hashing}.
  *
  * Full pipeline: Canonicalize (JCS) -> Hash (SHA-256) -> Encode.
  *

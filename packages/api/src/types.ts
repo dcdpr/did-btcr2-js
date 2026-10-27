@@ -113,8 +113,9 @@ export type BitcoinApiConfig = {
   rpc?: RpcConfig;
   /**
    * Where beacon signals are read from. Defaults to `indexer`.
-   * `fullnode` requires an RPC-capable connection and is rejected at construction
-   * without one.
+   * `fullnode` requires an RPC-capable connection. The {@link BitcoinApi} constructor
+   * refuses `fullnode` without one, and each value other than `undefined`, `indexer`, and
+   * `fullnode`, with a `MethodError` of type `INVALID_OPTIONS`.
    */
   signalDiscovery?: SignalDiscoveryMode;
   /**

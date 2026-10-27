@@ -53,6 +53,35 @@ describe('config-schema', () => {
       expect(validateConfigSet('profiles.regtest.btc.signalDiscovery', 'fullnode'))
         .to.deep.equal({ unknownPath: false });
     });
+
+    it('an enum message prints a primitive value in quotes', () => {
+      expect(() => validateConfigSet('defaults.output', 'yaml'))
+        .to.throw(CLIError, 'Invalid value for defaults.output: "yaml". Expected "json" or "text".');
+      expect(() => validateConfigSet('profiles.regtest.btc.signalDiscovery', 42))
+        .to.throw(CLIError, 'Invalid value for profiles.regtest.btc.signalDiscovery: "42". Expected "indexer" or "fullnode".');
+    });
+
+    it('rejects an enum object with no text form with a CLIError; the message has no value (ADR 156)', () => {
+      // `config set <path> '{"toString":1}'` gives this value. String() throws for it.
+      const cases: Array<[ string, RegExp ]> = [
+        [ 'defaults.network', /^Invalid value for defaults\.network\. Expected one of / ],
+        [ 'defaults.output', /^Invalid value for defaults\.output\. Expected "json" or "text"\.$/ ],
+        [ 'profiles.regtest.btc.signalDiscovery', /^Invalid value for profiles\.regtest\.btc\.signalDiscovery\. Expected "indexer" or "fullnode"\.$/ ],
+      ];
+      for (const [ path, message ] of cases) {
+        const value = JSON.parse('{"toString":1,"valueOf":1}');
+        let thrown: any;
+        try {
+          validateConfigSet(path, value);
+        } catch (error) {
+          thrown = error;
+        }
+        expect(thrown, path).to.be.instanceOf(CLIError);
+        expect(thrown.type).to.equal('INVALID_ARGUMENT_ERROR');
+        expect(thrown.message).to.match(message);
+        expect(thrown.data).to.deep.equal({ path, value });
+      }
+    });
   });
 
   describe('findConfigIssues', () => {
@@ -75,6 +104,11 @@ describe('config-schema', () => {
     it('reports an invalid enum value', () => {
       const issues = findConfigIssues({ defaults: { network: 'mainnett' } }, 1);
       expect(issues.some(i => i.path === 'defaults.network')).to.equal(true);
+    });
+
+    it('reports an enum object with no text form with the enum message, not a TypeError (ADR 156)', () => {
+      const issues = findConfigIssues({ defaults: { output: JSON.parse('{"toString":1,"valueOf":1}') } }, 1);
+      expect(issues).to.deep.equal([ { path: 'defaults.output', issue: 'Invalid value for defaults.output. Expected "json" or "text".' } ]);
     });
 
     it('reports a newer-than-supported schemaVersion', () => {

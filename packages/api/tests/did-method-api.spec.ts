@@ -3,6 +3,7 @@ import chaiAsPromised from 'chai-as-promised';
 import type { BitcoinConnection, HttpExecutor } from '@did-btcr2/bitcoin';
 import { getNetwork } from '@did-btcr2/bitcoin';
 import {
+  canonicalHash,
   canonicalHashBytes,
   canonicalize,
   DidDocumentError,
@@ -13,8 +14,9 @@ import {
   ResolveError,
   UpdateError,
 } from '@did-btcr2/common';
+import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey, LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
-import { DEACTIVATION_PATCH } from '@did-btcr2/method';
+import { BTCR2_UPDATE_CONTEXT, DEACTIVATION_PATCH } from '@did-btcr2/method';
 import {
   BitcoinApi,
   CasApi,
@@ -22,7 +24,8 @@ import {
   DidMethodApi,
   MultikeyApi,
 } from '../src/index.js';
-import type { CasExecutor } from '../src/index.js';
+import type { CasExecutor, PatchOperation } from '../src/index.js';
+import { resolutionErrorCode } from '../src/helpers.js';
 
 use(chaiAsPromised);
 
@@ -396,16 +399,16 @@ describe('DidMethodApi', () => {
     }
 
     /**
-     * A Bitcoin facade whose chain holds one confirmed signal from the beacon of
-     * EXTERNAL_GENESIS_DOCUMENT: an OP_RETURN with `updateHashHex` at height 100,
-     * six blocks below the tip.
+     * A Bitcoin facade whose chain holds one confirmed signal from `address`, by
+     * default the beacon of EXTERNAL_GENESIS_DOCUMENT: an OP_RETURN with
+     * `updateHashHex` at height 100, six blocks below the tip.
      */
-    function chainWithSignal(updateHashHex: string): BitcoinApi {
+    function chainWithSignal(updateHashHex: string, address = '12QG2GG9TWPD16SWyfWCsW4W3NhMFnnSFK'): BitcoinApi {
       const signalTx = {
         vin : [{
           txid        : 'f'.repeat(64),
           vout        : 0,
-          prevout     : { scriptpubkey_address: '12QG2GG9TWPD16SWyfWCsW4W3NhMFnnSFK' },
+          prevout     : { scriptpubkey_address: address },
           is_coinbase : false,
         }],
         vout : [{
@@ -419,7 +422,7 @@ describe('DidMethodApi', () => {
           data : getNetwork('regtest'),
           rest : {
             block   : { count: async () => 105, get: async () => ({ mediantime: 1700000000 }) },
-            address : { getConfirmedTxs: async () => [signalTx] },
+            address : { getConfirmedTxs: async (queried: string) => (queried === address ? [signalTx] : []) },
           },
         } as unknown as BitcoinConnection,
       } as unknown as BitcoinApi;
@@ -523,6 +526,46 @@ describe('DidMethodApi', () => {
       const cause = await typedCause(methodApi.resolve(did, { sidecar: { genesisDocument: EXTERNAL_GENESIS_DOCUMENT } }));
       expect(cause.type).to.equal(MISSING_UPDATE_DATA);
       expect(cause.message).to.match(/hashes to .*; the resolver must not use it/);
+    });
+
+    it('raises INVALID_DID_UPDATE for a signed update that sets the id to an object with no text form (ADR 156)', async () => {
+      // Spec "Apply update": the patched document keeps the DID as its id. String() throws for
+      // this JSON value. The message names no id, and the DID Resolution error code is
+      // INVALID_DID_UPDATE, not INTERNAL_ERROR.
+      const offline = new DidMethodApi();
+      const kp = SchnorrKeyPair.generate();
+      const did = offline.createDeterministic(kp.publicKey.compressed, { network: 'regtest' });
+      const source = offline.getInitialDocument(did);
+      const patch: PatchOperation[] = [{ op: 'replace', path: '/id', value: JSON.parse('{"toString":1,"valueOf":1}') }];
+      const unsigned = {
+        '@context'      : [ ...BTCR2_UPDATE_CONTEXT ],
+        patch,
+        sourceHash      : offline.hashDocument(source),
+        targetHash      : offline.hashDocument(offline.applyPatch(source, patch)),
+        targetVersionId : 2,
+      };
+      // Updater.sign refuses the patch, so the cryptosuite signs the update directly.
+      const methodId = `${did}#initialKey`;
+      const signed = SchnorrMultikey.fromSecretKey(methodId, did, kp.secretKey.bytes)
+        .toCryptosuite().toDataIntegrityProof().addProof(unsigned, {
+          '@context'         : [ ...BTCR2_UPDATE_CONTEXT ],
+          type               : 'DataIntegrityProof',
+          cryptosuite        : 'bip340-jcs-2025',
+          verificationMethod : methodId,
+          proofPurpose       : 'capabilityInvocation',
+          capability         : `urn:zcap:root:${encodeURIComponent(did)}`,
+          capabilityAction   : 'Write',
+          invocationTarget   : did,
+        } as never);
+      const address = offline.getBeacons(source)[0]!.address;
+      const methodApi = new DidMethodApi(chainWithSignal(canonicalHash(signed, { encoding: 'hex' }), address));
+
+      const error: any = await methodApi.resolve(did, { sidecar: { updates: [ signed as never ] } })
+        .then(() => expect.fail('resolution should have failed'), (e: unknown) => e);
+      expect(error.cause).to.be.instanceOf(ResolveError);
+      expect(error.cause.type).to.equal(INVALID_DID_UPDATE);
+      expect(error.cause.message).to.equal(`Invalid update: the patched document id is not the DID (expected "${did}")`);
+      expect(resolutionErrorCode(error)).to.equal(INVALID_DID_UPDATE);
     });
 
     it('refuses a DID whose network differs from the connection before any chain read', async () => {

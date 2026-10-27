@@ -74,6 +74,27 @@ describe('DidDocument @context validation (extensibility)', () => {
     doc['@context'] = [];
     expect(() => DidDocument.isValid(doc)).to.throw('Invalid "@context"');
   });
+
+  it('freezes BTCR2_DID_DOCUMENT_CONTEXT, so a caller cannot change the check', () => {
+    // At 0.73.0 a caller could empty the shared array, and every() on an empty array then
+    // accepted each "@context".
+    const context = BTCR2_DID_DOCUMENT_CONTEXT as unknown as string[];
+    expect(Object.isFrozen(BTCR2_DID_DOCUMENT_CONTEXT)).to.equal(true);
+    expect(() => context.push('https://example.com/other')).to.throw(TypeError);
+    expect(() => { context.length = 0; }).to.throw(TypeError);
+    expect(() => { context[0] = 'https://example.com/other'; }).to.throw(TypeError);
+    expect(BTCR2_DID_DOCUMENT_CONTEXT).to.deep.equal(['https://www.w3.org/ns/did/v1.1', 'https://btcr2.dev/context/v1']);
+    const doc = validDocument();
+    doc['@context'] = ['https://example.com/other'];
+    expect(() => DidDocument.isValid(doc)).to.throw('Invalid "@context"');
+  });
+
+  it('gives a built document a writable copy of the frozen context', () => {
+    const document = new DidDocumentBuilder({ id: deterministicData[0]!.did }).build();
+    document['@context'].push('https://w3id.org/security/data-integrity/v2');
+    expect(document['@context']).to.have.length(3);
+    expect(BTCR2_DID_DOCUMENT_CONTEXT).to.have.length(2);
+  });
 });
 
 /** The base58btc multibase (`z` header) of a multicodec prefix and a 32-byte key of `fill` bytes. */

@@ -9,6 +9,7 @@ import { Appendix } from '../utils/appendix.js';
 import { DidDocument, type Btcr2DidDocument, type DidVerificationMethod } from '../utils/did-document.js';
 import { isJsonMap, NOT_A_JSON_OBJECT } from '../utils/did-core-conformance.js';
 import { errorCause } from '../utils/error-cause.js';
+import { messageText } from '../utils/message-text.js';
 import { signingMethodProblem } from '../utils/signing-method.js';
 import type { BroadcastResult } from './beacon/beacon.js';
 import type { CASBroadcastOptions } from './beacon/cas-beacon.js';
@@ -162,9 +163,10 @@ export interface UpdaterParams {
 function absoluteMethodId(verificationMethodId: string, did: string): string {
   const methodId = Appendix.absoluteDidUrl(verificationMethodId, did);
   if(methodId === undefined || !methodId.startsWith('did:')) {
+    const text = messageText(verificationMethodId);
     throw new UpdateError(
-      'Invalid verificationMethodId: expected a DID URL or a relative DID URL that starts with "#"; '
-      + `got "${String(verificationMethodId)}".`,
+      'Invalid verificationMethodId: expected a DID URL or a relative DID URL that starts with "#"'
+      + (text === undefined ? '.' : `; got "${text}".`),
       INVALID_DID_UPDATE, { verificationMethodId }
     );
   }
@@ -352,13 +354,15 @@ export class Updater {
   // individual update steps outside the state machine flow.
 
   /**
-   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/update.html#construct-btcr2-unsigned-update | 7.3.b Construct BTCR2 Unsigned Update}.
+   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/update.html#construct-btcr2-unsigned-update | Construct BTCR2 Unsigned Update}.
    *
    * @param {Btcr2DidDocument} sourceDocument The source DID document to be updated.
    * @param {PatchOperation[]} patches The JSON Patch operations to apply.
    * @param {number} sourceVersionId The version ID of the source document.
    * @returns {UnsignedBTCR2Update} The constructed UnsignedBTCR2Update object.
    * @throws {UpdateError} `INVALID_DID_UPDATE` if `sourceVersionId` is not an integer of 1 or more.
+   * @throws {UpdateError} `INVALID_DID_UPDATE` if `sourceDocument` is not an object, or if its `id`
+   *   is not a string.
    * @throws {UpdateError} `INVALID_DID_UPDATE` if `sourceDocument` or `patches` has no JCS form, for
    *   example if it holds NaN or a lone surrogate. `data.cause` holds the CanonicalizationError.
    * @throws {UpdateError} `INVALID_DID_UPDATE` if `patches` is malformed or fails to apply by the
@@ -377,6 +381,24 @@ export class Updater {
       throw new UpdateError(
         'Invalid sourceVersionId: expected an integer of 1 or more.',
         INVALID_DID_UPDATE, { sourceVersionId }
+      );
+    }
+
+    // Spec "Construct BTCR2 Unsigned Update" compares the id of the target document with the
+    // id of the source document, and DID Core v1.1 requires a string id. JSONPatch.apply copies
+    // the document, so an object id never equals its copy, and the id check below then gives
+    // the wrong reason.
+    if(!isJsonMap(sourceDocument)) {
+      throw new UpdateError(
+        'Invalid sourceDocument: expected a DID document object.',
+        INVALID_DID_UPDATE, { sourceDocument }
+      );
+    }
+    if(typeof sourceDocument.id !== 'string') {
+      const text = messageText(sourceDocument.id);
+      throw new UpdateError(
+        'Invalid sourceDocument: expected a string id' + (text === undefined ? '.' : `; got ${text}.`),
+        INVALID_DID_UPDATE, { sourceId: sourceDocument.id }
       );
     }
 
@@ -424,8 +446,10 @@ export class Updater {
     // targetDidDocument.id is not equal to sourceDidDocument.id." `DidDocument.isValid`
     // checks W3C conformance but not this equality, so it's enforced explicitly here.
     if(targetDocument.id !== sourceDocument.id) {
+      const text = messageText(targetDocument.id);
       throw new UpdateError(
-        `Patches must not change the DID document id (source "${sourceDocument.id}" to target "${targetDocument.id}").`,
+        'Patches must not change the DID document id'
+        + (text === undefined ? '.' : ` (source "${sourceDocument.id}" to target "${text}").`),
         INVALID_DID_UPDATE, { sourceId: sourceDocument.id, targetId: targetDocument.id }
       );
     }
@@ -447,7 +471,7 @@ export class Updater {
   /**
    * Returns the verification method that signs an update of `sourceDocument`. Implements the
    * method lookup and the method checks of subsection
-   * {@link https://dcdpr.github.io/did-btcr2/operations/update.html#construct-btcr2-signed-update | 7.3.c Construct BTCR2 Signed Update}:
+   * {@link https://dcdpr.github.io/did-btcr2/operations/update.html#construct-btcr2-signed-update | Construct BTCR2 Signed Update}:
    *
    * 1. An entry of `capabilityInvocation` must identify `verificationMethodId`, in the
    *    reference form or the embedded form. Both sides resolve to absolute DID URLs first, so
@@ -484,8 +508,10 @@ export class Updater {
     }
     const did: unknown = sourceDocument.id;
     if(typeof did !== 'string' || !did.startsWith('did:btcr2:')) {
+      const text = messageText(did);
       throw new UpdateError(
-        `Expected a did:btcr2 identifier for the root capability; got "${String(did)}".`,
+        'Expected a did:btcr2 identifier for the root capability'
+        + (text === undefined ? '.' : `; got "${text}".`),
         INVALID_DID_UPDATE, { did }
       );
     }
@@ -539,7 +565,7 @@ export class Updater {
   }
 
   /**
-   * Implements subsection {@link http://dcdpr.github.io/did-btcr2/operations/update.html#construct-btcr2-signed-update | 7.3.c Construct BTCR2 Signed Update }.
+   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/update.html#construct-btcr2-signed-update | Construct BTCR2 Signed Update}.
    *
    * The DID is `sourceDocument.id`: the source of the root capability and the invocation
    * target. The method that signs must pass {@link signingMethod}. The proof names the method
@@ -680,7 +706,7 @@ export class Updater {
   }
 
   /**
-   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/update.html#announce-did-update | 7.3.d Announce DID Update}.
+   * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/update.html#announce-did-update | Announce DID Update}.
    * Announces a signed update to the Bitcoin blockchain via the specified beacon.
    *
    * @param {BeaconService} beaconService The beacon service to broadcast through.
@@ -834,8 +860,9 @@ export class Updater {
         if(data !== undefined) {
           const proof = data as FundingProof;
           if(typeof proof.utxoCount !== 'number' || !Number.isFinite(proof.utxoCount) || proof.utxoCount < 1) {
+            const text = messageText(proof.utxoCount);
             throw new UpdateError(
-              `NeedFunding proof must have utxoCount >= 1; got ${String(proof.utxoCount)}.`,
+              'NeedFunding proof must have utxoCount >= 1' + (text === undefined ? '.' : `; got ${text}.`),
               INVALID_DID_UPDATE, { utxoCount: proof.utxoCount }
             );
           }

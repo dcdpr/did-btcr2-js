@@ -6,6 +6,7 @@ import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import type { Btcr2DidDocument } from '@did-btcr2/method';
 import { Appendix } from '@did-btcr2/method';
 import type { DidVerificationMethod } from '@web5/dids';
+import { messageText } from './helpers.js';
 
 /**
  * A text message and its `bip340-jcs-2025` assertion proof (ADR 137).
@@ -295,10 +296,16 @@ function assertionMethodProblem(
     return `The method ${id} is not a fragment of ${document.id}.`;
   }
   if (method.type !== 'Multikey') {
-    return `The method ${id} has the type ${String(method.type)}, not Multikey.`;
+    const type = messageText(method.type);
+    return type === undefined
+      ? `The type of the method ${id} is not Multikey.`
+      : `The method ${id} has the type ${type}, not Multikey.`;
   }
   if (Appendix.absoluteDidUrl(method.controller, document.id) !== document.id) {
-    return `The controller of the method ${id} is ${String(method.controller)}, not ${document.id}.`;
+    const controller = messageText(method.controller);
+    return controller === undefined
+      ? `The controller of the method ${id} is not ${document.id}.`
+      : `The controller of the method ${id} is ${controller}, not ${document.id}.`;
   }
   return undefined;
 }

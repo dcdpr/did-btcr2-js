@@ -9,7 +9,8 @@ import {
   createFetchExecutor,
   type RawTransactionRest
 } from '@did-btcr2/bitcoin';
-import { assertString } from './helpers.js';
+import { INVALID_OPTIONS, MethodError } from '@did-btcr2/common';
+import { assertString, messageText } from './helpers.js';
 import type { BitcoinApiConfig, SignalDiscoveryMode } from './types.js';
 
 /**
@@ -59,20 +60,26 @@ export const DEFAULT_BITCOIN_NETWORK_CONFIG = {
 /**
  * Resolves a {@link BitcoinApiConfig} to explicit transport options: the
  * per-network defaults from {@link DEFAULT_BITCOIN_NETWORK_CONFIG} with the
- * caller's REST/RPC overrides merged on top. Throws a friendly error naming the
- * supported networks when the requested one is unknown.
+ * caller's REST/RPC overrides merged on top.
+ * @throws {MethodError} `INVALID_OPTIONS` if the network is not a key of
+ *   {@link DEFAULT_BITCOIN_NETWORK_CONFIG}. The message names the supported networks.
  */
 function resolveConnectionOptions(
   cfg: BitcoinApiConfig,
   executor: BitcoinApiConfig['executor'],
 ): { network: NetworkName; rest: RestConfig; rpc?: RpcConfig; executor?: BitcoinApiConfig['executor'] } {
-  const defaults = DEFAULT_BITCOIN_NETWORK_CONFIG[cfg.network as keyof typeof DEFAULT_BITCOIN_NETWORK_CONFIG];
-  if (!defaults) {
-    throw new Error(
-      `Unknown Bitcoin network '${cfg.network}'. `
-      + `Available: ${Object.keys(DEFAULT_BITCOIN_NETWORK_CONFIG).join(', ')}.`
+  const network: unknown = cfg.network;
+  // An own-key lookup: an index lookup also finds an inherited member such as 'toString',
+  // and the transport then fails with a raw TypeError.
+  if (typeof network !== 'string' || !Object.hasOwn(DEFAULT_BITCOIN_NETWORK_CONFIG, network)) {
+    const text = messageText(network);
+    throw new MethodError(
+      'Unknown Bitcoin network' + (text === undefined ? '. ' : ` '${text}'. `)
+      + `Available: ${Object.keys(DEFAULT_BITCOIN_NETWORK_CONFIG).join(', ')}.`,
+      INVALID_OPTIONS, { network }
     );
   }
+  const defaults = DEFAULT_BITCOIN_NETWORK_CONFIG[network as keyof typeof DEFAULT_BITCOIN_NETWORK_CONFIG];
   const rest: RestConfig = { ...defaults.rest, ...cfg.rest };
   const hasRpc = defaults.rpc !== undefined || cfg.rpc !== undefined;
   const rpc = hasRpc ? { ...defaults.rpc, ...cfg.rpc } as RpcConfig : undefined;
@@ -147,20 +154,35 @@ export class BitcoinApi {
    * caller overrides, then constructs the underlying transport with explicit
    * endpoints. No environment variables are consulted.
    * @param cfg The network and optional REST/RPC overrides.
+   * @throws {MethodError} `INVALID_OPTIONS` if `signalDiscovery` is not `undefined`, `'indexer'`,
+   *   or `'fullnode'`, if the network is not a key of {@link DEFAULT_BITCOIN_NETWORK_CONFIG}, or if
+   *   `signalDiscovery` is `'fullnode'` and no RPC config applies to the network.
    */
   constructor(cfg: BitcoinApiConfig) {
+    // A caller in JavaScript can give any value. The check comes first, so a value such as
+    // 'Fullnode' or null does not act as 'indexer'.
+    const signalDiscovery = cfg.signalDiscovery === undefined ? 'indexer' : cfg.signalDiscovery;
+    if (signalDiscovery !== 'indexer' && signalDiscovery !== 'fullnode') {
+      const text = messageText(signalDiscovery);
+      throw new MethodError(
+        '`signalDiscovery` must be \'indexer\' or \'fullnode\'' + (text === undefined ? '.' : `; got '${text}'.`),
+        INVALID_OPTIONS, { signalDiscovery }
+      );
+    }
+
     // The fetch executor of the bitcoin package applies the timeout and the
     // freshness rules of `HttpRequest.fresh`, so the api has no fetch call of its own.
     const executor = cfg.executor ?? createFetchExecutor({ timeoutMs: cfg.timeoutMs });
     this.connection = new BitcoinConnection(resolveConnectionOptions(cfg, executor));
 
-    this.signalDiscovery = cfg.signalDiscovery ?? 'indexer';
-    if (this.signalDiscovery === 'fullnode' && !this.connection.rpc) {
-      throw new Error(
+    this.signalDiscovery = signalDiscovery;
+    if (signalDiscovery === 'fullnode' && !this.connection.rpc) {
+      throw new MethodError(
         'signalDiscovery: \'fullnode\' scans blocks over Bitcoin Core RPC, but no rpc config was '
-        + `resolved for network '${cfg.network}'. Pass one, e.g.: `
+        + `resolved for network '${this.connection.name}'. Pass one, e.g.: `
         + '{ network: \'regtest\', rpc: { host: \'http://localhost:18443\', username: \'u\', '
-        + 'password: \'p\' }, signalDiscovery: \'fullnode\' }'
+        + 'password: \'p\' }, signalDiscovery: \'fullnode\' }',
+        INVALID_OPTIONS, { network: this.connection.name, signalDiscovery }
       );
     }
   }
