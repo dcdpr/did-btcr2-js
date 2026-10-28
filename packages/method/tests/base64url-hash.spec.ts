@@ -1,4 +1,4 @@
-import { decode, encode } from '@did-btcr2/common';
+import { decode, encode } from '@did-btcr2/std';
 import { bytesToHex, randomBytes } from '@noble/hashes/utils';
 import { expect } from 'chai';
 import { base64UrlHashHex, hasNonZeroPadBits, smtProofRootHex } from '../src/utils/base64url-hash.js';

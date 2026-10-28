@@ -1,6 +1,6 @@
 import { expect } from 'chai';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
-import { IdentifierTypes } from '@did-btcr2/common';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
+import { IdentifierTypes } from '@did-btcr2/std';
 import { DidApi } from '../src/index.js';
 
 /**

@@ -1,4 +1,4 @@
-import { MethodError } from '@did-btcr2/common';
+import { MethodError } from '@did-btcr2/std';
 
 export class AggregationServiceError extends MethodError {
   constructor(message: string, type: string = 'AggregationServiceError', data?: Record<string, any>) {

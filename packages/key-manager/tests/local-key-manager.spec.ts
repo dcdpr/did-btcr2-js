@@ -1,6 +1,6 @@
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { expect } from 'chai';
-import { KeyManagerError } from '@did-btcr2/common';
+import { KeyManagerError } from '@did-btcr2/std';
 import { LocalKeyManager } from '../src/index.js';
 
 describe('LocalKeyManager', () => {

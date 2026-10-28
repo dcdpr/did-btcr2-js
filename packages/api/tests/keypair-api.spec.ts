@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { KeyPairApi } from '../src/index.js';
 
 /**

@@ -1,4 +1,4 @@
-import { canonicalHash, canonicalHashBytes, canonicalize, encode, hash, MISSING_UPDATE_DATA, ResolveError } from '@did-btcr2/common';
+import { canonicalHash, canonicalHashBytes, canonicalize, encode, hash, MISSING_UPDATE_DATA, ResolveError } from '@did-btcr2/std';
 import { expect } from 'chai';
 import { CID } from 'multiformats/cid';
 import * as raw from 'multiformats/codecs/raw';

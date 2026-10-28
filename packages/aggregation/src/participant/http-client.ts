@@ -1,5 +1,5 @@
-import type { SchnorrKeyPair } from '@did-btcr2/keypair';
-import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
+import type { SchnorrKeyPair } from '@did-btcr2/keys';
+import { CompressedSecp256k1PublicKey } from '@did-btcr2/keys';
 import { equalBytes } from '@noble/curves/utils.js';
 
 import type { Logger } from '../core/logger.js';

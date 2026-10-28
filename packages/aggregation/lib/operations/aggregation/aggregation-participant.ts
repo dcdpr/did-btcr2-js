@@ -13,7 +13,7 @@ import { DidBtcr2, Resolver, Updater, resolveBtcr2SenderPk } from '@did-btcr2/me
  * sk0: e2eff26f785dad3a906aa8f783c33cf7b100d57307d2d5a9ce68e21fb94ad4fd
  * sk1: b63f58809f3f3dba7e5718ea08495b9d40ea9fd5fc498f9e0702c83c4669a4f2
  */
-import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
 import { bytesToHex } from '@noble/hashes/utils';
 import {
   AggregationParticipantRunner,

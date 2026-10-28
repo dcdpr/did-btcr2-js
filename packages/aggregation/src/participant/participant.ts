@@ -1,5 +1,5 @@
-import { CanonicalizationError, canonicalHash } from '@did-btcr2/common';
-import type { SecuredDocument } from '@did-btcr2/cryptosuite';
+import { CanonicalizationError, canonicalHash } from '@did-btcr2/std';
+import type { SecuredDocument } from '@did-btcr2/integrity';
 import type { SerializedSMTProof} from '@did-btcr2/smt';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { bytesToHex, concatBytes, hexToBytes } from '@noble/hashes/utils';

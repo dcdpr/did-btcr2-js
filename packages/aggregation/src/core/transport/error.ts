@@ -1,4 +1,4 @@
-import { MethodError } from '@did-btcr2/common';
+import { MethodError } from '@did-btcr2/std';
 
 export class TransportError extends MethodError {
   constructor(message: string, type: string = 'TransportError', data?: Record<string, any>) {

@@ -1,6 +1,6 @@
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from '@did-btcr2/method';
-import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrMultikey } from '@did-btcr2/integrity';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { Script, Transaction } from '@scure/btc-signer';
 import { expect } from 'chai';
 import {

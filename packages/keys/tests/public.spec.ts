@@ -1,0 +1,140 @@
+import { expect } from 'chai';
+import { CompressedSecp256k1PublicKey } from '../src/public.js';
+import { PublicKeyError } from '@did-btcr2/std';
+import { BIP340_PUBLIC_KEY_MULTIBASE_PREFIX } from '../src/public.js';
+
+describe('CompressedSecp256k1PublicKey', () => {
+  const hex = '027f87843047622ad7556ed37c981e096a6bf606e7ccfc2ef3db1e9148ccb4cbb9';
+  const parity = 2;
+  const x = new Uint8Array([
+    127, 135, 132,  48,  71,  98,  42, 215,
+    85, 110, 211, 124, 152,  30,   9, 106,
+    107, 246,   6, 231, 204, 252,  46, 243,
+    219,  30, 145,  72, 204, 180, 203, 185
+  ]);
+  const y = new Uint8Array([
+    121,  81, 145,  36,  82,  20, 230, 115,
+    132,  51,  29,  50, 176, 215, 161, 246,
+    243,   6, 109,  17,  46,  33, 107, 163,
+    37,  47, 148,  31, 242,  87, 131,  38
+  ]);
+  const uncompressed = new Uint8Array([
+    4, 127, 135, 132,  48,  71,  98,  42,
+    215,  85, 110, 211, 124, 152,  30,   9,
+    106, 107, 246,   6, 231, 204, 252,  46,
+    243, 219,  30, 145,  72, 204, 180, 203,
+    185, 121,  81, 145,  36,  82,  20, 230,
+    115, 132,  51,  29,  50, 176, 215, 161,
+    246, 243,   6, 109,  17,  46,  33, 107,
+    163,  37,  47, 148,  31, 242,  87, 131,  38
+  ]);
+  const prefix = new Uint8Array([231, 1]);
+  const compressed = new Uint8Array([parity, ...x]);
+  const multibase = {
+    prefix  : BIP340_PUBLIC_KEY_MULTIBASE_PREFIX,
+    key     : [...prefix, ...compressed],
+    encoded : 'zQ3shVzcPKb9Jw46yNjW2AMXe9AhniqSqtPueJNygcLguNZTn'
+  };
+
+  describe('with invalid bytes', () => {
+    it('should throw PublicKeyError if bytes invalid', () => {
+      expect(() => new CompressedSecp256k1PublicKey(new Uint8Array([0])))
+        .to.throw(PublicKeyError, 'Invalid argument: byte length must be 33 (compressed)');
+    });
+  });
+
+  describe('with valid bytes', () => {
+    const publicKey = new CompressedSecp256k1PublicKey(compressed);
+
+    it('should be an instance of CompressedSecp256k1PublicKey', () => {
+      expect(publicKey).to.be.instanceOf(CompressedSecp256k1PublicKey);
+    });
+
+    it('should have property compressed matching compressed bytes', () => {
+      expect(publicKey.compressed).to.deep.equal(compressed);
+    });
+
+    it('should have property hex matching the expected hex', () => {
+      expect(publicKey.hex).to.equal(hex);
+    });
+
+    it('should have property multibase matching the expected multibase', () => {
+      expect(publicKey.multibase).to.deep.equal(multibase);
+    });
+
+    it('should have property multibase.encoded matching the expected multibase.encoded', () => {
+      expect(publicKey.multibase.encoded).to.equal(multibase.encoded);
+    });
+
+    it('should have property multibase.prefix matching the expected multibase.prefix', () => {
+      expect(publicKey.multibase.prefix).to.deep.equal(multibase.prefix);
+    });
+
+    it('should have property multibase.prefix matching the expected multibase.prefix', () => {
+      expect(publicKey.multibase.key).to.deep.equal(multibase.key);
+    });
+
+    it('should have property parity matching the expected parity', () => {
+      expect(publicKey.parity).to.equal(parity);
+    });
+
+    it('should x-coordinate matching the expected x-coordinate', () => {
+      expect(publicKey.x).to.deep.equal(x);
+    });
+
+    it('should have y-coordinate matching the expected y-coordinate', () => {
+      expect(publicKey.y).to.deep.equal(y);
+    });
+
+    it('should have property uncompressed matching the expected uncompressed', () => {
+      expect(publicKey.uncompressed).to.deep.equal(uncompressed);
+    });
+
+    it('should have property x matching the expected x', () => {
+      expect(publicKey.x).to.deep.equal(x);
+    });
+
+    it('should equal the expected CompressedSecp256k1PublicKey', () => {
+      expect(publicKey.equals(new CompressedSecp256k1PublicKey(compressed))).to.be.true;
+    });
+
+    it('should have property hex matching the expected hex', () => {
+      expect(publicKey.hex).to.equal(hex);
+    });
+
+    it('should encode the x-coordinate and match the expected multibase', () => {
+      expect(publicKey.encode()).to.equal(multibase.encoded);
+    });
+
+    it('should decode the multibase to 35-byte prefix + compressed key', () => {
+      const decoded = publicKey.decode();
+      expect(decoded.length).to.equal(35);
+      expect(decoded.slice(2)).to.deep.equal(compressed);
+    });
+
+    it('should not leak internal state via multibase getter', () => {
+      const mb1 = publicKey.multibase;
+      const mb2 = publicKey.multibase;
+      mb1.key[0] = 999;
+      expect(mb2.key[0]).to.not.equal(999);
+    });
+  });
+
+  describe('fromJSON round-trip', () => {
+    const publicKey = new CompressedSecp256k1PublicKey(compressed);
+
+    it('should round-trip through toJSON/fromJSON', () => {
+      const json = publicKey.toJSON();
+      const restored = CompressedSecp256k1PublicKey.fromJSON(json);
+      expect(restored.equals(publicKey)).to.be.true;
+      expect(restored.hex).to.equal(publicKey.hex);
+    });
+
+    it('should not mutate the JSON input on fromJSON', () => {
+      const json = publicKey.toJSON();
+      const originalX = [...json.point.x];
+      CompressedSecp256k1PublicKey.fromJSON(json);
+      expect(json.point.x).to.deep.equal(originalX);
+    });
+  });
+});

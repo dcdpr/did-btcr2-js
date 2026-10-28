@@ -1,6 +1,6 @@
 import { expect } from 'chai';
-import { encode, hash, INVALID_DID_UPDATE } from '@did-btcr2/common';
-import { CompressedSecp256k1PublicKey, LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
+import { encode, hash, INVALID_DID_UPDATE } from '@did-btcr2/std';
+import { CompressedSecp256k1PublicKey, LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
 import { CanonicalizationError, createApi, DidMethodApi, MethodError, UpdateError } from '../src/index.js';
 import type { Btcr2DidDocument, PatchOperation, SourceState, UnsignedBTCR2Update } from '../src/index.js';
 

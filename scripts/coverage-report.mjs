@@ -10,7 +10,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const PKGS = ['common', 'keypair', 'cryptosuite', 'bitcoin', 'key-manager', 'smt', 'method', 'aggregation', 'api', 'cli'];
+const PKGS = ['std', 'keys', 'integrity', 'bitcoin', 'key-manager', 'smt', 'method', 'aggregation', 'api', 'cli'];
 const METRICS = ['lines', 'statements', 'functions', 'branches'];
 
 const rows = [];

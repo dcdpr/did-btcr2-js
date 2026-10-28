@@ -1,5 +1,5 @@
-import { canonicalHashBytes } from '@did-btcr2/common';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { canonicalHashBytes } from '@did-btcr2/std';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { bytesToHex, randomBytes } from '@noble/hashes/utils';
 import { expect } from 'chai';
 

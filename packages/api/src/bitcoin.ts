@@ -9,7 +9,7 @@ import {
   createFetchExecutor,
   type RawTransactionRest
 } from '@did-btcr2/bitcoin';
-import { INVALID_OPTIONS, MethodError } from '@did-btcr2/common';
+import { INVALID_OPTIONS, MethodError } from '@did-btcr2/std';
 import { assertString, messageText } from './helpers.js';
 import type { BitcoinApiConfig, SignalDiscoveryMode } from './types.js';
 

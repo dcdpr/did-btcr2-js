@@ -21,7 +21,7 @@ pnpm add @did-btcr2/method
 | Update utilities (construct, signing method, sign, announce) | `Updater.construct()`, `Updater.signingMethod()`, `Updater.sign()`, `Updater.announce()` |
 | Beacon types (Singleton, CAS, SMT) | `SingletonBeacon`, `CASBeacon`, `SMTBeacon` |
 | Fee estimation (pluggable) | `FeeEstimator`, `StaticFeeEstimator` |
-| Signer abstraction (local key, KMS, custom) | `Signer` / `LocalSigner` from `@did-btcr2/keypair`; `KeyManagerSigner` from `@did-btcr2/key-manager` |
+| Signer abstraction (local key, KMS, custom) | `Signer` / `LocalSigner` from `@did-btcr2/keys`; `KeyManagerSigner` from `@did-btcr2/key-manager` |
 | DID document types and builders | `Btcr2DidDocument`, `DidDocumentBuilder` |
 | Multi-party aggregation (MuSig2) and transport | `@did-btcr2/aggregation` (separate package) |
 
@@ -31,7 +31,7 @@ pnpm add @did-btcr2/method
 
 ```typescript
 import { DidBtcr2 } from '@did-btcr2/method';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 
 // Deterministic (k-type): the identifier IS the public key
 const keys = SchnorrKeyPair.generate();
@@ -109,7 +109,7 @@ The resolver processes one update per pass, as the specification describes. Afte
 
 ```typescript
 import { DidBtcr2, Updater } from '@did-btcr2/method';
-import { LocalSigner } from '@did-btcr2/keypair';
+import { LocalSigner } from '@did-btcr2/keys';
 import { BitcoinConnection } from '@did-btcr2/bitcoin';
 
 // Build a Signer from a raw secret key. For KMS-backed keys use KeyManagerSigner

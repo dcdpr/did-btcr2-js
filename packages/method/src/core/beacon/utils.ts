@@ -1,7 +1,7 @@
 import type { BTCNetwork } from '@did-btcr2/bitcoin';
 import { getNetwork } from '@did-btcr2/bitcoin';
-import type { KeyBytes, Maybe} from '@did-btcr2/common';
-import { DidMethodError, MethodError } from '@did-btcr2/common';
+import type { KeyBytes, Maybe} from '@did-btcr2/std';
+import { DidMethodError, MethodError } from '@did-btcr2/std';
 import { p2pkh, p2tr, p2wpkh } from '@scure/btc-signer';
 import { Appendix } from '../../utils/appendix.js';
 import type { DidDocument } from '../../utils/did-document.js';

@@ -2,9 +2,9 @@
   "$schema": "https://json.schemastore.org/tsconfig",
   "files": [],
   "references": [
-    { "path": "packages/common" },
-    { "path": "packages/keypair" },
-    { "path": "packages/cryptosuite" },
+    { "path": "packages/std" },
+    { "path": "packages/keys" },
+    { "path": "packages/integrity" },
     { "path": "packages/bitcoin" },
     { "path": "packages/key-manager" },
     { "path": "packages/smt" },

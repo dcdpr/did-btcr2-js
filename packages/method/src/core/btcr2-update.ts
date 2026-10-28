@@ -1,5 +1,5 @@
-import type { PatchOperation } from '@did-btcr2/common';
-import type { DataIntegrityProofObject, DataIntegrityProofOptions } from '@did-btcr2/cryptosuite';
+import type { PatchOperation } from '@did-btcr2/std';
+import type { DataIntegrityProofObject, DataIntegrityProofOptions } from '@did-btcr2/integrity';
 
 /**
  * The `@context` array of a BTCR2 Update. The specification pins the members and their
@@ -50,7 +50,7 @@ export const DEACTIVATION_PATCH: Readonly<PatchOperation> = Object.freeze({
  * A {@link https://dcdpr.github.io/did-btcr2/terminology.html#btcr2-update | BTCR2 Update} without a data integrity proof.
  * See {@link https://dcdpr.github.io/did-btcr2/data-structures.html#btcr2-unsigned-update | BTCR2 Unsigned Update (data structure)}.
  *
- * This is the did:btcr2-specific document the generic `@did-btcr2/cryptosuite`
+ * This is the did:btcr2-specific document the generic `@did-btcr2/integrity`
  * suite secures; the suite itself is method-agnostic and knows nothing about it.
  * Declared as a type alias (not an interface) so it satisfies the suite's
  * generic `UnsecuredDocument` (a plain JSON record) constraint.

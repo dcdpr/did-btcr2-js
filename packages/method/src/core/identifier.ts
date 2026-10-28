@@ -1,4 +1,4 @@
-import type { Bytes, DocumentBytes, KeyBytes, SchnorrKeyPairObject } from '@did-btcr2/common';
+import type { Bytes, DocumentBytes, KeyBytes, SchnorrKeyPairObject } from '@did-btcr2/std';
 import {
   BitcoinNetworkNames,
   canonicalHashBytes,
@@ -6,8 +6,8 @@ import {
   IdentifierTypes,
   INVALID_DID,
   METHOD_NOT_SUPPORTED
-} from '@did-btcr2/common';
-import { CompressedSecp256k1PublicKey, SchnorrKeyPair } from '@did-btcr2/keypair';
+} from '@did-btcr2/std';
+import { CompressedSecp256k1PublicKey, SchnorrKeyPair } from '@did-btcr2/keys';
 import { equalBytes } from '@noble/curves/utils.js';
 import { bech32m, hex } from '@scure/base';
 import type { DidCreateOptions } from '../did-btcr2.js';

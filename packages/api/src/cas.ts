@@ -1,6 +1,6 @@
 import { toBase64 } from '@did-btcr2/bitcoin';
-import type { HashBytes } from '@did-btcr2/common';
-import { canonicalize, decode as decodeHash, encode as encodeHash, MISSING_UPDATE_DATA, ResolveError } from '@did-btcr2/common';
+import type { HashBytes } from '@did-btcr2/std';
+import { canonicalize, decode as decodeHash, encode as encodeHash, MISSING_UPDATE_DATA, ResolveError } from '@did-btcr2/std';
 import { equals as equalBytes } from 'multiformats/bytes';
 import { CID } from 'multiformats/cid';
 import * as raw from 'multiformats/codecs/raw';
@@ -409,7 +409,7 @@ export class CasApi {
   /**
    * Publish a JSON object to the CAS.
    * The object is JCS-canonicalized before storage; the returned hash
-   * matches what `canonicalHash` (from @did-btcr2/common) would produce.
+   * matches what `canonicalHash` (from @did-btcr2/std) would produce.
    * @param object The JSON object to publish.
    * @returns The base64url-encoded SHA-256 hash (content address).
    * @throws {CanonicalizationError} If the object has no JCS form (RFC 8785),

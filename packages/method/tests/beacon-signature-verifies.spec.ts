@@ -1,5 +1,5 @@
 import { getNetwork } from '@did-btcr2/bitcoin';
-import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { ripemd160 } from '@noble/hashes/legacy.js';
 import { sha256 } from '@noble/hashes/sha2.js';
@@ -28,7 +28,7 @@ const network = getNetwork('regtest');
  * tweak contract end-to-end at the unit-test layer.
  *
  * ECDSA paths (P2PKH, P2WPKH) are covered by `signer.spec.ts` in
- * @did-btcr2/keypair and exercised through scure's finalize in
+ * @did-btcr2/keys and exercised through scure's finalize in
  * `beacon-vsize.spec.ts`.
  */
 describe('singleton beacon P2TR signing produces verifiable signatures', () => {
@@ -84,8 +84,8 @@ describe('singleton beacon P2TR signing produces verifiable signatures', () => {
    *      is sensitive to which bytes feed into the scriptCode.
    *
    * ECDSA signature verification across noble versions (v1.9.7 in method,
-   * v2.0.1 in keypair) has incompatible APIs; signature correctness for
-   * `LocalSigner.sign(_, 'ecdsa')` is covered in `keypair/tests/signer.spec.ts`,
+   * v2.0.1 in keys) has incompatible APIs; signature correctness for
+   * `LocalSigner.sign(_, 'ecdsa')` is covered in `keys/tests/signer.spec.ts`,
    * and end-to-end finalization is exercised by `beacon-vsize.spec.ts`.
    */
   it('P2WPKH: BIP-143 scriptCode is derived from prevOutScript, not from signer.publicKey', () => {

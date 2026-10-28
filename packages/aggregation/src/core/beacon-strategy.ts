@@ -1,5 +1,5 @@
-import { CanonicalizationError, canonicalize, hash } from '@did-btcr2/common';
-import type { SecuredDocument } from '@did-btcr2/cryptosuite';
+import { CanonicalizationError, canonicalize, hash } from '@did-btcr2/std';
+import type { SecuredDocument } from '@did-btcr2/integrity';
 import type { SerializedSMTProof } from '@did-btcr2/smt';
 import { base64UrlToHash, blockHash, hashToBase64Url, verifyProof } from '@did-btcr2/smt';
 import type { AggregationCohort } from './cohort.js';

@@ -1,6 +1,6 @@
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from '@did-btcr2/method';
-import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrMultikey } from '@did-btcr2/integrity';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { base64UrlToHash, blockHash, didToIndex, verifySerializedProof } from '@did-btcr2/smt';
 import { hexToBytes } from '@noble/hashes/utils';
 import { Script, Transaction } from '@scure/btc-signer';

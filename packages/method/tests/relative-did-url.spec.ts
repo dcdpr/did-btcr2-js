@@ -1,6 +1,6 @@
-import { DidDocumentError, INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/common';
-import type { Signer } from '@did-btcr2/keypair';
-import { LocalSigner } from '@did-btcr2/keypair';
+import { DidDocumentError, INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/std';
+import type { Signer } from '@did-btcr2/keys';
+import { LocalSigner } from '@did-btcr2/keys';
 import { hexToBytes } from '@noble/hashes/utils';
 import { expect } from 'chai';
 import { DidBtcr2 } from '../src/did-btcr2.js';

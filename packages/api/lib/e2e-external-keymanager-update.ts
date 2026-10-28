@@ -20,9 +20,9 @@
  *   BEACON_KIND       default: p2pkh - one of p2pkh|p2wpkh|p2tr
  */
 import assert from 'node:assert/strict';
-import type { Bytes, HashBytes, KeyBytes, SignatureBytes } from '@did-btcr2/common';
-import { canonicalHash, KeyManagerError } from '@did-btcr2/common';
-import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
+import type { Bytes, HashBytes, KeyBytes, SignatureBytes } from '@did-btcr2/std';
+import { canonicalHash, KeyManagerError } from '@did-btcr2/std';
+import { SchnorrMultikey } from '@did-btcr2/integrity';
 import type {
   GenerateKeyOptions,
   ImportKeyOptions,
@@ -32,7 +32,7 @@ import type {
   VerifyOptions,
 } from '@did-btcr2/key-manager';
 import { KeyManagerSigner } from '@did-btcr2/key-manager';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { schnorr, secp256k1 } from '@noble/curves/secp256k1.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { randomBytes } from '@noble/hashes/utils.js';

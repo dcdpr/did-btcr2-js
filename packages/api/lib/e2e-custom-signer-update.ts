@@ -15,10 +15,10 @@
  * Exit code: 0 on success, non-zero on any assertion failure.
  */
 import assert from 'node:assert/strict';
-import { canonicalHash } from '@did-btcr2/common';
-import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import type { Signer } from '@did-btcr2/keypair';
-import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
+import { canonicalHash } from '@did-btcr2/std';
+import { SchnorrMultikey } from '@did-btcr2/integrity';
+import type { Signer } from '@did-btcr2/keys';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
 import { BeaconSignalDiscovery, DidBtcr2, Identifier, Resolver, Updater } from '@did-btcr2/method';
 import { bitcoinFor, confirmBroadcast, fundBeacon, parseNetworkEnv, persistKey } from './_e2e-helpers.js';
 

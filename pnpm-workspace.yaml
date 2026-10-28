@@ -3,9 +3,9 @@ packages:
   - packages/api
   - packages/bitcoin
   - packages/cli
-  - packages/common
-  - packages/cryptosuite
-  - packages/keypair
+  - packages/std
+  - packages/integrity
+  - packages/keys
   - packages/key-manager
   - packages/method
   - packages/smt

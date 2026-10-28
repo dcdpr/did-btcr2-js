@@ -1,4 +1,4 @@
-import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
+import { SchnorrMultikey } from '@did-btcr2/integrity';
 import { MULTIKEY_VERIFICATION_METHOD_TYPE } from './did-document.js';
 import type { ErrorCause } from './error-cause.js';
 import { errorCause } from './error-cause.js';

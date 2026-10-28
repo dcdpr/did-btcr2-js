@@ -15,7 +15,7 @@ import { DidBtcr2, resolveBtcr2SenderPk } from '@did-btcr2/method';
  *   RELAY=ws://localhost:7777 SERVICE_DID=<did from above> bun lib/operations/aggregation/aggregation-participant.ts
  */
 import { getNetwork } from '@did-btcr2/bitcoin';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { bytesToHex } from '@noble/hashes/utils';
 import { Address, OutScript, Script, Transaction } from '@scure/btc-signer';
 import {

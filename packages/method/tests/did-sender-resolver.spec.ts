@@ -1,7 +1,7 @@
-import { DidDocumentError, INVALID_DID_DOCUMENT, VERIFICATION_METHOD_ERROR } from '@did-btcr2/common';
+import { DidDocumentError, INVALID_DID_DOCUMENT, VERIFICATION_METHOD_ERROR } from '@did-btcr2/std';
 import { expect } from 'chai';
 import { hex } from '@scure/base';
-import { CompressedSecp256k1PublicKey, SchnorrKeyPair } from '@did-btcr2/keypair';
+import { CompressedSecp256k1PublicKey, SchnorrKeyPair } from '@did-btcr2/keys';
 import { DidBtcr2 } from '../src/did-btcr2.js';
 import { getAggregationCommunicationKey, resolveBtcr2SenderPk } from '../src/core/did-sender-resolver.js';
 import { Identifier } from '../src/core/identifier.js';

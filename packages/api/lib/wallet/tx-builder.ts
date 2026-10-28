@@ -8,7 +8,7 @@
  * used by the SinglePartyBeacon base class and the sweep-mutinynet recovery script.
  */
 import { getNetwork, type BitcoinConnection } from '@did-btcr2/bitcoin';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { opReturnScript } from '@did-btcr2/method';
 import { hex } from '@scure/base';
 import { Address, p2pkh, p2tr, p2wpkh, Transaction } from '@scure/btc-signer';

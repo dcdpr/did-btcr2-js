@@ -81,11 +81,11 @@
         "do": "pnpm tsx"
     },
     "dependencies": {
-        "@did-btcr2/common": "workspace:^",
+        "@did-btcr2/std": "workspace:^",
         "@scure/btc-signer": "^1.8.1"
     },
     "devDependencies": {
-        "@did-btcr2/keypair": "workspace:^",
+        "@did-btcr2/keys": "workspace:^",
         "@eslint/js": "^9.22.0",
         "@types/chai": "^5.0.1",
         "@types/mocha": "^10.0.9",

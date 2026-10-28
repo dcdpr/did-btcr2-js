@@ -1,4 +1,4 @@
-import type { Bytes } from '@did-btcr2/common';
+import type { Bytes } from '@did-btcr2/std';
 import type { RawTransactionRest } from '../../types.js';
 import type { HttpRequest } from '../http.js';
 import type { EsploraProtocol } from './protocol.js';

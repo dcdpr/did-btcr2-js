@@ -1,4 +1,4 @@
-import { canonicalHash, DidDocumentError, INVALID_DID_DOCUMENT } from '@did-btcr2/common';
+import { canonicalHash, DidDocumentError, INVALID_DID_DOCUMENT } from '@did-btcr2/std';
 import { p256 } from '@noble/curves/nist.js';
 import { base58, base64urlnopad } from '@scure/base';
 import { expect } from 'chai';

@@ -1,4 +1,4 @@
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { LocalKeyManager } from '../src/local-key-manager.js';
 
 const kms = new LocalKeyManager();

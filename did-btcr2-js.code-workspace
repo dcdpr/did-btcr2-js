@@ -21,16 +21,16 @@
       "path": "packages/cli"
     },
     {
-      "name": "common",
-      "path": "packages/common"
+      "name": "std",
+      "path": "packages/std"
     },
     {
-      "name": "cryptosuite",
-      "path": "packages/cryptosuite"
+      "name": "integrity",
+      "path": "packages/integrity"
     },
     {
-      "name": "keypair",
-      "path": "packages/keypair"
+      "name": "keys",
+      "path": "packages/keys"
     },
     {
       "name": "key-manager",

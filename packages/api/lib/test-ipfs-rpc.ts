@@ -7,7 +7,7 @@
  *
  * Usage: bun lib/test-ipfs-rpc.ts [rpc-url]
  */
-import { canonicalize, canonicalHash } from '@did-btcr2/common';
+import { canonicalize, canonicalHash } from '@did-btcr2/std';
 import { IpfsRpcCasExecutor } from '../src/cas.js';
 
 const rpcUrl = process.argv[2] ?? 'http://127.0.0.1:5001';

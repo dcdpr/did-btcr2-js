@@ -1,4 +1,4 @@
-import { canonicalHash, canonicalHashBytes, canonicalize, DidDocumentError, INVALID_DID, INVALID_DID_DOCUMENT, ResolveError } from '@did-btcr2/common';
+import { canonicalHash, canonicalHashBytes, canonicalize, DidDocumentError, INVALID_DID, INVALID_DID_DOCUMENT, ResolveError } from '@did-btcr2/std';
 import { expect } from 'chai';
 import { DidBtcr2 } from '../src/did-btcr2.js';
 import type { BeaconService, BeaconSignal } from '../src/core/beacon/interfaces.js';

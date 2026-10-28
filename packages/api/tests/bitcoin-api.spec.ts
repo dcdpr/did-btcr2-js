@@ -1,7 +1,7 @@
 import { expect, use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import type { HttpExecutor, NetworkName } from '@did-btcr2/bitcoin';
-import { INVALID_OPTIONS, MethodError } from '@did-btcr2/common';
+import { INVALID_OPTIONS, MethodError } from '@did-btcr2/std';
 import type { BitcoinApiConfig, SignalDiscoveryMode } from '../src/index.js';
 import { BitcoinApi, createApi, DEFAULT_BITCOIN_NETWORK_CONFIG } from '../src/index.js';
 

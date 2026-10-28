@@ -12,7 +12,7 @@ import {
   METHOD_NOT_SUPPORTED,
   MISSING_UPDATE_DATA,
   NOT_FOUND
-} from '@did-btcr2/common';
+} from '@did-btcr2/std';
 import type { Logger, ResolutionError } from './types.js';
 
 const noopFn = () => {};

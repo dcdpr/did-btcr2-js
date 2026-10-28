@@ -1,5 +1,5 @@
 import type { SignedBTCR2Update } from '@did-btcr2/method';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { expect } from 'chai';
 import {
   AGGREGATION_WIRE_VERSION,

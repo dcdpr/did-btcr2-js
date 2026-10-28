@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { BTCR2MerkleTree } from '@did-btcr2/smt';
 import { base64urlnopad } from '@scure/base';
 import { createApi } from '../src/index.js';

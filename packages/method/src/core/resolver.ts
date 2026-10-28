@@ -17,15 +17,15 @@ import {
   MISSING_UPDATE_DATA,
   NOT_FOUND,
   ResolveError
-} from '@did-btcr2/common';
-import type { HashBytes } from '@did-btcr2/common';
+} from '@did-btcr2/std';
+import type { HashBytes } from '@did-btcr2/std';
 import type {
   Btcr2DataIntegrityProof,
   SignedBTCR2Update
 } from './btcr2-update.js';
 import { BTCR2_UPDATE_CONTEXT, isBtcr2UpdateContext } from './btcr2-update.js';
-import { BIP340Cryptosuite, SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
+import { BIP340Cryptosuite, SchnorrMultikey } from '@did-btcr2/integrity';
+import { CompressedSecp256k1PublicKey } from '@did-btcr2/keys';
 import { Appendix } from '../utils/appendix.js';
 import { DidDocument, ID_PLACEHOLDER_VALUE } from '../utils/did-document.js';
 import { hasNonZeroPadBits, smtProofRootHex } from '../utils/base64url-hash.js';

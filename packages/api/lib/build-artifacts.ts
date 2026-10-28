@@ -38,8 +38,8 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { getNetwork } from '@did-btcr2/bitcoin';
-import { canonicalHash, canonicalHashBytes, encode } from '@did-btcr2/common';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { canonicalHash, canonicalHashBytes, encode } from '@did-btcr2/std';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import type { SignedBTCR2Update } from '@did-btcr2/method';
 import { blockHash, BTCR2MerkleTree, type SerializedSMTProof } from '@did-btcr2/smt';
 import { base64urlnopad, hex } from '@scure/base';

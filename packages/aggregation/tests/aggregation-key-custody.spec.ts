@@ -1,4 +1,4 @@
-import { SchnorrKeyPair, wipe } from '@did-btcr2/keypair';
+import { SchnorrKeyPair, wipe } from '@did-btcr2/keys';
 import { expect } from 'chai';
 import {
   AggregationParticipant,

@@ -17,9 +17,9 @@
  *   BEACON_KIND       default: p2pkh - one of p2pkh|p2wpkh|p2tr
  */
 import assert from 'node:assert/strict';
-import { INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/common';
+import { INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/std';
 import { KeyManagerSigner, LocalKeyManager } from '@did-btcr2/key-manager';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { DidBtcr2, Identifier, Resolver, Updater } from '@did-btcr2/method';
 import { bitcoinFor, parseNetworkEnv } from './_e2e-helpers.js';
 

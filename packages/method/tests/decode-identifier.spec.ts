@@ -1,4 +1,4 @@
-import { IdentifierError, INVALID_DID, METHOD_NOT_SUPPORTED } from '@did-btcr2/common';
+import { IdentifierError, INVALID_DID, METHOD_NOT_SUPPORTED } from '@did-btcr2/std';
 import { bytesToHex } from '@noble/hashes/utils';
 import { bech32m, hex } from '@scure/base';
 import { expect } from 'chai';

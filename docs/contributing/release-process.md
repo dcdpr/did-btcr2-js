@@ -18,13 +18,13 @@ A release can be a **single package** or a **batch** (every package, or a subset
 
 ## Versioning
 
-The project follows **semantic versioning** with one caveat: pre-1.0 packages treat MINOR as breaking under strict semver. Currently the only post-1.0 package is `common`. Everything else is pre-1.0.
+The project follows **semantic versioning** with one caveat: pre-1.0 packages treat MINOR as breaking under strict semver. Each package is pre-1.0.
 
-| Bump | Pre-1.0 (most packages) | Post-1.0 (`common`) |
-|---|---|---|
-| **PATCH** | Bug fix, internal refactor, build tooling change with no public API impact | Same |
-| **MINOR** | New feature OR breaking change | New feature, backward-compatible |
-| **MAJOR** | (rarely used pre-1.0) | Breaking change |
+| Bump | Pre-1.0 (each package) |
+|---|---|
+| **PATCH** | Bug fix, internal refactor, build tooling change with no public API impact |
+| **MINOR** | New feature OR breaking change |
+| **MAJOR** | (rarely used pre-1.0) |
 
 When in doubt, bump higher rather than lower. A spurious MAJOR bump is harmless; a missed one breaks consumers silently.
 
@@ -80,8 +80,8 @@ For batched releases, list each package + version in the commit body:
 ```
 chore: bump patch versions across all packages
 
-- common       8.0.1  to 8.0.2
-- keypair      0.11.3 to 0.11.4
+- std          0.1.0  to 0.1.1
+- keys         0.1.0  to 0.1.1
 - ...
 ```
 
@@ -127,13 +127,14 @@ pnpm -r publish --access public
 **Alternative: manual publish in dependency order**: useful when you want to verify each landing on npm before proceeding to the next:
 
 ```bash
-cd packages/common      && pnpm publish --access public && cd -
-cd packages/keypair     && pnpm publish --access public && cd -
+cd packages/std         && pnpm publish --access public && cd -
+cd packages/keys        && pnpm publish --access public && cd -
 cd packages/smt         && pnpm publish --access public && cd -
-cd packages/cryptosuite && pnpm publish --access public && cd -
+cd packages/integrity   && pnpm publish --access public && cd -
 cd packages/bitcoin     && pnpm publish --access public && cd -
 cd packages/key-manager && pnpm publish --access public && cd -
 cd packages/method      && pnpm publish --access public && cd -
+cd packages/aggregation && pnpm publish --access public && cd -
 cd packages/api         && pnpm publish --access public && cd -
 cd packages/cli         && pnpm publish --access public && cd -
 ```

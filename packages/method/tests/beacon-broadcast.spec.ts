@@ -1,7 +1,7 @@
 import { getNetwork } from '@did-btcr2/bitcoin';
 import type { AddressUtxo, BitcoinConnection } from '@did-btcr2/bitcoin';
-import { canonicalHash, decode, encode } from '@did-btcr2/common';
-import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
+import { canonicalHash, decode, encode } from '@did-btcr2/std';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import { Address, OutScript, p2wpkh, Transaction } from '@scure/btc-signer';
 import { expect } from 'chai';

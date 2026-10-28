@@ -1,8 +1,8 @@
 import type { NetworkName } from '@did-btcr2/bitcoin';
-import type { DocumentBytes, KeyBytes, PatchOperation } from '@did-btcr2/common';
-import { INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/common';
-import type { Signer } from '@did-btcr2/keypair';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import type { DocumentBytes, KeyBytes, PatchOperation } from '@did-btcr2/std';
+import { INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/std';
+import type { Signer } from '@did-btcr2/keys';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import type { KeyIdentifier } from '@did-btcr2/key-manager';
 import type { DidCreateOptions, ResolutionOptions } from '@did-btcr2/method';
 import { DEFAULT_MIN_CONF } from '@did-btcr2/method';

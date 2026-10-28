@@ -68,7 +68,7 @@
 import { join } from 'node:path';
 
 import { createApi, type DidBtcr2Api } from '@did-btcr2/api';
-import { canonicalHash, canonicalize } from '@did-btcr2/common';
+import { canonicalHash, canonicalize } from '@did-btcr2/std';
 import { BeaconSignalDiscovery, DEFAULT_MIN_CONF, type BeaconService, type BeaconSignal } from '@did-btcr2/method';
 
 import { bitcoinConfigFor, CAS_GATEWAY_TIMEOUT_MS, casGatewaysFor, GatewayChainCasExecutor } from './_e2e-helpers.js';

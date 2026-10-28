@@ -1,4 +1,4 @@
-import { MethodError } from '@did-btcr2/common';
+import { MethodError } from '@did-btcr2/std';
 
 export class BeaconError extends MethodError {
   constructor(message: string, type: string = 'BeaconError', data?: Record<string, any>) {

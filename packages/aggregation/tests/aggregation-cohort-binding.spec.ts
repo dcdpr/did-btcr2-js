@@ -1,6 +1,6 @@
 import { getNetwork } from '@did-btcr2/bitcoin';
-import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrMultikey } from '@did-btcr2/integrity';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from '@did-btcr2/method';
 import { DidBtcr2 } from '@did-btcr2/method';
 import { bytesToHex } from '@noble/hashes/utils';

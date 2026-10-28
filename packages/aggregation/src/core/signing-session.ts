@@ -1,4 +1,4 @@
-import { wipe } from '@did-btcr2/keypair';
+import { wipe } from '@did-btcr2/keys';
 import type { Transaction } from '@scure/btc-signer';
 import { SigHash } from '@scure/btc-signer';
 import * as musig2 from '@scure/btc-signer/musig2';

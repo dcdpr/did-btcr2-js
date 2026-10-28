@@ -1,5 +1,5 @@
-import { BIP340Cryptosuite, SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
+import { BIP340Cryptosuite, SchnorrMultikey } from '@did-btcr2/integrity';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
 import type { Btcr2DataIntegrityConfig, Btcr2DidDocument, SignedBTCR2Update } from '@did-btcr2/method';
 import { BTCR2_UPDATE_CONTEXT, DidBtcr2, Resolver, Updater } from '@did-btcr2/method';
 import { expect } from 'chai';

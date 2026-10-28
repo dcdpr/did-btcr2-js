@@ -14,9 +14,9 @@ import {
   NOT_FOUND,
   ResolveError,
   UpdateError,
-} from '@did-btcr2/common';
-import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import { CompressedSecp256k1PublicKey, LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
+} from '@did-btcr2/std';
+import { SchnorrMultikey } from '@did-btcr2/integrity';
+import { CompressedSecp256k1PublicKey, LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
 import { BTCR2_UPDATE_CONTEXT, DEACTIVATION_PATCH } from '@did-btcr2/method';
 import {
   BitcoinApi,

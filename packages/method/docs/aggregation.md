@@ -111,7 +111,7 @@ A single `Transport` instance can serve multiple registered actors. In productio
 
 ```typescript
 import { NostrTransport, SILENT_LOGGER } from '@did-btcr2/aggregation';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { DidBtcr2, resolveBtcr2SenderPk } from '@did-btcr2/method';
 
 // 1. Generate identity
@@ -350,7 +350,7 @@ The participant joins cohorts advertised by services, submits its own DID update
 
 ```typescript
 import { AggregationParticipantRunner } from '@did-btcr2/aggregation';
-import { LocalSigner } from '@did-btcr2/keypair';
+import { LocalSigner } from '@did-btcr2/keys';
 import { Resolver, Updater } from '@did-btcr2/method';
 
 const runner = new AggregationParticipantRunner({

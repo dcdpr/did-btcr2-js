@@ -1,5 +1,5 @@
-import { MethodError, VERIFICATION_METHOD_ERROR } from '@did-btcr2/common';
-import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
+import { MethodError, VERIFICATION_METHOD_ERROR } from '@did-btcr2/std';
+import { SchnorrMultikey } from '@did-btcr2/integrity';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { base58, hex } from '@scure/base';
 import { expect } from 'chai';

@@ -92,7 +92,7 @@ export {
   MethodError,
   ResolveError,
   UpdateError
-} from '@did-btcr2/common';
+} from '@did-btcr2/std';
 
 // Types from the lower packages that the public signatures use
 export type {
@@ -129,7 +129,7 @@ export type {
   SchnorrKeyPairObject,
   SecretKeyObject,
   SignatureBytes
-} from '@did-btcr2/common';
+} from '@did-btcr2/std';
 export type {
   BIP340Cryptosuite,
   BIP340DataIntegrityProof,
@@ -143,7 +143,7 @@ export type {
   SecuredDocument,
   UnsecuredDocument,
   VerificationResult
-} from '@did-btcr2/cryptosuite';
+} from '@did-btcr2/integrity';
 export type {
   CompressedSecp256k1PublicKey,
   SchnorrKeyPair,
@@ -151,7 +151,7 @@ export type {
   Signer,
   SigningScheme,
   SignOptions
-} from '@did-btcr2/keypair';
+} from '@did-btcr2/keys';
 export type {
   GenerateKeyOptions,
   ImportKeyOptions,
@@ -159,8 +159,8 @@ export type {
   KeyManager,
   VerifyOptions
 } from '@did-btcr2/key-manager';
-// keypair and key-manager both export a `SignOptions`, and the shapes differ:
-// key-manager's is keypair's plus a `scheme` field, because `KeyManager.sign`
+// keys and key-manager both export a `SignOptions`, and the shapes differ:
+// the key-manager shape is the keys shape plus a `scheme` field, because `KeyManager.sign`
 // takes its scheme in options where `Signer.sign` takes it positionally. The
 // plain name belongs to the Signer-level shape; the KeyManager-level shape
 // exports qualified.

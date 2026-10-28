@@ -13,46 +13,48 @@ This page documents the inter-package dependency graph for the `did-btcr2-js` mo
 ## The graph
 
 ```
-common
-├── keypair
-│   ├── cryptosuite ──────────┐
-│   ├── bitcoin ──────────────┤
-│   └── kms ──────────────────┤
-├── smt ──────────────────────┤
-└── method <─────common,keypair,cryptosuite,bitcoin
-    └── api <─────common,keypair,cryptosuite,bitcoin,kms,method,smt
-        └── cli <─common,api,cryptosuite,method
+std          (no workspace dependency)
+smt          (no workspace dependency)
+keys         -> std
+bitcoin      -> std
+integrity    -> keys
+key-manager  -> keys
+method       -> integrity, bitcoin, smt
+aggregation  -> integrity, bitcoin, smt
+api          -> method, key-manager
+cli          -> api
 ```
 
-The `<─` arrows show "depends on": `method` depends on `common`, `keypair`, `cryptosuite`, and `bitcoin`. The leftmost packages have no upstream workspace dependencies; the rightmost (`cli`) has the most.
+`a -> b` means that `a` depends on `b`. The drawing omits an edge if a longer path covers it. For example, `method` also depends on `std` and `keys`, and the path through `integrity` covers these edges. The table below lists each declared dependency. `std` and `smt` have no upstream workspace dependency. `cli` is at the end of the longest path.
 
 ## Per-package dependencies
 
-| Package | Workspace dependencies | Direction |
-|---|---|---|
-| `common` | _(none)_ | Foundation: depends on nothing |
-| `keypair` | `common` | Used by all crypto-touching packages |
-| `cryptosuite` | `common`, `keypair` | Data Integrity proofs |
-| `bitcoin` | `common`, `keypair` | Bitcoin RPC/REST clients |
-| `kms` | `common`, `keypair` | Key management |
-| `smt` | _(none: no workspace deps)_ | Self-contained; uses `@noble/*` directly |
-| `method` | `common`, `keypair`, `cryptosuite`, `bitcoin` | Core implementation |
-| `api` | `common`, `keypair`, `cryptosuite`, `bitcoin`, `kms`, `method`, `smt` | High-level SDK facade |
-| `cli` | `common`, `cryptosuite`, `method`, `api` | Binary entry point |
+| Package | Workspace dependencies | Dev dependencies | Role |
+|---|---|---|---|
+| `std` | _(none)_ | _(none)_ | Foundation: depends on nothing |
+| `smt` | _(none)_ | _(none)_ | Self-contained; uses `@noble/*` directly |
+| `keys` | `std` | _(none)_ | Used by all crypto-touching packages |
+| `integrity` | `std`, `keys` | _(none)_ | Data Integrity proofs |
+| `bitcoin` | `std` | `keys` | Bitcoin RPC/REST clients |
+| `key-manager` | `std`, `keys` | _(none)_ | Key management |
+| `method` | `std`, `keys`, `integrity`, `bitcoin`, `smt` | _(none)_ | Core implementation |
+| `aggregation` | `std`, `keys`, `integrity`, `bitcoin`, `smt` | `method` | Multi-party aggregate beacons (MuSig2) |
+| `api` | `std`, `keys`, `integrity`, `bitcoin`, `key-manager`, `method`, `smt` | _(none)_ | High-level SDK facade |
+| `cli` | `api`, `key-manager` | _(none)_ | Binary entry point |
 
 All workspace dependencies use the `workspace:^` protocol in `package.json`. At publish time, pnpm rewrites these to concrete semver ranges in the published tarballs.
 
 ## Build order
 
-The build proceeds in topological order. Three "waves" can run in parallel within each:
+The build runs in topological order. pnpm also sorts by the dev dependencies. The packages of one wave can build in parallel:
 
 ```
-Wave 1: common
-Wave 2: keypair, smt              (parallel: both only depend on common or nothing)
-Wave 3: cryptosuite, bitcoin, kms (parallel: all depend on common + keypair)
-Wave 4: method                    (depends on cryptosuite + bitcoin from wave 3)
-Wave 5: api                       (depends on method + kms + smt)
-Wave 6: cli                       (depends on api)
+Wave 1: std, smt                         (no workspace dependency)
+Wave 2: keys                             (depends on std)
+Wave 3: integrity, bitcoin, key-manager  (keys is a dependency or a dev dependency)
+Wave 4: method                           (depends on integrity, bitcoin, and smt)
+Wave 5: aggregation, api                 (method is a dependency or a dev dependency)
+Wave 6: cli                              (depends on api)
 ```
 
 When you run `pnpm build` from the repo root, pnpm walks this graph automatically. When you run `pnpm build:ts`, TypeScript's project references mechanism walks the same graph (declared in the `references` field of each `tsconfig.json`) and uses incremental caches via `dist/.tsbuildinfo` to skip unchanged packages.
@@ -62,7 +64,7 @@ When you run `pnpm build` from the repo root, pnpm walks this graph automaticall
 Same as build order, but with the additional constraint that you cannot publish a package whose updated dependency is not yet on npm. The recommended manual sequence:
 
 ```
-common to keypair to smt to cryptosuite to bitcoin to kms to method to api to cli
+std to smt to keys to integrity to bitcoin to key-manager to method to aggregation to api to cli
 ```
 
 `pnpm -r publish` does this automatically: workspace deps are resolved in topological order.
@@ -90,7 +92,7 @@ If you skip step 2, the build will fail at runtime (because B's `dist/` doesn't 
 
 The dependency graph is intentionally acyclic. **Don't introduce cycles.** If you find yourself wanting to import from a downstream package back into an upstream one, the right answer is almost always:
 
-- Move the shared type/utility into a more upstream package (often `common`)
+- Move the shared type/utility into a more upstream package (often `std`)
 - Or restructure the abstraction so the dependency arrow points the correct way (often via dependency injection: pass the downstream concern in as a parameter rather than importing it)
 
 TypeScript project references would catch a cycle attempt at build time, but it's better to think about the design before the type checker has to enforce it.

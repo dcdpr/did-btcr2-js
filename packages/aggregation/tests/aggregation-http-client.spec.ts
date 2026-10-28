@@ -1,4 +1,4 @@
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { expect } from 'chai';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';

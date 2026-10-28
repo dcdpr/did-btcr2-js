@@ -1,4 +1,4 @@
-import { NotImplementedError } from '@did-btcr2/common';
+import { NotImplementedError } from '@did-btcr2/std';
 import { TransportError } from './core/transport/error.js';
 import type { HttpClientTransportConfig } from './participant/http-client.js';
 import { HttpClientTransport } from './participant/http-client.js';

@@ -1,4 +1,4 @@
-import { canonicalHashBytes, canonicalize, encode } from '@did-btcr2/common';
+import { canonicalHashBytes, canonicalize, encode } from '@did-btcr2/std';
 import { base64UrlToHash, blockHash, BTCR2MerkleTree, hashToHex } from '@did-btcr2/smt';
 import { randomBytes } from '@noble/hashes/utils';
 import { expect } from 'chai';

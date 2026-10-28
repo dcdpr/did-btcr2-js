@@ -1,8 +1,8 @@
-import { MethodError, PROOF_GENERATION_ERROR, VERIFICATION_METHOD_ERROR } from '@did-btcr2/common';
-import type { DataIntegrityProofObject, DataIntegrityProofOptions } from '@did-btcr2/cryptosuite';
-import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import type { Signer } from '@did-btcr2/keypair';
-import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
+import { MethodError, PROOF_GENERATION_ERROR, VERIFICATION_METHOD_ERROR } from '@did-btcr2/std';
+import type { DataIntegrityProofObject, DataIntegrityProofOptions } from '@did-btcr2/integrity';
+import { SchnorrMultikey } from '@did-btcr2/integrity';
+import type { Signer } from '@did-btcr2/keys';
+import { CompressedSecp256k1PublicKey } from '@did-btcr2/keys';
 import type { Btcr2DidDocument } from '@did-btcr2/method';
 import { Appendix } from '@did-btcr2/method';
 import type { DidVerificationMethod } from '@web5/dids';

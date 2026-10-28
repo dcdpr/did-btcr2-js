@@ -1,9 +1,9 @@
 import type { BitcoinConnection, NetworkName } from '@did-btcr2/bitcoin';
 import { StaticFeeEstimator } from '@did-btcr2/bitcoin';
-import type { DocumentBytes, HashBytes, KeyBytes, PatchOperation } from '@did-btcr2/common';
-import { canonicalHash, decode as decodeHash, DidDocumentError, IdentifierHrp, IdentifierTypes, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, INVALID_OPTIONS, JSONPatch, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/common';
-import type { Signer } from '@did-btcr2/keypair';
-import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
+import type { DocumentBytes, HashBytes, KeyBytes, PatchOperation } from '@did-btcr2/std';
+import { canonicalHash, decode as decodeHash, DidDocumentError, IdentifierHrp, IdentifierTypes, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, INVALID_OPTIONS, JSONPatch, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/std';
+import type { Signer } from '@did-btcr2/keys';
+import { CompressedSecp256k1PublicKey } from '@did-btcr2/keys';
 import type { BeaconFunding, BeaconService, BroadcastOptions, BroadcastResult, Btcr2DidDocument, CASAnnouncement, CASBroadcastOptions, DidCreateOptions, DidDocument, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, ResolutionOptions, RootCapability, SignedBTCR2Update, SMTProof, UnsignedBTCR2Update } from '@did-btcr2/method';
 import { Appendix, BeaconError, BeaconFactory, BeaconSignalDiscovery, BeaconUtils, DEACTIVATION_PATCH, DidBtcr2, GenesisDocument, Identifier, Resolver, selectBeaconFunding, Updater } from '@did-btcr2/method';
 import type { DidVerificationMethod } from '@web5/dids';

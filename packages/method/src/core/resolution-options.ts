@@ -1,4 +1,4 @@
-import { FEATURE_NOT_SUPPORTED, INVALID_OPTIONS, ResolveError } from '@did-btcr2/common';
+import { FEATURE_NOT_SUPPORTED, INVALID_OPTIONS, ResolveError } from '@did-btcr2/std';
 import { gotValue } from '../utils/message-text.js';
 import type { ResolutionOptions } from './interfaces.js';
 

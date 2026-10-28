@@ -1,4 +1,4 @@
-import { decode as decodeHash } from '@did-btcr2/common';
+import { decode as decodeHash } from '@did-btcr2/std';
 import type { SMTProof } from '@did-btcr2/method';
 import { BTCR2MerkleTree, hashToBase64Url, verifyProof } from '@did-btcr2/smt';
 import { assertString } from './helpers.js';

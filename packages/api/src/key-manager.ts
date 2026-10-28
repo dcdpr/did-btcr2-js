@@ -1,5 +1,5 @@
-import type { Bytes, HashBytes, SignatureBytes } from '@did-btcr2/common';
-import type { SchnorrKeyPair, Signer } from '@did-btcr2/keypair';
+import type { Bytes, HashBytes, SignatureBytes } from '@did-btcr2/std';
+import type { SchnorrKeyPair, Signer } from '@did-btcr2/keys';
 import {
   type KeyIdentifier,
   type KeyManager,

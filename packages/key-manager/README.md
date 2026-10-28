@@ -12,8 +12,8 @@ The `KeyManager` interface defines how the rest of the SDK obtains signatures wi
 
 - **`KeyManager`** is the interface every backend implements: `generateKey()`, `importKey()`, `sign()`, `verify()`, `digest()`, `getPublicKey()`, `getEntry()`, `removeKey()`, `listKeys()`, `setActiveKey()`, and the `activeKeyId` accessor, plus the optional `exportKey()` method guarded by the `canExport` capability flag (e.g. `canExport: false` for HSM-backed managers).
 - **`LocalKeyManager`** holds `KeyEntry` records in memory: URN-style IDs, an active-key pointer, tag support for application metadata, and watch-only entries that store only the public key.
-- **`KeyManagerSigner`** is the bridge to the DID update path. It implements the `Signer` interface from `@did-btcr2/keypair`, so the Updater and Beacon code see only the abstract `Signer` and never touch secret bytes.
-- **Three signing schemes.** Same scheme matrix as `@did-btcr2/keypair`: `ecdsa` (DER, low-S) for Bitcoin inputs; `bip340` (raw Schnorr) for DI proofs; `bip341` (taproot-tweaked) for P2TR key-path signatures.
+- **`KeyManagerSigner`** is the bridge to the DID update path. It implements the `Signer` interface from `@did-btcr2/keys`, so the Updater and Beacon code see only the abstract `Signer` and never touch secret bytes.
+- **Three signing schemes.** Same scheme matrix as `@did-btcr2/keys`: `ecdsa` (DER, low-S) for Bitcoin inputs; `bip340` (raw Schnorr) for DI proofs; `bip341` (taproot-tweaked) for P2TR key-path signatures.
 
 The signer can be constructed with or without an explicit `keyId`. Without one, it resolves to the key manager's active key at sign-time and caches its public key on first read. See ADR-034 for the capability pattern and active-key resolution semantics.
 
@@ -46,7 +46,7 @@ Unlike `@did-btcr2/method` and `@did-btcr2/api` (ESM-only), this package ships b
 
 ```typescript
 import { KeyManagerSigner, LocalKeyManager } from '@did-btcr2/key-manager';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 
 const km    = new LocalKeyManager();
 const kp    = SchnorrKeyPair.generate();

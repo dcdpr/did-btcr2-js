@@ -1,9 +1,9 @@
 import type { AnnounceOptions, SourceState, UpdateOptions } from '../../src/index.js';
 import type { AddressUtxo, BitcoinConnection } from '@did-btcr2/bitcoin';
-import type { PatchOperation } from '@did-btcr2/common';
+import type { PatchOperation } from '@did-btcr2/std';
 import { getNetwork } from '@did-btcr2/bitcoin';
-import type { Signer } from '@did-btcr2/keypair';
-import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
+import type { Signer } from '@did-btcr2/keys';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
 import type { Btcr2DidDocument, NeedBeaconSignals } from '@did-btcr2/method';
 import { DidBtcr2 } from '@did-btcr2/method';
 import { bytesToHex } from '@noble/hashes/utils.js';

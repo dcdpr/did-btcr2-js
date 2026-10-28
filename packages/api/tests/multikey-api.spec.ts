@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
+import { SchnorrMultikey } from '@did-btcr2/integrity';
 import { KeyManagerApi, KeyPairApi, MultikeyApi } from '../src/index.js';
 
 /**

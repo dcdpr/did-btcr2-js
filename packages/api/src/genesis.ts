@@ -1,8 +1,8 @@
 import type { NetworkName } from '@did-btcr2/bitcoin';
 import { getNetwork } from '@did-btcr2/bitcoin';
-import type { KeyBytes } from '@did-btcr2/common';
-import { DidDocumentError, INVALID_DID_DOCUMENT } from '@did-btcr2/common';
-import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
+import type { KeyBytes } from '@did-btcr2/std';
+import { DidDocumentError, INVALID_DID_DOCUMENT } from '@did-btcr2/std';
+import { CompressedSecp256k1PublicKey } from '@did-btcr2/keys';
 import type {
   BeaconService,
   Btcr2DidDocument,

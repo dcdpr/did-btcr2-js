@@ -213,7 +213,7 @@ import {
   NostrTransport,
 } from '@did-btcr2/aggregation';
 import { getNetwork } from '@did-btcr2/bitcoin';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { buildAggregationBeaconTx, DidBtcr2 } from '@did-btcr2/method';
 
 // --- Service Setup ---

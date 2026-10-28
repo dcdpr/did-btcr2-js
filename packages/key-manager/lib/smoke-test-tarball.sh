@@ -34,14 +34,14 @@ echo ""
 # Build everything fresh, never trust stale dist artifacts.
 echo "[1] Building all workspace packages ..."
 ( cd "$ROOT" && pnpm build:ts ) > /dev/null
-( cd "$ROOT" && pnpm -r --filter=@did-btcr2/common --filter=@did-btcr2/keypair --filter=@did-btcr2/key-manager build ) > /dev/null
+( cd "$ROOT" && pnpm -r --filter=@did-btcr2/std --filter=@did-btcr2/keys --filter=@did-btcr2/key-manager build ) > /dev/null
 echo "    OK"
 
 # Pack all packages key-manager transitively depends on.
 echo "[2] Packing key-manager and its workspace dependencies ..."
 PACK_DIR="$TMP/tarballs"
 mkdir -p "$PACK_DIR"
-for pkg in common keypair key-manager; do
+for pkg in std keys key-manager; do
   ( cd "$ROOT/packages/$pkg" && pnpm pack --pack-destination "$PACK_DIR" ) > /dev/null
 done
 ls "$PACK_DIR"
@@ -61,12 +61,12 @@ cat > "$CONSUMER/package.json" <<EOF
 EOF
 
 # npm install resolves file: protocol tarballs locally, no registry needed.
-COMMON_TGZ=$(ls "$PACK_DIR"/did-btcr2-common-*.tgz)
-KEYPAIR_TGZ=$(ls "$PACK_DIR"/did-btcr2-keypair-*.tgz)
+STD_TGZ=$(ls "$PACK_DIR"/did-btcr2-std-*.tgz)
+KEYS_TGZ=$(ls "$PACK_DIR"/did-btcr2-keys-*.tgz)
 KM_TGZ=$(ls "$PACK_DIR"/did-btcr2-key-manager-*.tgz)
 
 ( cd "$CONSUMER" && npm install --silent --no-audit --no-fund \
-    "file:$COMMON_TGZ" "file:$KEYPAIR_TGZ" "file:$KM_TGZ" ) > /dev/null
+    "file:$STD_TGZ" "file:$KEYS_TGZ" "file:$KM_TGZ" ) > /dev/null
 echo "    OK (installed from tarballs only, no registry)"
 
 # Tiny consumer module, exercises the public API surface that a downstream
@@ -76,7 +76,7 @@ echo "    OK (installed from tarballs only, no registry)"
 echo "[4] Running consumer module from installed tarball ..."
 cat > "$CONSUMER/index.mjs" <<'MJS'
 import { LocalKeyManager, KeyManagerSigner } from '@did-btcr2/key-manager';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 
 const km = new LocalKeyManager();
 const kp = SchnorrKeyPair.generate();

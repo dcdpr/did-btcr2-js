@@ -1,5 +1,5 @@
-import { canonicalHashBytes, DateUtils, DidDocumentError, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/common';
-import type { PatchOperation } from '@did-btcr2/common';
+import { canonicalHashBytes, DateUtils, DidDocumentError, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/std';
+import type { PatchOperation } from '@did-btcr2/std';
 import { expect } from 'chai';
 import { Identifier } from '../src/core/identifier.js';
 import { Updater } from '../src/core/updater.js';

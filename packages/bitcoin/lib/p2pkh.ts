@@ -1,5 +1,5 @@
-import { decode } from '@did-btcr2/common';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { decode } from '@did-btcr2/std';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { p2pkh, Transaction } from '@scure/btc-signer';
 import { BitcoinConnection } from '../src/connection.js';
 

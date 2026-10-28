@@ -1,6 +1,6 @@
-import { DidDocumentError, INVALID_DID_DOCUMENT } from '@did-btcr2/common';
-import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
+import { DidDocumentError, INVALID_DID_DOCUMENT } from '@did-btcr2/std';
+import { SchnorrMultikey } from '@did-btcr2/integrity';
+import { CompressedSecp256k1PublicKey } from '@did-btcr2/keys';
 import { Appendix } from '../utils/appendix.js';
 import type { DidDocument, DidVerificationMethod } from '../utils/did-document.js';
 import { signingMethodProblem } from '../utils/signing-method.js';
