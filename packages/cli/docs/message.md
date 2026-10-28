@@ -54,9 +54,9 @@ A verifier with no btcr2 code can do the five checks of [`message verify`](#chec
 3. Make sure that the proof has exactly the five members of the example. `type`, `cryptosuite`, and `proofPurpose` must have the values of the example.
 4. Make sure that `proof.verificationMethod` starts with `<identifier>#`, and that the document has no `deactivated: true`.
 5. Find the entry of `assertionMethod` for `proof.verificationMethod`. An entry is a method id or an embedded method. A relative id (`#key-1`) is relative to `<identifier>`. If the entry is an id, find the method with that id in `verificationMethod`. The method must have the type `Multikey` and the controller `<identifier>`.
-6. Read the key of the method from `publicKeyMultibase`: remove the prefix `z`, decode base58btc, and remove the 2 bytes `0xe7 0x01`. The result is the 33-byte compressed key. Its last 32 bytes are the x-only key.
+6. Read the key of the method from `publicKeyMultibase`: remove the prefix `z`, decode base58btc, and remove the 2 bytes `0xe7 0x01`. The result is the 33-byte compressed key. Its last 32 bytes are the x-only key. The base58btc encoding of the 35 decoded bytes, before you remove `0xe7 0x01`, must be the text after `z`. Some decoders also read other text for the same bytes.
 7. Compute `hashData` as above. JCS is RFC 8785.
-8. Decode `proofValue`: remove the prefix `z`, and decode base58btc. The result is the 64-byte signature. A 64-byte value has 64 to 88 characters after `z`. Refuse each other length before the decode.
+8. Decode `proofValue`: remove the prefix `z`, and decode base58btc. The result must be the 64-byte signature. A 64-byte value has 64 to 88 characters after `z`. Refuse each other length before the decode.
 9. Verify the BIP340 signature over `hashData` with the x-only key.
 
 ## What a signed message proves
@@ -113,8 +113,8 @@ Reads the signed message from `<path>`, resolves the current DID document of `-i
 | `structure` | The object has exactly `type`, `message`, and `proof`, `type` is `BTCR2Message`, and the proof has exactly the five members with the fixed values. `proofValue` is `z` and 64 to 88 base58btc characters. | `The proof purpose must be assertionMethod.` |
 | `signer` | `proof.verificationMethod` is a method of the identifier of `-i`. | `The proof names the method did:btcr2:k1q...#initialKey, which is not a method of did:btcr2:k1q....` |
 | `active` | The DID document is not deactivated. | `The DID document of did:btcr2:k1q... is deactivated.` |
-| `assertionMethod` | The method is in `assertionMethod`, its type is `Multikey`, its `controller` is the identifier, and its key is a secp256k1 Multikey. | `did:btcr2:k1q...#initialKey is not in the assertionMethod of the DID document.` |
-| `signature` | The BIP340 signature verifies. | `The signature does not match the message and the key of the method.` |
+| `assertionMethod` | The method is in `assertionMethod`, its type is `Multikey`, its `controller` is the identifier, and its key is a secp256k1 Multikey. `publicKeyMultibase` is the base58btc text of the key bytes. | `did:btcr2:k1q...#initialKey is not in the assertionMethod of the DID document.` |
+| `signature` | `proofValue` decodes to 64 bytes, and the BIP340 signature verifies. | `The signature does not match the message and the key of the method.` |
 
 ### Options
 

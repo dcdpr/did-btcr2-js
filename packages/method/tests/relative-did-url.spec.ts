@@ -1,4 +1,4 @@
-import { INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/common';
+import { DidDocumentError, INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/common';
 import type { Signer } from '@did-btcr2/keypair';
 import { LocalSigner } from '@did-btcr2/keypair';
 import { hexToBytes } from '@noble/hashes/utils';
@@ -242,6 +242,35 @@ describe('relative DID URLs in a DID document', () => {
       const document = relativeDocument();
       expect(Appendix.verificationMethodOfEntry(document, '#ghost')).to.equal(undefined);
       expect(Appendix.verificationMethodOfEntry(document, `${OTHER_DID}#initialKey`)).to.equal(undefined);
+    });
+  });
+
+  describe('Appendix.getVerificationMethods', () => {
+    const embedded = {
+      id                 : '#embeddedKey',
+      type               : 'Multikey',
+      controller         : DID,
+      publicKeyMultibase : MULTIBASE,
+    };
+
+    it('returns the verificationMethod members and the methods that a relationship embeds, and no reference', () => {
+      const document = relativeDocument();
+      expect(Appendix.getVerificationMethods(document)).to.deep.equal(document.verificationMethod);
+      document.capabilityInvocation = ['#initialKey', embedded];
+      expect(Appendix.getVerificationMethods(document)).to.deep.equal([ ...document.verificationMethod!, embedded ]);
+    });
+
+    it('returns only the embedded methods of a document with no verificationMethod member', () => {
+      const document = relativeDocument() as any;
+      delete document.verificationMethod;
+      delete document.authentication;
+      document.assertionMethod = [embedded];
+      expect(Appendix.getVerificationMethods(document)).to.deep.equal([embedded]);
+    });
+
+    it('throws a DidDocumentError for an absent document', () => {
+      expect(() => Appendix.getVerificationMethods(undefined as any))
+        .to.throw(DidDocumentError, 'Required parameter missing: \'didDocument\'');
     });
   });
 

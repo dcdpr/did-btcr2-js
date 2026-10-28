@@ -131,7 +131,6 @@ export function signMessage(
     );
   }
   const verificationMethod = signingMethodId(document, signer, options.verificationMethodId);
-  // New objects: addProof writes the proof into both of its arguments.
   const unsigned = { type: MESSAGE_TYPE, message };
   const config: DataIntegrityProofOptions = {
     type         : PROOF_TYPE,
@@ -139,12 +138,10 @@ export function signMessage(
     verificationMethod,
     proofPurpose : PROOF_PURPOSE,
   };
-  const secured = SchnorrMultikey.fromSigner(verificationMethod, document.id, signer)
+  const signed = SchnorrMultikey.fromSigner(verificationMethod, document.id, signer)
     .toCryptosuite()
     .toDataIntegrityProof()
-    .addProof(unsigned, config);
-  // The JSON round trip drops the `@context: undefined` member that createProof adds.
-  const signed = JSON.parse(JSON.stringify(secured)) as SignedMessage;
+    .addProof(unsigned, config) as SignedMessage;
   const report = verifyMessage(document, signed);
   if (!report.verified) {
     const failed = report.checks[report.checks.length - 1];

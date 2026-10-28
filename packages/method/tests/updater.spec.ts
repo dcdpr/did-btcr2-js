@@ -1,6 +1,6 @@
-import { canonicalHash, INVALID_DID_UPDATE, JSONPatch, KeyManagerError, UpdateError, VERIFICATION_METHOD_ERROR } from '@did-btcr2/common';
+import { canonicalHash, CryptosuiteError, INVALID_DID_UPDATE, JSONPatch, KeyManagerError, UpdateError, VERIFICATION_METHOD_ERROR } from '@did-btcr2/common';
 import type { PatchOperation } from '@did-btcr2/common';
-import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
+import { BIP340Cryptosuite, SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import type { Signer } from '@did-btcr2/keypair';
 import { CompressedSecp256k1PublicKey, LocalSigner } from '@did-btcr2/keypair';
 import { p256 } from '@noble/curves/nist.js';
@@ -1255,10 +1255,10 @@ describe('Updater', () => {
         }
       });
 
-      it('the cryptosuite decoder reads each other key text as the fixture key, so only the text check refuses it', () => {
+      it('the multikey refuses each other key text for the fixture key', () => {
         for(const publicKeyMultibase of [ otherKeyText('\u0100'), otherKeyText('\u{1F600}') ]) {
-          const decoded = SchnorrMultikey.fromVerificationMethod(signerMethod({ publicKeyMultibase }));
-          expect(decoded.publicKey.multibase.encoded).to.equal(fixtureKey());
+          expect(() => SchnorrMultikey.fromVerificationMethod(signerMethod({ publicKeyMultibase })))
+            .to.throw('Invalid publicKeyMultibase: not the base58btc encoding of the key');
         }
       });
 
@@ -1396,14 +1396,33 @@ describe('Updater', () => {
         expect(thrown.data).to.deep.equal({ verificationMethodId: INITIAL_KEY });
       });
 
-      it('refuses a signer that returns a signature of 63 bytes, with the verify error as the cause', () => {
+      it('refuses a signer that returns a signature of 63 bytes, with the cryptosuite error as the cause', () => {
         const short: Signer = { publicKey: signer.publicKey, sign: () => new Uint8Array(63) };
         const thrown = thrownBy(() => Updater.sign(sourceDocument, Updater.construct(sourceDocument, [], 1), '#initialKey', short));
-        const cause = 'signature of length 64 expected, got 63';
+        const cause = 'Invalid signature: the signer returned 63 bytes; a BIP340 signature has 64 bytes.';
         expect(thrown).to.be.instanceOf(UpdateError);
         expect(thrown.type).to.equal(INVALID_DID_UPDATE);
-        expect(thrown.message).to.equal(`Invalid update: the proof does not verify with the public key of "${INITIAL_KEY}": ${cause}`);
-        expect(thrown.data).to.deep.equal({ verificationMethodId: INITIAL_KEY, cause: { type: 'Error', message: cause } });
+        expect(thrown.message).to.equal(`Invalid update: cannot make the proof with "${INITIAL_KEY}": ${cause}`);
+        expect(thrown.data).to.deep.equal({ verificationMethodId: INITIAL_KEY, cause: { type: 'PROOF_GENERATION_ERROR', message: cause } });
+      });
+
+      it('names the cryptosuite error as the cause if the verification of the new proof does not complete', () => {
+        // Updater.sign makes a proof that the cryptosuite verifies. This test replaces the
+        // cryptosuite verify with one that throws, so the wrap of its error runs.
+        const cause = { type: 'PROOF_VERIFICATION_ERROR', message: 'Invalid proof: a test refusal' };
+        const original = BIP340Cryptosuite.prototype.verifyProof;
+        BIP340Cryptosuite.prototype.verifyProof = () => {
+          throw new CryptosuiteError(cause.message, cause.type);
+        };
+        try {
+          const thrown = thrownBy(() => Updater.sign(sourceDocument, Updater.construct(sourceDocument, [], 1), '#initialKey', signer));
+          expect(thrown).to.be.instanceOf(UpdateError);
+          expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+          expect(thrown.message).to.equal(`Invalid update: the proof does not verify with the public key of "${INITIAL_KEY}": ${cause.message}`);
+          expect(thrown.data).to.deep.equal({ verificationMethodId: INITIAL_KEY, cause });
+        } finally {
+          BIP340Cryptosuite.prototype.verifyProof = original;
+        }
       });
 
       it('signs the update that changes the type of #initialKey, and then refuses the next update that #initialKey signs', () => {

@@ -1,6 +1,7 @@
 import { CryptosuiteError } from '@did-btcr2/common';
 import { SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
 import { expect } from 'chai';
+import { base58btc } from 'multiformats/bases/base58';
 import type {
   DataIntegrityProofOptions} from '../src/index.js';
 import {
@@ -267,6 +268,300 @@ describe('Cryptosuite', () => {
         { a: { toJSON: () => { throw inner; } } }, freshConfig()
       ));
       expect(error).to.equal(inner);
+    });
+  });
+
+  describe('Proof algorithms', () => {
+    const options = (overrides: Record<string, unknown> = {}): DataIntegrityProofOptions => ({
+      type               : 'DataIntegrityProof',
+      cryptosuite        : 'bip340-jcs-2025',
+      verificationMethod : `${controller}${id}`,
+      proofPurpose       : 'attestationMethod',
+      ...overrides
+    } as DataIntegrityProofOptions);
+
+    const expectError = (fn: () => unknown, type: string, message: string): any => {
+      let error: any;
+      try {
+        fn();
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error, 'expected the call to throw').to.be.an.instanceOf(CryptosuiteError);
+      expect(error.type).to.equal(type);
+      expect(error.message).to.equal(message);
+      return error;
+    };
+
+    const signed = (document: Record<string, unknown> = { a: 1 }, extra: Record<string, unknown> = {}): any =>
+      ({ ...document, proof: cryptosuite.createProof(document, options(extra)) });
+
+    // Sign with the step methods: a proof that createProof refuses to make.
+    const rawSign = (document: Record<string, unknown>, proofOptions: Record<string, unknown>): any => {
+      const config = proofOptions as DataIntegrityProofOptions;
+      const hash = cryptosuite.generateHash(
+        cryptosuite.proofConfiguration(config), cryptosuite.transformDocument(document, config)
+      );
+      const proofValue = base58btc.encode(cryptosuite.proofSerialization(hash, config));
+      return { ...document, proof: { ...proofOptions, proofValue } };
+    };
+
+    describe('createProof', () => {
+      it('does not change the proof options', () => {
+        const config = options();
+        const before = JSON.stringify(config);
+        cryptosuite.createProof({ '@context': ['x:a'], a: 1 }, config);
+        expect(JSON.stringify(config)).to.equal(before);
+      });
+
+      it('sets the proof @context to a copy of the document @context', () => {
+        const document = { '@context': ['x:a', 'x:b'], a: 1 };
+        const proof = cryptosuite.createProof(document, options({ '@context': ['x:other'] }));
+        expect(proof['@context']).to.deep.equal(['x:a', 'x:b']);
+        expect(proof['@context']).to.not.equal(document['@context']);
+      });
+
+      it('refuses an options @context for a document with no @context', () => {
+        const error = expectError(
+          () => cryptosuite.createProof({ a: 1 }, options({ '@context': ['x:b'] })),
+          'PROOF_GENERATION_ERROR', 'Invalid proof options: "@context" needs a document @context that starts with it.'
+        );
+        expect(error.data).to.deep.equal({ '@context': ['x:b'] });
+      });
+
+      it('refuses proof options with a proofValue: the proof can never verify', () => {
+        const proofValue = signed().proof.proofValue;
+        for(const value of [proofValue, '', null]) {
+          const error = expectError(
+            () => cryptosuite.createProof({ a: 1 }, options({ proofValue: value })),
+            'PROOF_GENERATION_ERROR', 'Invalid proof options: "proofValue" must not be present: Create Proof adds the proofValue.'
+          );
+          expect(error.data).to.deep.equal({ proofValue: value });
+        }
+        // Add Proof gives the error of the cryptosuite.
+        expectError(
+          () => cryptosuite.toDataIntegrityProof().addProof({ a: 1 }, options({ proofValue })),
+          'PROOF_GENERATION_ERROR', 'Invalid proof options: "proofValue" must not be present: Create Proof adds the proofValue.'
+        );
+        // The proof from such options does not verify: Verify Proof removes the proofValue.
+        const document = rawSign({ a: 1 }, { ...options(), proofValue });
+        expect(cryptosuite.verifyProof(document).verified).to.equal(false);
+        // An undefined proofValue is an absent member.
+        const proof = cryptosuite.createProof({ a: 1 }, options({ proofValue: undefined }));
+        expect(cryptosuite.verifyProof({ a: 1, proof }).verified).to.equal(true);
+      });
+
+      it('makes a proof that verifies for a string @context', () => {
+        const document = { '@context': 'x:a', a: 1 };
+        const proof = cryptosuite.createProof(document, options());
+        expect(proof['@context']).to.equal('x:a');
+        expect(cryptosuite.verifyProof({ ...document, proof })).to.deep.equal({ verified: true, verifiedDocument: document });
+        expect(cryptosuite.verifyProof({ ...document, '@context': ['x:a', 'x:b'], proof })).to.deep.equal({
+          verified         : true,
+          verifiedDocument : document
+        });
+        expect(cryptosuite.verifyProof({ ...document, '@context': 'x:b', proof }).verified).to.equal(false);
+      });
+
+      it('refuses a document that is not a map', () => {
+        for(const document of [null, [1], 'a']) {
+          expectError(
+            () => cryptosuite.createProof(document as any, options()),
+            'PROOF_GENERATION_ERROR', 'Invalid document: the document must be a JSON object.'
+          );
+        }
+      });
+
+      const refused: Array<[string, unknown, string]> = [
+        ['type', 5, 'a string'],
+        ['cryptosuite', undefined, 'a string'],
+        ['verificationMethod', 5, 'a string'],
+        ['proofPurpose', undefined, 'a string'],
+        ['id', 'not a url', 'a valid URL string'],
+        ['id', 42, 'a valid URL string'],
+        ['created', '2026-01-01T00:00:00', 'an XML Schema dateTimeStamp'],
+        ['created', '', 'an XML Schema dateTimeStamp'],
+        ['expires', 'soon', 'an XML Schema dateTimeStamp'],
+        ['domain', 5, 'a string or an array of strings with no repeated string'],
+        ['domain', ['a', 5], 'a string or an array of strings with no repeated string'],
+        ['domain', ['a.example', 'a.example'], 'a string or an array of strings with no repeated string'],
+        ['challenge', 5, 'a string'],
+        ['nonce', 7, 'a string'],
+        ['previousProof', 5, 'a string or an array of strings'],
+      ];
+      for(const [member, value, rule] of refused) {
+        it(`refuses the proof option ${member} ${JSON.stringify(value)}`, () => {
+          const error = expectError(
+            () => cryptosuite.createProof({ a: 1 }, options({ [member]: value })),
+            'PROOF_GENERATION_ERROR', `Invalid proof options: "${member}" must be ${rule}.`
+          );
+          expect(error.data).to.deep.equal({ [member]: value });
+        });
+      }
+
+      it('makes a proof that verifies for a relative id, a urn id, a previousProof, and each optional member', () => {
+        for(const extra of [
+          { id: '#proof-1' },
+          { id: 'proof-1' },
+          { id: 'urn:uuid:6a1676b8-b51f-11ed-937b-d76685a20ff5' },
+          { previousProof: 'urn:uuid:1' },
+          { previousProof: ['urn:uuid:1', 'urn:uuid:2'] },
+          { nonce: 'n', challenge: 'c', domain: 'example.com', created: '2026-01-01T00:00:00Z', expires: '2027-01-01T00:00:00-05:00' },
+        ]) {
+          const document = { a: 1 };
+          const proof = cryptosuite.createProof(document, options(extra));
+          expect(cryptosuite.verifyProof({ ...document, proof }).verified, JSON.stringify(extra)).to.equal(true);
+        }
+      });
+
+      it('refuses a signer that does not give 64 bytes', () => {
+        const signer = { publicKey: keyPair.publicKey.compressed, sign: () => new Uint8Array(63) };
+        const suite = new BIP340Cryptosuite(SchnorrMultikey.fromSigner(id, controller, signer as any));
+        expectError(
+          () => suite.createProof({ a: 1 }, options()),
+          'PROOF_GENERATION_ERROR', 'Invalid signature: the signer returned 63 bytes; a BIP340 signature has 64 bytes.'
+        );
+      });
+    });
+
+    describe('verifyProof', () => {
+      it('gives the unsecured document as verifiedDocument', () => {
+        expect(cryptosuite.verifyProof(signed())).to.deep.equal({ verified: true, verifiedDocument: { a: 1 } });
+      });
+
+      it('gives verifiedDocument null for a signature that does not verify', () => {
+        expect(cryptosuite.verifyProof({ ...signed(), a: 2 })).to.deep.equal({ verified: false, verifiedDocument: null });
+      });
+
+      it('does not change the secured document', () => {
+        const document = signed({ '@context': ['x:a'], a: 1 });
+        document['@context'] = ['x:a', 'x:b'];
+        const before = JSON.stringify(document);
+        cryptosuite.verifyProof(document);
+        expect(JSON.stringify(document)).to.equal(before);
+      });
+
+      it('throws PARSING_ERROR for a document or a proof that is not a map', () => {
+        for(const document of [null, [1], { a: 1 }, { a: 1, proof: 'x' }, { a: 1, proof: [1] }]) {
+          expectError(
+            () => cryptosuite.verifyProof(document as any),
+            'PARSING_ERROR', 'Invalid secured document: the document and its proof must be JSON objects.'
+          );
+        }
+      });
+
+      const refused: Array<[string, unknown, string]> = [
+        ['verificationMethod', undefined, 'a string'],
+        ['id', 'not a url', 'a valid URL string'],
+        ['expires', 'soon', 'an XML Schema dateTime'],
+        ['domain', 5, 'a string or an array of strings'],
+        ['challenge', 5, 'a string'],
+        ['nonce', 7, 'a string'],
+        ['previousProof', 5, 'a string or an array of strings'],
+      ];
+      for(const [member, value, rule] of refused) {
+        it(`throws PROOF_VERIFICATION_ERROR for the proof member ${member} ${JSON.stringify(value)}`, () => {
+          const document = signed();
+          document.proof[member] = value;
+          const error = expectError(
+            () => cryptosuite.verifyProof(document),
+            'PROOF_VERIFICATION_ERROR', `Invalid proof: "${member}" must be ${rule}.`
+          );
+          expect(error.data).to.deep.equal({ [member]: value });
+        });
+      }
+
+      it('verifies a proof whose domain array has a repeated string (a set on read)', () => {
+        const document = rawSign({ a: 1 }, { ...options(), domain: ['a.example', 'a.example'] });
+        expect(cryptosuite.verifyProof(document).verified).to.equal(true);
+        const diProof = cryptosuite.toDataIntegrityProof();
+        for(const expectedDomain of ['a.example', ['a.example'], ['a.example', 'a.example']]) {
+          const result = diProof.verifyProof(JSON.stringify(document), 'attestationMethod', undefined, expectedDomain);
+          expect(result.verified, JSON.stringify(expectedDomain)).to.equal(true);
+        }
+        const other = diProof.verifyProof(JSON.stringify(document), 'attestationMethod', undefined, ['a.example', 'b.example']);
+        expect(other.errors[0]?.detail).to.equal('Domain mismatch: expectedDomain and proof.domain do not match');
+      });
+
+      it('accepts an expires and a created with no offset (a verifier MAY read them as UTC)', () => {
+        const document = rawSign({ a: 1 }, { ...options(), created: '2026-01-01T00:00:00', expires: '2027-01-01T00:00:00' });
+        expect(cryptosuite.verifyProof(document).verified).to.equal(true);
+      });
+
+      it('throws PROOF_GENERATION_ERROR from Proof Configuration for a created that is not a dateTime', () => {
+        for(const created of ['', 5, 'soon']) {
+          const document = signed();
+          document.proof.created = created;
+          const error = expectError(
+            () => cryptosuite.verifyProof(document),
+            'PROOF_GENERATION_ERROR', 'Invalid config: "created" must be a valid XMLSchema DateTime string'
+          );
+          expect(error.data).to.deep.equal({ created });
+        }
+      });
+
+      it('throws PROOF_VERIFICATION_ERROR for a proofValue that is not the canonical base58btc text of 64 bytes', () => {
+        const document = signed();
+        const text = document.proof.proofValue;
+        for(const proofValue of [`zĀ${text.slice(1)}`, `u${text.slice(1)}`, base58btc.encode(new Uint8Array(63)), 5, undefined]) {
+          expectError(
+            () => cryptosuite.verifyProof({ ...document, proof: { ...document.proof, proofValue } }),
+            'PROOF_VERIFICATION_ERROR',
+            'Invalid proofValue: not the base58btc Multibase encoding of a 64-byte BIP340 signature.'
+          );
+        }
+      });
+
+      it('verifies a document whose @context extends the proof @context, and gives the proof @context', () => {
+        const document = signed({ '@context': ['x:a'], a: 1 });
+        document['@context'] = ['x:a', 'x:b'];
+        expect(cryptosuite.verifyProof(document)).to.deep.equal({
+          verified         : true,
+          verifiedDocument : { '@context': ['x:a'], a: 1 }
+        });
+      });
+
+      it('gives verified false, with no error, if the document does not start with the proof @context', () => {
+        const document = signed({ '@context': ['x:a'], a: 1 });
+        for(const context of [['x:b', 'x:a'], 'x:b', undefined]) {
+          expect(cryptosuite.verifyProof({ ...document, '@context': context }))
+            .to.deep.equal({ verified: false, verifiedDocument: null });
+        }
+        // Step 4 skips to the last step, so the type check does not run.
+        expect(cryptosuite.verifyProof({ ...document, '@context': ['x:b'], proof: { ...document.proof, type: 'Other' } }))
+          .to.deep.equal({ verified: false, verifiedDocument: null });
+      });
+    });
+
+    it('transformDocument gives a CryptosuiteError for another type or cryptosuite', () => {
+      expectError(
+        () => cryptosuite.transformDocument({ a: 1 }, options({ type: 'Other' })),
+        'PROOF_VERIFICATION_ERROR', 'Type mismatch: config.type !== this.type'
+      );
+      expectError(
+        () => cryptosuite.transformDocument({ a: 1 }, options({ cryptosuite: 'other' })),
+        'PROOF_VERIFICATION_ERROR', 'Cryptosuite mismatch: config.cryptosuite !== this.cryptosuite'
+      );
+    });
+
+    it('the Data Integrity verifyProof gives the mediaType only for a proof that verifies', () => {
+      const diProof = cryptosuite.toDataIntegrityProof();
+      const document = signed();
+      expect(diProof.verifyProof(JSON.stringify(document), 'attestationMethod', 'application/json')).to.deep.equal({
+        verified         : true,
+        verifiedDocument : { a: 1 },
+        mediaType        : 'application/json',
+        warnings         : [],
+        errors           : []
+      });
+      expect(diProof.verifyProof(JSON.stringify({ ...document, a: 2 }), 'attestationMethod', 'application/json')).to.deep.equal({
+        verified         : false,
+        verifiedDocument : null,
+        mediaType        : null,
+        warnings         : [],
+        errors           : []
+      });
+      expect(diProof.verifyProof(JSON.stringify(document), 'attestationMethod').mediaType).to.equal(null);
     });
   });
 });

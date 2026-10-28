@@ -399,7 +399,13 @@ function forgeSign(
   const multikey = typeof key === 'string'
     ? SchnorrMultikey.fromSecretKey(verificationMethod, did, hexToBytes(key))
     : SchnorrMultikey.fromSigner(verificationMethod, did, key);
-  const config = {
+  const config = forgeConfig(did, verificationMethod, extra);
+  return multikey.toCryptosuite().toDataIntegrityProof().addProof(unsigned, config) as SignedBTCR2Update;
+}
+
+/** The proof options of forgeSign and rawSign: the options of Updater.sign, then `extra`. */
+function forgeConfig(did: string, verificationMethod: string, extra: Record<string, unknown>): Btcr2DataIntegrityConfig {
+  return {
     '@context'         : [ ...BTCR2_UPDATE_CONTEXT ],
     type               : 'DataIntegrityProof',
     cryptosuite        : 'bip340-jcs-2025',
@@ -410,7 +416,28 @@ function forgeSign(
     invocationTarget   : did,
     ...extra,
   } as Btcr2DataIntegrityConfig;
-  return multikey.toCryptosuite().toDataIntegrityProof().addProof({ ...unsigned }, config) as SignedBTCR2Update;
+}
+
+/**
+ * Sign as forgeSign does, but through the step methods of the cryptosuite and not through
+ * addProof. createProof refuses proof options that break a rule of VC Data Integrity, so a
+ * test of such a proof on the read path uses this function. The update must have the
+ * @context of a BTCR2 Update: the proof gets the @context of the options.
+ */
+function rawSign(
+  did: string,
+  unsigned: UnsignedBTCR2Update,
+  verificationMethod: string,
+  key: string,
+  extra: Record<string, unknown> = {}
+): SignedBTCR2Update {
+  const cryptosuite = SchnorrMultikey.fromSecretKey(verificationMethod, did, hexToBytes(key)).toCryptosuite();
+  const config = forgeConfig(did, verificationMethod, extra);
+  const hash = cryptosuite.generateHash(
+    cryptosuite.proofConfiguration(config), cryptosuite.transformDocument(unsigned, config)
+  );
+  const proofValue = `z${base58.encode(cryptosuite.proofSerialization(hash, config))}`;
+  return { ...unsigned, proof: { ...config, proofValue } } as SignedBTCR2Update;
 }
 
 describe('Resolver', () => {
@@ -1479,6 +1506,24 @@ describe('Resolver', () => {
       expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 1);
     });
 
+    it('reads a versionTime with a year above 9999 or below 0000 (each year is valid)', () => {
+      const source = resolveDeterministic(fixture.did);
+      const updates = buildUpdateChain(fixture.did, source, fixture.secretKey, [
+        benignPatch(fixture.did), benignPatch(fixture.did)
+      ]);
+      const times = [1700000000, 1800000000];
+      // A year with more than about 300 digits gives Infinity or -Infinity; the order stays correct.
+      for(const [ versionTime, versionId ] of [
+        [ '10000-01-01T00:00:00Z', '3' ],
+        [ `1${'0'.repeat(400)}-01-01T00:00:00Z`, '3' ],
+        [ '-0001-01-01T00:00:00Z', '1' ],
+        [ `-1${'0'.repeat(400)}-01-01T00:00:00Z`, '1' ],
+      ]) {
+        const { metadata } = driveSingleBeacon(fixture.did, updates, { versionTime, times });
+        expect(metadata.versionId, versionTime.slice(0, 12)).to.equal(versionId);
+      }
+    });
+
     it('stops at a deactivating update and reports deactivated', () => {
       const source = resolveDeterministic(fixture.did);
       const updates = buildUpdateChain(fixture.did, source, fixture.secretKey, [
@@ -1807,7 +1852,8 @@ describe('Resolver', () => {
       signalUpdates: Array<SignedBTCR2Update>,
       confirmations: Array<number | undefined>,
       options: { minConf?: number } = {},
-      times?: Array<number | undefined>
+      times?: Array<number | undefined>,
+      mediantimes: Array<number | undefined> | undefined = times
     ): { result?: DidResolutionResponse; needs: Array<string> } {
       const resolver = DidBtcr2.resolve(fixture.did, { sidecar: { updates: sidecarUpdates }, ...options });
       const needs: Array<string> = [];
@@ -1824,7 +1870,7 @@ describe('Resolver', () => {
           blockMetadata : {
             height        : 100 + i,
             time          : (times ? times[i] : 1700000000 + i) as unknown as number,
-            mediantime    : (times ? times[i] : 1700000000 + i) as unknown as number,
+            mediantime    : (mediantimes ? mediantimes[i] : 1700000000 + i) as unknown as number,
             confirmations : confirmations[i] as number
           }
         })));
@@ -1973,6 +2019,39 @@ describe('Resolver', () => {
       expect(thrown.type).to.equal(INVALID_DID_UPDATE);
       expect(thrown.message).to.not.match(/invalid date/i);
       expect(thrown.message).to.match(/block height, block time, or block mediantime/);
+    });
+
+    it('a block time or mediantime outside the 32-bit header range fails with a typed error', () => {
+      // A block header stores its time as a 32-bit unsigned integer (nTime in Bitcoin
+      // Core), and mediantime is the median of such values. 1e20 is finite, but a Date
+      // of 1e20 seconds throws a raw RangeError.
+      const source = resolveDeterministic(fixture.did);
+      const [ u2 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ benignPatch(fixture.did) ]);
+      const valid = 1700000000;
+      const cases: Array<[ string, number, number ]> = [
+        [ 'time 1e20', 1e20, valid ],
+        [ 'mediantime 1e20', valid, 1e20 ],
+        [ 'time 2^32', 2 ** 32, valid ],
+        [ 'mediantime 2^32', valid, 2 ** 32 ],
+        [ 'time -1', -1, valid ],
+        [ 'mediantime -1', valid, -1 ],
+        [ 'time 1.5', 1.5, valid ],
+        [ 'mediantime 1.5', valid, 1.5 ],
+      ];
+      for(const [ label, time, mediantime ] of cases) {
+        let thrown: any;
+        try {
+          driveThreshold([ u2 ], [ u2 ], [ 6 ], {}, [ time ], [ mediantime ]);
+        } catch(error) {
+          thrown = error;
+        }
+        expect(thrown, label).to.be.instanceOf(ResolveError);
+        expect(thrown.type, label).to.equal(INVALID_DID_UPDATE);
+        expect(thrown.message, label).to.match(/block height, block time, or block mediantime/);
+      }
+      // The top of the range is valid: the update applies.
+      const max = 2 ** 32 - 1;
+      expect(driveThreshold([ u2 ], [ u2 ], [ 6 ], {}, [ max ], [ max ]).result?.metadata.versionId).to.equal('2');
     });
 
     it('metadata.confirmations reports the depth of the last applied signal', () => {
@@ -3448,6 +3527,11 @@ describe('Resolver', () => {
       expect(constructorError({ versionTime: '2025-01-01T00:00:00Z' })).to.equal(undefined);
     });
 
+    it('accepts a versionTime with a year above 9999 or below 0000', () => {
+      expect(constructorError({ versionTime: '10000-01-01T00:00:00Z' })).to.equal(undefined);
+      expect(constructorError({ versionTime: '-0001-01-01T00:00:00Z' })).to.equal(undefined);
+    });
+
     it('versionId "1" with a version 2 signal returns the genesis document labelled "1"', () => {
       const source = resolveDeterministic(fixture.did);
       const updates = buildUpdateChain(fixture.did, source, fixture.secretKey, [benignPatch(fixture.did)]);
@@ -3716,6 +3800,11 @@ describe('Resolver', () => {
       return forgeSign(fixture.did, unsigned, `${fixture.did}#initialKey`, fixture.secretKey, extra);
     }
 
+    /** Sign as signWith does, with a proof that createProof refuses (see rawSign). */
+    function rawSignWith(unsigned: UnsignedBTCR2Update, extra: Record<string, unknown>): SignedBTCR2Update {
+      return rawSign(fixture.did, unsigned, `${fixture.did}#initialKey`, fixture.secretKey, extra);
+    }
+
     /** An unsigned v1->v2 update with the given patch and an explicit target hash. */
     function unsignedV2(source: DidDocument, patch: PatchOperation[], target: object): UnsignedBTCR2Update {
       return {
@@ -3861,16 +3950,104 @@ describe('Resolver', () => {
         expectInvalidUpdate(thrownBy([ update ]), /proof\.expires is before proof\.created/);
       });
 
+      it('rejects a proof whose created is half a millisecond after the header time', () => {
+        // utc(HEADER_TIME) is 2023-11-14T22:13:20Z. A millisecond comparison reads both as equal.
+        const { source } = legitimateV2();
+        const update = signWith(Updater.construct(source, benignPatch(fixture.did), 1), { created: '2023-11-14T22:13:20.0005Z' });
+        const thrown = thrownBy([ update ]);
+        expectInvalidUpdate(thrown, /proof\.created is after the header time/);
+        expect(thrown.data).to.deep.equal({ created: '2023-11-14T22:13:20.0005Z', blockTime: HEADER_TIME });
+      });
+
+      it('rejects a proof whose expires is a tenth of a millisecond before its created', () => {
+        const { source } = legitimateV2();
+        const update = signWith(Updater.construct(source, benignPatch(fixture.did), 1), {
+          created : '2023-11-14T22:13:10.0002Z',
+          expires : '2023-11-14T22:13:10.0001Z'
+        });
+        const thrown = thrownBy([ update ]);
+        expectInvalidUpdate(thrown, /proof\.expires is before proof\.created/);
+        expect(thrown.data).to.deep.equal({ created: '2023-11-14T22:13:10.0002Z', expires: '2023-11-14T22:13:10.0001Z' });
+      });
+
+      it('accepts a created equal to the header time and an expires equal to the mediantime, in each form', () => {
+        const { source } = legitimateV2();
+        for(const created of [ '2023-11-14T22:13:20.0000Z', '2023-11-15T00:13:20+02:00', '2023-11-14T21:13:20.000-01:00' ]) {
+          const update = signWith(Updater.construct(source, benignPatch(fixture.did), 1), { created });
+          expect(thrownBy([ update ]), created).to.equal(undefined);
+        }
+        for(const expires of [ '2023-11-14T21:13:20.00000Z', '2023-11-14T22:13:20+01:00' ]) {
+          const update = signWith(Updater.construct(source, benignPatch(fixture.did), 1), { expires });
+          expect(thrownBy([ update ]), expires).to.equal(undefined);
+        }
+      });
+
+      it('reads a year above 9999: an expires in year 10000 applies, a created in year 10000 is refused', () => {
+        const { source } = legitimateV2();
+        const expires = signWith(Updater.construct(source, benignPatch(fixture.did), 1), { expires: '10000-01-01T00:00:00Z' });
+        expect(thrownBy([ expires ])).to.equal(undefined);
+        const created = signWith(Updater.construct(source, benignPatch(fixture.did), 1), { created: '10000-01-01T00:00:00Z' });
+        expectInvalidUpdate(thrownBy([ created ]), /proof\.created is after the header time/);
+      });
+
       it('rejects a created without a timezone', () => {
         const { source } = legitimateV2();
-        const update = signWith(Updater.construct(source, benignPatch(fixture.did), 1), { created: utc(HEADER_TIME - 60).slice(0, -1) });
+        const update = rawSignWith(Updater.construct(source, benignPatch(fixture.did), 1), { created: utc(HEADER_TIME - 60).slice(0, -1) });
         expectInvalidUpdate(thrownBy([ update ]), /proof\.created is not an XML Datetime with a timezone/);
       });
 
       it('rejects an expires that is not a datetime', () => {
         const { source } = legitimateV2();
-        const update = signWith(Updater.construct(source, benignPatch(fixture.did), 1), { expires: 'soon' });
+        const update = rawSignWith(Updater.construct(source, benignPatch(fixture.did), 1), { expires: 'soon' });
         expectInvalidUpdate(thrownBy([ update ]), /proof\.expires is not an XML Datetime/);
+      });
+    });
+
+    describe('the proof members (VC Data Integrity, Proofs)', () => {
+      // The controller signs each proof, so the signature verifies; only the member rule refuses it.
+      for(const [ member, value, cause ] of [
+        [ 'id', 'not a url', 'Invalid proof: "id" must be a valid URL string.' ],
+        [ 'nonce', 7, 'Invalid proof: "nonce" must be a string.' ],
+      ] as const) {
+        it(`rejects a proof whose ${member} is ${JSON.stringify(value)}, with the cryptosuite error as the cause`, () => {
+          const { source } = legitimateV2();
+          const update = rawSignWith(Updater.construct(source, benignPatch(fixture.did), 1), { [member]: value });
+          const thrown = thrownBy([ update ]);
+          expectInvalidUpdate(thrown, /^Invalid update: proof verification failed: /);
+          expect(thrown.data.cause).to.deep.equal({ type: 'PROOF_VERIFICATION_ERROR', message: cause });
+        });
+      }
+
+      it('rejects a proof with a previousProof: an update has one proof', () => {
+        const { source } = legitimateV2();
+        for(const previousProof of [ 'urn:uuid:none', null ]) {
+          const update = rawSignWith(Updater.construct(source, benignPatch(fixture.did), 1), { previousProof });
+          const thrown = thrownBy([ update ]);
+          expectInvalidUpdate(thrown, /^Invalid update: proof\.previousProof must not be present: an update has one proof$/);
+          expect(thrown.data).to.deep.equal({ field: 'previousProof', actual: previousProof });
+        }
+      });
+
+      it('checks previousProof before the capabilityInvocation entry of the verification method', () => {
+        const { source } = legitimateV2();
+        const unauthorized = `${fixture.did}#notAuthorized`;
+        const sign = (extra: Record<string, unknown>) => rawSign(
+          fixture.did, Updater.construct(source, benignPatch(fixture.did), 1), unauthorized, fixture.secretKey, extra
+        );
+        // With no previousProof, the method check refuses the update.
+        expectInvalidUpdate(thrownBy([ sign({}) ]), /verificationMethod is not authorized for capabilityInvocation/);
+        // With a previousProof, the previousProof check refuses it first.
+        const thrown = thrownBy([ sign({ previousProof: 'urn:uuid:none' }) ]);
+        expectInvalidUpdate(thrown, /^Invalid update: proof\.previousProof must not be present: an update has one proof$/);
+        expect(thrown.data).to.deep.equal({ field: 'previousProof', actual: 'urn:uuid:none' });
+      });
+
+      it('rejects a proofValue in other text that the decoder reads as the same signature', () => {
+        const { update } = legitimateV2();
+        const proofValue = `z\u0100${update.proof.proofValue.slice(1)}`;
+        const thrown = thrownBy([ { ...update, proof: { ...update.proof, proofValue } } ]);
+        expectInvalidUpdate(thrown, /^Invalid update: proof verification failed: Invalid proofValue: /);
+        expect(thrown.data.cause.type).to.equal('PROOF_VERIFICATION_ERROR');
       });
     });
 
@@ -4720,14 +4897,13 @@ describe('Resolver', () => {
 
     it('refuses other text for the key of the signer that the decoder reads as the same key, in the embedded form and in the reference form', () => {
       // The base58btc decoder of the cryptosuite ignores a code unit above 0xff between the z
-      // header and the first base58 digit. The signature verifies with the decoded key, so only
-      // the text comparison refuses the update. The Multibase rule of DID Core conformance also
-      // refuses the text, but the test gives the document to the Resolver as the current document.
+      // header and the first base58 digit. The multikey refuses the text, and the Resolver names
+      // the multikey error as the cause. The Multibase rule of DID Core conformance also refuses
+      // the text, but the test gives the document to the Resolver as the current document.
       const cause = { type: VERIFICATION_METHOD_ERROR, message: 'Invalid publicKeyMultibase: not the base58btc encoding of the key' };
       const canonical = signerMethod().publicKeyMultibase!;
       for(const publicKeyMultibase of [ `z\u0100${canonical.slice(1)}`, `z\u{1F600}${canonical.slice(1)}` ]) {
-        const decoded = SchnorrMultikey.fromVerificationMethod(signerMethod({ publicKeyMultibase }));
-        expect(decoded.publicKey.multibase.encoded).to.equal(canonical);
+        expect(() => SchnorrMultikey.fromVerificationMethod(signerMethod({ publicKeyMultibase }))).to.throw(cause.message);
         for(const document of [ embedding(signerMethod({ publicKeyMultibase })), referencing(signerMethod({ publicKeyMultibase })) ]) {
           const thrown = thrownWith(document, handBuiltUpdateOf(document, SIGNER_ID));
           expectMethodRefused(thrown, 'publicKeyMultibase', `${KEY_MESSAGE}: ${cause.message}`);

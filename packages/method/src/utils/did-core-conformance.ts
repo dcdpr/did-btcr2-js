@@ -55,18 +55,6 @@ const MULTIBASE_ALPHABETS: Record<string, { name: string; pattern: RegExp }> = {
  */
 const JWK_PRIVATE_MEMBERS = ['d', 'p', 'q', 'dp', 'dq', 'qi', 'oth', 'k', 'priv'] as const;
 
-/** The timezone part that an XML Schema `dateTimeStamp` requires: `Z` or an offset. */
-const XSD_TIMEZONE = /(Z|[+-]\d{2}:\d{2})$/;
-
-/**
- * Returns true if the value is an XML Schema 1.1 `dateTimeStamp`: an XML Datetime with a timezone.
- * @param {unknown} value The value to check.
- * @returns {boolean} True if the value is a `dateTimeStamp` string.
- */
-export function isDateTimeStamp(value: unknown): value is string {
-  return typeof value === 'string' && XSD_TIMEZONE.test(value) && DateUtils.isValidXsdDateTime(value);
-}
-
 /**
  * Returns true if the value is a map: a JSON object that is not `null` and not an array.
  * @param {unknown} value The value to check.
@@ -383,7 +371,7 @@ function methodMessage(path: string, method: Record<string, unknown>, check: Che
     return `${path}.secretKeyJwk must not be present: a DID document is public`;
   }
   for(const [name, value] of [['expires', expires], ['revoked', revoked]] as const) {
-    if(value !== undefined && !isDateTimeStamp(value)) {
+    if(value !== undefined && !DateUtils.isValidXsdDateTimeStamp(value)) {
       return `${path}.${name} must be an XML Schema dateTimeStamp: a date and a time with a timezone`;
     }
   }

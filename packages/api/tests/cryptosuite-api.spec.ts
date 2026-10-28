@@ -1,5 +1,7 @@
 import { expect } from 'chai';
+import { KeyManagerError } from '@did-btcr2/common';
 import { BIP340Cryptosuite } from '@did-btcr2/cryptosuite';
+import { SchnorrKeyPair } from '@did-btcr2/keypair';
 import { CryptosuiteApi, KeyManagerApi, KeyPairApi, MultikeyApi } from '../src/index.js';
 
 /**
@@ -15,6 +17,40 @@ describe('CryptosuiteApi', () => {
     const keyId = kmsApi.generateKey();
     const cs = csApi.createFromKms('#key-1', 'did:btcr2:test', keyId, kmsApi);
     expect(cs).to.be.instanceOf(BIP340Cryptosuite);
+  });
+
+  it('createFromKms() throws KEY_NOT_FOUND if the KMS has no key with the id', () => {
+    const kmsApi = new KeyManagerApi();
+    expect(() => csApi.createFromKms('#k', 'did:btcr2:test', 'urn:kms:secp256k1:nope', kmsApi))
+      .to.throw(KeyManagerError).with.property('type', 'KEY_NOT_FOUND');
+  });
+
+  describe('createFromKms() signs through the KMS signer', () => {
+    const config = {
+      type               : 'DataIntegrityProof' as const,
+      cryptosuite        : 'bip340-jcs-2025',
+      verificationMethod : 'did:btcr2:test#key-1',
+      proofPurpose       : 'assertionMethod'
+    };
+    const document = { id: 'urn:uuid:1', a: 1 };
+
+    it('creates a proof that verifies', () => {
+      const kmsApi = new KeyManagerApi();
+      const cs = csApi.createFromKms('#key-1', 'did:btcr2:test', kmsApi.generateKey(), kmsApi);
+      const proof = cs.createProof(document, config);
+      expect(csApi.verifyProof({ ...document, proof }, cs)).to.deep.equal({ verified: true, verifiedDocument: document });
+    });
+
+    it('verifies with a watch-only key, and createProof throws KEY_NOT_SIGNER', () => {
+      const signing = new KeyManagerApi();
+      const keyId = signing.generateKey();
+      const proof = csApi.createFromKms('#key-1', 'did:btcr2:test', keyId, signing).createProof(document, config);
+      const watching = new KeyManagerApi();
+      const watchId = watching.import(new SchnorrKeyPair({ publicKey: signing.getPublicKey(keyId) }));
+      const cs = csApi.createFromKms('#key-1', 'did:btcr2:test', watchId, watching);
+      expect(cs.verifyProof({ ...document, proof }).verified).to.equal(true);
+      expect(() => cs.createProof(document, config)).to.throw(KeyManagerError).with.property('type', 'KEY_NOT_SIGNER');
+    });
   });
 
   it('create() returns a BIP340Cryptosuite', () => {

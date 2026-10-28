@@ -74,6 +74,20 @@ describe('CryptoApi', () => {
       expect(() => crypto.sign(new Uint8Array([1]))).to.throw('No current multikey set');
     });
 
+    it('signDocument() returns a copy, and verifyDocument() returns the document with no proof', () => {
+      const crypto = new CryptoApi();
+      crypto.activate(crypto.multikey.create('#key-1', 'did:btcr2:test', crypto.keypair.generate()));
+      const document = { id: 'urn:uuid:1', a: 1 };
+      const signed = crypto.signDocument(document, {
+        type               : 'DataIntegrityProof',
+        cryptosuite        : 'bip340-jcs-2025',
+        verificationMethod : 'did:btcr2:test#key-1',
+        proofPurpose       : 'assertionMethod'
+      });
+      expect(document).to.not.have.property('proof');
+      expect(crypto.verifyDocument(signed)).to.deep.equal({ verified: true, verifiedDocument: document });
+    });
+
     it('signDocument() and verifyDocument() round-trip', () => {
       const crypto = new CryptoApi();
       const kp = crypto.keypair.generate();

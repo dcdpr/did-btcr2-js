@@ -124,6 +124,7 @@ export type {
   PatchOpCode,
   PatchOperation,
   Point,
+  ProblemDetails,
   PublicKeyObject,
   SchnorrKeyPairObject,
   SecretKeyObject,
@@ -132,6 +133,7 @@ export type {
 export type {
   BIP340Cryptosuite,
   BIP340DataIntegrityProof,
+  CryptosuiteVerificationResult,
   DataIntegrityProofObject,
   DataIntegrityProofOptions,
   DidParams,

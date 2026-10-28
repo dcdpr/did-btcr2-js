@@ -1,5 +1,6 @@
 import type { Bytes, Entropy, HexString, KeyBytes, SchnorrKeyPairObject, SignatureBytes } from '@did-btcr2/common';
 import type {
+  CryptosuiteVerificationResult,
   DataIntegrityProofObject,
   DataIntegrityProofOptions,
   SecuredDocument,
@@ -121,12 +122,15 @@ export class CryptosuiteApi {
   }
 
   /**
-   * Convenience: resolve a key from the KMS and create a cryptosuite in one step.
+   * Convenience: create a cryptosuite that signs with a key of the KMS. The secret key stays in
+   * the KMS: the cryptosuite signs through the signer of the key (`kms.signer(keyId)`).
    * @param id The multikey ID (e.g. '#initialKey').
    * @param controller The DID that controls this key.
    * @param keyId The KMS key identifier to resolve.
    * @param kms The KeyManagerApi instance holding the key.
    * @returns The created Schnorr cryptosuite.
+   * @throws {KeyManagerError} if the KMS has no key `keyId`. For a watch-only key,
+   *   `createProof` throws `KEY_NOT_SIGNER`; `verifyProof` works.
    */
   createFromKms(
     id: string,
@@ -134,9 +138,7 @@ export class CryptosuiteApi {
     keyId: KeyIdentifier,
     kms: KeyManagerApi
   ): BIP340Cryptosuite {
-    const pubBytes = kms.getPublicKey(keyId);
-    const mk = SchnorrMultikey.fromPublicKey({ id, controller, publicKeyBytes: pubBytes });
-    return new BIP340Cryptosuite(mk as SchnorrMultikey);
+    return new BIP340Cryptosuite(SchnorrMultikey.fromSigner(id, controller, kms.signer(keyId)));
   }
 
   /**
@@ -157,9 +159,9 @@ export class CryptosuiteApi {
    * @param config Configuration for the proof creation.
    * @param cryptosuite Optional explicit cryptosuite; defaults to current.
    * @returns The created proof.
-   * @throws {CryptosuiteError} `PROOF_GENERATION_ERROR` if the proof options or the document
-   *   `@context` have no JCS form (the options are checked first), else
-   *   `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form.
+   * @throws {CryptosuiteError} if the cryptosuite cannot create the proof, for example
+   *   `PROOF_GENERATION_ERROR` for a proof option that breaks a rule of VC Data Integrity
+   *   (see `BIP340Cryptosuite.createProof`).
    */
   createProof(
     document: UnsecuredDocument,
@@ -175,12 +177,12 @@ export class CryptosuiteApi {
    * Uses the current cryptosuite when `cryptosuite` is omitted.
    * @param document The document to verify the proof for.
    * @param cryptosuite Optional explicit cryptosuite; defaults to current.
-   * @returns The full verification result.
-   * @throws {CryptosuiteError} `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form,
-   *   or `PROOF_GENERATION_ERROR` if the proof has no JCS form. The result is then an error,
-   *   not `verified: false`.
+   * @returns The cryptosuite verification result: `verified` and the unsecured document.
+   * @throws {CryptosuiteError} if the verification does not complete, for example
+   *   `PROOF_VERIFICATION_ERROR` for a proof member that breaks a rule of VC Data Integrity
+   *   (see `BIP340Cryptosuite.verifyProof`). The result is then an error, not `verified: false`.
    */
-  verifyProof(document: SecuredDocument, cryptosuite?: BIP340Cryptosuite): VerificationResult {
+  verifyProof(document: SecuredDocument, cryptosuite?: BIP340Cryptosuite): CryptosuiteVerificationResult {
     const cs = cryptosuite ?? this.#requireCurrent();
     return cs.verifyProof(document);
   }
@@ -242,9 +244,10 @@ export class DataIntegrityProofApi {
    * @param config Configuration for adding the proof.
    * @param proof Optional explicit proof instance; defaults to current.
    * @returns A document with a proof added.
-   * @throws {CryptosuiteError} `PROOF_GENERATION_ERROR` if the proof options or the document
-   *   `@context` have no JCS form (the options are checked first), else
-   *   `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form.
+   * @throws {DataIntegrityProofError} `PROOF_GENERATION_ERROR` if the document has a `proof` or
+   *   the options have a `previousProof`: this suite adds one proof.
+   * @throws {CryptosuiteError} if the cryptosuite cannot create the proof (see
+   *   `BIP340Cryptosuite.createProof`).
    */
   addProof<T extends UnsecuredDocument>(
     document: T,
@@ -262,9 +265,10 @@ export class DataIntegrityProofApi {
    * @param document The unsigned document to sign.
    * @param config The Data Integrity proof configuration.
    * @returns The signed document with proof attached.
-   * @throws {CryptosuiteError} `PROOF_GENERATION_ERROR` if the proof options or the document
-   *   `@context` have no JCS form (the options are checked first), else
-   *   `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form.
+   * @throws {DataIntegrityProofError} `PROOF_GENERATION_ERROR` if the document has a `proof` or
+   *   the options have a `previousProof`: this suite adds one proof.
+   * @throws {CryptosuiteError} if the cryptosuite cannot create the proof (see
+   *   `BIP340Cryptosuite.createProof`).
    */
   signDocument<T extends UnsecuredDocument>(
     multikey: SchnorrMultikey,
@@ -279,22 +283,24 @@ export class DataIntegrityProofApi {
   /**
    * Verify a proof using a BIP340DataIntegrityProof instance.
    * Uses the current proof instance when `proof` is omitted.
-   * @param document The document to verify the proof for.
-   * @param expectedPurpose The expected proof purpose.
+   * @param document The JSON text of the secured document.
+   * @param expectedPurpose The expected proof purpose, if given.
    * @param mediaType The media type of the document.
-   * @param expectedDomain The expected domain for the proof.
-   * @param expectedChallenge The expected challenge for the proof.
+   * @param expectedDomain The expected domain for the proof, if given: one string or a list.
+   * @param expectedChallenge The expected challenge for the proof, if given.
    * @param proof Optional explicit proof instance; defaults to current.
-   * @returns The result of verifying the proof.
-   * @throws {CryptosuiteError} `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form,
-   *   or `PROOF_GENERATION_ERROR` if the proof has no JCS form. The result is then an error,
-   *   not `verified: false`.
+   * @returns The result of VC Data Integrity, Verify Proof. A failed check (for example a
+   *   purpose, a domain, or a challenge that does not match) gives `verified: false` and one
+   *   ProblemDetails in `errors`.
+   * @throws {DataIntegrityProofError} `PARSING_ERROR` if `document` is not JSON text.
+   * @throws {CryptosuiteError} if the cryptosuite verification does not complete (see
+   *   `BIP340Cryptosuite.verifyProof`).
    */
   verifyProof(
     document: string,
-    expectedPurpose: string,
+    expectedPurpose?: string,
     mediaType?: string,
-    expectedDomain?: string,
+    expectedDomain?: string | string[],
     expectedChallenge?: string,
     proof?: BIP340DataIntegrityProof,
   ): VerificationResult {
@@ -537,9 +543,10 @@ export class CryptoApi {
    * @param document The unsecured document to sign (any JSON object).
    * @param config The Data Integrity proof options.
    * @returns The secured document with proof attached.
-   * @throws {CryptosuiteError} `PROOF_GENERATION_ERROR` if the proof options or the document
-   *   `@context` have no JCS form (the options are checked first), else
-   *   `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form.
+   * @throws {DataIntegrityProofError} `PROOF_GENERATION_ERROR` if the document has a `proof` or
+   *   the options have a `previousProof`: this suite adds one proof.
+   * @throws {CryptosuiteError} if the cryptosuite cannot create the proof (see
+   *   `BIP340Cryptosuite.createProof`).
    */
   signDocument<T extends UnsecuredDocument>(document: T, config: DataIntegrityProofOptions): SecuredDocument<T> {
     return this.proof.addProof(document, config);
@@ -549,12 +556,11 @@ export class CryptoApi {
    * Verify a secured document using the current cryptosuite.
    * Shorthand for `crypto.cryptosuite.verifyProof(document)`.
    * @param document The secured document to verify.
-   * @returns The full verification result.
-   * @throws {CryptosuiteError} `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form,
-   *   or `PROOF_GENERATION_ERROR` if the proof has no JCS form. The result is then an error,
-   *   not `verified: false`.
+   * @returns The cryptosuite verification result: `verified` and the unsecured document.
+   * @throws {CryptosuiteError} if the verification does not complete (see
+   *   `BIP340Cryptosuite.verifyProof`). The result is then an error, not `verified: false`.
    */
-  verifyDocument(document: SecuredDocument): VerificationResult {
+  verifyDocument(document: SecuredDocument): CryptosuiteVerificationResult {
     return this.cryptosuite.verifyProof(document);
   }
 }

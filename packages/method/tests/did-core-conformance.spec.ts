@@ -1,10 +1,10 @@
-import { canonicalHashBytes, DidDocumentError, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/common';
+import { canonicalHashBytes, DateUtils, DidDocumentError, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/common';
 import type { PatchOperation } from '@did-btcr2/common';
 import { expect } from 'chai';
 import { Identifier } from '../src/core/identifier.js';
 import { Updater } from '../src/core/updater.js';
 import { DidBtcr2 } from '../src/did-btcr2.js';
-import { didCoreProblem, isDateTimeStamp, NOT_A_JSON_OBJECT } from '../src/utils/did-core-conformance.js';
+import { didCoreProblem, NOT_A_JSON_OBJECT } from '../src/utils/did-core-conformance.js';
 import type { Btcr2DidDocument, DidDocumentLike } from '../src/utils/did-document.js';
 import { DidDocument, GenesisDocument } from '../src/utils/did-document.js';
 import type { DocumentChange } from './data/did-core-cases.js';
@@ -123,16 +123,16 @@ describe('DID Core v1.1 member rules', () => {
     });
   });
 
-  describe('isDateTimeStamp', () => {
+  describe('DateUtils.isValidXsdDateTimeStamp (the expires and revoked check)', () => {
     for(const value of ['2030-01-01T00:00:00Z', '2030-01-01T00:00:00.123-05:00', '-0044-03-15T12:00:00+01:00', '2028-02-29T23:59:59Z']) {
       it(`accepts ${value}`, () => {
-        expect(isDateTimeStamp(value)).to.equal(true);
+        expect(DateUtils.isValidXsdDateTimeStamp(value)).to.equal(true);
       });
     }
 
     for(const value of ['2030-01-01T00:00:00', '2030-01-01', '2030-01-01 00:00:00Z', '2027-02-29T00:00:00Z', '2030-13-01T00:00:00Z', '', 1893456000, null, undefined]) {
       it(`refuses ${JSON.stringify(value)}`, () => {
-        expect(isDateTimeStamp(value)).to.equal(false);
+        expect(DateUtils.isValidXsdDateTimeStamp(value)).to.equal(false);
       });
     }
   });
