@@ -8,7 +8,7 @@ import {
   canonicalize,
   CryptosuiteError,
   DateUtils,
-  MethodError,
+  PARSING_ERROR,
   PROOF_GENERATION_ERROR,
   PROOF_SERIALIZATION_ERROR,
   PROOF_TRANSFORMATION_ERROR,
@@ -20,7 +20,14 @@ import { base58btc } from 'multiformats/bases/base58';
 import { BIP340DataIntegrityProof } from '../data-integrity-proof/index.js';
 import type { DataIntegrityProofObject, DataIntegrityProofOptions, SecuredDocument, UnsecuredDocument } from '../data-integrity-proof/interface.js';
 import type { SchnorrMultikey } from '../multikey/index.js';
-import type { Cryptosuite, VerificationResult } from './interface.js';
+import type { Cryptosuite, CryptosuiteVerificationResult } from './interface.js';
+import {
+  contextStartsWith,
+  decodeProofValue,
+  isMap,
+  proofOptionsProblem,
+  securedProofProblem
+} from './proof-checks.js';
 
 /**
  * Non-sensitive description of a cryptosuite, attached to error `data` in place
@@ -89,82 +96,148 @@ export class BIP340Cryptosuite implements Cryptosuite {
   }
 
   /**
-   * Create a proof for an insecure document.
-   * @param {DidUpdatePayload} document The document to create a proof for.
-   * @param {DataIntegrityProofOptions} config The options to use when creating the proof.
-   * @returns {DataIntegrityProofObject} The proof for the document.
-   * @throws {CryptosuiteError} `PROOF_GENERATION_ERROR` if the proof options or the document
-   * `@context` have no JCS form: the options get the document `@context` and are checked first.
+   * Create a proof for an unsecured document: the Create Proof algorithm of the bip340-jcs-2025
+   * suite. The function does not change `document` or `config`.
+   *
+   * Before the algorithm, the function checks the proof members of VC Data Integrity, Proofs. A
+   * `domain` array must not have a repeated string: a domain is "an unordered set of strings". As
+   * a safeguard (VC Data Integrity, Algorithms), the function also refuses a proof that can never
+   * verify: proof options with an `@context` for a document with no `@context`, and proof options
+   * with a `proofValue`.
+   * @param {UnsecuredDocument} document The document to create a proof for.
+   * @param {DataIntegrityProofOptions} config The proof options.
+   * @returns {DataIntegrityProofObject} The proof: a copy of the options with the document
+   * `@context` and the `proofValue`.
+   * @throws {CryptosuiteError} `PROOF_GENERATION_ERROR` if the document is not a map, if the
+   * options have a `proofValue`, if a proof member breaks a rule, if the options have an
+   * `@context` and the document has none, if the options or the document `@context` have no JCS
+   * form, or if the signer does not give 64 bytes.
    * Else `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form (see
    * {@link BIP340Cryptosuite.proofConfiguration} and {@link BIP340Cryptosuite.transformDocument}).
+   * Else `PROOF_SERIALIZATION_ERROR` if `verificationMethod` is not the id of the multikey.
    */
   createProof(
     document: UnsecuredDocument,
     config: DataIntegrityProofOptions
   ): DataIntegrityProofObject {
-    // Set the context using the document context or the existing config context
-    config['@context'] = (document['@context'] as string | string[] | undefined) ?? config['@context'];
+    if(!isMap(document)) {
+      throw new CryptosuiteError(
+        'Invalid document: the document must be a JSON object.',
+        PROOF_GENERATION_ERROR
+      );
+    }
 
-    // Create a canonical form of the proof configuration
-    const canonicalConfig = this.proofConfiguration(config);
+    // Step 1: the proof is a copy of the proof options. Proof Configuration signs the copy with a
+    // proofValue of the options, and Verify Proof step 2 removes it, so the proof never verifies.
+    const proof: Record<string, unknown> = { ...config };
+    if(proof.proofValue !== undefined) {
+      throw new CryptosuiteError(
+        'Invalid proof options: "proofValue" must not be present: Create Proof adds the proofValue.',
+        PROOF_GENERATION_ERROR, { proofValue: proof.proofValue }
+      );
+    }
 
-    // Transform the document into a canonical form
-    const canonicalDocument = this.transformDocument(document, config);
+    // Step 2: the proof gets the document @context. Verify Proof step 4 fails for a proof
+    // @context that the document does not start with, so a proof @context alone is refused.
+    const documentContext = document['@context'];
+    if(documentContext !== undefined) {
+      proof['@context'] = Array.isArray(documentContext) ? [...documentContext] : documentContext;
+    } else if(proof['@context'] !== undefined) {
+      throw new CryptosuiteError(
+        'Invalid proof options: "@context" needs a document @context that starts with it.',
+        PROOF_GENERATION_ERROR, { '@context': proof['@context'] }
+      );
+    }
 
-    // Generate a hash of the canonical proof configuration and canonical document
-    const hash = this.generateHash(canonicalConfig, canonicalDocument);
+    const problem = proofOptionsProblem(proof);
+    if(problem !== undefined) {
+      throw new CryptosuiteError(
+        `Invalid proof options: "${problem.member}" must be ${problem.rule}.`,
+        PROOF_GENERATION_ERROR, { [problem.member]: proof[problem.member] }
+      );
+    }
 
-    // Serialize the proof
-    const serialized = this.proofSerialization(hash, config);
+    // Steps 3 to 6.
+    const proofConfig = this.proofConfiguration(proof as DataIntegrityProofOptions);
+    const transformedData = this.transformDocument(document, config);
+    const hashData = this.generateHash(proofConfig, transformedData);
+    const proofBytes = this.proofSerialization(hashData, config);
+    if(proofBytes.length !== 64) {
+      throw new CryptosuiteError(
+        `Invalid signature: the signer returned ${proofBytes.length} bytes; a BIP340 signature has 64 bytes.`,
+        PROOF_GENERATION_ERROR, { length: proofBytes.length }
+      );
+    }
 
-    // Cast the config to a data integrity proof object
-    const proof = config as DataIntegrityProofObject;
-
-    // Encode the proof bytes to base58btc
-    proof.proofValue = base58btc.encode(serialized);
-
-    // Set the proof cryptosuite
-    proof.cryptosuite = this.cryptosuite;
-
-    // Set the proof type
-    proof.type = this.type;
-
-    // Return the proof
-    return proof;
+    // Steps 7 and 8.
+    proof.proofValue = base58btc.encode(proofBytes);
+    return proof as DataIntegrityProofObject;
   }
 
   /**
-   * Verify a proof for a secure document.
-   * @param {SecuredDocument} secureDocument The secured document to verify.
-   * @returns {VerificationResult} The result of the verification.
-   * @throws {CryptosuiteError} `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form, or
-   * `PROOF_GENERATION_ERROR` if the proof options have no JCS form. The verification does not
-   * complete, so the result is an error and not `verified: false` (VC Data Integrity, section 3).
+   * Verify the proof of a secured document: the Verify Proof algorithm of the bip340-jcs-2025
+   * suite. The function does not change `securedDocument`.
+   *
+   * Before the algorithm, the function checks the proof members of VC Data Integrity, Proofs. The
+   * function does not verify the proofs that a `previousProof` names.
+   * @param {SecuredDocument} securedDocument The secured document to verify.
+   * @returns {CryptosuiteVerificationResult} `verified` and, if `verified` is true, the unsecured
+   * document; else `verifiedDocument` is `null`. If the document does not start with the proof
+   * `@context` (step 4), `verified` is false.
+   * @throws {CryptosuiteError} `PARSING_ERROR` if the document or its proof is not a map. Else
+   * `PROOF_VERIFICATION_ERROR` if a proof member breaks a rule, if the `proofValue` is not the
+   * base58btc Multibase text of 64 bytes, if the type or the cryptosuite is not the one of this
+   * suite, or if `verificationMethod` is not the id of the multikey. Else
+   * `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form, or `PROOF_GENERATION_ERROR` if
+   * `created` is not an XML Schema `dateTime` or the proof options have no JCS form. The
+   * verification does not complete, so the result is an error and not `verified: false` (VC Data
+   * Integrity, Cryptographic Suites).
    */
-  verifyProof(secureDocument: SecuredDocument): VerificationResult {
-    // Destructure the proof from the secure document and create an unsecured document without the proof
-    const { proof, ...unsecureDocument } = secureDocument;
+  verifyProof(securedDocument: SecuredDocument): CryptosuiteVerificationResult {
+    if(!isMap(securedDocument) || !isMap(securedDocument.proof)) {
+      throw new CryptosuiteError(
+        'Invalid secured document: the document and its proof must be JSON objects.',
+        PARSING_ERROR
+      );
+    }
 
-    // Destructure the proofValue from the proof and create a config without the proofValue
-    const { proofValue, ...config } = proof;
+    // Steps 1 and 2: copies without the proof and without the proofValue.
+    const { proof, ...unsecuredDocument } = securedDocument;
+    const { proofValue, ...proofOptions } = proof;
 
-    // Transform the newly unsecured document to canonical form
-    const canonicalDocument = this.transformDocument(unsecureDocument, config);
+    const problem = securedProofProblem(proofOptions);
+    if(problem !== undefined) {
+      throw new CryptosuiteError(
+        `Invalid proof: "${problem.member}" must be ${problem.rule}.`,
+        PROOF_VERIFICATION_ERROR, { [problem.member]: proofOptions[problem.member] }
+      );
+    }
 
-    // Canonicalize the proof options to create a proof configuration
-    const canonicalConfig = this.proofConfiguration(config);
+    // Step 3.
+    const proofBytes = decodeProofValue(proofValue);
+    if(proofBytes === undefined) {
+      throw new CryptosuiteError(
+        'Invalid proofValue: not the base58btc Multibase encoding of a 64-byte BIP340 signature.',
+        PROOF_VERIFICATION_ERROR, { proofValue }
+      );
+    }
 
-    // Generate a hash of the canonical insecured document and the canonical proof configuration
-    const hash = this.generateHash(canonicalConfig, canonicalDocument);
+    // Step 4.
+    if(proofOptions['@context'] !== undefined) {
+      if(!contextStartsWith(securedDocument['@context'], proofOptions['@context'])) {
+        return { verified: false, verifiedDocument: null };
+      }
+      unsecuredDocument['@context'] = proofOptions['@context'];
+    }
 
-    // Decode the secure document proofValue from base58btc to bytes
-    const signature = base58btc.decode(secureDocument.proof.proofValue);
+    // Steps 5 to 8.
+    const transformedData = this.transformDocument(unsecuredDocument, proofOptions);
+    const proofConfig = this.proofConfiguration(proofOptions);
+    const hashData = this.generateHash(proofConfig, transformedData);
+    const verified = this.proofVerification(hashData, proofBytes, proofOptions);
 
-    // Verify the hashed data against the proof bytes
-    const verified = this.proofVerification(hash, signature, config);
-
-    // Return the verification resul
-    return { verified, verifiedDocument: verified ? secureDocument : undefined };
+    // Step 9.
+    return { verified, verifiedDocument: verified ? unsecuredDocument : null };
   }
 
   /**
@@ -172,8 +245,8 @@ export class BIP340Cryptosuite implements Cryptosuite {
    * @param {UnsecuredDocument} document The document to transform.
    * @param {DataIntegrityProofOptions} config The config to use when transforming the document.
    * @returns {string} The canonicalized document.
-   * @throws {MethodError} `PROOF_VERIFICATION_ERROR` if the type or the cryptosuite of the config
-   * is not the one of this suite.
+   * @throws {CryptosuiteError} `PROOF_VERIFICATION_ERROR` if the type or the cryptosuite of the
+   * config is not the one of this suite.
    * @throws {CryptosuiteError} `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form, for
    * example if it holds a lone surrogate or NaN. `data.cause` gives the type and the message of the
    * CanonicalizationError.
@@ -181,7 +254,7 @@ export class BIP340Cryptosuite implements Cryptosuite {
   transformDocument(document: UnsecuredDocument, config: DataIntegrityProofOptions): string {
     // Get the type from the options and check if it matches this type
     if (config.type !== this.type) {
-      throw new MethodError(
+      throw new CryptosuiteError(
         'Type mismatch: config.type !== this.type',
         PROOF_VERIFICATION_ERROR, {config, suite: this.#suiteContext()}
       );
@@ -189,7 +262,7 @@ export class BIP340Cryptosuite implements Cryptosuite {
 
     // Get the cryptosuite from the options and if it matches this cryptosuite
     if (config.cryptosuite !== this.cryptosuite) {
-      throw new MethodError(
+      throw new CryptosuiteError(
         'Cryptosuite mismatch: config.cryptosuite !== this.cryptosuite',
         PROOF_VERIFICATION_ERROR, {config, suite: this.#suiteContext()}
       );
@@ -233,7 +306,7 @@ export class BIP340Cryptosuite implements Cryptosuite {
    * @param {DataIntegrityProofOptions} config The config to use when transforming the proof.
    * @returns {string} The canonicalized proof configuration.
    * @throws {CryptosuiteError} `PROOF_GENERATION_ERROR` if the type or the cryptosuite of the config
-   * is not the one of this suite, if `created` is not a valid XMLSchema DateTime, or if the config
+   * is not the one of this suite, if `created` is set and is not an XML Schema `dateTime`, or if the config
    * has no JCS form. For no JCS form, `data.cause` gives the type and the message of the
    * CanonicalizationError.
    */
@@ -254,14 +327,12 @@ export class BIP340Cryptosuite implements Cryptosuite {
       );
     }
 
-    // Check if config.created is defined
-    if(config.created) {
-      // Check if config.created is a valid XMLSchema DateTime string, if not throw CryptosuiteError
-      if(!DateUtils.isValidXsdDateTime(config.created))
-        throw new CryptosuiteError(
-          'Invalid config: "created" must be a valid XMLSchema DateTime string',
-          PROOF_GENERATION_ERROR, config
-        );
+    // Step 3: a created value that is set must be an XML Schema dateTime (also '' and 5).
+    if(config.created !== undefined && !DateUtils.isValidXsdDateTime(config.created)) {
+      throw new CryptosuiteError(
+        'Invalid config: "created" must be a valid XMLSchema DateTime string',
+        PROOF_GENERATION_ERROR, { created: config.created }
+      );
     }
 
     // The other steps of "Proof Configuration" raise PROOF_GENERATION_ERROR; its JCS step does too.

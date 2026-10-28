@@ -18,8 +18,17 @@ import {
   SingletonBeaconError,
   UpdateError
 } from '../src/index.js';
+import * as common from '../src/index.js';
 
 describe('errors', () => {
+  it('exports the VC Data Integrity error codes as constants', () => {
+    expect(common.PARSING_ERROR).to.equal('PARSING_ERROR');
+    expect(common.INVALID_CHALLENGE_ERROR).to.equal('INVALID_CHALLENGE_ERROR');
+    expect(common.INVALID_DOMAIN_ERROR).to.equal('INVALID_DOMAIN_ERROR');
+    expect(common.MethodErrorCode.PARSING_ERROR).to.equal('PARSING_ERROR');
+    expect('PROOF_PARSING_ERROR' in common.MethodErrorCode).to.equal(false);
+  });
+
   it('sets name/type and preserves data', () => {
     const err = new DidMethodError('msg', { type: 'CustomType', name: 'CustomName', data: { foo: 'bar' } });
     expect(err.name).to.equal('CustomName');

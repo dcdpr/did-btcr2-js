@@ -42,10 +42,18 @@ export interface DataIntegrityProofOptions {
   /** The reason the proof was created, e.g. `"assertionMethod"` or `"capabilityInvocation"`. */
   proofPurpose: string;
 
-  /** The date and time the proof was created (XML Schema dateTime). */
+  /**
+   * The creation time of the proof: an XML Schema `dateTimeStamp` (a `dateTime` with a
+   * timezone). `createProof` and `addProof` refuse a value with no timezone. When the suite
+   * verifies a proof, the Proof Configuration step needs only an XML Schema `dateTime`.
+   */
   created?: string;
 
-  /** The date and time the proof expires (XML Schema dateTime). */
+  /**
+   * The time when the proof expires: an XML Schema `dateTimeStamp` (a `dateTime` with a
+   * timezone). `createProof` and `addProof` refuse a value with no timezone. When the suite
+   * verifies a proof, it needs only an XML Schema `dateTime`.
+   */
   expires?: string;
 
   /** One or more security domains in which the proof is meant to be used. */
@@ -82,24 +90,24 @@ export interface DataIntegrityProof {
    * Add a Data Integrity proof to a document, returning the secured document.
    * @param {object} document The unsecured document to add the proof to.
    * @param {DataIntegrityProofOptions} options The proof options to use when generating the proof.
-   * @returns {SecuredDocument} The document with a `proof` attached.
+   * @returns {SecuredDocument} A copy of the document with a `proof`.
    */
   addProof<T extends UnsecuredDocument>(document: T, options: DataIntegrityProofOptions): SecuredDocument<T>;
 
   /**
    * Verify the proof on a secured document.
    * @param {string} document The stringified secured document to verify.
-   * @param {string} expectedPurpose The expected proof purpose.
+   * @param {string} expectedPurpose The expected proof purpose, if given.
    * @param {string} mediaType The media type of the document.
-   * @param {string[]} expectedDomain The expected proof domain.
+   * @param {string | string[]} expectedDomain The expected proof domain.
    * @param {string} expectedChallenge The expected proof challenge.
    * @returns {VerificationResult} The result of verifying the proof.
    */
   verifyProof(
     document: string,
-    expectedPurpose: string,
+    expectedPurpose?: string,
     mediaType?: string,
-    expectedDomain?: string[],
+    expectedDomain?: string | string[],
     expectedChallenge?: string,
   ): VerificationResult;
 }

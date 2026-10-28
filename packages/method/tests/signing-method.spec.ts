@@ -1,4 +1,4 @@
-import { VERIFICATION_METHOD_ERROR } from '@did-btcr2/common';
+import { MethodError, VERIFICATION_METHOD_ERROR } from '@did-btcr2/common';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { base58, hex } from '@scure/base';
@@ -141,17 +141,17 @@ describe('signingMethodProblem', () => {
     expect(method.publicKeyMultibase).to.equal(z(new Uint8Array([ 0xe7, 0x01, ...publicKey ])));
     const problem = signingMethodProblem({ ...method, publicKeyMultibase }, did);
     expect(problem).to.deep.include({ field: 'publicKeyMultibase', message: KEY_MESSAGE });
-    expect(problem!.cause!.type).to.equal('Error');
-    expect(problem!.cause!.message).to.match(/prefixed with z/);
+    expect(problem!.cause!.type).to.equal(VERIFICATION_METHOD_ERROR);
+    expect(problem!.cause!.message).to.match(/^Invalid publicKeyMultibase: .*prefixed with z/);
   });
 
   it('names the key with the canonical-text cause for other text that the decoder reads as the same key', () => {
     for(const prefix of [ 0x02, 0x03 ] as const) {
       const { did, method } = keyTemplate(prefix);
       for(const publicKeyMultibase of otherText(method.publicKeyMultibase!)) {
-        // The decoder reads the text as the template key, so only the text comparison refuses it.
-        const decoded = SchnorrMultikey.fromVerificationMethod({ ...method, publicKeyMultibase });
-        expect(decoded.publicKey.multibase.encoded, publicKeyMultibase).to.equal(method.publicKeyMultibase);
+        // The multikey refuses the text, and its error is the cause.
+        expect(() => SchnorrMultikey.fromVerificationMethod({ ...method, publicKeyMultibase }), publicKeyMultibase)
+          .to.throw(NOT_CANONICAL.message);
         expectKeyProblem(signingMethodProblem({ ...method, publicKeyMultibase }, did), NOT_CANONICAL);
       }
     }
@@ -164,21 +164,20 @@ describe('signingMethodProblem', () => {
     expect(signingMethodProblem({ ...method, publicKeyMultibase: canonical }, did)).to.equal(undefined);
   });
 
-  it('compares the whole text with the base58btc text of the key, not only the prefix', () => {
-    // The decoder accepts other text only before the first base58 digit, so no such text
-    // keeps the zQ3s prefix. This test replaces the decoder with one that also reads a
-    // changed last character as the template key.
+  it('names each error of the multikey as the cause, and gives no problem if the multikey accepts the key', () => {
+    // This test replaces the multikey decoder with one that refuses a changed last character
+    // with a given error, and accepts the text of the template key.
     const { did, method } = keyTemplate(0x02);
     const canonical = method.publicKeyMultibase!;
     const changed = `${canonical.slice(0, -1)}${canonical.endsWith('2') ? '3' : '2'}`;
+    const cause = { type: 'TEST_ERROR', message: 'Invalid key: a test refusal' };
     const original = SchnorrMultikey.fromVerificationMethod;
-    SchnorrMultikey.fromVerificationMethod = (vm) => original.call(SchnorrMultikey, {
-      ...vm,
-      publicKeyMultibase : vm.publicKeyMultibase === changed ? canonical : vm.publicKeyMultibase
-    });
+    SchnorrMultikey.fromVerificationMethod = (vm) => {
+      if(vm.publicKeyMultibase === changed) throw new MethodError(cause.message, cause.type);
+      return original.call(SchnorrMultikey, vm);
+    };
     try {
-      expect(SchnorrMultikey.fromVerificationMethod({ ...method, publicKeyMultibase: changed }).publicKey.multibase.encoded).to.equal(canonical);
-      expectKeyProblem(signingMethodProblem({ ...method, publicKeyMultibase: changed }, did), NOT_CANONICAL);
+      expectKeyProblem(signingMethodProblem({ ...method, publicKeyMultibase: changed }, did), cause);
       expect(signingMethodProblem(method, did)).to.equal(undefined);
     } finally {
       SchnorrMultikey.fromVerificationMethod = original;

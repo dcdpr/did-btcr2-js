@@ -35,6 +35,11 @@ If you're integrating did:btcr2 into an app, start here. If you're customizing t
 - **`api.smt.build(entries)`** builds the Sparse Merkle Tree of one SMT beacon signal and gives its root and the proof of each DID. **`api.smt.verify(proof, did)`** verifies an SMT proof.
 - **`announce.feeRate`** sets a fixed fee rate of the beacon transaction in sats/vB. `announce.feeEstimator` takes your own `FeeEstimator`. Set one of the two, not both.
 - **`api.crypto.keypair.fromPublicKey(bytes)`** makes a watch-only key pair for `api.kms.import`.
+- **`api.crypto`** makes and verifies `bip340-jcs-2025` Data Integrity proofs, with the rules of the cryptosuite README (ADR 158).
+  - `crypto.cryptosuite.createFromKms(id, controller, keyId, kms)` signs through `kms.signer(keyId)`, so the secret key stays in the KMS. For a watch-only key, `createProof` fails with `KEY_NOT_SIGNER`.
+  - `crypto.signDocument`, `crypto.proof.addProof`, and `crypto.proof.signDocument` return a copy of the document with the proof. They do not change their inputs. They refuse a document that has a `proof`, and options with a `previousProof`.
+  - `crypto.verifyDocument` and `crypto.cryptosuite.verifyProof` return a `CryptosuiteVerificationResult`: `verified`, and the document without its proof (else `null`). A malformed proof gives a `CryptosuiteError`, not `verified: false`.
+  - `crypto.proof.verifyProof(text, expectedPurpose?, mediaType?, expectedDomain?, expectedChallenge?)` returns a `VerificationResult`. A failed check, for example a purpose that does not match, gives `verified: false` and one `ProblemDetails` in `errors`. A signature that does not verify gives `verified: false` and an empty `errors` array. `expectedDomain` is one string or an array of strings.
 - **`api.did.validate(did, { genesisBytes?, genesisDocument? })`** returns a conformance report of an identifier: the checks of the decoding algorithm in run order, `valid`, and the failed check with its detail. `genesisBytes` adds the check that the identifier encodes these bytes. It does not throw on an invalid identifier. `api.did.decode(did)` returns `DidComponents`, with the Bech32m `hrp`, and refuses an uppercase id and a custom network.
 - **`minConf`** on `ResolutionOptions` sets the confirmations a beacon signal needs before resolution applies it. Default `6` (`DEFAULT_MIN_CONF`), the specification value. Pass `{ minConf: 1 }` to see a fresh update after one block. `updateDid` and `deactivateDid` inherit it through `options.resolutionOptions`.
 - **`versionId`** and **`versionTime`** on `ResolutionOptions` select a version, as the specification defines them. The two options are mutually exclusive. `versionId` is an ASCII string of an integer. The versions start at `"1"`, the genesis document.
@@ -116,6 +121,7 @@ The api is the one entry point of the implementation (ADR 132). It exports no cl
 | SMT | `SmtEntry`, `SmtTree`, `SMTProof` |
 | Identifier validation | `DidComponents`, `IdentifierReport`, `IdentifierCheck`, `IdentifierCheckName`, `IdentifierValidateOptions` |
 | Message signatures | `SignedMessage`, `SignMessageOptions`, `MessageReport`, `MessageCheck`, `MessageCheckName` |
+| Data Integrity proofs | `DataIntegrityProofOptions`, `SecuredDocument`, `CryptosuiteVerificationResult`, `VerificationResult`, `ProblemDetails` |
 
 ## Quick Start
 
@@ -286,7 +292,7 @@ In this README, a method that agrees with these conditions is a method that "can
 | The method does not agree with condition 2, 3, or 4. `data.field` names the field. | `Invalid update: verificationMethod.type must equal "Multikey"`, and the same form for `controller` and `publicKeyMultibase` |
 | The key of the signer is not the key of the method. | `Signing key does not match verification method "<id>": ...` |
 | The public key of the signer is not a valid secp256k1 public key. | `Invalid signer: <message>` |
-| The signer or its key manager fails, for example with a watch-only key. `data.cause` holds the type and the message of the inner error, for example `KEY_NOT_SIGNER`. | `Invalid update: cannot make the proof with "<id>": <message>` |
+| The signer or its key manager fails, for example with a watch-only key. A signature that does not have 64 bytes also fails here. `data.cause` holds the type and the message of the inner error, for example `KEY_NOT_SIGNER` or `PROOF_GENERATION_ERROR`. | `Invalid update: cannot make the proof with "<id>": <message>` |
 | The proof does not verify with the key of the method. | `Invalid update: the proof does not verify with the public key of "<id>"` |
 | The patch fails to apply, or the patched document changes the `id` or does not conform to DID Core. | `Invalid patch: ...`, `Patches must not change the DID document id ...`, or `Error validating targetDocument: ...` |
 | `source.versionId` is not an integer of 1 or more (`constructUpdate`, `signUpdate`). | `Invalid sourceVersionId: expected an integer of 1 or more.` |

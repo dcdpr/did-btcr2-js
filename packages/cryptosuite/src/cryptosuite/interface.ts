@@ -1,6 +1,7 @@
 import type {
   CanonicalizedProofConfig,
   HashBytes,
+  ProblemDetails,
   SignatureBytes
 } from '@did-btcr2/common';
 import type {
@@ -11,10 +12,33 @@ import type {
 } from '../data-integrity-proof/interface.js';
 import type { SchnorrMultikey } from '../multikey/index.js';
 
+/**
+ * The verification result of a cryptosuite: the result of the Verify Proof algorithm of the
+ * bip340-jcs-2025 suite.
+ */
+export interface CryptosuiteVerificationResult {
+  /** True if the proof verifies. */
+  verified: boolean;
+  /** The unsecured document if `verified` is true; else `null`. */
+  verifiedDocument: UnsecuredDocument | null;
+}
+
+/**
+ * The verification result of the
+ * {@link https://www.w3.org/TR/vc-data-integrity/#verify-proof | VC Data Integrity, Verify Proof}
+ * algorithm.
+ */
 export interface VerificationResult {
-    verified: boolean;
-    verifiedDocument?: SecuredDocument;
-    mediaType?: string;
+  /** True if the proof verifies. */
+  verified: boolean;
+  /** The unsecured document if `verified` is true; else `null`. */
+  verifiedDocument: UnsecuredDocument | null;
+  /** The media type of the document if `verified` is true; else `null`. */
+  mediaType: string | null;
+  /** The warnings of the verification. */
+  warnings: ProblemDetails[];
+  /** The errors of the verification. */
+  errors: ProblemDetails[];
 }
 
 /**
@@ -44,25 +68,28 @@ export interface Cryptosuite {
    * @param {UnsecuredDocument} insecureDocument The document to create a proof for.
    * @param {DataIntegrityProofOptions} config The proof options to use when creating the proof.
    * @returns {DataIntegrityProofObject} The proof for the document.
-   * @throws {CryptosuiteError} if the document or the proof options have no JCS form.
+   * @throws {CryptosuiteError} if the document is not a map, if a proof member breaks a rule, or
+   * if the document or the proof options have no JCS form.
    */
   createProof(insecureDocument: UnsecuredDocument, config: DataIntegrityProofOptions): DataIntegrityProofObject;
 
   /**
    * Verify a proof for a secured document.
    * @param {SecuredDocument} secureDocument The secured document to verify.
-   * @returns {VerificationResult} The result of the verification.
-   * @throws {CryptosuiteError} if the document or the proof options have no JCS form.
+   * @returns {CryptosuiteVerificationResult} The result of the verification.
+   * @throws {CryptosuiteError} if the document or its proof is not a map, if a proof member breaks
+   * a rule, or if the document or the proof options have no JCS form.
    */
-  verifyProof(secureDocument: SecuredDocument): VerificationResult;
+  verifyProof(secureDocument: SecuredDocument): CryptosuiteVerificationResult;
 
   /**
    * Transform a document (secured or unsecured) into canonical form.
    * @param {UnsecuredDocument} document The document to transform.
    * @param {DataIntegrityProofOptions} config The proof options to use when transforming the document.
    * @returns {string} The canonicalized document.
-   * @throws {MethodError} if the type or the cryptosuite of the config is not the one of the suite.
-   * @throws {CryptosuiteError} `PROOF_TRANSFORMATION_ERROR` if the document has no JCS form.
+   * @throws {CryptosuiteError} `PROOF_VERIFICATION_ERROR` if the type or the cryptosuite of the
+   * config is not the one of the suite, or `PROOF_TRANSFORMATION_ERROR` if the document has no JCS
+   * form.
    */
   transformDocument(document: UnsecuredDocument, config: DataIntegrityProofOptions): string;
 

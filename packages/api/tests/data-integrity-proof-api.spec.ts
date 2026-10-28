@@ -77,6 +77,31 @@ describe('DataIntegrityProofApi', () => {
     expect(result).to.have.property('verified');
   });
 
+  it('verifyProof() returns a purpose and a domain failure as a result, and takes a domain list', () => {
+    const mk = mkApi.create('#key-1', 'did:btcr2:test', kpApi.generate());
+    const proofInst = dipApi.create(csApi.create(mk));
+    const serialized = JSON.stringify(dipApi.addProof(makeDocument() as any, makeConfig(), proofInst));
+    const purpose = dipApi.verifyProof(serialized, 'authentication', undefined, undefined, undefined, proofInst);
+    expect(purpose.verified).to.equal(false);
+    expect(purpose.errors.map(e => e.type)).to.deep.equal(['https://w3id.org/security#PROOF_VERIFICATION_ERROR']);
+    const domain = dipApi.verifyProof(serialized, 'assertionMethod', undefined, ['did:btcr2:other'], undefined, proofInst);
+    expect(domain.errors.map(e => e.type)).to.deep.equal(['https://w3id.org/security#INVALID_DOMAIN_ERROR']);
+    const list = dipApi.verifyProof(serialized, 'assertionMethod', 'application/json', ['did:btcr2:test'], undefined, proofInst);
+    expect(list).to.include({ verified: true, mediaType: 'application/json' });
+    expect(list.errors).to.deep.equal([]);
+  });
+
+  it('signDocument() leaves the document and the options unchanged', () => {
+    const mk = mkApi.create('#key-1', 'did:btcr2:test', kpApi.generate());
+    const document = makeDocument();
+    const config = makeConfig();
+    const before = JSON.stringify([document, config]);
+    const signed = dipApi.signDocument(mk, document as any, config);
+    expect(JSON.stringify([document, config])).to.equal(before);
+    expect(signed).to.not.equal(document);
+    expect(signed).to.have.property('proof');
+  });
+
   // --- stateful ---
 
   it('use() sets the current proof instance', () => {

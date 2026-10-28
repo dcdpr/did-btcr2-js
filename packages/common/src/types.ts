@@ -65,6 +65,26 @@ export type DecentralizedIdentifier = string;
 export type Did = DecentralizedIdentifier;
 export type CanonicalizedProofConfig = string;
 export type CryptosuiteName = 'bip340-jcs-2025' | 'bip340-rdfc-2025';
+
+/**
+ * A problem details object of {@link https://www.rfc-editor.org/rfc/rfc9457 | RFC 9457}. VC Data
+ * Integrity uses it for the `errors` and `warnings` of a verification result, with a `type` URL of
+ * the form `https://w3id.org/security#<CODE>`.
+ */
+export type ProblemDetails = {
+  /** The URL of the problem type. */
+  type: string;
+  /** A short text for the problem type. */
+  title?: string;
+  /** The HTTP status code. */
+  status?: number;
+  /** The text of this occurrence of the problem. */
+  detail?: string;
+  /** A URL for this occurrence of the problem. */
+  instance?: string;
+  /** An extension member. */
+  [member: string]: unknown;
+};
 type JsonPrimitive = string | number | boolean | null;
 type JsonArray = JsonValue[];
 type JsonValue = JsonPrimitive | JsonArray | JsonObject;

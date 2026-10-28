@@ -142,8 +142,32 @@ describe('utils/date', () => {
       expect(DateUtils.isValidXsdDateTime('2024-01-15')).to.be.false;
     });
 
-    it('rejects year 0000 (no year zero in XSD)', () => {
-      expect(DateUtils.isValidXsdDateTime('0000-01-15T00:00:00Z')).to.be.false;
+    it('accepts year 0000 (1 BCE in XML Schema 1.1)', () => {
+      expect(DateUtils.isValidXsdDateTime('0000-01-15T00:00:00Z')).to.be.true;
+    });
+
+    it('accepts Feb 29 in year 0000 and year -0004 (leap years)', () => {
+      expect(DateUtils.isValidXsdDateTime('0000-02-29T00:00:00Z')).to.be.true;
+      expect(DateUtils.isValidXsdDateTime('-0004-02-29T00:00:00Z')).to.be.true;
+      expect(DateUtils.isValidXsdDateTime('-0001-02-29T00:00:00Z')).to.be.false;
+    });
+
+    it('uses the last 4 digits of the year text for a leap year', () => {
+      // Number() rounds 9007199254740993 to 9007199254740992, a leap year. The year is odd.
+      expect(DateUtils.isValidXsdDateTime('9007199254740993-02-29T00:00:00Z')).to.be.false;
+      // Number() gives Infinity for this year. 10^400 is a multiple of 400, so it is a leap year.
+      expect(DateUtils.isValidXsdDateTime(`1${'0'.repeat(400)}-02-29T00:00:00Z`)).to.be.true;
+      expect(DateUtils.isValidXsdDateTime('-0004-02-29T00:00:00Z')).to.be.true;
+      expect(DateUtils.isValidXsdDateTime('-0001-02-29T00:00:00Z')).to.be.false;
+    });
+
+    it('rejects a year with more than 4 digits that starts with 0', () => {
+      expect(DateUtils.isValidXsdDateTime('01000-01-15T00:00:00Z')).to.be.false;
+      expect(DateUtils.isValidXsdDateTime('-01000-01-15T00:00:00Z')).to.be.false;
+    });
+
+    it('rejects a year with less than 4 digits', () => {
+      expect(DateUtils.isValidXsdDateTime('999-01-15T00:00:00Z')).to.be.false;
     });
 
     it('rejects month 00', () => {
@@ -204,6 +228,179 @@ describe('utils/date', () => {
 
     it('rejects garbage input', () => {
       expect(DateUtils.isValidXsdDateTime('not-a-date')).to.be.false;
+    });
+
+    it('rejects a fraction other than zeros after 24:00:00', () => {
+      expect(DateUtils.isValidXsdDateTime('2024-01-15T24:00:00.000Z')).to.be.true;
+      expect(DateUtils.isValidXsdDateTime('2024-01-15T24:00:00.5Z')).to.be.false;
+    });
+
+    it('accepts the offsets -00:00 and +13:59', () => {
+      expect(DateUtils.isValidXsdDateTime('2024-01-15T10:30:00-00:00')).to.be.true;
+      expect(DateUtils.isValidXsdDateTime('2024-01-15T10:30:00+13:59')).to.be.true;
+    });
+
+    it('rejects an offset with no colon or one digit', () => {
+      expect(DateUtils.isValidXsdDateTime('2024-01-15T10:30:00+0530')).to.be.false;
+      expect(DateUtils.isValidXsdDateTime('2024-01-15T10:30:00+5:30')).to.be.false;
+    });
+
+    it('rejects a value that is not a string, with no TypeError', () => {
+      for(const value of [5, null, {}, ['2024-01-15T10:30:00Z'], true]) {
+        expect(DateUtils.isValidXsdDateTime(value)).to.be.false;
+      }
+    });
+
+    it('rejects text before or after the dateTime', () => {
+      expect(DateUtils.isValidXsdDateTime(' 2024-01-15T10:30:00Z')).to.be.false;
+      expect(DateUtils.isValidXsdDateTime('2024-01-15T10:30:00Z\n')).to.be.false;
+    });
+  });
+
+  describe('isValidXsdDateTimeStamp', () => {
+    it('accepts a dateTime with Z or an offset', () => {
+      expect(DateUtils.isValidXsdDateTimeStamp('2024-01-15T10:30:00Z')).to.be.true;
+      expect(DateUtils.isValidXsdDateTimeStamp('2024-01-15T10:30:00-08:00')).to.be.true;
+      expect(DateUtils.isValidXsdDateTimeStamp('10000-01-15T10:30:00Z')).to.be.true;
+    });
+
+    it('rejects a dateTime with no timezone', () => {
+      expect(DateUtils.isValidXsdDateTimeStamp('2024-01-15T10:30:00')).to.be.false;
+    });
+
+    it('rejects an invalid dateTime that ends with Z', () => {
+      expect(DateUtils.isValidXsdDateTimeStamp('2023-02-29T00:00:00Z')).to.be.false;
+    });
+
+    it('rejects a value that is not a string', () => {
+      expect(DateUtils.isValidXsdDateTimeStamp(5)).to.be.false;
+      expect(DateUtils.isValidXsdDateTimeStamp(undefined)).to.be.false;
+    });
+  });
+
+  describe('xsdDateTimeToEpochMs', () => {
+    it('gives the Date.parse value for a year 0001 to 9999', () => {
+      for(const value of [
+        '1970-01-01T00:00:00Z',
+        '0001-01-01T00:00:00Z',
+        '9999-12-31T23:59:59.999Z',
+        '2024-02-29T12:34:56.789+05:30',
+        '2026-10-27T08:00:00-14:00',
+        '1969-12-31T23:59:59.5Z'
+      ]) {
+        expect(DateUtils.xsdDateTimeToEpochMs(value)).to.equal(Date.parse(value));
+      }
+    });
+
+    it('gives the instant of a year above 9999, where Date.parse gives NaN', () => {
+      expect(Date.parse('10000-01-01T00:00:00Z')).to.be.NaN;
+      expect(DateUtils.xsdDateTimeToEpochMs('10000-01-01T00:00:00Z')).to.equal(Date.parse('+010000-01-01T00:00:00Z'));
+      expect(DateUtils.xsdDateTimeToEpochMs('10000-01-01T00:00:00Z')).to.equal(253_402_300_800_000);
+    });
+
+    it('gives the instant of a negative year and of year 0000', () => {
+      expect(Date.parse('-0001-01-01T00:00:00Z')).to.be.NaN;
+      expect(DateUtils.xsdDateTimeToEpochMs('-0001-01-01T00:00:00Z')).to.equal(Date.parse('-000001-01-01T00:00:00Z'));
+      expect(DateUtils.xsdDateTimeToEpochMs('0000-03-01T00:00:00Z')).to.equal(Date.parse('0000-03-01T00:00:00Z'));
+    });
+
+    it('reads a value with no timezone as UTC', () => {
+      expect(DateUtils.xsdDateTimeToEpochMs('2024-01-15T10:30:00')).to.equal(Date.parse('2024-01-15T10:30:00Z'));
+    });
+
+    it('reads 24:00:00 as the first instant of the next day', () => {
+      expect(DateUtils.xsdDateTimeToEpochMs('2024-12-31T24:00:00Z')).to.equal(Date.parse('2025-01-01T00:00:00Z'));
+    });
+
+    it('uses only the first 3 digits of a fraction of a second', () => {
+      expect(DateUtils.xsdDateTimeToEpochMs('1970-01-01T00:00:00.0009Z')).to.equal(0);
+      expect(DateUtils.xsdDateTimeToEpochMs('1970-01-01T00:00:00.12Z')).to.equal(120);
+    });
+
+    it('keeps the order of two instants far outside the Date range', () => {
+      // Above Number.MAX_SAFE_INTEGER, two instants can give the same number, but a later
+      // instant never gives a smaller number.
+      const late = DateUtils.xsdDateTimeToEpochMs('100000000-01-01T00:00:00Z') as number;
+      const early = DateUtils.xsdDateTimeToEpochMs('99999999-12-31T23:59:59Z') as number;
+      expect(late).to.be.at.least(early);
+      expect(early).to.be.greaterThan(Number.MAX_SAFE_INTEGER);
+    });
+
+    it('never gives a smaller number for a later instant (the BigInt value is rounded once)', () => {
+      // A sum of rounded numbers gave 100000000002-12-31T23:59:59.999Z a larger number than
+      // 100000000003-01-01T00:00:00.000Z.
+      const early = DateUtils.xsdDateTimeToEpochMs('100000000002-12-31T23:59:59.999Z') as number;
+      const late = DateUtils.xsdDateTimeToEpochMs('100000000003-01-01T00:00:00.000Z') as number;
+      expect(early).to.be.at.most(late);
+      expect(DateUtils.xsdDateTimeToEpochMs('-100000000003-01-01T00:00:00.000Z')).to.be.at.most(
+        DateUtils.xsdDateTimeToEpochMs('-100000000002-12-31T23:59:59.999Z') as number
+      );
+    });
+
+    it('gives Infinity or -Infinity for a year with more than 400 digits', () => {
+      expect(DateUtils.xsdDateTimeToEpochMs(`1${'0'.repeat(400)}-01-01T00:00:00Z`)).to.equal(Infinity);
+      expect(DateUtils.xsdDateTimeToEpochMs(`-1${'0'.repeat(400)}-01-01T00:00:00Z`)).to.equal(-Infinity);
+    });
+
+    it('gives undefined for a value that is not a valid dateTime', () => {
+      for(const value of [undefined, 5, '', '2023-02-29T00:00:00Z', '01000-01-01T00:00:00Z']) {
+        expect(DateUtils.xsdDateTimeToEpochMs(value)).to.equal(undefined);
+      }
+    });
+  });
+
+  describe('compareXsdDateTime', () => {
+    it('compares the digits of a fraction after the third', () => {
+      expect(DateUtils.compareXsdDateTime('2023-11-14T22:13:20.0005Z', '2023-11-14T22:13:20Z')).to.equal(1);
+      expect(DateUtils.compareXsdDateTime('2023-11-14T22:13:20Z', '2023-11-14T22:13:20.0005Z')).to.equal(-1);
+      expect(DateUtils.compareXsdDateTime('2023-11-14T22:13:10.0001Z', '2023-11-14T22:13:10.0002Z')).to.equal(-1);
+      expect(DateUtils.compareXsdDateTime('2023-11-14T22:13:10.0002Z', '2023-11-14T22:13:10.0001Z')).to.equal(1);
+      expect(DateUtils.compareXsdDateTime('2023-11-14T22:13:10.00015Z', '2023-11-14T22:13:10.0002Z')).to.equal(-1);
+      expect(DateUtils.compareXsdDateTime('2023-11-14T22:13:10.0005Z', '2023-11-14T22:13:10.00049999Z')).to.equal(1);
+    });
+
+    it('compares the milliseconds before the digits after the third', () => {
+      expect(DateUtils.compareXsdDateTime('2023-11-14T22:13:10.0019Z', '2023-11-14T22:13:10.002Z')).to.equal(-1);
+      expect(DateUtils.compareXsdDateTime('1969-12-31T23:59:59.9995Z', '1969-12-31T23:59:59.9996Z')).to.equal(-1);
+      expect(DateUtils.compareXsdDateTime('1969-12-31T23:59:59.9999Z', '1970-01-01T00:00:00Z')).to.equal(-1);
+    });
+
+    it('drops trailing zeros of a fraction', () => {
+      expect(DateUtils.compareXsdDateTime('2023-11-14T22:13:20.5Z', '2023-11-14T22:13:20.500Z')).to.equal(0);
+      expect(DateUtils.compareXsdDateTime('2023-11-14T22:13:20.50000Z', '2023-11-14T22:13:20.5Z')).to.equal(0);
+      expect(DateUtils.compareXsdDateTime('2023-11-14T22:13:20.0000Z', '2023-11-14T22:13:20Z')).to.equal(0);
+    });
+
+    it('applies the timezone offset; no timezone is UTC', () => {
+      expect(DateUtils.compareXsdDateTime('2023-01-01T01:00:00+01:00', '2023-01-01T00:00:00Z')).to.equal(0);
+      expect(DateUtils.compareXsdDateTime('2022-12-31T23:30:00-00:30', '2023-01-01T00:00:00Z')).to.equal(0);
+      expect(DateUtils.compareXsdDateTime('2023-01-01T00:00:00', '2023-01-01T00:00:00Z')).to.equal(0);
+      expect(DateUtils.compareXsdDateTime('2023-01-01T00:30:00+01:00', '2023-01-01T00:00:00Z')).to.equal(-1);
+    });
+
+    it('reads 24:00:00 as 00:00:00 of the next day', () => {
+      expect(DateUtils.compareXsdDateTime('2024-12-31T24:00:00Z', '2025-01-01T00:00:00Z')).to.equal(0);
+      expect(DateUtils.compareXsdDateTime('2024-12-31T24:00:00.000Z', '2024-12-31T23:59:59.9999Z')).to.equal(1);
+    });
+
+    it('keeps the order of huge years, where the numbers of xsdDateTimeToEpochMs are equal', () => {
+      const early = '100000000002-12-31T23:59:59.999Z';
+      const late = '100000000003-01-01T00:00:00.000Z';
+      expect(DateUtils.compareXsdDateTime(early, late)).to.equal(-1);
+      expect(DateUtils.compareXsdDateTime(late, early)).to.equal(1);
+      const huge = `1${'0'.repeat(400)}-01-01T00:00:00Z`;
+      const hugePlusOne = `1${'0'.repeat(399)}1-01-01T00:00:00Z`;
+      expect(DateUtils.xsdDateTimeToEpochMs(huge)).to.equal(DateUtils.xsdDateTimeToEpochMs(hugePlusOne));
+      expect(DateUtils.compareXsdDateTime(huge, hugePlusOne)).to.equal(-1);
+      expect(DateUtils.compareXsdDateTime(`-${huge}`, `-${hugePlusOne}`)).to.equal(1);
+      expect(DateUtils.compareXsdDateTime('-0001-12-31T23:59:59Z', '0000-01-01T00:00:00Z')).to.equal(-1);
+    });
+
+    it('gives undefined if a value is not a valid dateTime', () => {
+      for(const value of [undefined, 5, '', '2023-02-29T00:00:00Z', '2023-01-01']) {
+        expect(DateUtils.compareXsdDateTime(value, '2023-01-01T00:00:00Z')).to.equal(undefined);
+        expect(DateUtils.compareXsdDateTime('2023-01-01T00:00:00Z', value)).to.equal(undefined);
+      }
     });
   });
 });

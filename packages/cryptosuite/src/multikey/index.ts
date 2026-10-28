@@ -329,6 +329,11 @@ export class SchnorrMultikey implements Multikey {
    * @param {string} vm.controller The controller of the multikey.
    * @param {string} vm.publicKeyMultibase The public key multibase of the multikey.
    * @returns {Multikey} The new multikey instance.
+   * @throws {MultikeyError} `VERIFICATION_METHOD_ERROR` if `publicKeyMultibase` is absent, is not
+   * base58btc Multibase text, is not 35 bytes with the secp256k1 prefix, or is not the canonical
+   * base58btc text of its bytes.
+   * @throws {PublicKeyError} `CONSTRUCTOR_ERROR` if the 33 key bytes are not a valid secp256k1
+   * compressed point. This check runs before the check of the canonical text.
    */
   public static fromVerificationMethod({
     id,
@@ -343,7 +348,15 @@ export class SchnorrMultikey implements Multikey {
     }
 
     // Decode the public key multibase using base58btc
-    const publicKeyMultibaseBytes = base58btc.decode(publicKeyMultibase);
+    let publicKeyMultibaseBytes: Uint8Array;
+    try {
+      publicKeyMultibaseBytes = base58btc.decode(publicKeyMultibase);
+    } catch(error) {
+      throw new MultikeyError(
+        `Invalid publicKeyMultibase: ${error instanceof Error ? error.message : 'not base58btc'}`,
+        VERIFICATION_METHOD_ERROR, { publicKeyMultibase }
+      );
+    }
 
     // Check if the publicKeyMultibase is not a valid multikey
     if(publicKeyMultibaseBytes.length !== 35) {
@@ -372,6 +385,15 @@ export class SchnorrMultikey implements Multikey {
 
     // Construct a new keyPair from the public key
     const keyPair = new SchnorrKeyPair({ publicKey });
+
+    // The decoder also reads some texts that are not the base58btc text of the bytes, for example
+    // a text with a character above U+00FF. The key text must be the canonical text.
+    if(base58btc.encode(publicKeyMultibaseBytes) !== publicKeyMultibase) {
+      throw new MultikeyError(
+        'Invalid publicKeyMultibase: not the base58btc encoding of the key',
+        VERIFICATION_METHOD_ERROR, { publicKeyMultibase }
+      );
+    }
 
     // Return a new Multikey instance
     return new SchnorrMultikey({ id, controller, keyPair });

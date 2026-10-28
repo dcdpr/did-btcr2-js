@@ -101,6 +101,8 @@ After the resolver keeps the state, it processes the rest of the history. Then i
 
 The resolver processes one update per pass, as the specification describes. After each applied update it scans the beacon addresses that the document now carries and that it did not scan yet, then it continues with the next update. The resolver ignores a signal at a beacon address that an applied update removed from the document: the signal stamps no metadata and changes no version. A `BeaconSignal` carries the block `height`, the header `time`, the `mediantime`, and the `confirmations` of its block. Both discovery paths fill `mediantime`: the indexer path reads the Esplora block record once per distinct block, the fullnode path reads the RPC block.
 
+`time` and `mediantime` must be integers from 0 to 2^32-1, the range of the 32-bit time field of a block header. If a signal with `minConf` or more confirmations has another value, the resolution fails with a `ResolveError` of type `INVALID_DID_UPDATE` (ADR 158).
+
 ### Update a DID
 
 `DidBtcr2.update()` returns a sans-I/O state machine: the counterpart to the Resolver. The caller drives the update by fulfilling typed data needs (signing key, funding confirmation, broadcast).
@@ -188,7 +190,9 @@ The method must agree with three conditions:
 2. `controller` is the DID, `sourceDocument.id`.
 3. `publicKeyMultibase` encodes a secp256k1 public key as a BIP340 Multikey, in the base58btc text of the key. A value that only starts with `zQ3s` does not agree with this condition.
 
-A method that fails a condition gives an `UpdateError` of type `INVALID_DID_UPDATE`. An example message is `Invalid update: verificationMethod.type must equal "Multikey"`. `data.field` names the field that fails. If `publicKeyMultibase` is a string, a key failure also gives `data.cause`. It holds the type and the message of the decode error. For text that is not the canonical encoding of the key, it holds the type `VERIFICATION_METHOD_ERROR` and the message `Invalid publicKeyMultibase: not the base58btc encoding of the key`. The conditions apply only to the method that signs. For each other verification method, `DidDocument` checks only that `id`, `type`, and `controller` are strings.
+A method that fails a condition gives an `UpdateError` of type `INVALID_DID_UPDATE`. An example message is `Invalid update: verificationMethod.type must equal "Multikey"`. `data.field` names the field that fails.
+
+If `publicKeyMultibase` is a string, a key failure also gives `data.cause`. It holds the type and the message of the error of `SchnorrMultikey.fromVerificationMethod`. For text that does not decode, the type is `VERIFICATION_METHOD_ERROR` and the message starts with `Invalid publicKeyMultibase:`. For text that is not the canonical encoding of the key, it holds the type `VERIFICATION_METHOD_ERROR` and the message `Invalid publicKeyMultibase: not the base58btc encoding of the key`. The conditions apply only to the method that signs. For each other verification method, `DidDocument` checks only that `id`, `type`, and `controller` are strings.
 
 `Updater.sign(sourceDocument, unsignedUpdate, verificationMethodId, signer)` signs an update of `sourceDocument`. Make `unsignedUpdate` with `Updater.construct()` from the same `sourceDocument`. Before it signs, `Updater.sign()` checks the unsigned update in this order:
 
@@ -203,7 +207,7 @@ The first check that fails gives an `UpdateError` of type `INVALID_DID_UPDATE`, 
 
 The public key of the signer must be the key of the method. If the two keys differ, `Updater.sign()` gives an `UpdateError` with a message that starts with `Signing key does not match verification method`.
 
-`Updater.sign()` wraps an error of the signer or of the cryptosuite as an `UpdateError` of type `INVALID_DID_UPDATE`, with the inner error in `data.cause`. The message of a wrapped error starts with `Invalid signer:` if the public key of the signer does not decode. If the public key decodes, the message starts with `Invalid update: cannot make the proof with`. For example, a key manager that holds only the public key gives the second message, with `KEY_NOT_SIGNER` in `data.cause.type`.
+`Updater.sign()` wraps an error of the signer or of the cryptosuite as an `UpdateError` of type `INVALID_DID_UPDATE`, with the inner error in `data.cause`. The message of a wrapped error starts with `Invalid signer:` if the public key of the signer does not decode. If the public key decodes, the message starts with `Invalid update: cannot make the proof with`. For example, a key manager that holds only the public key gives the second message, with `KEY_NOT_SIGNER` in `data.cause.type`. A signer that returns a signature that does not have 64 bytes also gives the second message, with `PROOF_GENERATION_ERROR` in `data.cause.type`.
 
 `Updater.sign()` verifies the proof with the public key of the verification method before the state machine asks for funding. A signer that returns a wrong signature spends no beacon UTXO. `Updater.sign()` returns a new object and adds no proof to its input, so the caller can sign the same unsigned update again.
 
@@ -211,7 +215,11 @@ The public key of the signer must be the key of the method. If the two keys diff
 
 `Updater.construct()` also refuses a `sourceDocument` that is not an object, with `Invalid sourceDocument: expected a DID document object.` It refuses a `sourceDocument.id` that is not a string, with a message that starts with `Invalid sourceDocument: expected a string id`. Each refusal is an `UpdateError` of type `INVALID_DID_UPDATE` (ADR 156).
 
-On the read path, the resolver checks each proof field by string equality before it verifies the signature. `type` is `DataIntegrityProof`, `cryptosuite` is `bip340-jcs-2025`, `proofPurpose` is `capabilityInvocation`, `capabilityAction` is `Write`, `capability` is `urn:zcap:root:${encodeURIComponent(did)}`, and `invocationTarget` is the DID. A proof can carry `created` and `expires`. Each value must be an XML Datetime with a timezone. `created` must not be after the header time of the block that contains the Beacon Signal. `expires` must not be before the `mediantime` of that block, and not before `created`. The write path sets neither field.
+On the read path, the resolver checks each proof field by string equality before it verifies the signature. `type` is `DataIntegrityProof`, `cryptosuite` is `bip340-jcs-2025`, `proofPurpose` is `capabilityInvocation`, `capabilityAction` is `Write`, `capability` is `urn:zcap:root:${encodeURIComponent(did)}`, and `invocationTarget` is the DID. An update has one proof, so the resolver refuses a proof with a `previousProof`: `Invalid update: proof.previousProof must not be present: an update has one proof`.
+
+A proof can carry `created` and `expires`, but the write path sets neither field. Each value must be an XML Datetime with a timezone. Each year is valid, also a year above 9999. `created` must not be after the header time of the block that contains the Beacon Signal. `expires` must not be before the `mediantime` of that block, and not before `created`. Each comparison is exact: each digit of a fraction of a second counts.
+
+The resolver then verifies the proof with `BIP340Cryptosuite.verifyProof`. The cryptosuite also checks the other proof members of VC Data Integrity. For example, an `id` must be a valid URL string, and a `nonce` must be a string. The `proofValue` must be the canonical base58btc text of 64 bytes. A failed check gives `Invalid update: proof verification failed: <message>`. `data.cause` holds the type and the message of the `CryptosuiteError` (ADR 158). If the signature does not verify, the message is `Invalid update: proof not verified`.
 
 `DidBtcr2.deactivate()` is `DidBtcr2.update()` with the patch `[{ "op": "add", "path": "/deactivated", "value": true }]`, exported as `DEACTIVATION_PATCH`. Resolution stops at the deactivation for good. The factory does not refuse a source document that is deactivated already. The api does.
 

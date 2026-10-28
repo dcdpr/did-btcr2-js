@@ -3,7 +3,6 @@ import {
   CanonicalizationError,
   canonicalHash,
   canonicalHashBytes,
-  canonicalize,
   DateUtils,
   encode as encodeHash,
   decode as decodeHash,
@@ -25,15 +24,10 @@ import type {
   SignedBTCR2Update
 } from './btcr2-update.js';
 import { BTCR2_UPDATE_CONTEXT, isBtcr2UpdateContext } from './btcr2-update.js';
-import {
-  BIP340Cryptosuite,
-  BIP340DataIntegrityProof,
-  SchnorrMultikey
-} from '@did-btcr2/cryptosuite';
+import { BIP340Cryptosuite, SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { Appendix } from '../utils/appendix.js';
 import { DidDocument, ID_PLACEHOLDER_VALUE } from '../utils/did-document.js';
-import { isDateTimeStamp } from '../utils/did-core-conformance.js';
 import { hasNonZeroPadBits, smtProofRootHex } from '../utils/base64url-hash.js';
 import { errorCause } from '../utils/error-cause.js';
 import { gotValue, messageText } from '../utils/message-text.js';
@@ -266,21 +260,39 @@ const UTC_XSD_DATETIME = /^-?\d{4,}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
 /**
  * Parse `ResolutionOptions.versionTime`. DID Resolution v1 requires an XML Datetime
  * normalized to UTC without sub-second precision. The specification raises
- * `INVALID_OPTIONS` for a value that does not parse.
+ * `INVALID_OPTIONS` for a value that does not parse. Each year is valid, also a year above
+ * 9999 or below 0000 (see {@link DateUtils.xsdDateTimeToEpochMs}). For a year with more than
+ * about 300 digits, the result is `Infinity` or `-Infinity`; the comparison with a block
+ * `mediantime` stays correct.
  * @returns {number | undefined} The instant in milliseconds since the Unix epoch, or `undefined` when the option is absent.
  * @throws {ResolveError} `INVALID_OPTIONS` for every other value.
  */
 function validateVersionTime(value: unknown): number | undefined {
   if(value === undefined) return undefined;
-  if(typeof value === 'string' && UTC_XSD_DATETIME.test(value) && DateUtils.isValidXsdDateTime(value)) {
-    const ms = Date.parse(value);
-    if(Number.isFinite(ms)) return ms;
+  if(typeof value === 'string' && UTC_XSD_DATETIME.test(value)) {
+    const ms = DateUtils.xsdDateTimeToEpochMs(value);
+    if(ms !== undefined) return ms;
   }
   throw new ResolveError(
     'Invalid resolution option versionTime: expected an XML Datetime in UTC without a fraction '
     + `(for example "2026-07-01T00:00:00Z")${gotValue(value)}.`,
     INVALID_OPTIONS, { versionTime: value }
   );
+}
+
+/** The largest value of the 32-bit unsigned time field of a Bitcoin block header. */
+const MAX_BLOCK_TIME = 0xffffffff;
+
+/**
+ * Return true if the value is a possible Bitcoin block time in seconds: an integer in
+ * 0..2^32-1. A block header stores its time as a 32-bit unsigned integer (`nTime` in
+ * Bitcoin Core), and the block `mediantime` is the median of such values. Each such value
+ * is in the range of a JavaScript `Date`.
+ * @param {unknown} value The value to check.
+ * @returns {boolean} True if the value is in the range of a block header time.
+ */
+function isBlockTime(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) >= 0 && (value as number) <= MAX_BLOCK_TIME;
 }
 
 /**
@@ -681,20 +693,20 @@ export class Resolver {
   }
 
   /**
-   * Parse a `created` or `expires` value of an update proof. Data Integrity types both as an
+   * Check a `created` or `expires` value of an update proof. Data Integrity types both as an
    * XML Schema `dateTimeStamp`: an XML Datetime with a timezone. A value without a timezone
-   * names no fixed instant, so two resolvers would read two instants; it is rejected.
+   * names no fixed instant, so two resolvers would read two instants; it is rejected. Each
+   * year is valid, also a year above 9999 (see {@link DateUtils.compareXsdDateTime}).
    * @param {Btcr2DataIntegrityProof} proof The update proof.
-   * @param {'created' | 'expires'} field The field to parse.
-   * @returns {number | undefined} The instant in milliseconds since the Unix epoch, or `undefined` when the field is absent.
+   * @param {'created' | 'expires'} field The field to check.
+   * @returns {string | undefined} The `dateTimeStamp` text, or `undefined` when the field is absent.
    * @throws {ResolveError} `INVALID_DID_UPDATE` for a value that is not an XML Datetime with a timezone.
    */
-  private static proofInstant(proof: Btcr2DataIntegrityProof, field: 'created' | 'expires'): number | undefined {
+  private static proofInstant(proof: Btcr2DataIntegrityProof, field: 'created' | 'expires'): string | undefined {
     const value = proof[field];
     if(value === undefined) return undefined;
-    if(isDateTimeStamp(value)) {
-      const ms = Date.parse(value);
-      if(Number.isFinite(ms)) return ms;
+    if(DateUtils.isValidXsdDateTimeStamp(value)) {
+      return value;
     }
     throw new ResolveError(
       `Invalid update: proof.${field} is not an XML Datetime with a timezone`,
@@ -708,7 +720,8 @@ export class Resolver {
    * signs a short time before the block, and on mainnet the header time is about one hour
    * after the `mediantime`. `expires` must not be before the block `mediantime`: it limits a
    * replay, and a single miner cannot change `mediantime`. `expires` must not be before
-   * `created`. Each comparison has no tolerance.
+   * `created`. Each comparison has no tolerance and is exact: each digit of a fraction of a
+   * second counts.
    * @param {Btcr2DataIntegrityProof} proof The update proof.
    * @param {BlockMetadata} block The block of the Beacon Signal.
    * @throws {ResolveError} `INVALID_DID_UPDATE` if a value is outside the window.
@@ -716,19 +729,21 @@ export class Resolver {
   private static checkProofWindow(proof: Btcr2DataIntegrityProof, block: BlockMetadata): void {
     const created = Resolver.proofInstant(proof, 'created');
     const expires = Resolver.proofInstant(proof, 'expires');
-    if(created !== undefined && created > block.time * 1000) {
+    // #eligibleSignals admits only a block time in the 32-bit header range, so it is in the Date range.
+    const blockInstant = (seconds: number): string => new Date(seconds * 1000).toISOString();
+    if(created !== undefined && DateUtils.compareXsdDateTime(created, blockInstant(block.time)) === 1) {
       throw new ResolveError(
         'Invalid update: proof.created is after the header time of the block that contains the Beacon Signal',
         INVALID_DID_UPDATE, { created: proof.created, blockTime: block.time }
       );
     }
-    if(expires !== undefined && expires < block.mediantime * 1000) {
+    if(expires !== undefined && DateUtils.compareXsdDateTime(expires, blockInstant(block.mediantime)) === -1) {
       throw new ResolveError(
         'Invalid update: proof.expires is before the mediantime of the block that contains the Beacon Signal',
         INVALID_DID_UPDATE, { expires: proof.expires, mediantime: block.mediantime }
       );
     }
-    if(created !== undefined && expires !== undefined && expires < created) {
+    if(created !== undefined && expires !== undefined && DateUtils.compareXsdDateTime(expires, created) === -1) {
       throw new ResolveError(
         'Invalid update: proof.expires is before proof.created',
         INVALID_DID_UPDATE, { created: proof.created, expires: proof.expires }
@@ -810,6 +825,16 @@ export class Resolver {
       }
     }
 
+    // An update has one proof. A previousProof names other proofs that must also verify (VC
+    // Data Integrity, Proofs), so a proof with a previousProof never verifies.
+    const previousProof = (proof as Record<string, unknown>).previousProof;
+    if(previousProof !== undefined) {
+      throw new ResolveError(
+        'Invalid update: proof.previousProof must not be present: an update has one proof',
+        INVALID_DID_UPDATE, { field: 'previousProof', actual: previousProof }
+      );
+    }
+
     // Spec "Check update.proof": the entry of currentDocument.capabilityInvocation that
     // identifies update.proof.verificationMethod, in the reference form or the embedded
     // form. A key the controller published for authentication only, or for no relationship
@@ -857,17 +882,17 @@ export class Resolver {
     // Spec "Check update.proof": the proof time window against the block of the signal.
     Resolver.checkProofWindow(proof, block);
 
-    // Verify the proof with the public key that the verification method publishes. The
-    // multikey names the method by its absolute DID URL, as the proof does. The key decodes:
-    // the method check above decodes it. An error of the cryptosuite (a proof value that does
-    // not decode, a created value the suite rejects) is an invalid update.
+    // Spec "Check update.proof": verify the proof with a BIP340 Cryptosuite instance for the
+    // public key that the verification method publishes. The multikey names the method by its
+    // absolute DID URL, as the proof does. The key decodes: the method check above decodes it.
+    // An error of the cryptosuite (a proof member that breaks a rule, a proof value that does
+    // not decode, a document with no JCS form) is an invalid update.
     let verified: boolean;
     try {
       const multikey = SchnorrMultikey.fromVerificationMethod({
         ...vm, id : Appendix.absoluteDidUrl(vm.id, currentDocument.id) ?? vm.id
       });
-      const diProof = new BIP340DataIntegrityProof(new BIP340Cryptosuite(multikey));
-      verified = diProof.verifyProof(canonicalize(update), 'capabilityInvocation').verified;
+      verified = new BIP340Cryptosuite(multikey).verifyProof(update).verified;
     } catch(error) {
       throw new ResolveError(
         `Invalid update: proof verification failed: ${errorCause(error).message}`,
@@ -1219,11 +1244,12 @@ export class Resolver {
    * integer confirmation count is excluded too: that is a mempool transaction
    * from a driver that did not skip it.
    *
-   * An eligible signal must carry a finite block height, block time, and block
-   * median time past. A signal that passes the count but lacks them is
-   * malformed. It fails fast here with a typed error, in the style of the
-   * {@link provide} guards, and not later with an invalid date or a false
-   * `versionTime` comparison in the ProcessUpdate phase.
+   * An eligible signal must carry a finite block height, and a block time and block
+   * median time past in the range of a block header time (see {@link isBlockTime}).
+   * A signal that passes the count but lacks them is malformed. It fails fast here
+   * with a typed error, in the style of the {@link provide} guards, and not later with
+   * an invalid date, a `RangeError`, or a false `versionTime` comparison in the
+   * ProcessUpdate phase.
    *
    * "Find Beacon Signals" finds only the transactions at or above
    * `current_block_height`, the height of the block of the most recently applied
@@ -1240,7 +1266,7 @@ export class Resolver {
       if(!Number.isInteger(confirmations) || (confirmations as number) < this.#minConf) {
         continue;
       }
-      if(!Number.isFinite(block?.height) || !Number.isFinite(block?.time) || !Number.isFinite(block?.mediantime)) {
+      if(!Number.isFinite(block?.height) || !isBlockTime(block?.time) || !isBlockTime(block?.mediantime)) {
         throw new ResolveError(
           `Beacon signal ${signal.signalBytes} has ${confirmations} confirmations `
           + 'but no valid block height, block time, or block mediantime.',

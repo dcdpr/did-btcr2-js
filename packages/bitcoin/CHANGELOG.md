@@ -1,5 +1,16 @@
 # @did-btcr2/bitcoin
 
+## 0.11.6
+
+### Patch Changes
+
+- The package takes `@did-btcr2/common` 11.0.0. It has no source change.
+
+  - keypair, bitcoin, key-manager: dependency uptake. The `@did-btcr2/common` range goes from `^10.0.1` to `^11.0.0`.
+
+- Updated dependencies []:
+  - @did-btcr2/common@11.0.0
+
 ## 0.11.5
 
 ### Patch Changes

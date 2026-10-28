@@ -645,9 +645,9 @@ export class Updater {
     }
 
     const config: Btcr2DataIntegrityConfig = {
-      // The proof must carry the same array as the update. The cryptosuite copies the
-      // document @context into the proof when the document has one, so the two arrays
-      // are equal by construction; this value is the fallback for a document without one.
+      // The proof must carry the same array as the update. The cryptosuite puts the update
+      // @context into the proof in place of this value, so the two arrays are equal. For an
+      // update with no @context, the cryptosuite refuses this value.
       '@context'         : [ ...BTCR2_UPDATE_CONTEXT ],
       cryptosuite        : 'bip340-jcs-2025',
       type               : 'DataIntegrityProof',
@@ -667,11 +667,9 @@ export class Updater {
     // that holds no secret key, for example), so Updater.sign wraps them as an invalid update.
     let signedUpdate: SignedBTCR2Update;
     try {
-      const diproof = multikey.toCryptosuite().toDataIntegrityProof();
-      // addProof writes the proof into the object that it gets. Updater.sign gives it a copy, so
-      // the update of the caller keeps no proof. The caller can then sign the same update again,
-      // for example after a signer fails.
-      signedUpdate = diproof.addProof({ ...unsignedUpdate }, config) as SignedBTCR2Update;
+      // addProof returns a copy, so the update of the caller keeps no proof. The caller can then
+      // sign the same update again, for example after a signer fails.
+      signedUpdate = multikey.toCryptosuite().toDataIntegrityProof().addProof(unsignedUpdate, config) as SignedBTCR2Update;
     } catch(error) {
       throw new UpdateError(
         `Invalid update: cannot make the proof with "${methodId}": ${errorCause(error).message}`,
@@ -679,16 +677,16 @@ export class Updater {
       );
     }
 
-    // Spec "Construct BTCR2 Signed Update": verify update.proof before the announcement,
-    // with the public key that the verification method publishes, not the signer's key. A
+    // Spec "Construct BTCR2 Signed Update": verify update.proof before the announcement, with a
+    // BIP340 Cryptosuite instance for the public key that the verification method publishes,
+    // not the signer's key. The config above sets the proof purpose. A
     // signer that returns a wrong signature for the right key passes the key comparison
     // above. An announced update with an invalid proof permanently invalidates the DID, so
     // the failure surfaces here, before the state machine asks for funding.
     let verified: boolean;
     try {
       const verifier = SchnorrMultikey.fromVerificationMethod({ ...verificationMethod, id: methodId });
-      verified = verifier.toCryptosuite().toDataIntegrityProof()
-        .verifyProof(canonicalize(signedUpdate), 'capabilityInvocation').verified;
+      verified = verifier.toCryptosuite().verifyProof(signedUpdate).verified;
     } catch(error) {
       throw new UpdateError(
         `Invalid update: the proof does not verify with the public key of "${methodId}": `

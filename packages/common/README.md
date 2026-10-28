@@ -10,9 +10,9 @@ This package is the foundational layer that every other `@did-btcr2/*` package d
 
 - **Canonicalization + hashing.** JCS (JSON Canonicalization Scheme, RFC 8785) plus SHA-256, with three encodings: hex, base58, and base64urlnopad (default). Used everywhere document hashes are produced or compared. `canonicalize` sorts the members of each object, also of an object with a data member named `toJSON`. It refuses a value with no JCS form with a `CanonicalizationError`. The types are `NON_FINITE_NUMBER` (NaN, Infinity, or -Infinity), `LONE_SURROGATE` (a string or a member name), and `NOT_JSON_DATA` (a BigInt or a cycle). `data.path` gives the location of the value (ADR 154).
 - **JSON Patch.** `JSONPatch.apply` applies a JSON Patch (RFC 6902) with the JSON Pointer rules of RFC 6901, and `PatchOperation` is the type of an operation. The DID update paths use it. Each member name is data, also `constructor` and `__proto__` (ADR 155).
-- **Shared types.** Byte-aliases (`KeyBytes`, `HashBytes`, `SignatureBytes`, etc.), DID-related enums (`IdentifierTypes`, `IdentifierHrp`, `BitcoinNetworkNames`), and the `JSONObject` family used by canonical signing.
+- **Shared types.** Byte-aliases (`KeyBytes`, `HashBytes`, `SignatureBytes`, etc.), DID-related enums (`IdentifierTypes`, `IdentifierHrp`, `BitcoinNetworkNames`), and the `JSONObject` family used by canonical signing. `ProblemDetails` (RFC 9457) is the type of an error in a proof verification result.
 - **Error hierarchy.** A single `DidMethodError` base with one subclass per failure domain (`MethodError`, `IdentifierError`, `UpdateError`, `ResolveError`, `KeyManagerError`, `KeyPairError`, `MultikeyError`, `CryptosuiteError`, etc.) Every typed error carries a `type` string tag and a structured `data` payload.
-- **Small utilities.** Date, JSON, and string helpers used by multiple packages.
+- **Small utilities.** Date, JSON, and string helpers used by multiple packages. `DateUtils.isValidXsdDateTime` and `DateUtils.isValidXsdDateTimeStamp` check a value with the `dateTime` rules of XML Schema 1.1. `DateUtils.xsdDateTimeToEpochMs` and `DateUtils.compareXsdDateTime` accept each year, also a year above 9999 (ADR 158).
 
 ## Install
 

@@ -222,7 +222,13 @@ describe('DidMethodApi message signatures', () => {
       const multikey = SchnorrMultikey.fromVerificationMethod(method);
       const proof = new BIP340DataIntegrityProof(new BIP340Cryptosuite(multikey));
 
-      expect(() => proof.verifyProof(canonicalize(signed), 'capabilityInvocation')).to.throw('Proof purpose mismatch');
+      const mismatch = proof.verifyProof(canonicalize(signed), 'capabilityInvocation');
+      expect(mismatch.verified).to.equal(false);
+      expect(mismatch.errors).to.deep.equal([{
+        type   : 'https://w3id.org/security#PROOF_VERIFICATION_ERROR',
+        title  : 'The proof does not pass a check of Verify Proof',
+        detail : 'Proof purpose mismatch: proof.proofPurpose !== expectedPurpose'
+      }]);
       const relabeled = { ...signed, proof: { ...signed.proof, proofPurpose: 'capabilityInvocation' } };
       expect(proof.verifyProof(canonicalize(relabeled), 'capabilityInvocation').verified).to.equal(false);
     });
@@ -332,6 +338,17 @@ describe('DidMethodApi message signatures', () => {
         const report = api.btcr2.verifyMessage(changed, signed);
         expect(failure(report).name).to.equal('assertionMethod');
         expect(failure(report).detail).to.include(detail);
+      }
+    });
+
+    it('fails the assertionMethod check for other text of the key that the decoder reads as the same key', () => {
+      const { api, document, signed } = signedFixture();
+      const method = document.verificationMethod![0];
+      for (const prefix of [ 'z\u0100', 'z\u{1F600}' ]) {
+        const publicKeyMultibase = `${prefix}${method.publicKeyMultibase!.slice(1)}`;
+        const report = api.btcr2.verifyMessage({ ...document, verificationMethod: [{ ...method, publicKeyMultibase }] }, signed);
+        expect(failure(report).name).to.equal('assertionMethod');
+        expect(failure(report).detail).to.include('Invalid publicKeyMultibase: not the base58btc encoding of the key');
       }
     });
 

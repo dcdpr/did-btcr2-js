@@ -42,8 +42,17 @@ export enum MethodErrorCode {
   /** The proof serialization operation failed. */
   PROOF_SERIALIZATION_ERROR = 'PROOF_SERIALIZATION_ERROR',
 
-  /** The proof could not be parsed properly. */
-  PROOF_PARSING_ERROR = 'PROOF_PARSING_ERROR',
+  /**
+   * A secured document or its proof is not a map. Defined by
+   * {@link https://www.w3.org/TR/vc-data-integrity/#verify-proof | VC Data Integrity 1.0, Verify Proof}.
+   */
+  PARSING_ERROR = 'PARSING_ERROR',
+
+  /**
+   * The challenge of a proof does not match the expected challenge. Defined by
+   * {@link https://www.w3.org/TR/vc-data-integrity/#processing-errors | VC Data Integrity 1.0, Processing Errors}.
+   */
+  INVALID_CHALLENGE_ERROR = 'INVALID_CHALLENGE_ERROR',
 
   /** The verification method was formed improperly. */
   VERIFICATION_METHOD_ERROR = 'VERIFICATION_METHOD_ERROR',
@@ -57,7 +66,10 @@ export enum MethodErrorCode {
   /** The data for a Beacon Signal does not agree with its Signal Bytes. */
   INVALID_SIGNAL_DATA = 'INVALID_SIGNAL_DATA',
 
-  /** The proof is missing or has a malformed domain field. */
+  /**
+   * The domain value in a proof did not match the expected value. Defined by
+   * {@link https://www.w3.org/TR/vc-data-integrity/#processing-errors | VC Data Integrity 1.0, Processing Errors}.
+   */
   INVALID_DOMAIN_ERROR = 'INVALID_DOMAIN_ERROR',
 
   /**
@@ -86,11 +98,13 @@ export const {
   PROOF_GENERATION_ERROR,
   PROOF_TRANSFORMATION_ERROR,
   PROOF_SERIALIZATION_ERROR,
-  PROOF_PARSING_ERROR,
+  PARSING_ERROR,
+  INVALID_CHALLENGE_ERROR,
   VERIFICATION_METHOD_ERROR,
   LATE_PUBLISHING,
   MISSING_UPDATE_DATA,
   INVALID_SIGNAL_DATA,
+  INVALID_DOMAIN_ERROR,
   INVALID_OPTIONS,
   FEATURE_NOT_SUPPORTED
 } = MethodErrorCode;

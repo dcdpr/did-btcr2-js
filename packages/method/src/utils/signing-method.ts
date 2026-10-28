@@ -1,4 +1,3 @@
-import { VERIFICATION_METHOD_ERROR } from '@did-btcr2/common';
 import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
 import { MULTIKEY_VERIFICATION_METHOD_TYPE } from './did-document.js';
 import type { ErrorCause } from './error-cause.js';
@@ -16,7 +15,7 @@ export interface SigningMethodProblem {
   message: string;
 
   /**
-   * The type and the message of the key error: the decode error, or the error for text that
+   * The type and the message of the key error of the cryptosuite, for example for text that
    * is not the base58btc encoding of the key.
    */
   cause?: ErrorCause;
@@ -33,8 +32,8 @@ export interface SigningMethodProblem {
  * 3. `publicKeyMultibase` must encode a secp256k1 public key as the Multikey section of the
  *    BIP340 Cryptosuite specifies. That is: the `z` header, base58btc, 35 bytes, the prefix
  *    `0xe701`, and a valid compressed point. The `zQ3s` prefix alone does not satisfy this
- *    condition. The value must also be the base58btc text of the key. The decoder accepts
- *    some other text for the same bytes, but the specification allows no other encoding.
+ *    condition. The value must also be the base58btc text of the key: the specification
+ *    allows no other encoding for the same bytes.
  *
  * The conditions apply to the method that signs, in the embedded form and in the referenced
  * form. The caller finds that method through `capabilityInvocation` first.
@@ -56,26 +55,10 @@ export function signingMethodProblem(method: unknown, did: string): SigningMetho
   if(typeof publicKeyMultibase !== 'string') {
     return { field: 'publicKeyMultibase', message: keyMessage };
   }
-  let encoded: string;
   try {
-    encoded = SchnorrMultikey.fromVerificationMethod({
-      id : String(id),
-      type,
-      controller,
-      publicKeyMultibase
-    }).publicKey.multibase.encoded;
+    SchnorrMultikey.fromVerificationMethod({ id: String(id), type, controller, publicKeyMultibase });
   } catch(error) {
     return { field: 'publicKeyMultibase', message: keyMessage, cause: errorCause(error) };
-  }
-  if(encoded !== publicKeyMultibase) {
-    return {
-      field   : 'publicKeyMultibase',
-      message : keyMessage,
-      cause   : {
-        type    : VERIFICATION_METHOD_ERROR,
-        message : 'Invalid publicKeyMultibase: not the base58btc encoding of the key'
-      }
-    };
   }
   return undefined;
 }

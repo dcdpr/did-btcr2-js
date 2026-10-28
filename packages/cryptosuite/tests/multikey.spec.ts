@@ -1,4 +1,4 @@
-import { JSONUtils, KeyPairError, MultikeyError } from '@did-btcr2/common';
+import { JSONUtils, KeyPairError, MultikeyError, PublicKeyError } from '@did-btcr2/common';
 import type { Signer } from '@did-btcr2/keypair';
 import { LocalSigner, SchnorrKeyPair, Secp256k1SecretKey, CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
 import { expect } from 'chai';
@@ -326,6 +326,71 @@ describe('SchnorrMultikey', () => {
       const multikey = SchnorrMultikey.fromVerificationMethod(verificationMethod);
       expect(multikey).to.be.instanceOf(SchnorrMultikey);
       expect(multikey.publicKey.equals(publicKey)).to.be.true;
+    });
+  });
+
+  describe('SchnorrMultikey.fromVerificationMethod (strict base58btc text)', () => {
+    const fromText = (text: unknown) => SchnorrMultikey.fromVerificationMethod({
+      id, type : 'Multikey', controller, publicKeyMultibase : text as string,
+    });
+    const errorOf = (text: unknown): any => {
+      try {
+        fromText(text);
+      } catch(error) {
+        return error;
+      }
+      throw new Error('expected the call to throw');
+    };
+
+    it('refuses a key text that the decoder reads but that is not the base58btc text of the key', () => {
+      // The decoder reads U+0100 as a character of value 0, so the bytes equal the bytes of the key.
+      const text = `z\u0100${verificationMethod.publicKeyMultibase.slice(1)}`;
+      expect(base58btc.decode(text)).to.have.length(35);
+      const error = errorOf(text);
+      expect(error).to.be.instanceOf(MultikeyError);
+      expect(error.type).to.equal('VERIFICATION_METHOD_ERROR');
+      expect(error.message).to.equal('Invalid publicKeyMultibase: not the base58btc encoding of the key');
+    });
+
+    it('gives the prefix error first for a non-canonical text with a wrong prefix', () => {
+      const wrongPrefixBytes = new Uint8Array(35);
+      wrongPrefixBytes[0] = 0xed;
+      wrongPrefixBytes[1] = 0x01;
+      const text = `z\u0100${base58btc.encode(wrongPrefixBytes).slice(1)}`;
+      expect(errorOf(text).message).to.include('Invalid publicKeyMultibase prefix');
+    });
+
+    it('gives a MultikeyError for a character that is not base58btc', () => {
+      const error = errorOf(`z0${verificationMethod.publicKeyMultibase.slice(2)}`);
+      expect(error).to.be.instanceOf(MultikeyError);
+      expect(error.type).to.equal('VERIFICATION_METHOD_ERROR');
+      expect(error.message).to.equal('Invalid publicKeyMultibase: Non-base58btc character');
+    });
+
+    it('gives a MultikeyError for a text with no z header', () => {
+      const error = errorOf(`u${verificationMethod.publicKeyMultibase.slice(1)}`);
+      expect(error).to.be.instanceOf(MultikeyError);
+      expect(error.type).to.equal('VERIFICATION_METHOD_ERROR');
+      expect(error.message).to.match(/^Invalid publicKeyMultibase: Unable to decode multibase string/);
+    });
+
+    it('gives a MultikeyError for a key that is not a string', () => {
+      const error = errorOf(5);
+      expect(error).to.be.instanceOf(MultikeyError);
+      expect(error.type).to.equal('VERIFICATION_METHOD_ERROR');
+      expect(error.message).to.match(/^Invalid publicKeyMultibase: /);
+    });
+
+    it('gives a PublicKeyError for key bytes that are not a point, before the check of the canonical text', () => {
+      const bytes = new Uint8Array(35).fill(0xff);
+      bytes.set([0xe7, 0x01, 0x02]);
+      const text = base58btc.encode(bytes);
+      for(const value of [text, `z\u0100${text.slice(1)}`]) {
+        const error = errorOf(value);
+        expect(error).to.be.instanceOf(PublicKeyError);
+        expect(error.type).to.equal('CONSTRUCTOR_ERROR');
+        expect(error.message).to.equal('Invalid argument: not a valid secp256k1 compressed point');
+      }
     });
   });
 
