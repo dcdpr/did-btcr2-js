@@ -475,6 +475,12 @@ describe('BeaconUtils.getBeaconServices (ADR 148)', () => {
     expect(BeaconUtils.getBeaconServices(document)).to.deep.equal([beacon]);
   });
 
+  it('gives the ids of the beacon services and of no other service', () => {
+    const other = { id: `${DID}#web`, type: 'LinkedDomains', serviceEndpoint: 'https://example.com' };
+    const document = new DidDocument({ id: DID, '@context': [...BTCR2_DID_DOCUMENT_CONTEXT], service: [beacon, other as BeaconService] });
+    expect(BeaconUtils.getBeaconServiceIds(document)).to.deep.equal([`${DID}#beacon-1`]);
+  });
+
   it('gives no beacon service for a document without service', () => {
     const document = new DidDocument({ id: DID, '@context': [...BTCR2_DID_DOCUMENT_CONTEXT] });
     expect(document).to.not.have.own.property('service');

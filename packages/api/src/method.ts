@@ -395,8 +395,9 @@ export class DidMethodApi {
    * @throws {ResolveError} `INVALID_DID` if the hash of the genesis document is
    *   not the genesis bytes of the DID.
    * @throws {ResolveError} `INVALID_DID_DOCUMENT` if the id of the genesis
-   *   document is not `did:btcr2:_`, or if the genesis document has no JCS
-   *   form (RFC 8785), for example if it holds a lone surrogate.
+   *   document is not `did:btcr2:_`, if the genesis document has no JCS
+   *   form (RFC 8785), for example if it holds a lone surrogate, or if the
+   *   genesis document is not a JSON object.
    * @throws {DidDocumentError} `INVALID_DID_DOCUMENT` if the initial DID document
    *   does not conform, for example if the genesis document has no `"@context"`.
    */
@@ -708,9 +709,7 @@ export class DidMethodApi {
    *   same error occurs if the sidecar holds no SMT proof that the resolver uses
    *   for the root of a beacon signal.
    * - `CASBeaconError` of type `MISSING_UPDATE_DATA`: the value of the entry for the
-   *   DID in a CAS Announcement is not a base64url SHA-256 hash (ADR 146). From the CAS,
-   *   an announcement with a value that is not a string gives a `ResolveError`
-   *   of type `INVALID_DID_UPDATE`.
+   *   DID in a CAS Announcement is not a base64url SHA-256 hash (ADR 146).
    * - `IdentifierError` of type `INVALID_DID`: the DID is not a string, or it does not
    *   conform to the DID syntax. Of type `METHOD_NOT_SUPPORTED`: the DID is valid and
    *   names another method.
