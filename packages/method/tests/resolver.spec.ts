@@ -5239,3 +5239,126 @@ describe('Resolver', () => {
     });
   });
 });
+
+describe('Resolver: the Beacon Address of a BIP321 endpoint', () => {
+  // BIP321: the scheme bitcoin: matches in any case, and a bech32 address in upper case is
+  // the same address in lower case. The resolver reads one Beacon Address from each form.
+  const fixture = externalData[2]; // regtest, with a known secretKey
+  const network = getNetwork('regtest');
+  const ADDRESS = p2wpkh(secp256k1.getPublicKey(hexToBytes(fixture.secretKey), true), network).address!;
+
+  /** A copy of the genesis document of the fixture with `services` in place of its services. */
+  function genesisWith(services: Array<{ id: string; type: string; serviceEndpoint: string }>): Record<string, unknown> {
+    return { ...JSON.parse(JSON.stringify(fixture.genesisDocument)), service: services };
+  }
+
+  /** The EXTERNAL DID of `genesis` on the fixture network. */
+  function externalDid(genesis: object): string {
+    return Identifier.encode(canonicalHashBytes(genesis), { idType: 'EXTERNAL', network: fixture.network });
+  }
+
+  /**
+   * Resolve an EXTERNAL DID with its genesis document and `updates` in the sidecar. The
+   * function gives each address that the resolver asks for its signals, with DEFAULT_MIN_CONF
+   * confirmations, and appends the address to `scanned`.
+   */
+  function resolveExternal(
+    did: string,
+    genesisDocument: object,
+    updates: Array<SignedBTCR2Update>,
+    signalsByAddress: Map<string, Array<SignedBTCR2Update>>,
+    scanned: Array<string>
+  ): DidResolutionResponse {
+    const resolver = DidBtcr2.resolve(did, { sidecar: { genesisDocument, updates } });
+    let state = resolver.resolve();
+    while(state.status === 'action-required') {
+      const need = state.needs[0]!;
+      if(need.kind !== 'NeedBeaconSignals') throw new Error(`unexpected need: ${need.kind}`);
+      const signals = new Map<BeaconService, Array<BeaconSignal>>();
+      for(const service of need.beaconServices) {
+        const address = BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string);
+        scanned.push(address);
+        signals.set(service, (signalsByAddress.get(address) ?? []).map((update, i) => ({
+          tx            : {} as any,
+          signalBytes   : canonicalHash(update, { encoding: 'hex' }),
+          blockMetadata : { height: 100 + i, time: 1700000000, mediantime: 1700000000, confirmations: DEFAULT_MIN_CONF }
+        })));
+      }
+      resolver.provide(need, signals);
+      state = resolver.resolve();
+    }
+    if(state.status !== 'resolved') throw new Error('expected resolved');
+    return state.result;
+  }
+
+  /** The current document of an EXTERNAL DID at version 1. */
+  function sourceOf(did: string, genesisDocument: object): DidDocument {
+    return resolveExternal(did, genesisDocument, [], new Map(), []).didDocument;
+  }
+
+  it('asks for the signals of a BITCOIN: endpoint at its address and applies the signal there', () => {
+    const genesis = genesisWith([{ id: 'did:btcr2:_#service-0', type: 'SingletonBeacon', serviceEndpoint: `BITCOIN:${ADDRESS}` }]);
+    const did = externalDid(genesis);
+    const [v2] = buildUpdateChain(did, sourceOf(did, genesis), fixture.secretKey, [benignPatch(did)]);
+    const scanned: Array<string> = [];
+    const { metadata } = resolveExternal(did, genesis, [v2], new Map([[ADDRESS, [v2]]]), scanned);
+    expect(scanned).to.deep.equal([ADDRESS]);
+    expect(metadata.versionId).to.equal('2');
+  });
+
+  for(const [title, endpointOf] of [
+    ['to BITCOIN:<address>', (address: string) => `BITCOIN:${address}`],
+    ['to bitcoin:<address in upper case>', (address: string) => `bitcoin:${address.toUpperCase()}`],
+  ] as const) {
+    it(`does not remove the beacon address if an update rewrites its endpoint ${title} (ADR 114)`, () => {
+      const deterministic = deterministicData[2]; // regtest, with a known secretKey
+      const source = resolveDeterministic(deterministic.did);
+      const [A, B] = [addressOf(source, 0), addressOf(source, 1)];
+      const rewrite: PatchOperation[] = [{ op: 'replace', path: '/service/1/serviceEndpoint', value: endpointOf(B) }];
+      const [v2, v3] = buildUpdateChain(deterministic.did, source, deterministic.secretKey, [
+        rewrite,                         // v2 at A rewrites the endpoint of B
+        benignPatch(deterministic.did)   // v3 at B applies: B is still a beacon address
+      ]);
+      const scanned: Array<string> = [];
+      const { didDocument, metadata } = driveAddresses(deterministic.did, [v2, v3], new Map([
+        [A, [{ update: v2 }]],
+        [B, [{ update: v3 }]]
+      ]), { scanned });
+      expect(metadata.versionId).to.equal('3');
+      expect(didDocument.service![1]!.serviceEndpoint).to.equal(endpointOf(B));
+      expect(didDocument.assertionMethod!.length).to.equal(source.assertionMethod!.length + 1);
+      // The rewrite gives no new address, so the resolver asks for B one time only.
+      expect(scanned.filter(address => address === B)).to.have.lengthOf(1);
+    });
+  }
+
+  it('asks for no signals of a SingletonBeacon whose endpoint has no address, and does not throw', () => {
+    const genesis = genesisWith([
+      { id: 'did:btcr2:_#service-0', type: 'SingletonBeacon', serviceEndpoint: 'bitcoin:?lightning=x' },
+      { id: 'did:btcr2:_#service-1', type: 'SingletonBeacon', serviceEndpoint: `bitcoin:${ADDRESS}` },
+    ]);
+    const did = externalDid(genesis);
+    const resolver = DidBtcr2.resolve(did, { sidecar: { genesisDocument: genesis } });
+    const state = resolver.resolve();
+    if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+    const need = state.needs[0] as NeedBeaconSignals;
+    expect(need.kind).to.equal('NeedBeaconSignals');
+    expect(need.beaconServices.map(service => service.id)).to.deep.equal([`${did}#service-1`]);
+    provideEmptySignals(resolver, need);
+    const final = resolver.resolve();
+    expect(final.status).to.equal('resolved');
+    if(final.status !== 'resolved') return;
+    expect(final.result.metadata.versionId).to.equal('1');
+  });
+
+  it('resolves a genesis document whose only SingletonBeacon has no address, with no need', () => {
+    const genesis = genesisWith([
+      { id: 'did:btcr2:_#service-0', type: 'SingletonBeacon', serviceEndpoint: 'bitcoin:?lightning=x' },
+    ]);
+    const did = externalDid(genesis);
+    const scanned: Array<string> = [];
+    const { metadata } = resolveExternal(did, genesis, [], new Map(), scanned);
+    expect(scanned).to.deep.equal([]);
+    expect(metadata.versionId).to.equal('1');
+  });
+});

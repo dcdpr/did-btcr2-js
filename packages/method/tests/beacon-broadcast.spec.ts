@@ -116,6 +116,26 @@ describe('SinglePartyBeacon.broadcastSignal result shape', () => {
       const expectedSignal = decode(canonicalHash(update), 'base64urlnopad');
       expect(lastOutputScriptHex(sent[0]!)).to.equal(bytesToHex(opReturnScript(expectedSignal)));
     });
+
+    it('spends from the bare address of a BIP321 endpoint with the scheme in upper case and a query', async () => {
+      const { signer, service } = testBeaconSetup('SingletonBeacon');
+      const address = service.serviceEndpoint.slice('bitcoin:'.length);
+      const sent: string[] = [];
+      const bitcoin = mockBitcoin(address, sent, []);
+      const queried: string[] = [];
+      const getUtxos = bitcoin.rest.address.getUtxos;
+      bitcoin.rest.address.getUtxos = async (beaconAddress: string) => {
+        queried.push(beaconAddress);
+        return getUtxos(beaconAddress);
+      };
+      const endpoint = { ...service, serviceEndpoint: `BITCOIN:${address}?label=x` };
+
+      const result = await new SingletonBeacon(endpoint, DID).broadcastSignal(fakeUpdate('singleton-bip321'), signer, bitcoin);
+
+      expect(queried).to.deep.equal([address]);
+      expect(result.txid).to.equal(TXID);
+      expect(sent).to.have.length(1);
+    });
   });
 
   describe('CASBeacon', () => {

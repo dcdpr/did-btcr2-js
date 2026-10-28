@@ -17,7 +17,7 @@ import {
 } from '@did-btcr2/std';
 import { SchnorrMultikey } from '@did-btcr2/integrity';
 import { CompressedSecp256k1PublicKey, LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
-import { BTCR2_UPDATE_CONTEXT, DEACTIVATION_PATCH } from '@did-btcr2/method';
+import { BTCR2_UPDATE_CONTEXT, DEACTIVATION_PATCH, deriveSingletonAddress } from '@did-btcr2/method';
 import {
   BitcoinApi,
   CasApi,
@@ -83,6 +83,25 @@ function emptyChainExecutor(): { executor: HttpExecutor; urls: string[] } {
     return new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } });
   };
   return { executor, urls };
+}
+
+/**
+ * An {@link HttpExecutor} that records each request as `<method> <url>`. A request for the
+ * UTXO list of an address gets `utxos`. Each other request gets an empty list.
+ */
+function recordingExecutor(utxos: object[] = []): { executor: HttpExecutor; requests: string[] } {
+  const requests: string[] = [];
+  const executor: HttpExecutor = async (req) => {
+    requests.push(`${req.method} ${req.url}`);
+    const body = JSON.stringify(req.url.endsWith('/utxo') ? utxos : []);
+    return new Response(body, { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  return { executor, requests };
+}
+
+/** The regtest address of a compressed public key for a script kind. The default kind is P2WPKH. */
+function regtestAddress(publicKey: Uint8Array, kind: 'p2pkh' | 'p2wpkh' | 'p2tr' = 'p2wpkh'): string {
+  return deriveSingletonAddress(kind, publicKey, getNetwork('regtest'));
 }
 
 /**
@@ -267,6 +286,44 @@ describe('DidMethodApi', () => {
         type    : 'SingletonBeacon',
         address : '12QG2GG9TWPD16SWyfWCsW4W3NhMFnnSFK',
       }]);
+    });
+
+    it('gives the address part of a BIP321 URI in any scheme case, with a bech32 address in lower case', () => {
+      const methodApi = new DidMethodApi();
+      const kp = SchnorrKeyPair.generate();
+      const did = methodApi.createDeterministic(kp.publicKey.compressed, { network: 'regtest' });
+      const legacy = regtestAddress(SchnorrKeyPair.generate().publicKey.compressed, 'p2pkh');
+      const segwit = regtestAddress(SchnorrKeyPair.generate().publicKey.compressed, 'p2wpkh');
+      const taproot = regtestAddress(SchnorrKeyPair.generate().publicKey.compressed, 'p2tr');
+      const document = methodApi.getInitialDocument(did);
+      document.service = [
+        { id: `${did}#upper-scheme`, type: 'SingletonBeacon', serviceEndpoint: `BITCOIN:${segwit}` },
+        { id: `${did}#base58`, type: 'SingletonBeacon', serviceEndpoint: `BITCOIN:${legacy}?label=x` },
+        { id: `${did}#label`, type: 'CASBeacon', serviceEndpoint: `bitcoin:${taproot}?label=x` },
+        { id: `${did}#upper-address`, type: 'SMTBeacon', serviceEndpoint: `bitcoin:${taproot.toUpperCase()}` },
+      ];
+      expect(methodApi.getBeacons(document)).to.deep.equal([
+        { id: `${did}#upper-scheme`, type: 'SingletonBeacon', address: segwit },
+        // A base58 address keeps its case.
+        { id: `${did}#base58`, type: 'SingletonBeacon', address: legacy },
+        { id: `${did}#label`, type: 'CASBeacon', address: taproot },
+        { id: `${did}#upper-address`, type: 'SMTBeacon', address: taproot },
+      ]);
+    });
+
+    it('gives no entry for a beacon whose URI has no address part', () => {
+      const methodApi = new DidMethodApi();
+      const kp = SchnorrKeyPair.generate();
+      const did = methodApi.createDeterministic(kp.publicKey.compressed, { network: 'regtest' });
+      const address = regtestAddress(kp.publicKey.compressed);
+      const document = methodApi.getInitialDocument(did);
+      document.service = [
+        { id: `${did}#lightning`, type: 'SingletonBeacon', serviceEndpoint: 'bitcoin:?lightning=x' },
+        { id: `${did}#funded`, type: 'SingletonBeacon', serviceEndpoint: `bitcoin:${address}` },
+      ];
+      expect(methodApi.getBeacons(document)).to.deep.equal([
+        { id: `${did}#funded`, type: 'SingletonBeacon', address },
+      ]);
     });
 
     it('rejects a genesis document that does not hash to the DID', () => {
@@ -836,6 +893,70 @@ describe('DidMethodApi', () => {
         { announce: { bitcoin: connection } },
       )).to.be.rejectedWith(UpdateError, 'names the network "testnet4"');
       expect(events).to.deep.equal([]);
+    });
+
+    it('reads the address part of a beacon URI with a query, and asks the chain for that address only', async () => {
+      const { executor, requests } = recordingExecutor();
+      const methodApi = new DidMethodApi(new BitcoinApi({ network: 'regtest', executor }));
+      const kp = SchnorrKeyPair.generate();
+      const did = methodApi.createDeterministic(kp.publicKey.compressed, { network: 'regtest' });
+      const address = regtestAddress(kp.publicKey.compressed);
+      const document = methodApi.getInitialDocument(did);
+      const beaconId = `${did}#labeled`;
+      document.service = [{ id: beaconId, type: 'SingletonBeacon', serviceEndpoint: `bitcoin:${address}?label=x` }];
+
+      await expect(methodApi.update(
+        { document, versionId: 1 },
+        [],
+        new LocalSigner(kp.secretKey.bytes),
+        { announce: { beaconId } },
+      )).to.be.rejectedWith(UpdateError, `Beacon address ${address} is unfunded.`);
+      // The request has the address without the query of the URI.
+      expect(requests).to.have.lengthOf(1);
+      expect(requests[0]).to.match(new RegExp(`^GET \\S+/address/${address}/utxo$`));
+    });
+
+    describe('a beaconId that names a service that is not a beacon service', () => {
+      const cases: Array<[string, (address: string) => { type: string; serviceEndpoint: string }]> = [
+        ['a LinkedDomains service with a bitcoin: endpoint', (address) => ({ type: 'LinkedDomains', serviceEndpoint: `bitcoin:${address}` })],
+        ['a SingletonBeacon whose URI has a req- query key', (address) => ({ type: 'SingletonBeacon', serviceEndpoint: `bitcoin:${address}?req-pay=1` })],
+      ];
+
+      for (const [name, service] of cases) {
+        it(`refuses ${name} before it reads the chain or publishes to the CAS`, async () => {
+          // The address holds a confirmed UTXO. Thus a refusal after the funding check comes
+          // after the publication of the signed update to the CAS.
+          const funded = [{ txid: 'a'.repeat(64), vout: 0, value: 100_000, status: { confirmed: true, block_height: 100 } }];
+          const { executor, requests } = recordingExecutor(funded);
+          const puts: Uint8Array[] = [];
+          const casExecutor: CasExecutor = {
+            retrieve : async () => null,
+            publish  : async (data) => { puts.push(data); return ''; },
+          };
+          const methodApi = new DidMethodApi(new BitcoinApi({ network: 'regtest', executor }), new CasApi({ executor: casExecutor }));
+          const kp = SchnorrKeyPair.generate();
+          const did = methodApi.createDeterministic(kp.publicKey.compressed, { network: 'regtest' });
+          const document = methodApi.getInitialDocument(did);
+          const beaconId = `${did}#not-a-beacon`;
+          document.service = [{ id: beaconId, ...service(regtestAddress(kp.publicKey.compressed)) }];
+
+          const err: unknown = await methodApi.update(
+            { document, versionId: 1 },
+            [],
+            new LocalSigner(kp.secretKey.bytes),
+            { announce: { beaconId, publishToCas: 'always' } },
+          ).catch((e: unknown) => e);
+
+          expect(err).to.be.instanceOf(UpdateError);
+          expect((err as UpdateError).type).to.equal(INVALID_DID_UPDATE);
+          expect((err as UpdateError).message).to.equal(
+            `The service ${beaconId} is not a beacon service: its type is not in Beacons Table 1, `
+            + 'or its serviceEndpoint gives no Bitcoin address.'
+          );
+          expect(requests, 'no chain read before the refusal').to.deep.equal([]);
+          expect(puts, 'no CAS publication before the refusal').to.deep.equal([]);
+        });
+      }
     });
 
     describe('an update that leaves no method that can sign', () => {

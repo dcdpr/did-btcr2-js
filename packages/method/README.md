@@ -109,6 +109,15 @@ After the resolver keeps the state, it processes the rest of the history. Then i
 
 The resolver processes one update per pass, as the specification describes. After each applied update it scans the beacon addresses that the document now carries and that it did not scan yet, then it continues with the next update. The resolver ignores a signal at a beacon address that an applied update removed from the document: the signal stamps no metadata and changes no version. A `BeaconSignal` carries the block `height`, the header `time`, the `mediantime`, and the `confirmations` of its block. Both discovery paths fill `mediantime`: the indexer path reads the Esplora block record once per distinct block, the fullnode path reads the RPC block.
 
+The resolver identifies a beacon by the `type` of its service: `SingletonBeacon`, `CASBeacon`, or `SMTBeacon`. The beacon address is the address part of the BIP321 `bitcoin:` URI in `serviceEndpoint` (ADR 161):
+
+- The scheme `bitcoin:` matches in any case, for example `BITCOIN:`.
+- The address part is the text before the first `?`. It must be a base58 P2PKH or P2SH address, a bech32 segwit version 0 address, or a bech32m segwit address of version 1 to 16.
+- A query key that starts with `req-`, in any case, makes the URI invalid. The resolver ignores each other query key.
+- The resolver uses a bech32 or bech32m address in lower case. A base58 address keeps its case.
+
+A beacon whose `serviceEndpoint` gives no Bitcoin address has no signals, and the resolution continues. An update that changes only the case of the scheme or of a bech32 address does not remove the beacon address.
+
 `time` and `mediantime` must be integers from 0 to 2^32-1, the range of the 32-bit time field of a block header. If a signal with `minConf` or more confirmations has another value, the resolution fails with a `ResolveError` of type `INVALID_DID_UPDATE` (ADR 158).
 
 ### Update a DID
@@ -170,6 +179,8 @@ const { signedUpdate } = state.result;
 ```
 
 See [`src/core/updater.ts`](./src/core/updater.ts) for the full `UpdaterDataNeed` union and phase transitions.
+
+`beaconId` must name a beacon service of `sourceDocument`. `DidBtcr2.update()` refuses an id that names no service, with `No beacon service found for provided beaconId`. It also refuses a service that is not a beacon, or a beacon whose `serviceEndpoint` gives no Bitcoin address (ADR 161). Each refusal is an `UpdateError` of type `INVALID_DID_UPDATE`. `NeedFunding.beaconAddress` and the beacon transaction use the address part of the BIP321 URI, not the full `serviceEndpoint`.
 
 An update carries the `@context` array that the specification pins, in this order: `https://w3id.org/json-ld-patch/v1`, `https://w3id.org/zcap/v1`, `https://w3id.org/security/data-integrity/v2`, `https://btcr2.dev/context/v1`. `Updater.construct()` writes the array, and the proof of the signed update repeats it. The package exports the array as `BTCR2_UPDATE_CONTEXT`. The array is inside the hashed and signed bytes, so an update with a different array is a different update. The resolver rejects an update with a different array, or with a proof `@context` that differs from the update `@context`, with a `ResolveError` of type `INVALID_DID_UPDATE`.
 

@@ -10,6 +10,7 @@ import type { SMTProof } from '../interfaces.js';
 import type { BeaconProcessResult } from '../resolver.js';
 import type { CASAnnouncement, SidecarData } from '../types.js';
 import { BeaconError } from './error.js';
+import { BeaconUtils } from './utils.js';
 import { DEFAULT_FEE_ESTIMATOR } from './fee-estimator.js';
 import type { FeeEstimator } from './fee-estimator.js';
 import type { BeaconService, BeaconSignal } from './interfaces.js';
@@ -816,7 +817,7 @@ export abstract class SinglePartyBeacon {
     bitcoin: BitcoinConnection,
     options?: BroadcastOptions
   ): Promise<string> {
-    const beaconAddress = this.service.serviceEndpoint.replace('bitcoin:', '');
+    const beaconAddress = BeaconUtils.parseBitcoinAddress(this.service.serviceEndpoint as string);
     const { funding, prevTxs } = await fetchBeaconFunding(bitcoin, {
       beaconAddress,
       network       : bitcoin.data,

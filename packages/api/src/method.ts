@@ -176,7 +176,10 @@ export interface BeaconInfo {
   id: string;
   /** Beacon type: `SingletonBeacon`, `CASBeacon`, or `SMTBeacon`. */
   type: string;
-  /** The Bitcoin address to fund, with the `bitcoin:` URI scheme removed. */
+  /**
+   * The Bitcoin address to fund: the address part of the BIP321 `bitcoin:` URI, with a bech32
+   * address in lower case.
+   */
   address: string;
 }
 
@@ -419,8 +422,10 @@ export class DidMethodApi {
   /**
    * The beacon services of a DID document, each paired with the Bitcoin address
    * that must hold a confirmed UTXO before that beacon can broadcast a signal.
-   * Combine with {@link DidMethodApi.getInitialDocument} to learn the address
-   * to fund without any chain round-trip.
+   * The address is the address part of the BIP321 `bitcoin:` URI of the
+   * `serviceEndpoint`. A beacon whose `serviceEndpoint` gives no Bitcoin address
+   * is not in the result. Combine with {@link DidMethodApi.getInitialDocument}
+   * to learn the address to fund without any chain round-trip.
    * @param document The DID document to read beacon services from.
    * @returns One {@link BeaconInfo} per beacon service on the document.
    */

@@ -455,8 +455,9 @@ export class BeaconSignalDiscovery {
      * Hoist the beacon address lookup before the loop, mapping each address to the caller's
      * own service object. The results below are keyed by object identity, so the map has to
      * hold those exact instances rather than copies of them. Addresses are parsed the same
-     * way as on the indexer path, so a BIP21 endpoint carrying query parameters resolves to
-     * the bare address a spent output reports.
+     * way as on the indexer path, so a BIP321 endpoint with query parameters, a scheme in
+     * upper case, or a bech32 address in upper case resolves to the address that a spent
+     * output reports.
      */
     const beaconServicesMap = new Map<string, BeaconService>(
       beaconServices.map(service => [BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string), service])

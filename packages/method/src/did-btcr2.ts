@@ -12,6 +12,7 @@ import {
 import type {
   DidMethod} from '@web5/dids';
 import type { BeaconService } from './core/beacon/interfaces.js';
+import { BeaconUtils } from './core/beacon/utils.js';
 import { DEACTIVATION_PATCH } from './core/btcr2-update.js';
 import { Identifier } from './core/identifier.js';
 import type { ResolutionOptions } from './core/interfaces.js';
@@ -163,6 +164,8 @@ export class DidBtcr2 implements DidMethod {
    *   - `sourceDocument` or `verificationMethodId` fails a condition of
    *     {@link Updater.signingMethod}.
    *   - The beacon service is not found.
+   *   - The service of `beaconId` is not a beacon service: its type is not in Beacons Table 1,
+   *     or its `serviceEndpoint` gives no Bitcoin address.
    */
   static update({
     sourceDocument,
@@ -211,6 +214,17 @@ export class DidBtcr2 implements DidMethod {
     if(!beaconService) {
       throw new UpdateError(
         'No beacon service found for provided beaconId',
+        INVALID_DID_UPDATE, { sourceDocument, beaconId }
+      );
+    }
+
+    // Spec "Update": a BTCR2 Beacon of the DID document announces the update. A service that
+    // is not a beacon, or a beacon that gives no Beacon Address, cannot announce it.
+    // The check runs before Construct, so a caller does not publish the update before it fails.
+    if(!BeaconUtils.isBeaconService(beaconService)) {
+      throw new UpdateError(
+        `The service ${beaconId} is not a beacon service: its type is not in Beacons Table 1, `
+        + 'or its serviceEndpoint gives no Bitcoin address.',
         INVALID_DID_UPDATE, { sourceDocument, beaconId }
       );
     }

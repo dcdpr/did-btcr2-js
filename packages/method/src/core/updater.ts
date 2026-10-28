@@ -15,6 +15,7 @@ import type { BroadcastResult } from './beacon/beacon.js';
 import type { CASBroadcastOptions } from './beacon/cas-beacon.js';
 import { BeaconFactory } from './beacon/factory.js';
 import type { BeaconService } from './beacon/interfaces.js';
+import { BeaconUtils } from './beacon/utils.js';
 
 // ─── DataNeed types ──────────────────────────────────────────────────────────
 
@@ -773,7 +774,7 @@ export class Updater {
         // Emit NeedFunding with the beacon address. The caller checks UTXOs,
         // funds the address if needed, and provides to continue.
         case 'Fund': {
-          const beaconAddress = this.#beaconService.serviceEndpoint.replace('bitcoin:', '');
+          const beaconAddress = BeaconUtils.parseBitcoinAddress(this.#beaconService.serviceEndpoint as string);
           return {
             status : 'action-required',
             needs  : [{
