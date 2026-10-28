@@ -1,7 +1,7 @@
 import type { AddressUtxo, BitcoinConnection, BTCNetwork, TransactionStatus } from '@did-btcr2/bitcoin';
-import type { KeyBytes } from '@did-btcr2/common';
+import type { KeyBytes } from '@did-btcr2/std';
 import type { SignedBTCR2Update } from '../btcr2-update.js';
-import type { Signer } from '@did-btcr2/keypair';
+import type { Signer } from '@did-btcr2/keys';
 import { equalBytes } from '@noble/curves/utils.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, concatBytes, hexToBytes } from '@noble/hashes/utils.js';

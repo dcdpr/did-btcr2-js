@@ -1,5 +1,5 @@
-import type { Bytes, HashBytes, KeyBytes, SignatureBytes } from '@did-btcr2/common';
-import type { SchnorrKeyPair } from '@did-btcr2/keypair';
+import type { Bytes, HashBytes, KeyBytes, SignatureBytes } from '@did-btcr2/std';
+import type { SchnorrKeyPair } from '@did-btcr2/keys';
 
 /** Opaque key identifier string. */
 export type KeyIdentifier = string;
@@ -7,7 +7,7 @@ export type KeyIdentifier = string;
 /**
  * Signature schemes supported by a {@link KeyManager}.
  *
- * Mirrors the `SigningScheme` type from `@did-btcr2/keypair`:
+ * Mirrors the `SigningScheme` type from `@did-btcr2/keys`:
  * - `'ecdsa'`  - DER-encoded, low-S ECDSA over secp256k1. Used by P2PKH and
  *   P2WPKH (BIP-143) Bitcoin inputs.
  * - `'bip340'` - Raw BIP-340 Schnorr signature using the *untweaked* secret

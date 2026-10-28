@@ -1,8 +1,8 @@
 import { expect } from 'chai';
-import { canonicalize } from '@did-btcr2/common';
-import { BIP340Cryptosuite, BIP340DataIntegrityProof, SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
-import type { Signer } from '@did-btcr2/keypair';
+import { canonicalize } from '@did-btcr2/std';
+import { BIP340Cryptosuite, BIP340DataIntegrityProof, SchnorrMultikey } from '@did-btcr2/integrity';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
+import type { Signer } from '@did-btcr2/keys';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { base58 } from '@scure/base';

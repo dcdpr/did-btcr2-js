@@ -1,5 +1,5 @@
 import { getNetwork } from '@did-btcr2/bitcoin';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { hexToBytes } from '@noble/hashes/utils';
 import { Script, Transaction, p2tr } from '@scure/btc-signer';

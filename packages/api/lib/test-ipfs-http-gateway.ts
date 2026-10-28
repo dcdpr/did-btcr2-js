@@ -8,7 +8,7 @@ import { CID } from 'multiformats/cid';
 import * as raw from 'multiformats/codecs/raw';
 import { create as createDigest } from 'multiformats/hashes/digest';
 import { sha256 } from 'multiformats/hashes/sha2';
-import { decode as decodeHash } from '@did-btcr2/common';
+import { decode as decodeHash } from '@did-btcr2/std';
 import { DEFAULT_CAS_GATEWAY, HttpGatewayCasExecutor } from '../src/cas.js';
 
 const gateway = process.argv[2] ?? DEFAULT_CAS_GATEWAY;

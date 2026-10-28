@@ -1,5 +1,5 @@
-import { canonicalHashBytes } from '@did-btcr2/common';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { canonicalHashBytes } from '@did-btcr2/std';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { bech32m, hex } from '@scure/base';
 import { expect } from 'chai';
 import { GenesisDocument, Identifier } from '../src/index.js';

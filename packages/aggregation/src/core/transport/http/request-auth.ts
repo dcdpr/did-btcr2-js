@@ -1,5 +1,5 @@
-import { canonicalHashBytes } from '@did-btcr2/common';
-import type { CompressedSecp256k1PublicKey, SchnorrKeyPair } from '@did-btcr2/keypair';
+import { canonicalHashBytes } from '@did-btcr2/std';
+import type { CompressedSecp256k1PublicKey, SchnorrKeyPair } from '@did-btcr2/keys';
 import { bytesToHex, hexToBytes, randomBytes } from '@noble/hashes/utils';
 
 import { HttpTransportError } from './errors.js';

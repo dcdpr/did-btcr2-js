@@ -1,6 +1,6 @@
-import type { Did } from '@did-btcr2/common';
-import type { SchnorrKeyPair } from '@did-btcr2/keypair';
-import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
+import type { Did } from '@did-btcr2/std';
+import type { SchnorrKeyPair } from '@did-btcr2/keys';
+import { CompressedSecp256k1PublicKey } from '@did-btcr2/keys';
 import { equalBytes } from '@noble/curves/utils.js';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import type { SubCloser } from 'nostr-tools/abstract-pool';

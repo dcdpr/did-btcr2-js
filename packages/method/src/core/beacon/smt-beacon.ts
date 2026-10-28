@@ -1,7 +1,7 @@
 import type { BitcoinConnection } from '@did-btcr2/bitcoin';
-import { canonicalHashBytes, INVALID_SIGNAL_DATA } from '@did-btcr2/common';
+import { canonicalHashBytes, INVALID_SIGNAL_DATA } from '@did-btcr2/std';
 import type { SignedBTCR2Update } from '../btcr2-update.js';
-import type { Signer } from '@did-btcr2/keypair';
+import type { Signer } from '@did-btcr2/keys';
 import { base64UrlToHash, BTCR2MerkleTree, hashToHex, verifyProof } from '@did-btcr2/smt';
 import { randomBytes } from '@noble/hashes/utils';
 import { hasNonZeroPadBits, smtProofRootHex } from '../../utils/base64url-hash.js';

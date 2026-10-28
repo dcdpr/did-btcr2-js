@@ -1,6 +1,6 @@
 import type { BitcoinConnection, BlockV3, RawTransactionRest, RawTransactionV2, Vin, Vout } from '@did-btcr2/bitcoin';
 import { TXIN_WITNESS_COINBASE } from '@did-btcr2/bitcoin';
-import { INTERNAL_ERROR, MethodError } from '@did-btcr2/common';
+import { INTERNAL_ERROR, MethodError } from '@did-btcr2/std';
 import { expect } from 'chai';
 import type { BeaconService } from '../src/core/beacon/interfaces.js';
 import { BeaconSignalDiscovery, extractOpReturnSignalHash } from '../src/core/beacon/signal-discovery.js';

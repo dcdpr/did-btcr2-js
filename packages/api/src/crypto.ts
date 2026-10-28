@@ -1,4 +1,4 @@
-import type { Bytes, Entropy, HexString, KeyBytes, SchnorrKeyPairObject, SignatureBytes } from '@did-btcr2/common';
+import type { Bytes, Entropy, HexString, KeyBytes, SchnorrKeyPairObject, SignatureBytes } from '@did-btcr2/std';
 import type {
   CryptosuiteVerificationResult,
   DataIntegrityProofObject,
@@ -6,15 +6,15 @@ import type {
   SecuredDocument,
   UnsecuredDocument,
   VerificationResult
-} from '@did-btcr2/cryptosuite';
+} from '@did-btcr2/integrity';
 import {
   BIP340Cryptosuite,
   BIP340DataIntegrityProof,
   type FromPublicKey,
   type Multikey,
   SchnorrMultikey
-} from '@did-btcr2/cryptosuite';
-import { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keypair';
+} from '@did-btcr2/integrity';
+import { CompressedSecp256k1PublicKey, SchnorrKeyPair, Secp256k1SecretKey } from '@did-btcr2/keys';
 import type { KeyIdentifier } from '@did-btcr2/key-manager';
 import type { DidVerificationMethod } from '@web5/dids';
 import { assertCompressedPubkey } from './helpers.js';

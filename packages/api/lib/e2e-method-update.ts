@@ -23,9 +23,9 @@
  */
 import assert from 'node:assert/strict';
 import { DidBtcr2Api } from '@did-btcr2/api';
-import { canonicalHash } from '@did-btcr2/common';
-import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
+import { canonicalHash } from '@did-btcr2/std';
+import { SchnorrMultikey } from '@did-btcr2/integrity';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
 import { BeaconSignalDiscovery, DidBtcr2, Identifier, Resolver } from '@did-btcr2/method';
 import { bitcoinFor, confirmBroadcast, fundBeacon, parseNetworkEnv, persistKey } from './_e2e-helpers.js';
 

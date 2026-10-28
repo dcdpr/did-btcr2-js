@@ -1,5 +1,5 @@
-import { KeyManagerError } from '@did-btcr2/common';
-import { CompressedSecp256k1PublicKey, SchnorrKeyPair } from '@did-btcr2/keypair';
+import { KeyManagerError } from '@did-btcr2/std';
+import { CompressedSecp256k1PublicKey, SchnorrKeyPair } from '@did-btcr2/keys';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { utf8ToBytes } from '@noble/hashes/utils.js';
 import { expect } from 'chai';

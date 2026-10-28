@@ -20,7 +20,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createServer } from 'node:http';
 
 import { getNetwork } from '@did-btcr2/bitcoin';
-import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
 import { bytesToHex } from '@noble/hashes/utils';
 import { Address, OutScript, Script, Transaction } from '@scure/btc-signer';
 

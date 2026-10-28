@@ -26,10 +26,10 @@
  *   BEACON_KIND       default: p2pkh - one of p2pkh|p2wpkh|p2tr
  */
 import assert from 'node:assert/strict';
-import { canonicalHash } from '@did-btcr2/common';
-import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
+import { canonicalHash } from '@did-btcr2/std';
+import { SchnorrMultikey } from '@did-btcr2/integrity';
 import { KeyManagerSigner, LocalKeyManager } from '@did-btcr2/key-manager';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { BeaconSignalDiscovery, DidBtcr2, Identifier, Resolver, Updater } from '@did-btcr2/method';
 import { bitcoinFor, confirmBroadcast, fundBeacon, parseNetworkEnv, persistKey } from './_e2e-helpers.js';
 

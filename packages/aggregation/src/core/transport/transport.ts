@@ -1,4 +1,4 @@
-import type { SchnorrKeyPair } from '@did-btcr2/keypair';
+import type { SchnorrKeyPair } from '@did-btcr2/keys';
 import type { BaseMessage } from '../messages/base.js';
 
 export type SyncMessageHandler = (msg: any) => void;

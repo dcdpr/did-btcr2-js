@@ -1,4 +1,4 @@
-import { FEATURE_NOT_SUPPORTED, INVALID_DID, INVALID_OPTIONS, METHOD_NOT_SUPPORTED, ResolveError } from '@did-btcr2/common';
+import { FEATURE_NOT_SUPPORTED, INVALID_DID, INVALID_OPTIONS, METHOD_NOT_SUPPORTED, ResolveError } from '@did-btcr2/std';
 import { expect } from 'chai';
 import { DidBtcr2 } from '../src/did-btcr2.js';
 import { isAcceptValue, RESOLUTION_OPTION_NAMES } from '../src/core/resolution-options.js';

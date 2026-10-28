@@ -26,7 +26,7 @@ import { DidBtcr2, Resolver, Updater, resolveBtcr2SenderPk } from '@did-btcr2/me
  */
 import assert from 'node:assert/strict';
 import { getNetwork } from '@did-btcr2/bitcoin';
-import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { bytesToHex } from '@noble/hashes/utils';
 import { Address, OutScript, Script, SigHash, Transaction } from '@scure/btc-signer';

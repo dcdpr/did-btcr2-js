@@ -25,9 +25,9 @@ The build system uses:
 The build order is determined by workspace dependencies declared in each package's `dependencies` block using `workspace:^`:
 
 ```
-common          (no workspace deps)
-├── keypair
-│   ├── cryptosuite
+std             (no workspace deps)
+├── keys
+│   ├── integrity
 │   ├── bitcoin
 │   └── key-manager
 ├── smt
@@ -102,7 +102,7 @@ packages/<pkg>/lib/tsconfig.json        : editor typecheck for lib scripts (no e
   },
   "include": ["src"],
   "references": [
-    { "path": "../common" }
+    { "path": "../std" }
   ]
 }
 ```
@@ -131,9 +131,9 @@ This excludes DOM globals and opts in to `@types/node`.
 {
   "files": [],
   "references": [
-    { "path": "packages/common" },
-    { "path": "packages/keypair" },
-    { "path": "packages/cryptosuite" },
+    { "path": "packages/std" },
+    { "path": "packages/keys" },
+    { "path": "packages/integrity" },
     { "path": "packages/bitcoin" },
     { "path": "packages/key-manager" },
     { "path": "packages/smt" },
@@ -168,12 +168,12 @@ Every package produces its ESM output via `tsc -p tsconfig.json`. For the ESM pa
 ### CJS build
 
 **5 packages** build CJS via `tsc -p tsconfig.cjs.json`:
-`common`, `keypair`, `bitcoin`, `key-manager`, `smt`
+`std`, `keys`, `bitcoin`, `key-manager`, `smt`
 
 These packages have dependency graphs that are fully CJS-compatible, so a plain `tsc` invocation produces working CommonJS output. The post-build step `echo '{"type": "commonjs"}' > ./dist/cjs/package.json` writes a small `package.json` override so Node's module loader treats the `dist/cjs/` subtree as CommonJS regardless of the parent package's `"type": "module"` declaration.
 
-**4 packages** build CJS via `tsup`:
-`cryptosuite`, `method`, `api`, `cli`
+**5 packages** build CJS via `tsup`:
+`integrity`, `method`, `aggregation`, `api`, `cli`
 
 These packages have **ESM-only transitive dependencies** (e.g. `multiformats/bases/base58` subpath exports) that cannot be consumed from CommonJS via a plain `require()`. `tsup` solves this by bundling the ESM-only deps directly into the CJS output file.
 
@@ -203,7 +203,7 @@ export default defineConfig({
 });
 ```
 
-**`noExternal`** tells tsup which deps to bundle inline rather than leave as external `require()` calls. For example, `cryptosuite`, `api`, and `cli` bundle `multiformats`.
+**`noExternal`** tells tsup which deps to bundle inline rather than leave as external `require()` calls. For example, `integrity`, `api`, and `cli` bundle `multiformats`.
 
 **`outExtension`** overrides tsup's default `.cjs` extension with `.js` so the output matches the tsc-built packages. The `dist/cjs/package.json` override handles the ESM-vs-CJS distinction at runtime.
 
@@ -311,7 +311,7 @@ This produces a `.tgz` tarball under the monorepo's `release/` directory. Actual
 
 **Recommended publish order** (respecting the dependency graph):
 ```
-common to keypair to {cryptosuite, bitcoin, key-manager, smt} to method to api to cli
+std to keys to {integrity, bitcoin, key-manager, smt} to method to aggregation to api to cli
 ```
 
 Workspace protocol versions (`workspace:^`) are rewritten to their concrete semver during `pnpm pack`, so published tarballs contain proper `^X.Y.Z` dep declarations.
@@ -368,7 +368,7 @@ Try `pnpm install --force` to rebuild the symlink tree. If the error mentions a 
 
 ### `require()` of a package fails with "Cannot find module X"
 
-You're probably trying to `require()` a package whose `dist/cjs/` was not built. Check that the package's `build:cjs` script ran successfully: for tsup-based packages, check for errors in the bundled output. If the package is `cryptosuite`, `method`, `api`, or `cli`, the bundler is tsup; everywhere else it's tsc.
+You're probably trying to `require()` a package whose `dist/cjs/` was not built. Check that the package's `build:cjs` script ran successfully: for tsup-based packages, check for errors in the bundled output. If the package is `integrity`, `method`, `aggregation`, `api`, or `cli`, the bundler is tsup; everywhere else it's tsc.
 
 ### `tsc -b` reports the same errors repeatedly
 

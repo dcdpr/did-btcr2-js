@@ -1,5 +1,5 @@
-import { CanonicalizationError } from '@did-btcr2/common';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { CanonicalizationError } from '@did-btcr2/std';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { expect } from 'chai';
 import type { BaseBody } from '../src/index.js';
 

@@ -1,5 +1,5 @@
-import type { SchnorrKeyPair } from '@did-btcr2/keypair';
-import { wipe } from '@did-btcr2/keypair';
+import type { SchnorrKeyPair } from '@did-btcr2/keys';
+import { wipe } from '@did-btcr2/keys';
 
 /**
  * A signing capability for MuSig2 aggregation.

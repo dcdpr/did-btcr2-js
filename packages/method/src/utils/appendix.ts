@@ -3,7 +3,7 @@ import type {
   DidService,
   DidVerificationMethod} from '@web5/dids';
 import { DidVerificationRelationship } from '@web5/dids';
-import { DidDocumentError } from '@did-btcr2/common';
+import { DidDocumentError } from '@did-btcr2/std';
 import type { RootCapability } from '../core/interfaces.js';
 
 /**

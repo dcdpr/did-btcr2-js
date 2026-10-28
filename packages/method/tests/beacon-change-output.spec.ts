@@ -1,6 +1,6 @@
 import { getNetwork } from '@did-btcr2/bitcoin';
 import type { AddressUtxo, BitcoinConnection } from '@did-btcr2/bitcoin';
-import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
 import { bytesToHex } from '@noble/hashes/utils.js';
 import { Address, OutScript, p2tr, p2wpkh, Transaction } from '@scure/btc-signer';
 import { expect } from 'chai';

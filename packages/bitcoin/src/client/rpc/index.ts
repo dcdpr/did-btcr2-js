@@ -1,4 +1,4 @@
-import { JSONUtils } from '@did-btcr2/common';
+import { JSONUtils } from '@did-btcr2/std';
 import { BitcoinRpcError } from '../../errors.js';
 import type {
   BlockResponse,

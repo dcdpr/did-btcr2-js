@@ -1,4 +1,4 @@
-import { DidMethodError, FEATURE_NOT_SUPPORTED, INTERNAL_ERROR, INVALID_DID, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, INVALID_DID_URL, INVALID_OPTIONS, INVALID_SIGNAL_DATA, LATE_PUBLISHING, METHOD_NOT_SUPPORTED, MISSING_UPDATE_DATA, NOT_FOUND, PROOF_VERIFICATION_ERROR, ResolveError } from '@did-btcr2/common';
+import { DidMethodError, FEATURE_NOT_SUPPORTED, INTERNAL_ERROR, INVALID_DID, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, INVALID_DID_URL, INVALID_OPTIONS, INVALID_SIGNAL_DATA, LATE_PUBLISHING, METHOD_NOT_SUPPORTED, MISSING_UPDATE_DATA, NOT_FOUND, PROOF_VERIFICATION_ERROR, ResolveError } from '@did-btcr2/std';
 import { expect } from 'chai';
 import { messageText, resolutionError, resolutionErrorCode, resolutionErrorCodeOfType, resolutionErrorOfCode, rootCauseMessage } from '../src/helpers.js';
 
@@ -175,7 +175,7 @@ describe('resolutionErrorCode()', () => {
     expect(resolutionErrorCode(new ResolveError('x', PROOF_VERIFICATION_ERROR))).to.equal(INTERNAL_ERROR);
   });
 
-  it('returns REPRESENTATION_NOT_SUPPORTED, a DID Resolution code that common does not define', () => {
+  it('returns REPRESENTATION_NOT_SUPPORTED, a DID Resolution code that std does not define', () => {
     expect(resolutionErrorCode(new ResolveError('x', 'REPRESENTATION_NOT_SUPPORTED'))).to.equal('REPRESENTATION_NOT_SUPPORTED');
   });
 });

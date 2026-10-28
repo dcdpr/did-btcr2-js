@@ -1,6 +1,6 @@
-import { canonicalize } from '@did-btcr2/common';
-import type { SecuredDocument } from '@did-btcr2/cryptosuite';
-import type { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
+import { canonicalize } from '@did-btcr2/std';
+import type { SecuredDocument } from '@did-btcr2/integrity';
+import type { CompressedSecp256k1PublicKey } from '@did-btcr2/keys';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import type { Transaction } from '@scure/btc-signer';

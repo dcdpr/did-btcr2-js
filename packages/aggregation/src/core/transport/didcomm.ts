@@ -1,5 +1,5 @@
-import { NotImplementedError } from '@did-btcr2/common';
-import type { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { NotImplementedError } from '@did-btcr2/std';
+import type { SchnorrKeyPair } from '@did-btcr2/keys';
 import type { BaseMessage } from '../messages/base.js';
 import type { MessageHandler, Transport } from './transport.js';
 

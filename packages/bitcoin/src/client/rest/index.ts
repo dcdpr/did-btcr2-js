@@ -1,4 +1,4 @@
-import { MethodError } from '@did-btcr2/common';
+import { MethodError } from '@did-btcr2/std';
 import { BitcoinAddress } from './address.js';
 import { BitcoinBlock } from './block.js';
 import { BitcoinTransaction } from './transaction.js';

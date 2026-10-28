@@ -3,11 +3,11 @@ import type {
   HashBytes,
   KeyBytes,
   SignatureBytes
-} from '@did-btcr2/common';
+} from '@did-btcr2/std';
 import {
   KeyManagerError
-} from '@did-btcr2/common';
-import { SchnorrKeyPair, signWithScheme } from '@did-btcr2/keypair';
+} from '@did-btcr2/std';
+import { SchnorrKeyPair, signWithScheme } from '@did-btcr2/keys';
 import { schnorr, secp256k1 } from '@noble/curves/secp256k1.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import type {
@@ -28,7 +28,7 @@ import { MemoryStore } from './store.js';
  * {@link KeyValueStore} (defaults to {@link MemoryStore}).
  *
  * "Local" means the secret bytes live in this JS process's heap, just like
- * `LocalSigner` in `@did-btcr2/keypair`. For production deployments that need
+ * `LocalSigner` in `@did-btcr2/keys`. For production deployments that need
  * keys held outside the process (HSM, cloud KMS like AWS / GCP / Azure /
  * HashiCorp Vault), supply your own implementation of {@link KeyManager} to
  * the api package and use this class only for tests, scripts, and reference.
@@ -154,7 +154,7 @@ export class LocalKeyManager implements KeyManager {
       throw new KeyManagerError(`Key is not a signing key: ${keyId}`, 'KEY_NOT_SIGNER');
     }
     const scheme = options.scheme ?? 'bip340';
-    // Delegates to `signWithScheme` in `@did-btcr2/keypair`. Single source of
+    // Delegates to `signWithScheme` in `@did-btcr2/keys`. Single source of
     // truth for the prehash / lowS / taproot-tweak contract so this manager
     // and `LocalSigner` cannot drift.
     return signWithScheme(entry.secretKey, data, scheme, { merkleRoot: options.merkleRoot });

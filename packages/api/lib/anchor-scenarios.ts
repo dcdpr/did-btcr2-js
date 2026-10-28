@@ -47,8 +47,8 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { canonicalHash } from '@did-btcr2/common';
-import { LocalSigner } from '@did-btcr2/keypair';
+import { canonicalHash } from '@did-btcr2/std';
+import { LocalSigner } from '@did-btcr2/keys';
 import {
   BeaconSignalDiscovery,
   type BeaconService, type SignedBTCR2Update, type UnsignedBTCR2Update,

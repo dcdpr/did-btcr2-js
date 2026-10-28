@@ -12,7 +12,7 @@ import { DidBtcr2, GenesisDocument, Identifier, Resolver, Updater, resolveBtcr2S
  *   RELAY=ws://localhost:7777 bun lib/operations/aggregation/e2e-nostr-transport.ts
  */
 import { getNetwork } from '@did-btcr2/bitcoin';
-import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
 import { bytesToHex } from '@noble/hashes/utils';
 import { Address, OutScript, Script, Transaction } from '@scure/btc-signer';
 import type {

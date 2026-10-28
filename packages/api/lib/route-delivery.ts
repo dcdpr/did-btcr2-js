@@ -33,7 +33,7 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { canonicalHash } from '@did-btcr2/common';
+import { canonicalHash } from '@did-btcr2/std';
 import type { SignedBTCR2Update } from '@did-btcr2/method';
 
 import {

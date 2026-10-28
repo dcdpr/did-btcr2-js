@@ -31,7 +31,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { hex } from '@scure/base';
 
 import { bitcoinFor } from './_e2e-helpers.js';

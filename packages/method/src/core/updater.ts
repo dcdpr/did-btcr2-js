@@ -1,8 +1,8 @@
 import type { BitcoinConnection } from '@did-btcr2/bitcoin';
-import type { PatchOperation } from '@did-btcr2/common';
-import { CanonicalizationError, canonicalHash, canonicalize, INVALID_DID_UPDATE, JSONPatch, UpdateError } from '@did-btcr2/common';
-import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import type { Signer } from '@did-btcr2/keypair';
+import type { PatchOperation } from '@did-btcr2/std';
+import { CanonicalizationError, canonicalHash, canonicalize, INVALID_DID_UPDATE, JSONPatch, UpdateError } from '@did-btcr2/std';
+import { SchnorrMultikey } from '@did-btcr2/integrity';
+import type { Signer } from '@did-btcr2/keys';
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from './btcr2-update.js';
 import { BTCR2_UPDATE_CONTEXT, isBtcr2UpdateContext } from './btcr2-update.js';
 import { Appendix } from '../utils/appendix.js';

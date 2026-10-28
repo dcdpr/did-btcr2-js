@@ -1,4 +1,4 @@
-import { canonicalHashBytes, canonicalize, canonicalHash, decode, encode, hash, INVALID_SIGNAL_DATA, MISSING_UPDATE_DATA } from '@did-btcr2/common';
+import { canonicalHashBytes, canonicalize, canonicalHash, decode, encode, hash, INVALID_SIGNAL_DATA, MISSING_UPDATE_DATA } from '@did-btcr2/std';
 import type { SignedBTCR2Update } from '@did-btcr2/method';
 import { BTCR2MerkleTree, hashToHex, type TreeEntry } from '@did-btcr2/smt';
 import { bytesToHex, randomBytes } from '@noble/hashes/utils';

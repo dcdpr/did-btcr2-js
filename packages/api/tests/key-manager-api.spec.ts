@@ -1,6 +1,6 @@
 import { expect } from 'chai';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
-import type { HashBytes, KeyBytes, SignatureBytes } from '@did-btcr2/common';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
+import type { HashBytes, KeyBytes, SignatureBytes } from '@did-btcr2/std';
 import { KeyManagerApi } from '../src/index.js';
 import type { KeyManager } from '@did-btcr2/key-manager';
 

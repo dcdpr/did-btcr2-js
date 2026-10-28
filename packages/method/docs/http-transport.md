@@ -132,7 +132,7 @@ import { Hono } from 'hono';
 import { serve } from '@hono/node-server';
 import { streamSSE } from 'hono/streaming';
 import { TransportFactory, AggregationServiceRunner } from '@did-btcr2/aggregation';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import type { SseStream } from '@did-btcr2/aggregation';
 
 const serviceKeys = SchnorrKeyPair.generate();
@@ -185,7 +185,7 @@ The `toReq` / `toSseStream` adapters are thin (~20 lines) glue that turn Hono's 
 
 ```ts
 import { TransportFactory, AggregationParticipantRunner } from '@did-btcr2/aggregation';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 
 const participantKeys = /* loaded from browser key storage */;
 const participantDid  = /* did:btcr2:k… derived from participantKeys */;

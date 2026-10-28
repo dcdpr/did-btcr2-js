@@ -5,7 +5,7 @@
  * P2TR) on each supported test network. Same secret, four sets of addresses.
  */
 import { getNetwork } from '@did-btcr2/bitcoin';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { hex } from '@scure/base';
 import { p2pkh, p2tr, p2wpkh } from '@scure/btc-signer';
 

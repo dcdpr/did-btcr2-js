@@ -1,8 +1,8 @@
-import { canonicalHash, CryptosuiteError, INVALID_DID_UPDATE, JSONPatch, KeyManagerError, UpdateError, VERIFICATION_METHOD_ERROR } from '@did-btcr2/common';
-import type { PatchOperation } from '@did-btcr2/common';
-import { BIP340Cryptosuite, SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import type { Signer } from '@did-btcr2/keypair';
-import { CompressedSecp256k1PublicKey, LocalSigner } from '@did-btcr2/keypair';
+import { canonicalHash, CryptosuiteError, INVALID_DID_UPDATE, JSONPatch, KeyManagerError, UpdateError, VERIFICATION_METHOD_ERROR } from '@did-btcr2/std';
+import type { PatchOperation } from '@did-btcr2/std';
+import { BIP340Cryptosuite, SchnorrMultikey } from '@did-btcr2/integrity';
+import type { Signer } from '@did-btcr2/keys';
+import { CompressedSecp256k1PublicKey, LocalSigner } from '@did-btcr2/keys';
 import { p256 } from '@noble/curves/nist.js';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { hexToBytes } from '@noble/hashes/utils';

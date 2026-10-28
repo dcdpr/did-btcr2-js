@@ -1,6 +1,6 @@
 import { expect } from 'chai';
-import { canonicalHashBytes, DidDocumentError, INVALID_DID_DOCUMENT } from '@did-btcr2/common';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { canonicalHashBytes, DidDocumentError, INVALID_DID_DOCUMENT } from '@did-btcr2/std';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { deriveSingletonAddress, GenesisDocument, Identifier } from '@did-btcr2/method';
 import { getNetwork } from '@did-btcr2/bitcoin';
 import { bytesToHex } from '@noble/hashes/utils.js';

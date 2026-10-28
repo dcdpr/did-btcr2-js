@@ -1,6 +1,6 @@
 import { getNetwork } from '@did-btcr2/bitcoin';
-import { canonicalHash, canonicalHashBytes, canonicalize, hash } from '@did-btcr2/common';
-import type { SecuredDocument } from '@did-btcr2/cryptosuite';
+import { canonicalHash, canonicalHashBytes, canonicalize, hash } from '@did-btcr2/std';
+import type { SecuredDocument } from '@did-btcr2/integrity';
 import type { SerializedSMTProof, TreeEntry } from '@did-btcr2/smt';
 import { BTCR2MerkleTree } from '@did-btcr2/smt';
 import { schnorr, secp256k1 } from '@noble/curves/secp256k1.js';

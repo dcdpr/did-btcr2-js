@@ -87,13 +87,13 @@ This is the standard **Facade + Strategy + Observer** pattern combination. The s
 
 ### Canonicalization is everywhere
 
-Every place where we hash a DID document, an update payload, a CAS announcement, or a signature input, we use **JCS** (JSON Canonicalization Scheme, RFC 8785) followed by SHA-256. Encoding defaults to base64url. The implementation lives in `common/src/canonicalization.ts` as standalone functions: `canonicalize`, `hash`, `encode`, `decode`, `canonicalHash`.
+Every place where we hash a DID document, an update payload, a CAS announcement, or a signature input, we use **JCS** (JSON Canonicalization Scheme, RFC 8785) followed by SHA-256. Encoding defaults to base64url. The implementation lives in `std/src/canonicalization.ts` as standalone functions: `canonicalize`, `hash`, `encode`, `decode`, `canonicalHash`.
 
 The canonicalization step first makes the JSON form of the value: `JSON.stringify` calls each `toJSON()` method, for example of a `Btcr2DidDocument`. Thus a class instance and a plain object with the same content give the same hash. A check in this step refuses NaN, Infinity, a BigInt, and a cycle, because `JSON.stringify` writes NaN and Infinity as `null`. Then an own RFC 8785 serializer writes the JSON form. It sorts each object by the UTF-16 code units of its member names, also an object with a data member named `toJSON`. It refuses a lone surrogate (ADR 154).
 
 ### Hierarchical errors
 
-All errors extend a single `MethodError` base class from `@did-btcr2/common`. Subtypes (`BeaconError`, `SingletonBeaconError`, `CASBeaconError`, `SMTBeaconError`, `KeyManagerError`, `CommunicationServiceError`, etc.) preserve the same shape: a message, a `type` discriminator, optional `data`. Consumers can pattern-match on `error.type` for specific handling, or just use the `instanceof` chain for broad categories.
+All errors extend a single `MethodError` base class from `@did-btcr2/std`. Subtypes (`BeaconError`, `SingletonBeaconError`, `CASBeaconError`, `SMTBeaconError`, `KeyManagerError`, `CommunicationServiceError`, etc.) preserve the same shape: a message, a `type` discriminator, optional `data`. Consumers can pattern-match on `error.type` for specific handling, or just use the `instanceof` chain for broad categories.
 
 ### Verbatim type imports
 
@@ -109,9 +109,9 @@ All packages except `bitcoin`, `kms`, and `cli` are **browser-compatible** at ru
 
 | Concern | Package |
 |---|---|
-| Types, errors, canonicalization, JSON patch, encoding utilities | `common` |
-| Secp256k1 key pairs, BIP-340 Schnorr signatures, multikey | `keypair` |
-| Data Integrity proof suite (`bip340-jcs-2025`) | `cryptosuite` |
+| Types, errors, canonicalization, JSON patch, encoding utilities | `std` |
+| Secp256k1 key pairs, BIP-340 Schnorr signatures | `keys` |
+| Data Integrity proof suite (`bip340-jcs-2025`), multikey | `integrity` |
 | Bitcoin REST + RPC clients, sans-I/O protocol layers | `bitcoin` |
 | Key management interface and default in-memory implementation | `kms` |
 | Sparse Merkle Tree (proof generation + verification) | `smt` |

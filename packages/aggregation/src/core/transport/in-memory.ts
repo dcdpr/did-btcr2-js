@@ -1,4 +1,4 @@
-import type { SchnorrKeyPair } from '@did-btcr2/keypair';
+import type { SchnorrKeyPair } from '@did-btcr2/keys';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import type { BaseMessage } from '../messages/base.js';
 import type { MessageHandler, Transport } from './transport.js';

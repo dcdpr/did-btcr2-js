@@ -17,9 +17,9 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { PatchOperation } from '@did-btcr2/common';
-import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import type { LocalSigner } from '@did-btcr2/keypair';
+import type { PatchOperation } from '@did-btcr2/std';
+import { SchnorrMultikey } from '@did-btcr2/integrity';
+import type { LocalSigner } from '@did-btcr2/keys';
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from '@did-btcr2/method';
 import { Appendix, BTCR2_UPDATE_CONTEXT } from '@did-btcr2/method';
 import { resolutionErrorCodeOfType, resolutionErrorOfCode } from '../src/helpers.js';

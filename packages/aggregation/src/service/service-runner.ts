@@ -1,4 +1,4 @@
-import type { SchnorrKeyPair } from '@did-btcr2/keypair';
+import type { SchnorrKeyPair } from '@did-btcr2/keys';
 import { AggregationCohortError, AggregationServiceError } from '../core/errors.js';
 import type { BaseMessage } from '../core/messages/base.js';
 import {

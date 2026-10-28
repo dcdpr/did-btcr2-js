@@ -38,9 +38,9 @@ This documentation is for:
 ```
 did-btcr2-js/
 |-- packages/
-|   |-- common/       : types, canonicalization, hashing, JSON patch, errors
-|   |-- keypair/      : secp256k1 key pairs, BIP340 Schnorr signatures
-|   |-- cryptosuite/  : bip340-jcs-2025 Data Integrity proof suite
+|   |-- std/          : types, canonicalization, hashing, JSON patch, errors
+|   |-- keys/         : secp256k1 key pairs, BIP340 Schnorr signatures
+|   |-- integrity/    : bip340-jcs-2025 Data Integrity proof suite
 |   |-- bitcoin/      : Bitcoin Core RPC + Esplora REST clients (sans-I/O)
 |   |-- kms/          : key management interface and default implementation
 |   |-- smt/          : optimized Sparse Merkle Tree

@@ -1,6 +1,6 @@
 import { getNetwork, StaticFeeEstimator } from '@did-btcr2/bitcoin';
 import type { FeeEstimator } from '@did-btcr2/bitcoin';
-import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
 import { DidBtcr2, Resolver, Updater } from '@did-btcr2/method';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { Address, OutScript, Script, SigHash, Transaction } from '@scure/btc-signer';

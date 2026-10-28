@@ -8,7 +8,7 @@ import {
   GENESIS_TX_ID,
   TXIN_WITNESS_COINBASE
 } from '@did-btcr2/bitcoin';
-import { INTERNAL_ERROR, ResolveError } from '@did-btcr2/common';
+import { INTERNAL_ERROR, ResolveError } from '@did-btcr2/std';
 import type { BeaconService, BeaconSignal } from './interfaces.js';
 import { BeaconUtils } from './utils.js';
 

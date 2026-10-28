@@ -1,4 +1,4 @@
-import { MethodError } from '@did-btcr2/common';
+import { MethodError } from '@did-btcr2/std';
 import type { SinglePartyBeacon } from './beacon.js';
 import { CASBeacon } from './cas-beacon.js';
 import type { BeaconService } from './interfaces.js';

@@ -1,5 +1,5 @@
-import type { SecuredDocument } from '@did-btcr2/cryptosuite';
-import type { SchnorrKeyPair } from '@did-btcr2/keypair';
+import type { SecuredDocument } from '@did-btcr2/integrity';
+import type { SchnorrKeyPair } from '@did-btcr2/keys';
 import type { BaseMessage } from '../core/messages/base.js';
 import {
   AGGREGATED_NONCE,

@@ -84,7 +84,7 @@ If your change modifies anything exported from a package's `src/index.ts`, you'r
 - A backward-incompatible change (removed export, changed signature, renamed type) is a **MAJOR** bump.
 - A pure bug fix with no public-API change is a **PATCH** bump.
 
-Pre-1.0 packages (currently `keypair`, `cryptosuite`, `bitcoin`, `kms`, `smt`, `method`, `api`, `cli`) treat MINOR as breaking under strict semver. The `common` package is post-1.0 and follows full semver.
+Every package is pre-1.0 and treats MINOR as breaking under strict semver.
 
 You don't bump versions yourself in your PR: that happens at release time. But your PR description should call out the bump category so the reviewer can sanity-check.
 

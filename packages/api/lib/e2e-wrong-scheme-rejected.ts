@@ -26,7 +26,7 @@
 import assert from 'node:assert/strict';
 import { hexToBytes } from '@noble/hashes/utils.js';
 import { p2tr, SigHash, Transaction } from '@scure/btc-signer';
-import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
 import { DidBtcr2, Identifier, opReturnScript, Resolver } from '@did-btcr2/method';
 import { bitcoinFor, fundBeacon, parseNetworkEnv, persistKey } from './_e2e-helpers.js';
 

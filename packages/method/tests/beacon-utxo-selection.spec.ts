@@ -1,6 +1,6 @@
 import { getNetwork } from '@did-btcr2/bitcoin';
 import type { AddressUtxo } from '@did-btcr2/bitcoin';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { expect } from 'chai';
 import type { BeaconFundingOptions, SingletonScriptKind } from '../src/core/beacon/beacon.js';
 import {

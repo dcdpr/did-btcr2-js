@@ -1,7 +1,7 @@
 import { expect } from 'chai';
-import { KeyManagerError } from '@did-btcr2/common';
-import { BIP340Cryptosuite } from '@did-btcr2/cryptosuite';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { KeyManagerError } from '@did-btcr2/std';
+import { BIP340Cryptosuite } from '@did-btcr2/integrity';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { CryptosuiteApi, KeyManagerApi, KeyPairApi, MultikeyApi } from '../src/index.js';
 
 /**

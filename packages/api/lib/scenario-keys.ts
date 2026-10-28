@@ -17,7 +17,7 @@
 
 import { existsSync } from 'node:fs';
 
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { hex } from '@scure/base';
 
 import {

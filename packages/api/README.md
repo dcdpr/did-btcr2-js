@@ -6,7 +6,7 @@ Part of the [`did-btcr2-js`](https://github.com/dcdpr/did-btcr2-js) monorepo.
 
 ## Summary
 
-The lower-level packages (`@did-btcr2/method`, `@did-btcr2/cryptosuite`, `@did-btcr2/key-manager`, `@did-btcr2/bitcoin`) are designed to be composable and sans-I/O. This package is the thin layer above them: it owns Bitcoin endpoint configuration, CAS retrieval, key management, and the dispatch loop for the sans-I/O state machines.
+The lower-level packages (`@did-btcr2/method`, `@did-btcr2/integrity`, `@did-btcr2/key-manager`, `@did-btcr2/bitcoin`) are designed to be composable and sans-I/O. This package is the thin layer above them: it owns Bitcoin endpoint configuration, CAS retrieval, key management, and the dispatch loop for the sans-I/O state machines.
 
 If you're integrating did:btcr2 into an app, start here. If you're customizing the protocol, drop down to `@did-btcr2/method` directly.
 
@@ -35,7 +35,7 @@ If you're integrating did:btcr2 into an app, start here. If you're customizing t
 - **`api.smt.build(entries)`** builds the Sparse Merkle Tree of one SMT beacon signal and gives its root and the proof of each DID. **`api.smt.verify(proof, did)`** verifies an SMT proof.
 - **`announce.feeRate`** sets a fixed fee rate of the beacon transaction in sats/vB. `announce.feeEstimator` takes your own `FeeEstimator`. Set one of the two, not both.
 - **`api.crypto.keypair.fromPublicKey(bytes)`** makes a watch-only key pair for `api.kms.import`.
-- **`api.crypto`** makes and verifies `bip340-jcs-2025` Data Integrity proofs, with the rules of the cryptosuite README (ADR 158).
+- **`api.crypto`** makes and verifies `bip340-jcs-2025` Data Integrity proofs, with the rules of the integrity README (ADR 158).
   - `crypto.cryptosuite.createFromKms(id, controller, keyId, kms)` signs through `kms.signer(keyId)`, so the secret key stays in the KMS. For a watch-only key, `createProof` fails with `KEY_NOT_SIGNER`.
   - `crypto.signDocument`, `crypto.proof.addProof`, and `crypto.proof.signDocument` return a copy of the document with the proof. They do not change their inputs. They refuse a document that has a `proof`, and options with a `previousProof`.
   - `crypto.verifyDocument` and `crypto.cryptosuite.verifyProof` return a `CryptosuiteVerificationResult`: `verified`, and the document without its proof (else `null`). A malformed proof gives a `CryptosuiteError`, not `verified: false`.

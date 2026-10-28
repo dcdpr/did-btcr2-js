@@ -40,8 +40,8 @@ import { existsSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { getNetwork } from '@did-btcr2/bitcoin';
-import { canonicalHash, JSONPatch, type PatchOperation } from '@did-btcr2/common';
-import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
+import { canonicalHash, JSONPatch, type PatchOperation } from '@did-btcr2/std';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
 import type {
   BeaconService, Btcr2DataIntegrityConfig, Btcr2DidDocument, DidVerificationMethod,
   SignedBTCR2Update, UnsignedBTCR2Update,

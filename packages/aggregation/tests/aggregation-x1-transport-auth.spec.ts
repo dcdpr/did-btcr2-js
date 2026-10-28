@@ -1,5 +1,5 @@
-import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import { SchnorrKeyPair } from '@did-btcr2/keypair';
+import { SchnorrMultikey } from '@did-btcr2/integrity';
+import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { bytesToHex } from '@noble/hashes/utils';
 import { Script, Transaction } from '@scure/btc-signer';
 import { expect } from 'chai';

@@ -1,5 +1,5 @@
 import type { RawTransactionRest, RawTransactionV2 } from '@did-btcr2/bitcoin';
-import type { UnixTimestamp } from '@did-btcr2/common';
+import type { UnixTimestamp } from '@did-btcr2/std';
 import type { DidServiceEndpoint, DidService } from '@web5/dids';
 
 /**

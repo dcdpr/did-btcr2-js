@@ -3,7 +3,7 @@ import type {
   HashBytes,
   JSONObject,
   KeyBytes
-} from '@did-btcr2/common';
+} from '@did-btcr2/std';
 import {
   CanonicalizationError,
   canonicalize,
@@ -11,8 +11,8 @@ import {
   hash,
   INVALID_DID_DOCUMENT,
   JSONUtils
-} from '@did-btcr2/common';
-import { CompressedSecp256k1PublicKey } from '@did-btcr2/keypair';
+} from '@did-btcr2/std';
+import { CompressedSecp256k1PublicKey } from '@did-btcr2/keys';
 import type { DidDocument as W3CDidDocument, DidVerificationMethod as W3CDidVerificationMethod } from '@web5/dids';
 import { p2pkh } from '@scure/btc-signer';
 import type { BeaconService } from '../core/beacon/interfaces.js';

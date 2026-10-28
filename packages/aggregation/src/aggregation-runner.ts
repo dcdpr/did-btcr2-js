@@ -1,4 +1,4 @@
-import type { SchnorrKeyPair } from '@did-btcr2/keypair';
+import type { SchnorrKeyPair } from '@did-btcr2/keys';
 import { bytesToHex } from '@noble/hashes/utils';
 import { DEFAULT_FUNDING_MODEL, DEFAULT_RECOVERY_SEQUENCE } from './core/recovery-policy.js';
 import type { AggregationResult } from './service/service.js';

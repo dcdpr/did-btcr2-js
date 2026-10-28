@@ -50,18 +50,18 @@ importers:
       '@did-btcr2/bitcoin':
         specifier: workspace:^
         version: link:../bitcoin
-      '@did-btcr2/common':
+      '@did-btcr2/integrity':
         specifier: workspace:^
-        version: link:../common
-      '@did-btcr2/cryptosuite':
+        version: link:../integrity
+      '@did-btcr2/keys':
         specifier: workspace:^
-        version: link:../cryptosuite
-      '@did-btcr2/keypair':
-        specifier: workspace:^
-        version: link:../keypair
+        version: link:../keys
       '@did-btcr2/smt':
         specifier: workspace:^
         version: link:../smt
+      '@did-btcr2/std':
+        specifier: workspace:^
+        version: link:../std
       '@noble/curves':
         specifier: ^1.9.7
         version: 1.9.7
@@ -135,24 +135,24 @@ importers:
       '@did-btcr2/bitcoin':
         specifier: workspace:^
         version: link:../bitcoin
-      '@did-btcr2/common':
+      '@did-btcr2/integrity':
         specifier: workspace:^
-        version: link:../common
-      '@did-btcr2/cryptosuite':
-        specifier: workspace:^
-        version: link:../cryptosuite
+        version: link:../integrity
       '@did-btcr2/key-manager':
         specifier: workspace:^
         version: link:../key-manager
-      '@did-btcr2/keypair':
+      '@did-btcr2/keys':
         specifier: workspace:^
-        version: link:../keypair
+        version: link:../keys
       '@did-btcr2/method':
         specifier: workspace:^
         version: link:../method
       '@did-btcr2/smt':
         specifier: workspace:^
         version: link:../smt
+      '@did-btcr2/std':
+        specifier: workspace:^
+        version: link:../std
       '@web5/dids':
         specifier: ^1.2.0
         version: 1.2.0
@@ -235,16 +235,16 @@ importers:
 
   packages/bitcoin:
     dependencies:
-      '@did-btcr2/common':
+      '@did-btcr2/std':
         specifier: workspace:^
-        version: link:../common
+        version: link:../std
       '@scure/btc-signer':
         specifier: ^1.8.1
         version: 1.8.1
     devDependencies:
-      '@did-btcr2/keypair':
+      '@did-btcr2/keys':
         specifier: workspace:^
-        version: link:../keypair
+        version: link:../keys
       '@eslint/js':
         specifier: ^9.22.0
         version: 9.35.0
@@ -361,81 +361,14 @@ importers:
         specifier: ~5.7.3
         version: 5.7.3
 
-  packages/common:
+  packages/integrity:
     dependencies:
-      '@noble/hashes':
-        specifier: ^1.7.1
-        version: 1.8.0
-      '@scure/base':
-        specifier: ^1.2.6
-        version: 1.2.6
-      '@scure/bip32':
-        specifier: ^1.5.0
-        version: 1.7.0
-    devDependencies:
-      '@eslint/js':
-        specifier: ^9.21.0
-        version: 9.35.0
-      '@types/chai':
-        specifier: ^5.0.1
-        version: 5.2.2
-      '@types/chai-as-promised':
-        specifier: ^8.0.1
-        version: 8.0.2
-      '@types/mocha':
-        specifier: ^10.0.10
-        version: 10.0.10
-      '@types/node':
-        specifier: ^22.13.8
-        version: 22.18.4
-      '@typescript-eslint/eslint-plugin':
-        specifier: ^8.25.0
-        version: 8.44.0(@typescript-eslint/parser@8.44.0(eslint@9.35.0)(typescript@5.7.3))(eslint@9.35.0)(typescript@5.7.3)
-      '@typescript-eslint/parser':
-        specifier: ^8.25.0
-        version: 8.44.0(eslint@9.35.0)(typescript@5.7.3)
-      c8:
-        specifier: ^10.1.3
-        version: 10.1.3
-      chai:
-        specifier: ^5.2.0
-        version: 5.3.3
-      chai-as-promised:
-        specifier: ^8.0.1
-        version: 8.0.2(chai@5.3.3)
-      esbuild:
-        specifier: ^0.25.0
-        version: 0.25.9
-      eslint:
-        specifier: ^9.21.0
-        version: 9.35.0
-      eslint-plugin-mocha:
-        specifier: ^10.5.0
-        version: 10.5.0(eslint@9.35.0)
-      globals:
-        specifier: ^16.0.0
-        version: 16.4.0
-      json-patch-test-suite:
-        specifier: github:json-patch/json-patch-tests#2a928f9044aad35c74e2788d498bcf2c6b91adea
-        version: https://codeload.github.com/json-patch/json-patch-tests/tar.gz/2a928f9044aad35c74e2788d498bcf2c6b91adea
-      mocha:
-        specifier: ^11.1.0
-        version: 11.7.2
-      rimraf:
-        specifier: ^6.0.1
-        version: 6.0.1
-      typescript:
-        specifier: ~5.7.3
-        version: 5.7.3
-
-  packages/cryptosuite:
-    dependencies:
-      '@did-btcr2/common':
+      '@did-btcr2/keys':
         specifier: workspace:^
-        version: link:../common
-      '@did-btcr2/keypair':
+        version: link:../keys
+      '@did-btcr2/std':
         specifier: workspace:^
-        version: link:../keypair
+        version: link:../std
       '@noble/curves':
         specifier: ^1.8.1
         version: 1.9.7
@@ -497,12 +430,12 @@ importers:
 
   packages/key-manager:
     dependencies:
-      '@did-btcr2/common':
+      '@did-btcr2/keys':
         specifier: workspace:^
-        version: link:../common
-      '@did-btcr2/keypair':
+        version: link:../keys
+      '@did-btcr2/std':
         specifier: workspace:^
-        version: link:../keypair
+        version: link:../std
       '@noble/curves':
         specifier: ^2.0.1
         version: 2.0.1
@@ -553,11 +486,11 @@ importers:
         specifier: ^5.6.2
         version: 5.9.3
 
-  packages/keypair:
+  packages/keys:
     dependencies:
-      '@did-btcr2/common':
+      '@did-btcr2/std':
         specifier: workspace:^
-        version: link:../common
+        version: link:../std
       '@noble/curves':
         specifier: ^2.0.1
         version: 2.0.1
@@ -619,18 +552,18 @@ importers:
       '@did-btcr2/bitcoin':
         specifier: workspace:^
         version: link:../bitcoin
-      '@did-btcr2/common':
+      '@did-btcr2/integrity':
         specifier: workspace:^
-        version: link:../common
-      '@did-btcr2/cryptosuite':
+        version: link:../integrity
+      '@did-btcr2/keys':
         specifier: workspace:^
-        version: link:../cryptosuite
-      '@did-btcr2/keypair':
-        specifier: workspace:^
-        version: link:../keypair
+        version: link:../keys
       '@did-btcr2/smt':
         specifier: workspace:^
         version: link:../smt
+      '@did-btcr2/std':
+        specifier: workspace:^
+        version: link:../std
       '@noble/curves':
         specifier: ^1.9.7
         version: 1.9.7
@@ -744,6 +677,73 @@ importers:
       globals:
         specifier: ^16.0.0
         version: 16.4.0
+      mocha:
+        specifier: ^11.1.0
+        version: 11.7.2
+      rimraf:
+        specifier: ^6.0.1
+        version: 6.0.1
+      typescript:
+        specifier: ~5.7.3
+        version: 5.7.3
+
+  packages/std:
+    dependencies:
+      '@noble/hashes':
+        specifier: ^1.7.1
+        version: 1.8.0
+      '@scure/base':
+        specifier: ^1.2.6
+        version: 1.2.6
+      '@scure/bip32':
+        specifier: ^1.5.0
+        version: 1.7.0
+    devDependencies:
+      '@eslint/js':
+        specifier: ^9.21.0
+        version: 9.35.0
+      '@types/chai':
+        specifier: ^5.0.1
+        version: 5.2.2
+      '@types/chai-as-promised':
+        specifier: ^8.0.1
+        version: 8.0.2
+      '@types/mocha':
+        specifier: ^10.0.10
+        version: 10.0.10
+      '@types/node':
+        specifier: ^22.13.8
+        version: 22.18.4
+      '@typescript-eslint/eslint-plugin':
+        specifier: ^8.25.0
+        version: 8.44.0(@typescript-eslint/parser@8.44.0(eslint@9.35.0)(typescript@5.7.3))(eslint@9.35.0)(typescript@5.7.3)
+      '@typescript-eslint/parser':
+        specifier: ^8.25.0
+        version: 8.44.0(eslint@9.35.0)(typescript@5.7.3)
+      c8:
+        specifier: ^10.1.3
+        version: 10.1.3
+      chai:
+        specifier: ^5.2.0
+        version: 5.3.3
+      chai-as-promised:
+        specifier: ^8.0.1
+        version: 8.0.2(chai@5.3.3)
+      esbuild:
+        specifier: ^0.25.0
+        version: 0.25.9
+      eslint:
+        specifier: ^9.21.0
+        version: 9.35.0
+      eslint-plugin-mocha:
+        specifier: ^10.5.0
+        version: 10.5.0(eslint@9.35.0)
+      globals:
+        specifier: ^16.0.0
+        version: 16.4.0
+      json-patch-test-suite:
+        specifier: github:json-patch/json-patch-tests#2a928f9044aad35c74e2788d498bcf2c6b91adea
+        version: https://codeload.github.com/json-patch/json-patch-tests/tar.gz/2a928f9044aad35c74e2788d498bcf2c6b91adea
       mocha:
         specifier: ^11.1.0
         version: 11.7.2

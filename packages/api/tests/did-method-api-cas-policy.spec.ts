@@ -1,7 +1,7 @@
 import type { AddressUtxo, BitcoinConnection } from '@did-btcr2/bitcoin';
-import { canonicalHash, canonicalHashBytes, canonicalize, encode, hash, INVALID_DID_UPDATE, INVALID_OPTIONS, MISSING_UPDATE_DATA, UpdateError } from '@did-btcr2/common';
-import type { Signer } from '@did-btcr2/keypair';
-import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keypair';
+import { canonicalHash, canonicalHashBytes, canonicalize, encode, hash, INVALID_DID_UPDATE, INVALID_OPTIONS, MISSING_UPDATE_DATA, UpdateError } from '@did-btcr2/std';
+import type { Signer } from '@did-btcr2/keys';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
 import { BeaconError, ID_PLACEHOLDER_VALUE } from '@did-btcr2/method';
 import { hexToBytes } from '@noble/hashes/utils.js';
 import { p2wpkh, Transaction } from '@scure/btc-signer';

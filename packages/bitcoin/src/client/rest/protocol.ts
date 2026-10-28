@@ -1,4 +1,4 @@
-import { StringUtils } from '@did-btcr2/common';
+import { StringUtils } from '@did-btcr2/std';
 import type { RestConfig } from '../../types.js';
 import type { HttpRequest } from '../http.js';
 

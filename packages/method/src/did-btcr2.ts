@@ -1,14 +1,14 @@
 import type {
   DocumentBytes,
   KeyBytes,
-  PatchOperation} from '@did-btcr2/common';
+  PatchOperation} from '@did-btcr2/std';
 import {
   IdentifierHrp,
   INVALID_DID_DOCUMENT,
   INVALID_DID_UPDATE,
   MethodError,
   UpdateError
-} from '@did-btcr2/common';
+} from '@did-btcr2/std';
 import type {
   DidMethod} from '@web5/dids';
 import type { BeaconService } from './core/beacon/interfaces.js';

@@ -1,4 +1,4 @@
-import type { UnixTimestamp } from '@did-btcr2/common';
+import type { UnixTimestamp } from '@did-btcr2/std';
 
 /** Bitcoin network names supported by this package. */
 export type NetworkName =

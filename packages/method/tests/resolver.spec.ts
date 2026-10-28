@@ -1,11 +1,11 @@
 import { expect } from 'chai';
 import { randomBytes } from 'crypto';
-import { canonicalHash, canonicalHashBytes, encode, hash, canonicalize, INTERNAL_ERROR, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, INVALID_OPTIONS, INVALID_SIGNAL_DATA, JSONPatch, LATE_PUBLISHING, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, VERIFICATION_METHOD_ERROR } from '@did-btcr2/common';
-import type { PatchOperation } from '@did-btcr2/common';
+import { canonicalHash, canonicalHashBytes, encode, hash, canonicalize, INTERNAL_ERROR, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, INVALID_OPTIONS, INVALID_SIGNAL_DATA, JSONPatch, LATE_PUBLISHING, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, VERIFICATION_METHOD_ERROR } from '@did-btcr2/std';
+import type { PatchOperation } from '@did-btcr2/std';
 import { getNetwork } from '@did-btcr2/bitcoin';
-import { SchnorrMultikey } from '@did-btcr2/cryptosuite';
-import type { Signer } from '@did-btcr2/keypair';
-import { CompressedSecp256k1PublicKey, LocalSigner } from '@did-btcr2/keypair';
+import { SchnorrMultikey } from '@did-btcr2/integrity';
+import type { Signer } from '@did-btcr2/keys';
+import { CompressedSecp256k1PublicKey, LocalSigner } from '@did-btcr2/keys';
 import { BTCR2MerkleTree, hashToHex } from '@did-btcr2/smt';
 import { secp256k1 } from '@noble/curves/secp256k1.js';
 import { hexToBytes } from '@noble/hashes/utils';

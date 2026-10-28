@@ -1,4 +1,4 @@
-import { CanonicalizationError, canonicalize, DateUtils } from '@did-btcr2/common';
+import { CanonicalizationError, canonicalize, DateUtils } from '@did-btcr2/std';
 import { Appendix } from './appendix.js';
 import { hasDidScheme, hasScheme, isDid, isDidUrl, isRelativeReference, isUri, isUrl } from './url-syntax.js';
 

@@ -1,7 +1,7 @@
 import type { BitcoinConnection } from '@did-btcr2/bitcoin';
-import { canonicalHash, canonicalize, hash, MISSING_UPDATE_DATA } from '@did-btcr2/common';
+import { canonicalHash, canonicalize, hash, MISSING_UPDATE_DATA } from '@did-btcr2/std';
 import type { SignedBTCR2Update } from '../btcr2-update.js';
-import type { Signer } from '@did-btcr2/keypair';
+import type { Signer } from '@did-btcr2/keys';
 import { base64UrlHashHex } from '../../utils/base64url-hash.js';
 import type { BeaconProcessResult, DataNeed } from '../resolver.js';
 import type { SidecarData } from '../types.js';

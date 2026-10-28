@@ -11,7 +11,7 @@
   },
   "include": ["src"],
   "references": [
-    { "path": "../common" },
-    { "path": "../keypair" }
+    { "path": "../std" },
+    { "path": "../keys" }
   ]
 }

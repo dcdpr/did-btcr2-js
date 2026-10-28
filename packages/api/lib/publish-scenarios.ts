@@ -33,7 +33,7 @@
 
 import { existsSync } from 'node:fs';
 
-import { canonicalize, decode as decodeHash, encode as encodeHash } from '@did-btcr2/common';
+import { canonicalize, decode as decodeHash, encode as encodeHash } from '@did-btcr2/std';
 import { CID } from 'multiformats/cid';
 import * as raw from 'multiformats/codecs/raw';
 import { create as createDigest } from 'multiformats/hashes/digest';

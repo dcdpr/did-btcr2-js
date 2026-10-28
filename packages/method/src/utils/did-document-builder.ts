@@ -1,4 +1,4 @@
-import { DidDocumentError, INVALID_DID_DOCUMENT } from '@did-btcr2/common';
+import { DidDocumentError, INVALID_DID_DOCUMENT } from '@did-btcr2/std';
 import type { BeaconService } from '../core/beacon/interfaces.js';
 import type { DidVerificationMethod } from './did-document.js';
 import { BTCR2_DID_DOCUMENT_CONTEXT, DidDocument } from './did-document.js';

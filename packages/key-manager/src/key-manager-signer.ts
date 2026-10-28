@@ -1,5 +1,5 @@
-import type { Bytes, KeyBytes, SignatureBytes } from '@did-btcr2/common';
-import type { SignOptions, Signer, SigningScheme } from '@did-btcr2/keypair';
+import type { Bytes, KeyBytes, SignatureBytes } from '@did-btcr2/std';
+import type { SignOptions, Signer, SigningScheme } from '@did-btcr2/keys';
 import type { KeyIdentifier, KeyManager } from './interface.js';
 
 /**

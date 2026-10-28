@@ -4,9 +4,9 @@
   "out": ".docs-site",
   "entryPointStrategy": "packages",
   "entryPoints": [
-    "packages/common",
-    "packages/keypair",
-    "packages/cryptosuite",
+    "packages/std",
+    "packages/keys",
+    "packages/integrity",
     "packages/bitcoin",
     "packages/key-manager",
     "packages/smt",

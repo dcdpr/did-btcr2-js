@@ -74,8 +74,8 @@
     "prepublish": "pnpm build"
   },
   "dependencies": {
-    "@did-btcr2/common": "workspace:^",
-    "@did-btcr2/keypair": "workspace:^",
+    "@did-btcr2/std": "workspace:^",
+    "@did-btcr2/keys": "workspace:^",
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1"
   },
