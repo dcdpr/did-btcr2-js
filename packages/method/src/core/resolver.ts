@@ -165,33 +165,14 @@ interface RequestedState {
   updated?: string;
 }
 
-// ─── provide() payload guards ────────────────────────────────────────────────
-// Runtime shape checks so a malformed payload fails fast at the provide()
-// boundary rather than flowing downstream as an unchecked `as` cast.
+// ─── Data checks ─────────────────────────────────────────────────────────────
+// The resolver checks the hash of a retrieved update or CAS Announcement first, as
+// the specification does. It then checks only that the value is a JSON object. The
+// steps that read the fields of an update check them (ADR 160).
 
 /** True if `value` is a non-null, non-array object. */
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/** True if `value` has the shape of a CAS Announcement (a flat record of string hashes). */
-function isCASAnnouncement(value: unknown): value is CASAnnouncement {
-  return isRecord(value) && Object.values(value).every(v => typeof v === 'string');
-}
-
-/**
- * True if `value` has the shape of a signed BTCR2 update. targetVersionId must be an
- * integer of at least 2: an update targets the version after the one it patches, and
- * genesis is version 1, so no conformant update can target a lower version (ADR 068).
- */
-function isSignedBTCR2Update(value: unknown): value is SignedBTCR2Update {
-  if(!isRecord(value)) return false;
-  return Array.isArray(value.patch)
-    && typeof value.sourceHash === 'string'
-    && typeof value.targetHash === 'string'
-    && Number.isInteger(value.targetVersionId)
-    && (value.targetVersionId as number) >= 2
-    && isRecord(value.proof);
 }
 
 /** True if `value` has the shape of an SMT proof: string fields, `hashes` an array of strings. */
@@ -351,7 +332,12 @@ export class Resolver {
   #phase: ResolverPhase;
   #sidecarData: SidecarData;
   #currentDocument: DidDocument | null;
-  #providedGenesisDocument: object | null = null;
+  /**
+   * The genesis document from the sidecar or from provide(). The flag is true for each
+   * provided value, also for `null`, so that the GenesisDocument phase hashes it.
+   */
+  #providedGenesisDocument?: object;
+  #genesisProvided = false;
   #beaconServicesSignals: Map<BeaconService, Array<BeaconSignal>> = new Map();
   /**
    * The beacon addresses whose signals became update tuples. Keyed by address, not by
@@ -453,9 +439,12 @@ export class Resolver {
     // The signal confirmation threshold.
     this.#minConf = validateMinConf(options?.minConf);
 
-    // If a genesis document was provided (from sidecar), pre-seed it for validation
-    if(options?.genesisDocument) {
+    // A sidecar genesis document is a provided value if it is not undefined. The
+    // GenesisDocument phase hashes it, so a value that is not the genesis document
+    // fails with INVALID_DID or INVALID_DID_DOCUMENT (ADR 160).
+    if(options?.genesisDocument !== undefined) {
       this.#providedGenesisDocument = options.genesisDocument;
+      this.#genesisProvided = true;
     }
 
     // If current document was established by the factory, skip GenesisDocument phase
@@ -499,6 +488,7 @@ export class Resolver {
    * @throws {ResolveError} `INVALID_DID_DOCUMENT` if the genesis document has no JCS form, for example
    * if it holds NaN or a lone surrogate. `data.cause` holds the CanonicalizationError.
    * @throws {ResolveError} `INVALID_DID` if the hash of the genesis document is not the genesis bytes of the identifier
+   * @throws {ResolveError} `INVALID_DID_DOCUMENT` if the genesis document is not a JSON object
    * @throws {ResolveError} `INVALID_DID_DOCUMENT` if the id of the genesis document is not the placeholder
    * @throws {DidDocumentError} `INVALID_DID_DOCUMENT` if the result does not conform, for example
    * if it has no "@context"
@@ -532,6 +522,15 @@ export class Resolver {
       );
     }
 
+    // The resulting DID document MUST conform to DID Core v1.1, so a value with the right
+    // hash that is not a JSON object (for example null or an array) is not a genesis document.
+    if (!isRecord(genesisDocument)) {
+      throw new ResolveError(
+        'Invalid genesis document: the value is not a JSON object',
+        INVALID_DID_DOCUMENT
+      );
+    }
+
     // A Genesis Document has the placeholder as its id. The replacement below then makes
     // the id of the document the DID, as a DID document must have. A genesis document
     // with another id gives a document for another DID.
@@ -562,30 +561,35 @@ export class Resolver {
    * Implements subsection {@link https://dcdpr.github.io/did-btcr2/operations/resolve.html#process-sidecar-data | Process Sidecar Data}.
    * The SMT map (`smt_lookup_table`) holds a proof only if its `id` decodes to 32 bytes with
    * the strict decoder (ADR 146). The update map and the CAS map leave out an item that has no
-   * JCS form, for example an item that holds NaN or a lone surrogate.
+   * JCS form, for example an item that holds NaN or a lone surrogate. They also leave out an
+   * item that is not a JSON object (ADR 160).
    * @param {Sidecar} sidecar The sidecar data to process.
    * @returns {SidecarData} The maps of updates, CAS Announcements, and SMT proofs.
    */
   static sidecarData(sidecar: Sidecar = {} as Sidecar): SidecarData {
     // BTCR2 Signed Updates map. An item with no JCS form has no hash, so no signal can name
     // it. Sidecar data that the resolver does not use has no effect on the result, so the map
-    // leaves the item out. A signal that needs it then finds no update in the map.
+    // leaves the item out. A signal that needs it then finds no update in the map. An item
+    // that is not a JSON object is not a BTCR2 Signed Update, so the map leaves it out too.
     const updateMap = new Map<string, SignedBTCR2Update>();
     if(sidecar.updates?.length)
       for(const update of sidecar.updates) {
         const updateHash = sidecarItemHash(update);
-        if(updateHash !== undefined) updateMap.set(updateHash, update);
+        if(updateHash !== undefined && isRecord(update)) updateMap.set(updateHash, update);
       }
 
     // CAS Announcements map. The map keeps the JSON form of each announcement,
     // because the hash covers only that content. Thus an entry that JSON drops (for
     // example an entry whose value is undefined) is not an entry for the DID. An item
-    // with no JCS form stays out of the map, as in the update map.
+    // with no JCS form, or with a JSON form that is not an object, stays out of the map,
+    // as in the update map.
     const casMap = new Map<string, CASAnnouncement>();
     if(sidecar.casUpdates?.length)
       for(const update of sidecar.casUpdates) {
         const announcementHash = sidecarItemHash(update);
-        if(announcementHash !== undefined) casMap.set(announcementHash, JSON.parse(JSON.stringify(update)));
+        if(announcementHash === undefined) continue;
+        const announcement: unknown = JSON.parse(JSON.stringify(update));
+        if(isRecord(announcement)) casMap.set(announcementHash, announcement as CASAnnouncement);
       }
 
     // SMT Proofs map (smt_lookup_table). The key is the hex of the decoded proof id,
@@ -626,13 +630,13 @@ export class Resolver {
    * @returns {void} Does not return a value, but throws an error if the update is not a valid duplicate.
    */
   private static confirmDuplicate(update: SignedBTCR2Update, updateHashHistory: HashBytes[]): void {
-    // A conformant update targets the version after the one it patches, so targetVersionId
-    // is an integer of at least 2 (genesis is version 1). Anything else cannot name an
-    // applied update: it is a malformed update, not a duplicate, and without this guard it
-    // would read a nonexistent history slot below and crash on the byte comparison (ADR 068).
-    if (!Number.isInteger(update.targetVersionId) || update.targetVersionId < 2) {
+    // "Confirm Duplicate Update": a targetVersionId below 2 is INVALID_DID_UPDATE. Genesis is
+    // version 1, so such a value cannot name an applied update. Without this check the read
+    // below gets no history slot (ADR 068). The tuple build refused each value that is not
+    // an integer (ADR 160).
+    if (update.targetVersionId < 2) {
       throw new ResolveError(
-        `Invalid duplicate: targetVersionId must be an integer >= 2`,
+        `Invalid duplicate: targetVersionId is less than 2`,
         INVALID_DID_UPDATE, { targetVersionId: update.targetVersionId }
       );
     }
@@ -968,12 +972,13 @@ export class Resolver {
         // Phase: GenesisDocument
         // Only entered for EXTERNAL (x HRP) identifiers when genesis doc was not in sidecar.
         case ResolverPhase.GenesisDocument: {
-          if(this.#providedGenesisDocument) {
+          if(this.#genesisProvided) {
             // Genesis doc was provided, establish the current document
             this.#currentDocument = Resolver.external(
-              this.#didComponents, this.#providedGenesisDocument
+              this.#didComponents, this.#providedGenesisDocument as object
             );
-            this.#providedGenesisDocument = null;
+            this.#providedGenesisDocument = undefined;
+            this.#genesisProvided = false;
             this.#phase = ResolverPhase.BeaconDiscovery;
             continue;
           }
@@ -1041,6 +1046,18 @@ export class Resolver {
               // This service has unmet data needs, collect them
               allNeeds.push(...result.needs);
             } else {
+              // BTCR2 Signed Update: the targetVersionId MUST be one more than the integer
+              // form of a versionId, so a value that is not an integer can name no version.
+              // The resolver refuses the update when it builds the tuple ("Build a tuple"),
+              // at any place in the history (ADR 160).
+              for(const [update] of result.updates) {
+                if(!Number.isInteger(update.targetVersionId)) {
+                  throw new ResolveError(
+                    'Invalid update: targetVersionId is not an integer',
+                    INVALID_DID_UPDATE, { targetVersionId: update.targetVersionId }
+                  );
+                }
+              }
               // All signals of this address resolved: collect the updates with the
               // beacon address, mark the address processed.
               this.#unsortedUpdates.push(...result.updates.map(
@@ -1101,7 +1118,8 @@ export class Resolver {
 
           // Step 3: sort the tuples by targetVersionId (ascending), then by block
           // height, and remove the first one. The sort runs on every step because
-          // a scan between two steps can add a tuple with a lower version.
+          // a scan between two steps can add a tuple with a lower version. Each
+          // targetVersionId is an integer (tuple build), so the order is total.
           this.#unsortedUpdates.sort(([upd0, blk0], [upd1, blk1]) =>
             upd0.targetVersionId - upd1.targetVersionId || blk0.height - blk1.height
           );
@@ -1295,8 +1313,15 @@ export class Resolver {
    *
    * Analogous to Rust's `Resolver::process_responses()`.
    *
+   * The resolver checks the hash of an update or a CAS Announcement first, then that the
+   * value is a JSON object. The tuple build and "Process Next Update" check the fields of an
+   * update. The next {@link resolve} call checks a genesis document.
+   *
    * @param need The DataNeed being fulfilled (from the `needs` array).
    * @param data The data payload corresponding to the need kind.
+   * @throws {ResolveError} `INVALID_SIGNAL_DATA` if the hash of an update is not the hash of the need.
+   * @throws {ResolveError} `MISSING_UPDATE_DATA` if the hash of a CAS Announcement is not the hash of
+   * the need, or if an update or a CAS Announcement with the right hash is not a JSON object.
    */
   provide(need: NeedGenesisDocument, data: object): void;
   provide(need: NeedBeaconSignals, data: Map<BeaconService, Array<BeaconSignal>>): void;
@@ -1306,13 +1331,9 @@ export class Resolver {
   provide(need: DataNeed, data: object | Map<BeaconService, Array<BeaconSignal>> | CASAnnouncement | SignedBTCR2Update | SMTProof): void {
     switch(need.kind) {
       case 'NeedGenesisDocument': {
-        if(!isRecord(data)) {
-          throw new ResolveError(
-            'Provided data for NeedGenesisDocument must be a document object.',
-            INVALID_DID_UPDATE, { kind: need.kind }
-          );
-        }
+        // Each value is a provided value. The GenesisDocument phase hashes it.
         this.#providedGenesisDocument = data;
+        this.#genesisProvided = true;
         break;
       }
 
@@ -1330,12 +1351,6 @@ export class Resolver {
       }
 
       case 'NeedCASAnnouncement': {
-        if(!isCASAnnouncement(data)) {
-          throw new ResolveError(
-            'Provided data for NeedCASAnnouncement is not a CAS announcement.',
-            INVALID_DID_UPDATE, { kind: need.kind }
-          );
-        }
         // Fail fast if the provided announcement is not the one the on-chain
         // signal requested: its canonical hash must equal the need's hash. The
         // specification ("Process CAS Beacon") treats an announcement whose hash is
@@ -1357,18 +1372,20 @@ export class Resolver {
             MISSING_UPDATE_DATA, { expected: need.announcementHash, actual: announcementHash }
           );
         }
-        // Keep the JSON form: the hash covers only that content.
-        this.#sidecarData.casMap.set(announcementHash, JSON.parse(JSON.stringify(data)));
+        // Keep the JSON form: the hash covers only that content. A JSON form that is not an
+        // object is not a CAS Announcement, so the announcement is not available (ADR 160).
+        const announcement: unknown = JSON.parse(JSON.stringify(data));
+        if(!isRecord(announcement)) {
+          throw new ResolveError(
+            `The CAS announcement ${need.announcementHash} is not a JSON object.`,
+            MISSING_UPDATE_DATA, { announcementHash: need.announcementHash }
+          );
+        }
+        this.#sidecarData.casMap.set(announcementHash, announcement as CASAnnouncement);
         break;
       }
 
       case 'NeedSignedUpdate': {
-        if(!isSignedBTCR2Update(data)) {
-          throw new ResolveError(
-            'Provided data for NeedSignedUpdate is not a signed BTCR2 update.',
-            INVALID_DID_UPDATE, { kind: need.kind }
-          );
-        }
         // Fail fast if the provided update is not the one the on-chain signal
         // requested: the specification compares the JSON Document Hash of a
         // retrieved update to update_hash, and a mismatch is INVALID_SIGNAL_DATA. An
@@ -1389,7 +1406,15 @@ export class Resolver {
             INVALID_SIGNAL_DATA, { expected: need.updateHash, actual: updateHash }
           );
         }
-        this.#sidecarData.updateMap.set(updateHash, data);
+        // A value that is not a JSON object is not a BTCR2 Signed Update, so the update is
+        // not available (ADR 160). The tuple build and "Process Next Update" check its fields.
+        if(!isRecord(data)) {
+          throw new ResolveError(
+            `The signed update ${need.updateHash} is not a JSON object.`,
+            MISSING_UPDATE_DATA, { updateHash: need.updateHash }
+          );
+        }
+        this.#sidecarData.updateMap.set(updateHash, data as SignedBTCR2Update);
         break;
       }
 

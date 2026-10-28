@@ -82,6 +82,14 @@ Each hash step of the resolver uses JCS (RFC 8785). A value with no JCS form, fo
 
 The `data.cause` of each of these errors gives the type and the message of the `CanonicalizationError`. On the write path, `Updater.construct` and `Updater.sign` refuse a source document or a patch with no JCS form with an `UpdateError` of type `INVALID_DID_UPDATE`.
 
+The resolver checks retrieved data in the order of the specification (ADR 160). `provide` checks the hash first, with the codes above. Then it checks that the value is a JSON object. A signed update or a CAS Announcement with the right hash that is not a JSON object is not available: `MISSING_UPDATE_DATA`. The sidecar data and `provide` give one result for one input:
+
+- An update or a CAS Announcement in the sidecar data that is not a JSON object stays out of the lookup maps. If a beacon signal needs it, the resolver asks for it with a data need.
+- The resolver reads only the entry of the DID in a CAS Announcement. An entry of another DID has no effect, also if its value is not a string.
+- An update with a `targetVersionId` that is not an integer fails with `INVALID_DID_UPDATE`: `Invalid update: targetVersionId is not an integer`. The resolver does this check when it builds the tuple, so the update fails at each position in the history, also after a deactivation.
+- The steps of Process Next Update check the other fields of an update.
+- A genesis document from the sidecar or from `provide` is a provided value if it is not `undefined`, also if it is `null`. The next `resolve` call hashes it. A value with another hash fails with `INVALID_DID`. A value with the right hash that is not a JSON object fails with `INVALID_DID_DOCUMENT`.
+
 A genesis document from the sidecar or from the CAS gives the initial DID document. The resolver replaces each `did:btcr2:_` in the genesis document with the DID, and it adds no member (ADR 148). Then `@context` must contain the two btcr2 contexts, and the members must conform to DID Core v1.1 with the rules of a consumer (ADR 149). For example, each verification method needs a string `id` and `type` and a DID as its `controller`, and its key material must have a valid form. On the read path, the check does not read the syntax of a top-level `controller` item, an `alsoKnownAs` item, a service `id`, or a `serviceEndpoint`. A failed check gives a `DidDocumentError` of type `INVALID_DID_DOCUMENT`. For example, a genesis document without `@context` fails with the message `Invalid "@context"`. A genesis document without `service` gives a DID document without `service`, and the resolver asks for no beacon signal.
 
 Two resolution options select a version. The two options are mutually exclusive. A request with both, or with a value that does not parse, fails with `INVALID_OPTIONS` before any data need. The resolver processes the updates in version order. Each option selects the version as follows:

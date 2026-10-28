@@ -172,7 +172,7 @@ Each beacon's `processSignals()` follows the same contract -- returns `{ updates
 
 **Singleton:** Signal bytes (hex) -> direct `updateMap` lookup. One indirection.
 
-**CAS:** Signal bytes (hex) -> `casMap` lookup -> decode the value of `announcement[did]` to hex (`update_hash`) -> `updateMap` lookup. An announcement with no entry for the DID announces no update. A value for the DID that does not decode to 32 bytes raises `MISSING_UPDATE_DATA` (ADR 146). Two indirections.
+**CAS:** Signal bytes (hex) -> `casMap` lookup -> decode the value of `announcement[did]` to hex (`update_hash`) -> `updateMap` lookup. An announcement with no entry for the DID announces no update. A value for the DID that does not decode to 32 bytes raises `MISSING_UPDATE_DATA` (ADR 146). An entry of another DID has no effect. An announcement that is not a JSON object is not available: `MISSING_UPDATE_DATA` (ADR 160). Two indirections.
 
 **SMT:** Signal bytes (hex) -> `smtMap` lookup by root hash (the key is the hex of the decoded `id`) -> the decoded `id` of the proof must equal the root -> verify the proof (`verifyProof(proof, did)`) -> a proof with no `updateId` announces no update -> decode `proof.updateId` to hex -> `updateMap` lookup. Two indirections plus cryptographic verification.
 

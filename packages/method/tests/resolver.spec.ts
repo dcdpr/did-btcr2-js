@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { randomBytes } from 'crypto';
-import { canonicalHash, canonicalHashBytes, encode, hash, canonicalize, INTERNAL_ERROR, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, INVALID_OPTIONS, INVALID_SIGNAL_DATA, JSONPatch, LATE_PUBLISHING, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, VERIFICATION_METHOD_ERROR } from '@did-btcr2/std';
+import { canonicalHash, canonicalHashBytes, encode, hash, canonicalize, INTERNAL_ERROR, INVALID_DID, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, INVALID_OPTIONS, INVALID_SIGNAL_DATA, JSONPatch, LATE_PUBLISHING, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, VERIFICATION_METHOD_ERROR } from '@did-btcr2/std';
 import type { PatchOperation } from '@did-btcr2/std';
 import { getNetwork } from '@did-btcr2/bitcoin';
 import { SchnorrMultikey } from '@did-btcr2/integrity';
@@ -2202,11 +2202,14 @@ describe('Resolver', () => {
       expect(thrown.type).to.equal(INVALID_SIGNAL_DATA);
     });
 
-    it('rejects a NeedSignedUpdate payload that is not a signed update with INVALID_DID_UPDATE', () => {
-      const { resolver, need } = reachNeedSignedUpdate();
-      const thrown = caught(() => resolver.provide(need, { not: 'an update' } as any));
-      expect(thrown.message).to.match(/not a signed BTCR2 update/i);
-      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+    it('rejects a NeedSignedUpdate payload of any shape whose hash does not match with INVALID_SIGNAL_DATA', () => {
+      // The hash check runs first (ADR 160). A value with no JCS form has no hash (ADR 154).
+      for(const payload of [ { not: 'an update' }, { foo: 1 }, [], 'str', null, { x: NaN } ]) {
+        const { resolver, need } = reachNeedSignedUpdate();
+        const thrown = caught(() => resolver.provide(need, payload as any));
+        expect(thrown.message, JSON.stringify(payload)).to.match(/hash mismatch/i);
+        expect(thrown.type).to.equal(INVALID_SIGNAL_DATA);
+      }
     });
 
     it('rejects a NeedCASAnnouncement payload whose hash does not match the signal with MISSING_UPDATE_DATA', () => {
@@ -2237,7 +2240,7 @@ describe('Resolver', () => {
       expect(thrown.type).to.equal(MISSING_UPDATE_DATA);
     });
 
-    it('rejects a NeedCASAnnouncement payload that is not an announcement with INVALID_DID_UPDATE', () => {
+    it('rejects a NeedCASAnnouncement payload of any shape whose hash does not match with MISSING_UPDATE_DATA', () => {
       const { genesisDocument } = externalData[2];
       const casGenesisDoc = JSON.parse(JSON.stringify(genesisDocument));
       casGenesisDoc.service[0].type = 'CASBeacon';
@@ -2258,9 +2261,12 @@ describe('Resolver', () => {
       state = resolver.resolve();
       if(state.status !== 'action-required') throw new Error('expected NeedCASAnnouncement');
       const casNeed = state.needs[0] as NeedCASAnnouncement;
-      const thrown = caught(() => resolver.provide(casNeed, { someUpdate: 42 } as any));
-      expect(thrown.message).to.match(/not a CAS announcement/i);
-      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      // The hash check runs first (ADR 160), so the shape of the payload has no effect.
+      for(const payload of [ { someUpdate: 42 }, { a: 1 }, [] ]) {
+        const thrown = caught(() => resolver.provide(casNeed, payload as any));
+        expect(thrown.message, JSON.stringify(payload)).to.match(/hash mismatch/i);
+        expect(thrown.type).to.equal(MISSING_UPDATE_DATA);
+      }
     });
 
     it('rejects a NeedSMTProof payload whose id is another root with INVALID_SIGNAL_DATA', () => {
@@ -2294,12 +2300,15 @@ describe('Resolver', () => {
       expect(() => resolver.provide(state.needs[0] as NeedBeaconSignals, [] as any)).to.throw(/Map of beacon services/i);
     });
 
-    it('rejects a non-object payload for NeedGenesisDocument', () => {
+    it('hashes a non-object payload for NeedGenesisDocument: INVALID_DID in the next resolve() call', () => {
       const resolver = DidBtcr2.resolve(externalData[0].did);
       const state = resolver.resolve();
       if(state.status !== 'action-required') throw new Error('expected action-required');
       expect(state.needs[0].kind).to.equal('NeedGenesisDocument');
-      expect(() => resolver.provide(state.needs[0] as NeedGenesisDocument, 'not-an-object' as any)).to.throw(/document object/i);
+      resolver.provide(state.needs[0] as NeedGenesisDocument, 'not-an-object' as any);
+      const thrown = caught(() => resolver.resolve());
+      expect(thrown.type).to.equal(INVALID_DID);
+      expect(thrown.message).to.match(/genesisBytes !== genesisDocumentHash/);
     });
 
     it('resolves a DID whose updates drive many discovery rounds (default is unbounded)', () => {
@@ -2342,6 +2351,300 @@ describe('Resolver', () => {
       expect(thrown, 'expected resolution to throw').to.exist;
       expect(thrown.message).to.match(/beacon-discovery/i);
       expect(thrown.type).to.equal(INTERNAL_ERROR);
+    });
+  });
+
+  describe('one result for one input on the sidecar and provide() channels (ADR 160)', () => {
+    // The resolver checks the hash of a retrieved update or CAS Announcement first, then
+    // that the value is a JSON object. The tuple build refuses a targetVersionId that is
+    // not an integer. The steps of "Process Next Update" check the other fields.
+    const fixture = deterministicData[2]; // regtest, with a known secretKey
+    const deactivatePatch: PatchOperation[] = [{ op: 'add' as const, path: '/deactivated', value: true }];
+
+    /** The result of one channel: the resolved metadata, the error, or the need that stays open. */
+    interface Outcome { versionId?: string; deactivated?: boolean; type?: string; message?: string; need?: string }
+
+    /** A signal at a beacon address: the signal bytes in hex and the block height. */
+    interface ChannelSignal { address: string; bytes: string; height: number }
+
+    /** The data of one input: the update and announcement items, and a genesis document for both channels. */
+    interface ChannelData { updates?: Array<unknown>; casUpdates?: Array<unknown>; genesisDocument?: object }
+
+    /** The hex hash of an item: the Signal Bytes that announce it, and the key of the sidecar maps. */
+    function hex(item: unknown): string {
+      return canonicalHash(item as object, { encoding: 'hex' });
+    }
+
+    /** The outcome of a function that resolves, or of the error that it throws. */
+    function settle(fn: () => Outcome): Outcome {
+      try {
+        return fn();
+      } catch(error) {
+        return { type: (error as ResolveError).type, message: (error as ResolveError).message };
+      }
+    }
+
+    /**
+     * Resolve `did` with the signals. On the sidecar channel the resolver gets the items of
+     * `data` in the sidecar; on the provide channel the sidecar has no items. On both channels
+     * a driver gives each update or announcement need the item with that hash through
+     * provide(), as a CAS read does. If the resolver asks again for an item that the driver
+     * gave in an earlier round, the outcome is that need, not a loop. With `driver: false` no
+     * driver runs, and the outcome is the first open need.
+     */
+    function outcome(did: string, data: ChannelData, signals: Array<ChannelSignal>, channel: 'sidecar' | 'provide', driver = true): Outcome {
+      const { genesisDocument, ...items } = data;
+      const pool = new Map<string, unknown>(
+        [ ...(items.updates ?? []), ...(items.casUpdates ?? []) ].map(item => [ hex(item), item ])
+      );
+      const sidecar = { ...(genesisDocument ? { genesisDocument } : {}), ...(channel === 'sidecar' ? items : {}) } as Sidecar;
+      const resolver = DidBtcr2.resolve(did, { sidecar });
+      const given = new Set<string>();
+      return settle(() => {
+        let state = resolver.resolve();
+        while(state.status === 'action-required') {
+          const round = new Set<string>();
+          for(const need of state.needs) {
+            if(need.kind === 'NeedBeaconSignals') {
+              const provided = new Map<BeaconService, Array<BeaconSignal>>();
+              for(const service of need.beaconServices) {
+                const address = BeaconUtils.parseBitcoinAddress(service.serviceEndpoint as string);
+                provided.set(service, signals.filter(signal => signal.address === address).map(signal => ({
+                  tx            : {} as any,
+                  signalBytes   : signal.bytes,
+                  blockMetadata : { height: signal.height, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
+                })));
+              }
+              resolver.provide(need, provided);
+              continue;
+            }
+            const key = need.kind === 'NeedSignedUpdate' ? need.updateHash
+              : need.kind === 'NeedCASAnnouncement' ? need.announcementHash : undefined;
+            if(!driver || key === undefined || !pool.has(key) || given.has(key)) return { need: need.kind };
+            resolver.provide(need as any, pool.get(key) as any);
+            round.add(key);
+          }
+          round.forEach(key => given.add(key));
+          state = resolver.resolve();
+        }
+        const { versionId, deactivated } = state.result.metadata;
+        return { versionId, deactivated };
+      });
+    }
+
+    /** The outcome on the sidecar channel and on the provide channel. */
+    function bothChannels(did: string, data: ChannelData, signals: Array<ChannelSignal>): [Outcome, Outcome] {
+      return [ outcome(did, data, signals, 'sidecar'), outcome(did, data, signals, 'provide') ];
+    }
+
+    /** A KEY DID with its first two beacon addresses, and signed v2 updates from its genesis document. */
+    function keySetup() {
+      const { did, secretKey } = fixture;
+      const source = resolveDeterministic(did);
+      const [ u2 ] = buildUpdateChain(did, source, secretKey, [ benignPatch(did) ]);
+      const [ deactivate ] = buildUpdateChain(did, source, secretKey, [ deactivatePatch ]);
+      const [ removeB ] = buildUpdateChain(did, source, secretKey, [ removeService(1) ]);
+      // A v3 with no proof, and with a sourceHash that is not the hash of v2.
+      const { proof: _, ...noProof } = { ...u2!, targetVersionId: 3 };
+      return { did, A: addressOf(source, 0), B: addressOf(source, 1), u2: u2!, deactivate: deactivate!, removeB: removeB!, noProof };
+    }
+
+    /** An EXTERNAL DID whose first beacon is a CAS Beacon, its genesis document and beacon address, and a signed v2. */
+    function casSetup() {
+      const { genesisDocument, secretKey } = externalData[2];
+      const casGenesis = JSON.parse(JSON.stringify(genesisDocument));
+      casGenesis.service[0].type = 'CASBeacon';
+      const did = DidBtcr2.create(hash(canonicalize(casGenesis)), { idType: 'EXTERNAL', version: 1, network: 'regtest' });
+      const document = Resolver.external(Identifier.decode(did), casGenesis);
+      const [ u2 ] = buildUpdateChain(did, document, secretKey, [ benignPatch(did) ]);
+      return { did, casGenesis, address: addressOf(document, 0), u2: u2! };
+    }
+
+    it('an update with no proof after a deactivation: both channels resolve the deactivated version', () => {
+      const { did, A, deactivate, noProof } = keySetup();
+      const signals = [ { address: A, bytes: hex(deactivate), height: 101 }, { address: A, bytes: hex(noProof), height: 102 } ];
+      for(const result of bothChannels(did, { updates: [ deactivate, noProof ] }, signals)) {
+        expect(result).to.deep.equal({ versionId: '2', deactivated: true });
+      }
+    });
+
+    it('an update with no proof at a beacon that an applied update removed: both channels ignore it', () => {
+      const { did, A, B, removeB, noProof } = keySetup();
+      const signals = [ { address: A, bytes: hex(removeB), height: 101 }, { address: B, bytes: hex(noProof), height: 102 } ];
+      for(const result of bothChannels(did, { updates: [ removeB, noProof ] }, signals)) {
+        expect(result).to.deep.equal({ versionId: '2', deactivated: false });
+      }
+    });
+
+    it('an update with no proof that the resolver applies: both channels give one INVALID_DID_UPDATE', () => {
+      const { did, A, u2, noProof } = keySetup();
+      const signals = [ { address: A, bytes: hex(u2), height: 101 }, { address: A, bytes: hex(noProof), height: 102 } ];
+      const [ sidecar, provided ] = bothChannels(did, { updates: [ u2, noProof ] }, signals);
+      expect(sidecar.type).to.equal(INVALID_DID_UPDATE);
+      expect(provided).to.deep.equal(sidecar);
+    });
+
+    it('a CAS Announcement entry of another DID that is not a hash has no effect on both channels', () => {
+      const { did, casGenesis, address, u2 } = casSetup();
+      const cases: Array<[ object, Outcome ]> = [
+        [ { [did]: canonicalHash(u2), 'did:btcr2:other': 7 }, { versionId: '2', deactivated: false } ],
+        [ { 'did:btcr2:other': 7 }, { versionId: '1', deactivated: false } ],
+      ];
+      for(const [ announcement, expected ] of cases) {
+        const signals = [ { address, bytes: hex(announcement), height: 101 } ];
+        for(const result of bothChannels(did, { genesisDocument: casGenesis, updates: [ u2 ], casUpdates: [ announcement ] }, signals)) {
+          expect(result, JSON.stringify(announcement)).to.deep.equal(expected);
+        }
+      }
+    });
+
+    it('a CAS Announcement whose entry for the DID is undefined announces no update on both channels', () => {
+      // The hash covers the JSON form, and the JSON form has no entry for the DID (ADR 146).
+      const { did, casGenesis, address, u2 } = casSetup();
+      const announcement = { 'did:btcr2:other': canonicalHash(u2), [did]: undefined };
+      const signals = [ { address, bytes: hex(announcement), height: 101 } ];
+      for(const result of bothChannels(did, { genesisDocument: casGenesis, casUpdates: [ announcement ] }, signals)) {
+        expect(result).to.deep.equal({ versionId: '1', deactivated: false });
+      }
+    });
+
+    it('an update or a CAS Announcement with the right hash that is not a JSON object is not available', () => {
+      const { did, A } = keySetup();
+      const cas = casSetup();
+      for(const value of [ null, [], 's', 5 ]) {
+        const label = JSON.stringify(value);
+        // A Singleton Beacon signal that announces the value as an update.
+        const updateSignals = [ { address: A, bytes: hex(value), height: 101 } ];
+        expect(outcome(did, { updates: [ value ] }, updateSignals, 'sidecar', false), label).to.deep.equal({ need: 'NeedSignedUpdate' });
+        for(const result of bothChannels(did, { updates: [ value ] }, updateSignals)) {
+          expect(result, label).to.deep.equal({ type: MISSING_UPDATE_DATA, message: `The signed update ${hex(value)} is not a JSON object.` });
+        }
+        // A CAS Beacon signal that announces the value as a CAS Announcement.
+        const casData = { genesisDocument: cas.casGenesis, casUpdates: [ value ] };
+        const casSignals = [ { address: cas.address, bytes: hex(value), height: 101 } ];
+        expect(outcome(cas.did, casData, casSignals, 'sidecar', false), label).to.deep.equal({ need: 'NeedCASAnnouncement' });
+        for(const result of bothChannels(cas.did, casData, casSignals)) {
+          expect(result, label).to.deep.equal({ type: MISSING_UPDATE_DATA, message: `The CAS announcement ${hex(value)} is not a JSON object.` });
+        }
+      }
+    });
+
+    it('after a deactivation, a non-object update is not available, and an object update gets the tuple build checks', () => {
+      const { did, A, deactivate } = keySetup();
+      const cases: Array<[ unknown, Outcome ]> = [
+        [ 's', { type: MISSING_UPDATE_DATA, message: `The signed update ${hex('s')} is not a JSON object.` } ],
+        [ {}, { type: INVALID_DID_UPDATE, message: 'Invalid update: targetVersionId is not an integer' } ],
+        [ { targetVersionId: 3 }, { versionId: '2', deactivated: true } ],
+      ];
+      for(const [ value, expected ] of cases) {
+        const signals = [ { address: A, bytes: hex(deactivate), height: 101 }, { address: A, bytes: hex(value), height: 102 } ];
+        for(const result of bothChannels(did, { updates: [ deactivate, value ] }, signals)) {
+          expect(result, JSON.stringify(value)).to.deep.equal(expected);
+        }
+      }
+    });
+
+    it('a targetVersionId that is not an integer fails at the tuple build on both channels', () => {
+      // data-structures.md: the targetVersionId MUST be one more than the integer form of a versionId.
+      const { did, A, u2 } = keySetup();
+      const { targetVersionId: _, ...absent } = u2;
+      const updates = [ ...[ '2', 2.5, 1.5, null, true ].map(value => ({ ...u2, targetVersionId: value })), absent ];
+      for(const update of updates) {
+        const signals = [ { address: A, bytes: hex(update), height: 101 } ];
+        for(const result of bothChannels(did, { updates: [ update ] }, signals)) {
+          expect(result, JSON.stringify((update as { targetVersionId?: unknown }).targetVersionId)).to.deep.equal({
+            type    : INVALID_DID_UPDATE,
+            message : 'Invalid update: targetVersionId is not an integer'
+          });
+        }
+      }
+    });
+
+    it('a targetVersionId that is not an integer fails also after a deactivation and at a removed beacon', () => {
+      const { did, A, B, u2, deactivate, removeB } = keySetup();
+      const cases: Array<[ SignedBTCR2Update, Array<ChannelSignal> ]> = [];
+      // The DID deactivates at v2 (block 102). The update U is at the same beacon.
+      for(const [ value, height ] of [ [ '3', 101 ], [ 2.5, 101 ], [ 1.5, 103 ] ] as const) {
+        const update = { ...u2, targetVersionId: value } as unknown as SignedBTCR2Update;
+        cases.push([ update, [ { address: A, bytes: hex(deactivate), height: 102 }, { address: A, bytes: hex(update), height } ] ]);
+      }
+      // v2 removes beacon B (block 101). U is at B (block 102), so step 4 would ignore it.
+      const atB = { ...u2, targetVersionId: 2.5 } as unknown as SignedBTCR2Update;
+      cases.push([ atB, [ { address: A, bytes: hex(removeB), height: 101 }, { address: B, bytes: hex(atB), height: 102 } ] ]);
+      for(const [ update, signals ] of cases) {
+        for(const result of bothChannels(did, { updates: [ deactivate, removeB, update ] }, signals)) {
+          expect(result, JSON.stringify(update.targetVersionId)).to.deep.equal({
+            type    : INVALID_DID_UPDATE,
+            message : 'Invalid update: targetVersionId is not an integer'
+          });
+        }
+      }
+    });
+
+    it('an integer targetVersionId goes to its spec step: 1 to Confirm Duplicate Update, 1e21 to LATE_PUBLISHING', () => {
+      const { did, A, u2 } = keySetup();
+      const cases: Array<[ number, Outcome ]> = [
+        [ 1, { type: INVALID_DID_UPDATE, message: 'Invalid duplicate: targetVersionId is less than 2' } ],
+        [ 1e21, { type: LATE_PUBLISHING, message: 'Version Id Mismatch: targetVersionId cannot be > currentVersionId + 1' } ],
+      ];
+      for(const [ value, expected ] of cases) {
+        const update = { ...u2, targetVersionId: value };
+        const signals = [ { address: A, bytes: hex(update), height: 101 } ];
+        for(const result of bothChannels(did, { updates: [ update ] }, signals)) {
+          expect(result, String(value)).to.deep.equal(expected);
+        }
+      }
+    });
+
+    /** The outcome of the genesis document `value` for `did` on one channel. */
+    function genesisOutcome(did: string, value: unknown, channel: 'sidecar' | 'provide'): Outcome {
+      const resolver = DidBtcr2.resolve(did, channel === 'sidecar' ? { sidecar: { genesisDocument: value as object } } : {});
+      return settle(() => {
+        let state = resolver.resolve();
+        if(state.status === 'action-required' && state.needs[0]!.kind === 'NeedGenesisDocument') {
+          if(channel === 'sidecar') return { need: 'NeedGenesisDocument' };
+          resolver.provide(state.needs[0] as NeedGenesisDocument, value as object);
+          state = resolver.resolve();
+        }
+        return state.status === 'action-required'
+          ? { need: state.needs[0]!.kind }
+          : { versionId: state.result.metadata.versionId };
+      });
+    }
+
+    it('a genesis document that is not the genesis document of the DID gives INVALID_DID on both channels', () => {
+      // Each value other than undefined is a provided value, so the resolver hashes it.
+      const { did } = externalData[0];
+      for(const value of [ [ 'a' ], null, 0, '', false, 'str' ]) {
+        for(const channel of [ 'sidecar', 'provide' ] as const) {
+          expect(genesisOutcome(did, value, channel), `${channel} ${JSON.stringify(value)}`).to.deep.equal({
+            type    : INVALID_DID,
+            message : 'Initial document mismatch: genesisBytes !== genesisDocumentHash'
+          });
+        }
+      }
+      // undefined has no JCS form. In the sidecar it is no genesis document.
+      expect(genesisOutcome(did, undefined, 'provide').type).to.equal(INVALID_DID_DOCUMENT);
+      expect(genesisOutcome(did, undefined, 'sidecar')).to.deep.equal({ need: 'NeedGenesisDocument' });
+    });
+
+    it('a DID from the hash of a value that is not a JSON object gives INVALID_DID_DOCUMENT on both channels', () => {
+      for(const value of [ null, [ 'a' ], 7 ]) {
+        const did = DidBtcr2.create(hash(canonicalize(value as any)), { idType: 'EXTERNAL', version: 1, network: 'regtest' });
+        const expected = { type: INVALID_DID_DOCUMENT, message: 'Invalid genesis document: the value is not a JSON object' };
+        for(const channel of [ 'sidecar', 'provide' ] as const) {
+          expect(genesisOutcome(did, value, channel), `${channel} ${JSON.stringify(value)}`).to.deep.equal(expected);
+        }
+        // A direct call gives the same typed error, not a TypeError.
+        let thrown: any;
+        try {
+          Resolver.external(Identifier.decode(did), value as object);
+        } catch(error) {
+          thrown = error;
+        }
+        expect(thrown).to.be.instanceOf(ResolveError);
+        expect(thrown.type).to.equal(INVALID_DID_DOCUMENT);
+      }
     });
   });
 
@@ -2454,6 +2757,18 @@ describe('Resolver', () => {
         updates    : [ { ...u2!, sourceHash: LONE }, { ...u2!, targetVersionId: NaN }, u2! ],
         casUpdates : [ { [fixture.did]: NaN } as any, { [LONE]: canonicalHash(u2!) }, announcement ],
       } as Sidecar);
+      expect([ ...updateMap.keys() ]).to.deep.equal([ canonicalHash(u2!, { encoding: 'hex' }) ]);
+      expect([ ...casMap.keys() ]).to.deep.equal([ canonicalHash(announcement, { encoding: 'hex' }) ]);
+    });
+
+    it('leaves a sidecar update and a CAS Announcement that is not a JSON object out of the maps (ADR 160)', () => {
+      const source = resolveDeterministic(fixture.did);
+      const [ u2 ] = buildUpdateChain(fixture.did, source, fixture.secretKey, [ benignPatch(fixture.did) ]);
+      const announcement = { [fixture.did]: canonicalHash(u2!) };
+      const { updateMap, casMap } = Resolver.sidecarData({
+        updates    : [ null, 5, 'x', [ 1 ], u2! ],
+        casUpdates : [ null, 5, 'x', [ 1 ], announcement ],
+      } as unknown as Sidecar);
       expect([ ...updateMap.keys() ]).to.deep.equal([ canonicalHash(u2!, { encoding: 'hex' }) ]);
       expect([ ...casMap.keys() ]).to.deep.equal([ canonicalHash(announcement, { encoding: 'hex' }) ]);
     });
@@ -3020,8 +3335,8 @@ describe('Resolver', () => {
     });
 
     it('a crafted update with a non-integer targetVersionId throws a typed error', () => {
-      // 0.5 <= currentVersionId 1 routes into the duplicate branch; the fractional index
-      // used to read an undefined slot and crash.
+      // The fractional index used to read an undefined slot in the duplicate branch and
+      // crash. The tuple build now refuses the update before the sort (ADR 160).
       const crafted = {
         '@context'      : [ 'test' ],
         patch           : [],
@@ -3039,12 +3354,13 @@ describe('Resolver', () => {
       expect(thrown, 'expected the crafted duplicate to throw').to.exist;
       expect(thrown).to.not.be.instanceOf(TypeError);
       expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.equal('Invalid update: targetVersionId is not an integer');
     });
 
-    it('provide() rejects a signed update whose targetVersionId is not an integer >= 2', () => {
-      // The crafted update passes every other shape check and matches the signal's hash
-      // binding (the signal IS its hash), so only the tightened targetVersionId guard
-      // rejects it at the provide() boundary.
+    it('provide() accepts an update with targetVersionId 1; Confirm Duplicate Update refuses it', () => {
+      // The crafted update matches the hash of the signal (the signal IS its hash), so
+      // provide() accepts it (ADR 160). "Confirm Duplicate Update" raises INVALID_DID_UPDATE
+      // for a targetVersionId less than 2.
       const crafted = {
         '@context'      : [ 'test' ],
         patch           : [],
@@ -3071,7 +3387,15 @@ describe('Resolver', () => {
       if(state.status !== 'action-required') throw new Error('expected NeedSignedUpdate');
       const updateNeed = state.needs[0] as NeedSignedUpdate;
       expect(updateNeed.updateHash).to.equal(craftedHashHex);
-      expect(() => resolver.provide(updateNeed, crafted as any)).to.throw(/not a signed BTCR2 update/i);
+      resolver.provide(updateNeed, crafted as any);
+      let thrown: any;
+      try {
+        resolver.resolve();
+      } catch(error) {
+        thrown = error;
+      }
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.equal('Invalid duplicate: targetVersionId is less than 2');
     });
   });
 

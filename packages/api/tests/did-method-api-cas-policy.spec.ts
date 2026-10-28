@@ -2,7 +2,7 @@ import type { AddressUtxo, BitcoinConnection } from '@did-btcr2/bitcoin';
 import { canonicalHash, canonicalHashBytes, canonicalize, encode, hash, INVALID_DID_UPDATE, INVALID_OPTIONS, MISSING_UPDATE_DATA, UpdateError } from '@did-btcr2/std';
 import type { Signer } from '@did-btcr2/keys';
 import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
-import { BeaconError, ID_PLACEHOLDER_VALUE } from '@did-btcr2/method';
+import { BeaconError, CASBeaconError, ID_PLACEHOLDER_VALUE } from '@did-btcr2/method';
 import { hexToBytes } from '@noble/hashes/utils.js';
 import { p2wpkh, Transaction } from '@scure/btc-signer';
 import { expect, use } from 'chai';
@@ -822,12 +822,13 @@ describe('DidMethodApi update() CAS publication policy', () => {
 });
 
 /** Mint an x1 DID whose genesis document carries one beacon of `type`. */
-function beaconDid(type: 'SMTBeacon' | 'CASBeacon'): { did: string; genesisDocument: object; beaconAddress: string } {
+function beaconDid(type: 'SMTBeacon' | 'CASBeacon'): { did: string; genesisDocument: object; beaconAddress: string; signer: Signer } {
   const kp = SchnorrKeyPair.generate();
   const mkApi = new MultikeyApi();
   const mk = mkApi.create('#key-0', ID_PLACEHOLDER_VALUE, kp);
   const vm = mkApi.toVerificationMethod(mk);
-  const beaconAddress = p2wpkh(new LocalSigner(kp.secretKey.bytes).publicKey, network).address!;
+  const signer = new LocalSigner(kp.secretKey.bytes);
+  const beaconAddress = p2wpkh(signer.publicKey, network).address!;
   const genesisDocument = {
     'id'                   : ID_PLACEHOLDER_VALUE,
     '@context'             : ['https://www.w3.org/ns/did/v1.1', 'https://btcr2.dev/context/v1'],
@@ -843,7 +844,7 @@ function beaconDid(type: 'SMTBeacon' | 'CASBeacon'): { did: string; genesisDocum
     }],
   };
   const did = new DidMethodApi().createExternal(canonicalHashBytes(genesisDocument), { network: 'regtest' });
-  return { did, genesisDocument, beaconAddress };
+  return { did, genesisDocument, beaconAddress, signer };
 }
 
 /** A Bitcoin mock whose beacon address has one signal for each value of `signalBytes`. */
@@ -948,5 +949,36 @@ describe('DidMethodApi resolve() CAS announcement values (ADR 146)', () => {
       .then(() => expect.fail('resolution did not fail on the pad-bit CAS announcement value'), (e: unknown) => e);
     expect(err.cause?.type).to.equal(MISSING_UPDATE_DATA);
     expect(err.cause?.data).to.deep.include({ did, value });
+  });
+
+  it('ignores an entry of another DID in a CAS-fetched announcement (ADR 160)', async () => {
+    const { did, genesisDocument, beaconAddress, signer } = beaconDid('CASBeacon');
+    const api = createApi();
+    const document = JSON.parse(JSON.stringify(genesisDocument).replaceAll(ID_PLACEHOLDER_VALUE, did));
+    const source = { document, versionId: 1 };
+    const patch = [{ op: 'add', path: '/service/-', value: { id: `${did}#linked`, type: 'LinkedDomains', serviceEndpoint: 'https://example.com' } }];
+    const update = api.btcr2.signUpdate(source, api.btcr2.constructUpdate(source, patch as any), `${did}#key-0`, signer);
+    // At 9c260b13 the value 7 of the other DID gave INVALID_DID_UPDATE.
+    const announcement = { [did]: canonicalHash(update), 'did:btcr2:other': 7 };
+    const bytes = new TextEncoder().encode(canonicalize(announcement));
+    const cas = new CasApi({ executor: { retrieve: async () => bytes, publish: async () => '' } });
+    const methodApi = new DidMethodApi(btcWithSignals(beaconAddress, [canonicalHash(announcement, { encoding: 'hex' })]), cas);
+    const result = await methodApi.resolve(did, { sidecar: { genesisDocument, updates: [update] } as any });
+    expect(result.didDocumentMetadata.versionId).to.equal('2');
+    expect(result.didDocument?.service?.map(s => s.id)).to.include(`${did}#linked`);
+  });
+
+  it('raises MISSING_UPDATE_DATA if the value for the DID in a CAS-fetched announcement is not a string (ADR 160)', async () => {
+    const { did, genesisDocument, beaconAddress } = beaconDid('CASBeacon');
+    // At 9c260b13 the provide() shape check gave INVALID_DID_UPDATE.
+    const announcement = { [did]: 7 };
+    const bytes = new TextEncoder().encode(canonicalize(announcement));
+    const cas = new CasApi({ executor: { retrieve: async () => bytes, publish: async () => '' } });
+    const methodApi = new DidMethodApi(btcWithSignals(beaconAddress, [canonicalHash(announcement, { encoding: 'hex' })]), cas);
+    const err: any = await methodApi.resolve(did, { sidecar: { genesisDocument } })
+      .then(() => expect.fail('resolution did not fail on the CAS announcement value 7'), (e: unknown) => e);
+    expect(err.cause).to.be.instanceOf(CASBeaconError);
+    expect(err.cause?.type).to.equal(MISSING_UPDATE_DATA);
+    expect(err.cause?.data).to.deep.include({ did, value: 7 });
   });
 });
