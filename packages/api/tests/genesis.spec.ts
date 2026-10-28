@@ -30,6 +30,12 @@ function addressOf(key: Uint8Array, network: string, kind: 'p2pkh' | 'p2wpkh' | 
   return deriveSingletonAddress(kind, key, getNetwork(network));
 }
 
+/** A bech32 address with its human-readable part in upper case and the rest in lower case. */
+function mixedCase(address: string): string {
+  const separator = address.lastIndexOf('1');
+  return address.slice(0, separator).toUpperCase() + address.slice(separator);
+}
+
 describe('genesis document builder', () => {
   describe('buildGenesisDocument()', () => {
     it('builds a document with placeholder ids, all four relationships, and one P2WPKH singleton beacon', () => {
@@ -108,19 +114,28 @@ describe('genesis document builder', () => {
       expect(doc.service[2].serviceEndpoint).to.equal(`bitcoin:${addressOf(key, 'regtest', 'p2tr')}`);
     });
 
-    it('takes a beacon address as given, with or without the bitcoin: scheme', () => {
+    it('takes a beacon address or a BIP321 URI of it, and writes a bech32 address in lower case', () => {
       const key = publicKey();
       const cohort = addressOf(publicKey(), 'regtest', 'p2tr');
+      const legacy = addressOf(publicKey(), 'regtest', 'p2pkh');
       const doc = plain(buildGenesisDocument({
         network             : 'regtest',
         verificationMethods : [{ publicKey: key }],
         beacons             : [
           { type: 'SMTBeacon', address: cohort },
           { type: 'CASBeacon', address: `bitcoin:${cohort}` },
+          { type: 'CASBeacon', address: `BITCOIN:${cohort}` },
+          { type: 'SMTBeacon', address: `bitcoin:${cohort}?label=x` },
+          { type: 'SMTBeacon', address: cohort.toUpperCase() },
+          { type: 'SMTBeacon', address: `bitcoin:${cohort.toUpperCase()}` },
+          // A base58 address keeps its case.
+          { type: 'SingletonBeacon', address: `BITCOIN:${legacy}?label=x` },
         ],
       }));
-      expect(doc.service[0].serviceEndpoint).to.equal(`bitcoin:${cohort}`);
-      expect(doc.service[1].serviceEndpoint).to.equal(`bitcoin:${cohort}`);
+      expect(doc.service.map((s: any) => s.serviceEndpoint)).to.deep.equal([
+        ...new Array(6).fill(`bitcoin:${cohort}`),
+        `bitcoin:${legacy}`,
+      ]);
     });
 
     it('adds other services after the beacons, with a fragment id or a placeholder id', () => {
@@ -164,7 +179,10 @@ describe('genesis document builder', () => {
         ['an address type with an address', () => ({ ...base(), beacons: [{ type: 'SingletonBeacon', address: addressOf(key, 'regtest', 'p2wpkh'), addressType: 'p2tr' }] }), /addressType applies only with publicKey/],
         ['an unknown address type', () => ({ ...base(), beacons: [{ type: 'SingletonBeacon', publicKey: key, addressType: 'p2sh' as any }] }), /p2sh/],
         ['an address of another network', () => ({ ...base(), beacons: [{ type: 'SingletonBeacon', address: addressOf(key, 'bitcoin', 'p2wpkh') }] }), /not a P2PKH, P2WPKH, or P2TR address of the network/],
-        ['an address that is not an address', () => ({ ...base(), beacons: [{ type: 'SingletonBeacon', address: 'nope' }] }), /not a P2PKH, P2WPKH, or P2TR address/],
+        ['an address that is not an address', () => ({ ...base(), beacons: [{ type: 'SingletonBeacon', address: 'nope' }] }), /"nope" is not a Bitcoin address or a BIP321 URI of one/],
+        ['a URI with a req- query key', () => ({ ...base(), beacons: [{ type: 'SingletonBeacon', address: `bitcoin:${addressOf(key, 'regtest', 'p2wpkh')}?req-pay=1` }] }), /^beacons\[0\]\.address "bitcoin:\w+\?req-pay=1" is not a Bitcoin address or a BIP321 URI of one: Invalid Bitcoin URI: a query key starts with req-$/],
+        // "BCRT1q...": the prefix is upper case, and the rest is lower case.
+        ['a bech32 address in mixed case', () => ({ ...base(), beacons: [{ type: 'SingletonBeacon', address: mixedCase(addressOf(key, 'regtest', 'p2wpkh')) }] }), /^beacons\[0\]\.address "BCRT1q\w+" is not a Bitcoin address or a BIP321 URI of one: Invalid Bitcoin URI: the address part is not a Bitcoin address$/],
         ['a fragment with a hash sign', () => ({ ...base(), verificationMethods: [{ publicKey: key, fragment: '#key' }] }), /without "#"/],
         ['a service with a beacon type', () => ({ ...base(), services: [{ id: '#b', type: 'SingletonBeacon', serviceEndpoint: 'bitcoin:x' }] }), /Declare a beacon under "beacons"/],
         ['a service id without the placeholder', () => ({ ...base(), services: [{ id: 'did:example:1#x', type: 'T', serviceEndpoint: 'https://x' }] }), /contain the placeholder/],
@@ -175,7 +193,9 @@ describe('genesis document builder', () => {
 
       for (const [name, spec, message] of cases) {
         it(`refuses ${name}`, () => {
-          expect(() => buildGenesisDocument(spec())).to.throw(DidDocumentError, message);
+          expect(() => buildGenesisDocument(spec()))
+            .to.throw(DidDocumentError, message)
+            .with.property('type', INVALID_DID_DOCUMENT);
         });
       }
 

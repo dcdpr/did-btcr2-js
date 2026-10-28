@@ -500,6 +500,32 @@ describe('BeaconSignalDiscovery.indexer', () => {
     expect(await discover(mockBitcoin([tx]))).to.have.lengthOf(0);
   });
 
+  it('finds the signal at the lower-case address of a bech32 endpoint in upper case', async () => {
+    // BIP173: an address in upper case is the same address. Esplora reports it in lower case.
+    const service = {
+      id              : '#beacon-0',
+      type            : 'SingletonBeacon',
+      serviceEndpoint : `bitcoin:${BEACON.toUpperCase()}`,
+    } as BeaconService;
+    const tx = transaction(
+      'c'.repeat(64),
+      [input('d'.repeat(64), 0, payment(BEACON, 100_000))],
+      [payment(BEACON, 90_000), signalOutput(HASH)],
+    );
+    const bitcoin = mockBitcoin([tx]);
+    const queried: Array<string> = [];
+    const listing = bitcoin.rest.address.getConfirmedTxs;
+    bitcoin.rest.address.getConfirmedTxs = async (address: string, cursor?: string) => {
+      queried.push(address);
+      return listing(address, cursor);
+    };
+
+    const signals = await BeaconSignalDiscovery.indexer([service], bitcoin);
+
+    expect(queried).to.deep.equal([BEACON]);
+    expect((signals.get(service) ?? []).map(s => s.signalBytes)).to.deep.equal([HASH]);
+  });
+
   /**
    * The walk over the confirmed history of a beacon address.
    *
@@ -1081,6 +1107,28 @@ describe('BeaconSignalDiscovery.fullnode', () => {
     expect(signals.map(s => s.signalBytes)).to.deep.equal([HASH]);
   });
 
+  it('finds the signal at the lower-case address of a bech32 endpoint in upper case', async () => {
+    // BIP173: an address in upper case is the same address. Bitcoin Core reports it in lower case.
+    const service = {
+      id              : '#beacon-0',
+      type            : 'SingletonBeacon',
+      serviceEndpoint : `bitcoin:${BEACON.toUpperCase()}`,
+    } as BeaconService;
+    const fundingTx = rpcTransaction('d'.repeat(64), [], [rpcPayment(BEACON, 100_000)]);
+    const tx = rpcTransaction(
+      'c'.repeat(64),
+      [rpcInput('d'.repeat(64), 0)],
+      [rpcSignalOutput(HASH)],
+    );
+
+    const signals = await discover(
+      mockBitcoin(chain(tx, [fundingTx]), { ['d'.repeat(64)]: fundingTx }),
+      [service],
+    );
+
+    expect(signals.map(s => s.signalBytes)).to.deep.equal([HASH]);
+  });
+
   it('ignores a transaction with a well-formed OP_RETURN that spends from no beacon', async () => {
     const fundingTx = rpcTransaction('d'.repeat(64), [], [rpcPayment(OUTSIDER, 100_000)]);
     const tx = rpcTransaction(
@@ -1167,14 +1215,14 @@ describe('BeaconSignalDiscovery.fullnode', () => {
     expect(discovered.get(beaconService2)).to.deep.equal([]);
   });
 
-  it('throws for a beacon service endpoint that is not a BIP21 bitcoin URI', async () => {
+  it('throws for a beacon service endpoint that is not a BIP321 bitcoin URI', async () => {
     const service = { id: '#beacon-0', type: 'SingletonBeacon', serviceEndpoint: BEACON } as BeaconService;
 
     try {
       await BeaconSignalDiscovery.fullnode([service], mockBitcoin([rpcBlock(0, [])]));
       expect.fail('expected a malformed beacon endpoint to throw');
     } catch (error: any) {
-      expect(error.message).to.equal('Invalid Bitcoin URI format');
+      expect(error.message).to.equal('Invalid Bitcoin URI: the scheme is not bitcoin:');
     }
   });
 });

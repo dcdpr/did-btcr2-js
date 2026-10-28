@@ -1,7 +1,12 @@
-import { canonicalHashBytes, canonicalize, canonicalHash, decode, encode, hash, INVALID_SIGNAL_DATA, MISSING_UPDATE_DATA } from '@did-btcr2/std';
+import { getNetwork } from '@did-btcr2/bitcoin';
+import { canonicalHashBytes, canonicalize, canonicalHash, decode, encode, hash, INVALID_SIGNAL_DATA, MethodError, MISSING_UPDATE_DATA } from '@did-btcr2/std';
 import type { SignedBTCR2Update } from '@did-btcr2/method';
 import { BTCR2MerkleTree, hashToHex, type TreeEntry } from '@did-btcr2/smt';
+import { secp256k1 } from '@noble/curves/secp256k1.js';
+import { sha256 } from '@noble/hashes/sha2.js';
 import { bytesToHex, randomBytes } from '@noble/hashes/utils';
+import { base58check, bech32, bech32m } from '@scure/base';
+import { p2pkh, p2sh, p2tr, p2wpkh } from '@scure/btc-signer';
 import { expect } from 'chai';
 import { SinglePartyBeacon } from '../src/core/beacon/beacon.js';
 import { CASBeacon } from '../src/core/beacon/cas-beacon.js';
@@ -490,6 +495,126 @@ describe('BeaconUtils.getBeaconServices (ADR 148)', () => {
   it('gives no beacon service for a document whose service is a string', () => {
     const document = { id: DID, '@context': [...BTCR2_DID_DOCUMENT_CONTEXT], service: 'x' } as unknown as DidDocument;
     expect(BeaconUtils.getBeaconServices(document)).to.deep.equal([]);
+  });
+});
+
+describe('BeaconUtils.parseBitcoinAddress and isBeaconService (BIP321)', () => {
+  // The addresses come from one fixed key. The parse does not check the network, so the
+  // mainnet and the regtest forms are both Bitcoin addresses.
+  const secret = new Uint8Array(32);
+  secret[31] = 7;
+  const publicKey = secp256k1.getPublicKey(secret, true);
+  const mainnet = getNetwork('bitcoin');
+  const regtest = getNetwork('regtest');
+  const WPKH = p2wpkh(publicKey, mainnet).address!;
+  const TR = p2tr(publicKey.slice(1), undefined, mainnet).address!;
+  const PKH = p2pkh(publicKey, mainnet).address!;
+  const SH = p2sh(p2wpkh(publicKey, mainnet), mainnet).address!;
+  const PKH_REGTEST = p2pkh(publicKey, regtest).address!;
+  const SH_REGTEST = p2sh(p2wpkh(publicKey, regtest), regtest).address!;
+  const MIXED_CASE = `${WPKH.slice(0, 10).toUpperCase()}${WPKH.slice(10)}`;
+  const BASE58CHECK = base58check(sha256);
+  const SCHEME_ERROR = 'Invalid Bitcoin URI: the scheme is not bitcoin:';
+  const ADDRESS_ERROR = 'Invalid Bitcoin URI: the address part is not a Bitcoin address';
+  const REQ_ERROR = 'Invalid Bitcoin URI: a query key starts with req-';
+
+  /** The same text with a different last character: a bech32 string with a bad checksum. */
+  function badChecksum(text: string): string {
+    return text.slice(0, -1) + (text.endsWith('q') ? 'p' : 'q');
+  }
+
+  /** A bech32 or bech32m string of a witness version and a program of `length` bytes. */
+  function segwit(codec: typeof bech32, version: number, length: number): string {
+    return codec.encode('bc', [version, ...codec.toWords(new Uint8Array(length).fill(1))]);
+  }
+
+  // [title, uri, address]
+  const accepted: Array<[string, string, string]> = [
+    ['the scheme bitcoin:', `bitcoin:${WPKH}`, WPKH],
+    ['the scheme BITCOIN:', `BITCOIN:${WPKH}`, WPKH],
+    ['the scheme Bitcoin:', `Bitcoin:${WPKH}`, WPKH],
+    ['the scheme bItCoIn:', `bItCoIn:${WPKH}`, WPKH],
+    ['a label query', `bitcoin:${WPKH}?label=x`, WPKH],
+    ['an amount query', `bitcoin:${WPKH}?amount=1`, WPKH],
+    ['two query keys', `bitcoin:${WPKH}?label=x&amount=1`, WPKH],
+    ['a query key in upper case', `bitcoin:${WPKH}?LABEL=x`, WPKH],
+    ['a bech32 address in upper case, in lower case', `bitcoin:${WPKH.toUpperCase()}`, WPKH],
+    ['a bech32m (P2TR) address in upper case, in lower case', `bitcoin:${TR.toUpperCase()}`, TR],
+    ['a base58 P2PKH address under BITCOIN:, as given', `BITCOIN:${PKH}`, PKH],
+    ['a base58 P2SH address', `bitcoin:${SH}`, SH],
+    ['a regtest base58 P2PKH address', `bitcoin:${PKH_REGTEST}`, PKH_REGTEST],
+    ['a regtest base58 P2SH address', `bitcoin:${SH_REGTEST}`, SH_REGTEST],
+    ['a bech32m version 1 address with a 2-byte program', `bitcoin:${segwit(bech32m, 1, 2)}`, segwit(bech32m, 1, 2)],
+  ];
+
+  for(const [title, uri, address] of accepted) {
+    it(`gives the address of a URI with ${title}`, () => {
+      expect(BeaconUtils.parseBitcoinAddress(uri)).to.equal(address);
+    });
+  }
+
+  // [title, uri, message]
+  const refused: Array<[string, unknown, string]> = [
+    ['a req-pop query key', `bitcoin:${WPKH}?req-pop=x`, REQ_ERROR],
+    ['a REQ- query key', `bitcoin:${WPKH}?REQ-x=1`, REQ_ERROR],
+    ['a req- query key after a label', `bitcoin:${WPKH}?label=x&req-pop=x`, REQ_ERROR],
+    ['an empty address part', 'bitcoin:?lightning=lnbc1', ADDRESS_ERROR],
+    ['a fragment after the address', `bitcoin:${WPKH}#frag`, ADDRESS_ERROR],
+    ['two slashes before the address', `bitcoin://${WPKH}`, ADDRESS_ERROR],
+    ['an encoded question mark after the address', `bitcoin:${WPKH}%3F`, ADDRESS_ERROR],
+    ['the text abc', 'bitcoin:abc', ADDRESS_ERROR],
+    ['a bech32 address with a bad checksum', `bitcoin:${badChecksum(WPKH)}`, ADDRESS_ERROR],
+    ['a bech32 address in mixed case', `bitcoin:${MIXED_CASE}`, ADDRESS_ERROR],
+    ['a base58 address in upper case', `bitcoin:${PKH.toUpperCase()}`, ADDRESS_ERROR],
+    ['a WIF key (base58check with a 33-byte payload)', `bitcoin:${BASE58CHECK.encode(new Uint8Array([0x80, ...secret]))}`, ADDRESS_ERROR],
+    // The version byte 0x00 is the P2PKH version, so only the length check refuses this text.
+    ['a 33-byte base58check text with the version 0x00', `bitcoin:${BASE58CHECK.encode(new Uint8Array([0x00, ...publicKey.slice(1)]))}`, ADDRESS_ERROR],
+    ['a 21-byte base58check text with the version 0x30', `bitcoin:${BASE58CHECK.encode(new Uint8Array([0x30, ...new Uint8Array(20).fill(1)]))}`, ADDRESS_ERROR],
+    ['a bech32 string of version 1', `bitcoin:${segwit(bech32, 1, 32)}`, ADDRESS_ERROR],
+    ['a bech32m string of version 0', `bitcoin:${segwit(bech32m, 0, 20)}`, ADDRESS_ERROR],
+    ['a bech32 version 0 string with a 21-byte program', `bitcoin:${segwit(bech32, 0, 21)}`, ADDRESS_ERROR],
+    ['no scheme', WPKH, SCHEME_ERROR],
+    ['an input that is not a string', 42, SCHEME_ERROR],
+  ];
+
+  for(const [title, uri, message] of refused) {
+    it(`refuses a URI with ${title}`, () => {
+      const thrown = thrownBy(() => BeaconUtils.parseBitcoinAddress(uri as string));
+      expect(thrown).to.be.instanceOf(MethodError);
+      expect(thrown.type).to.equal('BEACON_SERVICE_ERROR');
+      expect(thrown.message).to.equal(message);
+    });
+  }
+
+  it('the bech32 library gives the prefix of an address in upper case in lower case', () => {
+    // The parse depends on this behavior of @scure/base. If the library changes it, this test fails.
+    expect(bech32.decode(WPKH.toUpperCase() as `${string}1${string}`, 90).prefix).to.equal('bc');
+    expect(bech32m.decode(TR.toUpperCase() as `${string}1${string}`, 90).prefix).to.equal('bc');
+    expect(bech32.decodeUnsafe(MIXED_CASE, 90)).to.equal(undefined);
+  });
+
+  it('isBeaconService is true for each beacon type with a good endpoint', () => {
+    for(const type of ['SingletonBeacon', 'CASBeacon', 'SMTBeacon'] as const) {
+      expect(BeaconUtils.isBeaconService({ id: `${DID}#beacon-0`, type, serviceEndpoint: `bitcoin:${WPKH}` }), type).to.equal(true);
+    }
+    expect(BeaconUtils.isBeaconService({ id: `${DID}#beacon-0`, type: 'SingletonBeacon', serviceEndpoint: `BITCOIN:${PKH}` })).to.equal(true);
+  });
+
+  it('isBeaconService is false for a LinkedDomains service with a good bitcoin: endpoint', () => {
+    const service = { id: `${DID}#web`, type: 'LinkedDomains', serviceEndpoint: `bitcoin:${WPKH}` } as unknown as BeaconService;
+    expect(BeaconUtils.isBeaconService(service)).to.equal(false);
+  });
+
+  it('isBeaconService is false for a SingletonBeacon whose endpoint has no address', () => {
+    const service: BeaconService = { id: `${DID}#beacon-0`, type: 'SingletonBeacon', serviceEndpoint: 'bitcoin:?lightning=x' };
+    expect(BeaconUtils.isBeaconService(service)).to.equal(false);
+  });
+
+  it('getBeaconServices gives the good beacon and not the beacon without an address', () => {
+    const good: BeaconService = { id: `${DID}#beacon-0`, type: 'SingletonBeacon', serviceEndpoint: `bitcoin:${WPKH}` };
+    const bad: BeaconService = { id: `${DID}#beacon-1`, type: 'SingletonBeacon', serviceEndpoint: 'bitcoin:?lightning=x' };
+    const document = { id: DID, '@context': [...BTCR2_DID_DOCUMENT_CONTEXT], service: [bad, good] } as unknown as DidDocument;
+    expect(BeaconUtils.getBeaconServices(document)).to.deep.equal([good]);
   });
 });
 

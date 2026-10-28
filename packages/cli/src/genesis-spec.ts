@@ -25,8 +25,9 @@ export interface GenesisSpecVerificationMethod {
 
 /**
  * One beacon of a genesis spec file. `key` or `publicKey` derives the beacon
- * address from a key; `address` uses a Bitcoin address as given. At most one
- * of the three; the api requires one.
+ * address from a key; `address` gives a Bitcoin address or a BIP321 `bitcoin:`
+ * URI, and the document gets its address part, with a bech32 address in lower
+ * case. At most one of the three; the api requires one.
  */
 export interface GenesisSpecBeacon {
   type          : string;

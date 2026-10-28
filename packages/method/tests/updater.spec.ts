@@ -171,6 +171,31 @@ describe('Updater', () => {
         expect(thrown.data.sourceVersionId).to.equal(bad);
       }
     });
+
+    // [title, service type, endpoint]. The address is the P2WPKH beacon address of the fixture.
+    const notBeacons: Array<[string, string, (address: string) => string]> = [
+      ['a LinkedDomains service with a bitcoin: endpoint', 'LinkedDomains', address => `bitcoin:${address}`],
+      ['a SingletonBeacon whose endpoint has no address', 'SingletonBeacon', () => 'bitcoin:?lightning=x'],
+    ];
+
+    for(const [title, type, endpointOf] of notBeacons) {
+      it(`refuses a beaconId that names ${title} with INVALID_DID_UPDATE`, () => {
+        const p2wpkhService = sourceDocument.service!.find(service => service.id.endsWith('#initialP2WPKH'))!;
+        const address = (p2wpkhService.serviceEndpoint as string).slice('bitcoin:'.length);
+        const id = `${did}#not-a-beacon`;
+        const document = {
+          ...sourceDocument,
+          service : [ ...sourceDocument.service!, { id, type, serviceEndpoint: endpointOf(address) } ],
+        } as Btcr2DidDocument;
+        const thrown = factoryThrows({ sourceDocument: document, beaconId: id });
+        expect(thrown).to.be.instanceOf(UpdateError);
+        expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+        expect(thrown.message).to.equal(
+          `The service ${id} is not a beacon service: its type is not in Beacons Table 1, `
+          + 'or its serviceEndpoint gives no Bitcoin address.'
+        );
+      });
+    }
   });
 
   describe('the JSON Patch rules of RFC 6902 and RFC 6901 (ADR 155)', () => {
@@ -441,6 +466,31 @@ describe('Updater', () => {
       // beaconAddress should be the serviceEndpoint minus the 'bitcoin:' prefix
       const expectedAddress = sourceDocument.service![0]!.serviceEndpoint.replace('bitcoin:', '');
       expect(fundingNeed.beaconAddress).to.equal(expectedAddress);
+    });
+
+    it('NeedFunding gives the bare address of a BIP321 endpoint with a query or the scheme in upper case', () => {
+      // The P2WPKH beacon of the fixture: its endpoint is bitcoin:<address>.
+      const index = sourceDocument.service!.findIndex(service => service.id.endsWith('#initialP2WPKH'));
+      const service = sourceDocument.service![index]!;
+      const address = (service.serviceEndpoint as string).slice('bitcoin:'.length);
+      for(const endpoint of [`bitcoin:${address}?label=x`, `BITCOIN:${address}`]) {
+        const services = sourceDocument.service!.map((each, i) => i === index ? { ...each, serviceEndpoint: endpoint } : each);
+        const fundUpdater = DidBtcr2.update({
+          sourceDocument  : { ...sourceDocument, service: services } as Btcr2DidDocument,
+          patches         : [],
+          sourceVersionId : 1,
+          verificationMethodId,
+          beaconId        : service.id,
+        });
+        let state = fundUpdater.advance();
+        if(state.status !== 'action-required') throw new Error('expected action-required');
+        fundUpdater.provide(state.needs[0] as NeedSigningKey, signer);
+        state = fundUpdater.advance();
+        if(state.status !== 'action-required') throw new Error('expected action-required');
+        const fundingNeed = state.needs[0] as NeedFunding;
+        expect(fundingNeed.kind, endpoint).to.equal('NeedFunding');
+        expect(fundingNeed.beaconAddress, endpoint).to.equal(address);
+      }
     });
 
     it('after funding, advance() emits NeedBroadcast with the signed update', () => {

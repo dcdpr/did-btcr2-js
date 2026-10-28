@@ -2,12 +2,59 @@ import type { BTCNetwork } from '@did-btcr2/bitcoin';
 import { getNetwork } from '@did-btcr2/bitcoin';
 import type { KeyBytes, Maybe} from '@did-btcr2/std';
 import { DidMethodError, MethodError } from '@did-btcr2/std';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bech32, bech32m, createBase58check } from '@scure/base';
 import { p2pkh, p2tr, p2wpkh } from '@scure/btc-signer';
 import { Appendix } from '../../utils/appendix.js';
 import type { DidDocument } from '../../utils/did-document.js';
 import { Identifier } from '../identifier.js';
 import type { BeaconService } from './interfaces.js';
 import { BeaconError } from './error.js';
+
+/** The scheme of a BIP321 Bitcoin URI. It matches in any case. */
+const BITCOIN_URI_SCHEME = /^bitcoin:/i;
+
+/** A BIP321 query key that a client must handle. The parse handles no such key. */
+const REQUIRED_QUERY_KEY = /^req-/i;
+
+/** The base58check codec of a P2PKH or P2SH address. */
+const BASE58CHECK = createBase58check(sha256);
+
+/** The version bytes of a base58 address: P2PKH and P2SH of mainnet, then of the test networks. */
+const BASE58_ADDRESS_VERSIONS = [0x00, 0x05, 0x6f, 0xc4];
+
+/**
+ * Get the Bitcoin address of a text: a base58 P2PKH or P2SH address, a bech32 segwit version 0
+ * address, or a bech32m segwit address of version 1 to 16 (BIP321, BIP173, BIP350). The function
+ * does not check the network. It returns a bech32 or bech32m address in lower case (BIP173:
+ * "Encoders MUST always output an all lowercase Bech32 string."). A mixed-case bech32 string is
+ * not an address.
+ * @param {string} text The text to read.
+ * @returns {string | undefined} The address, or `undefined` if the text is not a Bitcoin address.
+ */
+function bitcoinAddress(text: string): string | undefined {
+  let payload: Uint8Array | undefined;
+  try {
+    payload = BASE58CHECK.decode(text);
+  } catch {
+    payload = undefined;
+  }
+  if(payload !== undefined) {
+    return payload.length === 21 && BASE58_ADDRESS_VERSIONS.includes(payload[0]) ? text : undefined;
+  }
+  // BIP350: version 0 uses bech32, and version 1 to 16 use bech32m.
+  const asBech32 = bech32.decodeUnsafe(text, 90);
+  const decoded = asBech32 ?? bech32m.decodeUnsafe(text, 90);
+  if(decoded === undefined) return undefined;
+  const [version, ...data] = decoded.words;
+  if(version === undefined || version > 16 || (asBech32 !== undefined) !== (version === 0)) return undefined;
+  const program = bech32.fromWordsUnsafe(data);
+  if(program === undefined) return undefined;
+  const validLength = version === 0
+    ? program.length === 20 || program.length === 32
+    : program.length >= 2 && program.length <= 40;
+  return validLength ? text.toLowerCase() : undefined;
+}
 
 /**
  * Static class of utility functions for the Beacon Service
@@ -16,20 +63,46 @@ import { BeaconError } from './error.js';
  */
 export class BeaconUtils {
   /**
-   * Converts a BIP21 Bitcoin URI to a Bitcoin address
-   * @param {string} uri The BIP21 Bitcoin URI to convert
-   * @returns {string} The Bitcoin address extracted from the URI
-   * @throws {DidMethodError} if the URI is not a valid Bitcoin URI
+   * Get the Beacon Address of a BIP321 Bitcoin URI: the address part, between the scheme and
+   * the first `?`.
+   * - The scheme `bitcoin:` matches in any case.
+   * - The address part must be a base58 P2PKH or P2SH address, a bech32 segwit version 0
+   *   address, or a bech32m segwit address of version 1 to 16. The parse does not check the
+   *   network. It returns a bech32 or bech32m address in lower case. A base58 address keeps its
+   *   case.
+   * - A query key that starts with `req-`, in any case, makes the URI invalid (BIP321: "it MUST
+   *   consider the entire URI invalid"). The parse ignores each other query key.
+   * @param {string} uri The BIP321 Bitcoin URI, for example the `serviceEndpoint` of a beacon.
+   * @returns {string} The Bitcoin address of the URI.
+   * @throws {MethodError} `BEACON_SERVICE_ERROR` if the URI gives no Bitcoin address.
    */
   static parseBitcoinAddress(uri: string): string {
-    if (!uri.startsWith('bitcoin:')) {
-      throw new MethodError('Invalid Bitcoin URI format', 'BEACON_SERVICE_ERROR', { uri });
+    if(typeof uri !== 'string' || !BITCOIN_URI_SCHEME.test(uri)) {
+      throw new MethodError('Invalid Bitcoin URI: the scheme is not bitcoin:', 'BEACON_SERVICE_ERROR', { uri });
     }
-    return uri.replace('bitcoin:', '').split('?')[0];
+    const rest = uri.slice('bitcoin:'.length);
+    const queryStart = rest.indexOf('?');
+    const address = bitcoinAddress(queryStart === -1 ? rest : rest.slice(0, queryStart));
+    if(address === undefined) {
+      throw new MethodError(
+        'Invalid Bitcoin URI: the address part is not a Bitcoin address', 'BEACON_SERVICE_ERROR', { uri }
+      );
+    }
+    // A query parameter is a key, then an optional `=` and a value, so the parameter starts with
+    // its key.
+    const query = queryStart === -1 ? '' : rest.slice(queryStart + 1);
+    if(query.split('&').some(param => REQUIRED_QUERY_KEY.test(param))) {
+      throw new MethodError(
+        'Invalid Bitcoin URI: a query key starts with req-', 'BEACON_SERVICE_ERROR', { uri }
+      );
+    }
+    return address;
   }
 
   /**
-   * Validates that the given object is a Beacon Service
+   * Validates that the given object is a Beacon Service that gives a Beacon Address: its type
+   * is in Beacons Table 1, and {@link BeaconUtils.parseBitcoinAddress} reads its
+   * `serviceEndpoint`. The function does not use `this`, so a caller can pass it unbound.
    * @param {BeaconService} obj The object to validate
    * @returns {boolean} A boolean indicating whether the object is a Beacon Service
    */
@@ -40,8 +113,13 @@ export class BeaconUtils {
     // Return false if the type is not a valid beacon service type.
     if(!['SingletonBeacon', 'CASBeacon', 'SMTBeacon'].includes(obj.type)) return false;
 
-    // Return false if the serviceEndpoint is not a valid BIP21 bitcoin address.
-    if ([obj.serviceEndpoint].flat().some(ep => typeof ep === 'string' && !ep.startsWith('bitcoin:'))) return false;
+    // Return false if the serviceEndpoint gives no Bitcoin address: a BIP321 URI with an
+    // address part (Appendix.isDidService checked that it is a string).
+    try {
+      BeaconUtils.parseBitcoinAddress(obj.serviceEndpoint as string);
+    } catch {
+      return false;
+    }
 
     // Else return true
     return true;
@@ -163,15 +241,6 @@ export class BeaconUtils {
         'BEACON_SERVICE_ERROR', { id, publicKey, network, beaconType }
       );
     }
-  }
-
-  /**
-   * Convert beacon service endpoints from BIP-21 URIs to addresses.
-   * @param {BeaconService} beacon The beacon service to parse.
-   * @returns {BeaconServiceAddress} The beacon service with the address field extracted from the serviceEndpoint.
-   */
-  static parseBeaconServiceEndpoint(beacon: BeaconService): BeaconService {
-    return { ...beacon, serviceEndpoint: beacon.serviceEndpoint.replace('bitcoin:', '')};
   }
 
   /**

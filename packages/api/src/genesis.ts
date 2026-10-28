@@ -11,6 +11,7 @@ import type {
   VerificationRelationships
 } from '@did-btcr2/method';
 import {
+  BeaconUtils,
   BTCR2_DID_DOCUMENT_CONTEXT,
   deriveSingletonAddress,
   detectSingletonScriptKind,
@@ -104,9 +105,10 @@ export interface GenesisBeaconSpec {
    */
   addressType?: BeaconAddressType;
   /**
-   * A Bitcoin address of the network, without the `bitcoin:` scheme. Exclusive
-   * with `publicKey`. A CAS or SMT beacon usually names the address of an
-   * aggregation cohort here.
+   * A Bitcoin address of the network, or a BIP321 `bitcoin:` URI of it. The
+   * document gets `bitcoin:<address>`, with a bech32 address in lower case.
+   * Exclusive with `publicKey`. A CAS or SMT beacon usually names the address
+   * of an aggregation cohort here.
    */
   address?: string;
   /** The fragment of the service id, without `#`. Default: `service-<index>`. */
@@ -316,12 +318,25 @@ function deriveAddress(
   return deriveSingletonAddress(kind, key.compressed, network);
 }
 
-/** Checks that a supplied address belongs to the network and has a spendable script kind. */
+/**
+ * Checks that a supplied address belongs to the network and has a spendable script kind. The
+ * input is a Bitcoin address or a BIP321 `bitcoin:` URI. The result is the address, with a bech32
+ * address in lower case.
+ */
 function parseAddress(address: string, network: ReturnType<typeof getNetwork>, label: string): string {
   if (typeof address !== 'string' || address.length === 0) {
     throw invalid(`${label}.address must be a non-empty string.`, { address });
   }
-  const bare = address.replace(/^bitcoin:/, '');
+  let bare: string;
+  try {
+    bare = BeaconUtils.parseBitcoinAddress(/^bitcoin:/i.test(address) ? address : `bitcoin:${address}`);
+  } catch (error) {
+    throw invalid(
+      `${label}.address "${address}" is not a Bitcoin address or a BIP321 URI of one: `
+      + `${(error as Error).message}`,
+      { address },
+    );
+  }
   try {
     detectSingletonScriptKind(bare, network);
   } catch (error) {
