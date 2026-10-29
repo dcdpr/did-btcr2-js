@@ -567,8 +567,8 @@ export function signWithConfig(
   signer: LocalSigner,
   overrides: Partial<Btcr2DataIntegrityConfig>,
 ): SignedBTCR2Update {
-  const methodId = Appendix.absoluteDidUrl(verificationMethodId, did);
-  if (methodId === undefined) throw new Error('verificationMethodId must not be empty');
+  if (verificationMethodId === '') throw new Error('verificationMethodId must not be empty');
+  const methodId = Appendix.absoluteDidUrl(verificationMethodId, did) as string;
   // The cryptosuite signs only if the proof names the full id of the multikey. The full id of
   // this multikey is methodId, because methodId does not start with "#".
   const multikey = SchnorrMultikey.fromSigner(methodId, did, signer);

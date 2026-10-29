@@ -1007,7 +1007,7 @@ describe('Updater', () => {
         methodId,
         make  : () => ({
           document : referencing(signerMethod({ id: methodId })),
-          message  : `Invalid verificationMethodId: expected a DID URL or a relative DID URL that starts with "#"; got "${methodId}".`,
+          message  : `Invalid verificationMethodId: expected a DID URL, or a relative DID URL that resolves to a DID URL; got "${methodId}".`,
           data     : { verificationMethodId: methodId }
         })
       };
@@ -1064,7 +1064,7 @@ describe('Updater', () => {
           methodId : object as unknown as string,
           make     : () => ({
             document : sourceCopy(),
-            message  : 'Invalid verificationMethodId: expected a DID URL or a relative DID URL that starts with "#".',
+            message  : 'Invalid verificationMethodId: expected a DID URL, or a relative DID URL that resolves to a DID URL.',
             data     : { verificationMethodId: object }
           })
         };
@@ -1201,9 +1201,10 @@ describe('Updater', () => {
           return { document, message: 'Invalid verificationMethodId: not found in source document', data: { verificationMethodId: `${did}#ghost` } };
         }
       },
-      notADidUrl('the relative id', '?key=1'),
-      notADidUrl('the relative id', '/keys/1'),
       notADidUrl('the URN', 'urn:x:1'),
+      // RFC 3986 gives an authority to the result of a network-path reference, and a DID URL
+      // has no authority. So the id stays as it is, and it is not a DID URL.
+      notADidUrl('the network-path reference', '//host#k'),
       ...METHOD_CHANGES.flatMap(change => change.referenceOnly
         ? [ methodRefusal(change, 'referenced') ]
         : [ methodRefusal(change, 'referenced'), methodRefusal(change, 'embedded') ]),
@@ -1305,6 +1306,16 @@ describe('Updater', () => {
         }
       });
 
+      it('returns a method whose relative id is "?key=1" or "/keys/1", for the relative id and for the absolute id', () => {
+        // RFC 3986, section 5: "?key=1" resolves to "<did>?key=1", and "/keys/1" to "<did>/keys/1".
+        for(const relativeId of [ '?key=1', '/keys/1' ]) {
+          const method = signerMethod({ id: relativeId });
+          for(const methodId of [ relativeId, `${did}${relativeId}` ]) {
+            expect(Updater.signingMethod(referencing(method), methodId), methodId).to.deep.equal(method);
+          }
+        }
+      });
+
       it('the multikey refuses each other key text for the fixture key', () => {
         for(const publicKeyMultibase of [ otherKeyText('\u0100'), otherKeyText('\u{1F600}') ]) {
           expect(() => SchnorrMultikey.fromVerificationMethod(signerMethod({ publicKeyMultibase })))
@@ -1344,6 +1355,17 @@ describe('Updater', () => {
           expect(signed.proof.verificationMethod, methodId).to.equal(methodId);
           const verifier = SchnorrMultikey.fromVerificationMethod(method).toCryptosuite();
           expect(verifier.verifyProof(signed).verified, methodId).to.equal(true);
+        }
+      });
+
+      it('signs with a method whose relative id is "?key=1" or "/keys/1", and the proof names the absolute id', () => {
+        for(const relativeId of [ '?key=1', '/keys/1' ]) {
+          const methodId = `${did}${relativeId}`;
+          const document = referencing(signerMethod({ id: relativeId }));
+          const signed = Updater.sign(document, Updater.construct(document, ALSO_KNOWN_AS, 1), relativeId, signer);
+          expect(signed.proof.verificationMethod, relativeId).to.equal(methodId);
+          const verifier = SchnorrMultikey.fromVerificationMethod(signerMethod({ id: methodId })).toCryptosuite();
+          expect(verifier.verifyProof(signed).verified, relativeId).to.equal(true);
         }
       });
 
@@ -1796,6 +1818,23 @@ describe('Updater', () => {
         if(state.status !== 'action-required') throw new Error('expected action-required');
         expect(state.needs[0]!.kind).to.equal('NeedFunding');
         expect(need.unsignedUpdate).to.not.have.property('proof');
+      });
+
+      it('signs with the relative id "?key=1" or "/keys/1", and NeedSigningKey and the proof name the absolute id', () => {
+        for(const relativeId of [ '?key=1', '/keys/1' ]) {
+          const methodId = `${did}${relativeId}`;
+          const updater = updaterFor(referencing(signerMethod({ id: relativeId })), relativeId);
+          let state = updater.advance();
+          if(state.status !== 'action-required') throw new Error('expected action-required');
+          expect((state.needs[0] as NeedSigningKey).verificationMethodId, relativeId).to.equal(methodId);
+          updater.provide(state.needs[0] as NeedSigningKey, signer);
+          state = updater.advance();
+          if(state.status !== 'action-required') throw new Error('expected action-required');
+          updater.provide(state.needs[0] as NeedFunding);
+          state = updater.advance();
+          if(state.status !== 'action-required') throw new Error('expected action-required');
+          expect((state.needs[0] as NeedBroadcast).signedUpdate.proof.verificationMethod, relativeId).to.equal(methodId);
+        }
       });
 
       it('signs with a method whose absolute id has no fragment, from NeedSigningKey to NeedBroadcast', () => {

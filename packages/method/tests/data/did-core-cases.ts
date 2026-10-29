@@ -281,6 +281,19 @@ export const REFUSAL_CASES: Array<RefusalCase> = [
     member  : 'service',
     message : 'service[1].id is the id of service[0]: each service needs a different id'
   },
+  // DID Core v1.1, 3.2.1: RFC 3986, section 5, resolves a relative DID URL against the DID.
+  {
+    label   : 'service: the relative query "?s" and the absolute DID URL "<did>?s"',
+    change  : d => { d.service = [d.service[0], linkedDomains('?s'), linkedDomains(`${d.id}?s`)]; },
+    member  : 'service',
+    message : 'service[2].id is the id of service[1]: each service needs a different id'
+  },
+  {
+    label   : 'service: the relative path "s" and the absolute path "/s"',
+    change  : d => { d.service = [d.service[0], linkedDomains('s'), linkedDomains('/s')]; },
+    member  : 'service',
+    message : 'service[2].id is the id of service[1]: each service needs a different id'
+  },
 ];
 
 export const PRODUCER_REFUSAL_CASES: Array<RefusalCase> = [
@@ -301,6 +314,12 @@ export const PRODUCER_REFUSAL_CASES: Array<RefusalCase> = [
     change  : d => { d.capabilityInvocation.push(relative(d.capabilityInvocation[0])); },
     member  : 'capabilityInvocation',
     message : `capabilityInvocation[1] repeats capabilityInvocation[0]: ${REPEAT}`
+  },
+  {
+    label   : 'assertionMethod: the relative query "?k" and the absolute DID URL "<did>?k" of one method',
+    change  : d => { d.verificationMethod.push({ ...d.verificationMethod[0], id: '?k' }); d.assertionMethod.push('?k', `${d.id}?k`); },
+    member  : 'assertionMethod',
+    message : `assertionMethod[2] repeats assertionMethod[1]: ${REPEAT}`
   },
   {
     label   : 'keyAgreement: one embedded method two times',
@@ -383,6 +402,12 @@ export const PRODUCER_REFUSAL_CASES: Array<RefusalCase> = [
     change  : d => { d.verificationMethod.push({ ...d.verificationMethod[0], id: relative(d.verificationMethod[0].id) }); },
     member  : 'verificationMethod',
     message : `verificationMethod[1].id is the id of verificationMethod[0]: ${SHARED_ID}`
+  },
+  {
+    label   : 'verificationMethod: the relative path "k" and the absolute path "/k" of one id',
+    change  : d => { d.verificationMethod.push({ ...d.verificationMethod[0], id: 'k' }, { ...d.verificationMethod[0], id: '/k' }); },
+    member  : 'verificationMethod',
+    message : `verificationMethod[2].id is the id of verificationMethod[1]: ${SHARED_ID}`
   },
   {
     label   : 'authentication: an embedded method with the id of a method in verificationMethod',

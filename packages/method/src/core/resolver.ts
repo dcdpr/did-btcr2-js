@@ -29,6 +29,7 @@ import { CompressedSecp256k1PublicKey } from '@did-btcr2/keys';
 import { Appendix } from '../utils/appendix.js';
 import { DidDocument, ID_PLACEHOLDER_VALUE } from '../utils/did-document.js';
 import { hasNonZeroPadBits, smtProofRootHex } from '../utils/base64url-hash.js';
+import { expandRelativeDidUrls } from '../utils/relative-did-url.js';
 import { errorCause } from '../utils/error-cause.js';
 import { gotValue, messageText } from '../utils/message-text.js';
 import { signingMethodProblem } from '../utils/signing-method.js';
@@ -325,6 +326,8 @@ export class Resolver {
   readonly #versionId?: number;
   /** The parsed `ResolutionOptions.versionTime` in milliseconds since the Unix epoch, or `undefined`. */
   readonly #versionTime?: number;
+  /** `ResolutionOptions.expandRelativeUrls`: true if the result document has absolute DID URLs. */
+  readonly #expandRelativeUrls: boolean;
 
   /**
    * The specific phase the Resolver is current in.
@@ -414,6 +417,7 @@ export class Resolver {
       genesisDocument?: object;
       maxDiscoveryRounds?: number;
       minConf?: number;
+      expandRelativeUrls?: boolean;
     }
   ) {
     this.#didComponents = didComponents;
@@ -438,6 +442,7 @@ export class Resolver {
     this.#maxDiscoveryRounds = typeof rounds === 'number' && rounds > 0 ? rounds : Infinity;
     // The signal confirmation threshold.
     this.#minConf = validateMinConf(options?.minConf);
+    this.#expandRelativeUrls = options?.expandRelativeUrls === true;
 
     // A sidecar genesis document is a provided value if it is not undefined. The
     // GenesisDocument phase hashes it, so a value that is not the genesis document
@@ -1211,10 +1216,14 @@ export class Resolver {
         // deactivated === true of the document, thus always a boolean (ADR 142).
         // `updated` is present if current_version_id is more than 1. For a historical
         // request, step 2 restored these values from the requested state, so the
-        // metadata reports the requested version.
+        // metadata reports the requested version. DID Resolution v1, section 4.4, step 6:
+        // with expandRelativeUrls, the result document is a copy with absolute DID URLs.
+        // The state document does not change.
         case ResolverPhase.Complete: {
           this.#resolvedResponse ??= {
-            didDocument : this.#currentDocument!,
+            didDocument : this.#expandRelativeUrls
+              ? new DidDocument(expandRelativeDidUrls(this.#currentDocument!, this.#did))
+              : this.#currentDocument!,
             metadata    : {
               versionId     : `${this.#currentVersionId}`,
               confirmations : this.#blockConfirmations,

@@ -102,7 +102,8 @@ After the resolver keeps the state, it processes the rest of the history. Then i
 `DidBtcr2.resolve` checks the resolution options after the DID and before it returns the `Resolver`, in the order of DID Resolution v1, section 4.4 (ADR 157). An option with the value `undefined` is absent.
 
 - An option name that `ResolutionOptions` does not hold fails with a `ResolveError` of type `FEATURE_NOT_SUPPORTED`.
-- `expandRelativeUrls: true` fails with `FEATURE_NOT_SUPPORTED`. The resolver returns each relative DID URL of the DID document unchanged. `false` has no effect.
+- `expandRelativeUrls: true` returns a copy of the DID document in which each relative DID URL is absolute (DID Resolution v1, section 4.4, step 6). In the copy, the resolver resolves each string `id` of a map, at any depth, against the DID (RFC 3986, section 5). It also resolves each string item of the five verification relationships. For example, `#key-1` becomes `<did>#key-1`, and `?service=files` becomes `<did>?service=files`. `@context`, each `serviceEndpoint` value, a value with a scheme, and a value that starts with `//` stay unchanged. `false` has no effect (ADR 162).
+- Do not use an expanded document as the source document of an update. The `sourceHash` of an update is the hash of the document with no expansion, and the resolver refuses an update whose `sourceHash` does not match.
 - `accept` must be an Accept header value (RFC 9110, section 12.5.1), for example `'application/did'`. The resolver returns a data structure, so the value has no effect.
 - `noCache` must be `true`, `false`, `'true'`, or `'false'`. The resolver keeps no cache, so the value has no effect.
 - A wrong value of `accept`, `expandRelativeUrls`, `noCache`, `sidecar` (not an object), or `maxDiscoveryRounds` (not a number) fails with `INVALID_OPTIONS`.
@@ -201,7 +202,7 @@ The patched document must keep the DID as its `id`, and it must conform to DID C
 
 `Updater.signingMethod(sourceDocument, verificationMethodId)` returns the verification method that signs an update. `DidBtcr2.update()` calls it before it returns the `Updater`, and `Updater.sign()` calls it again. An entry of `capabilityInvocation` must identify `verificationMethodId`, as a reference or as an embedded method object. `Updater.signingMethod()` resolves the id of each entry and `verificationMethodId` to absolute DID URLs before it compares them. A reference entry must name a member of `verificationMethod`. The resolver applies the same lookup and the same method conditions to `update.proof` (ADR 147).
 
-The id of the method must be a DID URL under the DID: the DID, then a fragment, a query, or a path. Examples are `<did>#key-1`, `<did>?key=1`, and `<did>/keys/1`. A relative id must start with `#`. The write path refuses the relative ids `?key=1` and `/keys/1`, an id under another DID, and a URI that is not a DID URL. The proof and `NeedSigningKey.verificationMethodId` name the method by its absolute DID URL.
+The id of the method must be a DID URL under the DID: the DID, then a fragment, a query, or a path. Examples are `<did>#key-1`, `<did>?key=1`, and `<did>/keys/1`. The write path resolves a relative id against the DID by RFC 3986, section 5, in each form: `#key-1`, `?key=1`, `/keys/1`, and `keys/1` are valid (ADR 162). The write path refuses an id under another DID, a URI that is not a DID URL, and a value that starts with `//`. The proof and `NeedSigningKey.verificationMethodId` name the method by its absolute DID URL.
 
 The method must agree with three conditions:
 

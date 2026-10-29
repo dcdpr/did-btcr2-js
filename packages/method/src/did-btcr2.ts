@@ -136,7 +136,8 @@ export class DidBtcr2 implements DidMethod {
       versionTime        : resolutionOptions.versionTime,
       genesisDocument    : resolutionOptions.sidecar?.genesisDocument,
       maxDiscoveryRounds : resolutionOptions.maxDiscoveryRounds,
-      minConf            : resolutionOptions.minConf
+      minConf            : resolutionOptions.minConf,
+      expandRelativeUrls : resolutionOptions.expandRelativeUrls
     });
   }
 

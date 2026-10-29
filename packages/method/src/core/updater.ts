@@ -145,9 +145,9 @@ export interface UpdaterParams {
 /**
  * Returns the absolute DID URL of a verification method id: the id that the proof names.
  * A proof travels apart from the document, so it must name the method by a DID URL.
- * {@link Appendix.absoluteDidUrl} resolves only the `#` form of a relative DID URL. This
- * function refuses another relative form (`?key=1`, `/keys/1`). It also refuses an absolute
- * URI that is not a DID URL (`urn:x:1`).
+ * {@link Appendix.absoluteDidUrl} resolves a relative DID URL (`#key-1`, `?key=1`, `/keys/1`)
+ * against the DID. This function refuses an absolute URI that is not a DID URL (`urn:x:1`) and
+ * a network-path reference (`//host#key-1`).
  *
  * The method must be under the DID: the DID, then a fragment, a query, or a path. DID Core
  * v1.1 lets a relative DID URL hold each of these three parts, and the result references a
@@ -166,7 +166,7 @@ function absoluteMethodId(verificationMethodId: string, did: string): string {
   if(methodId === undefined || !methodId.startsWith('did:')) {
     const text = messageText(verificationMethodId);
     throw new UpdateError(
-      'Invalid verificationMethodId: expected a DID URL or a relative DID URL that starts with "#"'
+      'Invalid verificationMethodId: expected a DID URL, or a relative DID URL that resolves to a DID URL'
       + (text === undefined ? '.' : `; got "${text}".`),
       INVALID_DID_UPDATE, { verificationMethodId }
     );
@@ -338,8 +338,8 @@ export class Updater {
 
   /**
    * @internal Use {@link DidBtcr2.update} to create instances.
-   * @throws {UpdateError} `INVALID_DID_UPDATE` if `verificationMethodId` is neither a DID URL
-   *   nor a relative DID URL that starts with `#`.
+   * @throws {UpdateError} `INVALID_DID_UPDATE` if `verificationMethodId` does not resolve to a
+   *   DID URL.
    */
   constructor(params: UpdaterParams) {
     this.#sourceDocument = params.sourceDocument;
@@ -496,7 +496,7 @@ export class Updater {
    *   - `sourceDocument.id` is not a did:btcr2 identifier.
    *   - `capabilityInvocation` or `verificationMethod` is present and is not an array.
    *   - The lookup or a method check above fails.
-   *   - The id is neither a DID URL nor a relative DID URL that starts with `#`.
+   *   - The id does not resolve to a DID URL.
    */
   static signingMethod(sourceDocument: Btcr2DidDocument, verificationMethodId: string): DidVerificationMethod {
     // The shape of the source document. The caller of this public function can give any value,
