@@ -265,11 +265,11 @@ try {
   console.log((err as Error).message);
   // Failed to resolve DID did:btcr2:k1q5p8rn...qy2kh3v: Signed update not found in CAS (hash: ...)
   // If the gateway does not answer before the timeout:
-  // Failed to resolve DID did:btcr2:k1q5p8rn...qy2kh3v: CAS operation timed out after 5000ms
+  // Failed to resolve DID did:btcr2:k1q5p8rn...qy2kh3v: CAS content for ... cannot be retrieved: CAS operation timed out after 5000ms
 }
 ```
 
-The resolver finds the update hash on the chain. It looks for the signed update in the sidecar data, but the sidecar data is empty. Then it looks in the CAS gateway, but nobody published the update there. So resolution fails. The two messages show the same CAS miss.
+The resolver finds the update hash on the chain. It looks for the signed update in the sidecar data, but the sidecar data is empty. Then it looks in the CAS gateway, but nobody published the update there. So resolution fails. The two messages show the same CAS miss, and `tryResolveDid` gives the code `MISSING_UPDATE_DATA` for each (ADR 164).
 
 Bitcoin holds the hash, and you hold the content. Only the parties that get the sidecar data from you can see the change. The message gives the root cause, and `err.cause` holds the original error. `tryResolveDid` returns the root cause in `errorMessage`, the DID Resolution error code in `error`, and the original error in `cause`.
 

@@ -412,6 +412,8 @@ The expected output is the same document, now with your patch and `versionId: "2
 ```bash
 btcr2 resolve -i "$DID" --cas-timeout 1000
 # Signed update not found in CAS (hash: ...).
+# If the gateway does not answer in 1000 ms:
+# CAS content for ... cannot be retrieved: CAS operation timed out after 1000ms
 ```
 
 The resolver finds an on-chain update hash but no sidecar data. It looks in the default public IPFS gateway, where nobody published the update, and then it fails. The `--cas-timeout 1000` makes that miss return fast instead of a wait on a slow gateway. Only the parties with the sidecar data can see what changed. Bitcoin holds the commitment, and you hold the contents. This is a *policy*, not a limitation. `--publish-to-cas never` is the default. The appendix shows the opt-in path that makes an update resolvable for everyone.

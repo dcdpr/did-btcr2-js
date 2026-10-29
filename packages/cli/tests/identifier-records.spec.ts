@@ -153,8 +153,30 @@ describe('identifier records (ADR 133)', () => {
       expect(merged).to.deep.equal({ genesisDocument: { a: 1 }, smtProofs: [ entry(5) ] });
     });
 
+    it('a genesis document of primary other than undefined wins, also null', () => {
+      // The resolver hashes each genesisDocument value other than undefined (ADR 160).
+      const merged = mergeSidecar({ genesisDocument: null } as never, { genesisDocument: { b: 2 } });
+      expect(merged).to.deep.equal({ genesisDocument: null });
+    });
+
     it('gives an empty object for two empty sets', () => {
       expect(mergeSidecar({}, {})).to.deep.equal({});
+    });
+
+    it('keeps a member of primary that is not an array as it is, so the api refuses it', () => {
+      const merged = mergeSidecar(
+        { updates: 5, casUpdates: null, smtProofs: { length: 1 } } as never,
+        { updates: [ entry(1) ], casUpdates: [ entry(2) ], smtProofs: [ entry(3) ] },
+      );
+      expect(merged).to.deep.equal({ updates: 5, casUpdates: null, smtProofs: { length: 1 } });
+    });
+
+    it('keys an entry that is not an object by its JSON text', () => {
+      const merged = mergeSidecar(
+        { updates: [ null, 'a', 5, '5', false ] as never },
+        { updates: [ null, 'a', 5, entry(1) ] as never },
+      );
+      expect(merged).to.deep.equal({ updates: [ null, 'a', 5, '5', false, entry(1) ] });
     });
 
     it('keeps one copy of an entry with no JCS form', () => {
@@ -186,6 +208,19 @@ describe('identifier records (ADR 133)', () => {
         minConf : 3,
         sidecar : { genesisDocument: { flag: true }, updates: [ entry(1), entry(2) ] },
       });
+    });
+
+    it('returns options or a flags sidecar that are not an object unchanged, so the api refuses them', () => {
+      const record = recordWith({ updates: [ entry(1) ] });
+      for (const options of [ [ 1 ], null, 5, 'ab', { sidecar: 5 }, { sidecar: null }, { sidecar: [ 1 ] } ]) {
+        expect(withRecordSidecar(options as never, record), JSON.stringify(options)).to.equal(options);
+      }
+    });
+
+    it('keeps the other members of the flags sidecar, and a member of the wrong type, as they are', () => {
+      const options = { sidecar: { updates: 5, '@context': 7, foo: 1 } } as never;
+      const merged = withRecordSidecar(options, recordWith({ updates: [ entry(1) ], casUpdates: [ entry(2) ] }));
+      expect(merged).to.deep.equal({ sidecar: { updates: 5, '@context': 7, foo: 1, casUpdates: [ entry(2) ] } });
     });
 
     it('makes resolution options from the record sidecar alone', () => {

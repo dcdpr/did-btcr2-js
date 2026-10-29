@@ -7,6 +7,7 @@ import * as raw from 'multiformats/codecs/raw';
 import { create as createDigest } from 'multiformats/hashes/digest';
 import { identity } from 'multiformats/hashes/identity';
 import { sha256 } from 'multiformats/hashes/sha2';
+import { messageText } from './helpers.js';
 
 /**
  * Default IPFS HTTP gateway used for CAS reads when no CAS config is provided.
@@ -366,12 +367,25 @@ export class CasApi {
    * bytes before it parses them.
    * @param hashBytes Raw SHA-256 hash bytes of the JCS-canonicalized object.
    * @returns The parsed JSON object, or `null` if not found.
+   * @throws {ResolveError} `MISSING_UPDATE_DATA` if the read times out, or if
+   *         the executor throws or rejects. The content is then not available
+   *         from the CAS.
    * @throws {ResolveError} `MISSING_UPDATE_DATA` if the retrieved bytes do not
-   *         hash to `hashBytes`, or if they are not a JSON object.
+   *         hash to `hashBytes`, or if they are not UTF-8 JSON text of an object.
    */
   async retrieve(hashBytes: HashBytes): Promise<object | null> {
     const hash = encodeHash(hashBytes, 'base64urlnopad');
-    const bytes = await this.#withTimeout(this.#executor.retrieve(hash));
+    let bytes: Uint8Array | null;
+    try {
+      bytes = await this.#withTimeout(this.#executor.retrieve(hash));
+    } catch (error) {
+      // A read that fails gives no content, as a read that finds no content does.
+      const text = error instanceof Error ? error.message : messageText(error);
+      throw new ResolveError(
+        `CAS content for ${hash} cannot be retrieved` + (text === undefined ? '.' : `: ${text}`),
+        MISSING_UPDATE_DATA, { hash, cause: error }
+      );
+    }
     if (!bytes) return null;
     const actual = (await sha256.digest(bytes)).digest;
     if (!equalBytes(actual, hashBytes)) {
@@ -382,7 +396,8 @@ export class CasApi {
     }
     let parsed: unknown;
     try {
-      parsed = JSON.parse(new TextDecoder().decode(bytes));
+      // RFC 8259, section 8.1: JSON text is UTF-8. A byte sequence that is not UTF-8 is not JSON.
+      parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
     } catch {
       throw new ResolveError(`CAS content for ${hash} is not JSON.`, MISSING_UPDATE_DATA, { hash });
     }

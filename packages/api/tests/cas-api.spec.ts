@@ -414,13 +414,18 @@ describe('CasApi', () => {
         publish  : () => new Promise(() => {}),
       };
       const cas = new CasApi({ executor: stalled, timeoutMs: 20 });
-      let error: Error | undefined;
+      let error: any;
       try {
         await cas.retrieve(canonicalHashBytes(object));
       } catch (e: any) {
         error = e;
       }
-      expect(error?.message).to.match(/timed out after 20ms/);
+      // A read that times out gives no content: MISSING_UPDATE_DATA, as for a hash mismatch.
+      const address = encode(canonicalHashBytes(object), 'base64urlnopad');
+      expect(error).to.be.instanceOf(ResolveError);
+      expect(error.type).to.equal(MISSING_UPDATE_DATA);
+      expect(error.message).to.equal(`CAS content for ${address} cannot be retrieved: CAS operation timed out after 20ms`);
+      expect(error.data.hash).to.equal(address);
     });
   });
 
@@ -467,6 +472,45 @@ describe('CasApi', () => {
       const array = new TextEncoder().encode('[1,2]');
       const error = await rejection(casWith(array).retrieve(hash('[1,2]')));
       expect(error.message).to.match(/is not a JSON object/);
+    });
+
+    it('rejects content that is not UTF-8 as not JSON (RFC 8259, section 8.1)', async () => {
+      // {"a":"<0xFF>"}: a non-fatal decoder reads the byte 0xFF as U+FFFD.
+      const bytes = new Uint8Array([ ...new TextEncoder().encode('{"a":"'), 0xff, ...new TextEncoder().encode('"}') ]);
+      const address = (await sha256.digest(bytes)).digest;
+      const error = await rejection(new CasApi({
+        executor : { retrieve: async () => bytes, publish: async () => dataHash },
+      }).retrieve(address));
+      expect(error.message).to.equal(`CAS content for ${encode(address, 'base64urlnopad')} is not JSON.`);
+    });
+
+    describe('a read that fails', () => {
+      const casFrom = (retrieve: () => Promise<Uint8Array | null>) => new CasApi({
+        executor : { retrieve, publish: async () => dataHash },
+      });
+
+      it('rejects an executor rejection, with the cause', async () => {
+        const cause = new Error('ECONNRESET');
+        const error = await rejection(casFrom(() => Promise.reject(cause)).retrieve(hash(text)));
+        expect(error.message).to.equal(`CAS content for ${dataHash} cannot be retrieved: ECONNRESET`);
+        expect(error.data).to.deep.equal({ hash: dataHash, cause });
+      });
+
+      it('rejects an executor that throws before it returns a promise', async () => {
+        const cause = new Error('no connection');
+        const error = await rejection(casFrom(() => { throw cause; }).retrieve(hash(text)));
+        expect(error.message).to.equal(`CAS content for ${dataHash} cannot be retrieved: no connection`);
+        expect(error.data).to.deep.equal({ hash: dataHash, cause });
+      });
+
+      it('holds the text of a primitive cause in the message, and no text for an object cause', async () => {
+        const primitive = await rejection(casFrom(() => Promise.reject('refused')).retrieve(hash(text)));
+        expect(primitive.message).to.equal(`CAS content for ${dataHash} cannot be retrieved: refused`);
+        const reason = { code: 7 };
+        const silent = await rejection(casFrom(() => Promise.reject(reason)).retrieve(hash(text)));
+        expect(silent.message).to.equal(`CAS content for ${dataHash} cannot be retrieved.`);
+        expect(silent.data).to.deep.equal({ hash: dataHash, cause: reason });
+      });
     });
   });
 });

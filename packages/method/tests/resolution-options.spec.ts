@@ -85,6 +85,50 @@ describe('Resolution options', () => {
       }
     });
 
+    it('refuses a sidecar member of the wrong JSON type, also null', () => {
+      const cases: Array<[ string, unknown, string ]> = [];
+      for(const member of [ 'updates', 'casUpdates', 'smtProofs' ]) {
+        cases.push(
+          [ member, 'x', 'an array, got "x"' ],
+          [ member, 5, 'an array, got 5' ],
+          [ member, true, 'an array, got true' ],
+          [ member, null, 'an array, got null' ],
+          [ member, {}, 'an array' ],
+          [ member, { length: 1 }, 'an array' ]
+        );
+      }
+      cases.push(
+        [ '@context', 5, 'a string, got 5' ],
+        [ '@context', null, 'a string, got null' ],
+        [ '@context', [ 'https://btcr2.dev/context/v1' ], 'a string' ]
+      );
+      for(const [ member, value, expected ] of cases) {
+        const name = `sidecar.${member}`;
+        const error = refusal(fixture.did, { sidecar: { [member]: value } });
+        expect(error, `${name} ${JSON.stringify(value)}`).to.be.instanceOf(ResolveError);
+        expect(error.type, `${name} ${JSON.stringify(value)}`).to.equal(INVALID_OPTIONS);
+        expect(error.message).to.equal(`Invalid resolution option ${name}: expected ${expected}.`);
+        expect(error.data).to.deep.equal({ [name]: value });
+      }
+    });
+
+    it('accepts sidecar members of the right type, a member with another name, and any item, with no effect on the first state', () => {
+      // "Sidecar Data that the resolver did not use has no effect on the result." The check does not
+      // read an item or a member with another name. The resolver hashes a genesisDocument (ADR 160).
+      const plain = firstState({});
+      const valid = [
+        { updates: [], casUpdates: [], smtProofs: [] },
+        { updates: [ 5, null, 'x', [] ], casUpdates: [ 5, null ], smtProofs: [ null, { id: '!!' } ] },
+        { '@context': 'https://btcr2.dev/context/v1' },
+        { '@context': 'x' },
+        { foo: 1, contexts: null },
+        { updates: undefined, casUpdates: undefined, smtProofs: undefined, '@context': undefined },
+        { genesisDocument: 5 },
+        { genesisDocument: null }
+      ];
+      for(const sidecar of valid) expect(firstState({ sidecar }), JSON.stringify(sidecar)).to.equal(plain);
+    });
+
     it('refuses a null-prototype object as an option value, with no value text in the message', () => {
       for(const name of [ 'accept', 'minConf', 'versionId', 'versionTime' ]) {
         const value = Object.create(null);
@@ -122,6 +166,7 @@ describe('Resolution options', () => {
         { versionId: 'x', foo: 1 },
         { accept: 1, foo: 1 },
         { sidecar: null, foo: 1 },
+        { sidecar: { updates: 5 }, foo: 1 },
         { expandRelativeUrls: 'yes', foo: 1 },
         { maxDiscoveryRounds: '5', foo: 1 }
       ]) {

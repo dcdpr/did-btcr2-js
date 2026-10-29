@@ -164,7 +164,7 @@ The RPC URL, user, and password come from one layer together (ADR 074). A URL fr
 | `cas.rpcUrl` | string (URL) | same as `cas.gateway` | An IPFS HTTP RPC endpoint (for example a Kubo node). The CLI reads and writes through it. In one layer, it wins over `cas.gateway`. `--publish-to-cas auto` and `always` need it. |
 | `cas.rpcUser` | string | same as `cas.rpcUrl` | The HTTP Basic user name of the IPFS RPC endpoint, for a node behind a reverse proxy with authentication. |
 | `cas.rpcPass` | string | same as `cas.rpcUrl` | The HTTP Basic password. Use a secret reference, not the password: `env:<VAR>` reads an environment variable, and `file:<path>` reads a file. See [Secrets](#secrets). |
-| `cas.timeoutMs` | number | all CAS requests | The request timeout in milliseconds. The default is 30000. `0` disables the timeout. |
+| `cas.timeoutMs` | number | all CAS requests | The request timeout in milliseconds. The default is 30000. `0` disables the timeout. A resolution read that times out fails with `NOT_FOUND` for a genesis document and with `MISSING_UPDATE_DATA` for other data (ADR 164). |
 
 `defaults.cas` takes the same keys. It applies to each profile, and to a network with no profile. A profile value wins over it.
 

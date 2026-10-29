@@ -719,13 +719,16 @@ export class DidMethodApi {
    *   announcement is not in the sidecar, and the CAS does not return it. The
    *   same error occurs if the sidecar holds no SMT proof that the resolver uses
    *   for the root of a beacon signal.
+   * - A CAS read that times out or fails does not return the data, so it gives
+   *   one of the two errors above (ADR 164).
    * - `CASBeaconError` of type `MISSING_UPDATE_DATA`: the value of the entry for the
    *   DID in a CAS Announcement is not a base64url SHA-256 hash (ADR 146).
    * - `IdentifierError` of type `INVALID_DID`: the DID is not a string, or it does not
    *   conform to the DID syntax. Of type `METHOD_NOT_SUPPORTED`: the DID is valid and
    *   names another method.
    * - `ResolveError` of type `FEATURE_NOT_SUPPORTED`: an option that the resolver does not
-   *   support. Of type `INVALID_OPTIONS`: an option value that is not valid.
+   *   support. Of type `INVALID_OPTIONS`: an option value that is not valid, also a member
+   *   of `sidecar` of the wrong JSON type.
    * @param did The DID to resolve.
    * @param options Resolution options.
    * @returns The resolution result. `didResolutionMetadata.contentType` is
@@ -787,8 +790,8 @@ export class DidMethodApi {
               try {
                 doc = await this.#cas.retrieve(decodeHash(need.genesisHash, 'hex'));
               } catch (err) {
-                // CasApi.retrieve refuses content that does not hash to the address with
-                // MISSING_UPDATE_DATA. For the genesis document the specification code is NOT_FOUND.
+                // CasApi.retrieve gives MISSING_UPDATE_DATA if it cannot retrieve the content or
+                // cannot use it. For the genesis document the specification code is NOT_FOUND.
                 if(err instanceof ResolveError && err.type === MISSING_UPDATE_DATA) {
                   throw new ResolveError(
                     `Genesis document unusable from CAS (hash: ${need.genesisHash}): ${err.message}`,

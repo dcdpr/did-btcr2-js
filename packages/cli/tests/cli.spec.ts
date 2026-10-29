@@ -158,6 +158,25 @@ describe('DidBtcr2Cli', () => {
       expect(calls).to.deep.equal([[ validDid, { versionId: '1', minConf: 3 } ]]);
     });
 
+    it('--min-conf does not go into --resolution-options that are not an object', async () => {
+      const validDid = 'did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47';
+      console.log = () => undefined;
+      for (const json of [ 'null', '[1]', '"abc"', '5' ]) {
+        const { api, calls } = recordingApi(validDid);
+        const cli = new DidBtcr2Cli(() => api);
+        await getSubcommand(cli, 'resolve').parseAsync(['-i', validDid, '--min-conf', '3', '-r', json], { from: 'user' });
+        expect(calls, json).to.deep.equal([[ validDid, JSON.parse(json) ]]);
+      }
+    });
+
+    it('the api refuses --resolution-options that are not an object, also with --min-conf', async () => {
+      const validDid = 'did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47';
+      const cli = new DidBtcr2Cli(createTestApiFactory());
+      await expect(
+        getSubcommand(cli, 'resolve').parseAsync(['-i', validDid, '--min-conf', '1', '-r', '[1]'], { from: 'user' })
+      ).to.be.rejectedWith(/Invalid resolution options: expected an object/);
+    });
+
     it('rejects a --min-conf that is not a positive integer before resolving', async () => {
       const validDid = 'did:btcr2:k1qqpyerymt5aaxm2jyh7za2594hgrq24uhqanxe5h94rf42flxkwhvmqd03t47';
       for (const bad of ['0', 'abc', '1.5', '-2']) {

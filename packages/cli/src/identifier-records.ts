@@ -6,6 +6,7 @@ import { CLIError } from './error.js';
 import { ensureDir, writeFileAtomic } from './keystore/atomic.js';
 import { withFileLock } from './keystore/lock.js';
 import { defaultDidsPath, type PathOverrides } from './paths.js';
+import { isObject } from './resolution-options.js';
 
 /** Current on-disk format version of the identifier records file. */
 export const RECORDS_VERSION = 1 as const;
@@ -242,27 +243,36 @@ function assertValidName(name: string): void {
 }
 
 /**
- * Merges two sets of sidecar data. The genesis document of `primary` wins. Each
- * array holds the entries of `primary`, then each entry of `secondary` that has
- * another canonical hash. The resolver keys each entry by its hash, so an entry
- * that no beacon signal names has no effect. An entry with no JCS form has no
- * hash: the merge keeps one copy of each such entry, by its JSON text.
+ * Merges two sets of sidecar data. The genesis document of `primary` wins, if it
+ * is not `undefined`. Each array holds the entries of `primary`, then each entry
+ * of `secondary` that has another canonical hash. The resolver keys each entry by
+ * its hash, so an entry that no beacon signal names has no effect. An entry with
+ * no JCS form, or that is not an object, has no hash. The merge keeps one copy of
+ * each such entry, by its JSON text.
+ *
+ * An array member of `primary` with a value that is not an array goes into the
+ * result as it is. The api refuses it (ADR 164).
  */
 export function mergeSidecar(primary: Sidecar, secondary: Sidecar): Sidecar {
   const merged: Sidecar = {};
-  const genesisDocument = primary.genesisDocument ?? secondary.genesisDocument;
+  const genesisDocument = primary.genesisDocument !== undefined ? primary.genesisDocument : secondary.genesisDocument;
   if (genesisDocument !== undefined) merged.genesisDocument = genesisDocument;
   const updates = union(primary.updates, secondary.updates);
-  if (updates.length > 0) merged.updates = updates;
+  if (updates !== undefined) merged.updates = updates;
   const casUpdates = union(primary.casUpdates, secondary.casUpdates);
-  if (casUpdates.length > 0) merged.casUpdates = casUpdates;
+  if (casUpdates !== undefined) merged.casUpdates = casUpdates;
   const smtProofs = union(primary.smtProofs, secondary.smtProofs);
-  if (smtProofs.length > 0) merged.smtProofs = smtProofs;
+  if (smtProofs !== undefined) merged.smtProofs = smtProofs;
   return merged;
 }
 
-/** The entries of `a`, then each entry of `b` with a new key (see {@link entryKey}). */
-function union<T extends object>(a: T[] | undefined, b: T[] | undefined): T[] {
+/**
+ * The entries of `a`, then each entry of `b` with a new key (see {@link entryKey}),
+ * or `undefined` if there is no entry. A value of `a` other than `undefined` that
+ * is not an array is the result as it is.
+ */
+function union<T>(a: T[] | undefined, b: T[] | undefined): T[] | undefined {
+  if (a !== undefined && !Array.isArray(a)) return a;
   const seen = new Set<string>();
   const out: T[] = [];
   for (const entry of [ ...(a ?? []), ...(b ?? []) ]) {
@@ -271,16 +281,18 @@ function union<T extends object>(a: T[] | undefined, b: T[] | undefined): T[] {
     seen.add(key);
     out.push(entry);
   }
-  return out;
+  return out.length > 0 ? out : undefined;
 }
 
 /**
  * The canonical hash of a sidecar entry. An entry with no JCS form (a lone
  * surrogate, a number that JSON.parse read as Infinity) has no hash; its key is
- * its JSON text. Each update writes the record again, so without a key such an
- * entry doubles at each write.
+ * its JSON text. An entry that is not an object (`null`, a string, a number, a
+ * boolean) also has the key of its JSON text. Each update writes the record
+ * again, so without a key such an entry doubles at each write.
  */
-function entryKey(entry: object): string {
+function entryKey(entry: unknown): string {
+  if (entry === null || typeof entry !== 'object') return `json:${JSON.stringify(entry)}`;
   try {
     return methodApi.hashDocument(entry);
   } catch (error) {
@@ -299,15 +311,23 @@ export function isEmptySidecar(sidecar: Sidecar): boolean {
 
 /**
  * Adds the sidecar data of a record to the resolution options of a command. The
- * sidecar data of the flags wins (see {@link mergeSidecar}). Returns the options
- * unchanged if there is no record or the record holds no sidecar data.
+ * sidecar data of the flags wins (see {@link mergeSidecar}). The other members
+ * of the flags sidecar stay as they are.
+ *
+ * It returns the options unchanged if there is no record, or if the record holds
+ * no sidecar data. It also returns them unchanged if the options or the flags
+ * sidecar are not an object. The api checks the options (ADR 157), so it refuses
+ * a value of the wrong type as it does for an identifier with no record.
  */
 export function withRecordSidecar(
   options : ResolutionOptions | undefined,
   record  : IdentifierRecord | undefined,
 ): ResolutionOptions | undefined {
   if (record === undefined || isEmptySidecar(record.sidecar)) return options;
-  return { ...(options ?? {}), sidecar: mergeSidecar(options?.sidecar ?? {}, record.sidecar) };
+  if (options !== undefined && !isObject(options)) return options;
+  const sidecar = options?.sidecar;
+  if (sidecar !== undefined && !isObject(sidecar)) return options;
+  return { ...options, sidecar: { ...sidecar, ...mergeSidecar(sidecar ?? {}, record.sidecar) } };
 }
 
 /**
