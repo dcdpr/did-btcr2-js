@@ -7,9 +7,11 @@ import {
   canonicalHashBytes,
   canonicalize,
   DidDocumentError,
+  IdentifierError,
   INVALID_DID,
   INVALID_DID_DOCUMENT,
   INVALID_DID_UPDATE,
+  METHOD_NOT_SUPPORTED,
   MISSING_UPDATE_DATA,
   NOT_FOUND,
   ResolveError,
@@ -128,18 +130,21 @@ describe('DidMethodApi', () => {
       expect(components.network).to.equal('testnet4');
     });
 
-    it('rejects empty genesisBytes', () => {
+    it('gives INVALID_DID for genesisBytes of a length other than 33', () => {
       const methodApi = new DidMethodApi();
-      expect(() => methodApi.createDeterministic(new Uint8Array(0))).to.throw(
-        'genesisBytes must be a non-empty Uint8Array'
-      );
+      for (const length of [0, 32, 65]) {
+        expect(() => methodApi.createDeterministic(new Uint8Array(length)), String(length))
+          .to.throw(IdentifierError, `33-byte compressed secp256k1 public key, got ${length} bytes`)
+          .with.property('type', INVALID_DID);
+      }
     });
 
-    it('rejects non-33-byte genesisBytes', () => {
+    it('gives INVALID_DID for genesisBytes that are a hex string', () => {
       const methodApi = new DidMethodApi();
-      expect(() => methodApi.createDeterministic(new Uint8Array(32))).to.throw(
-        '33-byte compressed public key'
-      );
+      const key = SchnorrKeyPair.generate().publicKey.hex;
+      expect(() => methodApi.createDeterministic(key as never))
+        .to.throw(IdentifierError, 'Expected "genesisBytes" to be a Uint8Array')
+        .with.property('type', INVALID_DID);
     });
   });
 
@@ -219,11 +224,18 @@ describe('DidMethodApi', () => {
       expect(components.idType).to.equal('EXTERNAL');
     });
 
-    it('rejects empty genesisBytes', () => {
+    it('gives INVALID_DID for empty genesisBytes', () => {
       const methodApi = new DidMethodApi();
-      expect(() => methodApi.createExternal(new Uint8Array(0))).to.throw(
-        'genesisBytes must be a non-empty Uint8Array'
-      );
+      expect(() => methodApi.createExternal(new Uint8Array(0)))
+        .to.throw(IdentifierError, '32-byte hash for EXTERNAL identifiers, got 0 bytes')
+        .with.property('type', INVALID_DID);
+    });
+
+    it('gives INVALID_DID for genesisBytes that are a string', () => {
+      const methodApi = new DidMethodApi();
+      expect(() => methodApi.createExternal('a'.repeat(32) as never))
+        .to.throw(IdentifierError, 'Expected "genesisBytes" to be a Uint8Array')
+        .with.property('type', INVALID_DID);
     });
   });
 
@@ -346,10 +358,16 @@ describe('DidMethodApi', () => {
         .with.property('type', INVALID_DID_DOCUMENT);
     });
 
-    it('rejects an empty DID string', () => {
-      expect(() => new DidMethodApi().getInitialDocument('')).to.throw(
-        'did must be a non-empty string'
-      );
+    it('gives INVALID_DID for an empty DID string and a value that is not a string', () => {
+      expect(() => new DidMethodApi().getInitialDocument(''))
+        .to.throw(IdentifierError, 'Invalid did: ').with.property('type', INVALID_DID);
+      expect(() => new DidMethodApi().getInitialDocument(42 as unknown as string))
+        .to.throw(IdentifierError, 'Invalid did: expected a string.').with.property('type', INVALID_DID);
+    });
+
+    it('gives METHOD_NOT_SUPPORTED for a DID of another method', () => {
+      expect(() => new DidMethodApi().getInitialDocument('did:example:a:b'))
+        .to.throw(IdentifierError).with.property('type', METHOD_NOT_SUPPORTED);
     });
   });
 

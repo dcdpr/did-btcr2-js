@@ -1,3 +1,4 @@
+import { IdentifierError, INVALID_DID } from '@did-btcr2/std';
 import { expect } from 'chai';
 import { hex } from '@scure/base';
 import { Identifier } from '../src/index.js';
@@ -32,6 +33,25 @@ describe('Encode Identifier', () => {
       expect(() => Identifier.encode(validKeyBytes, {
         idType : undefined as never, version : 1, network : 'bitcoin'
       })).to.throw();
+    });
+
+    it('gives INVALID_DID for a name that an object inherits', () => {
+      // The `in` operator also finds these names on Object.prototype.
+      for (const idType of ['toString', 'constructor', '__proto__', 'hasOwnProperty']) {
+        expect(() => Identifier.encode(validHashBytes, { idType, version: 1, network: 'bitcoin' }), idType)
+          .to.throw(IdentifierError, 'Expected "idType" to be "KEY" or "EXTERNAL"')
+          .with.property('type', INVALID_DID);
+      }
+    });
+  });
+
+  describe('options validation', () => {
+    it('gives INVALID_DID if the options are undefined or null', () => {
+      for (const options of [undefined, null]) {
+        expect(() => Identifier.encode(validKeyBytes, options as never), String(options))
+          .to.throw(IdentifierError, 'Expected "idType" to be "KEY" or "EXTERNAL"')
+          .with.property('type', INVALID_DID);
+      }
     });
   });
 
@@ -135,6 +155,47 @@ describe('Encode Identifier', () => {
       expect(() => Identifier.encode(validHashBytes, {
         idType : 'EXTERNAL', version : 1, network : 'bitcoin'
       })).to.not.throw();
+    });
+
+    it('gives INVALID_DID for genesis bytes that are not a Uint8Array', () => {
+      const cases: Array<[string, unknown, string]> = [
+        ['a 32-character string', 'a'.repeat(32), 'EXTERNAL'],
+        ['a 66-character hex string', hex.encode(validKeyBytes), 'KEY'],
+        ['a plain array of 32 numbers', Array(32).fill(1), 'EXTERNAL'],
+        ['a Uint16Array of 32 values', new Uint16Array(32).fill(300), 'EXTERNAL'],
+        ['undefined', undefined, 'EXTERNAL'],
+        ['null', null, 'KEY'],
+        ['an object with a length of 32', { length: 32 }, 'EXTERNAL'],
+      ];
+      for (const [label, genesisBytes, idType] of cases) {
+        expect(() => Identifier.encode(genesisBytes as never, { idType, version: 1, network: 'bitcoin' }), label)
+          .to.throw(IdentifierError, 'Expected "genesisBytes" to be a Uint8Array')
+          .with.property('type', INVALID_DID);
+      }
+    });
+
+    it('holds the length in the message for KEY bytes of a wrong length', () => {
+      expect(() => Identifier.encode(new Uint8Array(32), { idType: 'KEY', version: 1, network: 'bitcoin' }))
+        .to.throw(IdentifierError, 'Expected "genesisBytes" to be a 33-byte compressed secp256k1 public key, got 32 bytes')
+        .with.property('type', INVALID_DID);
+    });
+
+    it('keeps the message of 33 KEY bytes that are not a valid key', () => {
+      expect(() => Identifier.encode(new Uint8Array(33), { idType: 'KEY', version: 1, network: 'bitcoin' }))
+        .to.throw(IdentifierError, 'Expected "genesisBytes" to be a valid compressed secp256k1 public key')
+        .with.property('type', INVALID_DID);
+    });
+
+    it('holds the length in the message for EXTERNAL bytes of a wrong length', () => {
+      expect(() => Identifier.encode(new Uint8Array(31), { idType: 'EXTERNAL', version: 1, network: 'bitcoin' }))
+        .to.throw(IdentifierError, 'Expected "genesisBytes" to be a 32-byte hash for EXTERNAL identifiers, got 31 bytes')
+        .with.property('type', INVALID_DID);
+    });
+
+    it('encodes a Buffer as its bytes', () => {
+      const options = { idType: 'EXTERNAL', version: 1, network: 'bitcoin' };
+      expect(Identifier.encode(Buffer.from(validHashBytes), options))
+        .to.equal(Identifier.encode(validHashBytes, options));
     });
   });
 });

@@ -4,14 +4,14 @@ import type { DocumentBytes, HashBytes, KeyBytes, PatchOperation } from '@did-bt
 import { canonicalHash, decode as decodeHash, DidDocumentError, IdentifierHrp, IdentifierTypes, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, INVALID_OPTIONS, JSONPatch, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/std';
 import type { Signer } from '@did-btcr2/keys';
 import { CompressedSecp256k1PublicKey } from '@did-btcr2/keys';
-import type { BeaconFunding, BeaconService, BroadcastOptions, BroadcastResult, Btcr2DidDocument, CASAnnouncement, CASBroadcastOptions, DidCreateOptions, DidDocument, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, ResolutionOptions, RootCapability, SignedBTCR2Update, SMTProof, UnsignedBTCR2Update } from '@did-btcr2/method';
+import type { BeaconFunding, BeaconService, BroadcastOptions, BroadcastResult, Btcr2DidDocument, CASAnnouncement, CASBroadcastOptions, DidComponents, DidCreateOptions, DidDocument, NeedCASAnnouncement, NeedGenesisDocument, NeedSignedUpdate, ResolutionOptions, RootCapability, SignedBTCR2Update, SMTProof, UnsignedBTCR2Update } from '@did-btcr2/method';
 import { Appendix, BeaconError, BeaconFactory, BeaconSignalDiscovery, BeaconUtils, DEACTIVATION_PATCH, DidBtcr2, GenesisDocument, Identifier, Resolver, selectBeaconFunding, Updater } from '@did-btcr2/method';
 import type { DidVerificationMethod } from '@web5/dids';
 import type { BitcoinApi } from './bitcoin.js';
 import type { CasApi } from './cas.js';
 import type { GenesisDocumentSpec } from './genesis.js';
 import { assertGenesisDocument, buildGenesisDocument } from './genesis.js';
-import { assertBytes, assertCompressedPubkey, assertString, messageText, NOOP_LOGGER, rootCauseMessage } from './helpers.js';
+import { assertString, messageText, NOOP_LOGGER, rootCauseMessage } from './helpers.js';
 import type { MessageReport, SignedMessage, SignMessageOptions } from './message.js';
 import { signMessage, verifyMessage } from './message.js';
 import type { DidResolutionResult, Logger } from './types.js';
@@ -336,9 +336,11 @@ export class DidMethodApi {
    * @param genesisBytes The compressed public key bytes (33 bytes).
    * @param options Creation options (idType is set for you).
    * @returns The created DID identifier string.
+   * @throws {IdentifierError} `INVALID_DID` if `genesisBytes` is not a `Uint8Array` of
+   *   33 bytes that hold a valid compressed secp256k1 public key. The same error applies to an
+   *   unknown network and to a `version` other than 1.
    */
   createDeterministic(genesisBytes: KeyBytes, options: Omit<DidCreateOptions, 'idType'> = {}): string {
-    assertCompressedPubkey(genesisBytes, 'genesisBytes');
     return DidBtcr2.create(genesisBytes, {
       ...options,
       ...this.#networkOption(options.network),
@@ -356,9 +358,10 @@ export class DidMethodApi {
    * @param genesisBytes The genesis document bytes.
    * @param options Creation options (idType is set for you).
    * @returns The created DID identifier string.
+   * @throws {IdentifierError} `INVALID_DID` if `genesisBytes` is not a `Uint8Array` of
+   *   32 bytes. The same error applies to an unknown network and to a `version` other than 1.
    */
   createExternal(genesisBytes: DocumentBytes, options: Omit<DidCreateOptions, 'idType'> = {}): string {
-    assertBytes(genesisBytes, 'genesisBytes');
     return DidBtcr2.create(genesisBytes, {
       ...options,
       ...this.#networkOption(options.network),
@@ -371,7 +374,7 @@ export class DidMethodApi {
    * they made one, else {@link DidMethodApi.defaultNetwork} (the configured
    * connection's network, else the regtest fallback).
    *
-   * Always a named network, never `undefined`. `DidBtcr2.create` destructures
+   * Always a named network, never `undefined`. `Identifier.encode` destructures
    * with `network = 'bitcoin'`, so letting an `undefined` through, a caller
    * passing `{ network: undefined }` included, would mint a mainnet identifier:
    * the very default this indirection exists to stop reaching by omission.
@@ -395,6 +398,10 @@ export class DidMethodApi {
    * @param did The DID whose initial document to derive.
    * @param genesisDocument The genesis document (EXTERNAL DIDs only).
    * @returns The initial DID document.
+   * @throws {IdentifierError} `INVALID_DID` if the DID is not a valid did:btcr2
+   *   identifier, also if it is `''` or not a string.
+   * @throws {IdentifierError} `METHOD_NOT_SUPPORTED` if the DID is a DID of
+   *   another method.
    * @throws {ResolveError} `INVALID_DID` if the hash of the genesis document is
    *   not the genesis bytes of the DID.
    * @throws {ResolveError} `INVALID_DID_DOCUMENT` if the id of the genesis
@@ -405,7 +412,6 @@ export class DidMethodApi {
    *   does not conform, for example if the genesis document has no `"@context"`.
    */
   getInitialDocument(did: string, genesisDocument?: object): Btcr2DidDocument {
-    assertString(did, 'did');
     const components = Identifier.decode(did);
     if(components.hrp === IdentifierHrp.k) {
       return Resolver.deterministic(components);
@@ -1224,23 +1230,21 @@ export class DidMethodApi {
 
   /**
    * The networks a DID and a Bitcoin connection name, if they differ.
-   * Returns null when they agree, when there is no connection network, when
-   * the DID does not decode (the calling path reports that itself), and when
-   * the DID names a custom network, which decodes to a number and has no name
-   * to compare.
+   * Returns null if they agree, if there is no connection network, or if the DID
+   * does not decode. The calling path reports a DID that does not decode.
    */
   #networkMismatch(
     did: string,
     connectionNetwork: NetworkName | undefined,
-  ): { didNetwork: string; connectionNetwork: NetworkName } | null {
+  ): { didNetwork: DidComponents['network']; connectionNetwork: NetworkName } | null {
     if(!connectionNetwork) return null;
-    let didNetwork: string | number;
+    let didNetwork: DidComponents['network'];
     try {
       didNetwork = Identifier.decode(did).network;
     } catch {
       return null;
     }
-    if(typeof didNetwork !== 'string' || didNetwork === connectionNetwork) return null;
+    if(didNetwork === connectionNetwork) return null;
     return { didNetwork, connectionNetwork };
   }
 

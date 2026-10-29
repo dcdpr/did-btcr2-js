@@ -1,4 +1,4 @@
-import { IdentifierError, INVALID_DID, METHOD_NOT_SUPPORTED } from '@did-btcr2/std';
+import { BitcoinNetworkNames, IdentifierError, INVALID_DID, METHOD_NOT_SUPPORTED } from '@did-btcr2/std';
 import { bytesToHex } from '@noble/hashes/utils';
 import { bech32m, hex } from '@scure/base';
 import { expect } from 'chai';
@@ -175,6 +175,17 @@ describe('Decode Identifier', () => {
     it('names a reserved network_value as reserved', () => {
       expect(() => Identifier.decode(forge('k', 0x09, validKeyBytes))).to.throw(/reserved/i);
     });
+
+    it('returns a network name whose BitcoinNetworkNames value is the network_value', () => {
+      // The index lines compile only if the type of `network` is `keyof typeof BitcoinNetworkNames`.
+      for (let value = 0; value <= 5; value++) {
+        const did = forge('x', value, validHashBytes);
+        const { network } = Identifier.decode(did);
+        expect(BitcoinNetworkNames[network], did).to.equal(value);
+        const report = Identifier.validate(did);
+        expect(BitcoinNetworkNames[report.network!], did).to.equal(value);
+      }
+    });
   });
 
   describe('genesisBytes validation', () => {
@@ -201,6 +212,15 @@ describe('Decode Identifier', () => {
     it('rejects EXTERNAL with too-long trailing bytes (33)', () => {
       expect(() => Identifier.decode(forge('x', 0x00, new Uint8Array(33))))
         .to.throw(/genesisBytes/i);
+    });
+
+    it('holds no genesis bytes in the message', () => {
+      expect(() => Identifier.decode(forge('k', 0x00, new Uint8Array(33).fill(4))))
+        .to.throw(IdentifierError, /^Invalid genesisBytes: expected a 33-byte compressed secp256k1 public key$/)
+        .with.property('type', INVALID_DID);
+      expect(() => Identifier.decode(forge('x', 0x00, new Uint8Array(31).fill(3))))
+        .to.throw(IdentifierError, /^Invalid genesisBytes: expected 32 bytes, got 31 bytes$/)
+        .with.property('type', INVALID_DID);
     });
   });
 

@@ -10,7 +10,7 @@ import { BitcoinApi } from './bitcoin.js';
 import { CasApi, DEFAULT_CAS_GATEWAY, type CasConfig } from './cas.js';
 import { CryptoApi } from './crypto.js';
 import { DidApi } from './did.js';
-import { assertString, NOOP_LOGGER, resolutionError, resolutionErrorCode, resolutionErrorCodeOfType } from './helpers.js';
+import { NOOP_LOGGER, resolutionError, resolutionErrorCode, resolutionErrorCodeOfType } from './helpers.js';
 import { KeyManagerApi } from './key-manager.js';
 import { DidMethodApi, type DidUpdateOptions, type DidUpdateResult, type SourceState, type UpdateSource } from './method.js';
 import { SmtApi } from './smt.js';
@@ -123,6 +123,9 @@ export class DidBtcr2Api {
    * @param genesisBytes Public key bytes (deterministic) or document bytes (external).
    * @param options Creation options (idType is set for you).
    * @returns The created DID identifier string.
+   * @throws {IdentifierError} `INVALID_DID` if `genesisBytes` is not a `Uint8Array` of
+   *   33 bytes (deterministic) or 32 bytes (external). The same error applies to a
+   *   deterministic key that is not valid, to an unknown network, and to a `version` other than 1.
    */
   createDid(
     type: 'deterministic' | 'external',
@@ -335,7 +338,6 @@ export class DidBtcr2Api {
     }
 
     const did = source;
-    assertString(did, 'source');
     // The source document must be the document that the resolution returns with
     // no expansion. An expanded copy has another hash, so each resolver refuses
     // the update.
