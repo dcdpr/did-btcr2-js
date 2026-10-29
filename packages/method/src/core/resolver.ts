@@ -39,6 +39,7 @@ import { BeaconUtils } from './beacon/utils.js';
 import type { DidComponents} from './identifier.js';
 import { Identifier } from './identifier.js';
 import type { SMTProof } from './interfaces.js';
+import { checkSidecar } from './resolution-options.js';
 import type { CASAnnouncement, Sidecar, SidecarData } from './types.js';
 import { equalBytes } from '@noble/curves/utils.js';
 
@@ -570,8 +571,12 @@ export class Resolver {
    * item that is not a JSON object (ADR 160).
    * @param {Sidecar} sidecar The sidecar data to process.
    * @returns {SidecarData} The maps of updates, CAS Announcements, and SMT proofs.
+   * @throws {ResolveError} `INVALID_OPTIONS` if the sidecar data is not an object, or for a
+   * member of the wrong JSON type, as in {@link DidBtcr2.resolve}.
    */
   static sidecarData(sidecar: Sidecar = {} as Sidecar): SidecarData {
+    checkSidecar(sidecar);
+
     // BTCR2 Signed Updates map. An item with no JCS form has no hash, so no signal can name
     // it. Sidecar data that the resolver does not use has no effect on the result, so the map
     // leaves the item out. A signal that needs it then finds no update in the map. An item

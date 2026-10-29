@@ -2772,6 +2772,26 @@ describe('Resolver', () => {
       expect([ ...casMap.keys() ]).to.deep.equal([ canonicalHash(announcement, { encoding: 'hex' }) ]);
     });
 
+    it('refuses sidecar data that is not an object, or a member of the wrong JSON type, with INVALID_OPTIONS', () => {
+      // A direct caller of Resolver.sidecarData gets the check of DidBtcr2.resolve, not a TypeError.
+      const cases: Array<[ unknown, string, unknown ]> = [
+        [ null, 'sidecar', null ],
+        [ [], 'sidecar', [] ],
+        [ { updates: { length: 1 } }, 'sidecar.updates', { length: 1 } ],
+        [ { casUpdates: 'x' }, 'sidecar.casUpdates', 'x' ],
+        [ { smtProofs: null }, 'sidecar.smtProofs', null ],
+        [ { '@context': 5 }, 'sidecar.@context', 5 ]
+      ];
+      for(const [ sidecar, name, value ] of cases) {
+        const thrown = thrownBy(() => Resolver.sidecarData(sidecar as Sidecar));
+        expect(thrown, name).to.be.instanceOf(ResolveError);
+        expect(thrown.type, name).to.equal(INVALID_OPTIONS);
+        expect(thrown.data, name).to.deep.equal({ [name]: value });
+      }
+      const { updateMap, casMap, smtMap } = Resolver.sidecarData();
+      expect([ updateMap.size, casMap.size, smtMap.size ]).to.deep.equal([ 0, 0, 0 ]);
+    });
+
     it('passes an error of a toJSON method through, for a genesis document and a sidecar item', () => {
       // Only a value with no JCS form gets the error of the operation. An error of user code is not one.
       const broken = { toJSON(): never { throw new TypeError('toJSON failed'); } };

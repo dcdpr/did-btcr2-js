@@ -478,6 +478,26 @@ describe('genesis commands', () => {
       expect(calls).to.deep.equal([[ did, { versionId: '1', sidecar: { updates: [], genesisDocument: document } } ]]);
     });
 
+    it('the file does not go into options or a sidecar that is not an object', async () => {
+      const { did, document } = externalFixture();
+      const path = writeJson('genesis.json', document);
+      for (const json of [ 'null', '[1]', '"abc"', '{"sidecar":5}', '{"sidecar":null}', '{"sidecar":[1]}' ]) {
+        const { api, calls } = recordingApi(did);
+        await new DidBtcr2Cli(() => api).run(['node', 'btcr2', 'resolve', '-i', did, '--genesis-document', path, '-r', json]);
+        expect(calls, json).to.deep.equal([[ did, JSON.parse(json) ]]);
+      }
+    });
+
+    it('a bad genesis document file fails before the api sees options that are not an object', async () => {
+      const { did } = externalFixture();
+      const { api, calls } = recordingApi(did);
+      await new DidBtcr2Cli(() => api).run([
+        'node', 'btcr2', 'resolve', '-i', did, '--genesis-document', join(dir, 'absent.json'), '-r', 'null',
+      ]);
+      expect(err.join(' ')).to.match(/Invalid genesis document path/);
+      expect(calls).to.deep.equal([]);
+    });
+
     it('resolve refuses --genesis-document for a KEY identifier before the file is read', async () => {
       const did = keyDid();
       const { api, calls } = recordingApi(did);

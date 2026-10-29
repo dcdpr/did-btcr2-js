@@ -1,6 +1,7 @@
 import { FEATURE_NOT_SUPPORTED, INVALID_OPTIONS, ResolveError } from '@did-btcr2/std';
 import { gotValue } from '../utils/message-text.js';
 import type { ResolutionOptions } from './interfaces.js';
+import type { Sidecar } from './types.js';
 
 /**
  * The names of the resolution options that the resolver supports. DID Resolution v1 defines
@@ -80,7 +81,8 @@ function invalidOption(name: string, expected: string, value: unknown): ResolveE
  * @throws {ResolveError} `INVALID_OPTIONS` if the options are not an object.
  * @throws {ResolveError} `FEATURE_NOT_SUPPORTED` for an option name that is not in
  * {@link RESOLUTION_OPTION_NAMES}.
- * @throws {ResolveError} `INVALID_OPTIONS` for an option value of the wrong type or form.
+ * @throws {ResolveError} `INVALID_OPTIONS` for an option value of the wrong type or form, also
+ * for a member of `sidecar` of the wrong JSON type (see {@link checkSidecar}).
  */
 export function checkResolutionOptions(options: unknown): asserts options is ResolutionOptions {
   // DID Resolution v1, section 4.1: the resolution options are a metadata structure, a map.
@@ -112,10 +114,38 @@ export function checkResolutionOptions(options: unknown): asserts options is Res
   if(noCache !== undefined && ![true, false, 'true', 'false'].includes(noCache as boolean | string)) {
     throw invalidOption('noCache', 'true, false, "true", or "false"', noCache);
   }
-  if(sidecar !== undefined && (typeof sidecar !== 'object' || sidecar === null || Array.isArray(sidecar))) {
-    throw invalidOption('sidecar', 'an object', sidecar);
-  }
+  if(sidecar !== undefined) checkSidecar(sidecar);
   if(maxDiscoveryRounds !== undefined && typeof maxDiscoveryRounds !== 'number') {
     throw invalidOption('maxDiscoveryRounds', 'a number', maxDiscoveryRounds);
+  }
+}
+
+/** The members of Sidecar Data that hold an array. */
+const SIDECAR_ARRAY_MEMBERS = [ 'updates', 'casUpdates', 'smtProofs' ] as const;
+
+/**
+ * Checks the `sidecar` resolution option (DID Resolution v1, section 4.4, step 4). The value must
+ * be an object. `updates`, `casUpdates`, and `smtProofs` must be arrays, and `@context` must be a
+ * string. A member with the value `undefined` is absent.
+ *
+ * The function does not check `genesisDocument`: the resolver hashes each value other than
+ * `undefined` (ADR 160). It also does not check an item of an array or a member with another
+ * name. Sidecar data that the resolver does not use has no effect on the result.
+ * @param {unknown} sidecar The value of the `sidecar` option.
+ * @throws {ResolveError} `INVALID_OPTIONS` if the value is not an object, or for a member of the
+ * wrong JSON type, also `null`.
+ */
+export function checkSidecar(sidecar: unknown): asserts sidecar is Sidecar {
+  if(typeof sidecar !== 'object' || sidecar === null || Array.isArray(sidecar)) {
+    throw invalidOption('sidecar', 'an object', sidecar);
+  }
+  const members = sidecar as Record<string, unknown>;
+  for(const name of SIDECAR_ARRAY_MEMBERS) {
+    if(members[name] !== undefined && !Array.isArray(members[name])) {
+      throw invalidOption(`sidecar.${name}`, 'an array', members[name]);
+    }
+  }
+  if(members['@context'] !== undefined && typeof members['@context'] !== 'string') {
+    throw invalidOption('sidecar.@context', 'a string', members['@context']);
   }
 }

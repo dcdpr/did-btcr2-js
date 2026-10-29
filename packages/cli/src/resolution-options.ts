@@ -25,11 +25,21 @@ export const MIN_CONF_HELP =
   'Minimum block confirmations a beacon signal needs before resolution applies it '
   + `(positive integer, default: ${DEFAULT_MIN_CONF}). Overrides a minConf inside the JSON resolution options`;
 
+/** Whether a value is an object that is not `null` and not an array. */
+export function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /**
  * Builds the resolution options from the flags. The inline JSON wins over
  * the file. The `--min-conf` flag wins over a `minConf` inside the JSON. The
  * `--genesis-document` file wins over a `sidecar.genesisDocument` inside the
  * JSON. Returns `undefined` if no flag is set.
+ *
+ * If the JSON is not an object, the function does not add a flag value to it.
+ * If its `sidecar` is not an object, the function does not add the genesis
+ * document. The api checks the options (ADR 157), so it refuses the JSON value
+ * as it is.
  */
 export async function readResolutionOptions(flags: ResolutionOptionFlags): Promise<ResolutionOptions | undefined> {
   let resolutionOptions: ResolutionOptions | undefined;
@@ -55,13 +65,18 @@ export async function readResolutionOptions(flags: ResolutionOptionFlags): Promi
       );
     }
   }
+  const genesisDocument = flags.genesisDocument === undefined
+    ? undefined
+    : await readGenesisDocumentFile(flags.genesisDocument);
+  if (resolutionOptions !== undefined && !isObject(resolutionOptions)) return resolutionOptions;
   // The flag wins over a minConf inside the JSON options.
   if (flags.minConf !== undefined) {
-    resolutionOptions = { ...(resolutionOptions ?? {}), minConf: flags.minConf };
+    resolutionOptions = { ...resolutionOptions, minConf: flags.minConf };
   }
   // The file wins over a sidecar.genesisDocument inside the JSON options.
-  if (flags.genesisDocument !== undefined) {
-    const genesisDocument = await readGenesisDocumentFile(flags.genesisDocument);
+  if (genesisDocument !== undefined) {
+    const sidecar: unknown = resolutionOptions?.sidecar;
+    if (sidecar !== undefined && !isObject(sidecar)) return resolutionOptions;
     resolutionOptions = {
       ...(resolutionOptions ?? {}),
       sidecar : { ...(resolutionOptions?.sidecar ?? {}), genesisDocument },

@@ -1,5 +1,6 @@
 import { expect, use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
+import { sha256 } from 'multiformats/hashes/sha2';
 import type { BitcoinConnection, HttpExecutor } from '@did-btcr2/bitcoin';
 import { getNetwork } from '@did-btcr2/bitcoin';
 import {
@@ -540,6 +541,32 @@ describe('DidMethodApi', () => {
       expect(cause.data?.cause?.type).to.equal(MISSING_UPDATE_DATA);
     });
 
+    it('raises NOT_FOUND if the CAS read of the genesis document times out or fails', async () => {
+      // "Raise a NOT_FOUND error if the Genesis Document cannot be retrieved." A failed read is
+      // not an unexpected error, so the code is not INTERNAL_ERROR.
+      const did = new DidMethodApi().createExternal(canonicalHashBytes(EXTERNAL_GENESIS_DOCUMENT), { network: 'regtest' });
+      for (const [ retrieve, text ] of [
+        [ () => new Promise<null>(() => {}), 'CAS operation timed out after 20ms' ],
+        [ () => Promise.reject(new Error('ECONNRESET')), 'ECONNRESET' ],
+      ] as const) {
+        const cas = new CasApi({ executor: { retrieve, publish: async () => '' }, timeoutMs: 20 });
+        const cause = await typedCause(new DidMethodApi(undefined, cas).resolve(did));
+        expect(cause.type, text).to.equal(NOT_FOUND);
+        expect(cause.message, text).to.match(new RegExp(`^Genesis document unusable from CAS .* cannot be retrieved: ${text}$`));
+        expect(cause.data?.cause?.type, text).to.equal(MISSING_UPDATE_DATA);
+      }
+    });
+
+    it('raises NOT_FOUND for a CAS genesis document that is not UTF-8, with the right hash', async () => {
+      // RFC 8259, section 8.1: JSON text is UTF-8. A non-fatal decoder reads the byte 0xFF as U+FFFD,
+      // and the hash of the decoded document then does not match: INVALID_DID.
+      const bytes = new Uint8Array([ ...new TextEncoder().encode('{"a":"'), 0xff, ...new TextEncoder().encode('"}') ]);
+      const did = new DidMethodApi().createExternal((await sha256.digest(bytes)).digest, { network: 'regtest' });
+      const cause = await typedCause(new DidMethodApi(undefined, casReturning(bytes)).resolve(did));
+      expect(cause.type).to.equal(NOT_FOUND);
+      expect(cause.message).to.match(/is not JSON\.$/);
+    });
+
     describe('a genesis document from the CAS (ADR 148)', () => {
       it('replaces the placeholder in member names and values, as the JCS steps of the specification do', async () => {
         // The specification serializes the genesis document with JCS, replaces each
@@ -610,6 +637,21 @@ describe('DidMethodApi', () => {
       const cause = await typedCause(methodApi.resolve(did, { sidecar: { genesisDocument: EXTERNAL_GENESIS_DOCUMENT } }));
       expect(cause.type).to.equal(MISSING_UPDATE_DATA);
       expect(cause.message).to.match(/hashes to .*; the resolver must not use it/);
+    });
+
+    it('raises MISSING_UPDATE_DATA if the CAS read of a signed update times out or fails', async () => {
+      // "Raise a MISSING_UPDATE_DATA error if the update is not available from either source."
+      for (const [ retrieve, text ] of [
+        [ () => new Promise<null>(() => {}), 'CAS operation timed out after 20ms' ],
+        [ () => Promise.reject(new Error('ECONNRESET')), 'ECONNRESET' ],
+      ] as const) {
+        const cas = new CasApi({ executor: { retrieve, publish: async () => '' }, timeoutMs: 20 });
+        const methodApi = new DidMethodApi(chainWithSignal('ab'.repeat(32)), cas);
+        const did = methodApi.createExternal(canonicalHashBytes(EXTERNAL_GENESIS_DOCUMENT), { network: 'regtest' });
+        const cause = await typedCause(methodApi.resolve(did, { sidecar: { genesisDocument: EXTERNAL_GENESIS_DOCUMENT } }));
+        expect(cause.type, text).to.equal(MISSING_UPDATE_DATA);
+        expect(cause.message, text).to.match(new RegExp(`^CAS content for \\S+ cannot be retrieved: ${text}$`));
+      }
     });
 
     it('raises INVALID_DID_UPDATE for a signed update that sets the id to an object with no text form (ADR 156)', async () => {

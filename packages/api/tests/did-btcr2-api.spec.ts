@@ -870,6 +870,30 @@ describe('DidBtcr2Api', () => {
       }
     });
 
+    it('gives INVALID_OPTIONS for a sidecar member of the wrong JSON type, not INTERNAL_ERROR', async () => {
+      const api = createApi();
+      const { did } = api.did.generate();
+      for (const updates of [ 5, { length: 1 } ]) {
+        const result = await api.tryResolveDid(did, { sidecar: { updates } } as unknown as ResolutionOptions);
+        expect(result.ok).to.equal(false);
+        if (!result.ok) {
+          expect(result.error, JSON.stringify(updates)).to.equal(INVALID_OPTIONS);
+          expect(result.errorMessage).to.include('Invalid resolution option sidecar.updates: expected an array');
+        }
+      }
+    });
+
+    it('gives NOT_FOUND for a genesis document if the CAS read times out, not INTERNAL_ERROR', async () => {
+      const api = createApi({ cas: { executor: { retrieve: () => new Promise(() => {}), publish: async () => '' }, timeoutMs: 20 } });
+      const did = api.btcr2.createExternal(new Uint8Array(32).fill(7), { network: 'regtest' });
+      const result = await api.tryResolveDid(did);
+      expect(result.ok).to.equal(false);
+      if (!result.ok) {
+        expect(result.error).to.equal(NOT_FOUND);
+        expect(result.errorMessage).to.include('cannot be retrieved: CAS operation timed out after 20ms');
+      }
+    });
+
     it('takes the code of a failed result that resolve returns from the error type', async () => {
       const api = createApi();
       const { did } = api.did.generate();

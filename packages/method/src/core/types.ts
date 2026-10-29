@@ -25,6 +25,12 @@ export type CASAnnouncement = {
  * See {@link https://dcdpr.github.io/did-btcr2/terminology.html#sidecar | Sidecar }
  * for more details about the sidecar mechanism. See {@link https://dcdpr.github.io/did-btcr2/data-structures.html#sidecar-data | Sidecar Data}
  * for more details about the data structure.
+ *
+ * The resolver checks the JSON type of these members: `updates`, `casUpdates`, and `smtProofs`
+ * must be arrays, and `@context` must be a string. A member with the value `undefined` is absent.
+ * A value of another JSON type, also `null`, fails with a `ResolveError` of type
+ * `INVALID_OPTIONS` (ADR 164). The resolver does not check `genesisDocument`, an item of an
+ * array, or a member with another name.
  */
 export type Sidecar = {
   /**
