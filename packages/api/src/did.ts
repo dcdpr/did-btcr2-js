@@ -6,7 +6,6 @@ import type { SchnorrKeyPairObject } from '@did-btcr2/std';
 import type { DidComponents, DidCreateOptions, IdentifierReport, IdentifierValidateOptions } from '@did-btcr2/method';
 import { Identifier } from '@did-btcr2/method';
 import { Did } from '@web5/dids';
-import { assertBytes, assertString } from './helpers.js';
 
 /**
  * DID identifier operations sub-facade (encode, decode, validate, generate, parse).
@@ -18,9 +17,10 @@ export class DidApi {
    * @param genesisBytes The genesis document bytes.
    * @param options The creation options.
    * @returns The encoded DID string.
+   * @throws {IdentifierError} `INVALID_DID` for each input fault, for example genesis bytes
+   *   that are not a `Uint8Array` of the length of the identifier type.
    */
   encode(genesisBytes: DocumentBytes, options: DidCreateOptions): string {
-    assertBytes(genesisBytes, 'genesisBytes');
     return Identifier.encode(genesisBytes, options);
   }
 
@@ -28,10 +28,11 @@ export class DidApi {
    * Decode a DID into its components.
    * @param did The DID string to decode.
    * @returns The decoded identifier components, with the Bech32m `hrp`.
-   * @throws {IdentifierError} If the DID is not a valid did:btcr2 identifier.
+   * @throws {IdentifierError} `INVALID_DID` if the DID is not a valid did:btcr2 identifier,
+   *   also if it is `''` or not a string.
+   * @throws {IdentifierError} `METHOD_NOT_SUPPORTED` if the DID is a DID of another method.
    */
   decode(did: string): DidComponents {
-    assertString(did, 'did');
     return Identifier.decode(did);
   }
 
@@ -50,9 +51,6 @@ export class DidApi {
    * @returns The validation report.
    */
   validate(did: string, options?: IdentifierValidateOptions): IdentifierReport {
-    if (typeof did !== 'string') {
-      throw new Error('did must be a string.');
-    }
     return Identifier.validate(did, options);
   }
 

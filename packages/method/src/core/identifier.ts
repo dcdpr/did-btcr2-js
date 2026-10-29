@@ -31,13 +31,13 @@ export interface DidComponents extends IdentifierComponents {
  * @interface IdentifierComponents
  * @property {string} idType Identifier type (key or external).
  * @property {number} version Identifier version.
- * @property {string} network Bitcoin network name or number.
+ * @property {string} network Bitcoin network name, a name of {@link BitcoinNetworkNames}.
  * @property {Bytes} genesisBytes Public key or an intermediate document bytes.
  */
 export interface IdentifierComponents {
     idType: string;
     version: number;
-    network: string;
+    network: keyof typeof BitcoinNetworkNames;
     genesisBytes: Bytes;
 }
 
@@ -89,14 +89,14 @@ export interface IdentifierValidateOptions {
  * @property {string} did The identifier that was verified.
  * @property {boolean} valid True if every check passed.
  * @property {IdentifierTypes} [idType] The identifier type, known after the `bech32m` check.
- * @property {string} [network] The network name, known after the `network` check.
+ * @property {string} [network] The network name, a name of {@link BitcoinNetworkNames}, known after the `network` check.
  * @property {Array<IdentifierCheck>} checks The checks that ran, in run order. The run stops at the first failed check.
  */
 export interface IdentifierReport {
     did: string;
     valid: boolean;
     idType?: IdentifierTypes;
-    network?: string;
+    network?: keyof typeof BitcoinNetworkNames;
     checks: Array<IdentifierCheck>;
 }
 
@@ -129,13 +129,22 @@ export class Identifier {
    * @param {KeyBytes | DocumentBytes} genesisBytes The genesis bytes (public key or document bytes).
    * @param {DidCreateOptions} options The DID creation options.
    * @returns {string} The new did:btcr2 identifier.
+   * @throws {IdentifierError} `INVALID_DID` for each input fault:
+   * - no options, or an `idType` other than `KEY` or `EXTERNAL`
+   * - a `version` other than 1
+   * - a `network` that is not a name of {@link BitcoinNetworkNames}
+   * - `genesisBytes` that are not a `Uint8Array`
+   * - for `KEY`, `genesisBytes` that are not 33 bytes of a valid compressed secp256k1 public key
+   * - for `EXTERNAL`, `genesisBytes` that are not 32 bytes
    */
   static encode(genesisBytes: KeyBytes | DocumentBytes, options: DidCreateOptions): string {
-    // Deconstruct the options, defaulting version to 1 and network to "bitcoin" (matching DidBtcr2.create).
-    const { idType, version = 1, network = 'bitcoin' } = options;
+    // Destructure the options. The default version is 1, and the default network is "bitcoin".
+    // A JavaScript caller can omit the options. The idType check then refuses the call.
+    const { idType, version = 1, network = 'bitcoin' } = options ?? {};
 
-    // idType MUST be "KEY" or "EXTERNAL".
-    if (!(idType in IdentifierTypes)) {
+    // idType MUST be "KEY" or "EXTERNAL". The check does not use the `in` operator, because `in`
+    // also accepts a name that an object inherits, for example "toString".
+    if (idType !== IdentifierTypes.KEY && idType !== IdentifierTypes.EXTERNAL) {
       throw new IdentifierError('Expected "idType" to be "KEY" or "EXTERNAL"', INVALID_DID, { idType });
     }
 
@@ -159,9 +168,21 @@ export class Identifier {
       throw new IdentifierError('Invalid "network" name', INVALID_DID, { network });
     }
 
+    // genesisBytes MUST be a Uint8Array. A conversion of a hex string, a plain array of numbers, or
+    // another typed array can give other bytes than the caller means.
+    if (!(genesisBytes instanceof Uint8Array)) {
+      throw new IdentifierError('Expected "genesisBytes" to be a Uint8Array', INVALID_DID, { genesisBytes });
+    }
+
     // genesisBytes MUST match the identifier type: a valid compressed secp256k1 public key for KEY,
     // or a 32-byte hash for EXTERNAL. An EXTERNAL DID minted with any other length is unresolvable.
     if (idType === 'KEY') {
+      if (genesisBytes.length !== 33) {
+        throw new IdentifierError(
+          `Expected "genesisBytes" to be a 33-byte compressed secp256k1 public key, got ${genesisBytes.length} bytes`,
+          INVALID_DID, { genesisBytes }
+        );
+      }
       try {
         new CompressedSecp256k1PublicKey(genesisBytes);
       } catch {
@@ -172,7 +193,7 @@ export class Identifier {
       }
     } else if (genesisBytes.length !== 32) {
       throw new IdentifierError(
-        'Expected "genesisBytes" to be a 32-byte hash for EXTERNAL identifiers',
+        `Expected "genesisBytes" to be a 32-byte hash for EXTERNAL identifiers, got ${genesisBytes.length} bytes`,
         INVALID_DID, { genesisBytes }
       );
     }
@@ -274,7 +295,7 @@ export class Identifier {
     //     reserved. 12-15 are custom networks; this implementation supports no custom network, so the
     //     decoder rejects them, as the specification recommends (ADR 107).
     const networkValue = dataBytes[0] & 0x0F;
-    const network = BitcoinNetworkNames[networkValue] as string | undefined;
+    const network = BitcoinNetworkNames[networkValue] as keyof typeof BitcoinNetworkNames | undefined;
     if (typeof network !== 'string') {
       const reason = networkValue >= 12 ? 'custom network not supported' : 'reserved';
       throw new IdentifierError(`Invalid network (${reason}): ${networkValue}`, INVALID_DID, { identifier });
@@ -289,10 +310,16 @@ export class Identifier {
       try {
         new CompressedSecp256k1PublicKey(genesisBytes);
       } catch {
-        throw new IdentifierError(`Invalid genesisBytes: ${genesisBytes}`, INVALID_DID, { identifier });
+        throw new IdentifierError(
+          'Invalid genesisBytes: expected a 33-byte compressed secp256k1 public key',
+          INVALID_DID, { identifier }
+        );
       }
     } else if (genesisBytes.length !== 32) {
-      throw new IdentifierError(`Invalid genesisBytes: ${genesisBytes}`, INVALID_DID, { identifier });
+      throw new IdentifierError(
+        `Invalid genesisBytes: expected 32 bytes, got ${genesisBytes.length} bytes`,
+        INVALID_DID, { identifier }
+      );
     }
 
     // 15. Return idType, hrp, version, network, and genesisBytes.
@@ -374,7 +401,7 @@ export class Identifier {
 
     // network: network_value (the low nibble of the first byte) names a network.
     const networkValue = dataBytes[0] & 0x0F;
-    const network = BitcoinNetworkNames[networkValue] as string | undefined;
+    const network = BitcoinNetworkNames[networkValue] as keyof typeof BitcoinNetworkNames | undefined;
     if (typeof network !== 'string') {
       const detail = networkValue >= 12
         ? `network_value ${networkValue} is a custom network, not supported by this implementation.`

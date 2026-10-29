@@ -42,6 +42,15 @@ const did = DidBtcr2.create(keys.publicKey.compressed, {
 // did:btcr2:k1q5p...
 ```
 
+`DidBtcr2.create` applies only the encoding algorithm of the specification. `Identifier.encode` checks each input and sets the defaults of `version` and `network`. Each input fault gives an `IdentifierError` of type `INVALID_DID` (ADR 163):
+
+- No options, or an `idType` other than `KEY` or `EXTERNAL`.
+- A `version` other than 1.
+- A `network` that is not a name of `BitcoinNetworkNames`.
+- `genesisBytes` that are not a `Uint8Array`, for example a hex string or a plain array of numbers.
+- `genesisBytes` of a wrong length: `KEY` needs 33 bytes, and `EXTERNAL` needs 32 bytes.
+- For `KEY`, 33 bytes that are not a valid compressed secp256k1 public key.
+
 ### Resolve a DID
 
 `DidBtcr2.resolve()` returns a sans-I/O state machine. The caller drives resolution by fulfilling typed data needs (beacon signals, CAS announcements, signed updates).
@@ -72,6 +81,8 @@ Pass `{ minConf: 1 }` to see a fresh update after one block, at a higher exposur
 The `metadata` of the result is the DID document metadata of the specification. `versionId`, `confirmations`, and `deactivated` are always present. `confirmations` is `0` and `updated` is absent if the resolved version is 1. Otherwise, `confirmations` and `updated` report the block of the update that yields the resolved version. `updated` is the `mediantime` of that block. A duplicate re-announcement does not change them.
 
 An identifier that does not conform to the DID syntax fails with an `IdentifierError` of type `INVALID_DID`. A valid DID of another method, for example `did:example:a:b`, fails with the type `METHOD_NOT_SUPPORTED` (ADR 157). A did:btcr2 identifier that does not decode fails with `INVALID_DID`, also if the Bech32m decoder rejects the body. A sidecar genesis document whose hash is not the genesis bytes of the identifier fails with a `ResolveError` of type `INVALID_DID`.
+
+`Identifier.decode` returns `network` as a name of `BitcoinNetworkNames`, so `BitcoinNetworkNames[network]` gives the network value of the identifier (ADR 163).
 
 Each hash step of the resolver uses JCS (RFC 8785). A value with no JCS form, for example a value that holds NaN, Infinity, or a lone surrogate, has no hash (ADR 154). The resolver handles such a value as follows:
 

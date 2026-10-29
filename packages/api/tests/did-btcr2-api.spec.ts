@@ -1,7 +1,7 @@
 import { expect, use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
 import type { HttpExecutor } from '@did-btcr2/bitcoin';
-import { canonicalHashBytes, FEATURE_NOT_SUPPORTED, INTERNAL_ERROR, INVALID_DID, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, INVALID_OPTIONS, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/std';
+import { canonicalHashBytes, FEATURE_NOT_SUPPORTED, IdentifierError, INTERNAL_ERROR, INVALID_DID, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, INVALID_OPTIONS, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/std';
 import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
 import {
   BitcoinApi,
@@ -99,6 +99,13 @@ describe('DidBtcr2Api', () => {
       expect(did).to.match(/^did:btcr2:/);
       const components = api.did.decode(did);
       expect(components.idType).to.equal('EXTERNAL');
+    });
+
+    it('gives INVALID_DID for deterministic genesis bytes of 32 bytes', () => {
+      const api = createApi();
+      expect(() => api.createDid('deterministic', new Uint8Array(32).fill(0xAB)))
+        .to.throw(IdentifierError, 'got 32 bytes')
+        .with.property('type', INVALID_DID);
     });
   });
 
@@ -280,10 +287,29 @@ describe('DidBtcr2Api', () => {
         .to.be.rejectedWith(new RegExp(`^Failed to resolve DID ${did} for update\\.$`));
     });
 
-    it('should reject empty DID string', async () => {
+    it('refuses a resolved source with no versionId or a non-numeric versionId', async () => {
       const api = createApi();
-      await expect(api.updateDid('', patch, stubSigner, ids))
-        .to.be.rejectedWith('source must be a non-empty string');
+      const { did } = api.did.generate();
+      const resolveWith = (versionId: unknown): void => {
+        (api.btcr2 as any).resolve = async () => ({
+          didResolutionMetadata : {},
+          didDocument           : { id: did },
+          didDocumentMetadata   : versionId === undefined ? {} : { versionId },
+        });
+      };
+      resolveWith(undefined);
+      await expect(api.updateDid(did, patch, stubSigner, ids))
+        .to.be.rejectedWith(`Resolution of DID ${did} succeeded but returned no versionId in metadata.`);
+      resolveWith('one');
+      await expect(api.updateDid(did, patch, stubSigner, ids))
+        .to.be.rejectedWith(`Resolution of DID ${did} returned a non-numeric versionId: one.`);
+    });
+
+    it('rejects an empty DID string with an INVALID_DID cause', async () => {
+      const api = createApi();
+      const err: unknown = await api.updateDid('', patch, stubSigner, ids).catch((e: unknown) => e);
+      expect((err as Error).message).to.match(/^Failed to resolve DID : /);
+      expect((err as Error).cause).to.be.instanceOf(IdentifierError).with.property('type', INVALID_DID);
     });
 
     it('refuses a source that is neither a DID nor a state', async () => {
@@ -545,10 +571,11 @@ describe('DidBtcr2Api', () => {
   describe('deactivateDid()', () => {
     const ids = { verificationMethodId: '#initialKey', announce: { beaconId: '#beacon-0' } };
 
-    it('should reject empty DID string', async () => {
+    it('rejects an empty DID string with an INVALID_DID cause', async () => {
       const api = createApi();
-      await expect(api.deactivateDid('', stubSigner, ids))
-        .to.be.rejectedWith('source must be a non-empty string');
+      const err: unknown = await api.deactivateDid('', stubSigner, ids).catch((e: unknown) => e);
+      expect((err as Error).message).to.match(/^Failed to resolve DID : /);
+      expect((err as Error).cause).to.be.instanceOf(IdentifierError).with.property('type', INVALID_DID);
     });
 
     it('refuses an already-deactivated document', async () => {

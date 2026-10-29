@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { SchnorrKeyPair } from '@did-btcr2/keys';
-import { IdentifierTypes } from '@did-btcr2/std';
+import { IdentifierError, IdentifierTypes, INVALID_DID, METHOD_NOT_SUPPORTED } from '@did-btcr2/std';
 import { DidApi } from '../src/index.js';
 
 /**
@@ -43,16 +43,23 @@ describe('DidApi', () => {
     expect(components.network).to.equal('regtest');
   });
 
-  it('encode() rejects empty genesisBytes', () => {
+  it('encode() gives INVALID_DID for empty genesisBytes', () => {
     expect(() => didApi.encode(new Uint8Array(0) as any, {
       idType  : IdentifierTypes.KEY,
       version : 1,
       network : 'regtest',
-    })).to.throw('genesisBytes must be a non-empty Uint8Array');
+    })).to.throw(IdentifierError, 'got 0 bytes').with.property('type', INVALID_DID);
   });
 
-  it('decode() rejects empty string', () => {
-    expect(() => didApi.decode('')).to.throw('did must be a non-empty string');
+  it('decode() gives INVALID_DID for an empty string and a value that is not a string', () => {
+    expect(() => didApi.decode('')).to.throw(IdentifierError).with.property('type', INVALID_DID);
+    expect(() => didApi.decode(42 as unknown as string))
+      .to.throw(IdentifierError, 'Invalid did: expected a string.').with.property('type', INVALID_DID);
+  });
+
+  it('decode() gives METHOD_NOT_SUPPORTED for a DID of another method', () => {
+    expect(() => didApi.decode('did:example:a:b'))
+      .to.throw(IdentifierError).with.property('type', METHOD_NOT_SUPPORTED);
   });
 
   it('decode() returns the hrp with the components', () => {
@@ -100,8 +107,10 @@ describe('DidApi', () => {
     expect(report.checks[report.checks.length - 1]).to.include({ name: 'genesisDocument', ok: false });
   });
 
-  it('validate() rejects a value that is not a string', () => {
-    expect(() => didApi.validate(42 as unknown as string)).to.throw('did must be a string');
+  it('validate() returns a failed prefix check for a value that is not a string', () => {
+    const report = didApi.validate(42 as unknown as string);
+    expect(report.valid).to.equal(false);
+    expect(report.checks).to.deep.equal([{ name: 'prefix', ok: false, detail: 'The identifier is not a string.' }]);
   });
 
   it('isValid() returns true for a valid DID', () => {

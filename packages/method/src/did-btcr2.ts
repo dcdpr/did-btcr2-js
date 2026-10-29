@@ -4,9 +4,7 @@ import type {
   PatchOperation} from '@did-btcr2/std';
 import {
   IdentifierHrp,
-  INVALID_DID_DOCUMENT,
   INVALID_DID_UPDATE,
-  MethodError,
   UpdateError
 } from '@did-btcr2/std';
 import type {
@@ -54,32 +52,24 @@ export class DidBtcr2 implements DidMethod {
   /**
    * Implements section {@link https://dcdpr.github.io/did-btcr2/operations/create.html | Create}.
    * @param {KeyBytes | DocumentBytes} genesisBytes The bytes used to create the genesis document for a did:btcr2 identifier.
-   * This can be either the bytes of the genesis document itself or the bytes of a key that will be used to create the genesis document.
+   * For KEY, the bytes are a 33-byte compressed secp256k1 public key. For EXTERNAL, the bytes are the 32-byte hash of the genesis document.
    * @param {DidCreateOptions} options Options for creating the identifier, including the idType (key or external), version, and network.
-   * @param {string} options.idType The type of identifier to create, either 'KEY' or 'EXTERNAL'. Defaults to 'KEY'.
+   * @param {string} options.idType The type of identifier to create, either 'KEY' or 'EXTERNAL'. Required.
    * @param {number} options.version The version number of the did:btcr2 specification to use for creating the identifier. Defaults to 1.
-   * @param {string} options.network The Bitcoin network to use for the identifier, e.g. 'bitcoin', 'testnet', etc. Defaults to 'bitcoin'.
-   * @returns {Promise<string>} Promise resolving to an identifier string.
-   * @throws {MethodError} if any of the checks fail
+   * @param {string} options.network The Bitcoin network to use for the identifier: 'bitcoin', 'signet', 'regtest',
+   * 'testnet3', 'testnet4', or 'mutinynet'. Defaults to 'bitcoin'.
+   * @returns {string} The new did:btcr2 identifier.
+   * @throws {IdentifierError} `INVALID_DID` for each input fault. See {@link Identifier.encode}.
    * @example
    * ```ts
    * const genesisBytes = SchnorrKeyPair.generate().publicKey.compressed;
    * const did = DidBtcr2.create(genesisBytes, { idType: 'KEY', network: 'regtest' });
    * ```
    */
-  static create(genesisBytes: KeyBytes | DocumentBytes, options?: DidCreateOptions): string {
-    // Deconstruct the idType, version and network from the options, setting defaults if not given
-    const { idType, version = 1, network = 'bitcoin' } = options || {};
-
-    if(!idType) {
-      throw new MethodError(
-        'idType is required for creating a did:btcr2 identifier',
-        INVALID_DID_DOCUMENT, options
-      );
-    }
-
-    // Call identifier encoding algorithm
-    return Identifier.encode(genesisBytes, { idType, version, network });
+  static create(genesisBytes: KeyBytes | DocumentBytes, options: DidCreateOptions): string {
+    // Create applies only the identifier encoding algorithm. Identifier.encode checks each input and sets
+    // the defaults of version and network.
+    return Identifier.encode(genesisBytes, options);
   }
 
   /**
