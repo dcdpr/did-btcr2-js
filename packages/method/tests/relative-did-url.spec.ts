@@ -9,6 +9,7 @@ import { Resolver } from '../src/core/resolver.js';
 import type { NeedBroadcast, NeedFunding, NeedSigningKey } from '../src/core/updater.js';
 import { Appendix } from '../src/utils/appendix.js';
 import { DidDocument } from '../src/utils/did-document.js';
+import { expandRelativeDidUrls } from '../src/utils/relative-did-url.js';
 import type { Btcr2DidDocument, DidVerificationMethod } from '../src/utils/did-document.js';
 import data from './data/deterministic-data.js';
 
@@ -49,18 +50,174 @@ function relativeDocument(): Btcr2DidDocument {
 
 describe('relative DID URLs in a DID document', () => {
   describe('Appendix.absoluteDidUrl', () => {
-    it('resolves a fragment-only reference against the DID', () => {
-      expect(Appendix.absoluteDidUrl('#initialKey', DID)).to.equal(`${DID}#initialKey`);
+    // DID Core v1.1, section 3.2.1: RFC 3986, section 5, resolves a relative DID URL against
+    // the DID. The base has the scheme "did", the authority "<method-name>:<method-specific-id>",
+    // an empty path, and no query. Each row is a relative DID URL, the text after the DID in
+    // the result, and the rule of RFC 3986 that the row shows. The rules B, C, and E are the
+    // rules of section 5.2.4 (remove_dot_segments).
+    const RELATIVE_FORMS: Array<[ string, string, string ]> = [
+      [ '', '', 'the empty reference gives the DID (5.2.2)' ],
+      [ '#k', '#k', 'a fragment' ],
+      [ '#', '#', 'an empty fragment' ],
+      [ '?v=1', '?v=1', 'a query' ],
+      [ '?', '?', 'an empty query' ],
+      [ '?v=1#k', '?v=1#k', 'a query and a fragment' ],
+      [ '/keys#k', '/keys#k', 'an absolute path' ],
+      [ 'keys#k', '/keys#k', 'a relative path: the merge adds "/" (5.2.3)' ],
+      [ 'keys/1', '/keys/1', 'a relative path with two segments' ],
+      [ './a:b#k', '/a:b#k', 'a first segment with a colon after "./"' ],
+      [ '/./g', '/g', 'rule B: the prefix "/./"' ],
+      [ 'g/./h', '/g/h', 'rule B: "/./" in the path' ],
+      [ './g/.', '/g/', 'rule B: "/." at the end of the path' ],
+      [ '.', '/', 'rule B: "." alone' ],
+      [ '/a/../k', '/k', 'rule C: "/../" removes the segment before it' ],
+      [ 'g/../h', '/h', 'rule C: "/../" after a relative segment' ],
+      [ '../keys#k', '/keys#k', 'rule C: "/../" at the root removes no segment' ],
+      [ '/../g', '/g', 'rule C: the prefix "/../" of an absolute path' ],
+      [ '../../../g', '/g', 'rule C: more "/../" than segments' ],
+      [ 'a/b/c/./../../g', '/a/g', 'rules B and C in one path' ],
+      [ 'g/..', '/', 'rule C: "/.." at the end of the path' ],
+      [ '..', '/', 'rule C: ".." alone' ],
+      [ 'g.', '/g.', 'rule E: a segment that ends with a dot' ],
+      [ '..g', '/..g', 'rule E: a segment that starts with two dots' ],
+      [ 'g?y/../x', '/g?y/../x', 'the query keeps its dot segments' ],
+      [ 'g#s/./x', '/g#s/./x', 'the fragment keeps its dot segments' ],
+    ];
+
+    for(const [ reference, suffix, rule ] of RELATIVE_FORMS) {
+      it(`resolves ${JSON.stringify(reference)} to "<did>${suffix}": ${rule}`, () => {
+        expect(Appendix.absoluteDidUrl(reference, DID)).to.equal(`${DID}${suffix}`);
+      });
+    }
+
+    // A value with a scheme is not a relative reference (RFC 3986, section 4.2). The result of
+    // RFC 3986 for "//host#k" has an authority, and a DID URL has no authority.
+    for(const [ value, kind ] of [
+      [ `${DID}#initialKey`, 'an absolute DID URL' ],
+      [ `${OTHER_DID}#initialKey`, 'an absolute DID URL under another DID' ],
+      [ 'urn:x:1', 'a URN' ],
+      [ '//host#k', 'a network-path reference' ],
+    ]) {
+      it(`returns ${kind} unchanged: ${JSON.stringify(value)}`, () => {
+        expect(Appendix.absoluteDidUrl(value, DID)).to.equal(value);
+      });
+    }
+
+    it('returns undefined for an input that is not a string', () => {
+      for(const input of [ undefined, null, 42, {}, [ '#k' ] ]) {
+        expect(Appendix.absoluteDidUrl(input, DID), JSON.stringify(input)).to.equal(undefined);
+      }
     });
 
-    it('leaves an absolute DID URL unchanged', () => {
-      expect(Appendix.absoluteDidUrl(`${DID}#initialKey`, DID)).to.equal(`${DID}#initialKey`);
+    it('returns undefined for a did that is not a string: {}, 42, or an object with no prototype', () => {
+      for(const did of [ {}, 42, Object.create(null) ]) {
+        expect(Appendix.absoluteDidUrl('#k', did as unknown as string)).to.equal(undefined);
+      }
+    });
+  });
+
+  describe('expandRelativeDidUrls (DID Resolution v1, section 4.4, step 6)', () => {
+    const RELATIONSHIPS = [ 'authentication', 'assertionMethod', 'keyAgreement', 'capabilityInvocation', 'capabilityDelegation' ];
+
+    // Each row is a verificationMethod id and the text after the DID in the id of the copy.
+    for(const [ id, suffix ] of [
+      [ '#k', '#k' ],
+      [ '?key=1', '?key=1' ],
+      [ '/keys/1', '/keys/1' ],
+      [ 'keys/1', '/keys/1' ],
+      [ '', '' ],
+    ]) {
+      it(`expands the verificationMethod id ${JSON.stringify(id)} to "<did>${suffix}"`, () => {
+        const copy = expandRelativeDidUrls({ id: DID, verificationMethod: [{ id, type: 'Multikey' }] }, DID);
+        expect(copy.verificationMethod).to.deep.equal([{ id: `${DID}${suffix}`, type: 'Multikey' }]);
+      });
+    }
+
+    it('expands each string item of the five verification relationships and the id of an embedded method', () => {
+      const document = Object.fromEntries(RELATIONSHIPS.map(name => [ name, [ '#k', { id: '#embedded', type: 'Multikey' } ] ]));
+      const copy = expandRelativeDidUrls({ id: DID, ...document }, DID);
+      for(const name of RELATIONSHIPS) {
+        expect(copy[name], name).to.deep.equal([ `${DID}#k`, { id: `${DID}#embedded`, type: 'Multikey' } ]);
+      }
     });
 
-    it('returns undefined for a non-string or empty input', () => {
-      expect(Appendix.absoluteDidUrl(undefined, DID)).to.equal(undefined);
-      expect(Appendix.absoluteDidUrl(42, DID)).to.equal(undefined);
-      expect(Appendix.absoluteDidUrl('', DID)).to.equal(undefined);
+    it('expands the id of a method that conditionAnd of a VerifiableCondition2021 method holds, at depth 1 and 2', () => {
+      const condition = (id: string, conditionAnd: Array<object>) => ({ id, type: 'VerifiableCondition2021', conditionAnd });
+      const copy = expandRelativeDidUrls({
+        id                 : DID,
+        verificationMethod : [ condition('#1', [ { id: '#1-1', type: 'Multikey' }, condition('#1-2', [ { id: '#2-1', type: 'Multikey' } ]) ]) ],
+      }, DID);
+      expect(copy.verificationMethod).to.deep.equal([ condition(`${DID}#1`, [
+        { id: `${DID}#1-1`, type: 'Multikey' },
+        condition(`${DID}#1-2`, [ { id: `${DID}#2-1`, type: 'Multikey' } ])
+      ]) ]);
+    });
+
+    it('expands a service id, and keeps the serviceEndpoint value: a map in it keeps its id, and a string stays', () => {
+      const copy = expandRelativeDidUrls({
+        id      : DID,
+        service : [
+          { id: '?service=files', type: 'Files', serviceEndpoint: { id: '#inner', nested: [ { id: '#deep' } ] } },
+          { id: '#beacon', type: 'SingletonBeacon', serviceEndpoint: 'bitcoin:mkHtHHQuUusioti869qvhZAn3VKsHmSdTm' },
+        ],
+      }, DID);
+      expect(copy.service).to.deep.equal([
+        { id: `${DID}?service=files`, type: 'Files', serviceEndpoint: { id: '#inner', nested: [ { id: '#deep' } ] } },
+        { id: `${DID}#beacon`, type: 'SingletonBeacon', serviceEndpoint: 'bitcoin:mkHtHHQuUusioti869qvhZAn3VKsHmSdTm' },
+      ]);
+    });
+
+    it('expands the ids in a member that DID Core does not define', () => {
+      const copy = expandRelativeDidUrls({ id: DID, extProp: { id: 'top', nested: [ { id: '#ext' } ] } }, DID);
+      expect(copy.extProp).to.deep.equal({ id: `${DID}/top`, nested: [ { id: `${DID}#ext` } ] });
+    });
+
+    it('keeps the document id, @context, controller, alsoKnownAs, an id with a scheme or "//", an id that is not a string, and a relationship item of another type', () => {
+      const document = {
+        '@context'         : [ 'https://www.w3.org/ns/did/v1.1', { id: '@id', type: '@type' } ],
+        id                 : DID,
+        controller         : [ DID, '#controller' ],
+        alsoKnownAs        : [ '#aka', 'https://example.com/aka' ],
+        verificationMethod : [ 'urn:x:1', `${DID}#k`, 'https://example.com/k', '//host#k', 42 ].map(id => ({ id, type: 'Multikey' })),
+        authentication     : [ 42, 'urn:x:1', '//host#k', null ],
+      };
+      expect(expandRelativeDidUrls(document, DID)).to.deep.equal(document);
+    });
+
+    it('does not change the input, and the copy shares no map or array with the input', () => {
+      const document = {
+        '@context'         : [ 'https://www.w3.org/ns/did/v1.1', { id: '@id' } ],
+        id                 : DID,
+        verificationMethod : [ { id: '#k', type: 'Multikey', extra: { id: '#x' } } ],
+        service            : [ { id: '#s', type: 'Files', serviceEndpoint: { id: '#inner', uris: [ 'https://example.com' ] } } ],
+      };
+      const before = structuredClone(document);
+      const copy = expandRelativeDidUrls(document, DID) as typeof document;
+      expect(document).to.deep.equal(before);
+      for(const [ copied, original ] of [
+        [ copy['@context'], document['@context'] ],
+        [ copy['@context'][1], document['@context'][1] ],
+        [ copy.verificationMethod, document.verificationMethod ],
+        [ copy.verificationMethod[0]!.extra, document.verificationMethod[0]!.extra ],
+        [ copy.service[0]!.serviceEndpoint, document.service[0]!.serviceEndpoint ],
+        [ copy.service[0]!.serviceEndpoint.uris, document.service[0]!.serviceEndpoint.uris ],
+      ]) {
+        expect(copied).to.not.equal(original);
+      }
+    });
+
+    it('keeps a "__proto__" member as an own data member, expands its id, and keeps Object.prototype as the prototype of the copy', () => {
+      const document = JSON.parse(`{ "id": "${DID}", "__proto__": { "id": "#top" }, "extProp": { "__proto__": { "id": "#p" } } }`);
+      const copy = expandRelativeDidUrls(document, DID);
+      for(const [ map, id ] of [ [ copy, '#top' ], [ copy.extProp, '#p' ] ] as const) {
+        expect(Object.getPrototypeOf(map), id).to.equal(Object.prototype);
+        expect(Object.getOwnPropertyDescriptor(map, '__proto__'), id).to.deep.equal({
+          value        : { id: `${DID}${id}` },
+          writable     : true,
+          enumerable   : true,
+          configurable : true,
+        });
+      }
     });
   });
 
@@ -187,14 +344,15 @@ describe('relative DID URLs in a DID document', () => {
       expect(vm.id).to.equal('#embeddedKey');
     });
 
-    it('refuses an empty id', () => {
-      // An empty id does not resolve to a DID URL, so it names no method.
+    it('refuses an empty id: it resolves to the DID, and the DID is not a method id', () => {
+      // RFC 3986, section 5.2.2: the empty reference resolves to the DID. A method id must be
+      // the DID, then a fragment, a query, or a path.
       const document = relativeDocument();
       document.verificationMethod![0]!.id = '';
       expectRefusal(
         thrownBy(() => DidBtcr2.getSigningMethod(document, '')),
-        'Invalid verificationMethodId: expected a DID URL or a relative DID URL that starts with "#"; got "".',
-        { verificationMethodId: '' }
+        `Invalid verificationMethodId: expected "${DID}" followed by a fragment, a query, or a path; got "${DID}".`,
+        { verificationMethodId: DID }
       );
     });
   });
@@ -368,7 +526,19 @@ describe('relative DID URLs in a DID document', () => {
       })).to.throw(/beacon/i);
     });
 
-    it('refuses an unusable beaconId rather than matching an unusable service id', () => {
+    it('refuses a beaconId that is not a string, and does not match it with a service id that is not a string', () => {
+      document.service = document.service!.map(s => ({ ...s, id: 42 as unknown as string }));
+      expect(() => DidBtcr2.update({
+        sourceDocument       : document,
+        patches              : [],
+        sourceVersionId      : 1,
+        verificationMethodId : absoluteVmId,
+        beaconId             : 42 as unknown as string,
+      })).to.throw('No beacon service found for provided beaconId');
+    });
+
+    it('finds a service with the id "" by the beaconId "": both resolve to the DID', () => {
+      // RFC 3986, section 5.2.2: the empty reference resolves to the DID.
       document.service = document.service!.map(s => ({ ...s, id: '' }));
       expect(() => DidBtcr2.update({
         sourceDocument       : document,
@@ -376,7 +546,52 @@ describe('relative DID URLs in a DID document', () => {
         sourceVersionId      : 1,
         verificationMethodId : absoluteVmId,
         beaconId             : '',
-      })).to.throw();
+      })).to.not.throw();
+    });
+
+    /**
+     * A copy of the document with one more method and one more capabilityInvocation entry. The
+     * method has the id `methodId` and the key of the first method. The entry is `entry`.
+     */
+    function withSigningMethod(methodId: string, entry: string): Btcr2DidDocument {
+      const copy = new DidDocument(JSON.parse(JSON.stringify(document)));
+      copy.verificationMethod!.push({ ...copy.verificationMethod![0]!, id: methodId });
+      copy.capabilityInvocation!.push(entry);
+      return copy;
+    }
+
+    for(const relativeId of [ '?key=1', '/keys/1' ]) {
+      it(`authorizes the method "<did>${relativeId}" through the entry ${JSON.stringify(relativeId)}, and the reverse spelling`, () => {
+        const absoluteId = `${did}${relativeId}`;
+        for(const [ methodId, entry ] of [ [ absoluteId, relativeId ], [ relativeId, absoluteId ] ]) {
+          for(const verificationMethodId of [ relativeId, absoluteId ]) {
+            const label = `method ${methodId}, entry ${entry}, verificationMethodId ${verificationMethodId}`;
+            const state = DidBtcr2.update({
+              sourceDocument  : withSigningMethod(methodId, entry),
+              patches         : [],
+              sourceVersionId : 1,
+              verificationMethodId,
+              beaconId        : absoluteBeaconId,
+            }).advance();
+            if(state.status !== 'action-required') throw new Error('expected action-required');
+            expect((state.needs[0] as NeedSigningKey).verificationMethodId, label).to.equal(absoluteId);
+          }
+        }
+      });
+    }
+
+    it('finds the beacon service "?service=x" by the beaconId "<did>?service=x", and the reverse spelling', () => {
+      for(const [ serviceId, beaconId ] of [ [ '?service=x', `${did}?service=x` ], [ `${did}?service=x`, '?service=x' ] ]) {
+        const copy = new DidDocument(JSON.parse(JSON.stringify(document)));
+        copy.service!.push({ ...copy.service![0]!, id: serviceId });
+        expect(() => DidBtcr2.update({
+          sourceDocument       : copy,
+          patches              : [],
+          sourceVersionId      : 1,
+          verificationMethodId : absoluteVmId,
+          beaconId,
+        }), `service ${serviceId}, beaconId ${beaconId}`).to.not.throw();
+      }
     });
 
     it('signs an update whose proof names the method by absolute DID URL', () => {

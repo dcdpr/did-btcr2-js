@@ -224,13 +224,38 @@ describe('getAggregationCommunicationKey', () => {
       });
   });
 
-  it('does not match an unusable reference against an unusable method id', () => {
+  it('resolves the query reference "?key=0" against the method id "<did>?key=0", and the reverse spelling', () => {
+    const queryId = `${controller}?key=0`;
+    for(const [ methodId, reference ] of [ [ queryId, '?key=0' ], [ '?key=0', queryId ] ]) {
+      const doc = {
+        id                   : controller,
+        verificationMethod   : [{ ...vm, id: methodId }],
+        capabilityInvocation : [reference],
+      } as unknown as DidDocument;
+      expect(
+        hex.encode(getAggregationCommunicationKey(doc).compressed),
+        `method ${methodId} / reference ${reference}`
+      ).to.equal(expectedPkHex);
+    }
+  });
+
+  it('matches the reference "" with the method id "": both resolve to the DID (RFC 3986, section 5.2.2)', () => {
     const doc = {
       id                   : controller,
       verificationMethod   : [{ ...vm, id: '' }],
       capabilityInvocation : [''],
     } as unknown as DidDocument;
-    expect(() => getAggregationCommunicationKey(doc)).to.throw(/verification method/);
+    expect(hex.encode(getAggregationCommunicationKey(doc).compressed)).to.equal(expectedPkHex);
+  });
+
+  it('does not match a reference with a method id if the document id is not a string', () => {
+    // A document id that is not a string gives no absolute DID URL, so no reference names a method.
+    const doc = {
+      id                   : 42,
+      verificationMethod   : [{ ...vm, id: '' }],
+      capabilityInvocation : [''],
+    } as unknown as DidDocument;
+    expect(() => getAggregationCommunicationKey(doc)).to.throw(/does not resolve to a verification method/);
   });
 });
 

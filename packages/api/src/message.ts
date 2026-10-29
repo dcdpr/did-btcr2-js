@@ -298,7 +298,7 @@ function assertionMethodProblem(
       ? `The type of the method ${id} is not Multikey.`
       : `The method ${id} has the type ${type}, not Multikey.`;
   }
-  if (Appendix.absoluteDidUrl(method.controller, document.id) !== document.id) {
+  if (method.controller !== document.id) {
     const controller = messageText(method.controller);
     return controller === undefined
       ? `The controller of the method ${id} is not ${document.id}.`

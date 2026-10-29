@@ -1,6 +1,7 @@
 import { expect, use } from 'chai';
 import chaiAsPromised from 'chai-as-promised';
-import { FEATURE_NOT_SUPPORTED, INTERNAL_ERROR, INVALID_DID, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, INVALID_OPTIONS, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/std';
+import type { HttpExecutor } from '@did-btcr2/bitcoin';
+import { canonicalHashBytes, FEATURE_NOT_SUPPORTED, INTERNAL_ERROR, INVALID_DID, INVALID_DID_DOCUMENT, INVALID_DID_UPDATE, INVALID_OPTIONS, MISSING_UPDATE_DATA, NOT_FOUND, ResolveError, UpdateError } from '@did-btcr2/std';
 import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
 import {
   BitcoinApi,
@@ -11,7 +12,7 @@ import {
   DidMethodApi,
   KeyManagerApi,
 } from '../src/index.js';
-import type { ResolutionOptions } from '../src/index.js';
+import type { ResolutionOptions, UpdateSource } from '../src/index.js';
 
 const stubSigner = new LocalSigner(SchnorrKeyPair.generate().secretKey.bytes);
 
@@ -207,6 +208,53 @@ describe('DidBtcr2Api', () => {
       const { did } = api.did.generate();
       await expect(api.resolveDid(did, { minConf: 0 }))
         .to.be.rejectedWith(/Failed to resolve DID .*minConf.*positive integer/);
+    });
+
+    it('expands the relative ids of the document only for expandRelativeUrls true', async () => {
+      // An EXTERNAL DID whose genesis document has relative ids. The sidecar gives the genesis
+      // document. The chain has no beacon signal, so the result is the genesis document.
+      const genesisDocument = {
+        '@context'           : ['https://www.w3.org/ns/did/v1.1', 'https://btcr2.dev/context/v1'],
+        'id'                 : 'did:btcr2:_',
+        'verificationMethod' : [{
+          id                 : '#key-0',
+          type               : 'Multikey',
+          controller         : 'did:btcr2:_',
+          publicKeyMultibase : 'zQ3shiAVyapkPizvsLJZ8mYqPZetmbNNjgLVWTe5CLKZjvs34',
+        }],
+        'authentication'       : ['#key-0'],
+        'assertionMethod'      : ['#key-0'],
+        'capabilityInvocation' : ['#key-0'],
+        'capabilityDelegation' : ['#key-0'],
+        'service'              : [{
+          id              : '#service-0',
+          type            : 'SingletonBeacon',
+          serviceEndpoint : 'bitcoin:12QG2GG9TWPD16SWyfWCsW4W3NhMFnnSFK',
+        }],
+      };
+      const executor: HttpExecutor = async (req) => new Response(
+        req.url.endsWith('/blocks/tip/height') ? '100' : '[]',
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      );
+      const api = createApi({ btc: { network: 'regtest', executor } });
+      const did = api.createDid('external', canonicalHashBytes(genesisDocument), { network: 'regtest' });
+      const sidecar = { genesisDocument };
+      const keyId = `${did}#key-0`;
+
+      const expanded = (await api.resolveDid(did, { sidecar, expandRelativeUrls: true })).didDocument;
+      expect(expanded?.verificationMethod?.[0]).to.include({ id: keyId, controller: did });
+      expect(expanded?.service?.[0].id).to.equal(`${did}#service-0`);
+      for (const relationship of ['authentication', 'assertionMethod', 'capabilityInvocation', 'capabilityDelegation'] as const) {
+        expect(expanded?.[relationship]).to.deep.equal([keyId]);
+      }
+
+      // false and an absent option give the document with its relative ids.
+      for (const options of [{ sidecar, expandRelativeUrls: false }, { sidecar }]) {
+        const document = (await api.resolveDid(did, options)).didDocument;
+        expect(document?.verificationMethod?.[0].id).to.equal('#key-0');
+        expect(document?.authentication).to.deep.equal(['#key-0']);
+        expect(document?.service?.[0].id).to.equal('#service-0');
+      }
     });
   });
 
@@ -600,6 +648,84 @@ describe('DidBtcr2Api', () => {
     });
   });
 
+  describe('expandRelativeUrls in the source resolution of updateDid() and deactivateDid()', () => {
+    const patch = [{ op: 'add' as const, path: '/test', value: 'x' }];
+    const ids = { verificationMethodId: '#initialKey', announce: { beaconId: '#beacon-0' } };
+    const refusal = 'The source resolution of an update cannot use `expandRelativeUrls: true`: the '
+      + '`sourceHash` must be the hash of the document with no expansion.';
+
+    /**
+     * An api that records its Bitcoin requests, its resolve calls, and its calls of the write
+     * (`btcr2.update` or `btcr2.deactivate`). The resolve and the write return stub results.
+     */
+    const recordingApi = (write: 'update' | 'deactivate') => {
+      const urls: string[] = [];
+      const resolved: unknown[][] = [];
+      const written: unknown[][] = [];
+      const executor: HttpExecutor = async (req) => {
+        urls.push(req.url);
+        return new Response('[]', { status: 200 });
+      };
+      const api = createApi({ btc: { network: 'regtest', executor } });
+      const { did } = api.did.generate();
+      (api.btcr2 as any).resolve = async (...args: unknown[]) => {
+        resolved.push(args);
+        return {
+          didDocument           : { id: did, verificationMethod: [], service: [] },
+          didDocumentMetadata   : { versionId: '1' },
+          didResolutionMetadata : {},
+        };
+      };
+      (api.btcr2 as any)[write] = async (...args: unknown[]) => {
+        written.push(args);
+        return { signedUpdate: {}, txid: 'txid', publishedToCas: [] };
+      };
+      return { api, did, urls, resolved, written };
+    };
+
+    for (const write of ['update', 'deactivate'] as const) {
+      const run = (api: DidBtcr2Api, source: UpdateSource, resolutionOptions: ResolutionOptions) => write === 'update'
+        ? api.updateDid(source, patch, stubSigner, { ...ids, resolutionOptions })
+        : api.deactivateDid(source, stubSigner, { ...ids, resolutionOptions });
+
+      it(`${write}Did() refuses expandRelativeUrls true for a DID source before any I/O`, async () => {
+        const { api, did, urls, resolved, written } = recordingApi(write);
+
+        const err: unknown = await run(api, did, { expandRelativeUrls: true }).catch((e: unknown) => e);
+
+        expect(err).to.be.instanceOf(UpdateError);
+        expect((err as UpdateError).type).to.equal(INVALID_OPTIONS);
+        expect((err as UpdateError).message).to.equal(refusal);
+        expect((err as UpdateError).data).to.deep.equal({ expandRelativeUrls: true });
+        expect(resolved).to.have.length(0);
+        expect(written).to.have.length(0);
+        expect(urls).to.have.length(0);
+      });
+
+      it(`${write}Did() resolves a DID source with expandRelativeUrls false`, async () => {
+        const { api, did, resolved, written } = recordingApi(write);
+        const resolutionOptions: ResolutionOptions = { expandRelativeUrls: false };
+
+        await run(api, did, resolutionOptions);
+
+        expect(resolved).to.deep.equal([[did, resolutionOptions]]);
+        expect(written).to.have.length(1);
+      });
+
+      it(`${write}Did() ignores expandRelativeUrls true for a state source`, async () => {
+        const { api, resolved, written } = recordingApi(write);
+        const source = { document: { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any, versionId: 1 };
+
+        await run(api, source, { expandRelativeUrls: true });
+
+        // The facade does not resolve a state source, so the write gets the state as it is.
+        expect(resolved).to.have.length(0);
+        expect(written).to.have.length(1);
+        expect(written[0][0]).to.equal(source);
+      });
+    }
+  });
+
   describe('tryResolveDid()', () => {
     it('returns ok: false when resolution fails (no btc config)', async () => {
       const api = createApi();
@@ -695,16 +821,14 @@ describe('DidBtcr2Api', () => {
       }
     });
 
-    it('gives FEATURE_NOT_SUPPORTED for an unknown option and for expandRelativeUrls true', async () => {
+    it('gives FEATURE_NOT_SUPPORTED for an unknown option', async () => {
       const api = createApi();
       const { did } = api.did.generate();
-      for (const options of [{ foo: 1 }, { expandRelativeUrls: true }]) {
-        const result = await api.tryResolveDid(did, options as ResolutionOptions);
-        expect(result.ok).to.equal(false);
-        if (!result.ok) {
-          expect(result.error).to.equal(FEATURE_NOT_SUPPORTED);
-          expect(result.raw.didResolutionMetadata.error?.type).to.equal('https://www.w3.org/ns/did#FEATURE_NOT_SUPPORTED');
-        }
+      const result = await api.tryResolveDid(did, { foo: 1 } as unknown as ResolutionOptions);
+      expect(result.ok).to.equal(false);
+      if (!result.ok) {
+        expect(result.error).to.equal(FEATURE_NOT_SUPPORTED);
+        expect(result.raw.didResolutionMetadata.error?.type).to.equal('https://www.w3.org/ns/did#FEATURE_NOT_SUPPORTED');
       }
     });
 

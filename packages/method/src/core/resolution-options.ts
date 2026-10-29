@@ -79,7 +79,7 @@ function invalidOption(name: string, expected: string, value: unknown): ResolveE
  * @param {unknown} options The resolution options.
  * @throws {ResolveError} `INVALID_OPTIONS` if the options are not an object.
  * @throws {ResolveError} `FEATURE_NOT_SUPPORTED` for an option name that is not in
- * {@link RESOLUTION_OPTION_NAMES}, or for `expandRelativeUrls` with the value `true`.
+ * {@link RESOLUTION_OPTION_NAMES}.
  * @throws {ResolveError} `INVALID_OPTIONS` for an option value of the wrong type or form.
  */
 export function checkResolutionOptions(options: unknown): asserts options is ResolutionOptions {
@@ -101,21 +101,12 @@ export function checkResolutionOptions(options: unknown): asserts options is Res
     }
   }
 
-  // Step 3: the resolver does not expand relative DID URLs (step 6).
-  const { accept, expandRelativeUrls, noCache, sidecar, maxDiscoveryRounds } = options as Record<string, unknown>;
-  if(expandRelativeUrls === true) {
-    throw new ResolveError(
-      'The resolver does not support the resolution option "expandRelativeUrls" with the value true. '
-      + 'It returns the relative DID URLs of the DID document unchanged.',
-      FEATURE_NOT_SUPPORTED, { option: 'expandRelativeUrls' }
-    );
-  }
-
   // Step 4: each option value must be valid.
+  const { accept, expandRelativeUrls, noCache, sidecar, maxDiscoveryRounds } = options as Record<string, unknown>;
   if(accept !== undefined && (typeof accept !== 'string' || !isAcceptValue(accept))) {
     throw invalidOption('accept', 'an Accept header value (RFC 9110, section 12.5.1)', accept);
   }
-  if(expandRelativeUrls !== undefined && expandRelativeUrls !== false) {
+  if(expandRelativeUrls !== undefined && typeof expandRelativeUrls !== 'boolean') {
     throw invalidOption('expandRelativeUrls', 'a boolean', expandRelativeUrls);
   }
   if(noCache !== undefined && ![true, false, 'true', 'false'].includes(noCache as boolean | string)) {

@@ -719,8 +719,7 @@ export class DidMethodApi {
    *   conform to the DID syntax. Of type `METHOD_NOT_SUPPORTED`: the DID is valid and
    *   names another method.
    * - `ResolveError` of type `FEATURE_NOT_SUPPORTED`: an option that the resolver does not
-   *   support, or `expandRelativeUrls: true`. Of type `INVALID_OPTIONS`: an option value
-   *   that is not valid.
+   *   support. Of type `INVALID_OPTIONS`: an option value that is not valid.
    * @param did The DID to resolve.
    * @param options Resolution options.
    * @returns The resolution result. `didResolutionMetadata.contentType` is

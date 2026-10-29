@@ -1,6 +1,6 @@
 import type { NetworkName } from '@did-btcr2/bitcoin';
 import type { DocumentBytes, KeyBytes, PatchOperation } from '@did-btcr2/std';
-import { INVALID_DID_UPDATE, UpdateError } from '@did-btcr2/std';
+import { INVALID_DID_UPDATE, INVALID_OPTIONS, UpdateError } from '@did-btcr2/std';
 import type { Signer } from '@did-btcr2/keys';
 import { SchnorrKeyPair } from '@did-btcr2/keys';
 import type { KeyIdentifier } from '@did-btcr2/key-manager';
@@ -232,6 +232,14 @@ export class DidBtcr2Api {
    * `resolutionOptions`. The `versionId` of the state must come from the
    * resolution that returned its document.
    *
+   * If the source is a DID, the facade refuses `expandRelativeUrls: true` in
+   * `options.resolutionOptions` before any I/O. The source document of an
+   * update must be the document that the resolution returns with no
+   * expansion. An update made from an expanded copy has the wrong
+   * `sourceHash`, so each resolver refuses the update. After the broadcast,
+   * the DID does not resolve. The document of a {@link SourceState} must also
+   * come from a resolution with no expansion.
+   *
    * A deactivated source document is refused before signing: resolution
    * halts at the deactivation, so no later update is ever applied. The facade
    * also refuses an update after which no `capabilityInvocation` method can
@@ -305,10 +313,11 @@ export class DidBtcr2Api {
    * state, the helper returns it. {@link DidBtcr2Api.updateDid} and
    * {@link DidBtcr2Api.deactivateDid} share this helper.
    *
-   * For a DID source, the helper refuses a resolved `versionId` that is less
-   * than the highest `targetVersionId` of the sidecar updates of the DID. A
-   * sidecar update names its DID in `proof.invocationTarget`. A state source
-   * skips this check: the caller is responsible for its `versionId`.
+   * For a DID source, the helper refuses `expandRelativeUrls: true` before it
+   * resolves. It also refuses a resolved `versionId` that is less than the
+   * highest `targetVersionId` of the sidecar updates of the DID. A sidecar
+   * update names its DID in `proof.invocationTarget`. A state source skips
+   * these checks: the caller is responsible for its document and `versionId`.
    */
   async #resolveUpdateSource(
     source: UpdateSource,
@@ -327,6 +336,16 @@ export class DidBtcr2Api {
 
     const did = source;
     assertString(did, 'source');
+    // The source document must be the document that the resolution returns with
+    // no expansion. An expanded copy has another hash, so each resolver refuses
+    // the update.
+    if (resolutionOptions?.expandRelativeUrls === true) {
+      throw new UpdateError(
+        'The source resolution of an update cannot use `expandRelativeUrls: true`: the '
+        + '`sourceHash` must be the hash of the document with no expansion.',
+        INVALID_OPTIONS, { expandRelativeUrls: true }
+      );
+    }
     const resolution = await this.resolveDid(did, resolutionOptions);
     if (!resolution.didDocument) {
       const meta = resolution.didResolutionMetadata;

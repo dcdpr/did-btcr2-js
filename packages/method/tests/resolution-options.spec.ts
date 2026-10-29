@@ -43,14 +43,6 @@ describe('Resolution options', () => {
       }
     });
 
-    it('refuses expandRelativeUrls with the value true', () => {
-      const error = refusal(fixture.did, { expandRelativeUrls: true });
-      expect(error).to.be.instanceOf(ResolveError);
-      expect(error.type).to.equal(FEATURE_NOT_SUPPORTED);
-      expect(error.message).to.match(/"expandRelativeUrls" with the value true/);
-      expect(error.data).to.deep.equal({ option: 'expandRelativeUrls' });
-    });
-
     it('treats an option with the value undefined as absent', () => {
       expect(firstState({ foo: undefined, accept: undefined })).to.equal(firstState({}));
     });
@@ -104,12 +96,13 @@ describe('Resolution options', () => {
       }
     });
 
-    it('accepts each valid value of accept, expandRelativeUrls, and noCache with no effect', () => {
+    it('accepts each valid value of accept, expandRelativeUrls, and noCache, and the first state does not change', () => {
       const plain = firstState({});
       const valid = [
         { accept: 'application/did' },
         { accept: 'application/did+cbor' },
         { accept: '' },
+        { expandRelativeUrls: true },
         { expandRelativeUrls: false },
         { noCache: true },
         { noCache: false },
@@ -129,8 +122,8 @@ describe('Resolution options', () => {
         { versionId: 'x', foo: 1 },
         { accept: 1, foo: 1 },
         { sidecar: null, foo: 1 },
-        { accept: 1, expandRelativeUrls: true },
-        { maxDiscoveryRounds: '5', expandRelativeUrls: true }
+        { expandRelativeUrls: 'yes', foo: 1 },
+        { maxDiscoveryRounds: '5', foo: 1 }
       ]) {
         expect(refusal(fixture.did, options).type, JSON.stringify(options)).to.equal(FEATURE_NOT_SUPPORTED);
       }

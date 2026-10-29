@@ -30,10 +30,19 @@ export interface ResolutionOptions {
   accept?: string;
 
   /**
-   * A request to expand each relative DID URL of the DID document into an absolute DID URL. The
-   * resolver does not support the expansion: `true` fails with a `ResolveError` of type
-   * `FEATURE_NOT_SUPPORTED`, and `false` has no effect. The resolver returns each relative DID URL
-   * unchanged. A value that is not a boolean fails with `INVALID_OPTIONS`.
+   * A request to expand each relative DID URL of the DID document into an absolute DID URL (DID
+   * Resolution v1, section 4.4, step 6). If the value is `true`, the result document is a copy.
+   * In the copy, the resolver resolves each string `id` of a map against the DID by RFC 3986,
+   * section 5. It also resolves each string item of a verification relationship. For example,
+   * `#key-1` becomes `<did>#key-1`, and `?service=files` becomes `<did>?service=files`.
+   *
+   * The document `id`, `@context`, `controller`, `alsoKnownAs`, each `serviceEndpoint` value, a
+   * value with a scheme, and a value that starts with `//` stay unchanged. `false` and an absent
+   * option give no expansion. A value that is not a boolean fails with `INVALID_OPTIONS`.
+   *
+   * Do not use the expanded document as the source document of an update. The `sourceHash` of
+   * an update is the hash of the document with no expansion. A resolver refuses an update whose
+   * `sourceHash` does not match.
    */
   expandRelativeUrls?: boolean;
 

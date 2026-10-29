@@ -16,12 +16,12 @@ If you're integrating did:btcr2 into an app, start here. If you're customizing t
 - **`tryResolveDid(did)`** returns `{ ok: true, document, metadata }` or `{ ok: false, error, errorMessage, cause }` instead of a throw. `error` is the DID Resolution error code of the nearest typed failure in the cause chain. If no failure in the cause chain has a DID Resolution error code, `error` is `INTERNAL_ERROR`. `errorMessage` is the root cause. `cause` is the original error. `raw.didResolutionMetadata.error` is the error object of DID Resolution v1, section 10 (`ResolutionError`): `type` is the URL of the code, `title` is a short text, and `detail` is the root cause (ADR 157). Examples of `error`:
   - `NOT_FOUND`: an EXTERNAL DID whose genesis document is not in the sidecar and not in the CAS.
   - `INVALID_DID`: a DID that does not conform to the DID syntax, also the empty string and a value that is not a string. `METHOD_NOT_SUPPORTED`: a valid DID of another method, for example `did:example:a:b`.
-  - `FEATURE_NOT_SUPPORTED`: a resolution option that the resolver does not support, or `expandRelativeUrls: true`. `INVALID_OPTIONS`: an option value that is not valid (see **The other resolution options** below).
+  - `FEATURE_NOT_SUPPORTED`: a resolution option that the resolver does not support. `INVALID_OPTIONS`: an option value that is not valid (see **The other resolution options** below).
   - `MISSING_UPDATE_DATA`: a signed update, a CAS announcement, or an SMT proof that the sidecar and the CAS do not supply.
   - `MISSING_UPDATE_DATA`: a CAS announcement value for the DID that is not a base64url SHA-256 hash.
   - `INVALID_DID_UPDATE`: an update with a `targetVersionId` that is not an integer.
 - **`resolveDid(did)`** returns the `DidResolutionResult` of the api: `didDocument` is a `Btcr2DidDocument`. The type is not the `DidResolutionResult` of `@web5/dids`. `didResolutionMetadata.contentType` is `application/did`, the media type of a bare DID document. `didDocumentMetadata` always carries `versionId`, `confirmations`, and `deactivated`; `updated` is present if the resolved version is more than 1. `CasApi.retrieve` hashes the bytes that the CAS returns and refuses content that does not hash to the requested address, as the specification requires.
-- **`updateDid` / `deactivateDid`** resolve a DID source for you. Pass `options.resolutionOptions` to hand sidecar data to that resolution. Omit `verificationMethodId` and `announce.beaconId`: the api derives them.
+- **`updateDid` / `deactivateDid`** resolve a DID source for you. Pass `options.resolutionOptions` to give sidecar data to that resolution. Omit `verificationMethodId` and `announce.beaconId`: the api derives them. The api refuses `expandRelativeUrls: true` in `options.resolutionOptions` with an `UpdateError` of type `INVALID_OPTIONS`, before any I/O. The `sourceHash` of an update must be the hash of the document with no expansion (ADR 162). A `SourceState` must also hold the document with no expansion, but the api cannot detect an expanded document.
 - **The source check of `updateDid` / `deactivateDid`.** For a DID source, the api refuses the update if the resolved `versionId` is less than the highest `targetVersionId` of the sidecar updates of the DID (the updates whose `proof.invocationTarget` is the DID). The resolution then cannot see all previous updates, and the specification forbids the announcement. Resolve again after the beacon signal of the last update has `minConf` confirmations, or set a lower `minConf`. Without sidecar updates, the api cannot do this check. A `SourceState` source skips it (ADR 135).
 - **`announce.signer`** signs the beacon transaction input. It defaults to `signer`. Pass it if a key other than the verification method key controls the beacon address.
 - **`api.kms.signer(id?)`** returns the `Signer` for a KMS key. The write path needs no second package.
@@ -48,7 +48,7 @@ If you're integrating did:btcr2 into an app, start here. If you're customizing t
 - **The errors of `versionId` and `versionTime`.** A request with both, or with a value that does not parse, fails with `INVALID_OPTIONS`. A version that the history does not reach fails with `NOT_FOUND`. `tryResolveDid` reports both codes in `error`.
 - **The other resolution options (ADR 157).** The resolver checks the options in the order of DID Resolution v1, section 4.4, before any data need. An option with the value `undefined` is absent.
   - An option name other than `accept`, `expandRelativeUrls`, `noCache`, `versionId`, `versionTime`, `minConf`, `sidecar`, and `maxDiscoveryRounds` fails with `FEATURE_NOT_SUPPORTED`.
-  - `expandRelativeUrls: true` fails with `FEATURE_NOT_SUPPORTED`: the resolver returns each relative DID URL unchanged. `false` has no effect.
+  - `expandRelativeUrls: true` returns a copy of the DID document in which each relative DID URL is absolute (DID Resolution v1, section 4.4, step 6). In the copy, the resolver resolves each string `id` of a map, at any depth, against the DID (RFC 3986, section 5). It also resolves each string item of the five verification relationships. For example, `#key-1` becomes `<did>#key-1`. `@context`, each `serviceEndpoint` value, a value with a scheme, and a value that starts with `//` stay unchanged. `false` has no effect (ADR 162).
   - `accept` must be an Accept header value (RFC 9110, section 12.5.1), for example `'application/did'`. The value has no effect.
   - `noCache` must be `true`, `false`, `'true'`, or `'false'`. The resolver keeps no cache, so the value has no effect.
   - A `sidecar` that is not an object, or a `maxDiscoveryRounds` that is not a number, fails with `INVALID_OPTIONS`. Each other wrong value of the list also fails with `INVALID_OPTIONS`.
@@ -283,11 +283,11 @@ The verification method that signs an update must agree with these conditions (A
 3. The `controller` of the method is the DID.
 4. The `publicKeyMultibase` of the method is the BIP340 Multikey text of a secp256k1 public key. A `publicKeyMultibase` that only starts with `zQ3s` does not agree with this condition.
 
-In this README, a method that agrees with these conditions is a method that "can sign an update". The key of the signer must be the key of the method. `verificationMethodId` is a DID URL under the DID, or a relative DID URL that starts with `#`.
+In this README, a method that agrees with these conditions is a method that "can sign an update". The key of the signer must be the key of the method. `verificationMethodId` is a DID URL under the DID, or a relative DID URL (`#key-1`, `?key=1`, `/keys/1`). The api resolves a relative DID URL against the DID by RFC 3986, section 5 (ADR 162).
 
 | Failure | Error text |
 |---|---|
-| `verificationMethodId` is not a DID URL under the DID, and not a relative DID URL that starts with `#`. | `Invalid verificationMethodId: expected ...` |
+| `verificationMethodId` is not a DID URL under the DID, and not a relative DID URL that resolves to one. | `Invalid verificationMethodId: expected ...` |
 | No entry of `capabilityInvocation` identifies the method. | `Invalid verificationMethodId: not authorized for capabilityInvocation` |
 | The entry is a reference, and `verificationMethod` has no method with that id. | `Invalid verificationMethodId: not found in source document` |
 | The method does not agree with condition 2, 3, or 4. `data.field` names the field. | `Invalid update: verificationMethod.type must equal "Multikey"`, and the same form for `controller` and `publicKeyMultibase` |

@@ -175,6 +175,21 @@ describe('DidMethodApi message signatures', () => {
         .to.throw(MethodError, 'No assertionMethod method');
     });
 
+    it('refuses a method whose controller is the empty string, and calls no signer', () => {
+      const { api, did, document, signer } = fixture();
+      // The empty string resolves to the DID as a relative DID URL, but it is not a DID (DID Core 5.2).
+      document.verificationMethod![0].controller = '';
+      const spy = spySigner(signer);
+
+      expect(() => api.btcr2.signMessage(document, MESSAGE, spy.signer))
+        .to.throw(MethodError, `No assertionMethod method of ${did} publishes the key of the signer.`)
+        .with.property('type', 'VERIFICATION_METHOD_ERROR');
+      expect(() => api.btcr2.signMessage(document, MESSAGE, spy.signer, { verificationMethodId: '#initialKey' }))
+        .to.throw(MethodError, `#initialKey is not a usable assertionMethod method of ${did}.`)
+        .with.property('type', 'VERIFICATION_METHOD_ERROR');
+      expect(spy.calls).to.have.length(0);
+    });
+
     it('refuses a method whose type or controller is an object with no text form, with no TypeError (ADR 156)', () => {
       for (const field of [ 'type', 'controller' ] as const) {
         const { api, document, signer } = fixture();
@@ -325,12 +340,14 @@ describe('DidMethodApi message signatures', () => {
       expect(failure(report)).to.deep.equal({ name: 'active', ok: false, detail: `The DID document of ${document.id} is deactivated.` });
     });
 
-    it('fails the assertionMethod check for a removed method, a wrong controller, a wrong type, and no key', () => {
+    it('fails the assertionMethod check for a removed method, a wrong or empty controller, a wrong type, and no key', () => {
       const { api, did, document, signed } = signedFixture();
       const cases: Array<[ Btcr2DidDocument, string ]> = [
         [ { ...document, assertionMethod: [] }, 'is not in the assertionMethod' ],
         [ { ...document, verificationMethod: [] }, 'has no verification method' ],
         [ { ...document, verificationMethod: [{ ...document.verificationMethod![0], controller: 'did:btcr2:k1other' }] }, 'The controller of the method' ],
+        // The empty string is not a DID (DID Core 5.2), so it is not the controller DID.
+        [ { ...document, verificationMethod: [{ ...document.verificationMethod![0], controller: '' }] }, `The controller of the method ${did}#initialKey is , not ${did}.` ],
         [ { ...document, verificationMethod: [{ ...document.verificationMethod![0], type: 'JsonWebKey' }] }, 'not Multikey' ],
         [ { ...document, verificationMethod: [{ id: `${did}#initialKey`, type: 'Multikey', controller: did } as never] }, 'no valid secp256k1 Multikey' ],
       ];

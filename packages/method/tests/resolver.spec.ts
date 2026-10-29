@@ -14,8 +14,7 @@ import { p2wpkh } from '@scure/btc-signer';
 import { DidBtcr2 } from '../src/did-btcr2.js';
 import { BeaconUtils } from '../src/core/beacon/utils.js';
 import type { BeaconService, BeaconSignal, BlockMetadata } from '../src/core/beacon/interfaces.js';
-import type { DidDocument } from '../src/utils/did-document.js';
-import { DidVerificationMethod } from '../src/utils/did-document.js';
+import { DidDocument, DidVerificationMethod } from '../src/utils/did-document.js';
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from '../src/core/btcr2-update.js';
 import { BTCR2_UPDATE_CONTEXT } from '../src/core/btcr2-update.js';
 import { DEFAULT_MIN_CONF, Resolver } from '../src/core/resolver.js';
@@ -5043,6 +5042,52 @@ describe('Resolver', () => {
       }
     });
 
+    /**
+     * A relative DID URL and its absolute DID URL: RFC 3986, section 5, against the DID (DID
+     * Core v1.1, section 3.2.1).
+     */
+    const RELATIVE_IDS: Array<[ string, string ]> = [
+      [ '?key=1', `${did}?key=1` ],
+      [ '/keys/1', `${did}/keys/1` ],
+      [ 'keys/1', `${did}/keys/1` ],
+    ];
+
+    /**
+     * A copy of the source document with the method `methodId` in verificationMethod and the
+     * entry `entry` in capabilityInvocation.
+     */
+    function withEntry(methodId: string, entry: string): DidDocument {
+      const document = sourceCopy();
+      document.verificationMethod!.push(signerMethod({ id: methodId }));
+      document.capabilityInvocation!.push(entry);
+      return document;
+    }
+
+    it('applies an update whose capabilityInvocation entry is "?key=1", "/keys/1", or "keys/1" and whose method id is absolute', () => {
+      for(const [ relativeId, absoluteId ] of RELATIVE_IDS) {
+        const document = withEntry(absoluteId, relativeId);
+        expect(resolveWith(document, updateOf(document, absoluteId)).metadata.versionId, relativeId).to.equal('2');
+      }
+    });
+
+    it('applies an update whose method id is "?key=1", "/keys/1", or "keys/1" and whose capabilityInvocation entry is absolute', () => {
+      for(const [ relativeId, absoluteId ] of RELATIVE_IDS) {
+        const document = withEntry(relativeId, absoluteId);
+        expect(resolveWith(document, updateOf(document, absoluteId)).metadata.versionId, relativeId).to.equal('2');
+      }
+    });
+
+    it('refuses an update whose proof names the relative id "?v=1#k2", also if the entry has that spelling', () => {
+      // A proof travels apart from the document, so it must name the method by a DID URL. The
+      // lookup finds the method "<did>?v=1#k2", but the multikey of the method has the absolute
+      // id, and the cryptosuite refuses a proof that names another id.
+      const document = withEntry(`${did}?v=1#k2`, '?v=1#k2');
+      const thrown = thrownWith(document, updateOf(document, '?v=1#k2'));
+      expect(thrown, 'expected the update to be refused').to.be.instanceOf(ResolveError);
+      expect(thrown.type).to.equal(INVALID_DID_UPDATE);
+      expect(thrown.message).to.match(/^Invalid update: proof verification failed: Id mismatch/);
+    });
+
     it('refuses a referenced method whose controller is another DID', () => {
       const document = referencing(signerMethod({ controller: OTHER_DID }));
       const thrown = thrownWith(document, updateOf(document, SIGNER_ID));
@@ -5235,6 +5280,108 @@ describe('Resolver', () => {
           expect(thrown.data.actual).to.equal(publicKeyMultibase);
           expect(thrown.data.cause).to.deep.equal(cause);
         }
+      }
+    });
+  });
+
+  describe('expandRelativeUrls (DID Resolution v1, section 4.4, step 6)', () => {
+    const fixture = deterministicData[0];
+    const did = fixture.did;
+    const RELATIONSHIPS = [ 'authentication', 'assertionMethod', 'capabilityInvocation', 'capabilityDelegation' ] as const;
+
+    /** The deterministic document of the DID, with absolute ids, as JSON. */
+    function absoluteJson(): Record<string, unknown> {
+      return JSON.parse(JSON.stringify(Resolver.deterministic(Identifier.decode(did))));
+    }
+
+    /**
+     * The deterministic document of the DID with relative ids: "#initialKey" for the method and
+     * each relationship item, and a fragment for each service, for example "#initialP2PKH".
+     */
+    function relativeDocument(): DidDocument {
+      const relative = (id: string): string => id.startsWith(did) ? id.slice(did.length) : id;
+      const document = new DidDocument(absoluteJson() as any);
+      document.verificationMethod = document.verificationMethod!.map(vm => ({ ...vm, id: relative(vm.id) }));
+      document.service = document.service!.map(service => ({ ...service, id: relative(service.id) }));
+      for(const relationship of RELATIONSHIPS) {
+        document[relationship] = document[relationship]!.map(entry => typeof entry === 'string' ? relative(entry) : entry);
+      }
+      return document;
+    }
+
+    /**
+     * Resolve the DID from `document` with the Resolver options `options`. The first beacon gets
+     * one signal for each update, with six confirmations. Returns the resolved response or throws.
+     */
+    function resolveWith(
+      document: DidDocument,
+      options?: { expandRelativeUrls?: boolean; versionId?: string },
+      updates: Array<SignedBTCR2Update> = []
+    ): DidResolutionResponse {
+      const resolver = new Resolver(Identifier.decode(did), Resolver.sidecarData({ updates }), document, options);
+      let state = resolver.resolve();
+      if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+      const need = state.needs[0] as NeedBeaconSignals;
+      resolver.provide(need, new Map([[ need.beaconServices[0]!, updates.map((update, i) => ({
+        tx            : {} as any,
+        signalBytes   : canonicalHash(update, { encoding: 'hex' }),
+        blockMetadata : { height: 100 + i, time: 1700000000, mediantime: 1700000000, confirmations: 6 }
+      })) ]]));
+      state = resolver.resolve();
+      if(state.status !== 'resolved') throw new Error('expected resolved');
+      return state.result;
+    }
+
+    it('returns a DidDocument copy with absolute ids for true, and the established document keeps its relative ids', () => {
+      const established = relativeDocument();
+      const before = JSON.stringify(established);
+      const { didDocument } = resolveWith(established, { expandRelativeUrls: true });
+      expect(didDocument).to.be.instanceOf(DidDocument);
+      expect(didDocument).to.not.equal(established);
+      expect(didDocument.verificationMethod![0]!.id).to.equal(`${did}#initialKey`);
+      expect(didDocument.service![0]!.id).to.equal(`${did}#initialP2PKH`);
+      expect(JSON.parse(JSON.stringify(didDocument))).to.deep.equal(absoluteJson());
+      expect(JSON.stringify(established)).to.equal(before);
+    });
+
+    it('returns the established document object itself for false and for an absent value', () => {
+      for(const options of [ { expandRelativeUrls: false }, {}, undefined ]) {
+        const established = relativeDocument();
+        const { didDocument } = resolveWith(established, options);
+        expect(didDocument, JSON.stringify(options)).to.equal(established);
+        expect(didDocument.verificationMethod![0]!.id).to.equal('#initialKey');
+      }
+    });
+
+    it('expands the ids of the requested version: version 1 for versionId "1", and version 2 with no versionId', () => {
+      const patch: PatchOperation[] = [{ op: 'add', path: '/alsoKnownAs', value: [ 'https://example.com/v2' ] }];
+      const source = relativeDocument();
+      const update = Updater.sign(source, Updater.construct(source, patch, 1), `${did}#initialKey`, new LocalSigner(hexToBytes(fixture.secretKey)));
+      const historical = resolveWith(relativeDocument(), { expandRelativeUrls: true, versionId: '1' }, [ update ]);
+      expect(historical.metadata.versionId).to.equal('1');
+      expect(JSON.parse(JSON.stringify(historical.didDocument))).to.deep.equal(absoluteJson());
+      const latest = resolveWith(relativeDocument(), { expandRelativeUrls: true }, [ update ]);
+      expect(latest.metadata.versionId).to.equal('2');
+      expect(JSON.parse(JSON.stringify(latest.didDocument))).to.deep.equal({ ...absoluteJson(), alsoKnownAs: [ 'https://example.com/v2' ] });
+    });
+
+    it('DidBtcr2.resolve gives the option to the Resolver', () => {
+      // A genesis document with relative ids: "#key-0" for the method and each relationship
+      // item, and "#service-0" for the service.
+      const genesisDocument = JSON.parse(JSON.stringify(externalData[0].genesisDocument));
+      genesisDocument.verificationMethod[0].id = '#key-0';
+      for(const relationship of RELATIONSHIPS) genesisDocument[relationship] = [ '#key-0' ];
+      genesisDocument.service[0].id = '#service-0';
+      const externalDid = DidBtcr2.create(canonicalHashBytes(genesisDocument), { idType: 'EXTERNAL', network: 'bitcoin' });
+      for(const [ options, prefix ] of [ [ { expandRelativeUrls: true }, externalDid ], [ {}, '' ] ] as const) {
+        const resolver = DidBtcr2.resolve(externalDid, { sidecar: { genesisDocument }, ...options });
+        const state = resolver.resolve();
+        if(state.status !== 'action-required') throw new Error('expected NeedBeaconSignals');
+        provideEmptySignals(resolver, state.needs[0] as NeedBeaconSignals);
+        const final = resolver.resolve();
+        if(final.status !== 'resolved') throw new Error('expected resolved');
+        expect(final.result.didDocument.verificationMethod![0]!.id, JSON.stringify(options)).to.equal(`${prefix}#key-0`);
+        expect(final.result.didDocument.service![0]!.id, JSON.stringify(options)).to.equal(`${prefix}#service-0`);
       }
     });
   });

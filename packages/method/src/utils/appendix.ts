@@ -5,6 +5,7 @@ import type {
 import { DidVerificationRelationship } from '@web5/dids';
 import { DidDocumentError } from '@did-btcr2/std';
 import type { RootCapability } from '../core/interfaces.js';
+import { resolveRelativeDidUrl } from './relative-did-url.js';
 
 /**
  * Helper functions for DID URLs, verification methods, and the Root Capability of a DID.
@@ -17,18 +18,27 @@ export class Appendix {
    * Resolves a DID URL that may be written as a relative reference against the
    * DID it appears under. DID Core permits the `id` of a verification method or
    * service, and the entries of a verification relationship, to be a relative
-   * DID URL such as `#initialKey`; it denotes that fragment of `did`. Absolute
-   * DID URLs are returned unchanged, so both spellings of the same reference
-   * compare equal without discarding the DID being compared.
+   * DID URL. The function resolves it against the DID by RFC 3986, section 5, as
+   * DID Core v1.1, section 3.2.1, requires: `#initialKey`, `?v=1#key-1`,
+   * `/keys#key-1`, and `keys#key-1` give `<did>#initialKey`, `<did>?v=1#key-1`,
+   * `<did>/keys#key-1`, and `<did>/keys#key-1`. The empty reference `""` gives
+   * the DID.
+   *
+   * The function returns these values unchanged:
+   * - A value with a scheme, for example an absolute DID URL or `urn:x:1`. So
+   *   both spellings of the same reference compare equal, and an id under another
+   *   DID never resolves to an id of this document.
+   * - A value that starts with `//` (a network-path reference). The result of
+   *   RFC 3986 has an authority, and a DID URL cannot have one. The value stays
+   *   an opaque string.
    *
    * @param {unknown} input The DID URL to resolve. Non-strings yield `undefined`.
-   * @param {string} did The DID the relative reference is resolved against.
-   * @returns {string | undefined} The absolute DID URL, or `undefined` if `input` is not a usable string.
+   * @param {string} did The DID that a relative reference resolves against. A value that is not a string gives `undefined`.
+   * @returns {string | undefined} The absolute DID URL, the input if it stays unchanged, or `undefined` if `input` or `did` is not a string.
    */
   public static absoluteDidUrl(input: unknown, did: string): string | undefined {
-    if (typeof input !== 'string') return undefined;
-    if (input.length === 0) return undefined;
-    return input.startsWith('#') ? `${did}${input}` : input;
+    if (typeof input !== 'string' || typeof did !== 'string') return undefined;
+    return resolveRelativeDidUrl(input, did);
   }
 
   /**
