@@ -12,7 +12,7 @@ import { assertString } from './helpers.js';
 export interface SmtEntry {
   /** The DID. The index of its leaf is the SHA-256 hash of the DID. */
   did: string;
-  /** The nonce of the index in this signal, of any length. base64url, no padding. */
+  /** The 32-byte (256-bit) nonce of the index in this signal. base64url, no padding. */
   nonce?: string;
   /**
    * The JSON Document Hash of the signed update that the signal announces for
@@ -53,7 +53,7 @@ export class SmtApi {
    * Build the tree of one SMT beacon signal.
    * @param entries One entry for each DID in the signal.
    * @returns The tree: its root and the proof of each DID.
-   * @throws {RangeError} If two entries have the same DID, or an `updateId` is not 32 bytes.
+   * @throws {RangeError} If two entries have the same DID, or a `nonce` or an `updateId` is not 32 bytes.
    */
   build(entries: SmtEntry[]): SmtTree {
     if(!Array.isArray(entries)) {

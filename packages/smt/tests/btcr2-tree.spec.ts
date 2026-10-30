@@ -182,6 +182,21 @@ describe('BTCR2MerkleTree', () => {
     expect(() => tree.addEntries([{ did: 'did:btcr2:k1qshort', updateId: new Uint8Array(31) }])).to.throw(RangeError);
   });
 
+  for (const length of [0, 1, 16, 31, 33]) {
+    it(`throws on a nonce of ${length} bytes`, () => {
+      const tree = new BTCR2MerkleTree();
+      const entry = { did: 'did:btcr2:k1qnonce', nonce: new Uint8Array(length), updateId: randomHash() };
+      expect(() => tree.addEntries([entry])).to.throw(RangeError, `Invalid nonce: expected 32 bytes, got ${length}`);
+    });
+  }
+
+  it('accepts a nonce of 32 bytes', () => {
+    const tree = new BTCR2MerkleTree();
+    tree.addEntries([{ did: 'did:btcr2:k1qnonce', nonce: new Uint8Array(32) }]);
+    tree.finalize();
+    expect(verifyProof(tree.proof('did:btcr2:k1qnonce'), 'did:btcr2:k1qnonce')).to.be.true;
+  });
+
   it('throws on proof before finalize', () => {
     const tree = new BTCR2MerkleTree();
     tree.addEntries([makeEntry('did:btcr2:k1qearly')]);

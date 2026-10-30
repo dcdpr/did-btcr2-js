@@ -83,6 +83,17 @@ describe('SmtApi', () => {
     expect(() => api.smt.build([{ did, updateId: base64urlnopad.encode(new Uint8Array(31)) }])).to.throw(RangeError);
   });
 
+  for (const [label, nonce, length] of [
+    ['an empty nonce', '', 0],
+    ['a 1-byte nonce', 'AQ', 1],
+    ['a 33-byte nonce', base64urlnopad.encode(new Uint8Array(33)), 33],
+  ] as const) {
+    it(`refuses ${label}`, () => {
+      expect(() => api.smt.build([{ did: newDid(), nonce, updateId: random32() }]))
+        .to.throw(RangeError, `Invalid nonce: expected 32 bytes, got ${length}`);
+    });
+  }
+
   it('refuses entries that are not an array and an entry without a DID', () => {
     expect(() => api.smt.build('x' as never)).to.throw('entries must be an array');
     expect(() => api.smt.build([{} as never])).to.throw('entry.did');
