@@ -89,7 +89,7 @@ network is not in the file. It comes from `-n` or from the config.
 |-------|----------|---------|
 | `verificationMethods[]` | yes, at least one | One entry per key. Exactly one of `key` (a keystore reference: URN, name, or fingerprint prefix) or `publicKey` (a 33-byte compressed public key as hex). `relationships` is a subset of the four names. If absent, all four apply. `fragment` is the id fragment without `#`. If absent, it is `key-<index>`. |
 | `beacons[]` | no | One entry per beacon. `type` is `SingletonBeacon`, `CASBeacon`, or `SMTBeacon`. Give `key` or `publicKey` to derive the address from a key, with `addressType` `p2pkh`, `p2wpkh` (default), or `p2tr`. Or give `address`, a Bitcoin address of the network or a BIP321 `bitcoin:` URI of it, for the address of an aggregation cohort. The document gets `bitcoin:<address>`, with a bech32 address in lower case (ADR 161). `fragment` defaults to `service-<index>`. If `beacons` is absent, the document has one Singleton beacon with the P2WPKH address of the first key. |
-| `services[]` | no | Other services, after the beacons. `id` is a fragment (`#name`) or a full id that contains `did:btcr2:_`. If absent, it is `service-<position>`. `type` and `serviceEndpoint` are required. A `serviceEndpoint` string must be a URL. The `id` must be a valid DID URL or URL, for example with no space (ADR 149). The api refuses a beacon type here: declare a beacon under `beacons`. |
+| `services[]` | no | Other services, after the beacons. `id` is a fragment (`#name`), which gets the prefix `did:btcr2:_`. Another `id` stays as given, and it must be a DID URL, a relative DID URL, or a URL (ADRs 149 and 167). If absent, it is `service-<position>`. `type` and `serviceEndpoint` are required. A `serviceEndpoint` string must be a URL. The api refuses a beacon type here: declare a beacon under `beacons`. |
 
 The api refuses a spec that cannot produce an updatable identifier: no verification method with
 `capabilityInvocation`, or no beacon. It refuses an address that is not a P2PKH, P2WPKH, or P2TR
@@ -114,9 +114,14 @@ accepts a file without a beacon service. Nobody can then announce an update for 
 ### The document
 
 The command writes the genesis document as pretty JSON, and it hashes the parsed form of that
-file. The document has the placeholder id `did:btcr2:_` in every id and controller, the two
-required contexts, one `Multikey` verification method per key, the relationships that the keys
-name, one beacon service per beacon with a `bitcoin:<address>` endpoint, and the other services.
+file. The document has these members:
+
+- the id `did:btcr2:_` and the two required contexts
+- one `Multikey` verification method per key, and the relationships that the keys name
+- one beacon service per beacon, with a `bitcoin:<address>` endpoint
+- the other services
+
+Each id that the command makes and each controller contain the placeholder `did:btcr2:_`.
 
 ```json
 {

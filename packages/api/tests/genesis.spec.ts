@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { canonicalHashBytes, DidDocumentError, INVALID_DID_DOCUMENT } from '@did-btcr2/std';
-import { SchnorrKeyPair } from '@did-btcr2/keys';
+import { LocalSigner, SchnorrKeyPair } from '@did-btcr2/keys';
 import { deriveSingletonAddress, GenesisDocument, Identifier } from '@did-btcr2/method';
 import { getNetwork } from '@did-btcr2/bitcoin';
 import { bytesToHex } from '@noble/hashes/utils.js';
@@ -138,7 +138,7 @@ describe('genesis document builder', () => {
       ]);
     });
 
-    it('adds other services after the beacons, with a fragment id or a placeholder id', () => {
+    it('adds other services after the beacons, with a fragment id, a placeholder id, or another id', () => {
       const key = publicKey();
       const doc = plain(buildGenesisDocument({
         network             : 'regtest',
@@ -147,13 +147,20 @@ describe('genesis document builder', () => {
           { id: '#website', type: 'LinkedDomains', serviceEndpoint: 'https://example.com' },
           { id: 'did:btcr2:_#hub', type: 'Hub', serviceEndpoint: ['https://a.example', 'https://b.example'] },
           { type: 'Other', serviceEndpoint: { uri: 'https://c.example' } } as any,
+          { id: 'did:example:1#x', type: 'Other', serviceEndpoint: 'https://d.example' },
+          { id: 'https://e.example/services#1', type: 'Other', serviceEndpoint: 'https://e.example' },
+          { id: 'links', type: 'Other', serviceEndpoint: 'https://f.example' },
         ],
       }));
-      expect(doc.service).to.have.lengthOf(4);
+      expect(doc.service).to.have.lengthOf(7);
       expect(doc.service[1]).to.deep.equal({ id: 'did:btcr2:_#website', type: 'LinkedDomains', serviceEndpoint: 'https://example.com' });
       expect(doc.service[2].id).to.equal('did:btcr2:_#hub');
       // The default fragment names the position in the service array.
       expect(doc.service[3].id).to.equal('did:btcr2:_#service-3');
+      // The builder keeps another id as given (ADR 167). The rules of a producer check its syntax.
+      expect(doc.service[4].id).to.equal('did:example:1#x');
+      expect(doc.service[5].id).to.equal('https://e.example/services#1');
+      expect(doc.service[6].id).to.equal('links');
     });
 
     it('hashes the same as its plain JSON form', () => {
@@ -185,7 +192,8 @@ describe('genesis document builder', () => {
         ['a bech32 address in mixed case', () => ({ ...base(), beacons: [{ type: 'SingletonBeacon', address: mixedCase(addressOf(key, 'regtest', 'p2wpkh')) }] }), /^beacons\[0\]\.address "BCRT1q\w+" is not a Bitcoin address or a BIP321 URI of one: Invalid Bitcoin URI: the address part is not a Bitcoin address$/],
         ['a fragment with a hash sign', () => ({ ...base(), verificationMethods: [{ publicKey: key, fragment: '#key' }] }), /without "#"/],
         ['a service with a beacon type', () => ({ ...base(), services: [{ id: '#b', type: 'SingletonBeacon', serviceEndpoint: 'bitcoin:x' }] }), /Declare a beacon under "beacons"/],
-        ['a service id without the placeholder', () => ({ ...base(), services: [{ id: 'did:example:1#x', type: 'T', serviceEndpoint: 'https://x' }] }), /contain the placeholder/],
+        ['a service id that is not a URL', () => ({ ...base(), services: [{ id: 'not a url', type: 'T', serviceEndpoint: 'https://x' }] }), /service\[1\]\.id must be a relative DID URL: an RFC 3986 relative reference/],
+        ['an empty service id', () => ({ ...base(), services: [{ id: '', type: 'T', serviceEndpoint: 'https://x' }] }), /^services\[0\]\.id must be a non-empty string\.$/],
         ['a service without an endpoint', () => ({ ...base(), services: [{ id: '#x', type: 'T' } as any] }), /serviceEndpoint is required/],
         ['two services with one id', () => ({ ...base(), services: [{ id: '#service-0', type: 'T', serviceEndpoint: 'https://x' }] }), /appears twice/],
         ['two methods with one fragment', () => ({ ...base(), verificationMethods: [{ publicKey: key, fragment: 'a' }, { publicKey: publicKey(), fragment: 'a' }] }), /appears twice/],
@@ -401,6 +409,65 @@ describe('genesis document builder', () => {
       });
     });
 
+    describe('ids without the placeholder (ADR 167)', () => {
+      // DID Core v1.1 section 5.2: a method id is a DID URL or a relative DID URL.
+      // CID v1.0 section 2.1.4: a service id is a URL.
+      const methodApi = new DidMethodApi();
+      const relativeDocument = (key: Uint8Array): Record<string, any> => {
+        const doc = plain(methodApi.buildGenesisDocument({ network: 'regtest', verificationMethods: [{ publicKey: key }] }));
+        doc.verificationMethod[0].id = '#key-0';
+        for (const relationship of VERIFICATION_RELATIONSHIPS) doc[relationship] = ['#key-0'];
+        doc.service[0].id = '#service-0';
+        doc.service.push({ id: 'https://a.example/services#1', type: 'LinkedDomains', serviceEndpoint: 'https://a.example' });
+        return doc;
+      };
+
+      it('creates a DID from a document with a relative method id, a relative service id, and an https service id', () => {
+        const key = publicKey();
+        const doc = relativeDocument(key);
+        const { did, didDocument } = methodApi.createExternalFromDocument(doc, { network: 'regtest' });
+        // The resolver replaces only the placeholder, so each id stays as the document gives it.
+        expect(plain(didDocument).verificationMethod[0].id).to.equal('#key-0');
+        expect(plain(didDocument).service.map((service: { id: string }) => service.id)).to.deep.equal(['#service-0', 'https://a.example/services#1']);
+        // getBeacons gives the service id as the document gives it.
+        expect(methodApi.getBeacons(didDocument)).to.deep.equal([{
+          id      : '#service-0',
+          type    : 'SingletonBeacon',
+          address : addressOf(key, 'regtest', 'p2wpkh'),
+        }]);
+        const report = Identifier.validate(did, { genesisDocument: doc, genesisBytes: canonicalHashBytes(doc) });
+        expect(report.valid, JSON.stringify(report.checks)).to.equal(true);
+      });
+
+      it('signs an update of that DID with the relative method id', () => {
+        const kp = SchnorrKeyPair.generate();
+        const { did, didDocument } = methodApi.createExternalFromDocument(relativeDocument(kp.publicKey.compressed), { network: 'regtest' });
+        const source = { document: didDocument, versionId: 1 };
+        const patch = [{ op: 'add' as const, path: '/alsoKnownAs', value: ['https://b.example'] }];
+        const signed = methodApi.signUpdate(source, methodApi.constructUpdate(source, patch), '#key-0', new LocalSigner(kp.secretKey.bytes));
+        expect(signed.proof.verificationMethod).to.equal(`${did}#key-0`);
+      });
+
+      it('creates a DID from a document with a method id under another DID and an https method id', () => {
+        // Only the method that signs an update must have an id under the DID (ADR 147).
+        const doc = relativeDocument(publicKey());
+        const other = { ...doc.verificationMethod[0], controller: 'did:example:a' };
+        doc.verificationMethod.push({ ...other, id: 'did:example:a#key-1' }, { ...other, id: 'https://a.example/keys#1' });
+        const { didDocument } = methodApi.createExternalFromDocument(doc, { network: 'regtest' });
+        expect(plain(didDocument).verificationMethod.map((method: { id: string }) => method.id))
+          .to.deep.equal(['#key-0', 'did:example:a#key-1', 'https://a.example/keys#1']);
+      });
+
+      it('refuses a document whose only capabilityInvocation method has an id under another DID', () => {
+        const doc = relativeDocument(publicKey());
+        doc.verificationMethod[0].id = 'did:example:a#key-0';
+        for (const relationship of VERIFICATION_RELATIONSHIPS) doc[relationship] = ['did:example:a#key-0'];
+        expect(() => methodApi.createExternalFromDocument(doc, { network: 'regtest' }))
+          .to.throw(DidDocumentError, 'the DID document has no capabilityInvocation method that can sign an update')
+          .with.property('type', INVALID_DID_DOCUMENT);
+      });
+    });
+
     describe('refusals', () => {
       const methodApi = new DidMethodApi();
       const valid = (): Record<string, any> => plain(methodApi.buildGenesisDocument({
@@ -429,18 +496,12 @@ describe('genesis document builder', () => {
         expect(() => methodApi.createExternalFromDocument(partial)).to.throw(DidDocumentError, /"@context" must include/);
       });
 
-      it('refuses a verification method whose id does not carry the placeholder', () => {
+      it('refuses a service id that is not a URL', () => {
         const doc = valid();
-        doc.verificationMethod[0].id = '#key-0';
+        doc.service[0].id = 'not a url';
         expect(() => methodApi.createExternalFromDocument(doc))
-          .to.throw(DidDocumentError, 'Invalid GenesisDocument verificationMethod')
+          .to.throw(DidDocumentError, 'Invalid GenesisDocument service: service[0].id must be a relative DID URL')
           .with.property('type', INVALID_DID_DOCUMENT);
-      });
-
-      it('refuses a service that does not carry the placeholder', () => {
-        const doc = valid();
-        doc.service[0].id = '#service-0';
-        expect(() => methodApi.createExternalFromDocument(doc)).to.throw(DidDocumentError, /service/);
       });
 
       it('refuses a verification method whose type is not a string', () => {
