@@ -243,6 +243,13 @@ export class DidBtcr2Api {
    * the DID does not resolve. The document of a {@link SourceState} must also
    * come from a resolution with no expansion.
    *
+   * If the source is a DID, the facade also refuses `versionId` and
+   * `versionTime` in `options.resolutionOptions` before any I/O. The source of
+   * an update must be the current version of the DID, from a fresh
+   * resolution. An update on an earlier version has a `targetVersionId` that
+   * is too low. If the caller announces the update, each resolver can fail
+   * the DID with `LATE_PUBLISHING`. No later update can repair the DID.
+   *
    * A deactivated source document is refused before signing: resolution
    * halts at the deactivation, so no later update is ever applied. The facade
    * also refuses an update after which no `capabilityInvocation` method can
@@ -316,8 +323,9 @@ export class DidBtcr2Api {
    * state, the helper returns it. {@link DidBtcr2Api.updateDid} and
    * {@link DidBtcr2Api.deactivateDid} share this helper.
    *
-   * For a DID source, the helper refuses `expandRelativeUrls: true` before it
-   * resolves. It also refuses a resolved `versionId` that is less than the
+   * For a DID source, the helper refuses `expandRelativeUrls: true`,
+   * `versionId`, and `versionTime` before it resolves. It also refuses a
+   * resolved `versionId` that is less than the
    * highest `targetVersionId` of the sidecar updates of the DID. A sidecar
    * update names its DID in `proof.invocationTarget`. A state source skips
    * these checks: the caller is responsible for its document and `versionId`.
@@ -346,6 +354,17 @@ export class DidBtcr2Api {
         'The source resolution of an update cannot use `expandRelativeUrls: true`: the '
         + '`sourceHash` must be the hash of the document with no expansion.',
         INVALID_OPTIONS, { expandRelativeUrls: true }
+      );
+    }
+    // The source must be the current version of the DID, from a fresh resolution. An
+    // update on an earlier version has a `targetVersionId` that is too low, so each
+    // resolver can fail the DID with LATE_PUBLISHING.
+    if (resolutionOptions?.versionId !== undefined || resolutionOptions?.versionTime !== undefined) {
+      throw new UpdateError(
+        'The source resolution of an update cannot use `versionId` or `versionTime`: the '
+        + 'source must be the current version of the DID, from a fresh resolution.',
+        INVALID_OPTIONS,
+        { versionId: resolutionOptions.versionId, versionTime: resolutionOptions.versionTime }
       );
     }
     const resolution = await this.resolveDid(did, resolutionOptions);
