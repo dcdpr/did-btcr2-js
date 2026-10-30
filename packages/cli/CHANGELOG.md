@@ -1,5 +1,31 @@
 # @did-btcr2/cli
 
+## 0.29.12
+
+### Patch Changes
+
+- The create path accepts a verification method id or a service id without the placeholder (ADR 167).
+
+  - method: `validateGenesis('producer')` and `GenesisDocument.create` no longer require the placeholder `did:btcr2:_` in each verification method `id` and each service `id`. The DID Core rules of a producer stay. Before, they refused such an `id` with `Invalid GenesisDocument <member>: <member>[<index>].id must contain "did:btcr2:_"`.
+  - api: `btcr2.createExternalFromDocument` accepts a genesis document with an id without the placeholder, for example `#key-0`. `btcr2.buildGenesisDocument` keeps a service `id` that is not a fragment as given, for example `https://a.example/services#1`. The rules of a producer then check the syntax of that `id`. The browser bundle holds the method package.
+  - cli: the `create` and `genesis` docs; dependency uptake through api.
+
+- `BTCR2MerkleTree` refuses a nonce that is not 256 bits, and the SMT proof verifier accepts a nonce of any length (ADR 166).
+
+  - smt: Breaking: `BTCR2MerkleTree.addEntries` refuses a `nonce` that is not 32 bytes, also a longer `nonce`, with a `RangeError`. The message is `Invalid nonce: expected 32 bytes, got <n>`. An entry without a `nonce` does not change. `leafValue`, `verifyProof`, `verifySerializedProof`, `deserializeProof`, and `serializeProof` accept a `nonce` of any length, as before.
+  - api: Breaking: `SmtApi.build` refuses an entry `nonce` that decodes to a length other than 32 bytes, also `''`, with the same `RangeError`. The browser bundle holds the smt package.
+  - method: the JSDoc of `SMTProof` and `SMTProof.nonce`; dependency uptake. The browser bundle holds the smt package.
+  - aggregation: dependency uptake. The browser bundle holds the smt package.
+  - cli: dependency uptake.
+
+- The api refuses `versionId` and `versionTime` in the source resolution of an update (ADR 165).
+
+  - api: Breaking: `updateDid` and `deactivateDid` refuse `versionId` and `versionTime` in `options.resolutionOptions` for a DID source, with an `UpdateError` of type `INVALID_OPTIONS`, before any I/O. The api refuses each value that is not `undefined`, also `''` and `null`. The data is `{ versionId, versionTime }`. The message is `` The source resolution of an update cannot use `versionId` or `versionTime`: the source must be the current version of the DID, from a fresh resolution. `` A state source does not change.
+  - cli: the `update` and `deactivate` docs; dependency uptake.
+
+- Updated dependencies []:
+  - @did-btcr2/api@0.38.0
+
 ## 0.29.11
 
 ### Patch Changes
