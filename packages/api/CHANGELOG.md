@@ -1,5 +1,73 @@
 # @did-btcr2/api
 
+## 0.37.0
+
+### Minor Changes
+
+- A beacon `serviceEndpoint` is a BIP321 URI, and the read path and the write path use one parse (ADR 161).
+
+  - method: Breaking: `BeaconUtils.parseBitcoinAddress` matches the scheme `bitcoin:` in any case. The address part is the text before the first `?`. It must be a base58 P2PKH or P2SH address, a bech32 segwit version 0 address, or a bech32m segwit address of version 1 to 16. A query key that starts with `req-`, in any case, makes the URI invalid. The parse returns a bech32 or bech32m address in lower case. A base58 address keeps its case. Each refusal is a `MethodError` of type `BEACON_SERVICE_ERROR`.
+  - method: Breaking: `BeaconUtils.isBeaconService` is `true` only if the parse of the `serviceEndpoint` gives a Bitcoin address. Thus the resolver finds no signals for a beacon whose `serviceEndpoint` gives no Bitcoin address, and the resolution continues.
+  - method: Breaking: `NeedFunding.beaconAddress` and the beacon transaction use the address part of the URI, not the `serviceEndpoint` with the scheme removed.
+  - method: Breaking: `DidBtcr2.update` refuses a `beaconId` that names a service that is not a beacon, or a beacon whose `serviceEndpoint` gives no Bitcoin address. The refusal is an `UpdateError` of type `INVALID_DID_UPDATE`.
+  - method: Breaking: the change removes `BeaconUtils.parseBeaconServiceEndpoint`.
+  - api: Breaking: `update` refuses such a `beaconId` before any I/O and before any CAS publication. `getBeacons` gives a beacon with a `BITCOIN:` scheme, and omits a beacon whose `serviceEndpoint` gives no Bitcoin address. `buildGenesisDocument` takes a beacon `address` as a Bitcoin address or a BIP321 URI, and writes a bech32 address in lower case. A builder refusal is a `DidDocumentError` of type `INVALID_DID_DOCUMENT`. The browser bundle holds the method package.
+  - cli: the `update` and `genesis` docs; dependency uptake.
+
+- Each input fault of identifier encoding and decoding gives `INVALID_DID`, and the api leaves the identifier input checks to the method (ADR 163).
+
+  - method: Breaking: `Identifier.encode` refuses an `idType` other than `KEY` or `EXTERNAL`, also a name that an object inherits, for example `toString`. It refuses `genesisBytes` that are not a `Uint8Array`, for example a hex string or a plain array of numbers. It refuses `undefined` and `null` options. Each refusal is an `IdentifierError` of type `INVALID_DID`. The message for a wrong length holds the length, for example `got 32 bytes`.
+  - method: Breaking: `DidBtcr2.create` takes `options` as a required parameter and delegates to `Identifier.encode`. A call with no `idType` gives an `IdentifierError` of type `INVALID_DID`, not a `MethodError` of type `INVALID_DID_DOCUMENT`.
+  - method: Breaking: the type of `IdentifierComponents.network`, `DidComponents.network`, and `IdentifierReport.network` is `keyof typeof BitcoinNetworkNames`, not `string`.
+  - method: if `Identifier.decode` refuses the genesis bytes, the message holds no bytes.
+  - api: Breaking: `did.encode`, `did.decode`, `btcr2.createDeterministic`, `btcr2.createExternal`, `createDid`, and `btcr2.getInitialDocument` give the `IdentifierError` of the method, not a plain `Error`. `did.validate` returns a report for a value that is not a string. `did.decode` and `did.validate` declare `network` as a name of `BitcoinNetworkNames`. `updateDid('')` and `deactivateDid('')` reject with `Failed to resolve DID` and a cause of type `INVALID_DID`. The browser bundle holds the method package.
+  - cli: dependency uptake.
+
+- A relative DID URL resolves against the DID by RFC 3986, section 5, and the resolver expands relative DID URLs on request (ADR 162).
+
+  - method: Breaking: `Appendix.absoluteDidUrl` resolves each form of a relative DID URL: `#key-1`, `?v=1#key-1`, `/keys#key-1`, `keys#key-1`, and a path with dot segments. `""` gives the DID. A value with a scheme and a value that starts with `//` stay unchanged. A `did` that is not a string gives `undefined`. `relationshipMethodId`, `capabilityInvocationEntry`, and `verificationMethodOfEntry` use the new result.
+  - method: Breaking: `DidBtcr2.update`, `DidBtcr2.getSigningMethod`, `Updater.signingMethod`, and `Updater.sign` accept a relative id in each form, for example `?key=1` and `/keys/1`. The message for an id that does not resolve to a DID URL is now `Invalid verificationMethodId: expected a DID URL, or a relative DID URL that resolves to a DID URL; got "<id>".` The error type does not change.
+  - method: Breaking: the resolver applies an update whose `capabilityInvocation` entry is a relative query or path form. The DID document check refuses two services whose ids give one absolute DID URL, for example `?s` and `<did>?s`. On the write path and the create path, it also refuses two method ids that give one absolute DID URL, for example `k` and `/k`. It refuses two references of one relationship in the same way.
+  - method: Breaking: `expandRelativeUrls: true` no longer gives `FEATURE_NOT_SUPPORTED`. The result `didDocument` is a copy with absolute DID URLs. A value with a scheme and a value that starts with `//` stay unchanged. A value of `expandRelativeUrls` that is not a boolean gives `INVALID_OPTIONS`.
+  - api: Breaking: `resolveDid` and `tryResolveDid` accept `expandRelativeUrls: true`. `updateDid` and `deactivateDid` refuse `expandRelativeUrls: true` in `options.resolutionOptions` with an `UpdateError` of type `INVALID_OPTIONS`, before any I/O. The message check does not resolve the `controller` of a method before it compares it with the DID. The browser bundle holds the method package.
+  - cli: the `resolve`, `update`, `deactivate`, and `message` docs; dependency uptake.
+
+- Three packages get new names (ADR 159).
+
+  - std: the first version of `@did-btcr2/std`. It holds the code of `@did-btcr2/common` 11.0.0 with no change. The history of `@did-btcr2/common` is at https://github.com/dcdpr/did-btcr2-js/blob/9c260b13/packages/common/CHANGELOG.md.
+  - integrity: the first version of `@did-btcr2/integrity`. It holds the code of `@did-btcr2/cryptosuite` 11.0.0 with no change. The history is at https://github.com/dcdpr/did-btcr2-js/blob/9c260b13/packages/cryptosuite/CHANGELOG.md.
+  - keys: the first version of `@did-btcr2/keys`. It holds the code of `@did-btcr2/keypair` 0.13.3 with no change. The history is at https://github.com/dcdpr/did-btcr2-js/blob/9c260b13/packages/keypair/CHANGELOG.md.
+  - bitcoin, key-manager, method, aggregation, api: Breaking: each package uses the new packages in place of the old packages (bitcoin uses only std). A class of an old package is not the class of the new package: `instanceof` gives `false`. TypeScript also refuses a key class of `@did-btcr2/keypair` and a `SchnorrMultikey` of `@did-btcr2/cryptosuite` in place of the new class (TS2322). Import each class and each type from the new package.
+  - cli: dependency uptake.
+
+- The resolver checks the hash of provided data first, and a `targetVersionId` that is not an integer fails when the resolver builds the tuple (ADR 160).
+
+  - method: Breaking: `Resolver.provide` checks the hash of a signed update or a CAS Announcement first, then that the value is a JSON object. It checks no field. A wrong hash gives `INVALID_SIGNAL_DATA` (update) or `MISSING_UPDATE_DATA` (announcement) for each shape. A value with the right hash that is not a JSON object gives `MISSING_UPDATE_DATA`.
+  - method: Breaking: `Resolver.sidecarData` leaves out an update or a CAS Announcement that is not a JSON object.
+  - method: Breaking: an update with a `targetVersionId` that is not an integer fails with `INVALID_DID_UPDATE` (`Invalid update: targetVersionId is not an integer`) on each channel, also after a deactivation. The `confirmDuplicate` message is now `Invalid duplicate: targetVersionId is less than 2`.
+  - method: Breaking: the resolver reads only the entry of the DID in a CAS Announcement on each channel. An entry of another DID has no effect.
+  - method: Breaking: each `genesisDocument` value other than `undefined` is a provided value, also `null`. `provide(NeedGenesisDocument)` does not throw. `Resolver.external` refuses a genesis document that is not a JSON object with `INVALID_DID_DOCUMENT`.
+  - api: Breaking: `resolveDid` and `tryResolveDid` give the results of the method changes. A CAS Announcement from the CAS with an entry of another DID that is not a string resolves. The browser bundle holds the method package.
+  - cli: the `resolve` docs; dependency uptake.
+
+- The resolver checks the JSON type of four sidecar members, and the data of a CAS read that fails is not available (ADR 164).
+
+  - method: Breaking: `DidBtcr2.resolve` and `Resolver.sidecarData` refuse a sidecar member of the wrong JSON type with a `ResolveError` of type `INVALID_OPTIONS`. `updates`, `casUpdates`, and `smtProofs` must be arrays, and `@context` must be a string. A value of another JSON type, also `null`, fails. The check does not read `genesisDocument`, an item of an array, or a member with another name.
+  - api: Breaking: `CasApi.retrieve` gives a `ResolveError` of type `MISSING_UPDATE_DATA` for a read that times out and for an executor that throws or rejects. The message is `CAS content for <hash> cannot be retrieved: <cause>`. For an object cause that is not an `Error`, the message ends at `retrieved.` The `data.cause` member holds the original error. Thus `tryResolveDid` gives `NOT_FOUND` for the genesis document and `MISSING_UPDATE_DATA` for other data, not `INTERNAL_ERROR`.
+  - api: Breaking: `CasApi.retrieve` refuses bytes that are not UTF-8 as content that is not JSON (`MISSING_UPDATE_DATA`). The browser bundle holds the method package.
+  - cli: for an identifier with a record, `-r` and `-p` values of the wrong type go to the api as they are. The api refuses them with `INVALID_OPTIONS`. Before, some of these values threw a `TypeError` or resolved. `--min-conf` and `--genesis-document` do not change options or a `sidecar` that are not an object. A `genesisDocument` of `null` in the flags wins over the genesis document of the record. `identifier add --sidecar` keeps an entry that is not an object, by its JSON text.
+  - cli: the `resolve`, `config-file`, and `DEMO` docs; dependency uptake.
+
+### Patch Changes
+
+- Updated dependencies []:
+  - @did-btcr2/method@0.75.0
+  - @did-btcr2/std@0.1.0
+  - @did-btcr2/integrity@0.1.0
+  - @did-btcr2/keys@0.1.0
+  - @did-btcr2/bitcoin@0.12.0
+  - @did-btcr2/key-manager@0.8.0
+
 ## 0.36.0
 
 ### Minor Changes
