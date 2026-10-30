@@ -129,7 +129,8 @@ export interface ResolutionOptions {
  *
  * All fields are "base64url" [RFC4648] encoded without padding. `id`, `updateId`,
  * `collapsed`, and the entries of `hashes` decode to 32 bytes (43 chars each).
- * `nonce` has any length. The presence of `nonce` and `updateId` selects the leaf
+ * A `nonce` is 256 bits (43 chars), but the SMT Proof Verification algorithm accepts
+ * a `nonce` of any length. The presence of `nonce` and `updateId` selects the leaf
  * value that the SMT Proof Verification algorithm walks from:
  * `hash(hash(nonce) + updateId)`, `hash(hash(nonce))`, `updateId`, or the value of
  * an empty leaf.
@@ -156,9 +157,10 @@ export interface SMTProof {
    */
   id: string;
   /**
-   * Optional nonce, one for each index in each Beacon Signal, of any length.
-   * base64url, no padding. Without the nonce that the DID controller used, the
-   * proof of that signal cannot be verified. Absent in no-nonce mode.
+   * Optional 256-bit nonce, one for each index in each Beacon Signal. The SMT Proof
+   * Verification algorithm accepts a nonce of any length. base64url, no padding.
+   * Without the nonce that the DID controller used, a verifier cannot verify the
+   * proof of that signal. The nonce is absent in no-nonce mode.
    */
   nonce?: string;
   /**

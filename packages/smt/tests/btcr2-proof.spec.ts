@@ -8,9 +8,11 @@ import {
   BTCR2MerkleTree,
   CACHED_ZERO,
   deserializeProof,
+  didToIndex,
   generateZeroHashProof,
   HASH_BYTE_LENGTH,
   hashToBase64Url, hashToBigInt,
+  leafValue,
   serializeProof,
   verifyProof,
   verifySerializedProof,
@@ -263,6 +265,16 @@ describe('btcr2-proof (zero-hash)', () => {
 
     it('returns false for another DID', () => {
       expect(verifyProof(memberProof(), OTHER)).to.be.false;
+    });
+
+    it('returns true for the proof of a member with a 16-byte nonce', () => {
+      const nonce = randomBytes(16);
+      const updateId = randomHash();
+      const index = didToIndex(DID);
+      const entries = [{ index, leaf: leafValue(nonce, updateId) }];
+      const root = zeroHashRoot(entries);
+      const proof = serializeProof(root, generateZeroHashProof(entries, index), { nonce, updateId });
+      expect(verifyProof(proof, DID)).to.be.true;
     });
 
     it('returns false for a tampered nonce', () => {

@@ -61,7 +61,7 @@ const proof = tree.proof('did:btcr2:k1qexample1');
 // SerializedSMTProof: { id, nonce?, updateId?, collapsed, hashes }: all base64url, no padding
 ```
 
-`addEntries()` may be called multiple times before `finalize()`. Adding two DIDs that collide on the same index throws. An entry with neither `nonce` nor `updateId` records the DID and adds no leaf: the index stays empty. `proof(did)` serves a member of the tree or not: a DID with no leaf gets the proof of an empty index. Call `reset()` to drop the computed root/proofs while keeping the entries.
+You can call `addEntries()` multiple times before `finalize()`. `addEntries()` refuses two DIDs with the same index. `addEntries()` refuses a `nonce` or an `updateId` that is not 32 bytes with a `RangeError`. An entry with neither `nonce` nor `updateId` records the DID and adds no leaf: the index stays empty. `proof(did)` serves a member of the tree or not: a DID with no leaf gets the proof of an empty index. `reset()` drops the computed root and proofs, and keeps the entries.
 
 ## Verifying a proof
 
@@ -92,7 +92,7 @@ Serialized proofs follow the did:btcr2 [SMT Proof data structure](https://dcdpr.
 ```
 
 - `id` is the SMT root (what the beacon transaction commits to).
-- `nonce` and `updateId` are optional. Their presence selects the leaf value. `updateId` is the JSON Document Hash of the signed update (32 bytes). `nonce` has any length.
+- `nonce` and `updateId` are optional. Their presence selects the leaf value. `updateId` is the JSON Document Hash of the signed update (32 bytes). `nonce` is 256 bits (32 bytes): `addEntries()` refuses another length. `verifyProof` accepts a `nonce` of any length, as the SMT appendix of the specification says.
 - In `collapsed`, bit `i` set means the sibling at tree level `i` is empty (the verifier substitutes the precomputed `cachedZero[255 - i]`); bit `i` clear means the next entry in `hashes` is the sibling at that level. Bit `i` is `bitAt(i)` of the decoded value, counted from the left: bit `0` is the most significant bit of the first byte, the root level; bit `255` is the least significant bit of the last byte, the leaf level. The number of entries in `hashes` plus the number of set bits in `collapsed` is `256`. The bit must be set at each level where the sibling is empty: an entry of `hashes` that is equal to the cached zero of its level makes the proof invalid.
 - `serializeProof` writes the properties in the order of the data structure: `id`, `nonce`, `updateId`, `collapsed`, `hashes`.
 
@@ -131,7 +131,7 @@ const wire = serializeProof(root, proof, { nonce: nonce1, updateId });
 | Export | Description |
 |---|---|
 | `BTCR2MerkleTree` | High-level aggregate-beacon tree. Lifecycle: `addEntries()` to `finalize()` to `proof(did)`. |
-| `TreeEntry` | Entry shape: `{ did, nonce?, updateId? }`. The presence of `nonce` and `updateId` selects the leaf value. |
+| `TreeEntry` | Entry shape: `{ did, nonce?, updateId? }`. The presence of `nonce` and `updateId` selects the leaf value. Each is 32 bytes. |
 | `SerializedSMTProof` | Wire proof: `{ id, nonce?, updateId?, collapsed, hashes }`, all base64url no-pad. |
 | `didToIndex(did)` | Leaf index: `bigint(SHA-256(did))`, big-endian. The most significant bit selects the child of the root. |
 | `leafValue(nonce?, updateId?)` | The four leaf values: `SHA-256(SHA-256(nonce) \|\| updateId)`, `SHA-256(SHA-256(nonce))`, `updateId`, or `cachedZero[0]`. |

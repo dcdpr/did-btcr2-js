@@ -3,13 +3,19 @@ import { serializeProof, type SerializedSMTProof } from './btcr2-proof.js';
 import { validateHash } from './hash.js';
 import { generateZeroHashProof, zeroHashRoot, type ZeroHashEntry } from './zero-hash.js';
 
+/** The length of a `nonce` in bytes: the SMT Proof data structure gives a 256-bit nonce. */
+const NONCE_BYTE_LENGTH = 32;
+
 /**
  * A single entry in a {@link BTCR2MerkleTree}.
  */
 export interface TreeEntry {
   /** The DID string. The tree index is `hash(did)`. */
   did: string;
-  /** The nonce of this index in this signal, any length. Absent = no-nonce mode. */
+  /**
+   * The 32-byte (256-bit) nonce of this index in this signal. Absent = no-nonce mode.
+   * `verifyProof` accepts a nonce of any length, but the tree refuses another length.
+   */
   nonce?: Uint8Array;
   /** The 32-byte JSON Document Hash of the signed BTCR2 update. Absent = no update. */
   updateId?: Uint8Array;
@@ -37,10 +43,13 @@ export class BTCR2MerkleTree {
   /**
    * Add entries to the tree. May be called multiple times before
    * {@link finalize}. Duplicate DIDs (same index) throw.
-   * @throws {RangeError} for a duplicate DID, or for an `updateId` that is not 32 bytes.
+   * @throws {RangeError} for a duplicate DID, or for a `nonce` or an `updateId` that is not 32 bytes.
    */
   addEntries(entries: TreeEntry[]): void {
     for (const entry of entries) {
+      if (entry.nonce !== undefined && entry.nonce.length !== NONCE_BYTE_LENGTH) {
+        throw new RangeError(`Invalid nonce: expected ${NONCE_BYTE_LENGTH} bytes, got ${entry.nonce.length}`);
+      }
       if (entry.updateId !== undefined) validateHash(entry.updateId);
       const index = didToIndex(entry.did);
       if (this.#entries.has(index)) {
