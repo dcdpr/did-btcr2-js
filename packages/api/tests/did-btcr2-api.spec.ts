@@ -675,11 +675,13 @@ describe('DidBtcr2Api', () => {
     });
   });
 
-  describe('expandRelativeUrls in the source resolution of updateDid() and deactivateDid()', () => {
+  describe('refused options in the source resolution of updateDid() and deactivateDid()', () => {
     const patch = [{ op: 'add' as const, path: '/test', value: 'x' }];
     const ids = { verificationMethodId: '#initialKey', announce: { beaconId: '#beacon-0' } };
     const refusal = 'The source resolution of an update cannot use `expandRelativeUrls: true`: the '
       + '`sourceHash` must be the hash of the document with no expansion.';
+    const versionRefusal = 'The source resolution of an update cannot use `versionId` or `versionTime`: the '
+      + 'source must be the current version of the DID, from a fresh resolution.';
 
     /**
      * An api that records its Bitcoin requests, its resolve calls, and its calls of the write
@@ -746,6 +748,56 @@ describe('DidBtcr2Api', () => {
         await run(api, source, { expandRelativeUrls: true });
 
         // The facade does not resolve a state source, so the write gets the state as it is.
+        expect(resolved).to.have.length(0);
+        expect(written).to.have.length(1);
+        expect(written[0][0]).to.equal(source);
+      });
+
+      const versionCases: Array<[string, ResolutionOptions]> = [
+        ['versionId', { versionId: '1' }],
+        ['versionTime', { versionTime: '2026-01-01T00:00:00Z' }],
+        ['versionId and versionTime', { versionId: '2', versionTime: '2026-01-01T00:00:00Z' }],
+        // A value that is not undefined is present, also an empty string.
+        ['an empty versionId', { versionId: '' }],
+        ['a null versionId', { versionId: null } as unknown as ResolutionOptions],
+      ];
+      for (const [name, resolutionOptions] of versionCases) {
+        it(`${write}Did() refuses ${name} for a DID source before any I/O`, async () => {
+          const { api, did, urls, resolved, written } = recordingApi(write);
+
+          const err: unknown = await run(api, did, { ...resolutionOptions, minConf: 1 }).catch((e: unknown) => e);
+
+          expect(err).to.be.instanceOf(UpdateError);
+          expect((err as UpdateError).type).to.equal(INVALID_OPTIONS);
+          expect((err as UpdateError).message).to.equal(versionRefusal);
+          expect((err as UpdateError).data).to.deep.equal({
+            versionId   : resolutionOptions.versionId,
+            versionTime : resolutionOptions.versionTime,
+          });
+          expect(resolved).to.have.length(0);
+          expect(written).to.have.length(0);
+          expect(urls).to.have.length(0);
+        });
+      }
+
+      it(`${write}Did() resolves a DID source with versionId and versionTime undefined`, async () => {
+        const { api, did, resolved, written } = recordingApi(write);
+        const resolutionOptions: ResolutionOptions = { versionId: undefined, versionTime: undefined, minConf: 1 };
+
+        await run(api, did, resolutionOptions);
+
+        expect(resolved).to.deep.equal([[did, resolutionOptions]]);
+        expect(written).to.have.length(1);
+        expect(written[0][0]).to.deep.equal({ document: { id: did, verificationMethod: [], service: [] }, versionId: 1 });
+      });
+
+      it(`${write}Did() ignores versionId and versionTime for a state source`, async () => {
+        const { api, resolved, written } = recordingApi(write);
+        const source = { document: { id: 'did:btcr2:test', verificationMethod: [], service: [] } as any, versionId: 1 };
+
+        await run(api, source, { versionId: '1', versionTime: '2026-01-01T00:00:00Z' });
+
+        // The caller is responsible for the document and the versionId of a state source.
         expect(resolved).to.have.length(0);
         expect(written).to.have.length(1);
         expect(written[0][0]).to.equal(source);

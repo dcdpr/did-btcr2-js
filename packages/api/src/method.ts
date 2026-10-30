@@ -161,7 +161,8 @@ export interface DidUpdateOptions extends UpdateOptions {
   /**
    * Options of the resolution of the source. They apply only if the source is
    * a DID. Supply sidecar data here if no party published the prior updates
-   * of the DID to a CAS. Leave `versionId` and `versionTime` unset.
+   * of the DID to a CAS. The facade refuses `versionId`, `versionTime`, and
+   * `expandRelativeUrls: true` here.
    */
   resolutionOptions?: ResolutionOptions;
 }
