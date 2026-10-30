@@ -17,8 +17,6 @@ export type DocumentChange = (document: Record<string, any>) => void;
 export interface AcceptCase {
   label: string;
   change: DocumentChange;
-  /** True if the change adds an id with no placeholder. The create path refuses it (ADR 108). */
-  placeholderFree?: true;
 }
 
 /** A change that breaks one rule: `member` and `message` are the parts of the error text. */
@@ -78,8 +76,9 @@ export const ACCEPT_CASES: Array<AcceptCase> = [
   { label: 'verificationMethod: an empty set', change: d => { d.verificationMethod = []; } },
   { label: 'verificationMethod: two methods', change: d => { d.verificationMethod.push({ ...d.verificationMethod[0], id: `${d.id}#key-2` }); } },
   { label: 'verificationMethod: a method with another DID as its controller', change: d => { d.verificationMethod.push(method2(d, { controller: 'did:example:a' })); } },
-  { label: 'verificationMethod: a method with a relative id', change: d => { d.verificationMethod.push({ ...method2(d, {}), id: '#key-2' }); }, placeholderFree: true },
-  { label: 'verificationMethod: a method with an https id', change: d => { d.verificationMethod.push({ ...method2(d, {}), id: 'https://a.example/keys#1' }); }, placeholderFree: true },
+  { label: 'verificationMethod: a method with a relative id', change: d => { d.verificationMethod.push({ ...method2(d, {}), id: '#key-2' }); } },
+  { label: 'verificationMethod: a method with an https id', change: d => { d.verificationMethod.push({ ...method2(d, {}), id: 'https://a.example/keys#1' }); } },
+  { label: 'verificationMethod: a method with an id under another DID', change: d => { d.verificationMethod.push({ ...method2(d, {}), id: 'did:example:a#key-2' }); } },
   { label: 'keyAgreement: one reference', change: d => { d.keyAgreement = [d.authentication[0]]; } },
   { label: 'authentication: a reference and an embedded method', change: d => { d.authentication.push({ ...d.verificationMethod[0], id: `${d.id}#key-2` }); } },
   { label: 'assertionMethod: two references to two methods', change: d => { d.assertionMethod.push(`${d.id}#key-2`); } },
@@ -90,7 +89,7 @@ export const ACCEPT_CASES: Array<AcceptCase> = [
   { label: 'serviceEndpoint: a map', change: d => { d.service.push({ ...linkedDomains(`${d.id}#links`), serviceEndpoint: { origins: ['https://a.example'] } }); } },
   { label: 'serviceEndpoint: a set of a string and a map', change: d => { d.service.push({ ...linkedDomains(`${d.id}#links`), serviceEndpoint: ['https://a.example', { x: 1 }] }); } },
   { label: 'service: two services with two ids', change: d => { d.service.push(linkedDomains(`${d.id}#links`)); } },
-  { label: 'service: a service with a relative id', change: d => { d.service.push(linkedDomains('#links')); }, placeholderFree: true },
+  { label: 'service: a service with a relative id', change: d => { d.service.push(linkedDomains('#links')); } },
   { label: 'a member that DID Core does not define', change: d => { d.extension = { x: 1 }; } },
   { label: 'publicKeyJwk: a public JSON Web Key', change: d => { d.verificationMethod.push(method2(d, { type: 'JsonWebKey', publicKeyJwk: PUBLIC_JWK })); } },
   { label: 'publicKeyMultibase: a "u" value', change: d => { d.verificationMethod.push(method2(d, { publicKeyMultibase: 'uAQID-_' })); } },

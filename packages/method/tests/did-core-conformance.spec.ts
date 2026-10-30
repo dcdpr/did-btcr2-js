@@ -222,13 +222,13 @@ describe('DID Core v1.1 member rules', () => {
   });
 
   describe('Genesis Document: the create path and the read path of an EXTERNAL DID', () => {
-    for(const { label, change, placeholderFree } of ACCEPT_CASES) {
+    for(const { label, change } of ACCEPT_CASES) {
       it(`accepts ${label}`, () => {
         const genesis = genesisDocument(change);
         const document = GenesisDocument.fromJSON(genesis);
         expect(document.toJSON()).to.deep.equal(genesis);
-        // The create path refuses an id with no placeholder (ADR 108).
-        if(!placeholderFree) expect(document.validateGenesis('producer')).to.equal(true);
+        // The create path also accepts an id without the placeholder (ADR 167).
+        expect(document.validateGenesis('producer')).to.equal(true);
         // With a beacon, the resolver next asks for the signals. Without one, it resolves.
         const state = DidBtcr2.resolve(didOf(genesis), { sidecar: { genesisDocument: genesis } }).resolve();
         expect(state.status).to.be.oneOf(['action-required', 'resolved']);
@@ -265,20 +265,22 @@ describe('DID Core v1.1 member rules', () => {
       });
     }
 
-    it('checks the members before the placeholder in each id on the create path', () => {
-      const genesis = genesisDocument(d => {
-        d.verificationMethod[0].id = 'did:example:a#key-0';
-        d.service[0].id = 'did:example:a#service-0';
-      });
-      const create = (): unknown => GenesisDocument.fromJSON(genesis).validateGenesis('producer');
-      const placeholder = thrownBy(create, 'placeholder');
-      expect(placeholder.message).to.equal('Invalid GenesisDocument verificationMethod: verificationMethod[0].id must contain "did:btcr2:_"');
-      genesis.verificationMethod[0].id = 'did:btcr2:_#key-0';
-      const service = thrownBy(create, 'service placeholder');
-      expect(service.message).to.equal('Invalid GenesisDocument service: service[0].id must contain "did:btcr2:_"');
-      genesis.service[0].type = 42;
-      const member = thrownBy(create, 'member rule');
-      expect(member.message).to.equal('Invalid GenesisDocument service: service[0].type must be a string or an array of strings');
+    it('accepts a method id and a service id without the placeholder on the create path', () => {
+      // DID Core v1.1 section 5.2: a method id is a DID URL or a relative DID URL. CID v1.0
+      // section 2.1.4: a service id is a URL. Neither text requires the placeholder (ADR 167).
+      const ids: Array<[string, string]> = [
+        ['#key-0', '#service-0'],
+        ['did:example:a#key-0', 'did:example:a#service-0'],
+        ['did:btcr2:_#key-0', 'https://a.example/services#0'],
+      ];
+      for(const [methodId, serviceId] of ids) {
+        const genesis = genesisDocument(d => {
+          d.verificationMethod[0].id = methodId;
+          d.service[0].id = serviceId;
+        });
+        expect(GenesisDocument.fromJSON(genesis).validateGenesis('producer'), methodId).to.equal(true);
+        expect(GenesisDocument.fromJSON(genesis).validateGenesis('consumer'), methodId).to.equal(true);
+      }
     });
 
     it('GenesisDocument.create checks the rules of a producer', () => {
@@ -296,12 +298,8 @@ describe('DID Core v1.1 member rules', () => {
 
     it('the check command uses the rules of the resolver', () => {
       // The resolver checks the document after it replaces each placeholder with the DID, as
-      // a consumer. Thus an id with no placeholder and each producer rule pass.
-      const changes: Array<[string, (d: Record<string, any>) => void]> = [
-        ['an id with no placeholder', d => { d.service.push({ id: 'https://a.example/#links', type: 'LinkedDomains', serviceEndpoint: 'https://a.example' }); }],
-        ...PRODUCER_REFUSAL_CASES.map(({ label, change }) => [label, change] as [string, (d: Record<string, any>) => void]),
-      ];
-      for(const [label, change] of changes) {
+      // a consumer. Thus the check accepts a document that breaks only a rule of a producer.
+      for(const { label, change } of PRODUCER_REFUSAL_CASES) {
         const genesis = genesisDocument(change);
         const report = Identifier.validate(didOf(genesis), { genesisDocument: genesis });
         expect(report.valid, label).to.equal(true);

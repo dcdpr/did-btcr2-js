@@ -134,18 +134,20 @@ export interface GenesisDocumentSpec {
    */
   beacons?: GenesisBeaconSpec[];
   /**
-   * Other services. The `id` is a fragment (`#name`) or a full id that contains
-   * the placeholder `did:btcr2:_`. A beacon type is refused here; use `beacons`.
+   * Other services. The builder gives a fragment `id` (`#name`) the placeholder
+   * prefix `did:btcr2:_`. It keeps another `id` as given. The rules of a
+   * producer then check the syntax of that `id`. The builder refuses a beacon
+   * type here: use `beacons`.
    */
   services?: DidService[];
 }
 
 /**
- * Builds a Genesis Document: a DID document with the placeholder id
- * `did:btcr2:_` in every id and controller, one Multikey verification method
- * per key, the verification relationships, one beacon service per beacon, and
- * the other services. The result hashes to the genesis bytes of an EXTERNAL
- * identifier.
+ * Builds a Genesis Document. The document has the id `did:btcr2:_`, one
+ * Multikey verification method per key, and the verification relationships.
+ * It also has one beacon service per beacon and the other services. Each id
+ * that the builder makes and each controller contain the placeholder. The
+ * result hashes to the genesis bytes of an EXTERNAL identifier.
  *
  * The builder refuses a spec that cannot produce an updatable DID: the
  * specification requires at least one verification method with the
@@ -173,10 +175,11 @@ export function buildGenesisDocument(spec: GenesisDocumentSpec): Btcr2DidDocumen
 }
 
 /**
- * Checks that a genesis document has the shape the specification requires
- * before it is hashed: a JSON object with the id `did:btcr2:_`, the two
- * required contexts, and placeholder ids in every verification method and
- * service.
+ * Checks that a genesis document has the shape that the specification
+ * requires. The api runs this check before it hashes the document. The
+ * document must be a JSON object with the id `did:btcr2:_` and the two
+ * required contexts. Its members must follow the DID Core rules of a producer.
+ * A verification method id or a service id does not need the placeholder.
  * @param genesisDocument The document to check.
  * @throws {DidDocumentError} If the document is not a valid genesis document.
  */
@@ -199,9 +202,8 @@ export function assertGenesisDocument(genesisDocument: unknown): asserts genesis
     );
   }
   // The create path makes the document, so it runs the genesis checks of a
-  // producer: the DID Core member rules with the URL syntax, and the placeholder
-  // ids. A verification method needs a DID as its controller, and the controller
-  // can be another DID.
+  // producer: the DID Core member rules with the URL syntax. A verification
+  // method needs a DID as its controller, and the controller can be another DID.
   GenesisDocument.fromJSON(document).validateGenesis('producer');
 }
 
@@ -373,20 +375,16 @@ function buildServices(services: DidService[], firstIndex: number): BeaconServic
   });
 }
 
-/** Resolves a service id: a fragment gets the placeholder prefix, a full id must contain it. */
+/**
+ * Resolves a service id: a fragment gets the placeholder prefix, another id stays as given.
+ * The producer checks of {@link GenesisDocument.create} then check the syntax of the id.
+ */
 function serviceId(id: unknown, defaultFragment: string, label: string): string {
   if (id === undefined) return `${ID_PLACEHOLDER_VALUE}#${defaultFragment}`;
   if (typeof id !== 'string' || id.length === 0) {
     throw invalid(`${label}.id must be a non-empty string.`, { id });
   }
-  if (id.startsWith('#')) return `${ID_PLACEHOLDER_VALUE}${id}`;
-  if (!id.includes(ID_PLACEHOLDER_VALUE)) {
-    throw invalid(
-      `${label}.id "${id}" must be a fragment ("#name") or contain the placeholder "${ID_PLACEHOLDER_VALUE}".`,
-      { id },
-    );
-  }
-  return id;
+  return id.startsWith('#') ? `${ID_PLACEHOLDER_VALUE}${id}` : id;
 }
 
 /** Validates an optional fragment, else returns the default. */

@@ -336,11 +336,13 @@ export class DidDocument implements Btcr2DidDocument {
    * 2. "@context" is an array that contains the two btcr2 contexts.
    * 3. The members conform to DID Core v1.1, with the rules of {@link DidDocument.isValid}
    *    for the role. The message is `Invalid GenesisDocument <member>: <rule>`.
-   * 4. A `producer` only: each verification method id contains the placeholder.
-   * 5. A `producer` only: each service id contains the placeholder.
    *
    * The create path is a `producer`. A `consumer` uses the rules of the resolver, which
    * checks the document after it replaces each placeholder with the DID.
+   *
+   * A method id or a service id does not need the placeholder. DID Core v1.1 lets a method id
+   * be a relative DID URL, for example `#key-0`. CID v1.0 requires only that a service id is a
+   * URL.
    *
    * A method needs a DID as its controller, and the controller can be another DID. Only the
    * method that signs an update must have the DID as its controller.
@@ -358,17 +360,6 @@ export class DidDocument implements Btcr2DidDocument {
     const problem = didCoreProblem(this as unknown as Record<string, unknown>, role);
     if(problem) {
       throw new DidDocumentError(`Invalid GenesisDocument ${problem.member}: ${problem.message}`, INVALID_DID_DOCUMENT, this);
-    }
-    if(role === 'consumer') return true;
-    // Step 3 makes each id a string.
-    for(const member of ['verificationMethod', 'service'] as const) {
-      const index = (this[member] ?? []).findIndex(item => !item.id.includes(ID_PLACEHOLDER_VALUE));
-      if(index >= 0) {
-        throw new DidDocumentError(
-          `Invalid GenesisDocument ${member}: ${member}[${index}].id must contain "${ID_PLACEHOLDER_VALUE}"`,
-          INVALID_DID_DOCUMENT, this
-        );
-      }
     }
     return true;
   }
