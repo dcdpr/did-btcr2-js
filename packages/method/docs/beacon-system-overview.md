@@ -65,9 +65,9 @@ The beacon address is a Taproot output. Its internal key is the MuSig2 aggregate
 ```
 Coordinator                          Participant
     |                                    |
-    |<-- SUBMIT_UPDATE ----------------|  (cohortId, signedUpdate)
+    |<-- SUBMIT_UPDATE ----------------|  (cohortId, updateHash)
     |                                    |
-    |  cohort.addUpdate(from, update)    |
+    | cohort.addUpdate(from, updateHash) |
     |  (repeats for each participant)    |
     |                                    |
     |  When all collected:               |
@@ -75,9 +75,13 @@ Coordinator                          Participant
     |    or cohort.buildSMTTree()        |
 ```
 
-For CAS: `buildCASAnnouncement()` creates a `{ did -> canonicalHash(signedUpdate) }` map, then sets `signalBytes = hash(canonicalize(announcement))`.
+A participant sends only the `updateHash` of its update, not the update (ADR 168). The coordinator checks only that the `updateHash` is a string that decodes to exactly 32 bytes.
 
-For SMT: `buildSMTTree()` creates a `BTCR2MerkleTree` with one entry per participant `{ did, nonce, updateId }` (the `updateId` is the JSON Document Hash of the submitted update; a decliner has none), calls `tree.finalize()`, generates per-participant serialized proofs, and sets `signalBytes = tree.rootHash`.
+For CAS: the `updateHash` is the JSON Document Hash of the update. `buildCASAnnouncement()` makes a map of each DID to its `updateHash`, then sets `signalBytes = hash(canonicalize(announcement))`. A participant with no update sends `SUBMIT_NONINCLUDED` and is absent from the map.
+
+For SMT: the participant makes a 256-bit nonce for each round and keeps it. Its `updateHash` is the leaf value: `hash(hash(nonce) + updateId)` for an update, or `hash(hash(nonce))` for no update. The `updateId` is the JSON Document Hash of the update. Thus the coordinator does not get the nonce, and it cannot tell an update from no update.
+
+`buildSMTTree()` puts each `updateHash` at the index `hash(did)` of the sender, and sets `signalBytes` to the root. Each proof has `id`, `collapsed`, and `hashes`, but no `nonce` and no `updateId`. The index stays empty for a `SUBMIT_NONINCLUDED`, or for a value equal to `cachedZero[0]`.
 
 ### Phase 3 -- Validation
 
@@ -87,7 +91,7 @@ Coordinator                          Participant
     |--- DISTRIBUTE_DATA -------------->|  (beaconType, signalBytesHex, casAnnouncement/smtProof)
     |                                    |
     |                                    |  CAS: verify announcement[myDid] == hash(myUpdate)
-    |                                    |  SMT: verify Merkle proof includes myUpdate
+    |                                    |  SMT: add own nonce and updateId to the proof, then verify it
     |                                    |
     |<-- VALIDATION_ACK ----------------|  (approved: true/false)
     |                                    |

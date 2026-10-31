@@ -6,8 +6,10 @@ import type { CohortConditions } from '../conditions.js';
  * Receivers reject messages with an unknown (mismatched) version. Bumping this
  * requires coordinated updates across all participants and any intermediate
  * relays that inspect message content.
+ *
+ * Version 2: SUBMIT_UPDATE holds `updateHash`, not the full update (ADR 168).
  */
-export const AGGREGATION_WIRE_VERSION = 1;
+export const AGGREGATION_WIRE_VERSION = 2;
 
 // Cohort conditions (beaconType, minParticipants, maxParticipants, ...) ride on
 // the wire as flat optional body fields, supplied via `Partial<CohortConditions>`
@@ -41,7 +43,7 @@ export type BaseBody = Partial<CohortConditions> & {
    * record to keep the transport DID-method-agnostic.
    */
   genesisDocument?: Record<string, unknown>;
-  signedUpdate?: Record<string, unknown>;
+  updateHash?: string;
   casAnnouncement?: Record<string, string>;
   smtProof?: Record<string, unknown>;
   signalBytesHex?: string;

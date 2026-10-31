@@ -17,7 +17,11 @@ export interface CohortCompleteInfo {
   included: boolean;
   /** DID to base64url update hash. Populated only for CAS beacons. */
   casAnnouncement?: Record<string, string>;
-  /** Inclusion proof (submitter) or non-inclusion proof (decliner) for this slot. Populated only for SMT beacons. */
+  /**
+   * The SMT Proof of this slot, with the `nonce` of the member and, for an
+   * update, the `updateId`. Populated only for SMT beacons. The caller must
+   * persist it: only the participant knows the nonce.
+   */
   smtProof?: SerializedSMTProof;
 }
 
@@ -37,7 +41,7 @@ export type AggregationParticipantEvents = {
   /** Cohort keygen is complete: beacon address is now available. */
   'cohort-ready': [{ cohortId: string; beaconAddress: string }];
 
-  /** Participant has submitted their signed update. */
+  /** The participant sent the `updateHash` of its update. */
   'update-submitted': [{ cohortId: string }];
 
   /** Participant declined to submit an update this round (cooperative non-inclusion). */

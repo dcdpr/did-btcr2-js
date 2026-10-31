@@ -1,8 +1,19 @@
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from '@did-btcr2/method';
 import { SchnorrMultikey } from '@did-btcr2/integrity';
 import { SchnorrKeyPair } from '@did-btcr2/keys';
-import { base64UrlToHash, blockHash, didToIndex, verifySerializedProof } from '@did-btcr2/smt';
-import { hexToBytes } from '@noble/hashes/utils';
+import {
+  CACHED_ZERO,
+  base64UrlToHash,
+  blockHash,
+  didToIndex,
+  hashToBase64Url,
+  leafValue,
+  verifyProof,
+  verifySerializedProof,
+  zeroHashRoot,
+} from '@did-btcr2/smt';
+import { canonicalHash, canonicalHashBytes, encode } from '@did-btcr2/std';
+import { hexToBytes, randomBytes } from '@noble/hashes/utils';
 import { Script, Transaction } from '@scure/btc-signer';
 import { expect } from 'chai';
 import {
@@ -11,6 +22,7 @@ import {
   AggregationService,
   AGGREGATED_NONCE,
   AUTHORIZATION_REQUEST,
+  BaseMessage,
   COHORT_ADVERT,
   COHORT_OPT_IN,
   COHORT_OPT_IN_ACCEPT,
@@ -101,7 +113,7 @@ describe('Aggregate beacon cooperative non-inclusion', () => {
     it('hasAllResponses gates on updates + declines, not updates alone', () => {
       const { cohort, aliceDid, bobDid } = directCohort('CASBeacon');
       expect(cohort.hasAllResponses()).to.be.false;
-      cohort.addUpdate(aliceDid, createSignedUpdate(aliceDid, SchnorrKeyPair.generate()));
+      cohort.addUpdate(aliceDid, canonicalHash(createSignedUpdate(aliceDid, SchnorrKeyPair.generate())));
       expect(cohort.hasAllResponses()).to.be.false;
       cohort.addNonInclusion(bobDid);
       expect(cohort.hasAllResponses()).to.be.true;
@@ -111,40 +123,59 @@ describe('Aggregate beacon cooperative non-inclusion', () => {
     it('addNonInclusion rejects an unknown participant and a conflicting submitter', () => {
       const { cohort, aliceDid } = directCohort('CASBeacon');
       expect(() => cohort.addNonInclusion('did:btcr2:stranger')).to.throw(/UNKNOWN_PARTICIPANT|not in cohort/);
-      cohort.addUpdate(aliceDid, createSignedUpdate(aliceDid, SchnorrKeyPair.generate()));
+      cohort.addUpdate(aliceDid, canonicalHash(createSignedUpdate(aliceDid, SchnorrKeyPair.generate())));
       expect(() => cohort.addNonInclusion(aliceDid)).to.throw(/CONFLICTING_RESPONSE|already submitted/);
     });
 
     it('buildCASAnnouncement omits a decliner (absence is the non-inclusion signal)', () => {
       const { cohort, aliceDid, bobDid, alice } = directCohort('CASBeacon');
-      cohort.addUpdate(aliceDid, createSignedUpdate(aliceDid, alice));
+      const updateHash = canonicalHash(createSignedUpdate(aliceDid, alice));
+      cohort.addUpdate(aliceDid, updateHash);
       cohort.addNonInclusion(bobDid);
       const announcement = cohort.buildCASAnnouncement();
-      expect(Object.keys(announcement)).to.deep.equal([aliceDid]);
-      expect(announcement[bobDid]).to.be.undefined;
+      // The map holds the updateHash as the member sent it.
+      expect(announcement).to.deep.equal({ [aliceDid]: updateHash });
     });
 
-    it('buildSMTTree slots a verifiable non-inclusion leaf for a decliner', () => {
+    it('buildSMTTree leaves the index of a member that sent SUBMIT_NONINCLUDED empty', () => {
       const { cohort, aliceDid, bobDid, alice } = directCohort('SMTBeacon');
-      cohort.addUpdate(aliceDid, createSignedUpdate(aliceDid, alice));
+      const nonce = randomBytes(32);
+      const updateId = canonicalHashBytes(createSignedUpdate(aliceDid, alice));
+      const aliceValue = leafValue(nonce, updateId);
+      cohort.addUpdate(aliceDid, hashToBase64Url(aliceValue));
       cohort.addNonInclusion(bobDid);
       const proofs = cohort.buildSMTTree();
 
       // Every participant gets a proof, including the decliner.
-      expect(proofs.has(aliceDid)).to.be.true;
-      expect(proofs.has(bobDid)).to.be.true;
+      expect([...proofs.keys()]).to.have.members([aliceDid, bobDid]);
+      // The root is the root of a tree with only the leaf of Alice.
+      expect(cohort.signalBytes).to.deep.equal(zeroHashRoot([{ index: didToIndex(aliceDid), leaf: aliceValue }]));
+      // The cohort has no nonce and no updateId, so no proof has them.
+      for(const proof of proofs.values()) {
+        expect(proof).to.have.all.keys('id', 'collapsed', 'hashes');
+      }
 
-      const bobProof = proofs.get(bobDid)!;
-      // A non-inclusion proof carries a nonce but no updateId by construction.
-      expect(bobProof.nonce).to.be.a('string');
-      expect(bobProof.updateId).to.be.undefined;
+      // The index of Bob is empty: its leaf value is cachedZero[0].
+      expect(verifySerializedProof(proofs.get(bobDid)!, didToIndex(bobDid), CACHED_ZERO[0]!)).to.be.true;
+      expect(verifyProof(proofs.get(bobDid)!, bobDid)).to.be.true;
+      // `verifyProof` returns `true` for the proof of Alice only with the nonce and the updateId of Alice.
+      expect(verifyProof({ ...proofs.get(aliceDid)!, nonce: encode(nonce), updateId: hashToBase64Url(updateId) }, aliceDid)).to.be.true;
+      expect(verifyProof(proofs.get(aliceDid)!, aliceDid)).to.be.false;
+    });
 
-      // The non-inclusion leaf is SHA-256(SHA-256(nonce)); the proof verifies to the root.
-      const candidate = blockHash(blockHash(base64UrlToHash(bobProof.nonce!)));
-      expect(verifySerializedProof(bobProof, didToIndex(bobDid), candidate)).to.be.true;
+    it('buildSMTTree leaves an index empty if the member submits the value cachedZero[0]', () => {
+      const { cohort, aliceDid, bobDid } = directCohort('SMTBeacon');
+      const bobNonce = randomBytes(32);
+      const bobValue = leafValue(bobNonce);
+      cohort.addUpdate(aliceDid, hashToBase64Url(CACHED_ZERO[0]!));
+      cohort.addUpdate(bobDid, hashToBase64Url(bobValue));
+      const proofs = cohort.buildSMTTree();
 
-      // The submitter's proof is an inclusion proof (has an updateId).
-      expect(proofs.get(aliceDid)!.updateId).to.be.a('string');
+      // The value of an empty leaf does not change the root.
+      expect(cohort.signalBytes).to.deep.equal(zeroHashRoot([{ index: didToIndex(bobDid), leaf: bobValue }]));
+      // `verifyProof` still returns `true` for the proof of Bob, and the index of Alice is empty.
+      expect(verifyProof({ ...proofs.get(bobDid)!, nonce: encode(bobNonce) }, bobDid)).to.be.true;
+      expect(verifyProof(proofs.get(aliceDid)!, aliceDid)).to.be.true;
     });
   });
 
@@ -153,34 +184,84 @@ describe('Aggregate beacon cooperative non-inclusion', () => {
       const strategy = getBeaconStrategy('CASBeacon')!;
       const body = { casAnnouncement: { 'did:btcr2:alice': 'aliceHash' } } as never;
       // Decliner (bob) is absent -> matches.
-      expect(strategy.validateParticipantView({ participantDid: 'did:btcr2:bob', included: false, body }).matches).to.be.true;
+      expect(strategy.validateParticipantView({ participantDid: 'did:btcr2:bob', body }).matches).to.be.true;
       // A "decliner" that is actually present in the map -> does NOT match (forged).
-      expect(strategy.validateParticipantView({ participantDid: 'did:btcr2:alice', included: false, body }).matches).to.be.false;
+      expect(strategy.validateParticipantView({ participantDid: 'did:btcr2:alice', body }).matches).to.be.false;
     });
 
-    it('SMT strategy validates a non-inclusion proof without an updateId', () => {
+    it('SMT strategy: a member with no update validates its slot with its own nonce', () => {
       const { cohort, aliceDid, bobDid, alice } = directCohort('SMTBeacon');
-      cohort.addUpdate(aliceDid, createSignedUpdate(aliceDid, alice));
-      cohort.addNonInclusion(bobDid);
-      const proofs = cohort.buildSMTTree();
       const strategy = getBeaconStrategy('SMTBeacon')!;
+      const aliceSubmission = strategy.prepareSubmission(canonicalHashBytes(createSignedUpdate(aliceDid, alice)));
+      const bobSubmission = strategy.prepareSubmission();
+      cohort.addUpdate(aliceDid, aliceSubmission.updateHash!);
+      cohort.addUpdate(bobDid, bobSubmission.updateHash!);
+      const proofs = cohort.buildSMTTree();
+      const smtBody = (did: string) => ({ smtProof: proofs.get(did)! as unknown as Record<string, unknown> }) as never;
 
       const bobResult = strategy.validateParticipantView({
         participantDid : bobDid,
-        included       : false,
-        body           : { smtProof: proofs.get(bobDid)! as unknown as Record<string, unknown> } as never,
+        updateHash     : bobSubmission.updateHash,
+        nonce          : bobSubmission.nonce,
+        body           : smtBody(bobDid),
       });
       expect(bobResult.matches).to.be.true;
+      // The SMT Proof that Bob keeps has his nonce and no updateId.
+      expect(bobResult.smtProof!.nonce).to.equal(encode(bobSubmission.nonce!));
+      expect(bobResult.smtProof!.updateId).to.be.undefined;
 
-      // Feeding the decliner an INCLUSION proof (one with an updateId) must fail
-      // the non-inclusion check.
-      const aliceProof = proofs.get(aliceDid)!;
-      const forged = strategy.validateParticipantView({
-        participantDid : bobDid,
-        included       : false,
-        body           : { smtProof: aliceProof as unknown as Record<string, unknown> } as never,
+      // With the proof of Alice or with another nonce, the slot of Bob does not match.
+      expect(strategy.validateParticipantView({ participantDid: bobDid, nonce: bobSubmission.nonce, body: smtBody(aliceDid) }).matches).to.be.false;
+      expect(strategy.validateParticipantView({ participantDid: bobDid, nonce: randomBytes(32), body: smtBody(bobDid) }).matches).to.be.false;
+      // A body with no SMT Proof does not match.
+      expect(strategy.validateParticipantView({ participantDid: bobDid, nonce: bobSubmission.nonce, body: {} as never })).to.deep.equal({ matches: false });
+    });
+
+    it('SMT strategy ignores a nonce and an updateId that the service puts in the proof', () => {
+      const { cohort, aliceDid, bobDid, alice } = directCohort('SMTBeacon');
+      const strategy = getBeaconStrategy('SMTBeacon')!;
+      const updateId = canonicalHashBytes(createSignedUpdate(aliceDid, alice));
+      const aliceSubmission = strategy.prepareSubmission(updateId);
+      cohort.addUpdate(aliceDid, aliceSubmission.updateHash!);
+      cohort.addNonInclusion(bobDid);
+      const proof = cohort.buildSMTTree().get(aliceDid)!;
+      const received = { ...proof, nonce: encode(randomBytes(32)), updateId: hashToBase64Url(randomBytes(32)) };
+
+      const result = strategy.validateParticipantView({
+        participantDid : aliceDid,
+        updateHash     : aliceSubmission.updateHash,
+        nonce          : aliceSubmission.nonce,
+        updateId,
+        body           : { smtProof: received } as never,
       });
-      expect(forged.matches).to.be.false;
+      expect(result.matches).to.be.true;
+      // The SMT Proof has the tree data of the service and the values of Alice.
+      expect(result.smtProof).to.deep.equal({ ...proof, nonce: encode(aliceSubmission.nonce!), updateId: hashToBase64Url(updateId) });
+    });
+  });
+
+  describe('beacon strategy: prepareSubmission', () => {
+    it('CAS: the updateHash is the JSON Document Hash of the update, and for no update the strategy returns no updateHash', () => {
+      const { aliceDid, alice } = directCohort('CASBeacon');
+      const strategy = getBeaconStrategy('CASBeacon')!;
+      const update = createSignedUpdate(aliceDid, alice);
+      expect(strategy.prepareSubmission(canonicalHashBytes(update))).to.deep.equal({ updateHash: canonicalHash(update) });
+      expect(strategy.prepareSubmission()).to.deep.equal({});
+    });
+
+    it('SMT: the member makes a new 256-bit nonce for each round, also for no update', () => {
+      const { aliceDid, alice } = directCohort('SMTBeacon');
+      const strategy = getBeaconStrategy('SMTBeacon')!;
+      const updateId = canonicalHashBytes(createSignedUpdate(aliceDid, alice));
+      const update = strategy.prepareSubmission(updateId);
+      const noUpdate = strategy.prepareSubmission();
+      expect(update.nonce).to.have.length(32);
+      expect(noUpdate.nonce).to.have.length(32);
+      // hash(hash(nonce) + updateId) for an update, hash(hash(nonce)) for no update.
+      expect(update.updateHash).to.equal(hashToBase64Url(blockHash(blockHash(update.nonce!), updateId)));
+      expect(noUpdate.updateHash).to.equal(hashToBase64Url(blockHash(blockHash(noUpdate.nonce!))));
+      // For two rounds with the same update, the strategy returns two values.
+      expect(strategy.prepareSubmission(updateId).updateHash).to.not.equal(update.updateHash);
     });
   });
 
@@ -256,10 +337,16 @@ describe('Aggregate beacon cooperative non-inclusion', () => {
     it('CAS: decliner is absent from the map, validates absence, and still signs', async () => {
       const cohortId = await formCohort('CASBeacon');
 
-      // Alice submits; Bob declines.
-      await send(aliceTransport, aliceDid, alice.submitUpdate(cohortId, createSignedUpdate(aliceDid, aliceKeys)));
+      // Alice submits, and Bob declines. Alice sends only the JSON Document Hash of her update.
+      const update = createSignedUpdate(aliceDid, aliceKeys);
+      const aliceMessages = alice.submitUpdate(cohortId, update);
+      expect(aliceMessages.map(m => m.type)).to.deep.equal([SUBMIT_UPDATE]);
+      expect(aliceMessages[0]!.body).to.deep.equal({ cohortId, updateHash: canonicalHash(update) });
+      await send(aliceTransport, aliceDid, aliceMessages);
       expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.CollectingUpdates);
-      await send(bobTransport, bobDid, bob.declineUpdate(cohortId));
+      const bobMessages = bob.declineUpdate(cohortId);
+      expect(bobMessages.map(m => m.type)).to.deep.equal([SUBMIT_NONINCLUDED]);
+      await send(bobTransport, bobDid, bobMessages);
       // One update + one decline == all responses in.
       expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.UpdatesCollected);
       expect(bob.getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.NonIncluded);
@@ -285,23 +372,37 @@ describe('Aggregate beacon cooperative non-inclusion', () => {
       expect(service.getResult(cohortId)?.signature).to.have.lengthOf(64);
     });
 
-    it('SMT: decliner carries a non-inclusion leaf, validates it, and still signs', async () => {
+    it('SMT: a decliner sends SUBMIT_UPDATE with hash(hash(nonce)), validates its slot, and still signs', async () => {
       const cohortId = await formCohort('SMTBeacon');
 
-      await send(aliceTransport, aliceDid, alice.submitUpdate(cohortId, createSignedUpdate(aliceDid, aliceKeys)));
-      await send(bobTransport, bobDid, bob.declineUpdate(cohortId));
+      const update = createSignedUpdate(aliceDid, aliceKeys);
+      const aliceMessages = alice.submitUpdate(cohortId, update);
+      const bobMessages = bob.declineUpdate(cohortId);
+      // The two messages have the same type and the same body fields, so the
+      // service cannot tell an update from no update.
+      for(const messages of [aliceMessages, bobMessages]) {
+        expect(messages.map(m => m.type)).to.deep.equal([SUBMIT_UPDATE]);
+        expect(messages[0]!.body).to.have.all.keys('cohortId', 'updateHash');
+      }
+      await send(aliceTransport, aliceDid, aliceMessages);
+      await send(bobTransport, bobDid, bobMessages);
       expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.UpdatesCollected);
+      expect(bob.getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.NonIncluded);
 
       await send(serviceTransport, serviceDid, service.buildAndDistribute(cohortId));
 
-      // Bob received and validated a non-inclusion proof (nonce, no updateId).
+      // Bob validated his slot with his own nonce: hash(hash(nonce)) is the value that he sent.
+      const bobProof = bob.getValidation(cohortId)!.smtProof!;
       expect(bob.getValidation(cohortId)?.matches).to.be.true;
       expect(bob.getValidation(cohortId)?.included).to.be.false;
-      expect(bob.getValidation(cohortId)?.smtProof?.updateId).to.be.undefined;
-      expect(bob.getValidation(cohortId)?.smtProof?.nonce).to.be.a('string');
-      // Alice received an inclusion proof.
+      expect(bobProof.updateId).to.be.undefined;
+      expect(hashToBase64Url(blockHash(blockHash(base64UrlToHash(bobProof.nonce!))))).to.equal(bobMessages[0]!.body!.updateHash);
+      // Alice validated her slot: the updateId is the hash of her update, and the leaf value is the value that she sent.
+      const aliceProof = alice.getValidation(cohortId)!.smtProof!;
       expect(alice.getValidation(cohortId)?.matches).to.be.true;
-      expect(alice.getValidation(cohortId)?.smtProof?.updateId).to.be.a('string');
+      expect(aliceProof.updateId).to.equal(canonicalHash(update));
+      expect(hashToBase64Url(leafValue(base64UrlToHash(aliceProof.nonce!), base64UrlToHash(aliceProof.updateId!))))
+        .to.equal(aliceMessages[0]!.body!.updateHash);
 
       await send(aliceTransport, aliceDid, alice.approveValidation(cohortId));
       await send(bobTransport, bobDid, bob.approveValidation(cohortId));
@@ -309,6 +410,42 @@ describe('Aggregate beacon cooperative non-inclusion', () => {
 
       expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.Complete);
       expect(service.getResult(cohortId)?.signature).to.have.lengthOf(64);
+    });
+
+    it('SMT: the service accepts SUBMIT_NONINCLUDED and leaves the index of the member empty', async () => {
+      const cohortId = await formCohort('SMTBeacon');
+      await send(aliceTransport, aliceDid, alice.submitUpdate(cohortId, createSignedUpdate(aliceDid, aliceKeys)));
+      // The library participant does not send SUBMIT_NONINCLUDED in an SMT cohort. Another implementation can.
+      await send(bobTransport, bobDid, [createSubmitNonIncludedMessage({ from: bobDid, to: serviceDid, cohortId })]);
+      expect(service.drainRejections(cohortId)).to.deep.equal([]);
+      expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.UpdatesCollected);
+
+      await send(serviceTransport, serviceDid, service.buildAndDistribute(cohortId));
+      // `verifyProof` returns `true` for the proof of Bob with the value of an empty leaf. Alice validates her slot.
+      expect(verifyProof(service.getCohort(cohortId)!.smtProofs!.get(bobDid)!, bobDid)).to.be.true;
+      expect(alice.getValidation(cohortId)?.matches).to.be.true;
+    });
+
+    it('ignores a SUBMIT_NONINCLUDED with no cohortId, for an unknown cohort, or after all members answered', async () => {
+      const cohortId = await formCohort('CASBeacon');
+      service.receive(new BaseMessage({ type: SUBMIT_NONINCLUDED, from: bobDid, to: serviceDid, body: {} as never }));
+      service.receive(createSubmitNonIncludedMessage({ from: bobDid, to: serviceDid, cohortId: 'unknown' }) as never);
+      expect(service.getCohort(cohortId)!.nonIncluded.size).to.equal(0);
+
+      await send(aliceTransport, aliceDid, alice.declineUpdate(cohortId));
+      await send(bobTransport, bobDid, bob.declineUpdate(cohortId));
+      expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.UpdatesCollected);
+      service.receive(createSubmitNonIncludedMessage({ from: bobDid, to: serviceDid, cohortId }) as never);
+      expect(service.drainRejections(cohortId)).to.deep.equal([]);
+    });
+
+    it('declineUpdate and submitUpdate refuse a cohort that is not in the CohortReady phase', async () => {
+      const cohortId = await formCohort('SMTBeacon');
+      expect(() => bob.declineUpdate('unknown')).to.throw(/not in CohortReady phase/);
+      await send(bobTransport, bobDid, bob.declineUpdate(cohortId));
+      // A member answers one time in a round.
+      expect(() => bob.declineUpdate(cohortId)).to.throw(/not in CohortReady phase/);
+      expect(() => bob.submitUpdate(cohortId, createSignedUpdate(bobDid, bobKeys))).to.throw(/not in CohortReady phase/);
     });
 
     it('rejects a SUBMIT_NONINCLUDED from a non-member without failing the cohort', async () => {
@@ -327,7 +464,7 @@ describe('Aggregate beacon cooperative non-inclusion', () => {
       const cohortId = await formCohort('CASBeacon');
       await send(aliceTransport, aliceDid, alice.submitUpdate(cohortId, createSignedUpdate(aliceDid, aliceKeys)));
       // A second (different) update from alice must not silently overwrite the first.
-      service.receive(createSubmitUpdateMessage({ from: aliceDid, to: serviceDid, cohortId, signedUpdate: createSignedUpdate(aliceDid, aliceKeys, 3) as unknown as Record<string, unknown> }) as never);
+      service.receive(createSubmitUpdateMessage({ from: aliceDid, to: serviceDid, cohortId, updateHash: canonicalHash(createSignedUpdate(aliceDid, aliceKeys, 3)) }) as never);
       expect(service.drainRejections(cohortId).some(r => /already submitted/i.test(r.reason))).to.be.true;
     });
 
@@ -335,7 +472,7 @@ describe('Aggregate beacon cooperative non-inclusion', () => {
       const cohortId = await formCohort('CASBeacon');
       await send(bobTransport, bobDid, bob.declineUpdate(cohortId));
       // decline then submit
-      service.receive(createSubmitUpdateMessage({ from: bobDid, to: serviceDid, cohortId, signedUpdate: createSignedUpdate(bobDid, bobKeys) as unknown as Record<string, unknown> }) as never);
+      service.receive(createSubmitUpdateMessage({ from: bobDid, to: serviceDid, cohortId, updateHash: canonicalHash(createSignedUpdate(bobDid, bobKeys)) }) as never);
       expect(service.drainRejections(cohortId).some(r => /already declined/i.test(r.reason))).to.be.true;
       // a second decline is also rejected
       service.receive(createSubmitNonIncludedMessage({ from: bobDid, to: serviceDid, cohortId }) as never);

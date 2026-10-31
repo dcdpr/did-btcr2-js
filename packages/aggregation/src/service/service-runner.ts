@@ -107,13 +107,6 @@ export interface AggregationServiceRunnerOptions {
   feeEstimator?: FeeEstimator;
 
   /**
-   * Maximum canonicalized byte-length of a signed update body. Submissions
-   * above this cap are rejected and surfaced via the `message-rejected` event.
-   * Defaults to {@link DEFAULT_MAX_UPDATE_SIZE_BYTES} (256 KiB).
-   */
-  maxUpdateSizeBytes?: number;
-
-  /**
    * Overall wall-clock budget for each cohort, from advertise to
    * signing-complete. On expiry the cohort is dropped, `cohort-failed` is
    * emitted, and that cohort's completion rejects with a timeout error. Other
@@ -315,9 +308,8 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
       // The coordinator never signs, so the state machine receives only the
       // public half of the operator's keypair (see ADR 038). The full keypair
       // remains the operator's transport/communication identity.
-      did                : options.did,
-      publicKey          : options.keys.publicKey,
-      maxUpdateSizeBytes : options.maxUpdateSizeBytes,
+      did       : options.did,
+      publicKey : options.keys.publicKey,
     });
   }
 

@@ -1,10 +1,17 @@
 import { getNetwork } from '@did-btcr2/bitcoin';
-import { canonicalHash, canonicalHashBytes, canonicalize, hash } from '@did-btcr2/std';
-import type { SecuredDocument } from '@did-btcr2/integrity';
-import type { SerializedSMTProof, TreeEntry } from '@did-btcr2/smt';
-import { BTCR2MerkleTree } from '@did-btcr2/smt';
+import { canonicalize, hash } from '@did-btcr2/std';
+import type { SerializedSMTProof, ZeroHashEntry } from '@did-btcr2/smt';
+import {
+  CACHED_ZERO,
+  base64UrlToHash,
+  didToIndex,
+  generateZeroHashProof,
+  hashesEqual,
+  serializeProof,
+  zeroHashRoot,
+} from '@did-btcr2/smt';
 import { schnorr, secp256k1 } from '@noble/curves/secp256k1.js';
-import { concatBytes, hexToBytes, randomBytes } from '@noble/hashes/utils';
+import { concatBytes, hexToBytes } from '@noble/hashes/utils';
 import { p2tr } from '@scure/btc-signer';
 import { keyAggExport, keyAggregate, sortKeys } from '@scure/btc-signer/musig2';
 import { AggregationCohortError } from './errors.js';
@@ -115,14 +122,20 @@ export class AggregationCohort {
   /** Output script (scriptPubKey) of the beacon address. computeBeaconAddress() sets it. */
   #beaconScript: Uint8Array = new Uint8Array();
 
-  /** Pending DID updates submitted by participants, keyed by DID. */
-  pendingUpdates: Map<string, SecuredDocument> = new Map();
+  /**
+   * The `updateHash` values that the members submitted, keyed by DID: 32 bytes,
+   * base64url with no padding. CAS Beacon: the JSON Document Hash of the
+   * update. SMT Beacon: the leaf value. The cohort does not hold an update or a
+   * nonce.
+   */
+  updateHashes: Map<string, string> = new Map();
 
   /**
    * Participant DIDs that explicitly declined to submit an update this round
    * (cooperative non-inclusion). A decliner is absent from the CAS Announcement
-   * Map and carries a non-inclusion leaf in the SMT, yet still signs. Kept
-   * disjoint from {@link pendingUpdates} so CAS correctness holds by construction.
+   * Map, and its index in the SMT stays empty. The decliner still signs. The
+   * cohort keeps this set disjoint from {@link updateHashes}, so the CAS
+   * Announcement Map never holds a decliner.
    */
   nonIncluded: Set<string> = new Set();
 
@@ -333,14 +346,18 @@ export class AggregationCohort {
     );
   }
 
-  public addUpdate(participantDid: string, signedUpdate: SecuredDocument): void {
+  /**
+   * Record the `updateHash` of a member for this round. The caller makes sure
+   * that the value is 32 bytes in base64url with no padding.
+   */
+  public addUpdate(participantDid: string, updateHash: string): void {
     if(!this.participants.includes(participantDid)) {
       throw new AggregationCohortError(
         `Participant ${participantDid} is not in cohort ${this.id}.`,
         'UNKNOWN_PARTICIPANT', { cohortId: this.id, participantDid }
       );
     }
-    this.pendingUpdates.set(participantDid, signedUpdate);
+    this.updateHashes.set(participantDid, updateHash);
   }
 
   /**
@@ -356,7 +373,7 @@ export class AggregationCohort {
     }
     // A DID cannot both submit and decline. The service guards re-submission, but
     // keep the invariant local so the response gate and builders stay consistent.
-    if(this.pendingUpdates.has(participantDid)) {
+    if(this.updateHashes.has(participantDid)) {
       throw new AggregationCohortError(
         `Participant ${participantDid} already submitted an update; cannot also decline.`,
         'CONFLICTING_RESPONSE', { cohortId: this.id, participantDid }
@@ -366,7 +383,7 @@ export class AggregationCohort {
   }
 
   public hasAllUpdates(): boolean {
-    return this.pendingUpdates.size === this.participants.length;
+    return this.updateHashes.size === this.participants.length;
   }
 
   /**
@@ -376,28 +393,29 @@ export class AggregationCohort {
    * {@link hasAllValidationResponses} generalizes a unanimous ack.
    */
   public hasAllResponses(): boolean {
-    return this.pendingUpdates.size + this.nonIncluded.size === this.participants.length;
+    return this.updateHashes.size + this.nonIncluded.size === this.participants.length;
   }
 
   /**
-   * Builds a CAS Announcement Map from collected updates.
-   * Maps each participant DID to base64url canonical hash of their signed update.
+   * Builds a CAS Announcement Map from the submitted values.
+   * Maps each participant DID to the `updateHash` that the participant submitted:
+   * the JSON Document Hash of its update.
    * Computes signal bytes as SHA-256 of canonicalized announcement.
    *
    * Members who declined (cooperative non-inclusion) are naturally absent from
-   * the map: the body iterates {@link pendingUpdates}, which never holds a
+   * the map: the method iterates {@link updateHashes}, which never holds a
    * decliner. Absence from the map is exactly the CAS non-inclusion signal.
    */
   public buildCASAnnouncement(): CASAnnouncementMap {
     if(!this.hasAllResponses()) {
       throw new AggregationCohortError(
         'Cannot build CAS Announcement: not all participants have responded.',
-        'INCOMPLETE_RESPONSES', { cohortId: this.id, updates: this.pendingUpdates.size, declined: this.nonIncluded.size, total: this.participants.length }
+        'INCOMPLETE_RESPONSES', { cohortId: this.id, updates: this.updateHashes.size, declined: this.nonIncluded.size, total: this.participants.length }
       );
     }
     const announcement: CASAnnouncementMap = {};
-    for(const [did, signedUpdate] of this.pendingUpdates) {
-      announcement[did] = canonicalHash(signedUpdate);
+    for(const [did, updateHash] of this.updateHashes) {
+      announcement[did] = updateHash;
     }
     this.casAnnouncement = announcement;
     this.signalBytes = hash(canonicalize(announcement));
@@ -405,46 +423,44 @@ export class AggregationCohort {
   }
 
   /**
-   * Builds an SMT tree with one leaf per participant, in nonce mode.
+   * Builds the SMT of the cohort from the values that the members submitted.
    *
-   * A member who submitted an update gets an update leaf
-   * (SHA-256(SHA-256(nonce) || updateId), with updateId the JSON Document Hash
-   * of the update). A member who declined gets a non-update leaf
-   * (SHA-256(SHA-256(nonce)), the `updateId` entry field omitted). The cohort
-   * mints each member's nonce and returns it inside that member's serialized
-   * proof, so a decliner can self-validate its own non-update slot and the
-   * resolver can recompute the leaf. Stores per-participant proofs and the SMT
-   * root as signalBytes.
+   * The value of a member is its leaf value at the index `hash(did)`. The
+   * member selects the value: `hash(hash(nonce) + updateId)` for an update, or
+   * `hash(hash(nonce))` for no update. The member makes the nonce and keeps it,
+   * so the cohort cannot tell an update from no update. The index of a member
+   * that declined (SUBMIT_NONINCLUDED) stays empty: its leaf value is
+   * `cachedZero[0]`.
+   *
+   * A submitted value equal to `cachedZero[0]` is the value of an empty leaf, so
+   * that index also stays empty. The root does not change. A leaf with that
+   * value can give another member a sibling hash equal to a cached zero.
+   * `verifyProof` returns `false` for such a proof.
+   *
+   * Each proof has `id`, `collapsed`, and `hashes`, but no `nonce` and no
+   * `updateId`: the member adds its own values before it verifies the proof.
+   * The method stores the proof of each participant, and it stores the SMT
+   * root as `signalBytes`.
    */
   public buildSMTTree(): Map<string, SerializedSMTProof> {
     if(!this.hasAllResponses()) {
       throw new AggregationCohortError(
         'Cannot build SMT tree: not all participants have responded.',
-        'INCOMPLETE_RESPONSES', { cohortId: this.id, updates: this.pendingUpdates.size, declined: this.nonIncluded.size, total: this.participants.length }
+        'INCOMPLETE_RESPONSES', { cohortId: this.id, updates: this.updateHashes.size, declined: this.nonIncluded.size, total: this.participants.length }
       );
     }
-    const tree = new BTCR2MerkleTree();
-    const entries: TreeEntry[] = [];
-
-    // Slot every participant: an update leaf for submitters, a non-update leaf
-    // (updateId omitted) for decliners.
-    for(const did of this.participants) {
-      const nonce = randomBytes(32);
-      const signedUpdate = this.pendingUpdates.get(did);
-      if(signedUpdate) {
-        entries.push({ did, nonce, updateId: canonicalHashBytes(signedUpdate) });
-      } else {
-        entries.push({ did, nonce });
-      }
+    const leaves: ZeroHashEntry[] = [];
+    for(const [did, updateHash] of this.updateHashes) {
+      const leaf = base64UrlToHash(updateHash);
+      if(hashesEqual(leaf, CACHED_ZERO[0]!)) continue;
+      leaves.push({ index: didToIndex(did), leaf });
     }
+    const root = zeroHashRoot(leaves);
 
-    tree.addEntries(entries);
-    tree.finalize();
-
-    this.signalBytes = tree.rootHash;
+    this.signalBytes = root;
     this.smtProofs = new Map();
     for(const did of this.participants) {
-      this.smtProofs.set(did, tree.proof(did));
+      this.smtProofs.set(did, serializeProof(root, generateZeroHashProof(leaves, didToIndex(did))));
     }
     return this.smtProofs;
   }

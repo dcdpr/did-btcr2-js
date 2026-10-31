@@ -85,21 +85,20 @@ export function createCohortReadyMessage(fields: CohortReadyMessage): BaseMessag
 
 /**
  * Step 2: Update Submission
- * Factory functions for creating messages related to the update submission step, where participants
- * submit their signed updates for aggregation.
+ * Factory functions for the messages of the update submission step. In this step, participants
+ * submit the `updateHash` of their update for aggregation.
  */
 type SubmitUpdateMessage = {
   from: string;
   to: string;
   cohortId: string;
-  signedUpdate: Record<string, unknown>;
+  updateHash: string;
 };
 
 /**
- * Factory function for creating a Submit Update message, which is sent by a participant to submit
- * their signed update for aggregation.
- * @param {SubmitUpdateMessage} fields - The fields required to create a Submit Update message,
- * which is sent by a participant to submit their signed update for aggregation.
+ * Factory function for a Submit Update message. A participant sends this message to submit the
+ * `updateHash` of its update for aggregation.
+ * @param {SubmitUpdateMessage} fields - The fields of a Submit Update message.
  * @returns {BaseMessage} The created Submit Update message.
  */
 export function createSubmitUpdateMessage(fields: SubmitUpdateMessage): BaseMessage {

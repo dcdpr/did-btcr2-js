@@ -1,7 +1,8 @@
-import { SchnorrMultikey } from '@did-btcr2/integrity';
+import type { SecuredDocument } from '@did-btcr2/integrity';
 import { SchnorrKeyPair } from '@did-btcr2/keys';
-import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from '@did-btcr2/method';
 import { DidBtcr2 } from '@did-btcr2/method';
+import { hashToBase64Url } from '@did-btcr2/smt';
+import { randomBytes } from '@noble/hashes/utils';
 import { Script, Transaction } from '@scure/btc-signer';
 import * as musig2 from '@scure/btc-signer/musig2';
 import { expect } from 'chai';
@@ -39,34 +40,13 @@ function newDid(keys: SchnorrKeyPair): string {
   return DidBtcr2.create(keys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
 }
 
-function createSignedUpdate(did: string, keys: SchnorrKeyPair): SignedBTCR2Update {
-  const context = [
-    'https://w3id.org/security/v2',
-    'https://w3id.org/zcap/v1',
-    'https://w3id.org/json-ld-patch/v1',
-    'https://btcr2.dev/context/v1',
-  ];
-  const verificationMethodId = `${did}#initialKey`;
-  const unsigned: UnsignedBTCR2Update = {
-    '@context'      : context,
-    patch           : [ { op: 'add', path: '/service/-', value: { id: `${did}#svc`, type: 'Test', serviceEndpoint: 'https://example.com' } } ],
-    sourceHash      : `zQmSourceHash${did.slice(-6)}`,
-    targetHash      : `zQmTargetHash${did.slice(-6)}`,
-    targetVersionId : 2,
-  };
-  const config: Btcr2DataIntegrityConfig = {
-    '@context'         : context,
-    cryptosuite        : 'bip340-jcs-2025',
-    type               : 'DataIntegrityProof',
-    verificationMethod : verificationMethodId,
-    proofPurpose       : 'capabilityInvocation',
-    capability         : `urn:zcap:root:${encodeURIComponent(did)}`,
-    capabilityAction   : 'Write',
-    invocationTarget   : did,
-  };
-  const multikey = SchnorrMultikey.fromSecretKey(verificationMethodId, did, keys.secretKey.bytes);
-  return multikey.toCryptosuite().toDataIntegrityProof().addProof(unsigned, config) as SignedBTCR2Update;
+/** A well-formed `updateHash`: 32 bytes, base64url with no padding. The service checks only the form. */
+function newUpdateHash(): string {
+  return hashToBase64Url(randomBytes(32));
 }
+
+/** The update of a member runner. The member sends only its hash, so the content does not matter. */
+const MEMBER_UPDATE = { targetVersionId: 2 } as unknown as SecuredDocument;
 
 /**
  * A two-member cohort driven through the service state machine alone, with
@@ -103,11 +83,11 @@ function formCohort(extraOptIns: Array<{ did: string; keys: SchnorrKeyPair }> = 
   dids.forEach(did => service.acceptParticipant(cohortId, did));
   service.finalizeKeygen(cohortId);
 
-  const submit = (did: string, k: SchnorrKeyPair) => service.receive(createSubmitUpdateMessage({
-    from         : did,
-    to           : serviceDid,
+  const submit = (did: string) => service.receive(createSubmitUpdateMessage({
+    from       : did,
+    to         : serviceDid,
     cohortId,
-    signedUpdate : createSignedUpdate(did, k) as unknown as Record<string, unknown>,
+    updateHash : newUpdateHash(),
   }));
   const ack = (did: string, approved = true) => service.receive(createValidationAckMessage({
     from : did, to : serviceDid, cohortId, approved,
@@ -156,7 +136,7 @@ function advertisedCohort() {
 function toSigning() {
   const ctx = formCohort();
   const { service, cohortId, dids, keys, submit, ack } = ctx;
-  dids.forEach((did, i) => submit(did, keys[i]!));
+  dids.forEach(did => submit(did));
   service.buildAndDistribute(cohortId);
   dids.forEach(did => ack(did));
 
@@ -205,8 +185,8 @@ describe('H5: one inbound message cannot kill a cohort', () => {
 
   describe('cohort formation and update collection', () => {
     it('drops a non-member VALIDATION_ACK instead of throwing, and the round still validates', () => {
-      const { service, serviceDid, cohortId, dids, keys, submit, ack } = formCohort();
-      dids.forEach((did, i) => submit(did, keys[i]!));
+      const { service, serviceDid, cohortId, dids, submit, ack } = formCohort();
+      dids.forEach(did => submit(did));
       service.buildAndDistribute(cohortId);
       service.drainRejections(cohortId);
 
@@ -227,41 +207,38 @@ describe('H5: one inbound message cannot kill a cohort', () => {
     it('drops a SUBMIT_UPDATE from a pending opt-in that was never accepted', () => {
       const attackerKeys = SchnorrKeyPair.generate();
       const attackerDid = newDid(attackerKeys);
-      const { service, serviceDid, cohortId, dids, keys, submit } = formCohort([{ did: attackerDid, keys: attackerKeys }]);
+      const { service, serviceDid, cohortId, dids, submit } = formCohort([{ did: attackerDid, keys: attackerKeys }]);
 
-      // The update has a valid proof that names a method of the sender DID, so
-      // it passes the proof check: only membership rules it out.
+      // The updateHash is well formed, so only the membership check refuses it.
       expect(() => service.receive(createSubmitUpdateMessage({
-        from         : attackerDid,
-        to           : serviceDid,
+        from       : attackerDid,
+        to         : serviceDid,
         cohortId,
-        signedUpdate : createSignedUpdate(attackerDid, attackerKeys) as unknown as Record<string, unknown>,
+        updateHash : newUpdateHash(),
       }))).to.not.throw();
 
       expect(codes(service, cohortId)).to.deep.equal(['NOT_A_MEMBER']);
-      expect(service.collectedUpdates(cohortId).has(attackerDid)).to.be.false;
+      expect(service.collectedUpdateHashes(cohortId).has(attackerDid)).to.be.false;
       expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.CohortSet);
 
-      dids.forEach((did, i) => submit(did, keys[i]!));
+      dids.forEach(did => submit(did));
       expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.UpdatesCollected);
     });
 
-    it('drops an update whose proof carries a non-string verificationMethod', () => {
-      const { service, serviceDid, cohortId, dids, keys } = formCohort();
-      const update = createSignedUpdate(dids[0]!, keys[0]!) as unknown as Record<string, unknown>;
-      (update.proof as Record<string, unknown>).verificationMethod = 42;
+    it('drops a SUBMIT_UPDATE whose updateHash is not a string', () => {
+      const { service, serviceDid, cohortId, dids } = formCohort();
 
       expect(() => service.receive(createSubmitUpdateMessage({
-        from : dids[0]!, to : serviceDid, cohortId, signedUpdate : update,
+        from : dids[0]!, to : serviceDid, cohortId, updateHash : { length: 43 } as unknown as string,
       }))).to.not.throw();
 
       expect(codes(service, cohortId)).to.deep.equal(['UPDATE_MALFORMED']);
-      expect(service.collectedUpdates(cohortId).has(dids[0]!)).to.be.false;
+      expect(service.collectedUpdateHashes(cohortId).has(dids[0]!)).to.be.false;
     });
 
     it('counts a member VALIDATION_ACK once, so a retry cannot settle the round early', () => {
-      const { service, cohortId, dids, keys, submit, ack } = formCohort();
-      dids.forEach((did, i) => submit(did, keys[i]!));
+      const { service, cohortId, dids, submit, ack } = formCohort();
+      dids.forEach(did => submit(did));
       service.buildAndDistribute(cohortId);
       service.drainRejections(cohortId);
 
@@ -543,12 +520,12 @@ describe('H5: one inbound message cannot kill a cohort', () => {
           communicationPk : members[i]!.publicKey.compressed,
         }), did);
       }
-      for(const [i, did] of memberDids.entries()) {
+      for(const did of memberDids) {
         await send(createSubmitUpdateMessage({
-          from         : did,
-          to           : serviceDid,
+          from       : did,
+          to         : serviceDid,
           cohortId,
-          signedUpdate : createSignedUpdate(did, members[i]!) as unknown as Record<string, unknown>,
+          updateHash : newUpdateHash(),
         }), did);
       }
       expect(runner.session.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.DataDistributed);
@@ -690,7 +667,7 @@ describe('H5: one inbound message cannot kill a cohort', () => {
         did             : memberDid,
         keys            : memberKeys,
         shouldJoin      : async () => true,
-        onProvideUpdate : async () => createSignedUpdate(memberDid, memberKeys),
+        onProvideUpdate : async () => MEMBER_UPDATE,
       });
       await member.start();
 
@@ -728,10 +705,10 @@ describe('H5: one inbound message cannot kill a cohort', () => {
       const flood = MAX_RETAINED_REJECTIONS + 50;
       for(let i = 0; i < flood; i++) {
         service.receive(createSubmitUpdateMessage({
-          from         : outsider,
-          to           : serviceDid,
+          from       : outsider,
+          to         : serviceDid,
           cohortId,
-          signedUpdate : { spam: i } as unknown as Record<string, unknown>,
+          updateHash : `spam-${i}`,
         }));
       }
       expect(service.drainRejections(cohortId)).to.have.length(MAX_RETAINED_REJECTIONS);

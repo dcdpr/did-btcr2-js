@@ -18,12 +18,12 @@ export type AggregationServiceEvents = {
   /** Keygen has been finalized: beacon address is now available. */
   'keygen-complete': [{ cohortId: string; beaconAddress: string }];
 
-  /** A participant has submitted a signed update. */
+  /** The service received a SUBMIT_UPDATE or a SUBMIT_NONINCLUDED of a participant. */
   'update-received': [{ cohortId: string; participantDid: string }];
 
   /**
-   * The state machine dropped an inbound message, for example a malformed
-   * proof, an oversized payload, or a wrong wire version. The runner also emits
+   * The state machine refused an inbound message, for example an invalid partial
+   * signature, a malformed `updateHash`, or a wrong wire version. The runner also emits
    * this event for an operator approval that came too late (MEMBERSHIP_FINAL,
    * COHORT_FULL). Fires for *any* rejection, not just SUBMIT_UPDATE.
    */

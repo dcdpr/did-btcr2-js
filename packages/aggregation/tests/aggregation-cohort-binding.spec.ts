@@ -3,6 +3,7 @@ import { SchnorrMultikey } from '@did-btcr2/integrity';
 import { SchnorrKeyPair } from '@did-btcr2/keys';
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from '@did-btcr2/method';
 import { DidBtcr2 } from '@did-btcr2/method';
+import { verifyProof } from '@did-btcr2/smt';
 import { bytesToHex } from '@noble/hashes/utils';
 import { Address, OutScript, Script, Transaction, p2tr } from '@scure/btc-signer';
 import { expect } from 'chai';
@@ -1390,7 +1391,9 @@ describe('Aggregation cohort binding (ADR 152)', () => {
           expect(Object.keys(info.casAnnouncement!)).to.deep.equal([ opts.did ]);
           expect(info.smtProof).to.equal(undefined);
         } else {
-          expect(info.smtProof).to.be.an('object');
+          // The SMT Proof has the nonce that only the member knows, so `verifyProof` returns `true` for it.
+          expect(info.smtProof!.nonce).to.be.a('string');
+          expect(verifyProof(info.smtProof!, opts.did)).to.equal(true);
           expect(info.casAnnouncement).to.equal(undefined);
         }
         // For the refused cohort, the member sent only its opt-in and got no update request.

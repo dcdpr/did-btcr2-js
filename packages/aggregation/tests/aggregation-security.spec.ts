@@ -1,4 +1,3 @@
-import type { SignedBTCR2Update } from '@did-btcr2/method';
 import { SchnorrKeyPair } from '@did-btcr2/keys';
 import { expect } from 'chai';
 import {
@@ -16,32 +15,6 @@ import { DidBtcr2 } from '@did-btcr2/method';
 
 const TEST_RECOVERY_KEY = 'a'.repeat(64);
 const TEST_RECOVERY_SEQUENCE = 144;
-
-/** Build a plausibly-shaped SignedBTCR2Update with just enough fields to reach
- *  the size-cap check in #handleSubmitUpdate. Verification still fails but
- *  that's intentional for the size-cap test.
- */
-function buildHugeUpdate(bytes: number): SignedBTCR2Update {
-  const filler = 'x'.repeat(bytes);
-  return {
-    '@context'      : ['https://w3id.org/security/v2'],
-    patch           : [{ op: 'add', path: '/service/-', value: { id: '#svc', type: 'T', serviceEndpoint: filler } }],
-    sourceHash      : 'zQmSource',
-    targetHash      : 'zQmTarget',
-    targetVersionId : 2,
-    proof           : {
-      '@context'         : ['https://w3id.org/security/v2'],
-      cryptosuite        : 'bip340-jcs-2025',
-      type               : 'DataIntegrityProof',
-      verificationMethod : 'did:btcr2:dummy#initialKey',
-      proofPurpose       : 'capabilityInvocation',
-      capability         : 'urn:zcap:root',
-      capabilityAction   : 'Write',
-      invocationTarget   : 'did:btcr2:dummy',
-      proofValue         : 'z' + 'x'.repeat(100),
-    },
-  } as SignedBTCR2Update;
-}
 
 describe('Aggregation security regressions', () => {
 
@@ -83,8 +56,8 @@ describe('Aggregation security regressions', () => {
     });
   });
 
-  describe('T2.1 + T2.2: oversized update rejected and surfaced', () => {
-    it('drops updates whose canonicalized size exceeds maxUpdateSizeBytes', () => {
+  describe('T2.1: the service refuses an oversized updateHash and records a rejection', () => {
+    it('refuses a SUBMIT_UPDATE whose updateHash is longer than 32 bytes', () => {
       const serviceKeys = SchnorrKeyPair.generate();
       const serviceDid = DidBtcr2.create(serviceKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
       const aliceKeys = SchnorrKeyPair.generate();
@@ -92,11 +65,7 @@ describe('Aggregation security regressions', () => {
       const bobKeys = SchnorrKeyPair.generate();
       const bobDid = DidBtcr2.create(bobKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
 
-      const service = new AggregationService({
-        did                : serviceDid,
-        publicKey          : serviceKeys.publicKey,
-        maxUpdateSizeBytes : 1024,
-      });
+      const service = new AggregationService({ did: serviceDid, publicKey: serviceKeys.publicKey });
       const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
       service.advertise(cohortId);
       service.receive(createCohortOptInMessage({
@@ -111,21 +80,20 @@ describe('Aggregation security regressions', () => {
       service.acceptParticipant(cohortId, bobDid);
       service.finalizeKeygen(cohortId);
 
-      // Submit an update with >1 KiB of filler data
-      const hugeUpdate = buildHugeUpdate(4096);
+      // The body has a fixed size, so the service refuses a 4 KiB updateHash at the form check.
       service.receive(createSubmitUpdateMessage({
-        from         : aliceDid,
-        to           : serviceDid,
+        from       : aliceDid,
+        to         : serviceDid,
         cohortId,
-        signedUpdate : hugeUpdate as unknown as Record<string, unknown>,
+        updateHash : 'A'.repeat(4096),
       }));
 
-      // Cohort should NOT have stored the update
-      expect(service.collectedUpdates(cohortId).has(aliceDid)).to.be.false;
+      // The cohort does not store the value.
+      expect(service.collectedUpdateHashes(cohortId).has(aliceDid)).to.be.false;
       // A rejection was recorded
       const rejections = service.drainRejections(cohortId);
       expect(rejections).to.have.length.greaterThan(0);
-      expect(rejections[0]!.code).to.equal('UPDATE_TOO_LARGE');
+      expect(rejections[0]!.code).to.equal('UPDATE_MALFORMED');
       expect(rejections[0]!.from).to.equal(aliceDid);
     });
   });

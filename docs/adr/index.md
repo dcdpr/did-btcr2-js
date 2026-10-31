@@ -245,3 +245,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 165 | 2026-10-30 | [The api Refuses versionId and versionTime in the Source Resolution of an Update](165-the-api-refuses-versionid-and-versiontime-in-the-source-resolution-of-an-update.md) |
 | 166 | 2026-10-30 | [BTCR2MerkleTree Refuses a Nonce That Is Not 256 Bits, and the SMT Proof Verifier Accepts a Nonce of Any Length](166-btcr2merkletree-refuses-a-nonce-that-is-not-256-bits-and-the-smt-proof-verifier-accepts-a-nonce-of-any-length.md) |
 | 167 | 2026-10-30 | [The Create Path Accepts a Verification Method id or a Service id Without the Placeholder](167-the-create-path-accepts-a-verification-method-id-or-a-service-id-without-the-placeholder.md) |
+| 168 | 2026-10-31 | [The Aggregation Participant Makes the SMT Nonce and Sends Only the Update Hash](168-the-aggregation-participant-makes-the-smt-nonce-and-sends-only-the-update-hash.md) |
