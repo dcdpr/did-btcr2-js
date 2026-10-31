@@ -257,7 +257,6 @@ const runner: AggregationServiceRunner = new AggregationServiceRunner({
   },
 
   // Optional hardening (all have sensible defaults):
-  maxUpdateSizeBytes     : 256 * 1024,   // reject oversized updates (default 256 KiB)
   cohortTtlMs            : 10 * 60_000,  // overall deadline, emits cohort-failed on expiry
   phaseTimeoutMs         : 2 * 60_000,   // per-phase stall deadline
   advertRepeatIntervalMs : 60_000,       // re-publish COHORT_ADVERT until keygen complete
@@ -270,7 +269,6 @@ The `config` object holds the cohort conditions. The spec example in "Step 1: Cr
 
 | Option | Default | Purpose |
 |---|---|---|
-| `maxUpdateSizeBytes` | 256 KiB | Reject `SUBMIT_UPDATE` payloads whose canonicalized size exceeds this cap. Dropped submissions are surfaced via `message-rejected`. |
 | `cohortTtlMs` | unset (disabled) | Overall deadline for `run()`. On expiry: emit `cohort-failed`, reject `run()`, GC cohort state. |
 | `phaseTimeoutMs` | unset (disabled) | Per-phase stall deadline. Reset automatically on each observed phase transition. |
 | `advertRepeatIntervalMs` | 60 s | Re-publish `COHORT_ADVERT` on this cadence until keygen completes, fails, or the runner stops. `0` disables re-publish (single publish). |
@@ -322,6 +320,8 @@ So you understand what's happening behind the scenes:
 
 2. **Update Submission (spec Step 2)**
    - For each incoming `SUBMIT_UPDATE` message: calls `session.receive()` and emits `update-received`
+   - A `SUBMIT_UPDATE` holds only the `updateHash` of the update of a member, not the update (ADR 168). If the `updateHash` is not a string that decodes to exactly 32 bytes, the service refuses the message with `UPDATE_MALFORMED`.
+   - With `SUBMIT_NONINCLUDED`, a member declines the update. The runner also emits `update-received` for it. In an SMT cohort, the index of that member stays empty.
    - Once all participants have submitted, the cohort phase becomes `UpdatesCollected`
 
 3. **Aggregate & Validate (spec Step 3)**
@@ -469,11 +469,12 @@ A null return from `onProvideUpdate` declines the update, but the member still s
 
 2. **Update Submission (spec Step 2)**
    - Calls `onProvideUpdate({ cohortId, beaconAddress, beaconType })`: your data callback. The beacon service in the DID document must have the type `beaconType`.
-   - Sends the resulting `SignedBTCR2Update` via `SUBMIT_UPDATE`, emits `update-submitted`
+   - Sends `SUBMIT_UPDATE` with the `updateHash` of the update, and emits `update-submitted`. The update stays with the participant (ADR 168). In a CAS cohort, the `updateHash` is the JSON Document Hash of the update. In an SMT cohort, the participant makes a new 256-bit nonce and keeps it. It sends the leaf value `hash(hash(nonce) + updateId)`. The `updateId` is the JSON Document Hash of the update.
+   - If `onProvideUpdate` returns null, declines the update and emits `update-declined`. In a CAS cohort, the participant sends `SUBMIT_NONINCLUDED`. In an SMT cohort, it makes a nonce and sends `SUBMIT_UPDATE` with `hash(hash(nonce))`. Thus the service cannot tell a decline from an update.
 
 3. **Validation (spec Step 3)**
    - Waits for `DISTRIBUTE_AGGREGATED_DATA` containing the CAS announcement (or SMT proof)
-   - Validates the aggregated data with the beacon type of the cohort (from the advert), not with the type that the message names. The data must hold the submitted update of the participant (or its non-inclusion, if it declined), and the signal must derive from the data. If the message names another beacon type, `info.matches` is false.
+   - Validates the aggregated data with the beacon type of the cohort (from the advert), not with the type that the message names. The data must hold the `updateHash` of the participant, or no entry if it declined in a CAS cohort. The signal must also derive from the data. In an SMT cohort, the participant takes only `id`, `collapsed`, and `hashes` from the proof of the service. It adds its own `nonce`, and the `updateId` for an update, then verifies the proof. If the message names another beacon type, `info.matches` is false.
    - Calls `onValidateData(info)`: your decision callback (default: approve if `info.matches` is true). If `info.matches` is false, the participant refuses to sign later, also if `onValidateData` approves.
    - Sends `VALIDATION_ACK` (approved or rejected)
    - On rejection, emits `cohort-failed` and stops processing this cohort
@@ -523,14 +524,14 @@ A null return from `onProvideUpdate` declines the update, but the member still s
 | `opt-in-received` | `PendingOptIn` | A participant opts in (before `onOptInReceived` is called) |
 | `participant-accepted` | `{ participantDid }` | After the operator accepts an opt-in |
 | `keygen-complete` | `{ cohortId, beaconAddress }` | MuSig2 keygen finalizes: beacon address is now known |
-| `update-received` | `{ participantDid }` | A participant submits a signed update |
+| `update-received` | `{ cohortId, participantDid }` | A `SUBMIT_UPDATE` or `SUBMIT_NONINCLUDED` message of a participant arrives |
 | `data-distributed` | `{ cohortId }` | CAS announcement / SMT tree built and sent for validation |
 | `validation-received` | `{ participantDid, approved }` | A participant's validation ack arrives |
 | `signing-started` | `{ sessionId }` | MuSig2 signing session begins (auth requests sent) |
 | `nonce-received` | `{ participantDid }` | A participant's MuSig2 nonce arrives |
 | `signing-complete` | `AggregationResult` | Final signature computed (also resolves `run()`) |
 | `cohort-failed` | `{ cohortId, reason }` | Cohort entered a terminal failure state (validation rejection, TTL/phase timeout). Also rejects `run()`. |
-| `message-rejected` | `Rejection & { cohortId }` | The state machine dropped an inbound message, or the runner dropped an operator approval that came too late. The rejection code `code` (a `RejectionReason`) for a dropped message is `WRONG_VERSION`, `UPDATE_TOO_LARGE`, `UPDATE_MALFORMED`, `UPDATE_SENDER_MISMATCH`, `NOT_A_MEMBER`, `DUPLICATE_RESPONSE`, `INVALID_NONCE`, `INVALID_PARTIAL_SIG`, `INVALID_FALLBACK_SIG`, or `INVALID_PARTICIPANT_KEY`. For a dropped approval, it is `MEMBERSHIP_FINAL` or `COHORT_FULL`. |
+| `message-rejected` | `Rejection & { cohortId }` | The state machine refused an inbound message, or the runner refused an operator approval that came too late. The rejection code `code` (a `RejectionReason`) for a refused message is `WRONG_VERSION`, `UPDATE_MALFORMED`, `NOT_A_MEMBER`, `DUPLICATE_RESPONSE`, `INVALID_NONCE`, `INVALID_PARTIAL_SIG`, `INVALID_FALLBACK_SIG`, or `INVALID_PARTICIPANT_KEY`. For a refused approval, it is `MEMBERSHIP_FINAL` or `COHORT_FULL`. |
 | `error` | `Error` | Protocol or transport error (rejects `run()` for fatal errors) |
 
 ### `AggregationParticipantRunner` events
@@ -540,10 +541,10 @@ A null return from `onProvideUpdate` declines the update, but the member still s
 | `cohort-discovered` | `CohortAdvert` | A new cohort advert arrives (before `shouldJoin`) |
 | `cohort-joined` | `{ cohortId }` | After opt-in is sent |
 | `cohort-ready` | `{ cohortId, beaconAddress }` | Cohort keygen finalizes |
-| `update-submitted` | `{ cohortId }` | After the signed update is sent |
+| `update-submitted` | `{ cohortId }` | After the participant sends the `updateHash` of its update |
 | `validation-requested` | `PendingValidation` | Aggregated data arrives (before `onValidateData`) |
 | `signing-requested` | `PendingSigningRequest` | Auth request arrives (before `onApproveSigning`) |
-| `cohort-complete` | `{ cohortId, beaconAddress }` | Partial signature sent: this participant is done |
+| `cohort-complete` | `CohortCompleteInfo` | The participant sent its partial signature or its fallback signature. In an SMT cohort, `smtProof` is the SMT Proof with the `nonce` of the participant. The caller must persist it: only the participant knows the nonce. |
 | `cohort-failed` | `{ cohortId, reason }` | Validation rejected, signing rejected, or a refused `COHORT_READY` (`BEACON_TYPE_CONFLICT`) |
 | `error` | `Error` | Non-fatal error |
 
@@ -670,9 +671,12 @@ const joined = session.joinedCohorts.get(cohortId);
 
 // Submit update. submitUpdate throws UPDATE_MALFORMED if the update has no
 // JCS form (RFC 8785), for example if it holds NaN or a lone surrogate.
+// The message holds only the updateHash of the update (ADR 168). In an SMT
+// cohort, the participant makes the nonce and keeps it.
 const submitMsgs = session.submitUpdate(cohortId, signedUpdate);
 
-// After receive() DISTRIBUTE_AGGREGATED_DATA, inspect validation:
+// After receive() gets DISTRIBUTE_AGGREGATED_DATA, inspect the validation. In an SMT
+// cohort, validation.smtProof holds the nonce of the participant: persist it.
 session.receive(distributeMessage);
 const validation = session.pendingValidations.get(cohortId);
 
@@ -766,7 +770,7 @@ A kind 1059 event of this transport is not a NIP-59 gift wrap. The sender key si
 
 This transport encrypts at most 65,535 bytes of plaintext in one message. This is the largest plaintext of the 2-byte NIP-44 v2 length prefix. A receiver on nostr-tools before 2.23.4 refuses a longer prefix. A larger message gives `MESSAGE_TOO_LARGE`, and the cohort fails. For did:btcr2 KEY DIDs, this limits the cohort size:
 
-- A CAS cohort: about 533 members. `DISTRIBUTE_AGGREGATED_DATA` holds about 122 bytes for each member. The service sends it after it collects the update of each member.
+- A CAS cohort: about 533 members. `DISTRIBUTE_AGGREGATED_DATA` holds about 122 bytes for each member. The service sends it after each member sends its `SUBMIT_UPDATE` or `SUBMIT_NONINCLUDED`.
 - An SMT cohort: about 804 members. `COHORT_READY` holds 81 bytes for each cohort key. The service sends it after keygen.
 
 No code compares `maxParticipants` with this limit. For a Nostr cohort, set `maxParticipants` below it.
@@ -793,11 +797,18 @@ Both are unset by default: enable them in any production deployment.
 
 ### Message size limits
 
-`AggregationService` enforces `maxUpdateSizeBytes` (default 256 KiB) on the canonicalized size of each `SUBMIT_UPDATE` body. It checks the size before it checks the proof of the update. Oversized payloads are dropped silently at the state-machine level and surfaced as `message-rejected` events with code `UPDATE_TOO_LARGE`. This protects against cheap bandwidth/CPU exhaustion from a hostile participant. Tune downward if your DID documents are typically smaller.
+A `SUBMIT_UPDATE` body holds only the `cohortId` and one `updateHash` of 32 bytes, not the update (ADR 168). If the `updateHash` is not a string that decodes to exactly 32 bytes, `AggregationService` refuses the message with `UPDATE_MALFORMED`. The runner emits `message-rejected` for it. Thus the service has no size limit option for an update. The Nostr and HTTP transports limit the size of one message: see [Relay selection](#relay-selection-nostr-transport-only) for Nostr and `maxBodyBytes` in [http-transport.md](./http-transport.md#httpservertransportconfig-server-side) for HTTP. `InMemoryTransport` has no limit.
 
 ### Inbound messages never fail a cohort
 
-`AggregationService.receive()` does not throw on anything a sender controls. Every receive-path handler checks membership and round/session duplication itself. The handlers of a partial signature and of a fallback signature also verify the signature. The handler of an update does not verify the proof of the update (see [Sender authentication](#sender-authentication)). A handler records a `Rejection` for a message that it drops, so that no cohort or signing-session invariant throws. This matters because `AggregationServiceRunner` treats an escaping error as a cohort failure (`removeCohort` + rejected completion), so a single throw on that path would be a cohort-kill available to anyone who can reach the service: a non-member ack, a never-accepted opt-in's submission, a duplicated nonce from a transport retry, or one malformed nonce.
+`AggregationService.receive()` does not throw on input that a sender controls. Each handler on the receive path checks what the sender claims, for example the membership. It also checks for a duplicate answer in the round or in the signing session. The handlers of a partial signature and of a fallback signature also verify the signature. The handler of a `SUBMIT_UPDATE` gets no update: it checks only the form of the `updateHash` (see [Sender authentication](#sender-authentication)). A handler records a `Rejection` for a message that it refuses, so no invariant check of a cohort or a signing session throws.
+
+This is important because `AggregationServiceRunner` treats an error that escapes `receive()` as a cohort failure (`removeCohort` + rejected completion). Thus one throw on that path lets each party that can reach the service stop a cohort. Examples:
+
+- an ack from a non-member
+- a submission from a sender whose opt-in the service did not accept
+- a duplicate nonce from a transport retry
+- one malformed nonce
 
 This covers cohort formation as well. `COHORT_OPT_IN` carries the sender's own `participantPk` and `communicationPk`, and the wire guard asks only that they be bytes: a three-byte or off-curve key is checked on arrival and dropped as `INVALID_PARTICIPANT_KEY`. A stored one would not be refused until the operator accepted the sender, at which point sorting the cohort keys (or aggregating them at keygen) throws inside an operator action the runner is driving, i.e. the cohort dies for a message anyone could have sent. `AggregationCohort.isValidCohortKey()` is the shared check, and the `cohortKeys` setter applies it to every key it stores, so no inbound path can carry a malformed key as far as key aggregation.
 
@@ -812,7 +823,9 @@ Rejections are retained per cohort until drained, capped at `MAX_RETAINED_REJECT
 
 ### Sender authentication
 
-Every protocol message declares its own sender in `from`, and the protocol acts on that claim. A participant records the service DID that an advert names, and encrypts to the key that the advert declares. A service seats the DID that an opt-in names. The service accepts an update of that member only if `proof.verificationMethod` is a DID URL of that DID. Apart from this check, the service validates only the structure of the proof. It does not verify the signature: a resolver verifies it (ADR 152).
+Every protocol message declares its own sender in `from`, and the protocol acts on that claim. A participant records the service DID that an advert names, and encrypts to the key that the advert declares. A service adds the DID that an opt-in names to the cohort.
+
+The service gets only the `updateHash` of an update of that member, not the update. It checks only the form of that value (ADR 168). The key of the CAS map or the SMT leaf index `hash(did)` binds the value to the DID of the sender. Thus a bad value harms only the DID of the sender.
 
 Each transport separately authenticates a *key*: Nostr by the event signature (`event.pubkey`), HTTP by the signed envelope (`envelope.from`). The two must be bound, or anyone able to reach the wire can speak as any DID.
 
@@ -894,7 +907,9 @@ There is no automatic retry for participant dropout. If a participant goes offli
 
 ### Wire-format version
 
-Every `BaseMessage` carries a `version: number` field. The current version is exposed as `AGGREGATION_WIRE_VERSION`. Receive handlers reject any message whose version doesn't match: there is no implicit backward compatibility. Bumping the constant is a breaking protocol change; coordinate across all participants and any relay / transport middleware before changing it.
+Each `BaseMessage` has a `version: number` field, and `AGGREGATION_WIRE_VERSION` gives the current version: 2. In version 2, `SUBMIT_UPDATE` holds the `updateHash`, not the update (ADR 168). A change of the constant is a breaking protocol change. Before the change, make sure that each participant and each relay or transport middleware uses the new constant.
+
+The service and the participant do not process a message of another version: there is no backward compatibility. For a message to a known cohort, the service records `WRONG_VERSION`. The participant also ignores a `COHORT_ADVERT` of another version. Thus a peer of version 1 and a peer of version 2 cannot complete a round together.
 
 ---
 
@@ -925,7 +940,14 @@ const LoggedCasStrategy: AggregateBeaconStrategy = {
     return builtIn.getDistributePayload(cohort, participantDid);
   },
 
-  // Participant-side: validate the aggregated data against the local update.
+  // Participant-side: make the values of the member for this round. The member
+  // sends the updateHash. For an SMT Beacon, the member also keeps the nonce.
+  prepareSubmission(updateId) {
+    return builtIn.prepareSubmission(updateId);
+  },
+
+  // Participant-side: validate the aggregated data against the values that
+  // the member kept (updateHash, nonce, updateId).
   validateParticipantView(params) {
     return builtIn.validateParticipantView(params);
   },
@@ -944,7 +966,7 @@ const LoggedCasStrategy: AggregateBeaconStrategy = {
 registerBeaconStrategy(LoggedCasStrategy);
 ```
 
-After the call, each `CASBeacon` cohort in the process uses the new strategy, on the service side and on the participant side. The participant uses `validateParticipantView` and `deriveSignal` to decide if it signs. Thus a replacement must keep the checks of the built-in strategy.
+After the call, each `CASBeacon` cohort in the process uses the new strategy, on the service side and on the participant side. The participant uses `prepareSubmission` to make the value that it sends (ADR 168). It uses `validateParticipantView` and `deriveSignal` to decide if it signs. Thus a replacement must keep the checks of the built-in strategy.
 
 ### Discriminated message types
 

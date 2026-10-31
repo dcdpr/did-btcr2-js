@@ -67,13 +67,23 @@ export interface CohortReadyBody {
 
 export interface SubmitUpdateBody {
   cohortId: string;
-  signedUpdate: Record<string, unknown>;
+  /**
+   * The value of the member for this round: 32 bytes, base64url with no
+   * padding. CAS Beacon: the JSON Document Hash of the BTCR2 Update. SMT Beacon:
+   * the leaf value, `hash(hash(nonce) + updateId)` for an update, or
+   * `hash(hash(nonce))` for no update. The service does not get the update or
+   * the nonce.
+   */
+  updateHash: string;
 }
 
 /**
  * A member declines to submit an update this round (cooperative non-inclusion).
- * Carries only the cohortId; membership is proven by the signed transport
- * envelope (the sender DID), so no payload is needed.
+ * The body holds only the cohortId. The signed transport envelope proves the
+ * membership (the sender DID), so the body needs no other field. In an SMT
+ * cohort, the index of the member stays empty. The library participant does
+ * not send this message in an SMT cohort. It sends SUBMIT_UPDATE with
+ * `hash(hash(nonce))`, so the service cannot tell a decline from an update.
  */
 export interface SubmitNonIncludedBody {
   cohortId: string;
@@ -286,7 +296,7 @@ export function isCohortReadyMessage(m: BaseMessage): m is CohortReadyMessage {
 export function isSubmitUpdateMessage(m: BaseMessage): m is SubmitUpdateMessage {
   return m.type === SUBMIT_UPDATE
     && hasStr(m.body, 'cohortId')
-    && !!m.body && typeof (m.body as Record<string, unknown>).signedUpdate === 'object';
+    && hasStr(m.body, 'updateHash');
 }
 
 export function isSubmitNonIncludedMessage(m: BaseMessage): m is SubmitNonIncludedMessage {

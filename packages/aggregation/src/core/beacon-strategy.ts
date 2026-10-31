@@ -1,7 +1,7 @@
-import { CanonicalizationError, canonicalize, hash } from '@did-btcr2/std';
-import type { SecuredDocument } from '@did-btcr2/integrity';
+import { CanonicalizationError, canonicalize, encode, hash } from '@did-btcr2/std';
 import type { SerializedSMTProof } from '@did-btcr2/smt';
-import { base64UrlToHash, blockHash, hashToBase64Url, verifyProof } from '@did-btcr2/smt';
+import { base64UrlToHash, hashToBase64Url, leafValue, verifyProof } from '@did-btcr2/smt';
+import { randomBytes } from '@noble/hashes/utils';
 import type { AggregationCohort } from './cohort.js';
 import type { BaseBody } from './messages/base.js';
 
@@ -10,6 +10,17 @@ export interface BeaconValidationResult {
   matches: boolean;
   casAnnouncement?: Record<string, string>;
   smtProof?: SerializedSMTProof;
+}
+
+/**
+ * The values that a member makes for one round. The member sends `updateHash`
+ * and keeps `nonce`. The service does not get the nonce.
+ */
+export interface BeaconSubmission {
+  /** The value to send in SUBMIT_UPDATE. If it is absent, the member sends SUBMIT_NONINCLUDED. */
+  updateHash?: string;
+  /** SMT Beacon: the 256-bit nonce of the member for this round. */
+  nonce?: Uint8Array;
 }
 
 /** Per-participant body attached to DISTRIBUTE_AGGREGATED_DATA by the service. */
@@ -45,18 +56,29 @@ export interface AggregateBeaconStrategy {
   getDistributePayload(cohort: AggregationCohort, participantDid: string): BeaconDistributePayload;
 
   /**
-   * Participant: verify the aggregated data they received reflects their own
-   * slot. A submitter (`included: true`) checks its update is included; a
-   * decliner (`included: false`, cooperative non-inclusion) checks its
-   * non-inclusion slot instead (absence from the CAS map, or an SMT
-   * non-inclusion proof). `submittedUpdate`/`expectedHash` are present only for a
-   * submitter. Pure function: returns matches + sidecar fields for the caller.
+   * Participant: make the values of the member for this round. `updateId` is
+   * the JSON Document Hash of the update (32 bytes), absent for no update. The
+   * member sends only the returned `updateHash`, so the service does not get
+   * the update or the nonce.
+   */
+  prepareSubmission(updateId?: Uint8Array): BeaconSubmission;
+
+  /**
+   * Participant: verify that the aggregated data holds the values of the
+   * member for this round. The service does not get the nonce or the update,
+   * so the member gives the values that it kept:
+   * - `updateHash`: the value that the member sent in SUBMIT_UPDATE. Absent if
+   *   the member sent SUBMIT_NONINCLUDED.
+   * - `nonce`: SMT Beacon only, the nonce that the member made.
+   * - `updateId`: the JSON Document Hash of the update. Absent for no update.
+   *
+   * The function is pure. It returns `matches` and the sidecar fields for the caller.
    */
   validateParticipantView(params: {
     participantDid: string;
-    included: boolean;
-    submittedUpdate?: SecuredDocument;
-    expectedHash?: string;
+    updateHash?: string;
+    nonce?: Uint8Array;
+    updateId?: Uint8Array;
     body: BaseBody;
   }): BeaconValidationResult;
 
@@ -86,15 +108,21 @@ const CAS_STRATEGY: AggregateBeaconStrategy = {
     return { casAnnouncement: cohort.casAnnouncement };
   },
 
-  validateParticipantView({ participantDid, included, expectedHash, body }) {
+  // The map value is the JSON Document Hash of the update. A member with no
+  // update sends SUBMIT_NONINCLUDED: absence from the public map shows no update.
+  prepareSubmission(updateId) {
+    return updateId === undefined ? {} : { updateHash: encode(updateId) };
+  },
+
+  validateParticipantView({ participantDid, updateHash, body }) {
     const casAnnouncement = body.casAnnouncement;
     if(!casAnnouncement) return { matches: false };
-    if(!included) {
+    if(updateHash === undefined) {
       // Cooperative non-inclusion: the decliner must be ABSENT from the map.
       return { matches: !(participantDid in casAnnouncement), casAnnouncement };
     }
     return {
-      matches : casAnnouncement[participantDid] === expectedHash,
+      matches : casAnnouncement[participantDid] === updateHash,
       casAnnouncement,
     };
   },
@@ -127,30 +155,29 @@ const SMT_STRATEGY: AggregateBeaconStrategy = {
     return { smtProof: proof as unknown as Record<string, unknown> | undefined };
   },
 
-  validateParticipantView({ participantDid, included, submittedUpdate, body }) {
-    const smtProof = body.smtProof as unknown as SerializedSMTProof | undefined;
+  // The member makes a new 256-bit nonce for each round, also for no update.
+  // The leaf value hides the update and the presence of an update.
+  prepareSubmission(updateId) {
+    const nonce = randomBytes(32);
+    return { nonce, updateHash: hashToBase64Url(leafValue(nonce, updateId)) };
+  },
 
-    if(!included) {
-      // Cooperative non-update: the cohort builds the leaf in nonce mode, so the
-      // proof has a nonce but no updateId by construction. The leaf is
-      // SHA-256(SHA-256(nonce)). A missing updateId is correct here.
-      if(!smtProof?.nonce || smtProof?.updateId) return { matches: false, smtProof };
-      return { matches: verifyProof(smtProof, participantDid), smtProof };
-    }
+  validateParticipantView({ participantDid, nonce, updateId, body }) {
+    const received = body.smtProof as unknown as SerializedSMTProof | undefined;
+    if(!received) return { matches: false };
 
-    if(!smtProof?.updateId || !smtProof?.nonce || !submittedUpdate) return { matches: false, smtProof };
-    // Verify updateId matches the JSON Document Hash of the update. Proof hash
-    // fields are base64url (no padding) per the SMT Proof spec.
-    const canonicalBytes = new TextEncoder().encode(canonicalize(submittedUpdate as unknown as Record<string, unknown>));
-    const expectedUpdateId = hashToBase64Url(blockHash(canonicalBytes));
-    if(smtProof.updateId !== expectedUpdateId) {
-      return { matches: false, smtProof };
-    }
-    // Verify the proof. The leaf is SHA-256(SHA-256(nonce) || updateId).
-    return {
-      matches : verifyProof(smtProof, participantDid),
-      smtProof,
+    // Take only the tree data from the service: `id`, `collapsed`, and
+    // `hashes`. The member adds its own `nonce` and `updateId`, so `verifyProof`
+    // returns `true` only for the leaf value that the member selected. The result is
+    // the SMT Proof that the member keeps for resolution.
+    const smtProof: SerializedSMTProof = {
+      id        : received.id,
+      ...(nonce === undefined ? {} : { nonce: encode(nonce) }),
+      ...(updateId === undefined ? {} : { updateId: hashToBase64Url(updateId) }),
+      collapsed : received.collapsed,
+      hashes    : received.hashes,
     };
+    return { matches: verifyProof(smtProof, participantDid), smtProof };
   },
 
   // The signal is the SMT root, which is the very root `verifyProof` checked

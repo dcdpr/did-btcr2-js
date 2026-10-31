@@ -18,6 +18,7 @@ import { SimplePool } from 'nostr-tools/pool';
 import type { BaseBody, HttpRequestLike } from '../src/index.js';
 import {
   AGGREGATED_NONCE,
+  AGGREGATION_WIRE_VERSION,
   AggregationParticipant,
   AggregationParticipantRunner,
   AggregationService,
@@ -423,7 +424,7 @@ describe('Transport sender authentication (audit H6)', () => {
 
     it('drops a message that declares no sender DID', () => {
       const { received } = listen(COHORT_ADVERT);
-      const message = { type: COHORT_ADVERT, version: 1, body: advertBody('c1', serviceKeys.publicKey.compressed) };
+      const message = { type: COHORT_ADVERT, version: AGGREGATION_WIRE_VERSION, body: advertBody('c1', serviceKeys.publicKey.compressed) };
       relay.broadcast(finalizeEvent({
         kind       : 1,
         created_at : Math.floor(Date.now() / 1000),

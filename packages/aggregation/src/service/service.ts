@@ -1,6 +1,5 @@
-import { canonicalize } from '@did-btcr2/std';
-import type { SecuredDocument } from '@did-btcr2/integrity';
 import type { CompressedSecp256k1PublicKey } from '@did-btcr2/keys';
+import { base64UrlToHash } from '@did-btcr2/smt';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 import type { Transaction } from '@scure/btc-signer';
@@ -94,17 +93,11 @@ export interface SigningTxData {
  */
 export type RejectionReason =
   | 'WRONG_VERSION'
-  | 'UPDATE_TOO_LARGE'
   /**
-   * The submitted update is not well formed. One of these conditions is true:
-   * - the SUBMIT_UPDATE body has no signedUpdate;
-   * - JCS cannot canonicalize the update;
-   * - the update has no proof object;
-   * - the proof has no verificationMethod string or no non-empty proofValue string.
+   * The SUBMIT_UPDATE body has no `updateHash` string, or the `updateHash` is
+   * not 32 bytes in base64url with no padding.
    */
   | 'UPDATE_MALFORMED'
-  /** The proof verificationMethod of the update is not a DID URL of the sender DID. */
-  | 'UPDATE_SENDER_MISMATCH'
   /** The sender is not a member of the cohort the message names. */
   | 'NOT_A_MEMBER'
   /** The sender already answered this round or signing step; the first answer stands. */
@@ -156,9 +149,6 @@ interface ServiceCohortState {
   rejections: Array<Rejection>;
 }
 
-/** Default maximum canonicalized byte-length of a submitted BTCR2 update. */
-export const DEFAULT_MAX_UPDATE_SIZE_BYTES = 256 * 1024;
-
 /**
  * Maximum rejections retained per cohort between drains; the oldest is dropped
  * once the log is full.
@@ -181,12 +171,6 @@ export interface AggregationServiceParams {
    * keypair (see ADR 038).
    */
   publicKey: CompressedSecp256k1PublicKey;
-  /**
-   * Maximum canonicalized byte-length of a signed update body accepted by the
-   * service. Submissions above this cap are silently dropped and surfaced as
-   * `UPDATE_TOO_LARGE` rejections. Defaults to {@link DEFAULT_MAX_UPDATE_SIZE_BYTES}.
-   */
-  maxUpdateSizeBytes?: number;
 }
 
 /**
@@ -203,15 +187,13 @@ export interface AggregationServiceParams {
 export class AggregationService {
   readonly did: string;
   readonly publicKey: CompressedSecp256k1PublicKey;
-  readonly maxUpdateSizeBytes: number;
 
   /** Per-cohort state, keyed by cohortId. */
   #cohortStates: Map<string, ServiceCohortState> = new Map();
 
-  constructor({ did, publicKey, maxUpdateSizeBytes }: AggregationServiceParams) {
+  constructor({ did, publicKey }: AggregationServiceParams) {
     this.did = did;
     this.publicKey = publicKey;
-    this.maxUpdateSizeBytes = maxUpdateSizeBytes ?? DEFAULT_MAX_UPDATE_SIZE_BYTES;
   }
 
 
@@ -285,9 +267,9 @@ export class AggregationService {
 
   /**
    * Drain the rejection log for a cohort. A runner uses it to report each
-   * message that the state machine dropped (for example a malformed proof, an
-   * oversized update, or a wrong wire version) as an event. The state machine
-   * stays sans-I/O. The log has no MEMBERSHIP_FINAL or COHORT_FULL record: the
+   * message that the state machine refused as an event. Examples are an invalid
+   * partial signature, a malformed `updateHash`, and a wrong wire version. The
+   * state machine stays sans-I/O. The log has no MEMBERSHIP_FINAL or COHORT_FULL record: the
    * service runner emits these codes for an approval that it cannot apply.
    */
   drainRejections(cohortId: string): Array<Rejection> {
@@ -547,19 +529,21 @@ export class AggregationService {
   }
 
 
-  /** Updates collected so far for a cohort. */
-  collectedUpdates(cohortId: string): ReadonlyMap<string, SecuredDocument> {
+  /** The `updateHash` values collected so far for a cohort, keyed by member DID. */
+  collectedUpdateHashes(cohortId: string): ReadonlyMap<string, string> {
     const state = this.#cohortStates.get(cohortId);
     if(!state) return new Map();
-    return state.cohort.pendingUpdates;
+    return state.cohort.updateHashes;
   }
 
   /**
-   * Handle an incoming SUBMIT_UPDATE message from a participant containing their signed update to
-   * submit for aggregation.
-   * @param {BaseMessage} message - incoming SUBMIT_UPDATE message containing a participant's signed
-   * update to submit for aggregation
-   * @returns {void} - no return value; updates the service state with the submitted update if valid
+   * Handle an incoming SUBMIT_UPDATE message: a member submits its `updateHash`
+   * for this round. The service checks only the form of the value: 32 bytes in
+   * base64url with no padding. The CAS map key or the SMT leaf index
+   * `hash(did)` binds the value to the DID of the sender. Thus a bad value harms
+   * only the DID of the sender.
+   * @param {BaseMessage} message - incoming SUBMIT_UPDATE message
+   * @returns {void} - No return value. If the value is valid, the method adds it to the service state.
    */
   #handleSubmitUpdate(message: BaseMessage): void {
     const cohortId = message.body?.cohortId;
@@ -568,45 +552,31 @@ export class AggregationService {
     if(!state) return;
     if(state.phase !== ServiceCohortPhase.CohortSet && state.phase !== ServiceCohortPhase.CollectingUpdates) return;
 
-    const signedUpdate = message.body?.signedUpdate as SecuredDocument | undefined;
-    if(!signedUpdate) {
-      this.#reject(state, message.from, 'UPDATE_MALFORMED', 'SUBMIT_UPDATE missing signedUpdate body');
+    // The sender controls the body, so read `updateHash` through `unknown`.
+    const updateHash: unknown = message.body?.updateHash;
+    if(typeof updateHash !== 'string') {
+      this.#reject(state, message.from, 'UPDATE_MALFORMED', 'SUBMIT_UPDATE has no updateHash string');
       return;
     }
 
-    // Membership first, before any canonicalization or proof check. An update
-    // from a sender that is not a member would reach addUpdate. addUpdate throws
-    // UNKNOWN_PARTICIPANT out of receive() and fails the whole cohort.
+    // Check the membership before the service decodes the value. Without this
+    // check, a value from a sender that is not a member reaches addUpdate.
+    // addUpdate then throws UNKNOWN_PARTICIPANT out of receive(), and the whole
+    // cohort fails.
     // Mirrors the guard in #handleSubmitNonInclusion.
     if(!state.cohort.participants.includes(message.from)) {
       this.#reject(state, message.from, 'NOT_A_MEMBER', 'Sender is not a member of this cohort');
       return;
     }
 
-    // Cap the canonicalized update size before any other work on the body.
-    // Without this guard, a participant could submit multi-MB payloads
-    // that the service would canonicalize, hash, and aggregate - cheap DoS.
-    let canonicalSize: number;
+    // The CAS map value and the SMT leaf value are 32-byte hashes. The decoder
+    // is strict: it refuses the padding character `=` and padding bits that are
+    // not zero. Thus each hash has one string form, and the CAS map holds the
+    // string as the member sent it.
     try {
-      canonicalSize = canonicalize(signedUpdate as unknown as Record<string, unknown>).length;
+      base64UrlToHash(updateHash);
     } catch {
-      // Canonicalization is the first thing that touches the body, so anything
-      // JCS cannot serialize is dropped here rather than thrown at the caller.
-      this.#reject(state, message.from, 'UPDATE_MALFORMED', 'Update could not be canonicalized');
-      return;
-    }
-    if(canonicalSize > this.maxUpdateSizeBytes) {
-      this.#reject(state, message.from, 'UPDATE_TOO_LARGE',
-        `Canonicalized update is ${canonicalSize} bytes; max allowed is ${this.maxUpdateSizeBytes}`);
-      return;
-    }
-
-    // Check the proof structure and the sender binding. The service does not
-    // verify the signature (ADR 152). It does not hold the current DID document
-    // of the sender, so it cannot know which methods of that document can sign.
-    const problem = this.#submittedUpdateProblem(message.from, signedUpdate);
-    if(problem) {
-      this.#reject(state, message.from, problem.code, problem.reason);
+      this.#reject(state, message.from, 'UPDATE_MALFORMED', 'SUBMIT_UPDATE updateHash is not 32 bytes in base64url');
       return;
     }
 
@@ -619,13 +589,13 @@ export class AggregationService {
         'Participant already declined this round; cannot also submit an update');
       return;
     }
-    if(state.cohort.pendingUpdates.has(message.from)) {
+    if(state.cohort.updateHashes.has(message.from)) {
       this.#reject(state, message.from, 'DUPLICATE_RESPONSE',
         'Participant already submitted an update this round; cannot resubmit');
       return;
     }
 
-    state.cohort.addUpdate(message.from, signedUpdate);
+    state.cohort.addUpdate(message.from, updateHash);
 
     if(state.phase === ServiceCohortPhase.CohortSet) {
       state.phase = ServiceCohortPhase.CollectingUpdates;
@@ -639,8 +609,8 @@ export class AggregationService {
    * Handle an incoming SUBMIT_NONINCLUDED message: a member declares it has no
    * update this round (cooperative non-inclusion). Membership is proven by the
    * signed transport envelope, so the body carries only the cohortId. The member
-   * stays in the cohort and still signs; it is absent from the CAS map and
-   * carries a non-inclusion leaf in the SMT.
+   * stays in the cohort and still signs. It is absent from the CAS map, and its
+   * index in the SMT stays empty.
    */
   #handleSubmitNonInclusion(message: BaseMessage): void {
     const cohortId = message.body?.cohortId;
@@ -660,7 +630,7 @@ export class AggregationService {
 
     // One response per round: already submitted or already declined. Surface the
     // conflict as a rejection, symmetric with the double-submit guard above.
-    if(state.cohort.pendingUpdates.has(message.from) || state.cohort.nonIncluded.has(message.from)) {
+    if(state.cohort.updateHashes.has(message.from) || state.cohort.nonIncluded.has(message.from)) {
       this.#reject(state, message.from, 'DUPLICATE_RESPONSE', 'Participant already responded this round');
       return;
     }
@@ -673,62 +643,6 @@ export class AggregationService {
     if(state.cohort.hasAllResponses()) {
       state.phase = ServiceCohortPhase.UpdatesCollected;
     }
-  }
-
-  /**
-   * Check the structure of the proof of a submitted update, and check that
-   * proof.verificationMethod is a DID URL of the sender DID. The service does
-   * not verify the signature. It does not hold the current DID document of the
-   * sender, so it cannot know which methods can sign an update. A method can
-   * sign an update if all of these conditions are true (update.md, resolve.md):
-   * - the method is a capabilityInvocation method of that document;
-   * - the method has the type Multikey and the DID as the controller;
-   * - the publicKeyMultibase of the method encodes a secp256k1 public key, as
-   *   the BIP340 Cryptosuite specifies.
-   *
-   * A resolver verifies the proof. An update with a bad proof harms only the
-   * DID of the sender. The CAS map key is that DID, and the SMT leaf index is
-   * the SHA-256 hash of that DID.
-   * @param {string} sender - the DID of the participant who submitted the update
-   * @param {SecuredDocument} signedUpdate - the submitted update
-   * @returns {{ code: RejectionReason; reason: string } | undefined} The problem,
-   * or undefined if the update passes the checks.
-   */
-  #submittedUpdateProblem(
-    sender: string,
-    signedUpdate: SecuredDocument,
-  ): { code: RejectionReason; reason: string } | undefined {
-    // The sender controls the body, so each member can have any type. Read each
-    // member through `unknown`, so a wrong type gives a rejection and not a raw
-    // TypeError out of receive().
-    const proof: unknown = (signedUpdate as { proof?: unknown }).proof;
-    if(typeof proof !== 'object' || proof === null || Array.isArray(proof)) {
-      return { code: 'UPDATE_MALFORMED', reason: 'SUBMIT_UPDATE signedUpdate has no proof object' };
-    }
-    const { verificationMethod, proofValue } = proof as Record<string, unknown>;
-    if(typeof verificationMethod !== 'string' || typeof proofValue !== 'string' || proofValue === '') {
-      return { code: 'UPDATE_MALFORMED', reason: 'Update proof has no verificationMethod or proofValue string' };
-    }
-
-    // An absolute method id is the DID followed by a fragment, a query, or a
-    // path ('<did>#key-1', '<did>?key=1', '<did>/keys/1'). This is the rule of
-    // Updater.sign on the write path (ADR 147 decision 6). The read path does
-    // not check this rule: a resolver accepts each absolute proof id that the
-    // capabilityInvocation of the document names. A DID contains no '#', '?',
-    // or '/'. Thus the sender DID must be the text before the first of these
-    // characters, and at least one character must follow it. This refuses a
-    // relative id ('#initialKey'), the bare DID, and a longer DID with the
-    // sender DID as its prefix.
-    const separator = verificationMethod.charAt(sender.length);
-    if(!verificationMethod.startsWith(sender)
-      || (separator !== '#' && separator !== '?' && separator !== '/')
-      || verificationMethod.length === sender.length + 1) {
-      return {
-        code   : 'UPDATE_SENDER_MISMATCH',
-        reason : 'Update proof verificationMethod is not a DID URL of the sender DID',
-      };
-    }
-    return undefined;
   }
 
 

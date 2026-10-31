@@ -8,13 +8,14 @@ Multi-party coordination for [did:btcr2](https://dcdpr.github.io/did-btcr2/) agg
 - **`AggregationCohort`** holds cohort keys, builds the CAS Announcement map or the SMT tree, and tracks validation and non-inclusion responses.
 - **`BeaconSigningSession`** runs the MuSig2 (BIP-327) key-path-only signing session for the cohort's Taproot output.
 - **Transports (pluggable):** `NostrTransport`, the HTTP client and server adapters, an in-memory bus for testing, and a DIDComm stub. `TransportFactory.establish()` selects one from a discriminated-union config. The HTTP transport is DID-method-agnostic: pass a `resolveSenderPk` callback to authenticate senders from their DID. The HTTP client needs an `https` `baseUrl`. It accepts plain `http` only for a loopback host, or if `allowInsecureHttp` is `true`.
+- **Update privacy:** a participant sends only the `updateHash` of its update, not the update. In an SMT cohort, the participant makes the nonce and keeps it, so the service cannot tell an update from no update (ADR 168).
 - **Runner facades:** `AggregationServiceRunner` and `AggregationParticipantRunner` drive the state machines to completion with event-driven callbacks.
 
 The role entry points let a client avoid bundling server code and a service avoid bundling client code: import from `@did-btcr2/aggregation/core` (shared protocol, crypto, messages, cohort model, and the base and shared transports), `@did-btcr2/aggregation/participant` (client role plus HTTP client transport), or `@did-btcr2/aggregation/service` (coordinating role plus HTTP server transport). The umbrella `@did-btcr2/aggregation` re-exports all three and adds the in-process single-party runner and `TransportFactory`.
 
 The fee estimator contract (`FeeEstimator`, `StaticFeeEstimator`) lives in `@did-btcr2/bitcoin`; this package consumes it.
 
-See the [did-btcr2-js monorepo](https://github.com/dcdpr/did-btcr2-js) and the architecture decision records (ADRs 008, 020, 027, 028-032, 038-046, 050, 152, 153) for the design.
+See the [did-btcr2-js monorepo](https://github.com/dcdpr/did-btcr2-js) and the architecture decision records (ADRs 008, 020, 027, 028-032, 038-046, 050, 152, 153, 168) for the design.
 
 ## License
 

@@ -11,7 +11,7 @@ This document walks through the wire protocol, shows a minimal Hono server, and 
 | Operational familiarity | relay pools, NIP-44 envelopes | curl, OpenAPI, standard ops tooling |
 | Censorship resistance | multi-relay redundancy | single-operator trust |
 | Browser compatibility | depends on lib | native (`fetch` + streaming) |
-| E2E confidentiality | NIP-44 (operator can't read) | TLS-only (operator sees plaintext) |
+| E2E confidentiality | NIP-44 to the recipient (a relay cannot read a message, but the service reads each message to it) | TLS only (the service reads each message) |
 | Test harness | requires relay | pure HTTP mock |
 
 HTTP is additive: deployments can publish a `Btcr2AggregationService` endpoint alongside a Nostr relay presence and let participants pick.
@@ -282,7 +282,7 @@ For v1 a known `baseUrl` is passed directly. A future release will publish servi
 
 ## Limitations
 
-- **Operator-trusted authenticity.** Unlike NIP-44-encrypted Nostr messages, TLS-only HTTP leaks directed-message plaintext to the service operator. The protocol's own payload signatures (signed updates, partial sigs) preserve non-repudiation of aggregation outputs.
+- **The service reads each message.** TLS protects a message only on the wire, so the HTTP server of the service reads each message. The Nostr transport encrypts each directed message to its recipient, but the service is the recipient of each message from a participant. Thus no transport hides a message from the service. A participant sends only the `updateHash` of its update, so the service does not get the update or an SMT nonce (ADR 168). The partial signatures of the protocol give non-repudiation of the aggregation output.
 - **Single operator per cohort.** No built-in multi-operator redundancy. Operators who fail to broadcast can censor individual updates; participants detect by failing resolution and switching operators.
 - **Rate limiter defaults are intentionally generous** (10 rps / DID) to avoid tripping normal cohort flows. Operators hosting public aggregators should tighten based on observed traffic.
 - **Message handlers must be idempotent.** A client with no `Last-Event-ID` (a new process, or a new `registerActor`) gets every retained inbox event again. At delivery, the server signs each event older than `clockSkewSec / 2` again, so each event passes the client checks again.

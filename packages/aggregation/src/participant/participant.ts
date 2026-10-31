@@ -1,4 +1,4 @@
-import { CanonicalizationError, canonicalHash } from '@did-btcr2/std';
+import { CanonicalizationError, canonicalHashBytes, encode } from '@did-btcr2/std';
 import type { SecuredDocument } from '@did-btcr2/integrity';
 import type { SerializedSMTProof} from '@did-btcr2/smt';
 import { schnorr } from '@noble/curves/secp256k1.js';
@@ -133,8 +133,12 @@ export interface PendingValidation {
   beaconType: string;
   signalBytesHex: string;
   casAnnouncement?: Record<string, string>;
+  /**
+   * The SMT Proof of this slot, with the `nonce` of the member and, for an
+   * update, the `updateId`. Populated only for SMT beacons.
+   */
   smtProof?: SerializedSMTProof;
-  /** Canonical hash of this participant's update; empty for a decliner. */
+  /** The JSON Document Hash of the update of this participant, in base64url. It is empty for a decliner. */
   expectedHash: string;
   /**
    * True if all of these conditions are true:
@@ -198,7 +202,16 @@ interface ParticipantCohortState {
    * check read this field.
    */
   beaconAddress?: string;
-  submittedUpdate?: SecuredDocument;
+  /**
+   * The values of the member for this round. The member keeps them to validate
+   * its own slot: the service does not get the update or the nonce.
+   * - `updateHash`: the value sent in SUBMIT_UPDATE. Absent after SUBMIT_NONINCLUDED.
+   * - `nonce`: SMT Beacon only. The member makes it.
+   * - `updateId`: the JSON Document Hash of the update. Absent for no update.
+   */
+  updateHash?: string;
+  nonce?: Uint8Array;
+  updateId?: Uint8Array;
   /**
    * This round's intent, persisted because the phase advances past
    * NonIncluded/UpdateSubmitted into validation/signing. true = submitted an
@@ -500,7 +513,10 @@ export class AggregationParticipant {
 
   /**
    * User action: submit a signed BTCR2 update for inclusion in the cohort's
-   * aggregated signal.
+   * aggregated signal. The member sends only an `updateHash`, not the update.
+   * CAS Beacon: the JSON Document Hash of the update. SMT Beacon: the member
+   * makes a 256-bit nonce and sends `hash(hash(nonce) + updateId)`. The caller
+   * keeps the update. The SMT Proof of `cohort-complete` holds the nonce.
    */
   public submitUpdate(cohortId: string, signedUpdate: SecuredDocument): BaseMessage[] {
     const state = this.#cohortStates.get(cohortId);
@@ -510,10 +526,11 @@ export class AggregationParticipant {
         'INVALID_PHASE', { cohortId, phase: state?.phase }
       );
     }
-    // The member hashes its update when it validates the aggregated data. An update with no
-    // JCS form (NaN, a lone surrogate) has no hash, so the member refuses it here.
+    // The updateId is the JSON Document Hash of the update. An update with no JCS
+    // form (NaN, a lone surrogate) has no hash, so the member refuses it here.
+    let updateId: Uint8Array;
     try {
-      canonicalHash(signedUpdate);
+      updateId = canonicalHashBytes(signedUpdate);
     } catch(error) {
       if(!(error instanceof CanonicalizationError)) throw error;
       throw new AggregationParticipantError(
@@ -522,24 +539,16 @@ export class AggregationParticipant {
       );
     }
 
-    state.submittedUpdate = signedUpdate;
-    state.included = true;
-    state.phase = ParticipantCohortPhase.UpdateSubmitted;
-
-    const message = createSubmitUpdateMessage({
-      from         : this.did,
-      to           : state.serviceDid,
-      cohortId,
-      signedUpdate : signedUpdate as unknown as Record<string, unknown>,
-    });
-    return [message];
+    return this.#submit(state, updateId);
   }
 
   /**
    * User action: decline to submit an update this round (cooperative
-   * non-inclusion). The member stays in the cohort and still signs; it will be
-   * absent from the CAS Announcement Map, or carry a non-inclusion leaf in the
-   * SMT. Returns the SUBMIT_NONINCLUDED message to send.
+   * non-inclusion). The member stays in the cohort and still signs.
+   * CAS Beacon: the member sends SUBMIT_NONINCLUDED and is absent from the CAS
+   * Announcement Map. SMT Beacon: the member makes a 256-bit nonce and sends
+   * SUBMIT_UPDATE with `hash(hash(nonce))`, so the service cannot tell it from
+   * an update. Returns the message to send.
    */
   public declineUpdate(cohortId: string): BaseMessage[] {
     const state = this.#cohortStates.get(cohortId);
@@ -550,17 +559,40 @@ export class AggregationParticipant {
       );
     }
 
-    // Leave submittedUpdate unset; included=false is the load-bearing signal that
-    // the validation handler uses to validate the non-inclusion slot.
-    state.included = false;
-    state.phase = ParticipantCohortPhase.NonIncluded;
+    return this.#submit(state, undefined);
+  }
 
-    const message = createSubmitNonIncludedMessage({
-      from : this.did,
-      to   : state.serviceDid,
-      cohortId,
-    });
-    return [message];
+  /**
+   * This helper makes the values of the member for this round with the
+   * strategy of the beacon type of the cohort. It keeps the values and returns
+   * the message to send. `updateId` is the JSON Document Hash of the update,
+   * absent for no update.
+   */
+  #submit(state: ParticipantCohortState, updateId: Uint8Array | undefined): BaseMessage[] {
+    const cohortId = state.cohortId;
+    // The CohortReady phase has a cohort: joinCohort sets it.
+    const beaconType = state.cohort!.beaconType;
+    const strategy = getBeaconStrategy(beaconType);
+    if(!strategy) {
+      throw new AggregationParticipantError(
+        `Cannot respond in cohort ${cohortId}: no strategy for beacon type ${beaconType}.`,
+        'UNSUPPORTED_BEACON_TYPE', { cohortId, beaconType }
+      );
+    }
+    const { updateHash, nonce } = strategy.prepareSubmission(updateId);
+
+    state.updateHash = updateHash;
+    state.nonce = nonce;
+    state.updateId = updateId;
+    // The validation handler reads included=false to validate the slot of a
+    // member with no update.
+    state.included = updateId !== undefined;
+    state.phase = state.included ? ParticipantCohortPhase.UpdateSubmitted : ParticipantCohortPhase.NonIncluded;
+
+    if(updateHash === undefined) {
+      return [createSubmitNonIncludedMessage({ from: this.did, to: state.serviceDid, cohortId })];
+    }
+    return [createSubmitUpdateMessage({ from: this.did, to: state.serviceDid, cohortId, updateHash })];
   }
 
 
@@ -595,8 +627,8 @@ export class AggregationParticipant {
     const cohortId = state.cohortId;
 
     const declined = state.included === false;
-    // A submitter must have its update stored; a decliner has none by design.
-    if(!declined && !state.submittedUpdate) return;
+    // A submitter must have an updateId. A decliner has no updateId.
+    if(!declined && !state.updateId) return;
 
     // Validate with the beacon type of the cohort, not the type the message
     // names. The DID document of the member has a beacon service of the cohort
@@ -610,15 +642,15 @@ export class AggregationParticipant {
     const typeBound = message.body?.beaconType === beaconType;
 
     const signalBytesHex = message.body?.signalBytesHex ?? '';
-    // Decliner validates its non-inclusion slot (CAS absence / SMT non-inclusion
-    // proof); submitter validates inclusion against its update hash.
-    const expectedHash = declined ? '' : canonicalHash(state.submittedUpdate!);
+    // The member validates its slot with the values that it kept: absence from
+    // the CAS map for a CAS decliner, else its map value or its leaf value.
+    const expectedHash = state.updateId === undefined ? '' : encode(state.updateId);
     const result = strategy.validateParticipantView({
-      participantDid  : this.did,
-      included        : !declined,
-      submittedUpdate : declined ? undefined : state.submittedUpdate,
-      expectedHash    : declined ? undefined : expectedHash,
-      body            : message.body!,
+      participantDid : this.did,
+      updateHash     : state.updateHash,
+      nonce          : state.nonce,
+      updateId       : state.updateId,
+      body           : message.body!,
     });
 
     // Bind the announced signal to the data just validated. Validating a slot
