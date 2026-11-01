@@ -647,7 +647,7 @@ function resolveRpcUnit(layers: ConnectionLayer[]): RpcUnit | undefined {
  * Resolves the CAS endpoint as one unit: the highest-precedence layer that sets a
  * gateway or an RPC url gives the gateway, the RPC url, and the RPC user and
  * password (ADR 129). A lower layer never adds an endpoint: its RPC url would win
- * over the gateway of a higher layer in the api (rpcUrl > gateway). The RPC url,
+ * over the gateway of a higher layer in the api (rpcUrl > gateways). The RPC url,
  * user, and pass therefore come from one layer, as for the Bitcoin Core RPC (ADR
  * 128). The CAS has no default RPC host, so a layer with only credentials sets no
  * endpoint. Returns `undefined` when no layer sets a gateway or an RPC url.
@@ -795,7 +795,7 @@ export function resolveConnectionConfig(
   // The CAS endpoint (gateway, RPC url, user, and pass) comes from one layer
   // (ADR 129). In that layer, a configured RPC endpoint is writable and takes
   // precedence over the read-only gateway (matching the api's CasConfig priority:
-  // rpcUrl > gateway). `defaults.cas` is the lowest layer of each CAS value.
+  // rpcUrl > gateways). `defaults.cas` is the lowest layer of each CAS value.
   const casEndpoint = resolveCasEndpoint(layers);
   const casGateway = casEndpoint?.gateway;
   const casRpcUrl  = casEndpoint?.url;
@@ -806,7 +806,8 @@ export function resolveConnectionConfig(
     '--cas-timeout',
   );
   const cas: CasConfig = {};
-  if (casGateway) cas.gateway = casGateway;
+  // The cli takes one gateway. The api reads from a list of gateways.
+  if (casGateway) cas.gateways = [casGateway];
   if (casRpcUrl) {
     cas.rpcUrl = casRpcUrl;
     const rpcAuth = readCredential(() => resolveCasRpcAuth(casRpcUrl, casEndpoint), 'cas', credentialErrors);
@@ -818,7 +819,7 @@ export function resolveConnectionConfig(
     // back to the same default gateway the api would otherwise apply, so the
     // timeout is honored rather than dropped (the api only defaults the gateway
     // when the whole cas config is absent).
-    if (!casGateway && !casRpcUrl) cas.gateway = DEFAULT_CAS_GATEWAY;
+    if (!casGateway && !casRpcUrl) cas.gateways = [DEFAULT_CAS_GATEWAY];
   }
   const hasCas = casGateway || casRpcUrl || casTimeout !== undefined;
 
@@ -1086,7 +1087,7 @@ export function resolveEffectiveConfig(network: NetworkOption, overrides?: Conne
 
   // CAS has no client to read back from; derive its resolved endpoint from the
   // connection resolver, defaulting the gateway the way the api would.
-  const casGatewayVal = conn.cas?.gateway ?? (conn.cas?.rpcUrl ? undefined : DEFAULT_CAS_GATEWAY);
+  const casGatewayVal = conn.cas?.gateways?.[0] ?? (conn.cas?.rpcUrl ? undefined : DEFAULT_CAS_GATEWAY);
 
   // RPC url/user/pass provenance follows the atomic-credential unit, so a value's
   // reported source is the layer the merge actually bound it to (never an
@@ -1123,7 +1124,7 @@ export function resolveEffectiveConfig(network: NetworkOption, overrides?: Conne
       timeoutMs       : { value: conn.btc?.timeoutMs, source: src(overrides?.btcTimeout, process.env[ENV_VARS.BTC_TIMEOUT], profileBtc?.timeoutMs) },
     },
     cas : {
-      gateway   : { value: casGatewayVal,       source: conn.cas?.gateway !== undefined ? casSrc : 'default' },
+      gateway   : { value: casGatewayVal,       source: conn.cas?.gateways !== undefined ? casSrc : 'default' },
       rpcUrl    : { value: conn.cas?.rpcUrl,     source: conn.cas?.rpcUrl !== undefined ? casSrc : 'default' },
       rpcUser   : { value: casAuth?.username,    source: casAuth ? casSrc : 'default' },
       rpcPass   : { value: casAuth?.password,    source: casAuth ? (casEndpoint?.pass !== undefined ? casSrc : 'env') : 'default' },
@@ -1199,7 +1200,7 @@ export async function runDoctor(network: NetworkOption, overrides?: ConnectionOv
   const conn = resolveConnectionConfig(network, overrides, credentialErrors);
   const api = createApi({
     btc : { ...conn.btc, network, timeoutMs: DOCTOR_PROBE_TIMEOUT_MS },
-    cas : { ...(conn.cas ?? { gateway: DEFAULT_CAS_GATEWAY }), timeoutMs: DOCTOR_PROBE_TIMEOUT_MS },
+    cas : { ...(conn.cas ?? { gateways: [DEFAULT_CAS_GATEWAY] }), timeoutMs: DOCTOR_PROBE_TIMEOUT_MS },
   });
   const height = CHAIN_MARKER[network].height;
   const checks: DoctorCheck[] = [];
@@ -1218,7 +1219,7 @@ export async function runDoctor(network: NetworkOption, overrides?: ConnectionOv
   }
 
   // The api selects the RPC endpoint over the gateway, so the check names that target.
-  const casTarget = (conn.cas?.rpcUrl ?? conn.cas?.gateway ?? DEFAULT_CAS_GATEWAY).replace(/\/+$/, '');
+  const casTarget = (conn.cas?.rpcUrl ?? conn.cas?.gateways?.[0] ?? DEFAULT_CAS_GATEWAY).replace(/\/+$/, '');
   checks.push(await runCheck('cas', casTarget, async () => {
     if (credentialErrors.cas) throw credentialErrors.cas;
     await api.cas.probe();

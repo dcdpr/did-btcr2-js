@@ -56,7 +56,7 @@ const api = createApi({
   btc : NETWORK === 'regtest'
     ? { network: NETWORK, rpc: { username: 'polaruser', password: 'polarpass' } }
     : { network: NETWORK },
-  cas : { gateway: DEFAULT_CAS_GATEWAY, timeoutMs: 5_000 },
+  cas : { gateways: [DEFAULT_CAS_GATEWAY], timeoutMs: 5_000 },
 });
 
 console.log(`[1] api initialized, height: ${await api.btc.rest.block.count()}`);

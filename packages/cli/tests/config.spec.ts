@@ -765,7 +765,7 @@ describe('resolveConnectionConfig (I/O knobs)', () => {
     const { cas } = resolveConnectionConfig('regtest', { config: cfgPath, casTimeout: '0' });
     expect(cas?.timeoutMs).to.equal(0);
     // A timeout needs an endpoint; the default gateway is attached so it is honored.
-    expect(cas?.gateway).to.be.a('string');
+    expect(cas?.gateways).to.deep.equal(['https://trustless-gateway.link']);
   });
 
   it('maps --btc-rest-header into RestConfig.headers (no host override needed)', () => {
@@ -1091,7 +1091,7 @@ describe('CAS RPC credentials (ADR 128)', () => {
     const cfg = writeCfg('no-url.json', {
       profiles : { regtest: { cas: { gateway: 'https://gw.example', rpcUser: 'alice', rpcPass: 's3cret' } } },
     });
-    expect(resolveConnectionConfig('regtest', { config: cfg }).cas).to.deep.equal({ gateway: 'https://gw.example' });
+    expect(resolveConnectionConfig('regtest', { config: cfg }).cas).to.deep.equal({ gateways: ['https://gw.example'] });
   });
 
   it('sends the credentials in each CAS request of the api', async () => {
@@ -1164,7 +1164,7 @@ describe('defaults.cas (ADR 129)', () => {
   it('gives the gateway and the timeout of defaults.cas to a network with no profile', () => {
     const cfg = writeCfg('gateway.json', { defaults: { cas: { gateway: 'https://gw.example', timeoutMs: 60000 } } });
     expect(resolveConnectionConfig('signet', { config: cfg }).cas)
-      .to.deep.equal({ gateway: 'https://gw.example', timeoutMs: 60000 });
+      .to.deep.equal({ gateways: ['https://gw.example'], timeoutMs: 60000 });
   });
 
   it('never gives the defaults.cas credentials to a profile url', () => {
@@ -1186,9 +1186,9 @@ describe('defaults.cas (ADR 129)', () => {
       },
     });
     expect(resolveConnectionConfig('signet', { config: cfg }).cas)
-      .to.deep.equal({ gateway: 'https://signet-gw.example', timeoutMs: 60000 });
+      .to.deep.equal({ gateways: ['https://signet-gw.example'], timeoutMs: 60000 });
     expect(resolveConnectionConfig('regtest', { config: cfg }).cas)
-      .to.deep.equal({ gateway: 'https://gw.example', timeoutMs: 0 });
+      .to.deep.equal({ gateways: ['https://gw.example'], timeoutMs: 0 });
   });
 
   it('lets the environment and the flag win over defaults.cas', () => {
@@ -1196,9 +1196,9 @@ describe('defaults.cas (ADR 129)', () => {
     process.env[ENV_VARS.CAS_GATEWAY] = 'https://env-gw.example';
     process.env[ENV_VARS.CAS_RPC_URL] = 'http://env-node:5001';
     expect(resolveConnectionConfig('signet', { config: cfg }).cas)
-      .to.deep.equal({ gateway: 'https://env-gw.example', rpcUrl: 'http://env-node:5001' });
+      .to.deep.equal({ gateways: ['https://env-gw.example'], rpcUrl: 'http://env-node:5001' });
     expect(resolveConnectionConfig('signet', { config: cfg, casGateway: 'https://flag-gw.example' }).cas)
-      .to.deep.equal({ gateway: 'https://flag-gw.example' });
+      .to.deep.equal({ gateways: ['https://flag-gw.example'] });
   });
 
   it('lets a profile gateway win over the defaults.cas url', () => {
@@ -1207,7 +1207,7 @@ describe('defaults.cas (ADR 129)', () => {
       profiles : { signet: { cas: { gateway: 'https://signet-gw.example' } } },
     });
     const cas = resolveConnectionConfig('signet', { config: cfg }).cas;
-    expect(cas).to.deep.equal({ gateway: 'https://signet-gw.example' });
+    expect(cas).to.deep.equal({ gateways: ['https://signet-gw.example'] });
     expect(defaultApiFactory('signet', { config: cfg }).cas.writable).to.equal(false);
   });
 
@@ -1216,7 +1216,7 @@ describe('defaults.cas (ADR 129)', () => {
       profiles : { regtest: { cas: { rpcUrl: 'http://127.0.0.1:5001' } } },
     });
     expect(resolveConnectionConfig('regtest', { config: cfg, casGateway: 'https://gw.example' }).cas)
-      .to.deep.equal({ gateway: 'https://gw.example' });
+      .to.deep.equal({ gateways: ['https://gw.example'] });
   });
 
   it('takes the gateway and the url of one layer together', () => {
@@ -1224,7 +1224,7 @@ describe('defaults.cas (ADR 129)', () => {
       defaults : { cas: { gateway: 'https://gw.example', rpcUrl: 'http://127.0.0.1:5001' } },
     });
     expect(resolveConnectionConfig('regtest', { config: cfg }).cas)
-      .to.deep.equal({ gateway: 'https://gw.example', rpcUrl: 'http://127.0.0.1:5001' });
+      .to.deep.equal({ gateways: ['https://gw.example'], rpcUrl: 'http://127.0.0.1:5001' });
   });
 
   it('refuses incomplete credentials in defaults.cas', () => {
