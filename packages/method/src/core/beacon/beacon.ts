@@ -590,12 +590,13 @@ export async function buildAggregationBeaconTx(opts: {
   const utxo = funding.utxos[0]!;
   const amount = BigInt(utxo.value);
 
-  // The funded beacon output is a Taproot script-tree output: key path is the
-  // MuSig2 aggregate, script path is the k-of-n fallback + CSV recovery leaves
-  // (see cohort.ts and ADR 042). Derive the witnessUtxo scriptPubKey from the
-  // funded address itself; recomputing a key-path-only p2tr(internalPubkey) here
-  // would not match the script-tree UTXO on chain and would invalidate both the
-  // key-path sighash and the fallback script-path sighash.
+  // The funded beacon output is a Taproot output. Its key path is the MuSig2
+  // aggregate. By default it has no script tree, but a cohort can add the k-of-n
+  // fallback leaf and the CSV recovery leaf (aggregation ADRs 042 and 169).
+  // Derive the witnessUtxo scriptPubKey from the funded address. A
+  // key-path-only p2tr(internalPubkey) does not match an output with a script
+  // tree. With a wrong script, the key-path sighash and the fallback
+  // script-path sighash are invalid.
   const witnessScript = OutScript.encode(Address(opts.network).decode(opts.beaconAddress));
 
   // allowUnknownOutputs: scure does not classify OP_RETURN as a "known" output

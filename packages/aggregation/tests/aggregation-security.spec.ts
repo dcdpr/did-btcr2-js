@@ -13,8 +13,6 @@ import {
 } from '../src/index.js';
 import { DidBtcr2 } from '@did-btcr2/method';
 
-const TEST_RECOVERY_KEY = 'a'.repeat(64);
-const TEST_RECOVERY_SEQUENCE = 144;
 
 describe('Aggregation security regressions', () => {
 
@@ -27,7 +25,7 @@ describe('Aggregation security regressions', () => {
       const aliceKeys2 = SchnorrKeyPair.generate();
 
       const service = new AggregationService({ did: serviceDid, publicKey: serviceKeys.publicKey });
-      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
+      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
       service.advertise(cohortId);
 
       // Alice opts in with K1
@@ -66,7 +64,7 @@ describe('Aggregation security regressions', () => {
       const bobDid = DidBtcr2.create(bobKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
 
       const service = new AggregationService({ did: serviceDid, publicKey: serviceKeys.publicKey });
-      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
+      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
       service.advertise(cohortId);
       service.receive(createCohortOptInMessage({
         from            : aliceDid, to              : serviceDid, cohortId,
@@ -106,7 +104,7 @@ describe('Aggregation security regressions', () => {
       const aliceDid = DidBtcr2.create(aliceKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
 
       const service = new AggregationService({ did: serviceDid, publicKey: serviceKeys.publicKey });
-      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
+      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
       service.advertise(cohortId);
 
       // Hand-forged message with wrong version
@@ -154,7 +152,7 @@ describe('Aggregation security regressions', () => {
       const serviceKeys = SchnorrKeyPair.generate();
       const serviceDid = DidBtcr2.create(serviceKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
       const service = new AggregationService({ did: serviceDid, publicKey: serviceKeys.publicKey });
-      const cohortId = service.createCohort({ minParticipants: 1, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
+      const cohortId = service.createCohort({ minParticipants: 1, network: 'mutinynet', beaconType: 'CASBeacon' });
       service.advertise(cohortId);
 
       // Force phase to DataDistributed via direct state manipulation is not possible

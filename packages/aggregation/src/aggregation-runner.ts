@@ -1,6 +1,5 @@
 import type { SchnorrKeyPair } from '@did-btcr2/keys';
-import { bytesToHex } from '@noble/hashes/utils';
-import { DEFAULT_FUNDING_MODEL, DEFAULT_RECOVERY_SEQUENCE } from './core/recovery-policy.js';
+import { DEFAULT_FUNDING_MODEL } from './core/recovery-policy.js';
 import type { AggregationResult } from './service/service.js';
 import { InMemoryBus, InMemoryTransport } from './core/transport/in-memory.js';
 import { AggregationParticipantRunner } from './participant/participant-runner.js';
@@ -23,24 +22,26 @@ export interface SoloCohortOptions {
   participant: SoloActor;
   /**
    * Bitcoin network and beacon type (`'CASBeacon'` | `'SMTBeacon'`) for the
-   * cohort. Recovery params are optional here: in a solo run the service actor
-   * is the operator and holds full keys, so when `recoveryKey` is omitted the
-   * service's own x-only key is used as the CSV recovery key (it can actually
-   * perform the recovery), with {@link DEFAULT_RECOVERY_SEQUENCE} as the delay.
+   * cohort. The leaf values are optional. With none, the beacon address has no
+   * script tree, so only the participant key can spend it (ADR 169). If the
+   * config has a leaf value, the solo participant also allows that leaf.
    *
-   * Two solo runs with the same actors, recovery terms, and network get one
+   * With no leaf, the beacon address depends only on the participant key. Two
+   * solo runs with the same participant key, leaf values, and network get one
    * beacon address, also if the beacon types differ. Each run makes a new
    * participant object, so the BEACON_TYPE_CONFLICT check does not see the
    * earlier run. If a DID document has a beacon service at this address, a
-   * signal of another type makes that DID invalid. To use the other beacon type, set another
-   * `recoverySequence` or `recoveryKey` (ADR 152).
+   * signal of another type makes that DID invalid. To use the other beacon
+   * type, use another participant key (ADRs 152 and 169).
    */
   config: {
     network: string;
     beaconType: string;
-    /** Operator recovery key, x-only (64-hex). Defaults to the service actor's x-only key. */
+    /** k of the k-of-n fallback leaf (1 in a solo run). Absent: no fallback leaf. */
+    fallbackThreshold?: number;
+    /** Operator recovery key, x-only (64-hex). With `recoverySequence`, the beacon address gets the CSV recovery leaf. */
     recoveryKey?: string;
-    /** Relative-timelock (BIP-68) before recovery is spendable. Defaults to {@link DEFAULT_RECOVERY_SEQUENCE}. */
+    /** Relative-timelock (BIP-68) before recovery is spendable. With `recoveryKey`, the beacon address gets the CSV recovery leaf. */
     recoverySequence?: number;
   };
   /** Provide the participant's signed BTCR2 update for the cohort. */
@@ -96,18 +97,23 @@ export class AggregationRunner {
     transport.registerPeer(options.service.did, options.service.keys.publicKey.compressed);
     transport.start();
 
-    // In a solo run the service actor is the operator and holds full keys, so it
-    // can both advertise the recovery terms and, if ever needed, perform the
-    // recovery. Default the recovery key to the service's own x-only key.
-    const recoveryKey = options.config.recoveryKey
-      ?? bytesToHex(options.service.keys.publicKey.compressed.slice(1));
-    const recoverySequence = options.config.recoverySequence ?? DEFAULT_RECOVERY_SEQUENCE;
+    // No leaf by default (ADR 169). The service gets the leaf values of the
+    // config as they are, and the participant allows only those leaves.
+    const { network, beaconType, fallbackThreshold, recoveryKey, recoverySequence } = options.config;
 
     const service = new AggregationServiceRunner({
       transport,
       did                    : options.service.did,
       keys                   : options.service.keys,
-      config                 : { minParticipants: 1, network: options.config.network, beaconType: options.config.beaconType, recoveryKey, recoverySequence, fundingModel: DEFAULT_FUNDING_MODEL },
+      config                 : {
+        minParticipants : 1,
+        network,
+        beaconType,
+        fallbackThreshold,
+        recoveryKey,
+        recoverySequence,
+        fundingModel    : DEFAULT_FUNDING_MODEL,
+      },
       onProvideTxData        : options.onProvideTxData,
       feeEstimator           : options.feeEstimator,
       cohortTtlMs            : options.cohortTtlMs,
@@ -119,10 +125,12 @@ export class AggregationRunner {
 
     const participant = new AggregationParticipantRunner({
       transport,
-      did             : options.participant.did,
-      keys            : options.participant.keys,
-      shouldJoin      : async () => true,
-      onProvideUpdate : options.onProvideUpdate,
+      did               : options.participant.did,
+      keys              : options.participant.keys,
+      shouldJoin        : async () => true,
+      onProvideUpdate   : options.onProvideUpdate,
+      allowFallbackLeaf : fallbackThreshold !== undefined,
+      allowRecoveryLeaf : recoveryKey !== undefined || recoverySequence !== undefined,
     });
 
     await participant.start();

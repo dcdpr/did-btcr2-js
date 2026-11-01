@@ -2,23 +2,31 @@
  * Recovery policy for aggregate beacon outputs.
  *
  * An aggregate beacon UTXO is a Taproot output whose key path is the cohort's
- * n-of-n MuSig2 aggregate key. A key-path-only output can be spent only with a
- * signature from every cohort member, so a single missing signer would lock the
- * funds forever. To prevent that, the output commits to a script tree with two
- * leaves:
- * - a k-of-n fallback leaf (`p2tr_ms`, BIP-342 CHECKSIGADD): any k cohort members
- *   can still push the announcement through if some signers go missing, so the
- *   beacon stays live without waiting out the timelock.
- * - a CSV recovery leaf: after a relative-timelock delay the funder can reclaim
- *   the UTXO unilaterally with its own recovery key, so funds are never
- *   permanently stranded even if fewer than k members remain.
+ * n-of-n MuSig2 aggregate key. By default the output has no script tree. Thus
+ * only all n members together can spend it, and each Beacon Signal carries a
+ * signature of each member. The spec RECOMMENDS this n-of-n beacon address
+ * (Appendix, "No Privileged Role"). See ADR 169.
+ *
+ * A cohort can opt in to two script leaves. Each leaf lets a party spend the
+ * UTXO without some members. Thus each leaf removes a part of the n-of-n
+ * guarantee:
+ * - a k-of-n fallback leaf (`p2tr_ms`, BIP-342 CHECKSIGADD): any k cohort
+ *   members can publish a Beacon Signal without the other members.
+ * - a CSV recovery leaf: after a relative-timelock delay, the holder of the
+ *   recovery key can spend the UTXO alone. The leaf script does not limit the
+ *   outputs, so that spend can also be a Beacon Signal.
+ *
+ * A leaf is in the tree only if the cohort names its values:
+ * `fallbackThreshold` for the fallback leaf, `recoveryKey` and
+ * `recoverySequence` for the recovery leaf. By default, a member refuses each
+ * leaf (ADR 169).
  *
  * This module is the seam between the funding model and the concrete script
- * leaves. Only `operator-funded` is implemented today (the k-of-n fallback leaf
- * plus one CSV leaf keyed to the operator's recovery key). A future
- * `participant-funded` model can be added as another case returning
- * per-participant refund leaves, without touching the cohort, service, or
- * signing code. See ADR 042.
+ * leaves. This package implements only `operator-funded` (the optional k-of-n
+ * fallback leaf plus the optional CSV leaf keyed to the operator's recovery
+ * key). A future `participant-funded` model can be another case that returns a
+ * refund leaf for each participant. The cohort, the service, and the signing
+ * code then do not change. See ADR 042.
  */
 
 import { schnorr } from '@noble/curves/secp256k1.js';
@@ -40,9 +48,10 @@ export type FundingModel = 'operator-funded' | 'participant-funded';
 export const DEFAULT_FUNDING_MODEL: FundingModel = 'operator-funded';
 
 /**
- * Default relative-timelock (in blocks) before operator recovery is spendable.
- * About one day at 10-minute blocks. Operators set their own per-cohort value;
- * this is only a convenience default for callers.
+ * Suggested relative-timelock (in blocks) before operator recovery is
+ * spendable, if an operator opts in to the recovery leaf. About one day at
+ * 10-minute blocks. No code applies this value: a cohort has a recovery leaf
+ * only if its conditions name `recoverySequence`.
  */
 export const DEFAULT_RECOVERY_SEQUENCE = 144;
 
@@ -78,16 +87,25 @@ export interface FallbackPolicyParams {
    * deterministic regardless of the order keys are supplied in.
    */
   cohortKeys: Uint8Array[];
-  /**
-   * Number of signers (k) the fallback leaf requires, 1..n. This is the
-   * resolved threshold; callers that carry an advertised-or-default value should
-   * resolve it with {@link resolveFallbackThreshold} first.
-   */
+  /** Number of signers (k) the fallback leaf requires, 1..n. */
   fallbackThreshold: number;
 }
 
-/** All inputs the beacon output's script tree commits to (fallback leaf + recovery leaf). */
-export interface BeaconLeafParams extends RecoveryPolicyParams, FallbackPolicyParams {}
+/**
+ * All inputs the script tree of the beacon output commits to. A leaf is in the
+ * tree only if its values are present:
+ * - `fallbackThreshold`: the k-of-n fallback leaf with exactly this k.
+ * - `recoveryKey` and `recoverySequence`: the CSV recovery leaf. Only one of
+ *   the two is an error.
+ *
+ * With no leaf values, the tree is empty and the output is key path only.
+ */
+export interface BeaconLeafParams extends Partial<RecoveryPolicyParams> {
+  /** The cohort's participant public keys (compressed secp256k1, 33 bytes each). */
+  cohortKeys: Uint8Array[];
+  /** k of the k-of-n fallback leaf. Absent: the tree has no fallback leaf. */
+  fallbackThreshold?: number;
+}
 
 /** A single Taproot script-tree leaf, spent at the default tapscript leaf version (0xc0). */
 export interface TaprootScriptLeaf {
@@ -117,14 +135,25 @@ export function tapLeafHash(script: Uint8Array, leafVersion: number = TAPROOT_LE
 }
 
 /**
- * Resolve the effective fallback threshold k from an advertised value and the
- * cohort size n. When unadvertised it defaults to n-1 (tolerate one missing or
- * defecting signer, the cheapest useful fallback witness), floored at 1. Both
- * the service and every participant resolve this identically so they derive the
- * same beacon address.
+ * Get the recovery values, if both are present.
+ *
+ * @returns The recovery key and sequence, or `undefined` if neither is present
+ * (the tree has no recovery leaf).
+ * @throws {AggregationCohortError} `INCOMPLETE_RECOVERY_PARAMS` if only one of
+ * `recoveryKey` and `recoverySequence` is present.
  */
-export function resolveFallbackThreshold(advertised: number | undefined, n: number): number {
-  return advertised ?? Math.max(1, n - 1);
+export function recoveryLeafParams(
+  { recoveryKey, recoverySequence }: Partial<RecoveryPolicyParams>
+): RecoveryPolicyParams | undefined {
+  if(recoveryKey === undefined && recoverySequence === undefined) return undefined;
+  if(recoveryKey === undefined || recoverySequence === undefined) {
+    throw new AggregationCohortError(
+      'The recovery leaf needs both a recovery key and a recovery sequence.',
+      'INCOMPLETE_RECOVERY_PARAMS',
+      { hasRecoveryKey: recoveryKey !== undefined, hasRecoverySequence: recoverySequence !== undefined }
+    );
+  }
+  return { recoveryKey, recoverySequence };
 }
 
 function assertFallbackParams({ cohortKeys, fallbackThreshold }: FallbackPolicyParams): void {
@@ -201,28 +230,36 @@ export function buildRecoveryScript(params: RecoveryPolicyParams): Uint8Array {
 /**
  * Build the Taproot script-tree leaves for a funding model. The returned leaves
  * are the script tree the beacon output key commits to alongside the cohort's
- * MuSig2 internal key.
+ * MuSig2 internal key. The result has only the leaves that the params name, so
+ * it can be empty (a key-path-only output).
  *
  * Canonical leaf order is fallback (k-of-n, leaf A) then CSV recovery (leaf B).
- * For the current two-leaf tree the Merkle root is order-invariant (a TapBranch
+ * For a tree of two leaves the Merkle root is order-invariant (a TapBranch
  * sorts its two child hashes), but fixing the order keeps the construction
  * deterministic and reviewable, and is consensus-affecting should the tree ever
  * grow past two leaves.
  *
- * @throws {AggregationCohortError} when the funding model is reserved (e.g.
- * `participant-funded`) or unknown, or when the fallback/recovery params are
- * invalid.
+ * @throws {AggregationCohortError} If the funding model is reserved (for
+ * example `participant-funded`, also with no leaf values) or unknown, if only
+ * one of the two recovery values is present, or if a leaf value is invalid.
  */
 export function buildRecoveryLeaves(
   fundingModel: FundingModel,
   params: BeaconLeafParams
 ): TaprootScriptLeaf[] {
   switch(fundingModel) {
-    case 'operator-funded':
-      return [
-        { script: buildFallbackLeaf(params) },
-        { script: buildRecoveryScript(params) },
-      ];
+    case 'operator-funded': {
+      const leaves: TaprootScriptLeaf[] = [];
+      const { cohortKeys, fallbackThreshold } = params;
+      const recovery = recoveryLeafParams(params);
+      if(fallbackThreshold !== undefined) {
+        leaves.push({ script: buildFallbackLeaf({ cohortKeys, fallbackThreshold }) });
+      }
+      if(recovery) {
+        leaves.push({ script: buildRecoveryScript(recovery) });
+      }
+      return leaves;
+    }
     case 'participant-funded':
       throw new AggregationCohortError(
         'Funding model \'participant-funded\' is reserved and not yet implemented.',

@@ -51,9 +51,22 @@ Two beacon types are supported:
 - **`CASBeacon`**: Aggregated updates form a CAS Announcement Map (DID to updateHash). The service publishes the map to a Content-Addressed Store (e.g., IPFS) and commits its hash on-chain.
 - **`SMTBeacon`**: Aggregated updates form a Sparse Merkle Tree. The SMT root is committed on-chain; participants get individual Merkle proofs.
 
-The beacon type is not an input of the beacon address. A CAS cohort and an SMT cohort with the same members, recovery key, recovery sequence, funding model, fallback threshold (k), and network get one beacon address. A member refuses the second cohort (`BEACON_TYPE_CONFLICT`) only if its `AggregationParticipant` object knows the first cohort. Then the second cohort does not complete.
+### Beacon address
 
-If the member uses a new `AggregationParticipant` object, the member signs the second cohort. The signal of the second cohort can make a DID of the member invalid. To offer both beacon types to the same members, use another `recoverySequence` for each beacon type (ADR 152).
+The beacon address is a Taproot output. Its internal key is the MuSig2 aggregate of the cohort keys. By default, the output has no script tree. Thus only all n members together can spend it (n-of-n). The spec RECOMMENDS this form (Appendix, "No Privileged Role"). A service can add two script leaves with the cohort conditions (ADR 169):
+
+| Leaf | Conditions | Who can spend without all members |
+|---|---|---|
+| k-of-n fallback leaf | `fallbackThreshold` (k) | any k members together |
+| CSV recovery leaf | `recoveryKey` and `recoverySequence` (both or neither) | the holder of `recoveryKey`, after `recoverySequence` blocks |
+
+Each spend from the beacon address with a signal output is a Beacon Signal. Thus each leaf lets a party publish a Beacon Signal without the other members. If the Beacon Signal has no announcement for a member DID, that DID fails to resolve. By default, a participant refuses an advert that names a leaf (`FALLBACK_LEAF_NOT_ALLOWED`, `RECOVERY_LEAF_NOT_ALLOWED`). To allow a leaf, set the participant option `allowFallbackLeaf` or `allowRecoveryLeaf` to `true`.
+
+The cost of no leaf: one offline member stops the beacon, and the funds stay at the beacon address. The spec names the backup beacon: a Singleton Beacon in each DID document (Appendix, "Worst Case").
+
+The beacon type is not an input of the beacon address. With no leaf, the address depends only on the cohort keys and the network. A CAS cohort and an SMT cohort with the same members, leaf values, funding model, and network get one beacon address. A member refuses the second cohort (`BEACON_TYPE_CONFLICT`) only if its `AggregationParticipant` object knows the first cohort. Then the second cohort does not complete.
+
+If the member uses a new `AggregationParticipant` object, the member signs the second cohort. The signal of the second cohort can make a DID of the member invalid. To offer both beacon types to the same members, each member must use another key for each beacon type (ADRs 152 and 169).
 
 ---
 
@@ -233,11 +246,9 @@ const runner: AggregationServiceRunner = new AggregationServiceRunner({
   keys      : serviceKeys,
 
   config: {
-    minParticipants  : 2,
-    network          : 'mutinynet',
-    beaconType       : 'CASBeacon',
-    recoveryKey      : recoveryKeyHex, // x-only operator recovery key, 64 hex characters
-    recoverySequence : 144,            // blocks (BIP-68) before the recovery leaf is spendable
+    minParticipants : 2,
+    network         : 'mutinynet',
+    beaconType      : 'CASBeacon',
   },
 
   // REQUIRED: provide the Bitcoin transaction to be MuSig2-signed. The
@@ -263,7 +274,9 @@ const runner: AggregationServiceRunner = new AggregationServiceRunner({
 });
 ```
 
-The `config` object holds the cohort conditions. The spec example in "Step 1: Create Aggregation Cohort" names conditions such as the beacon type and the number of participants. `createCohort` refuses a config without a beacon type, a minimum participant count, a recovery key, or a recovery sequence. The recovery key and the recovery sequence are not spec conditions: ADR 042 adds them. `createCohort` does not check `network`, but the cohort needs a valid network to compute the beacon address. Other conditions, for example `maxParticipants`, the time between announcements, and the costs, are optional `config` members.
+The `config` object holds the cohort conditions. The spec example in "Step 1: Create Aggregation Cohort" names conditions such as the beacon type and the number of participants. `createCohort` refuses a config without a beacon type or a minimum participant count. It also refuses a config with only one of `recoveryKey` and `recoverySequence`. The leaf values `fallbackThreshold`, `recoveryKey`, and `recoverySequence` are not spec conditions: ADRs 042 and 169 add them. Each is optional (see [Beacon address](#beacon-address)).
+
+`createCohort` does not check `network`, but the cohort needs a valid network to compute the beacon address. Other conditions, for example `maxParticipants`, the time between announcements, and the costs, are optional `config` fields.
 
 #### `AggregationServiceRunnerOptions` (optional hardening)
 
@@ -400,6 +413,10 @@ Two more callbacks are optional:
 - **`onValidateData`**: approve/reject aggregated data. Default approves if `info.matches` is true. `info.matches` needs your update in the data, a signal that derives from the data, and the beacon type of the cohort in the message. If you declined the update, `info.matches` needs the data to show no update of yours.
 - **`onApproveSigning`**: approve/reject the actual signing. Default approves.
 
+Two options let the participant allow a script leaf of the beacon address (see [Beacon address](#beacon-address)):
+- **`allowFallbackLeaf`**: allow a cohort with the k-of-n fallback leaf. Default `false`.
+- **`allowRecoveryLeaf`**: allow a cohort with the CSV recovery leaf. Default `false`.
+
 ### Step 2: Subscribe to events (optional)
 
 ```typescript
@@ -462,10 +479,12 @@ A null return from `onProvideUpdate` declines the update, but the member still s
 1. **Cohort Discovery (spec Step 1)**
    - Listens for `COHORT_ADVERT` broadcasts on the transport
    - Drops an advert whose `beaconType` is not `CASBeacon` or `SMTBeacon`, with no event
-   - For each advert: emits `cohort-discovered` and calls `shouldJoin(advert)`
-   - If the filter accepts, registers the service's communication key, sends `COHORT_OPT_IN`, emits `cohort-joined`
+   - For each advert: emits `cohort-discovered`, registers the service's communication key, and calls `shouldJoin(advert)`
+   - If the filter accepts and the advert names a leaf that the participant does not allow, emits `error` (`FALLBACK_LEAF_NOT_ALLOWED` or `RECOVERY_LEAF_NOT_ALLOWED`) and does not join
+   - Else, if the filter accepts, sends `COHORT_OPT_IN`, emits `cohort-joined`
    - Waits for `COHORT_OPT_IN_ACCEPT` (acknowledgment)
-   - Waits for `COHORT_READY` containing the cohort's MuSig2 beacon address; validates the address against locally-computed value, emits `cohort-ready`. The participant refuses `COHORT_READY` if the address is not the address that it computes (`BEACON_ADDRESS_MISMATCH`). It also refuses `COHORT_READY` if another of its cohorts has this beacon address and another beacon type (`BEACON_TYPE_CONFLICT`). For `BEACON_TYPE_CONFLICT`, the phase becomes Failed and the runner emits `cohort-failed`. For `BEACON_ADDRESS_MISMATCH`, the phase stays OptedIn and the runner emits `error`.
+   - Waits for the `COHORT_READY` message with the MuSig2 beacon address of the cohort, validates the address against the value that it computes, and emits `cohort-ready`. The participant refuses `COHORT_READY` if the key count is below `minParticipants` or above `maxParticipants` of the advert (`COHORT_SIZE_OUT_OF_BOUNDS`). It refuses `COHORT_READY` if the address is not the address that it computes (`BEACON_ADDRESS_MISMATCH`).
+   - The participant computes the address with the leaf values of the advert. If the two addresses match, the address has no other leaf. The participant also refuses `COHORT_READY` if another of its cohorts has this beacon address and another beacon type (`BEACON_TYPE_CONFLICT`). For `BEACON_TYPE_CONFLICT`, the phase becomes Failed and the runner emits `cohort-failed`. For `COHORT_SIZE_OUT_OF_BOUNDS` and `BEACON_ADDRESS_MISMATCH`, the phase stays OptedIn and the runner emits `error`.
 
 2. **Update Submission (spec Step 2)**
    - Calls `onProvideUpdate({ cohortId, beaconAddress, beaconType })`: your data callback. The beacon service in the DID document must have the type `beaconType`.
@@ -487,7 +506,7 @@ A null return from `onProvideUpdate` declines the update, but the member still s
    - Waits for `AGGREGATED_NONCE` from the service
    - Generates and sends the `SIGNATURE_AUTHORIZATION` (partial signature)
    - Emits `cohort-complete`
-   - The same transaction checks apply to a `FALLBACK_AUTHORIZATION_REQUEST` (the k-of-n script path). On both paths, the participant computes the sighash over the beacon script of its own cohort.
+   - The same transaction checks apply to a `FALLBACK_AUTHORIZATION_REQUEST` (the k-of-n script path). On both paths, the participant computes the sighash over the beacon script of its own cohort. The participant drops a `FALLBACK_AUTHORIZATION_REQUEST` for a cohort with no fallback leaf.
 
 ---
 
@@ -602,11 +621,9 @@ const session = new AggregationService({ did: serviceDid, publicKey: serviceKeys
 
 // Step 1: Cohort Formation
 const cohortId = session.createCohort({
-  minParticipants  : 2,
-  network          : 'mutinynet',
-  beaconType       : 'CASBeacon',
-  recoveryKey      : recoveryKeyHex, // x-only operator recovery key, 64 hex characters
-  recoverySequence : 144,            // blocks (BIP-68) before the recovery leaf is spendable
+  minParticipants : 2,
+  network         : 'mutinynet',
+  beaconType      : 'CASBeacon',
 });
 const advertMsgs = session.advertise(cohortId);
 // You're responsible for sending advertMsgs over your transport
@@ -815,7 +832,7 @@ This covers cohort formation as well. `COHORT_OPT_IN` carries the sender's own `
 Two consequences worth designing around:
 
 - A contribution that is rejected is not stored, so the sender can simply send a correct one. A member blamed for a bad partial signature (`INVALID_PARTIAL_SIG`) can retry within the same round.
-- A round whose members never send valid contributions now stalls rather than failing fast, exactly as it would for a silent member. Set `phaseTimeoutMs` / `cohortTtlMs` (and `autoFallbackOnStall` for the k-of-n script path) so stalls terminate in bounded time.
+- A round whose members never send valid contributions now stalls and does not fail fast, as for a silent member. Set `phaseTimeoutMs` / `cohortTtlMs` so stalls terminate in bounded time. For a cohort with a fallback leaf, also set `autoFallbackOnStall` to use the k-of-n script path. A cohort with no fallback leaf has no fallback: `startFallbackSigning` refuses it with `NO_FALLBACK_LEAF`, and the runner fails the cohort at a stall.
 
 The operator-facing action methods (`acceptParticipant`, `finalizeKeygen`, `startSigning`, ...) still throw: those are programming errors in the caller, not untrusted input.
 
@@ -856,6 +873,8 @@ The `onProvideTxData` callback receives the cohort's `beaconAddress` and `signal
 - **First-update funding**: a participant funds the beacon address for its first update. It pays a small amount to the address in its own transaction, before the signing round. The beacon transaction does not also spend the funding input.
 
 Either way, the runner doesn't manage funding: it only signs the tx you provide.
+
+With no leaf, only all n members together can move the funds. If one member goes offline, the funds stay at the beacon address. With a CSV recovery leaf, the holder of `recoveryKey` can take the funds back, but each member must allow that leaf (see [Beacon address](#beacon-address)). By default, `buildAggregationBeaconTx` sends the change to the beacon address. For a cohort of one round, set its `changeAddress` option to an address of the funder (ADR 044).
 
 The beacon transaction must have exactly one input, and that input must spend the beacon UTXO. Each member refuses a transaction with more inputs (`INVALID_TX_STRUCTURE`) or with another prevout script (`PREVOUT_SCRIPT_MISMATCH`). `buildAggregationBeaconTx` of `@did-btcr2/method` builds a transaction with one input.
 

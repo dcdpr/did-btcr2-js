@@ -23,8 +23,6 @@ import {
 } from '../src/index.js';
 import { MessageBus, MockTransport } from './helpers/mock-transport.js';
 
-const TEST_RECOVERY_KEY = 'a'.repeat(64);
-const TEST_RECOVERY_SEQUENCE = 144;
 const VALUE = 100_000n;
 
 /** Three bytes: passes the `instanceof Uint8Array` wire guard, nothing else. */
@@ -66,8 +64,6 @@ function formCohort(extraOptIns: Array<{ did: string; keys: SchnorrKeyPair }> = 
     minParticipants  : 2,
     network          : 'mutinynet',
     beaconType       : 'CASBeacon',
-    recoveryKey      : TEST_RECOVERY_KEY,
-    recoverySequence : TEST_RECOVERY_SEQUENCE,
   });
   service.advertise(cohortId);
 
@@ -110,8 +106,6 @@ function advertisedCohort() {
     minParticipants  : 2,
     network          : 'mutinynet',
     beaconType       : 'CASBeacon',
-    recoveryKey      : TEST_RECOVERY_KEY,
-    recoverySequence : TEST_RECOVERY_SEQUENCE,
   });
   service.advertise(cohortId);
 
@@ -502,8 +496,6 @@ describe('H5: one inbound message cannot kill a cohort', () => {
         minParticipants  : 2,
         network          : 'mutinynet',
         beaconType       : 'CASBeacon',
-        recoveryKey      : TEST_RECOVERY_KEY,
-        recoverySequence : TEST_RECOVERY_SEQUENCE,
       });
       let settled: string | undefined;
       void completion.then(() => { settled = 'resolved'; }, () => { settled = 'rejected'; });
@@ -576,8 +568,6 @@ describe('H5: one inbound message cannot kill a cohort', () => {
         minParticipants  : 2,
         network          : 'mutinynet',
         beaconType       : 'CASBeacon',
-        recoveryKey      : TEST_RECOVERY_KEY,
-        recoverySequence : TEST_RECOVERY_SEQUENCE,
       });
       let settled: string | undefined;
       void completion.then(() => { settled = 'resolved'; }, () => { settled = 'rejected'; });
@@ -675,8 +665,6 @@ describe('H5: one inbound message cannot kill a cohort', () => {
         minParticipants  : 1,
         network          : 'mutinynet',
         beaconType       : 'CASBeacon',
-        recoveryKey      : TEST_RECOVERY_KEY,
-        recoverySequence : TEST_RECOVERY_SEQUENCE,
       });
       const outcome = completion.then(result => result, (error: unknown) => error);
       await Promise.race([ provided, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout: onProvideTxData')), 2000)) ]);

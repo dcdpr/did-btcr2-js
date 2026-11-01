@@ -30,6 +30,7 @@ import {
   ParticipantCohortPhase,
   ServiceCohortPhase,
   buildFallbackLeaf,
+  buildRecoveryScript,
   createCohortAdvertMessage,
   createCohortOptInMessage,
   createFallbackAuthorizationRequestMessage,
@@ -51,6 +52,11 @@ import { MessageBus, MockTransport } from './helpers/mock-transport.js';
 
 const TEST_RECOVERY_KEY = 'a'.repeat(64);
 const TEST_RECOVERY_SEQUENCE = 144;
+/** The terms of a recovery leaf. A cohort config with these terms has another beacon address (ADR 169). */
+const recoveryLeaf = (recoverySequence = TEST_RECOVERY_SEQUENCE): Partial<CohortConfig> => ({
+  recoveryKey : TEST_RECOVERY_KEY,
+  recoverySequence,
+});
 const NET = getNetwork('mutinynet');
 
 function newDid(keys: SchnorrKeyPair): string {
@@ -90,28 +96,29 @@ function createSignedUpdate(did: string, keys: SchnorrKeyPair): SignedBTCR2Updat
 /**
  * A two-member cohort with no transport: the test calls both state machines
  * directly. The cohort has its keys and both updates. The helper delivers each
- * message by hand, so a test can change a message before delivery.
+ * message by hand, so a test can change a message before delivery. The beacon
+ * address is key path only, unless `config` names a leaf. Each member allows
+ * the leaves of `config` (ADR 169).
  */
-function formCohort(beaconType: string) {
+function formCohort(beaconType: string, config: Partial<CohortConfig> = {}) {
   const serviceKeys = SchnorrKeyPair.generate();
   const serviceDid = newDid(serviceKeys);
   const keys = [ SchnorrKeyPair.generate(), SchnorrKeyPair.generate() ];
   const dids = keys.map(newDid);
   const service = new AggregationService({ did: serviceDid, publicKey: serviceKeys.publicKey });
-  const parts = keys.map((k, i) => new AggregationParticipant({ did: dids[i]!, signer: new KeyPairAggregationSigner(k) }));
+  const parts = keys.map((k, i) => new AggregationParticipant({
+    did               : dids[i]!,
+    signer            : new KeyPairAggregationSigner(k),
+    allowFallbackLeaf : config.fallbackThreshold !== undefined,
+    allowRecoveryLeaf : config.recoveryKey !== undefined,
+  }));
 
   const toParts = (msgs: BaseMessage[]) => msgs.forEach(m => parts.forEach(p => {
     if(!m.to || m.to === p.did) p.receive(m);
   }));
   const toService = (msgs: BaseMessage[]) => msgs.forEach(m => service.receive(m));
 
-  const cohortId = service.createCohort({
-    minParticipants  : 2,
-    network          : 'mutinynet',
-    beaconType,
-    recoveryKey      : TEST_RECOVERY_KEY,
-    recoverySequence : TEST_RECOVERY_SEQUENCE,
-  });
+  const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType, ...config });
   toParts(service.advertise(cohortId));
   parts.forEach(p => toService(p.joinCohort(cohortId)));
   dids.forEach(did => toParts(service.acceptParticipant(cohortId, did)));
@@ -156,10 +163,8 @@ function beaconTxData(cohort: AggregationCohort) {
 
 const CAS = (minParticipants = 1): CohortConfig => ({
   minParticipants,
-  network          : 'mutinynet',
-  beaconType       : 'CASBeacon',
-  recoveryKey      : TEST_RECOVERY_KEY,
-  recoverySequence : TEST_RECOVERY_SEQUENCE,
+  network    : 'mutinynet',
+  beaconType : 'CASBeacon',
 });
 
 /** A service runner that funds each round with a transaction that spends the beacon output. */
@@ -224,11 +229,12 @@ function expectRefusal(fn: () => unknown, type: string, message: string): void {
  * One member and one service, with no transport. `newService` makes another
  * service. `form` uses `svc` as the service. The default `svc` is `service`.
  *
- * Each cohort of `form` has minParticipants 1 and the same recovery terms,
- * unless `config` changes them. If `config` changes no input of the beacon
- * address, each cohort has the same beacon address. The service DID is not an
- * input of the beacon address. `form` stops before the member receives
- * COHORT_READY.
+ * Each cohort of `form` has minParticipants 1 and no leaf, unless `config`
+ * names one. The member allows the recovery leaf, so `config` can name
+ * {@link recoveryLeaf} to give another beacon address. If `config` changes no
+ * input of the beacon address, each cohort has the same beacon address. The
+ * service DID is not an input of the beacon address. `form` stops before the
+ * member receives COHORT_READY.
  */
 function oneMemberService() {
   const newService = () => {
@@ -238,7 +244,7 @@ function oneMemberService() {
   const service = newService();
   const keys = SchnorrKeyPair.generate();
   const did = newDid(keys);
-  const member = new AggregationParticipant({ did, signer: new KeyPairAggregationSigner(keys) });
+  const member = new AggregationParticipant({ did, signer: new KeyPairAggregationSigner(keys), allowRecoveryLeaf: true });
 
   const form = (beaconType: string, config: Partial<CohortConfig> = {}, svc: AggregationService = service) => {
     const cohortId = svc.createCohort({ ...CAS(1), beaconType, ...config });
@@ -302,8 +308,8 @@ function watchMember(transport: MockTransport) {
 }
 
 /** A cohort of {@link formCohort} after distribution, with both members in ValidationSent. */
-function validatedCohort(beaconType = 'CASBeacon') {
-  const formed = formCohort(beaconType);
+function validatedCohort(beaconType = 'CASBeacon', config: Partial<CohortConfig> = {}) {
+  const formed = formCohort(beaconType, config);
   const { service, parts, cohortId, toParts } = formed;
   toParts(service.buildAndDistribute(cohortId));
   parts.forEach(p => p.approveValidation(cohortId).forEach(m => service.receive(m)));
@@ -311,9 +317,10 @@ function validatedCohort(beaconType = 'CASBeacon') {
   return { ...formed, cohort: service.getCohort(cohortId)! };
 }
 
-/** The output script of a key-path-only P2TR output of the internal key: not the beacon output. */
-function keyPathOnlyScript(cohort: AggregationCohort): Uint8Array {
-  return p2tr(cohort.internalKey, undefined, NET).script;
+/** The output script of a P2TR output of the internal key with a script tree: not the key-path-only beacon output. */
+function otherTreeScript(cohort: AggregationCohort): Uint8Array {
+  const leaf = buildRecoveryScript({ recoveryKey: SchnorrKeyPair.generate().publicKey.x, recoverySequence: TEST_RECOVERY_SEQUENCE });
+  return p2tr(cohort.internalKey, [ { script: leaf } ], NET, true).script;
 }
 
 describe('Aggregation cohort binding (ADR 152)', () => {
@@ -447,8 +454,6 @@ describe('Aggregation cohort binding (ADR 152)', () => {
         communicationPk  : serviceKeys.publicKey.compressed,
         beaconType       : 'FooBeacon',
         minParticipants  : 1,
-        recoveryKey      : TEST_RECOVERY_KEY,
-        recoverySequence : TEST_RECOVERY_SEQUENCE,
       }));
 
       expect(participant.discoveredCohorts.has('foo-cohort')).to.equal(false);
@@ -491,8 +496,6 @@ describe('Aggregation cohort binding (ADR 152)', () => {
         communicationPk  : fakeKeys.publicKey.compressed,
         beaconType       : 'FooBeacon',
         minParticipants  : 1,
-        recoveryKey      : TEST_RECOVERY_KEY,
-        recoverySequence : TEST_RECOVERY_SEQUENCE,
       }), fakeDid);
       const { cohortId } = service.advertiseCohort(CAS());
 
@@ -858,11 +861,7 @@ describe('Aggregation cohort binding (ADR 152)', () => {
 
     for(const network of [ 'bitcoin', 'mutinynet', 'regtest', 'testnet4', 'signet' ]) {
       it(`beaconScript is the output script of the beacon address (${network})`, () => {
-        const cohort = new AggregationCohort({
-          network,
-          recoveryKey      : SchnorrKeyPair.generate().publicKey.compressed.slice(1),
-          recoverySequence : TEST_RECOVERY_SEQUENCE,
-        });
+        const cohort = new AggregationCohort({ network });
         cohort.cohortKeys = [ SchnorrKeyPair.generate(), SchnorrKeyPair.generate() ].map(k => k.publicKey.compressed);
         expect(cohort.beaconScript).to.have.length(0);
         const address = cohort.computeBeaconAddress();
@@ -878,7 +877,7 @@ describe('Aggregation cohort binding (ADR 152)', () => {
     it('approveNonce refuses a prevout script that is not the beacon script', () => {
       const { service, parts, dids, cohortId, cohort, toParts } = validatedCohort();
       const requests = service.startSigning(cohortId, beaconTxData(cohort));
-      const wrong = bytesToHex(keyPathOnlyScript(cohort));
+      const wrong = bytesToHex(otherTreeScript(cohort));
       (requests.find(m => m.to === dids[0])!.body as Record<string, unknown>).prevOutScriptHex = wrong;
       toParts(requests);
 
@@ -901,26 +900,28 @@ describe('Aggregation cohort binding (ADR 152)', () => {
     });
 
     /**
-     * Cohort B has the same keys and k as cohort A, and another recovery key.
-     * Thus its beacon address is different, and its fallback leaf is the same.
+     * Cohort A has a 1-of-2 fallback leaf. Cohort B has the same keys and k,
+     * and also a recovery leaf. Thus its beacon address is different, and its
+     * fallback leaf is the same.
      * A coordinator asks a member of A for a fallback signature over a spend of
      * the UTXO of B. The transaction anchors the validated signal of A and sends
      * the value to an address of the coordinator.
      */
     function crossCohortFallback() {
-      const validated = validatedCohort();
+      const validated = validatedCohort('CASBeacon', { fallbackThreshold: 1 });
       const { cohort: a } = validated;
       const b = new AggregationCohort({
-        network          : 'mutinynet',
-        recoveryKey      : SchnorrKeyPair.generate().publicKey.compressed.slice(1),
-        recoverySequence : TEST_RECOVERY_SEQUENCE,
+        network           : 'mutinynet',
+        fallbackThreshold : 1,
+        recoveryKey       : SchnorrKeyPair.generate().publicKey.compressed.slice(1),
+        recoverySequence  : TEST_RECOVERY_SEQUENCE,
       });
       b.cohortKeys = a.cohortKeys;
       b.computeBeaconAddress();
       // Get the script of B from its address, so the fixture does not need the beaconScript getter.
       const scriptB = OutScript.encode(Address(NET).decode(b.beaconAddress));
-      const leafA = buildFallbackLeaf({ cohortKeys: a.cohortKeys, fallbackThreshold: a.effectiveFallbackThreshold });
-      const leafB = buildFallbackLeaf({ cohortKeys: b.cohortKeys, fallbackThreshold: b.effectiveFallbackThreshold });
+      const leafA = buildFallbackLeaf({ cohortKeys: a.cohortKeys, fallbackThreshold: a.fallbackThreshold! });
+      const leafB = buildFallbackLeaf({ cohortKeys: b.cohortKeys, fallbackThreshold: b.fallbackThreshold! });
       expect(b.beaconAddress).to.not.equal(a.beaconAddress);
       expect(bytesToHex(leafB)).to.equal(bytesToHex(leafA));
 
@@ -969,7 +970,7 @@ describe('Aggregation cohort binding (ADR 152)', () => {
     it('startSigning refuses a prevout script that is not the beacon script; the phase stays Validated', () => {
       const { service, cohortId, cohort } = validatedCohort();
       const txData = beaconTxData(cohort);
-      expectRefusal(() => service.startSigning(cohortId, { ...txData, prevOutScripts: [ keyPathOnlyScript(cohort) ] }), 'PREVOUT_SCRIPT_MISMATCH',
+      expectRefusal(() => service.startSigning(cohortId, { ...txData, prevOutScripts: [ otherTreeScript(cohort) ] }), 'PREVOUT_SCRIPT_MISMATCH',
         `Cannot start signing for cohort ${cohortId}: txData.prevOutScripts[0] is not the output script of the beacon address ${cohort.beaconAddress}.`);
       expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.Validated);
 
@@ -985,7 +986,7 @@ describe('Aggregation cohort binding (ADR 152)', () => {
       const service: AggregationServiceRunner = makeService(bus, {
         onProvideTxData : async ({ cohortId }) => {
           const cohort = service.session.getCohort(cohortId)!;
-          return { ...beaconTxData(cohort), prevOutScripts: [ keyPathOnlyScript(cohort) ] };
+          return { ...beaconTxData(cohort), prevOutScripts: [ otherTreeScript(cohort) ] };
         },
       });
       const errors: string[] = [];
@@ -1059,8 +1060,8 @@ describe('Aggregation cohort binding (ADR 152)', () => {
       it(`accepts a ${firstType} cohort and a ${secondType} cohort at two beacon addresses`, () => {
         const { member, form } = oneMemberService();
         const first = form(firstType);
-        // Another recovery sequence gives another beacon address.
-        const second = form(secondType, { recoverySequence: TEST_RECOVERY_SEQUENCE + 1 });
+        // A recovery leaf gives another beacon address.
+        const second = form(secondType, recoveryLeaf());
         first.ready.forEach(m => member.receive(m));
         second.ready.forEach(m => member.receive(m));
 
@@ -1127,8 +1128,8 @@ describe('Aggregation cohort binding (ADR 152)', () => {
       const first = form('CASBeacon');
       first.ready.forEach(m => member.receive(m));
       const beaconAddress = member.joinedCohorts.get(first.cohortId)!.beaconAddress;
-      // The advert gives the recovery terms. Another service can use the same
-      // terms, and then it gets the same beacon address.
+      // With no leaf, the beacon address depends only on the member keys.
+      // Another service thus gets the same beacon address.
       const other = newService();
       const second = form('SMTBeacon', {}, other);
       expect(other.did).to.not.equal(service.did);
@@ -1155,9 +1156,9 @@ describe('Aggregation cohort binding (ADR 152)', () => {
       };
       // The cohort at the shared address X is not the first accepted cohort and
       // not the last accepted cohort.
-      const y = accept('SMTBeacon', { recoverySequence: TEST_RECOVERY_SEQUENCE + 1 });
+      const y = accept('SMTBeacon', recoveryLeaf(TEST_RECOVERY_SEQUENCE + 1));
       const x = accept('CASBeacon');
-      const z = accept('CASBeacon', { recoverySequence: TEST_RECOVERY_SEQUENCE + 2 });
+      const z = accept('CASBeacon', recoveryLeaf(TEST_RECOVERY_SEQUENCE + 2));
       expect(new Set([ y.beaconAddress, x.beaconAddress, z.beaconAddress ]).size, 'three beacon addresses').to.equal(3);
 
       const smt = form('SMTBeacon');
@@ -1206,9 +1207,9 @@ describe('Aggregation cohort binding (ADR 152)', () => {
       const first = form('CASBeacon');
       first.ready.forEach(m => member.receive(m));
       const beaconAddress = member.joinedCohorts.get(first.cohortId)!.beaconAddress;
-      // The SMT cohort has another recovery sequence, so it has another beacon
-      // address. Its COHORT_READY claims the address of the CAS cohort.
-      const second = form('SMTBeacon', { recoverySequence: TEST_RECOVERY_SEQUENCE + 1 });
+      // The SMT cohort has a recovery leaf, so it has another beacon address.
+      // Its COHORT_READY claims the address of the CAS cohort.
+      const second = form('SMTBeacon', recoveryLeaf());
       const ready = second.ready[0]!;
       const computed = ready.body!.beaconAddress as string;
       expect(computed).to.not.equal(beaconAddress);
@@ -1318,13 +1319,15 @@ describe('Aggregation cohort binding (ADR 152)', () => {
         };
         const fallback = held === 'onApproveSigning (fallback)';
         // The held callback waits on the gate. For the fallback, the member also
-        // holds the nonce approval, so the service can start the fallback.
+        // holds the nonce approval, so the service can start the fallback. The
+        // cohort then has a 1-of-1 fallback leaf, and the member allows it (ADR 169).
         const member = new AggregationParticipantRunner({
           ...opts,
-          shouldJoin       : async () => held === 'shouldJoin' ? hold(true) : true,
-          onProvideUpdate  : async () => held === 'onProvideUpdate' ? hold(await opts.onProvideUpdate()) : opts.onProvideUpdate(),
-          onValidateData   : async (info) => held === 'onValidateData' ? hold({ approved: info.matches }) : { approved: info.matches },
-          onApproveSigning : async (req: object) => {
+          allowFallbackLeaf : fallback,
+          shouldJoin        : async () => held === 'shouldJoin' ? hold(true) : true,
+          onProvideUpdate   : async () => held === 'onProvideUpdate' ? hold(await opts.onProvideUpdate()) : opts.onProvideUpdate(),
+          onValidateData    : async (info) => held === 'onValidateData' ? hold({ approved: info.matches }) : { approved: info.matches },
+          onApproveSigning  : async (req: object) => {
             if('fallbackLeafScriptHex' in req) return hold({ approved: true });
             if(fallback) return new Promise<never>(() => { /* held */ });
             return held === 'onApproveSigning (nonce)' ? hold({ approved: true }) : { approved: true };
@@ -1333,7 +1336,7 @@ describe('Aggregation cohort binding (ADR 152)', () => {
         await member.start();
 
         const signing = new Promise<void>(resolve => { service.on('signing-started', () => resolve()); });
-        const cohort = service.advertiseCohort(CAS(1));
+        const cohort = service.advertiseCohort(fallback ? { ...CAS(1), fallbackThreshold: 1 } : CAS(1));
         cohort.completion.catch(() => { /* stopped below */ });
         if(fallback) {
           await within(signing, 2000, 'the signing request');
@@ -1486,10 +1489,12 @@ describe('Aggregation cohort binding (ADR 152)', () => {
         let release!: () => void;
         const gate = new Promise<void>(resolve => { release = resolve; });
         // The member holds the nonce approval. It approves the fallback request
-        // only after the helper rejects.
+        // only after the helper rejects. The first cohort has a 1-of-1 fallback
+        // leaf, and the member allows it (ADR 169).
         const memberOpts = {
           ...opts,
-          onApproveSigning : async (req: object) => {
+          allowFallbackLeaf : true,
+          onApproveSigning  : async (req: object) => {
             if(!('fallbackLeafScriptHex' in req)) return new Promise<never>(() => { /* held */ });
             fallbackRequested();
             await gate;
@@ -1502,7 +1507,7 @@ describe('Aggregation cohort binding (ADR 152)', () => {
         ).then(() => undefined, (error: unknown) => error);
 
         const signing = new Promise<void>(resolve => { service.on('signing-started', () => resolve()); });
-        const first = service.advertiseCohort(CAS(1));
+        const first = service.advertiseCohort({ ...CAS(1), fallbackThreshold: 1 });
         first.completion.catch(() => { /* stopped below */ });
         await within(signing, 2000, 'the signing request of the first cohort');
         // The in-memory bus waits for the member handler, so do not wait for triggerFallback.

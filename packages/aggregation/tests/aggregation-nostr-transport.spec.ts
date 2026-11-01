@@ -48,7 +48,6 @@ import {
  *   rejection.
  */
 
-const TEST_RECOVERY_KEY = 'a'.repeat(64);
 const MAX_PLAINTEXT_BYTES = 65_535;
 
 const k1Did = (keys: SchnorrKeyPair): string =>
@@ -135,8 +134,6 @@ const advertBody = (cohortId: string, communicationPk: Uint8Array): BaseBody => 
   communicationPk,
   beaconType       : 'SMTBeacon',
   minParticipants  : 2,
-  recoveryKey      : TEST_RECOVERY_KEY,
-  recoverySequence : 144,
   fundingModel     : 'operator-funded',
 });
 
@@ -938,7 +935,7 @@ describe('NostrTransport send routing and receive guards', () => {
         transport       : serviceTransport,
         did             : serviceDid,
         keys            : serviceKeys,
-        config          : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: 144 },
+        config          : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' },
         onProvideTxData : async () => {
           const cohort = service.session.cohorts[0];
           const script: Uint8Array = cohort.beaconScript;

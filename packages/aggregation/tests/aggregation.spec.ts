@@ -1,7 +1,6 @@
 import type { Btcr2DataIntegrityConfig, SignedBTCR2Update, UnsignedBTCR2Update } from '@did-btcr2/method';
 import { SchnorrMultikey } from '@did-btcr2/integrity';
 import { SchnorrKeyPair } from '@did-btcr2/keys';
-import { hexToBytes } from '@noble/hashes/utils';
 import { p2tr, Script, Transaction } from '@scure/btc-signer';
 import * as musig2 from '@scure/btc-signer/musig2';
 import { expect } from 'chai';
@@ -24,8 +23,6 @@ import {
 import { DidBtcr2 } from '@did-btcr2/method';
 import { MessageBus, MockTransport } from './helpers/mock-transport.js';
 
-const TEST_RECOVERY_KEY = 'a'.repeat(64);
-const TEST_RECOVERY_SEQUENCE = 144;
 
 /**
  * Creates a cryptographically valid SignedBTCR2Update for the given participant.
@@ -82,7 +79,7 @@ describe('Aggregation', () => {
 
   describe('AggregationCohort', () => {
     it('creates with defaults', () => {
-      const cohort = new AggregationCohort({ minParticipants: 3, network: 'mutinynet', recoveryKey: hexToBytes(TEST_RECOVERY_KEY), recoverySequence: TEST_RECOVERY_SEQUENCE });
+      const cohort = new AggregationCohort({ minParticipants: 3, network: 'mutinynet' });
       expect(cohort.id).to.be.a('string').with.length.greaterThan(0);
       expect(cohort.minParticipants).to.equal(3);
       expect(cohort.network).to.equal('mutinynet');
@@ -93,7 +90,7 @@ describe('Aggregation', () => {
     it('cohortKeys are sorted on assignment', () => {
       const kp1 = SchnorrKeyPair.generate();
       const kp2 = SchnorrKeyPair.generate();
-      const cohort = new AggregationCohort({ minParticipants: 2, network: 'bitcoin', recoveryKey: hexToBytes(TEST_RECOVERY_KEY), recoverySequence: TEST_RECOVERY_SEQUENCE });
+      const cohort = new AggregationCohort({ minParticipants: 2, network: 'bitcoin' });
       cohort.cohortKeys = [kp1.publicKey.compressed, kp2.publicKey.compressed];
       const keys = cohort.cohortKeys;
       for(let i = 1; i < keys.length; i++) {
@@ -106,7 +103,7 @@ describe('Aggregation', () => {
     it('computeBeaconAddress returns a Taproot address', () => {
       const kp1 = SchnorrKeyPair.generate();
       const kp2 = SchnorrKeyPair.generate();
-      const cohort = new AggregationCohort({ minParticipants: 2, network: 'bitcoin', recoveryKey: hexToBytes(TEST_RECOVERY_KEY), recoverySequence: TEST_RECOVERY_SEQUENCE });
+      const cohort = new AggregationCohort({ minParticipants: 2, network: 'bitcoin' });
       cohort.participants.push('did:btcr2:alice', 'did:btcr2:bob');
       cohort.cohortKeys = [kp1.publicKey.compressed, kp2.publicKey.compressed];
       const addr = cohort.computeBeaconAddress();
@@ -120,16 +117,16 @@ describe('Aggregation', () => {
       const kp2 = SchnorrKeyPair.generate();
       const keys = [kp1.publicKey.compressed, kp2.publicKey.compressed];
 
-      const mutiny = new AggregationCohort({ minParticipants: 2, network: 'mutinynet', recoveryKey: hexToBytes(TEST_RECOVERY_KEY), recoverySequence: TEST_RECOVERY_SEQUENCE });
+      const mutiny = new AggregationCohort({ minParticipants: 2, network: 'mutinynet' });
       mutiny.cohortKeys = keys;
       expect(mutiny.computeBeaconAddress().startsWith('tb1p')).to.be.true;
 
-      const regtest = new AggregationCohort({ minParticipants: 2, network: 'regtest', recoveryKey: hexToBytes(TEST_RECOVERY_KEY), recoverySequence: TEST_RECOVERY_SEQUENCE });
+      const regtest = new AggregationCohort({ minParticipants: 2, network: 'regtest' });
       regtest.cohortKeys = keys;
       expect(regtest.computeBeaconAddress().startsWith('bcrt1p')).to.be.true;
 
       // Same keys, different network to different address (only the HRP differs).
-      const mainnet = new AggregationCohort({ minParticipants: 2, network: 'bitcoin', recoveryKey: hexToBytes(TEST_RECOVERY_KEY), recoverySequence: TEST_RECOVERY_SEQUENCE });
+      const mainnet = new AggregationCohort({ minParticipants: 2, network: 'bitcoin' });
       mainnet.cohortKeys = keys;
       expect(mainnet.computeBeaconAddress().startsWith('bc1p')).to.be.true;
     });
@@ -146,7 +143,7 @@ describe('Aggregation', () => {
     beforeEach(() => {
       kp1 = SchnorrKeyPair.generate();
       kp2 = SchnorrKeyPair.generate();
-      cohort = new AggregationCohort({ minParticipants: 2, network: 'bitcoin', recoveryKey: hexToBytes(TEST_RECOVERY_KEY), recoverySequence: TEST_RECOVERY_SEQUENCE });
+      cohort = new AggregationCohort({ minParticipants: 2, network: 'bitcoin' });
       cohort.participants.push('did:btcr2:alice', 'did:btcr2:bob');
       cohort.participantKeys.set('did:btcr2:alice', kp1.publicKey.compressed);
       cohort.participantKeys.set('did:btcr2:bob', kp2.publicKey.compressed);
@@ -370,7 +367,7 @@ describe('Aggregation', () => {
 
     it('Step 1: Cohort Formation - full keygen flow', async () => {
       // Service creates and advertises a cohort
-      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
+      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
       expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.Created);
 
       const advertMsgs = service.advertise(cohortId);
@@ -410,7 +407,7 @@ describe('Aggregation', () => {
 
     it('Step 2-4: Full update -> aggregate -> validate -> sign cycle', async () => {
       // ── Step 1: Setup cohort ──
-      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
+      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
       await send(serviceTransport, serviceDid, service.advertise(cohortId));
       await send(aliceTransport, aliceDid, alice.joinCohort(cohortId));
       await send(bobTransport, bobDid, bob.joinCohort(cohortId));
@@ -473,7 +470,7 @@ describe('Aggregation', () => {
 
     it('Step 2-4 (SMTBeacon): full update -> aggregate -> validate -> sign cycle', async () => {
       // ── Step 1: Setup cohort with SMTBeacon type ──
-      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'SMTBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
+      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'SMTBeacon' });
       await send(serviceTransport, serviceDid, service.advertise(cohortId));
       await send(aliceTransport, aliceDid, alice.joinCohort(cohortId));
       await send(bobTransport, bobDid, bob.joinCohort(cohortId));
@@ -536,7 +533,7 @@ describe('Aggregation', () => {
 
     it('validation rejection: cohort transitions to Failed when participant rejects', async () => {
       // ── Setup cohort through to DataDistributed ──
-      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
+      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
       await send(serviceTransport, serviceDid, service.advertise(cohortId));
       await send(aliceTransport, aliceDid, alice.joinCohort(cohortId));
       await send(bobTransport, bobDid, bob.joinCohort(cohortId));
@@ -570,21 +567,21 @@ describe('Aggregation', () => {
     });
 
     it('service.acceptParticipant() throws when there is no pending opt-in', () => {
-      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
+      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
       service.advertise(cohortId);
       // No participants have opted in yet
       expect(() => service.acceptParticipant(cohortId, aliceDid)).to.throw(/No pending opt-in/i);
     });
 
     it('service.finalizeKeygen() throws if called before minParticipants reached', () => {
-      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
+      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
       service.advertise(cohortId);
       // No participants accepted - finalizeKeygen should fail
       expect(() => service.finalizeKeygen(cohortId)).to.throw();
     });
 
     it('service.startSigning() throws before validation is complete', () => {
-      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
+      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
       service.advertise(cohortId);
       // Build tx data that startSigning would need (won't get used - it throws first)
       const tx = new Transaction({ version: 2 });
@@ -596,7 +593,7 @@ describe('Aggregation', () => {
     });
 
     it('service.receive() silently ignores messages for unknown cohort', async () => {
-      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
+      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
       await send(serviceTransport, serviceDid, service.advertise(cohortId));
       // Have alice join a DIFFERENT cohort (simulate stale/rogue message)
       const phony = alice.joinCohort(cohortId);
@@ -609,7 +606,7 @@ describe('Aggregation', () => {
     });
 
     it('participant.joinCohort() throws when already joined', async () => {
-      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
+      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
       await send(serviceTransport, serviceDid, service.advertise(cohortId));
       await send(aliceTransport, aliceDid, alice.joinCohort(cohortId));
       expect(alice.getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.OptedIn);
@@ -623,7 +620,7 @@ describe('Aggregation', () => {
     });
 
     it('participant.approveValidation() throws when not in AwaitingValidation phase', async () => {
-      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
+      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
       await send(serviceTransport, serviceDid, service.advertise(cohortId));
       await send(aliceTransport, aliceDid, alice.joinCohort(cohortId));
       // Alice is in OptedIn - can't approve validation yet
@@ -653,7 +650,7 @@ describe('Aggregation', () => {
         transport       : serviceTransport,
         did             : serviceDid,
         keys            : serviceKeys,
-        config          : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE },
+        config          : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' },
         onProvideTxData : async () => {
           const cohort = service.session.cohorts[0];
           // The transaction spends the beacon output of the cohort.
@@ -744,7 +741,7 @@ describe('Aggregation', () => {
 
       // Use raw state machine to advertise without running the full service runner
       const service = new AggregationService({ did: serviceDid, publicKey: serviceKeys.publicKey });
-      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
+      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
       const advertMsgs = service.advertise(cohortId);
       for(const m of advertMsgs) await serviceTransport.sendMessage(m, serviceDid, m.to);
 
@@ -789,7 +786,7 @@ describe('Aggregation', () => {
         transport       : serviceTransport,
         did             : serviceDid,
         keys            : serviceKeys,
-        config          : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE },
+        config          : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' },
         onProvideTxData : async () => {
           const cohort = service.session.cohorts[0];
           // The transaction spends the beacon output of the cohort.

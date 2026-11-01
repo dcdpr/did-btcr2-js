@@ -10,7 +10,6 @@ import {
   buildFallbackSpend,
   buildRecoveryLeaves,
   fallbackSighash,
-  resolveFallbackThreshold,
 } from '../src/index.js';
 import type { FallbackSignature } from '../src/index.js';
 
@@ -19,7 +18,7 @@ const RECOVERY_KEY_HEX = 'a'.repeat(64);
 const RECOVERY_SEQUENCE = 144;
 
 /** Build an n-participant cohort with recovery + fallback params and compute its address. */
-function buildCohort(n: number, fallbackThreshold?: number): {
+function buildCohort(n: number, fallbackThreshold: number): {
   cohort: AggregationCohort;
   kps: SchnorrKeyPair[];
   payment: ReturnType<typeof p2tr>;
@@ -43,7 +42,7 @@ function buildCohort(n: number, fallbackThreshold?: number): {
     recoveryKey       : hexToBytes(RECOVERY_KEY_HEX),
     recoverySequence  : RECOVERY_SEQUENCE,
     cohortKeys        : cohort.cohortKeys,
-    fallbackThreshold : cohort.effectiveFallbackThreshold,
+    fallbackThreshold,
   });
   const payment = p2tr(cohort.internalKey, leaves, NET, true);
   return { cohort, kps, payment };
@@ -61,14 +60,6 @@ function beaconTx(script: Uint8Array, value: bigint): Transaction {
 }
 
 describe('Aggregate beacon k-of-n fallback (ADR 042)', () => {
-
-  describe('resolveFallbackThreshold', () => {
-    it('defaults to n-1 and floors at 1', () => {
-      expect(resolveFallbackThreshold(undefined, 5)).to.equal(4);
-      expect(resolveFallbackThreshold(undefined, 1)).to.equal(1);
-      expect(resolveFallbackThreshold(2, 5)).to.equal(2);
-    });
-  });
 
   describe('buildFallbackLeaf', () => {
     it('builds a k-of-n CHECKSIGADD leaf over the x-only cohort keys', () => {
@@ -103,7 +94,7 @@ describe('Aggregate beacon k-of-n fallback (ADR 042)', () => {
   });
 
   describe('computeBeaconAddress with the fallback leaf', () => {
-    it('an advertised threshold changes the address vs the default n-1', () => {
+    it('k changes the address, and no k means no fallback leaf (ADR 169)', () => {
       const kps = Array.from({ length: 3 }, () => SchnorrKeyPair.generate());
       const mk = (k?: number): string => {
         const c = new AggregationCohort({
@@ -113,16 +104,17 @@ describe('Aggregate beacon k-of-n fallback (ADR 042)', () => {
         c.cohortKeys = kps.map(p => p.publicKey.compressed);
         return c.computeBeaconAddress();
       };
-      // default (n-1 = 2) vs explicit 1: different leaf A, different address.
+      // k = 1 vs k = 2: different leaf A, different address.
+      expect(mk(1)).to.not.equal(mk(2));
+      // No k: no leaf A (no n-1 default), so the address differs from each k.
       expect(mk(undefined)).to.not.equal(mk(1));
-      // default n-1 equals an explicit 2.
-      expect(mk(undefined)).to.equal(mk(2));
+      expect(mk(undefined)).to.not.equal(mk(2));
     });
   });
 
   describe('buildFallbackSpend round-trip', () => {
     function signAll(cohort: AggregationCohort, kps: SchnorrKeyPair[], tx: Transaction, script: Uint8Array, value: bigint, who: number[]): FallbackSignature[] {
-      const leaf = buildFallbackLeaf({ cohortKeys: cohort.cohortKeys, fallbackThreshold: cohort.effectiveFallbackThreshold });
+      const leaf = buildFallbackLeaf({ cohortKeys: cohort.cohortKeys, fallbackThreshold: cohort.fallbackThreshold! });
       const sighash = fallbackSighash(tx, 0, script, value, leaf);
       return who.map(i => ({
         pubKey    : kps[i].publicKey.compressed.slice(1),
@@ -239,18 +231,24 @@ describe('Aggregate beacon k-of-n fallback (ADR 042)', () => {
       })).to.throw(/PREVOUT_SCRIPT_MISMATCH|does not match/);
     });
 
-    it('defaults the threshold to n-1 when omitted, matching the cohort', () => {
-      const { cohort, kps, payment } = buildCohort(3); // no advertised threshold => k=2
-      expect(cohort.effectiveFallbackThreshold).to.equal(2);
-      const value = 100000n;
-      const tx = beaconTx(payment.script, value);
-      const sigs = signAll(cohort, kps, tx, payment.script, value, [ 0, 2 ]);
-      const finalized = buildFallbackSpend({
-        pendingTx        : tx, cohortKeys       : cohort.cohortKeys, // fallbackThreshold omitted
-        recoveryKey      : hexToBytes(RECOVERY_KEY_HEX), recoverySequence : RECOVERY_SEQUENCE,
-        network          : 'bitcoin', prevOutScript    : payment.script, prevOutValue     : value, signatures       : sigs,
+    it('refuses a spend of a beacon output with no fallback leaf (ADR 169)', () => {
+      const { cohort, kps } = buildCohort(3, 2);
+      // The same keys and recovery leaf, but no leaf A: the funded output has
+      // no fallback leaf, so no k-of-n spend of it exists.
+      const leaves = buildRecoveryLeaves('operator-funded', {
+        recoveryKey      : hexToBytes(RECOVERY_KEY_HEX),
+        recoverySequence : RECOVERY_SEQUENCE,
+        cohortKeys       : cohort.cohortKeys,
       });
-      expect(finalized.getInput(0).finalScriptWitness).to.not.be.undefined;
+      const noLeafA = p2tr(cohort.internalKey, leaves, NET, true);
+      const value = 100000n;
+      const tx = beaconTx(noLeafA.script, value);
+      const sigs = signAll(cohort, kps, tx, noLeafA.script, value, [ 0, 2 ]);
+      expect(() => buildFallbackSpend({
+        pendingTx         : tx, cohortKeys        : cohort.cohortKeys, fallbackThreshold : 2,
+        recoveryKey       : hexToBytes(RECOVERY_KEY_HEX), recoverySequence  : RECOVERY_SEQUENCE,
+        network           : 'bitcoin', prevOutScript     : noLeafA.script, prevOutValue      : value, signatures        : sigs,
+      })).to.throw(/PREVOUT_SCRIPT_MISMATCH|does not match/);
     });
   });
 });

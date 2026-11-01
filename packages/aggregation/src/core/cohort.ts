@@ -16,7 +16,7 @@ import { p2tr } from '@scure/btc-signer';
 import { keyAggExport, keyAggregate, sortKeys } from '@scure/btc-signer/musig2';
 import { AggregationCohortError } from './errors.js';
 import type { FundingModel } from './recovery-policy.js';
-import { DEFAULT_FUNDING_MODEL, buildRecoveryLeaves, resolveFallbackThreshold } from './recovery-policy.js';
+import { DEFAULT_FUNDING_MODEL, buildRecoveryLeaves } from './recovery-policy.js';
 
 /**
  * The CAS Beacon Announcement Map a cohort produces: a record of DID to update hash.
@@ -32,13 +32,20 @@ export type AggregationCohortParams = {
   minParticipants?: number;
   network: string;
   beaconType?: string;
-  /** Operator recovery key, x-only (32 bytes). Required to compute the beacon address. */
+  /**
+   * Operator recovery key, x-only (32 bytes). With `recoverySequence`, the
+   * beacon address gets the CSV recovery leaf. Absent: no recovery leaf.
+   */
   recoveryKey?: Uint8Array;
-  /** Relative-timelock (BIP-68 nSequence) before recovery is spendable. Required to compute the beacon address. */
+  /**
+   * Relative-timelock (BIP-68 nSequence) before recovery is spendable. With
+   * `recoveryKey`, the beacon address gets the CSV recovery leaf. Absent: no
+   * recovery leaf.
+   */
   recoverySequence?: number;
   /** Funding model governing the recovery leaves. Defaults to 'operator-funded'. */
   fundingModel?: FundingModel;
-  /** Advertised k of the k-of-n fallback leaf. Absent defaults to n-1 at address computation. */
+  /** k of the k-of-n fallback leaf. Absent: the beacon address has no fallback leaf. */
   fallbackThreshold?: number;
 };
 
@@ -87,8 +94,10 @@ export class AggregationCohort {
 
   /**
    * BIP-341 TapTweak scalar: `taggedHash("TapTweak", internalPubkey || tapMerkleRoot)`.
-   * The beacon output is an internal key (the MuSig2 aggregate) plus a script
-   * tree (the recovery leaves), so the tweak commits to the tree's Merkle root.
+   * The beacon output is an internal key (the MuSig2 aggregate) plus the
+   * optional script tree (the leaves that the cohort opts in to). If the tree
+   * is empty, `tapMerkleRoot` is empty and the tweak is
+   * `taggedHash("TapTweak", internalPubkey)` (BIP-86 form).
    * The MuSig2 signing session applies this as an x-only tweak; a value that does
    * not match the root the funded address was derived from silently yields an
    * invalid key-path signature.
@@ -98,25 +107,28 @@ export class AggregationCohort {
   /** The n-of-n MuSig2 aggregate internal key, x-only (32 bytes), set by computeBeaconAddress(). */
   internalKey: Uint8Array = new Uint8Array();
 
-  /** BIP-341 Taproot Merkle root of the recovery script tree, set by computeBeaconAddress(). */
+  /**
+   * BIP-341 Taproot Merkle root of the script tree, set by
+   * computeBeaconAddress(). Empty if the beacon address has no script tree.
+   */
   tapMerkleRoot: Uint8Array = new Uint8Array();
 
-  /** Operator recovery key, x-only (32 bytes). Used to build the CSV recovery leaf. */
+  /** Operator recovery key, x-only (32 bytes). Absent: the beacon address has no recovery leaf. */
   recoveryKey?: Uint8Array;
 
-  /** Relative-timelock (BIP-68 nSequence) before the recovery leaf is spendable. */
+  /** Relative-timelock (BIP-68 nSequence) before the recovery leaf is spendable. Absent: no recovery leaf. */
   recoverySequence?: number;
 
   /** Funding model governing the recovery leaves (default 'operator-funded'). */
   fundingModel: FundingModel;
 
-  /**
-   * Advertised k of the k-of-n fallback leaf, or undefined to default to n-1 at
-   * address computation. Read the resolved value via {@link effectiveFallbackThreshold}.
-   */
+  /** k of the k-of-n fallback leaf. Absent: the beacon address has no fallback leaf. */
   fallbackThreshold?: number;
 
-  /** The Taproot beacon address: key path is the MuSig2 aggregate, script path is fallback + recovery. */
+  /**
+   * The Taproot beacon address. The key path is the MuSig2 aggregate. The
+   * script tree holds the optional fallback leaf and recovery leaf.
+   */
   beaconAddress: string = '';
 
   /** Output script (scriptPubKey) of the beacon address. computeBeaconAddress() sets it. */
@@ -222,32 +234,22 @@ export class AggregationCohort {
    * service starts a signing round, only for a transaction that spends an output
    * with this script. The BIP-341 script-path sighash commits to the spent script,
    * not to the internal key. Two cohorts with the same keys and k have the same
-   * fallback leaf. The beacon script also commits to the recovery leaf. Two
-   * cohorts with the same keys, k, recovery key, recovery sequence, and funding
-   * model have the same beacon script.
+   * fallback leaf. Two cohorts with the same keys and the same leaves have the
+   * same beacon script. With no leaf, the beacon script depends only on the
+   * keys.
    */
   get beaconScript(): Uint8Array {
     return this.#beaconScript.slice();
   }
 
   /**
-   * The resolved k of the k-of-n fallback leaf: the advertised
-   * {@link fallbackThreshold}, or n-1 (floored at 1) when unadvertised, where n is
-   * the current cohort size. This is the value the beacon address commits to and
-   * the spend builders must reproduce. Returns 0 before any cohort keys are set.
-   */
-  public get effectiveFallbackThreshold(): number {
-    if(this.#cohortKeys.length === 0) return 0;
-    return resolveFallbackThreshold(this.fallbackThreshold, this.#cohortKeys.length);
-  }
-
-  /**
-   * Computes the Taproot beacon address from the cohort keys and recovery params.
+   * Computes the Taproot beacon address from the cohort keys and the leaf values.
    *
    * The key path of the output is the n-of-n MuSig2 aggregate of the cohort
-   * keys. The script path is the recovery tree: the k-of-n fallback leaf and a
-   * CSV recovery leaf (ADR 042). Thus a missing signer cannot lock the UTXO
-   * permanently. Sets `internalKey`, `tapMerkleRoot`, the `tapTweak` the MuSig2
+   * keys. By default the output has no script tree, so only all n members can
+   * spend it (ADR 169). The script tree has only the leaves that the cohort
+   * names. The k-of-n fallback leaf needs `fallbackThreshold`. The CSV recovery
+   * leaf needs `recoveryKey` and `recoverySequence` (ADR 042). Sets `internalKey`, `tapMerkleRoot`, the `tapTweak` the MuSig2
    * session must apply for the key-path spend, `beaconAddress`, and
    * {@link beaconScript}.
    *
@@ -262,17 +264,11 @@ export class AggregationCohort {
         'NO_COHORT_KEYS', { cohortId: this.id }
       );
     }
-    if(!this.recoveryKey || this.recoveryKey.length === 0 || this.recoverySequence === undefined) {
-      throw new AggregationCohortError(
-        'Cannot compute beacon address: missing recovery key or sequence.',
-        'NO_RECOVERY_PARAMS', { cohortId: this.id }
-      );
-    }
     const keyAggContext = keyAggregate(this.#cohortKeys);
     const aggPubkey = keyAggExport(keyAggContext);
 
-    // The beacon output commits to the script tree (k-of-n fallback leaf + CSV
-    // recovery leaf) alongside the MuSig2 internal key. Derive the address for
+    // The beacon output commits to the optional script tree (k-of-n fallback
+    // leaf, CSV recovery leaf) alongside the MuSig2 internal key. Derive the address for
     // the cohort's network. Without the network arg p2tr defaults to mainnet, so
     // a mutinynet/signet/regtest cohort would otherwise advertise a `bc1p...`
     // address that no participant can fund.
@@ -280,21 +276,32 @@ export class AggregationCohort {
       recoveryKey       : this.recoveryKey,
       recoverySequence  : this.recoverySequence,
       cohortKeys        : this.#cohortKeys,
-      fallbackThreshold : resolveFallbackThreshold(this.fallbackThreshold, this.#cohortKeys.length),
+      fallbackThreshold : this.fallbackThreshold,
     });
     // allowUnknownOutputs: the CSV recovery leaf is a custom script, not one of
     // p2tr's recognized templates (tr_ns/tr_ms), so the template check must be
     // waived. The leaf hash (and thus the address) is computed from the raw
-    // script bytes regardless.
-    const payment = p2tr(aggPubkey, leaves, getNetwork(this.network), true);
+    // script bytes regardless. With no leaf, p2tr gets no tree.
+    const network = getNetwork(this.network);
+    let payment: { address?: string; script: Uint8Array };
+    let tapMerkleRoot: Uint8Array;
+    if(leaves.length > 0) {
+      const tree = p2tr(aggPubkey, leaves, network, true);
+      payment = tree;
+      tapMerkleRoot = tree.tapMerkleRoot;
+    } else {
+      payment = p2tr(aggPubkey, undefined, network);
+      tapMerkleRoot = new Uint8Array();
+    }
 
     // BIP-341: the key-path tweak commits to the script tree's Merkle root.
     // taggedHash("TapTweak", internalPubkey || tapMerkleRoot). Use the root the
     // library committed to (payment.tapMerkleRoot) so the tweak matches the
-    // funded address byte-for-byte.
+    // funded address byte-for-byte. With no tree, the root is empty and the
+    // tweak is taggedHash("TapTweak", internalPubkey).
     this.internalKey = aggPubkey;
-    this.tapMerkleRoot = payment.tapMerkleRoot;
-    this.tapTweak = schnorr.utils.taggedHash('TapTweak', concatBytes(aggPubkey, payment.tapMerkleRoot));
+    this.tapMerkleRoot = tapMerkleRoot;
+    this.tapTweak = schnorr.utils.taggedHash('TapTweak', concatBytes(aggPubkey, tapMerkleRoot));
 
     if(!payment.address) {
       throw new AggregationCohortError(

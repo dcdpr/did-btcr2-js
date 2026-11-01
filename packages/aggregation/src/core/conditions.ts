@@ -4,9 +4,10 @@
  *
  * The spec frames these as an optional menu ("the Aggregation Service can define
  * conditions such as ..."), so this module requires only `beaconType` and
- * `minParticipants` of that menu. It also requires the recovery terms
- * `recoveryKey` and `recoverySequence` (ADR 042). Every other condition is
- * optional and, when absent, means unconstrained.
+ * `minParticipants` of that menu. Every other condition is optional. If it is
+ * absent, it sets no constraint. The leaf values are opt-in (ADR 169): with no
+ * `fallbackThreshold`, `recoveryKey`, or `recoverySequence`, the beacon address
+ * is n-of-n only.
  *
  * Enforcement is staged (ADR 039): `beaconType` and the participant bounds are
  * enforced by the state machine now; DIDs-per-participant, timing/cadence, and
@@ -38,7 +39,7 @@ export interface CohortCost {
 
 /**
  * The seven spec cohort conditions and the beacon output terms of ADR 042.
- * Required: beaconType, minParticipants, recoveryKey, and recoverySequence.
+ * Required: beaconType and minParticipants. The leaf values are optional (ADR 169).
  */
 export interface CohortConditions {
   /** 1. Beacon mechanism: 'CASBeacon' or 'SMTBeacon'. Enforced. */
@@ -67,36 +68,45 @@ export interface CohortConditions {
    */
   fundingModel?: FundingModel;
   /**
-   * Operator recovery key, x-only (64-character hex / 32 bytes). The beacon
-   * output commits to a CSV recovery leaf keyed to this key, so a missing signer
-   * can never permanently lock the funded UTXO. Required (ADR 042).
+   * Operator recovery key, x-only (64-character hex / 32 bytes). With
+   * {@link CohortConditions.recoverySequence}, the beacon output commits to a
+   * CSV recovery leaf keyed to this key (ADR 042). Absent: no recovery leaf.
+   * Only one of the two is an error.
    *
-   * The recovery terms are inputs of the beacon address, but the beacon type is
-   * not. See {@link CohortConditions.recoverySequence} for a CAS cohort and an
-   * SMT cohort with the same members.
+   * After the timelock, the key holder can spend the UTXO alone, and that spend
+   * can be a Beacon Signal. Thus a member must allow the leaf: a participant
+   * refuses it unless its `allowRecoveryLeaf` option is true (ADR 169).
    */
-  recoveryKey: string;
+  recoveryKey?: string;
   /**
    * Relative-timelock (BIP-68 nSequence, in blocks) before the recovery leaf is
-   * spendable. Required, >= 1 (ADR 042).
+   * spendable, in [1, 0xffff]. With {@link CohortConditions.recoveryKey}, the
+   * beacon address gets the CSV recovery leaf (ADR 042). Absent: no recovery
+   * leaf.
    *
-   * A CAS cohort and an SMT cohort with the same members, recovery terms,
-   * funding model, k, and network get one beacon address. A member refuses the
-   * second cohort (BEACON_TYPE_CONFLICT) only if its participant object knows
-   * the first cohort. Then the second cohort does not complete. If the member uses
-   * a new participant object, the member signs the second cohort. The signal of
-   * the second cohort can make a DID of the member invalid. To offer both beacon
-   * types to the same members, use another recoverySequence for each beacon type
-   * (ADR 152).
+   * The leaf values are inputs of the beacon address, but the beacon type is
+   * not. A CAS cohort and an SMT cohort with the same members, leaf values,
+   * funding model, and network get one beacon address. With no leaf, the
+   * address depends only on the cohort keys.
+   *
+   * A member refuses the second cohort (BEACON_TYPE_CONFLICT) only if its
+   * participant object knows the first cohort. Then the second cohort does not complete. If the member uses a new
+   * participant object, the member signs the second cohort. The signal of the
+   * second cohort can make a DID of the member invalid. To offer both beacon
+   * types to the same members, each member must use another key for each
+   * beacon type (ADRs 152 and 169).
    */
-  recoverySequence: number;
+  recoverySequence?: number;
   /**
-   * Number of signers (k) the k-of-n fallback leaf requires, so any k cohort
-   * members can still announce when the optimistic n-of-n key path stalls
-   * (graceful liveness, ADR 042). Optional: when absent it defaults to n-1 at
-   * keygen, where n is the finalized participant count. When advertised it must
-   * be an integer >= 1 (and <= maxParticipants when that is set); the upper bound
-   * against the actual cohort size n is enforced at keygen.
+   * Number of signers (k) the k-of-n fallback leaf requires. Present: any k
+   * cohort members can publish a Beacon Signal without the other members
+   * (ADR 042). Absent: no fallback leaf, and only all n members can sign. The
+   * value must be an integer >= 1. If `maxParticipants` is present, the value
+   * must be at most `maxParticipants`. The cohort checks the upper bound
+   * against the cohort size n at keygen.
+   *
+   * A participant refuses the leaf unless its `allowFallbackLeaf` option is
+   * true (ADR 169).
    */
   fallbackThreshold?: number;
 }
@@ -157,10 +167,10 @@ export function validateCohortConditions(c: CohortConditions): string[] {
     problems.push('pendingUpdateTrigger must be an integer >= 1');
   }
 
-  // Fallback threshold (k of the k-of-n fallback leaf). Optional; when advertised
-  // it must be a positive integer and cannot exceed maxParticipants (the binding
-  // upper bound against the actual cohort size n is checked at keygen, where n is
-  // known). See ADR 042.
+  // Fallback threshold (k of the k-of-n fallback leaf). Optional. If present, it
+  // must be a positive integer and at most maxParticipants. The cohort checks
+  // the upper bound against the cohort size n at keygen, where n is known. See
+  // ADR 042.
   if(c.fallbackThreshold !== undefined) {
     if(!Number.isInteger(c.fallbackThreshold) || c.fallbackThreshold < 1) {
       problems.push('fallbackThreshold must be an integer >= 1');
@@ -172,13 +182,17 @@ export function validateCohortConditions(c: CohortConditions): string[] {
   checkCost(problems, 'costOfEnrollment', c.costOfEnrollment);
   checkCost(problems, 'costPerAnnouncement', c.costPerAnnouncement);
 
-  // Recovery params: the beacon output's CSV recovery leaf. Required so a
-  // missing signer can never permanently lock the funded UTXO (ADR 042). The
-  // key is an x-only (32-byte) Schnorr public key, carried as 64 hex chars.
-  if(typeof c.recoveryKey !== 'string' || !/^[0-9a-fA-F]{64}$/.test(c.recoveryKey)) {
+  // Recovery values: the optional CSV recovery leaf of the beacon output
+  // (ADRs 042 and 169). Both or neither. The key is an x-only (32-byte) Schnorr
+  // public key, carried as 64 hex characters.
+  if((c.recoveryKey === undefined) !== (c.recoverySequence === undefined)) {
+    problems.push('recoveryKey and recoverySequence must be both present or both absent');
+  }
+  if(c.recoveryKey !== undefined && (typeof c.recoveryKey !== 'string' || !/^[0-9a-fA-F]{64}$/.test(c.recoveryKey))) {
     problems.push('recoveryKey must be a 64-character hex string (x-only public key)');
   }
-  if(!Number.isInteger(c.recoverySequence) || c.recoverySequence < 1 || c.recoverySequence > MAX_RECOVERY_SEQUENCE) {
+  if(c.recoverySequence !== undefined
+    && (!Number.isInteger(c.recoverySequence) || c.recoverySequence < 1 || c.recoverySequence > MAX_RECOVERY_SEQUENCE)) {
     problems.push(`recoverySequence must be a block-based BIP-68 relative timelock in [1, ${MAX_RECOVERY_SEQUENCE}]`);
   }
   if(c.fundingModel !== undefined && !(KNOWN_FUNDING_MODELS as readonly string[]).includes(c.fundingModel)) {

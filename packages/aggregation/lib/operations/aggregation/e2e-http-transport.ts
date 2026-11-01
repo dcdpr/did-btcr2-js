@@ -205,7 +205,7 @@ const service = new AggregationServiceRunner({
   transport : serviceTransport,
   did       : serviceDid,
   keys      : serviceKeys,
-  config    : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: bytesToHex(serviceKeys.publicKey.compressed.slice(1)), recoverySequence: 144 },
+  config    : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' },
 
   onProvideTxData : async ({ beaconAddress, signalBytes }) => {
     // Spend the beacon output: each member refuses another prevout script.

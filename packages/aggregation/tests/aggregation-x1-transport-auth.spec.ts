@@ -28,8 +28,6 @@ import { MessageBus, MockTransport } from './helpers/mock-transport.js';
  * Trustless transport authentication for EXTERNAL (x1) did:btcr2 identifiers (ADR 066).
  */
 
-const TEST_RECOVERY_KEY = 'a'.repeat(64);
-const TEST_RECOVERY_SEQUENCE = 144;
 
 const hexOf = (b: Uint8Array): string => bytesToHex(b);
 
@@ -389,8 +387,6 @@ describe('x1 transport authentication (ADR 066)', () => {
         minParticipants  : 2,
         beaconType       : 'CASBeacon',
         network          : 'mutinynet',
-        recoveryKey      : TEST_RECOVERY_KEY,
-        recoverySequence : TEST_RECOVERY_SEQUENCE,
         communicationPk  : serverKeys.publicKey.compressed,
       },
     });
@@ -445,7 +441,7 @@ describe('x1 transport authentication (ADR 066)', () => {
         transport       : serviceTransport,
         did             : serviceDid,
         keys            : serviceKeys,
-        config          : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE },
+        config          : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' },
         onProvideTxData : async () => {
           const cohort = service.session.cohorts[0];
           // The transaction spends the beacon output of the cohort.

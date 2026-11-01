@@ -283,11 +283,9 @@ const runner: AggregationServiceRunner = new AggregationServiceRunner({
   did    : serviceDid,
   keys   : serviceKeys,
   config : {
-    minParticipants  : 2,
-    network          : 'mutinynet',
-    beaconType       : 'CASBeacon',
-    recoveryKey      : recoveryKeyHex, // x-only operator recovery key, 64 hex characters
-    recoverySequence : 144,            // blocks (BIP-68) before the recovery leaf is spendable
+    minParticipants : 2,
+    network         : 'mutinynet',
+    beaconType      : 'CASBeacon',
   },
   // The transaction must spend the beacon output. buildAggregationBeaconTx finds
   // a UTXO at beaconAddress and puts signalBytes in the last output (OP_RETURN).

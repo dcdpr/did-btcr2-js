@@ -142,6 +142,10 @@ export interface AggregationServiceRunnerOptions {
    * optimistic round does not complete in time. A stall outside the signing
    * phases still fails the cohort. Operators can also drive the fallback
    * explicitly via {@link AggregationServiceRunner.triggerFallback}.
+   *
+   * The fallback needs the k-of-n fallback leaf. A cohort with no
+   * `fallbackThreshold` has no such leaf (ADR 169), so the runner fails that
+   * cohort at a stall, also if this option is true.
    */
   autoFallbackOnStall?: boolean;
 }
@@ -243,11 +247,12 @@ interface RunContext {
  * runner.on('signing-complete', ({ cohortId, signature }) => console.log('done', cohortId));
  *
  * // Multi-cohort: advertise several cohorts; each completion resolves independently.
- * // Each cohort config must have a recovery key and a recovery sequence (ADR 042).
- * // Use another recoverySequence for each beacon type (ADR 152). Then a CAS cohort
- * // and an SMT cohort with the same members get different beacon addresses.
- * const a = runner.advertiseCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: recoveryKeyHex, recoverySequence: 144 });
- * const b = runner.advertiseCohort({ minParticipants: 3, network: 'mutinynet', beaconType: 'SMTBeacon', recoveryKey: recoveryKeyHex, recoverySequence: 145 });
+ * // With no leaf values in the config, the beacon address is n-of-n (ADR 169).
+ * // Then the address depends only on the cohort keys. A CAS cohort and an SMT
+ * // cohort with the same cohort keys get one beacon address, so each member
+ * // must use another key for each beacon type (ADR 152).
+ * const a = runner.advertiseCohort({ minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' });
+ * const b = runner.advertiseCohort({ minParticipants: 3, network: 'mutinynet', beaconType: 'SMTBeacon' });
  * const [ra, rb] = await Promise.all([a.completion, b.completion]);
  *
  * // Single-cohort convenience (requires `config` in the options):
@@ -482,12 +487,14 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
     ctx.phaseTimer = undefined;
     if(this.#phaseTimeoutMs === undefined) return;
     ctx.phaseTimer = setTimeout(() => {
-      // A stall during the optimistic signing round can be salvaged by the k-of-n
-      // fallback rather than failing the whole cohort (graceful liveness, ADR
-      // 042) - but only if enabled and not already committed to a path.
+      // At a stall in the key-path signing round, the runner can start the
+      // k-of-n fallback and not fail the cohort (graceful liveness, ADR 042). It
+      // does this only if `autoFallbackOnStall` is true, the beacon address has
+      // the fallback leaf (ADR 169), and the cohort has no committed path.
       const phase = this.session.getCohortPhase(ctx.cohortId);
       const inSigning = phase !== undefined && AggregationServiceRunner.#SIGNING_PHASES.includes(phase);
-      if(this.#autoFallbackOnStall && inSigning && !ctx.committedPath && !ctx.settled) {
+      const hasFallbackLeaf = this.session.getCohort(ctx.cohortId)?.fallbackThreshold !== undefined;
+      if(this.#autoFallbackOnStall && inSigning && hasFallbackLeaf && !ctx.committedPath && !ctx.settled) {
         this.triggerFallback(ctx.cohortId).catch(err => this.#failCohort(ctx, err as Error));
         return;
       }
@@ -509,7 +516,8 @@ export class AggregationServiceRunner extends TypedEventEmitter<AggregationServi
    * Wired automatically to the phase-stall timer when `autoFallbackOnStall` is
    * set; otherwise call it from an operator decision (a UI "fall back now"
    * action). Throws only if the underlying state machine rejects the transition
-   * (e.g. signing has not started).
+   * (for example, if the signing round is not active, or `NO_FALLBACK_LEAF`
+   * for a cohort with no fallback leaf).
    */
   async triggerFallback(cohortId: string): Promise<void> {
     const ctx = this.#contexts.get(cohortId);

@@ -1,5 +1,4 @@
 import { SchnorrKeyPair } from '@did-btcr2/keys';
-import { hexToBytes } from '@noble/hashes/utils';
 import { p2tr, Transaction } from '@scure/btc-signer';
 import * as musig2 from '@scure/btc-signer/musig2';
 import { expect } from 'chai';
@@ -8,8 +7,6 @@ import {
   BeaconSigningSession,
 } from '../src/index.js';
 
-const TEST_RECOVERY_KEY = 'a'.repeat(64);
-const TEST_RECOVERY_SEQUENCE = 144;
 
 function buildDummyTx(outputScript: Uint8Array, prevOutValue: bigint): Transaction {
   const tx = new Transaction({ version: 2 });
@@ -31,8 +28,6 @@ describe('Aggregation signing regressions', () => {
       const cohort = new AggregationCohort({
         minParticipants  : 2,
         network          : 'bitcoin',
-        recoveryKey      : hexToBytes(TEST_RECOVERY_KEY),
-        recoverySequence : TEST_RECOVERY_SEQUENCE,
       });
       cohort.participants.push('did:btcr2:alice', 'did:btcr2:bob');
       cohort.participantKeys.set('did:btcr2:alice', kp1.publicKey.compressed);
@@ -79,8 +74,6 @@ describe('Aggregation signing regressions', () => {
       const cohort = new AggregationCohort({
         minParticipants  : 2,
         network          : 'bitcoin',
-        recoveryKey      : hexToBytes(TEST_RECOVERY_KEY),
-        recoverySequence : TEST_RECOVERY_SEQUENCE,
       });
       cohort.participants.push('did:btcr2:alice', 'did:btcr2:bob');
       cohort.participantKeys.set('did:btcr2:alice', kp1.publicKey.compressed);

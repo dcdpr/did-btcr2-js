@@ -2,11 +2,12 @@
  * Recovery spend builder for aggregate beacon outputs.
  *
  * An aggregate beacon UTXO is a Taproot output whose key path is the cohort's
- * n-of-n MuSig2 aggregate key and whose script path carries a timelocked
- * recovery leaf (see {@link ./recovery-policy.ts} and ADR 042). When the
- * optimistic cooperative key-path spend cannot complete (a missing or defecting
- * signer), the funder reclaims the UTXO via the recovery leaf after the
- * relative-timelock delay.
+ * n-of-n MuSig2 aggregate key. If the cohort opts in, the script tree has a
+ * timelocked recovery leaf (see {@link ./recovery-policy.ts}, ADR 042, and
+ * ADR 169). If the cooperative key-path spend cannot complete (a missing or
+ * defecting signer), the funder reclaims the UTXO via the recovery
+ * leaf after the relative-timelock delay. A beacon output with no recovery
+ * leaf has no recovery spend.
  *
  * This module builds and signs that script-path spend. It is pure with respect
  * to the network: it takes a UTXO reference plus the cohort and recovery
@@ -26,7 +27,7 @@ import { p2tr, Transaction } from '@scure/btc-signer';
 import { keyAggExport, keyAggregate, sortKeys } from '@scure/btc-signer/musig2';
 import { AggregationCohortError } from './errors.js';
 import type { FundingModel } from './recovery-policy.js';
-import { DEFAULT_FUNDING_MODEL, buildRecoveryLeaves, resolveFallbackThreshold } from './recovery-policy.js';
+import { DEFAULT_FUNDING_MODEL, buildRecoveryLeaves } from './recovery-policy.js';
 
 /** Reference to the beacon UTXO being recovered. */
 export interface BeaconUtxoRef {
@@ -53,10 +54,10 @@ export interface RecoverySpendParams {
   /** Relative-timelock (BIP-68 nSequence) the recovery leaf enforces. */
   recoverySequence: number;
   /**
-   * The advertised k of the k-of-n fallback leaf the beacon output also commits
-   * to, or omit to use the same n-1 default the cohort applies. Resolved against
-   * `cohortKeys.length` exactly as the cohort does, so the reconstructed script
-   * tree and control block match the funded address.
+   * k of the k-of-n fallback leaf, if the beacon output also commits to that
+   * leaf. Omit it if the output has no fallback leaf (ADR 169). The value must
+   * be the k of the cohort, so the reconstructed script tree and control block
+   * match the funded address.
    */
   fallbackThreshold?: number;
   /** Funding model governing the recovery leaves. Defaults to 'operator-funded'. */
@@ -67,10 +68,10 @@ export interface RecoverySpendParams {
    * The beacon UTXO being recovered.
    *
    * Precondition: the on-chain output at this `txid:vout` MUST have been funded
-   * to the beacon address derived from these same `cohortKeys`, `recoveryKey`,
-   * `recoverySequence`, and `fundingModel`. If it was funded under different
-   * parameters the reconstructed `witnessUtxo.script` will not match the chain,
-   * the signature will be invalid, and the spend will be rejected. Pass
+   * to the beacon address derived from these same `cohortKeys`,
+   * `fallbackThreshold`, `recoveryKey`, `recoverySequence`, and
+   * `fundingModel`. If the funder used other values, the reconstructed
+   * `witnessUtxo.script` does not match the chain, and the spend is invalid. Pass
    * {@link beaconAddress} to assert this reconstruction up front.
    */
   utxo: BeaconUtxoRef;
@@ -107,8 +108,10 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
  * `recoverySequence` confirmations.
  *
  * @throws {AggregationCohortError} when the recovery secret key does not match
- * the committed recovery key, when there are no cohort keys, or when the fee
- * exceeds the UTXO value.
+ * the committed recovery key, when there are no cohort keys, when the fee
+ * exceeds the UTXO value, or when the caller sets `beaconAddress` and the
+ * reconstructed address differs (also if the funded output has no recovery
+ * leaf).
  */
 export function buildRecoverySpend(params: RecoverySpendParams): Transaction {
   const {
@@ -153,8 +156,7 @@ export function buildRecoverySpend(params: RecoverySpendParams): Transaction {
   // match the UTXO being spent.
   const internalKey = keyAggExport(keyAggregate(sortKeys(cohortKeys)));
   const leaves = buildRecoveryLeaves(fundingModel ?? DEFAULT_FUNDING_MODEL, {
-    recoveryKey, recoverySequence, cohortKeys,
-    fallbackThreshold : resolveFallbackThreshold(fallbackThreshold, cohortKeys.length),
+    recoveryKey, recoverySequence, cohortKeys, fallbackThreshold,
   });
   const net = getNetwork(network);
   // allowUnknownOutputs: the CSV recovery leaf is a custom script (see cohort.ts).

@@ -24,6 +24,8 @@ const BIP68_TYPE_BIT = 0x00400000;    // bit 22: switches block-based to time-ba
 
 const RECOVERY_KEY_HEX = 'a'.repeat(64);
 const RECOVERY_SEQUENCE = 144;
+/** k of the fallback leaf of the 2-member test cohort (the tree has both leaves). */
+const FALLBACK_THRESHOLD = 1;
 
 /** A minimal set of valid cohort conditions for validateCohortConditions tests. */
 function baseConditions(overrides: Partial<CohortConditions> = {}): CohortConditions {
@@ -36,7 +38,7 @@ function baseConditions(overrides: Partial<CohortConditions> = {}): CohortCondit
   };
 }
 
-/** Build a 2-participant cohort with recovery params and compute its beacon address. */
+/** Build a 2-participant cohort with both leaves (ADR 169 opt-in) and compute its beacon address. */
 function buildCohort(network = 'bitcoin'): {
   cohort: AggregationCohort;
   kp1: SchnorrKeyPair;
@@ -49,10 +51,11 @@ function buildCohort(network = 'bitcoin'): {
   const did1 = 'did:btcr2:alice';
   const did2 = 'did:btcr2:bob';
   const cohort = new AggregationCohort({
-    minParticipants  : 2,
+    minParticipants   : 2,
     network,
-    recoveryKey      : hexToBytes(RECOVERY_KEY_HEX),
-    recoverySequence : RECOVERY_SEQUENCE,
+    recoveryKey       : hexToBytes(RECOVERY_KEY_HEX),
+    recoverySequence  : RECOVERY_SEQUENCE,
+    fallbackThreshold : FALLBACK_THRESHOLD,
   });
   cohort.participants.push(did1, did2);
   cohort.participantKeys.set(did1, kp1.publicKey.compressed);
@@ -149,12 +152,12 @@ describe('Aggregate beacon recovery (ADR 042)', () => {
     });
   });
 
-  describe('validateCohortConditions: recovery params are mandatory', () => {
+  describe('validateCohortConditions: recovery params are a pair (ADR 169)', () => {
     it('accepts a well-formed recovery key + sequence', () => {
       expect(validateCohortConditions(baseConditions())).to.be.empty;
     });
 
-    it('rejects a missing recovery key', () => {
+    it('rejects a recovery sequence with no recovery key', () => {
       const c = baseConditions();
       delete (c as Partial<CohortConditions>).recoveryKey;
       const problems = validateCohortConditions(c);
@@ -166,7 +169,7 @@ describe('Aggregate beacon recovery (ADR 042)', () => {
       expect(validateCohortConditions(baseConditions({ recoveryKey: 'ab'.repeat(20) })).some(p => /recoveryKey/.test(p))).to.be.true;
     });
 
-    it('rejects a missing or non-positive recovery sequence', () => {
+    it('rejects a recovery key with no recovery sequence, and a non-positive sequence', () => {
       const c = baseConditions();
       delete (c as Partial<CohortConditions>).recoverySequence;
       expect(validateCohortConditions(c).some(p => /recoverySequence/.test(p))).to.be.true;
@@ -187,10 +190,13 @@ describe('Aggregate beacon recovery (ADR 042)', () => {
   });
 
   describe('computeBeaconAddress: internal key + recovery script tree', () => {
-    it('throws when recovery params are absent', () => {
+    it('with no leaf params, the address is key path only (ADR 169)', () => {
       const cohort = new AggregationCohort({ minParticipants: 2, network: 'bitcoin' });
       cohort.cohortKeys = [SchnorrKeyPair.generate().publicKey.compressed, SchnorrKeyPair.generate().publicKey.compressed];
-      expect(() => cohort.computeBeaconAddress()).to.throw(/NO_RECOVERY_PARAMS|recovery/i);
+      const address = cohort.computeBeaconAddress();
+      expect(cohort.tapMerkleRoot).to.have.lengthOf(0);
+      expect(cohort.tapTweak).to.deep.equal(schnorr.utils.taggedHash('TapTweak', cohort.internalKey));
+      expect(address).to.equal(p2tr(cohort.internalKey, undefined, getNetwork('bitcoin')).address);
     });
 
     it('derives a Taproot address and a tweak that commits to the Merkle root', () => {
@@ -215,7 +221,7 @@ describe('Aggregate beacon recovery (ADR 042)', () => {
         recoveryKey       : hexToBytes(RECOVERY_KEY_HEX),
         recoverySequence  : RECOVERY_SEQUENCE,
         cohortKeys        : cohort.cohortKeys,
-        fallbackThreshold : cohort.effectiveFallbackThreshold,
+        fallbackThreshold : cohort.fallbackThreshold,
       });
       const payment = p2tr(cohort.internalKey, leaves, getNetwork('bitcoin'), true);
       expect(payment.address).to.equal(cohort.beaconAddress);
@@ -233,7 +239,7 @@ describe('Aggregate beacon recovery (ADR 042)', () => {
         recoveryKey       : hexToBytes(RECOVERY_KEY_HEX),
         recoverySequence  : RECOVERY_SEQUENCE,
         cohortKeys        : cohort.cohortKeys,
-        fallbackThreshold : cohort.effectiveFallbackThreshold,
+        fallbackThreshold : cohort.fallbackThreshold,
       });
       const payment = p2tr(cohort.internalKey, leaves, getNetwork('bitcoin'), true);
       const value = 100000n;
@@ -339,7 +345,7 @@ describe('Aggregate beacon recovery (ADR 042)', () => {
       });
       // The spent output script must equal the cohort's beacon output script.
       const leaves = buildRecoveryLeaves(DEFAULT_FUNDING_MODEL, {
-        recoveryKey, recoverySequence : RECOVERY_SEQUENCE, cohortKeys : keys, fallbackThreshold : cohort.effectiveFallbackThreshold,
+        recoveryKey, recoverySequence : RECOVERY_SEQUENCE, cohortKeys : keys, fallbackThreshold : cohort.fallbackThreshold,
       });
       const expectedScript = p2tr(cohort.internalKey, leaves, getNetwork('bitcoin'), true).script;
       expect(tx.getInput(0).witnessUtxo!.script).to.deep.equal(expectedScript);

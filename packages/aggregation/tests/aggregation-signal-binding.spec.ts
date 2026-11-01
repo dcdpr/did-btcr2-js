@@ -21,8 +21,6 @@ import {
   getBeaconStrategy,
 } from '../src/index.js';
 
-const TEST_RECOVERY_KEY = 'a'.repeat(64);
-const TEST_RECOVERY_SEQUENCE = 144;
 const NET = getNetwork('mutinynet');
 const VALUE = 100_000n;
 
@@ -61,27 +59,29 @@ function createSignedUpdate(did: string, keys: SchnorrKeyPair): SignedBTCR2Updat
  * delivered by hand so a test can tamper with one on the way. Members listed in
  * `decliners` take the cooperative non-inclusion path instead of submitting.
  */
-/** A cohort of two members in the CohortReady phase: the keys are final, and no member submitted. */
-function readyCohort(beaconType: string) {
+/**
+ * A cohort of two members in the CohortReady phase: the keys are final, and no
+ * member submitted. The beacon address is key path only, unless the test gives
+ * the k of a fallback leaf (ADR 169).
+ */
+function readyCohort(beaconType: string, fallbackThreshold?: number) {
   const serviceKeys = SchnorrKeyPair.generate();
   const serviceDid = DidBtcr2.create(serviceKeys.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' });
   const keys = [ SchnorrKeyPair.generate(), SchnorrKeyPair.generate() ];
   const dids = keys.map(k => DidBtcr2.create(k.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' }));
   const service = new AggregationService({ did: serviceDid, publicKey: serviceKeys.publicKey });
-  const parts = keys.map((k, i) => new AggregationParticipant({ did: dids[i], signer: new KeyPairAggregationSigner(k) }));
+  const parts = keys.map((k, i) => new AggregationParticipant({
+    did               : dids[i],
+    signer            : new KeyPairAggregationSigner(k),
+    allowFallbackLeaf : fallbackThreshold !== undefined,
+  }));
 
   const toParts = (msgs: BaseMessage[]) => msgs.forEach(m => parts.forEach(p => {
     if(!m.to || m.to === p.did) p.receive(m);
   }));
   const toService = (msgs: BaseMessage[]) => msgs.forEach(m => service.receive(m));
 
-  const cohortId = service.createCohort({
-    minParticipants  : 2,
-    network          : 'mutinynet',
-    beaconType,
-    recoveryKey      : TEST_RECOVERY_KEY,
-    recoverySequence : TEST_RECOVERY_SEQUENCE,
-  });
+  const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType, fallbackThreshold });
   toParts(service.advertise(cohortId));
   parts.forEach(p => toService(p.joinCohort(cohortId)));
   dids.forEach(did => toParts(service.acceptParticipant(cohortId, did)));
@@ -90,8 +90,8 @@ function readyCohort(beaconType: string) {
   return { service, parts, serviceDid, dids, keys, cohortId, toParts, toService };
 }
 
-function formCohort(beaconType: string, decliners: number[] = []) {
-  const cohort = readyCohort(beaconType);
+function formCohort(beaconType: string, decliners: number[] = [], fallbackThreshold?: number) {
+  const cohort = readyCohort(beaconType, fallbackThreshold);
   const { parts, dids, keys, cohortId, toService } = cohort;
   parts.forEach((p, i) => toService(decliners.includes(i)
     ? p.declineUpdate(cohortId)
@@ -99,16 +99,16 @@ function formCohort(beaconType: string, decliners: number[] = []) {
   return cohort;
 }
 
-/** The real script-tree beacon output script the cohort's address commits to. */
+/** The real beacon output script the cohort's address commits to (no tree if the cohort has no leaf). */
 function beaconScript(service: AggregationService, cohortId: string): Uint8Array {
   const cohort = service.getCohort(cohortId)!;
   const leaves = buildRecoveryLeaves('operator-funded', {
-    recoveryKey       : cohort.recoveryKey!,
-    recoverySequence  : cohort.recoverySequence!,
     cohortKeys        : cohort.cohortKeys,
-    fallbackThreshold : cohort.effectiveFallbackThreshold,
+    fallbackThreshold : cohort.fallbackThreshold,
   });
-  return p2tr(cohort.internalKey, leaves, NET, true).script;
+  return leaves.length > 0
+    ? p2tr(cohort.internalKey, leaves, NET, true).script
+    : p2tr(cohort.internalKey, undefined, NET).script;
 }
 
 interface BeaconTxOptions {
@@ -392,7 +392,7 @@ describe('Aggregate beacon announcement binding', () => {
     it('applies the same checks on the fallback path', () => {
       // A member still in ValidationSent has no optimistic tx to compare
       // against, so only the structural checks stand between it and a signature.
-      const { service, parts, serviceDid, dids, cohortId, toParts, toService } = formCohort('CASBeacon');
+      const { service, parts, serviceDid, dids, cohortId, toParts, toService } = formCohort('CASBeacon', [], 1);
       toParts(service.buildAndDistribute(cohortId));
       parts.forEach(p => toService(p.approveValidation(cohortId)));
       const cohort = service.getCohort(cohortId)!;
@@ -402,7 +402,7 @@ describe('Aggregate beacon announcement binding', () => {
       expect(parts[0].getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.ValidationSent);
 
       const foreign = beaconTx(script, { signals: [ new Uint8Array(32).fill(0xbe) ] });
-      const leaf = buildFallbackLeaf({ cohortKeys: cohort.cohortKeys, fallbackThreshold: cohort.effectiveFallbackThreshold });
+      const leaf = buildFallbackLeaf({ cohortKeys: cohort.cohortKeys, fallbackThreshold: cohort.fallbackThreshold! });
       parts[0].receive(createFallbackAuthorizationRequestMessage({
         from                  : serviceDid,
         to                    : dids[0],
@@ -421,9 +421,9 @@ describe('Aggregate beacon announcement binding', () => {
 
   describe('fallback binds to the optimistic transaction (audit H4)', () => {
 
-    /** Form, validate, start signing and contribute a nonce for both members. */
+    /** Form a cohort with a 1-of-2 fallback leaf, validate, start signing and contribute a nonce for both members. */
     function noncesContributed() {
-      const harness = formCohort('CASBeacon');
+      const harness = formCohort('CASBeacon', [], 1);
       const { service, parts, cohortId, toParts, toService } = harness;
       toParts(service.buildAndDistribute(cohortId));
       parts.forEach(p => toService(p.approveValidation(cohortId)));
@@ -441,7 +441,7 @@ describe('Aggregate beacon announcement binding', () => {
       sessionId?: string,
     ): BaseMessage {
       const { service, serviceDid, dids, cohortId, cohort, script } = harness;
-      const leaf = buildFallbackLeaf({ cohortKeys: cohort.cohortKeys, fallbackThreshold: cohort.effectiveFallbackThreshold });
+      const leaf = buildFallbackLeaf({ cohortKeys: cohort.cohortKeys, fallbackThreshold: cohort.fallbackThreshold! });
       return createFallbackAuthorizationRequestMessage({
         from                  : serviceDid,
         to                    : dids[0],

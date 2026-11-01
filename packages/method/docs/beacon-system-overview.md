@@ -44,21 +44,22 @@ This is where the coordinator/participant protocol comes in. The aggregation flo
 Coordinator                          Participant
     |                                    |
     |--- BEACON_COHORT_ADVERT --------->|  (cohortId, minParticipants, network, beaconType)
-    |                                    |  participant opts in with its signer key
+    |                                    |  the participant refuses a leaf that it does not allow,
+    |                                    |  else it opts in with its signer key
     |<-- BEACON_COHORT_OPT_IN ---------|  (participantPk)
     |                                    |
     |  (when minParticipants reached)    |
     |  finalizeKeygen(cohortId)          |
     |  -> sorts keys, computes the       |
-    |    script-tree P2TR address        |
+    |    P2TR address (n-of-n by default)|
     |                                    |
     |--- BEACON_COHORT_READY ---------->|  (cohortKeys, beaconAddress)
-    |                                    |  participant checks keys, address, and beacon type
+    |                                    |  the participant checks the key count, the keys, the address, and the beacon type
 ```
 
-A participant uses the key of its signer for every cohort. Two cohorts with the same cohort keys, fallback threshold (k), recovery key, recovery sequence, funding model, and network have the same beacon address. A beacon address must have one beacon type. Thus the participant refuses a cohort at the beacon address of another of its cohorts with another beacon type (BEACON_TYPE_CONFLICT). This check knows only the cohorts of one participant object.
+A participant uses the key of its signer for every cohort. Two cohorts with the same cohort keys, leaf values, funding model, and network have the same beacon address. A beacon address must have one beacon type. Thus the participant refuses a cohort at the beacon address of another of its cohorts with another beacon type (BEACON_TYPE_CONFLICT). The participant makes this check only for the cohorts of one participant object.
 
-The beacon address is a Taproot output. Its internal key is the MuSig2 aggregate of the cohort keys. Its script tree holds the k-of-n fallback leaf and the CSV recovery leaf. The prevout script of a beacon transaction must be this output script (`cohort.beaconScript`).
+The beacon address is a Taproot output. Its internal key is the MuSig2 aggregate of the cohort keys. By default, it has no script tree: only all n members together can spend it, as the spec RECOMMENDS. A cohort can add a k-of-n fallback leaf and a CSV recovery leaf. A participant refuses each leaf, unless the caller sets its option `allowFallbackLeaf` or `allowRecoveryLeaf` (ADR 169). The prevout script of a beacon transaction must be this output script (`cohort.beaconScript`).
 
 ### Phase 2 -- Update Collection
 
@@ -196,7 +197,7 @@ The SMT proof verification (spec section SMT Proof Verification) selects the lea
 **Announcement (spec [Announce DID Update](https://dcdpr.github.io/did-btcr2/operations/update.html#announce-did-update)):** The `broadcastSignal()` methods construct transactions per spec: spend beacon UTXO, OP_RETURN with signal bytes, change output back to beacon address. The beacon address chain acts as the append-only signal log.
 
 **Aggregation:** The coordinator/participant protocol implements the spec's multi-party beacon coordination:
-- Cohort formation with Taproot MuSig2 addresses
+- Cohort formation with n-of-n Taproot addresses (MuSig2); each script leaf is opt-in (ADR 169)
 - Update collection with per-participant validation
 - CAS builds a DID->hash announcement map; SMT builds a Merkle tree with per-DID proofs
 - MuSig2 signing produces a standard Taproot key-path spend (indistinguishable from single-signer on-chain)
@@ -232,11 +233,9 @@ const service: AggregationServiceRunner = new AggregationServiceRunner({
   did    : serviceDid,
   keys   : serviceKeys,
   config : {
-    minParticipants  : 2,
-    network          : 'mutinynet',
-    beaconType       : 'CASBeacon',
-    recoveryKey      : recoveryKeyHex, // x-only operator recovery key, 64 hex characters
-    recoverySequence : 144,            // blocks (BIP-68) before the recovery leaf is spendable
+    minParticipants : 2,
+    network         : 'mutinynet',
+    beaconType      : 'CASBeacon',
   },
   onProvideTxData : async ({ cohortId, beaconAddress, signalBytes, feeEstimator }) => {
     // Build the Bitcoin transaction for MuSig2 signing. The transaction must
