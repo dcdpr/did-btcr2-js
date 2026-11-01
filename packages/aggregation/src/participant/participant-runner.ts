@@ -99,6 +99,20 @@ export interface AggregationParticipantRunnerOptions {
    * "https://btcr2.dev/context/v1" (ADR 148).
    */
   genesisDocument?: Record<string, unknown>;
+
+  /**
+   * Accept a cohort with the k-of-n fallback leaf. Default `false`: the runner
+   * does not join such a cohort and emits `error`. See
+   * {@link AggregationParticipantParams.allowFallbackLeaf} (ADR 169).
+   */
+  allowFallbackLeaf?: boolean;
+
+  /**
+   * Accept a cohort with the CSV recovery leaf. Default `false`: the runner
+   * does not join such a cohort and emits `error`. See
+   * {@link AggregationParticipantParams.allowRecoveryLeaf} (ADR 169).
+   */
+  allowRecoveryLeaf?: boolean;
 }
 
 /**
@@ -167,9 +181,11 @@ export class AggregationParticipantRunner extends TypedEventEmitter<AggregationP
     this.#onApproveSigning = options.onApproveSigning ?? (async () => ({ approved: true }));
 
     this.session = new AggregationParticipant({
-      did             : options.did,
-      signer          : new KeyPairAggregationSigner(options.keys),
-      genesisDocument : options.genesisDocument,
+      did               : options.did,
+      signer            : new KeyPairAggregationSigner(options.keys),
+      genesisDocument   : options.genesisDocument,
+      allowFallbackLeaf : options.allowFallbackLeaf,
+      allowRecoveryLeaf : options.allowRecoveryLeaf,
     });
   }
 

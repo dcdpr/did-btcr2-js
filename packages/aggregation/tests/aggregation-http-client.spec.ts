@@ -509,8 +509,6 @@ describe('HttpClientTransport', () => {
         communicationPk,
         beaconType       : 'SMTBeacon',
         minParticipants  : 2,
-        recoveryKey      : 'a'.repeat(64),
-        recoverySequence : 144,
       });
       const other = SchnorrKeyPair.generate().publicKey.compressed;
       const advert = new BaseMessage({

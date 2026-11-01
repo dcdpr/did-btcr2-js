@@ -97,7 +97,7 @@ const service = new AggregationServiceRunner({
   transport   : serviceTransport,
   did         : serviceDid,
   keys        : serviceKeys,
-  config      : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: bytesToHex(serviceKeys.publicKey.compressed.slice(1)), recoverySequence: 144 },
+  config      : { minParticipants: 2, network: 'mutinynet', beaconType: 'CASBeacon' },
   cohortTtlMs : TIMEOUT_MS,
 
   onProvideTxData : async ({ beaconAddress, signalBytes }) => {
@@ -114,8 +114,9 @@ const service = new AggregationServiceRunner({
     tx.addOutput({ script, amount: prevOutValue - 500n });
     tx.addOutput({ script: Script.encode(['RETURN', signalBytes]), amount: 0n });
 
-    // The output key of the beacon output is the Taproot-tweaked key: the
-    // tweak commits to the recovery script tree. The sighash covers the final tx.
+    // The output key of the beacon output is the Taproot-tweaked key. The
+    // cohort has no script leaf, so the tweak commits to no script tree
+    // (ADR 169). The sighash covers the final tx.
     const output = OutScript.decode(script);
     if(output.type !== 'tr') throw new Error(`Beacon output is not P2TR: ${output.type}`);
     capturedTweakedPk = output.pubkey;

@@ -37,9 +37,10 @@ import { BeaconSigningSession } from '../core/signing-session.js';
 /**
  * Cohort configuration set by the service operator: the advertised cohort
  * {@link CohortConditions} plus the Bitcoin network. The config must have
- * `beaconType`, `minParticipants`, `recoveryKey`, and `recoverySequence`
- * (ADR 042). The other conditions are optional (absent = unconstrained). See
- * ADR 039.
+ * `beaconType` and `minParticipants`. The other conditions are optional
+ * (absent = unconstrained). See ADR 039. With no `fallbackThreshold`,
+ * `recoveryKey`, or `recoverySequence`, the beacon address is n-of-n only
+ * (ADR 169).
  */
 export interface CohortConfig extends CohortConditions {
   network: string;
@@ -299,7 +300,7 @@ export class AggregationService {
       minParticipants   : config.minParticipants,
       network           : config.network,
       beaconType        : config.beaconType,
-      recoveryKey       : hexToBytes(config.recoveryKey),
+      recoveryKey       : config.recoveryKey === undefined ? undefined : hexToBytes(config.recoveryKey),
       recoverySequence  : config.recoverySequence,
       fundingModel      : config.fundingModel,
       fallbackThreshold : config.fallbackThreshold,
@@ -958,11 +959,22 @@ export class AggregationService {
    * Callable once optimistic signing has started (the session and its tx exist)
    * and before it completes. A cohort can take exactly one of the two paths: the
    * caller (runner) must commit to fallback and stop driving the optimistic path.
+   *
+   * @throws {AggregationServiceError} `NO_FALLBACK_LEAF` if the cohort has no
+   * fallback leaf (no `fallbackThreshold` in its conditions, ADR 169). Then
+   * only all n members together can sign the transaction (key path).
    */
   startFallbackSigning(cohortId: string): BaseMessage[] {
     const state = this.#cohortStates.get(cohortId);
     if(!state) {
       throw new AggregationServiceError(`Cohort ${cohortId} not found.`, 'COHORT_NOT_FOUND', { cohortId });
+    }
+    const fallbackThreshold = state.cohort.fallbackThreshold;
+    if(fallbackThreshold === undefined) {
+      throw new AggregationServiceError(
+        `Cannot start fallback for cohort ${cohortId}: the beacon address has no fallback leaf.`,
+        'NO_FALLBACK_LEAF', { cohortId }
+      );
     }
     if(!state.signingSession) {
       throw new AggregationServiceError(
@@ -992,10 +1004,7 @@ export class AggregationService {
       );
     }
 
-    const fallbackLeaf = buildFallbackLeaf({
-      cohortKeys        : state.cohort.cohortKeys,
-      fallbackThreshold : state.cohort.effectiveFallbackThreshold,
-    });
+    const fallbackLeaf = buildFallbackLeaf({ cohortKeys: state.cohort.cohortKeys, fallbackThreshold });
 
     state.fallbackSignatures = new Map();
     state.phase = ServiceCohortPhase.FallbackRequested;
@@ -1030,6 +1039,8 @@ export class AggregationService {
     const state = this.#cohortStates.get(cohortId);
     if(!state || !state.signingSession || !state.fallbackSignatures) return;
     if(state.phase !== ServiceCohortPhase.FallbackRequested) return;
+    // startFallbackSigning refuses a cohort with no fallback leaf, so k is set here.
+    const fallbackThreshold = state.cohort.fallbackThreshold!;
 
     const sessionId = message.body?.sessionId;
     if(sessionId !== state.signingSession.id) return;
@@ -1056,10 +1067,7 @@ export class AggregationService {
       return;
     }
 
-    const fallbackLeaf = buildFallbackLeaf({
-      cohortKeys        : state.cohort.cohortKeys,
-      fallbackThreshold : state.cohort.effectiveFallbackThreshold,
-    });
+    const fallbackLeaf = buildFallbackLeaf({ cohortKeys: state.cohort.cohortKeys, fallbackThreshold });
     const sighash = fallbackSighash(state.signingSession.pendingTx, 0, prevOutScript, prevOutValue, fallbackLeaf);
     let valid = false;
     try { valid = fallbackSignature.length === 64 && schnorr.verify(fallbackSignature, sighash, signerPk); } catch { valid = false; }
@@ -1070,13 +1078,13 @@ export class AggregationService {
 
     state.fallbackSignatures.set(message.from, { pubKey: signerPk, signature: fallbackSignature });
 
-    if(state.fallbackSignatures.size >= state.cohort.effectiveFallbackThreshold) {
+    if(state.fallbackSignatures.size >= fallbackThreshold) {
       const signedTx = buildFallbackSpend({
         pendingTx         : state.signingSession.pendingTx,
         cohortKeys        : state.cohort.cohortKeys,
-        fallbackThreshold : state.cohort.effectiveFallbackThreshold,
-        recoveryKey       : state.cohort.recoveryKey!,
-        recoverySequence  : state.cohort.recoverySequence!,
+        fallbackThreshold,
+        recoveryKey       : state.cohort.recoveryKey,
+        recoverySequence  : state.cohort.recoverySequence,
         fundingModel      : state.cohort.fundingModel,
         network           : state.cohort.network,
         prevOutScript,

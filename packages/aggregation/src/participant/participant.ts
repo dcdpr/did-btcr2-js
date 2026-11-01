@@ -248,6 +248,22 @@ export interface AggregationParticipantParams {
    * Typed as a plain record to keep the aggregation package DID-method-agnostic.
    */
   genesisDocument?: Record<string, unknown>;
+  /**
+   * Accept a cohort whose advert names the k-of-n fallback leaf
+   * (`fallbackThreshold`). With this leaf, any k members can publish a Beacon
+   * Signal without this participant. Default `false`: {@link
+   * AggregationParticipant.joinCohort} refuses such a cohort, so the beacon
+   * address of each joined cohort is n-of-n (ADR 169).
+   */
+  allowFallbackLeaf?: boolean;
+  /**
+   * Accept a cohort whose advert names the CSV recovery leaf (`recoveryKey` and
+   * `recoverySequence`). With this leaf, the key holder can spend the beacon
+   * UTXO alone after the timelock, and that spend can be a Beacon Signal.
+   * Default `false`: {@link AggregationParticipant.joinCohort} refuses such a
+   * cohort (ADR 169).
+   */
+  allowRecoveryLeaf?: boolean;
 }
 
 /**
@@ -269,13 +285,21 @@ export class AggregationParticipant {
   /** EXTERNAL (x1) genesis document attached to opt-ins for bootstrap auth; undefined for k1. */
   readonly #genesisDocument?: Record<string, unknown>;
 
+  /** True if this participant allows a cohort with the k-of-n fallback leaf. */
+  readonly #allowFallbackLeaf: boolean;
+
+  /** True if this participant allows a cohort with the CSV recovery leaf. */
+  readonly #allowRecoveryLeaf: boolean;
+
   /** Per-cohort state, keyed by cohortId. */
   #cohortStates: Map<string, ParticipantCohortState> = new Map();
 
-  constructor({ did, signer, genesisDocument }: AggregationParticipantParams) {
+  constructor({ did, signer, genesisDocument, allowFallbackLeaf, allowRecoveryLeaf }: AggregationParticipantParams) {
     this.did = did;
     this.#signer = signer;
     this.#genesisDocument = genesisDocument;
+    this.#allowFallbackLeaf = allowFallbackLeaf ?? false;
+    this.#allowRecoveryLeaf = allowRecoveryLeaf ?? false;
   }
 
   /** The participant's compressed (33-byte) MuSig2 public key. Not secret. */
@@ -297,6 +321,9 @@ export class AggregationParticipant {
    *   `INVALID_COHORT_KEY`, `BEACON_ADDRESS_MISMATCH`,
    *   `INVALID_FALLBACK_THRESHOLD`, or `UNSUPPORTED_FUNDING_MODEL`. The phase
    *   stays OptedIn.
+   * @throws {AggregationParticipantError} `COHORT_SIZE_OUT_OF_BOUNDS` if the
+   *   key count is below `minParticipants` or above `maxParticipants` of the
+   *   advert. The phase stays OptedIn.
    * @throws {AggregationParticipantError} `BEACON_TYPE_CONFLICT` if another
    *   cohort of this participant object has the same beacon address and another
    *   beacon type. The phase becomes Failed.
@@ -401,6 +428,11 @@ export class AggregationParticipant {
   /**
    * User action: join a discovered cohort.
    * Returns the opt-in message to send.
+   *
+   * @throws {AggregationParticipantError} `FALLBACK_LEAF_NOT_ALLOWED` or
+   *   `RECOVERY_LEAF_NOT_ALLOWED` if the advert names a leaf that the
+   *   participant does not allow (see {@link AggregationParticipantParams}). The
+   *   cohort stays in the Discovered phase.
    */
   public joinCohort(cohortId: string): BaseMessage[] {
     const state = this.#cohortStates.get(cohortId);
@@ -411,10 +443,28 @@ export class AggregationParticipant {
       );
     }
 
-    // Create local cohort to track our view. Carry the advertised recovery
-    // params so validateMembership recomputes the same script-tree beacon
-    // address the service derived (ADR 042); a mismatch rejects the cohort.
+    // A leaf lets a party spend the beacon UTXO without this member. The spec
+    // RECOMMENDS an n-of-n beacon address (Appendix, "No Privileged Role"), so
+    // the participant refuses each leaf that it does not allow (ADR 169).
     const advert = state.advert!;
+    if(advert.fallbackThreshold !== undefined && !this.#allowFallbackLeaf) {
+      throw new AggregationParticipantError(
+        `Cannot join cohort ${cohortId}: the advert names a ${advert.fallbackThreshold}-of-n fallback leaf, and allowFallbackLeaf is false.`,
+        'FALLBACK_LEAF_NOT_ALLOWED', { cohortId, fallbackThreshold: advert.fallbackThreshold }
+      );
+    }
+    if(advert.recoveryKey !== undefined && !this.#allowRecoveryLeaf) {
+      throw new AggregationParticipantError(
+        `Cannot join cohort ${cohortId}: the advert names a recovery leaf, and allowRecoveryLeaf is false.`,
+        'RECOVERY_LEAF_NOT_ALLOWED', { cohortId, recoveryKey: advert.recoveryKey, recoverySequence: advert.recoverySequence }
+      );
+    }
+
+    // Create a local cohort for the view of this participant. Carry the leaf
+    // values of the advert, so validateMembership recomputes the same beacon
+    // address as the service (ADRs 042 and 169). If the two addresses match, the
+    // address has only the leaves of the advert. If they do not match,
+    // validateMembership refuses the cohort.
     const cohort = new AggregationCohort({
       id                : cohortId,
       serviceDid        : state.serviceDid,
@@ -480,6 +530,18 @@ export class AggregationParticipant {
     const beaconAddress = message.body?.beaconAddress;
     const cohortKeys = message.body?.cohortKeys;
     if(!beaconAddress || !cohortKeys) return;
+
+    // The key count n must be in the bounds of the advert. With a fallback
+    // leaf, each key above the bound can be a key of the service, and the
+    // service can sign with k such keys without the members (ADR 169).
+    const n = cohortKeys.length;
+    const { minParticipants, maxParticipants } = state.advert!;
+    if(n < minParticipants || (maxParticipants !== undefined && n > maxParticipants)) {
+      throw new AggregationParticipantError(
+        `Cohort ${state.cohortId} has ${n} keys, outside the advertised bounds [${minParticipants}, ${maxParticipants ?? 'none'}].`,
+        'COHORT_SIZE_OUT_OF_BOUNDS', { cohortId: state.cohortId, n, minParticipants, maxParticipants }
+      );
+    }
 
     const participantPkHex = bytesToHex(this.publicKey);
     const cohortKeysHex = cohortKeys.map(k => bytesToHex(new Uint8Array(k)));
@@ -1059,6 +1121,10 @@ export class AggregationParticipant {
   #handleFallbackAuthorizationRequest(message: BaseMessage): void {
     const state = this.#serviceCohortState(message);
     if(!state || !state.cohort) return;
+    // A cohort with no fallback leaf has no fallback spend (ADR 169). Drop the
+    // request before the secret-nonce wipe below, so it cannot stop the
+    // key-path round.
+    if(state.cohort.fallbackThreshold === undefined) return;
     const cohortId = state.cohortId;
     // The service can fall back at any point after the member validated. This
     // includes the local Complete phase a member reaches the moment it sends its
@@ -1142,10 +1208,11 @@ export class AggregationParticipant {
 
     // Recompute the fallback leaf from our own cohort keys so a malicious service
     // cannot induce a signature over a different leaf than the one the funded
-    // address commits to.
+    // address commits to. The request handler drops a request for a cohort with
+    // no fallback leaf, so k is set here.
     const fallbackLeaf = buildFallbackLeaf({
       cohortKeys        : state.cohort.cohortKeys,
-      fallbackThreshold : state.cohort.effectiveFallbackThreshold,
+      fallbackThreshold : state.cohort.fallbackThreshold!,
     });
     const sighash = fallbackSighash(tx, 0, prevOutScript, prevOutValue, fallbackLeaf);
     const signature = this.#signer.withSecret(secretKey => schnorr.sign(sighash, secretKey));

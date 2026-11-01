@@ -12,8 +12,6 @@ import {
   createCohortOptInMessage,
 } from '../src/index.js';
 
-const TEST_RECOVERY_KEY = 'a'.repeat(64);
-const TEST_RECOVERY_SEQUENCE = 144;
 
 const NO_STRING_REASON = 'SUBMIT_UPDATE has no updateHash string';
 const BAD_FORM_REASON = 'SUBMIT_UPDATE updateHash is not 32 bytes in base64url';
@@ -37,8 +35,6 @@ function formCohort(beaconType = 'CASBeacon') {
     minParticipants  : 2,
     network          : 'mutinynet',
     beaconType,
-    recoveryKey      : TEST_RECOVERY_KEY,
-    recoverySequence : TEST_RECOVERY_SEQUENCE,
   });
   service.advertise(cohortId);
   dids.forEach((did, i) => service.receive(createCohortOptInMessage({

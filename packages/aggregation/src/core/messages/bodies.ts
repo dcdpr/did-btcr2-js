@@ -207,10 +207,20 @@ const optIntMin = (b: unknown, k: string, min: number): boolean => {
   const v = b ? (b as Record<string, unknown>)[k] : undefined;
   return v === undefined || (typeof v === 'number' && Number.isInteger(v) && v >= min);
 };
-/** Present, an integer, and within [min, max] inclusive. */
-const intInRange = (b: unknown, k: string, min: number, max: number): boolean => {
+/** Absent, or present as an integer within [min, max] inclusive. */
+const optIntInRange = (b: unknown, k: string, min: number, max: number): boolean => {
   const v = b ? (b as Record<string, unknown>)[k] : undefined;
-  return typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max;
+  return v === undefined || (typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max);
+};
+/** Absent, or present as a string of exactly 64 hex characters (an x-only key). */
+const optHex64 = (b: unknown, k: string): boolean => {
+  const v = b ? (b as Record<string, unknown>)[k] : undefined;
+  return v === undefined || (typeof v === 'string' && /^[0-9a-fA-F]{64}$/.test(v));
+};
+/** Both keys absent, or both keys present. */
+const bothOrNeither = (b: unknown, k1: string, k2: string): boolean => {
+  const r = b ? (b as Record<string, unknown>) : {};
+  return (r[k1] === undefined) === (r[k2] === undefined);
 };
 /** Present as a string in the allowed set. */
 const hasStrOneOf = (b: unknown, k: string, allowed: readonly string[]): boolean => {
@@ -246,18 +256,20 @@ export function isCohortAdvertMessage(m: BaseMessage): m is CohortAdvertMessage 
     // a member cannot join it.
     && hasStrOneOf(m.body, 'beaconType', KNOWN_BEACON_TYPES)
     && hasStr(m.body, 'network')
-    // Recovery params are mandatory: a participant must see the recovery terms
-    // (key + timelock) before funding the beacon UTXO (ADR 042). recoverySequence
-    // is range-checked here because the participant funds based on the advert and
-    // does not separately run validateCohortConditions: an out-of-range value
-    // (e.g. one with the BIP-68 disable bit set) must be rejected before funding.
-    && hasStr(m.body, 'recoveryKey')
-    && intInRange(m.body, 'recoverySequence', 1, MAX_RECOVERY_SEQUENCE)
+    // Recovery values are optional (ADR 169): both present or both absent. With
+    // both, the advert names the CSV recovery leaf. The participant does not run
+    // validateCohortConditions on the advert. Thus this guard returns false for
+    // a key that is not 64 hex characters. It also returns false for an
+    // out-of-range recoverySequence, for example one with the BIP-68 disable bit
+    // set.
+    && bothOrNeither(m.body, 'recoveryKey', 'recoverySequence')
+    && optHex64(m.body, 'recoveryKey')
+    && optIntInRange(m.body, 'recoverySequence', 1, MAX_RECOVERY_SEQUENCE)
     // fundingModel is optional on the wire (absent means the operator-funded
     // default), but when present it must name a known model.
     && optStrOneOf(m.body, 'fundingModel', KNOWN_FUNDING_MODELS)
-    // fallbackThreshold is optional (absent means n-1 at keygen); when present it
-    // must be a positive integer. The upper bound against the cohort size is
+    // fallbackThreshold is optional (absent means no fallback leaf). If present,
+    // it must be a positive integer. The upper bound against the cohort size is
     // checked when the participant recomputes the beacon address.
     && optIntMin(m.body, 'fallbackThreshold', 1)
     && hasBytes(m.body, 'communicationPk');

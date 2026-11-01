@@ -39,6 +39,8 @@ import { MessageBus, MockTransport } from './helpers/mock-transport.js';
 
 const TEST_RECOVERY_KEY = 'a'.repeat(64);
 const TEST_RECOVERY_SEQUENCE = 144;
+/** k of the fallback leaf: the cohorts of this file opt in to both leaves (ADR 169). */
+const TEST_FALLBACK_THRESHOLD = 2;
 const NET = getNetwork('mutinynet');
 
 function createSignedUpdate(did: string, keys: SchnorrKeyPair, version = 2): SignedBTCR2Update {
@@ -89,7 +91,12 @@ describe('Aggregate beacon fallback protocol (ADR 042)', () => {
     dids = keys.map(k => DidBtcr2.create(k.publicKey.compressed, { idType: 'KEY', network: 'mutinynet' }));
 
     service = new AggregationService({ did: serviceDid, publicKey: serviceKeys.publicKey });
-    parts = keys.map((k, i) => new AggregationParticipant({ did: dids[i], signer: new KeyPairAggregationSigner(k) }));
+    parts = keys.map((k, i) => new AggregationParticipant({
+      did               : dids[i],
+      signer            : new KeyPairAggregationSigner(k),
+      allowFallbackLeaf : true,
+      allowRecoveryLeaf : true,
+    }));
 
     bus = new MessageBus();
     serviceTransport = new MockTransport(bus);
@@ -124,13 +131,20 @@ describe('Aggregate beacon fallback protocol (ADR 042)', () => {
       recoveryKey       : cohort.recoveryKey!,
       recoverySequence  : cohort.recoverySequence!,
       cohortKeys        : cohort.cohortKeys,
-      fallbackThreshold : cohort.effectiveFallbackThreshold,
+      fallbackThreshold : cohort.fallbackThreshold,
     });
     return p2tr(cohort.internalKey, leaves, NET, true).script;
   }
 
   async function formAndValidate(beaconType: string): Promise<{ cohortId: string; script: Uint8Array; value: bigint }> {
-    const cohortId = service.createCohort({ minParticipants: N, network: 'mutinynet', beaconType, recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
+    const cohortId = service.createCohort({
+      minParticipants   : N,
+      network           : 'mutinynet',
+      beaconType,
+      fallbackThreshold : TEST_FALLBACK_THRESHOLD,
+      recoveryKey       : TEST_RECOVERY_KEY,
+      recoverySequence  : TEST_RECOVERY_SEQUENCE,
+    });
     await send(serviceTransport, serviceDid, service.advertise(cohortId));
     for(let i = 0; i < N; i++) await send(partTransports[i], dids[i], parts[i].joinCohort(cohortId));
     for(let i = 0; i < N; i++) await send(serviceTransport, serviceDid, service.acceptParticipant(cohortId, dids[i]));
@@ -169,7 +183,7 @@ describe('Aggregate beacon fallback protocol (ADR 042)', () => {
       expect(parts[i].getCohortPhase(cohortId)).to.equal(ParticipantCohortPhase.AwaitingFallbackSig);
     }
 
-    // Only k = n-1 = 2 members sign the fallback; that is enough to complete.
+    // Only k = 2 members sign the fallback; that is enough to complete.
     await send(partTransports[0], dids[0], parts[0].approveFallback(cohortId));
     expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.FallbackRequested);
     await send(partTransports[1], dids[1], parts[1].approveFallback(cohortId));
@@ -180,7 +194,7 @@ describe('Aggregate beacon fallback protocol (ADR 042)', () => {
 
     // The finalized fallback tx carries a verifiable k-of-n script-path witness.
     const witness = result.signedTx.getInput(0).finalScriptWitness!;
-    const leaf = buildFallbackLeaf({ cohortKeys: service.getCohort(cohortId)!.cohortKeys, fallbackThreshold: service.getCohort(cohortId)!.effectiveFallbackThreshold });
+    const leaf = buildFallbackLeaf({ cohortKeys: service.getCohort(cohortId)!.cohortKeys, fallbackThreshold: service.getCohort(cohortId)!.fallbackThreshold! });
     expect(witness[witness.length - 2]).to.deep.equal(leaf);
     const sighash = result.signedTx.preimageWitnessV1(0, [ script ], SigHash.DEFAULT, [ value ], undefined, leaf, 0xc0);
     const sigEntries = witness.slice(0, witness.length - 2).filter(e => e.length === 64);
@@ -273,7 +287,7 @@ describe('Aggregate beacon fallback protocol (ADR 042)', () => {
     // the optimistic round this member is already in, so the request is dropped
     // outright and the member never reaches a position to sign it.
     const tampered = beaconTx(script, cohort.internalKey, value, new Uint8Array(32).fill(0xbe));
-    const leaf = buildFallbackLeaf({ cohortKeys: cohort.cohortKeys, fallbackThreshold: cohort.effectiveFallbackThreshold });
+    const leaf = buildFallbackLeaf({ cohortKeys: cohort.cohortKeys, fallbackThreshold: cohort.fallbackThreshold! });
     parts[0].receive(createFallbackAuthorizationRequestMessage({
       from                  : serviceDid,
       to                    : dids[0],
@@ -297,7 +311,7 @@ describe('Aggregate beacon fallback protocol (ADR 042)', () => {
     expect(service.getCohortPhase(cohortId)).to.equal(ServiceCohortPhase.Complete);
     const result = service.getResult(cohortId)!;
     const witness = result.signedTx.getInput(0).finalScriptWitness!;
-    const leaf = buildFallbackLeaf({ cohortKeys: service.getCohort(cohortId)!.cohortKeys, fallbackThreshold: service.getCohort(cohortId)!.effectiveFallbackThreshold });
+    const leaf = buildFallbackLeaf({ cohortKeys: service.getCohort(cohortId)!.cohortKeys, fallbackThreshold: service.getCohort(cohortId)!.fallbackThreshold! });
     const sighash = result.signedTx.preimageWitnessV1(0, [ script ], SigHash.DEFAULT, [ value ], undefined, leaf, 0xc0);
     const sigEntries = witness.slice(0, witness.length - 2).filter(e => e.length === 64);
     const xonly = service.getCohort(cohortId)!.cohortKeys.map(k => k.slice(1));
@@ -339,15 +353,22 @@ describe('Aggregate beacon fallback runner: latch safety (ADR 042)', () => {
     });
     const participants = pKeys.map((k, i) => new AggregationParticipantRunner({
       transport,
-      did             : pDids[i],
-      keys            : k,
-      shouldJoin      : async () => true,
-      onProvideUpdate : async () => createSignedUpdate(pDids[i], k),
+      did               : pDids[i],
+      keys              : k,
+      shouldJoin        : async () => true,
+      onProvideUpdate   : async () => createSignedUpdate(pDids[i], k),
+      allowFallbackLeaf : true,
+      allowRecoveryLeaf : true,
     }));
     await Promise.all(participants.map(p => p.start()));
 
     const { cohortId, completion } = svc.advertiseCohort({
-      minParticipants : N, network : 'mutinynet', beaconType : 'CASBeacon', recoveryKey : RKEY, recoverySequence : 144,
+      minParticipants   : N,
+      network           : 'mutinynet',
+      beaconType        : 'CASBeacon',
+      fallbackThreshold : 2,
+      recoveryKey       : RKEY,
+      recoverySequence  : 144,
     });
 
     // Signing has not started, so the fallback transition must reject. With the

@@ -12,8 +12,6 @@ import {
 import { DidBtcr2 } from '@did-btcr2/method';
 import { MessageBus, MockTransport } from './helpers/mock-transport.js';
 
-const TEST_RECOVERY_KEY = 'a'.repeat(64);
-const TEST_RECOVERY_SEQUENCE = 144;
 
 /**
  * Executable coverage for ADR 040 (multi-cohort aggregation service runner):
@@ -67,7 +65,7 @@ function dummyTxData(cohort: AggregationCohort) {
   return { tx, prevOutScripts: [ script ], prevOutValues: [ prevOutValue ] };
 }
 
-const CAS = (minParticipants = 1): CohortConfig => ({ minParticipants, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
+const CAS = (minParticipants = 1): CohortConfig => ({ minParticipants, network: 'mutinynet', beaconType: 'CASBeacon' });
 
 /** Build a service runner (no default config, driven via advertiseCohort). */
 function makeService(bus: MessageBus, opts: Partial<ConstructorParameters<typeof AggregationServiceRunner>[0]> = {}): AggregationServiceRunner {

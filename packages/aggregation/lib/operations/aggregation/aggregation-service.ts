@@ -37,7 +37,7 @@ const service = new AggregationServiceRunner({
   transport,
   did     : serviceDid,
   keys    : serviceKeys,
-  config  : { minParticipants: MIN_PARTICIPANTS, network: 'mutinynet', beaconType: 'CASBeacon', recoveryKey: bytesToHex(serviceKeys.publicKey.compressed.slice(1)), recoverySequence: 144 },
+  config  : { minParticipants: MIN_PARTICIPANTS, network: 'mutinynet', beaconType: 'CASBeacon' },
 
   // Auto-accept all opt-ins (default behavior, explicit here for clarity)
   onOptInReceived : async () => ({ accepted: true }),

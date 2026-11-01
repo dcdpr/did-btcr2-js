@@ -13,7 +13,7 @@ import {
   zeroHashRoot,
 } from '@did-btcr2/smt';
 import { canonicalHash, canonicalHashBytes, encode } from '@did-btcr2/std';
-import { hexToBytes, randomBytes } from '@noble/hashes/utils';
+import { randomBytes } from '@noble/hashes/utils';
 import { Script, Transaction } from '@scure/btc-signer';
 import { expect } from 'chai';
 import {
@@ -43,8 +43,6 @@ import {
 import { DidBtcr2 } from '@did-btcr2/method';
 import { MessageBus, MockTransport } from './helpers/mock-transport.js';
 
-const TEST_RECOVERY_KEY = 'a'.repeat(64);
-const TEST_RECOVERY_SEQUENCE = 144;
 
 function createSignedUpdate(did: string, keys: SchnorrKeyPair, version = 2): SignedBTCR2Update {
   const context = [
@@ -97,8 +95,6 @@ function directCohort(beaconType: string): { cohort: AggregationCohort; aliceDid
     minParticipants  : 2,
     network          : 'mutinynet',
     beaconType,
-    recoveryKey      : hexToBytes(TEST_RECOVERY_KEY),
-    recoverySequence : TEST_RECOVERY_SEQUENCE,
   });
   cohort.participants.push(aliceDid, bobDid);
   cohort.participantKeys.set(aliceDid, alice.publicKey.compressed);
@@ -310,7 +306,7 @@ describe('Aggregate beacon cooperative non-inclusion', () => {
     }
 
     async function formCohort(beaconType: string): Promise<string> {
-      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType, recoveryKey: TEST_RECOVERY_KEY, recoverySequence: TEST_RECOVERY_SEQUENCE });
+      const cohortId = service.createCohort({ minParticipants: 2, network: 'mutinynet', beaconType });
       await send(serviceTransport, serviceDid, service.advertise(cohortId));
       await send(aliceTransport, aliceDid, alice.joinCohort(cohortId));
       await send(bobTransport, bobDid, bob.joinCohort(cohortId));

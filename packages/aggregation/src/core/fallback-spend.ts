@@ -2,13 +2,13 @@
  * Fallback spend builder for aggregate beacon outputs.
  *
  * An aggregate beacon UTXO is a Taproot output whose key path is the cohort's
- * n-of-n MuSig2 aggregate key and whose script path carries a k-of-n fallback
- * leaf (`p2tr_ms` CHECKSIGADD) plus a CSV recovery leaf (see
- * {@link ./recovery-policy.ts} and ADR 042). When the optimistic n-of-n key path
- * stalls (a missing or defecting signer), the cohort can still push the SAME
- * announcement transaction through the fallback leaf with any k members'
- * signatures, instead of abandoning the round or waiting out the recovery
- * timelock.
+ * n-of-n MuSig2 aggregate key. If the cohort opts in, the script tree has a
+ * k-of-n fallback leaf (`p2tr_ms` CHECKSIGADD), and optionally a CSV recovery
+ * leaf (see {@link ./recovery-policy.ts}, ADR 042, and ADR 169). If the
+ * n-of-n key-path round stalls (a missing or defecting signer), such a cohort
+ * can still publish the SAME announcement transaction through the fallback
+ * leaf. Any k members can sign it. A cohort with no fallback leaf has no
+ * fallback spend.
  *
  * Unlike the MuSig2 key path, the fallback is a plain k-of-n script-path spend:
  * each signer produces a standalone BIP-340 signature over the script-path
@@ -34,7 +34,6 @@ import {
   TAPROOT_LEAF_VERSION,
   buildFallbackLeaf,
   buildRecoveryLeaves,
-  resolveFallbackThreshold,
   tapLeafHash,
 } from './recovery-policy.js';
 
@@ -63,14 +62,20 @@ export interface FallbackSpendParams {
    */
   cohortKeys: Uint8Array[];
   /**
-   * The advertised k of the k-of-n fallback leaf, or omit for the cohort's n-1
-   * default. Resolved against `cohortKeys.length` exactly as the cohort does.
+   * k of the k-of-n fallback leaf. The beacon output must have this leaf: a
+   * cohort with no `fallbackThreshold` has no fallback spend (ADR 169).
    */
-  fallbackThreshold?: number;
-  /** Operator recovery key, x-only (32 bytes). Needed to reconstruct the script tree. */
-  recoveryKey: Uint8Array;
-  /** Relative-timelock (BIP-68) the recovery leaf enforces. Needed to reconstruct the script tree. */
-  recoverySequence: number;
+  fallbackThreshold: number;
+  /**
+   * Operator recovery key, x-only (32 bytes), if the beacon output also has the
+   * CSV recovery leaf. Needed to reconstruct the script tree.
+   */
+  recoveryKey?: Uint8Array;
+  /**
+   * Relative-timelock (BIP-68) the recovery leaf enforces, if the beacon output
+   * has that leaf. Needed to reconstruct the script tree.
+   */
+  recoverySequence?: number;
   /** Funding model governing the leaves. Defaults to 'operator-funded'. */
   fundingModel?: FundingModel;
   /** Bitcoin network name (bitcoin/mainnet, mutinynet, signet, testnet, regtest). */
@@ -117,20 +122,21 @@ export function fallbackSighash(
 /**
  * Assemble and finalize a k-of-n fallback spend of an aggregate beacon UTXO.
  *
- * Reconstructs the funded Taproot output (MuSig2 internal key + fallback/recovery
- * script tree), verifies each collected signature against the script-path
- * sighash and a cohort key, injects exactly k distinct valid signatures into the
- * fallback leaf, and finalizes the witness. The returned transaction is the same
- * announcement the optimistic path would have produced, signed via the script
- * path instead of the key path.
+ * Reconstructs the funded Taproot output (MuSig2 internal key, the fallback
+ * leaf, and the optional recovery leaf). Verifies each collected signature
+ * against the script-path sighash and a cohort key. Puts exactly k distinct
+ * valid signatures into the fallback leaf, and finalizes the witness. The
+ * returned transaction is the same announcement as the transaction of the key
+ * path, but it has a script-path signature.
  *
- * @throws {AggregationCohortError} when there are no cohort keys, the spent
- * script does not match the reconstructed tree output, or fewer than k valid
- * distinct signatures were supplied.
+ * @throws {AggregationCohortError} If there are no cohort keys, if the spent
+ * script does not match the reconstructed output (also if the spent output has
+ * no fallback leaf), or if the caller gives fewer than k valid distinct
+ * signatures.
  */
 export function buildFallbackSpend(params: FallbackSpendParams): Transaction {
   const {
-    pendingTx, cohortKeys, recoveryKey, recoverySequence,
+    pendingTx, cohortKeys, fallbackThreshold, recoveryKey, recoverySequence,
     fundingModel, network, prevOutScript, prevOutValue, signatures,
   } = params;
   const inputIndex = params.inputIndex ?? 0;
@@ -141,9 +147,6 @@ export function buildFallbackSpend(params: FallbackSpendParams): Transaction {
       'NO_COHORT_KEYS'
     );
   }
-
-  // Resolve k the same way the cohort did, so the reconstructed leaf matches.
-  const fallbackThreshold = resolveFallbackThreshold(params.fallbackThreshold, cohortKeys.length);
 
   // Reconstruct the funded output the same way the cohort derived its address.
   const internalKey = keyAggExport(keyAggregate(sortKeys(cohortKeys)));

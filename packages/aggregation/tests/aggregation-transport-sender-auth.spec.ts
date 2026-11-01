@@ -51,8 +51,6 @@ import {
  * come from its cohort's service.
  */
 
-const TEST_RECOVERY_KEY = 'a'.repeat(64);
-const TEST_RECOVERY_SEQUENCE = 144;
 const NET = getNetwork('mutinynet');
 const VALUE = 100_000n;
 
@@ -206,13 +204,11 @@ function sealedEvent(
 
 const advertBody = (cohortId: string, communicationPk: Uint8Array): Record<string, unknown> => ({
   cohortId,
-  network          : 'mutinynet',
+  network         : 'mutinynet',
   communicationPk,
-  beaconType       : 'SMTBeacon',
-  minParticipants  : 2,
-  recoveryKey      : TEST_RECOVERY_KEY,
-  recoverySequence : TEST_RECOVERY_SEQUENCE,
-  fundingModel     : 'operator-funded',
+  beaconType      : 'SMTBeacon',
+  minParticipants : 2,
+  fundingModel    : 'operator-funded',
 });
 
 // ------------------------------------------------------------------- http harness
@@ -250,8 +246,12 @@ const req = (method: string, url: string, body?: string): HttpRequestLike =>
 
 // ------------------------------------------------- participant state machine harness
 
-/** A one-member cohort driven through both state machines by hand, no transport. */
-function soloCohort() {
+/**
+ * A one-member cohort driven through both state machines by hand, no transport.
+ * The beacon address is key path only, unless the test gives the k of a
+ * fallback leaf (ADR 169).
+ */
+function soloCohort(fallbackThreshold?: number) {
   const serviceKeys = SchnorrKeyPair.generate();
   const serviceDid = k1Did(serviceKeys);
   const memberKeys = SchnorrKeyPair.generate();
@@ -259,18 +259,16 @@ function soloCohort() {
   const outsiderDid = k1Did(SchnorrKeyPair.generate());
 
   const service = new AggregationService({ did: serviceDid, publicKey: serviceKeys.publicKey });
-  const member = new AggregationParticipant({ did: memberDid, signer: new KeyPairAggregationSigner(memberKeys) });
+  const member = new AggregationParticipant({
+    did               : memberDid,
+    signer            : new KeyPairAggregationSigner(memberKeys),
+    allowFallbackLeaf : fallbackThreshold !== undefined,
+  });
 
   const toMember = (messages: BaseMessage[]): void => messages.forEach(m => member.receive(m));
   const toService = (messages: BaseMessage[]): void => messages.forEach(m => service.receive(m));
 
-  const cohortId = service.createCohort({
-    minParticipants  : 1,
-    network          : 'mutinynet',
-    beaconType       : 'CASBeacon',
-    recoveryKey      : TEST_RECOVERY_KEY,
-    recoverySequence : TEST_RECOVERY_SEQUENCE,
-  });
+  const cohortId = service.createCohort({ minParticipants: 1, network: 'mutinynet', beaconType: 'CASBeacon', fallbackThreshold });
   toMember(service.advertise(cohortId));
   toService(member.joinCohort(cohortId));
   toMember(service.acceptParticipant(cohortId, memberDid));
@@ -280,16 +278,16 @@ function soloCohort() {
 
 type SoloCohort = ReturnType<typeof soloCohort>;
 
-/** The real script-tree beacon output script the cohort's address commits to. */
+/** The real beacon output script the cohort's address commits to (no tree if the cohort has no leaf). */
 function beaconScript(service: AggregationService, cohortId: string): Uint8Array {
   const cohort = service.getCohort(cohortId)!;
   const leaves = buildRecoveryLeaves('operator-funded', {
-    recoveryKey       : cohort.recoveryKey!,
-    recoverySequence  : cohort.recoverySequence!,
     cohortKeys        : cohort.cohortKeys,
-    fallbackThreshold : cohort.effectiveFallbackThreshold,
+    fallbackThreshold : cohort.fallbackThreshold,
   });
-  return p2tr(cohort.internalKey, leaves, NET, true).script;
+  return leaves.length > 0
+    ? p2tr(cohort.internalKey, leaves, NET, true).script
+    : p2tr(cohort.internalKey, undefined, NET).script;
 }
 
 /** A well-formed beacon announcement tx: change output, then the signal OP_RETURN. */
@@ -302,15 +300,15 @@ function beaconTx(script: Uint8Array, signal: Uint8Array): Transaction {
 }
 
 /** Carry a solo cohort to CohortReady (keygen finalized). */
-function readyCohort(): SoloCohort {
-  const harness = soloCohort();
+function readyCohort(fallbackThreshold?: number): SoloCohort {
+  const harness = soloCohort(fallbackThreshold);
   harness.toMember(harness.service.finalizeKeygen(harness.cohortId));
   return harness;
 }
 
 /** Carry a solo cohort to NonceSent: the member has validated and contributed its nonce. */
-function noncesContributed(): SoloCohort & { script: Uint8Array; tx: Transaction } {
-  const harness = readyCohort();
+function noncesContributed(fallbackThreshold?: number): SoloCohort & { script: Uint8Array; tx: Transaction } {
+  const harness = readyCohort(fallbackThreshold);
   const { service, member, cohortId, toMember, toService } = harness;
   toService(member.submitUpdate(cohortId, createSignedUpdate(harness.memberDid, harness.memberKeys)));
   toMember(service.buildAndDistribute(cohortId));
@@ -742,9 +740,9 @@ describe('Transport sender authentication (audit H6)', () => {
     });
 
     it('ignores a fallback request that does not come from the cohort service', () => {
-      const { service, member, outsiderDid, cohortId, tx, script, toMember, toService } = noncesContributed();
+      const { service, member, outsiderDid, cohortId, tx, script, toMember, toService } = noncesContributed(1);
       const cohort = service.getCohort(cohortId)!;
-      const leaf = buildFallbackLeaf({ cohortKeys: cohort.cohortKeys, fallbackThreshold: cohort.effectiveFallbackThreshold });
+      const leaf = buildFallbackLeaf({ cohortKeys: cohort.cohortKeys, fallbackThreshold: cohort.fallbackThreshold! });
       member.receive(createFallbackAuthorizationRequestMessage({
         from                  : outsiderDid,
         to                    : member.did,
@@ -765,9 +763,9 @@ describe('Transport sender authentication (audit H6)', () => {
     });
 
     it('ignores a fallback request for a different signing session', () => {
-      const { service, member, serviceDid, cohortId, tx, script } = noncesContributed();
+      const { service, member, serviceDid, cohortId, tx, script } = noncesContributed(1);
       const cohort = service.getCohort(cohortId)!;
-      const leaf = buildFallbackLeaf({ cohortKeys: cohort.cohortKeys, fallbackThreshold: cohort.effectiveFallbackThreshold });
+      const leaf = buildFallbackLeaf({ cohortKeys: cohort.cohortKeys, fallbackThreshold: cohort.fallbackThreshold! });
       member.receive(createFallbackAuthorizationRequestMessage({
         from                  : serviceDid,
         to                    : member.did,
@@ -783,9 +781,9 @@ describe('Transport sender authentication (audit H6)', () => {
     });
 
     it('accepts the fallback request for the optimistic round', () => {
-      const { service, member, serviceDid, cohortId, tx, script } = noncesContributed();
+      const { service, member, serviceDid, cohortId, tx, script } = noncesContributed(1);
       const cohort = service.getCohort(cohortId)!;
-      const leaf = buildFallbackLeaf({ cohortKeys: cohort.cohortKeys, fallbackThreshold: cohort.effectiveFallbackThreshold });
+      const leaf = buildFallbackLeaf({ cohortKeys: cohort.cohortKeys, fallbackThreshold: cohort.fallbackThreshold! });
       member.receive(createFallbackAuthorizationRequestMessage({
         from                  : serviceDid,
         to                    : member.did,
