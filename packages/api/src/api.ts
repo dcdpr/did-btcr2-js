@@ -83,7 +83,7 @@ export class DidBtcr2Api {
   get cas(): CasApi {
     this.#assertNotDisposed();
     if (!this.#cas) {
-      this.#cas = new CasApi(this.#casConfig ?? { gateway: DEFAULT_CAS_GATEWAY });
+      this.#cas = new CasApi(this.#casConfig ?? { gateways: [DEFAULT_CAS_GATEWAY] });
     }
     return this.#cas;
   }

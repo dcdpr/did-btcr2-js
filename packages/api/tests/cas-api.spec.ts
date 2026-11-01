@@ -3,6 +3,8 @@ import { expect } from 'chai';
 import { CID } from 'multiformats/cid';
 import * as raw from 'multiformats/codecs/raw';
 import { sha256 } from 'multiformats/hashes/sha2';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import {
   BlockstoreCasExecutor,
   CanonicalizationError,
@@ -257,6 +259,67 @@ describe('CasApi', () => {
     });
   });
 
+  describe('abort signal', () => {
+    const aborted = (reason: Error): AbortSignal => {
+      const controller = new AbortController();
+      controller.abort(reason);
+      return controller.signal;
+    };
+
+    it('BlockstoreCasExecutor passes the signal to get and put', async () => {
+      const signals: (AbortSignal | undefined)[] = [];
+      const executor = new BlockstoreCasExecutor({
+        async get(_cid: CID, options?: { signal?: AbortSignal }) { signals.push(options?.signal); return data; },
+        async put(_cid: CID, _block: Uint8Array, options?: { signal?: AbortSignal }) { signals.push(options?.signal); },
+      });
+      const signal = new AbortController().signal;
+      await executor.retrieve(dataHash, signal);
+      await executor.publish(data, signal);
+      expect(signals[0]).to.equal(signal);
+      expect(signals[1]).to.equal(signal);
+    });
+
+    it('IpfsRpcCasExecutor passes the signal to block/get and block/put', async () => {
+      const expectedCid = await cidForData(data);
+      stubFetch((url) => new Response(url.includes('block/put') ? JSON.stringify({ Key: expectedCid }) : Uint8Array.from(data)));
+      const executor = new IpfsRpcCasExecutor('http://node:5001');
+      const signal = new AbortController().signal;
+      await executor.retrieve(dataHash, signal);
+      await executor.publish(data, signal);
+      expect(fetchCalls[0].init?.signal).to.equal(signal);
+      expect(fetchCalls[1].init?.signal).to.equal(signal);
+    });
+
+    it('HttpGatewayCasExecutor passes the signal to the block request', async () => {
+      stubFetch(() => new Response(Uint8Array.from(data)));
+      const signal = new AbortController().signal;
+      await new HttpGatewayCasExecutor('https://gateway.example').retrieve(dataHash, signal);
+      expect(fetchCalls[0].init?.signal).to.equal(signal);
+    });
+
+    // A read that fails returns null (not available). After an abort, the read has no result.
+    const executors: [string, () => CasExecutor][] = [
+      ['BlockstoreCasExecutor', () => new BlockstoreCasExecutor({
+        get : async () => { throw new Error('aborted'); },
+        put : async () => undefined,
+      })],
+      ['IpfsRpcCasExecutor', () => new IpfsRpcCasExecutor('http://node:5001')],
+      ['HttpGatewayCasExecutor', () => new HttpGatewayCasExecutor('https://gateway.example')],
+    ];
+    for (const [name, make] of executors) {
+      it(`${name} rejects with the reason of the signal after an abort`, async () => {
+        stubFetch(() => { throw new Error('aborted'); });
+        const reason = new Error('stop');
+        expect(await rejection(make().retrieve(dataHash, aborted(reason)))).to.equal(reason);
+      });
+
+      it(`${name} returns null for a read that fails with a signal that is not aborted`, async () => {
+        stubFetch(() => { throw new Error('ECONNRESET'); });
+        expect(await make().retrieve(dataHash, new AbortController().signal)).to.be.null;
+      });
+    }
+  });
+
   describe('config selection', () => {
     const recordingExecutor = (): CasExecutor & { calls: string[] } => ({
       calls : [] as string[],
@@ -290,32 +353,32 @@ describe('CasApi', () => {
         executor,
         blockstore : new FakeBlockstore(),
         rpcUrl     : 'http://node:5001',
-        gateway    : 'https://gateway.example',
+        gateways   : ['https://gateway.example'],
       });
       expect(await cas.publish(object)).to.equal(dataHash);
       expect(executor.calls).to.deep.equal(['publish']);
       expect(fetchCalls).to.have.length(0);
     });
 
-    it('prefers a blockstore over rpcUrl and gateway', async () => {
+    it('prefers a blockstore over rpcUrl and gateways', async () => {
       stubFetch(() => new Response('should not be called', { status: 500 }));
       const blockstore = new FakeBlockstore();
       const cas = new CasApi({
         blockstore,
-        rpcUrl  : 'http://node:5001',
-        gateway : 'https://gateway.example',
+        rpcUrl   : 'http://node:5001',
+        gateways : ['https://gateway.example'],
       });
       await cas.publish(object);
       expect(blockstore.puts).to.have.length(1);
       expect(fetchCalls).to.have.length(0);
     });
 
-    it('prefers rpcUrl over gateway', async () => {
+    it('prefers rpcUrl over gateways', async () => {
       const expectedCid = await cidForData(data);
       stubFetch(() => new Response(JSON.stringify({ Key: expectedCid })));
       const cas = new CasApi({
-        rpcUrl  : 'http://node:5001',
-        gateway : 'https://gateway.example',
+        rpcUrl   : 'http://node:5001',
+        gateways : ['https://gateway.example'],
       });
       await cas.publish(object);
       expect(fetchCalls[0].url).to.match(/^http:\/\/node:5001\/api\/v0\/block\/put/);
@@ -326,6 +389,107 @@ describe('CasApi', () => {
       const cas = new CasApi({ rpcUrl: 'http://node:5001', rpcAuth: { username: 'alice', password: 's3cret' } });
       await cas.probe();
       expect((fetchCalls[0].init?.headers as Record<string, string>).Authorization).to.equal('Basic YWxpY2U6czNjcmV0');
+    });
+  });
+
+  describe('a list of gateways', () => {
+    const A = 'https://a.example';
+    const B = 'https://b.example';
+    const C = 'https://c.example';
+    const other = new TextEncoder().encode('{"other":1}');
+    const never = () => new Promise<Response>(() => {});
+    /** Stub fetch: each gateway answers with its handler. */
+    const stubGateways = (answers: Record<string, () => Response | Promise<Response>>) =>
+      stubFetch((url) => answers[new URL(url).origin]());
+    const gatewaysCalled = () => fetchCalls.map(({ url }) => new URL(url).origin);
+    const read = (cas: CasApi) => cas.retrieve(canonicalHashBytes(object));
+
+    it('reads from only the first gateway if it gives the content', async () => {
+      stubGateways({ [A]: () => new Response(Uint8Array.from(data)), [B]: () => new Response(Uint8Array.from(data)) });
+      expect(await read(new CasApi({ gateways: [A, B] }))).to.deep.equal(object);
+      expect(gatewaysCalled()).to.deep.equal([A]);
+    });
+
+    it('reads from the next gateway if a gateway has no content', async () => {
+      stubGateways({ [A]: () => new Response('', { status: 404 }), [B]: () => new Response(Uint8Array.from(data)) });
+      expect(await read(new CasApi({ gateways: [A, B] }))).to.deep.equal(object);
+      expect(gatewaysCalled()).to.deep.equal([A, B]);
+    });
+
+    it('reads from the next gateway if a gateway gives bytes with a different hash', async () => {
+      stubGateways({ [A]: () => new Response(Uint8Array.from(other)), [B]: () => new Response(Uint8Array.from(data)) });
+      expect(await read(new CasApi({ gateways: [A, B] }))).to.deep.equal(object);
+      expect(gatewaysCalled()).to.deep.equal([A, B]);
+    });
+
+    it('reads from the next gateway at the timeout, and aborts the request of the first', async () => {
+      stubGateways({ [A]: never, [B]: () => new Response(Uint8Array.from(data)) });
+      expect(await read(new CasApi({ gateways: [A, B], timeoutMs: 20 }))).to.deep.equal(object);
+      expect(gatewaysCalled()).to.deep.equal([A, B]);
+      expect(fetchCalls[0].init?.signal?.aborted).to.be.true;
+      expect(fetchCalls[1].init?.signal?.aborted).to.be.false;
+    });
+
+    it('returns null if each gateway has no content', async () => {
+      stubGateways({ [A]: () => new Response('', { status: 404 }), [B]: () => new Response('', { status: 503 }) });
+      expect(await read(new CasApi({ gateways: [A, B] }))).to.be.null;
+    });
+
+    it('names each gateway and its result if no gateway gives the content', async () => {
+      stubGateways({ [A]: () => new Response(Uint8Array.from(other)), [B]: () => new Response('', { status: 404 }), [C]: never });
+      const error = await rejection(read(new CasApi({ gateways: [A, B, C], timeoutMs: 20 })));
+      const otherHash = encode(hash('{"other":1}'), 'base64urlnopad');
+      expect(error).to.be.instanceOf(ResolveError);
+      expect(error).to.have.property('type', MISSING_UPDATE_DATA);
+      expect(error?.message).to.equal(
+        `CAS content for ${dataHash} cannot be retrieved from the gateways: `
+        + `${A}: the content hashes to ${otherHash}; ${B}: no content; ${C}: CAS operation timed out after 20ms.`
+      );
+      const { gateways } = (error as ResolveError).data as { gateways: { gateway: string; cause?: Error; actual?: string }[] };
+      expect(gateways.map(({ gateway }) => gateway)).to.deep.equal([A, B, C]);
+      expect(gateways[0]).to.deep.equal({ gateway: A, actual: otherHash });
+      expect(gateways[1]).to.deep.equal({ gateway: B });
+      expect(gateways[2].cause?.message).to.equal('CAS operation timed out after 20ms');
+    });
+
+    it('rejects with the error of the gateway in a list of one gateway', async () => {
+      stubGateways({ [A]: never });
+      const error = await rejection(read(new CasApi({ gateways: [A], timeoutMs: 20 })));
+      expect(error?.message).to.equal(`CAS content for ${dataHash} cannot be retrieved: CAS operation timed out after 20ms`);
+    });
+
+    it('stops at bytes with the requested hash that are not JSON', async () => {
+      const notJson = new TextEncoder().encode('not json');
+      stubGateways({ [A]: () => new Response(Uint8Array.from(notJson)), [B]: () => new Response(Uint8Array.from(notJson)) });
+      const error = await rejection(new CasApi({ gateways: [A, B] }).retrieve(hash('not json')));
+      expect(error?.message).to.match(/is not JSON/);
+      expect(gatewaysCalled()).to.deep.equal([A]);
+    });
+
+    it('is not a backend if the list is empty', () => {
+      expect(() => new CasApi({ gateways: [] })).to.throw(/executor, blockstore, RPC URL, or gateway/);
+    });
+
+    it('cannot publish', async () => {
+      const cas = new CasApi({ gateways: [A, B] });
+      expect(cas.writable).to.be.false;
+      expect((await rejection(cas.publish(object)))?.message).to.match(/read-only/);
+    });
+
+    it('probe checks each gateway', async () => {
+      stubFetch(() => new Response(Uint8Array.from(probeBytes)));
+      await new CasApi({ gateways: [A, B] }).probe();
+      expect(gatewaysCalled()).to.deep.equal([A, B]);
+    });
+
+    it('probe names each gateway that does not answer', async () => {
+      stubGateways({
+        [A] : () => new Response(Uint8Array.from(probeBytes)),
+        [B] : () => new Response('', { status: 500 }),
+        [C] : () => Promise.reject({ code: 7 }),
+      });
+      const error = await rejection(new CasApi({ gateways: [A, B, C] }).probe());
+      expect(error?.message).to.equal(`One or more CAS gateways do not answer: ${B}: HTTP 500; ${C}: no answer.`);
     });
   });
 
@@ -347,6 +511,12 @@ describe('CasApi', () => {
       const executor = probingExecutor();
       await new CasApi({ executor, timeoutMs: 0 }).probe();
       expect(executor.signals[0]).to.be.undefined;
+    });
+
+    it('rejects with the timeout message at the CAS timeout', async () => {
+      const executor: CasExecutor = { ...probingExecutor(), probe: () => new Promise(() => {}) };
+      const error = await rejection(new CasApi({ executor, timeoutMs: 20 }).probe());
+      expect(error?.message).to.equal('CAS operation timed out after 20ms');
     });
 
     it('rejects an executor with no probe method', async () => {
@@ -426,6 +596,49 @@ describe('CasApi', () => {
       expect(error.type).to.equal(MISSING_UPDATE_DATA);
       expect(error.message).to.equal(`CAS content for ${address} cannot be retrieved: CAS operation timed out after 20ms`);
       expect(error.data.hash).to.equal(address);
+    });
+
+    it('aborts the signal of a stalled operation at the timeout', async () => {
+      const signals: (AbortSignal | undefined)[] = [];
+      const stalled: CasExecutor = {
+        retrieve : (_hash, signal) => { signals.push(signal); return new Promise(() => {}); },
+        publish  : (_data, signal) => { signals.push(signal); return new Promise(() => {}); },
+      };
+      const cas = new CasApi({ executor: stalled, timeoutMs: 20 });
+      await rejection(cas.retrieve(canonicalHashBytes(object)));
+      await rejection(cas.publish(object));
+      expect(signals.map((signal) => signal?.aborted)).to.deep.equal([true, true]);
+      expect((signals[0]?.reason as Error).message).to.equal('CAS operation timed out after 20ms');
+    });
+
+    it('passes no signal to the executor if the timeout is 0', async () => {
+      const signals: (AbortSignal | undefined)[] = [];
+      const executor: CasExecutor = {
+        retrieve : async (_hash, signal) => { signals.push(signal); return null; },
+        publish  : async (_data, signal) => { signals.push(signal); return dataHash; },
+      };
+      const cas = new CasApi({ executor, timeoutMs: 0 });
+      await cas.retrieve(canonicalHashBytes(object));
+      await cas.publish(object);
+      expect(signals).to.deep.equal([undefined, undefined]);
+    });
+
+    it('aborts the request at the timeout if the gateway does not answer', async () => {
+      // The local gateway never answers. The test ends after the gateway sees the abort of the request.
+      let closed!: () => void;
+      const requestClosed = new Promise<void>((resolve) => { closed = resolve; });
+      const server = createServer((_req, res) => { res.on('close', closed); });
+      await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+      try {
+        const { port } = server.address() as AddressInfo;
+        const cas = new CasApi({ gateways: [`http://127.0.0.1:${port}`], timeoutMs: 50 });
+        const error = await rejection(cas.retrieve(canonicalHashBytes(object)));
+        expect(error?.message).to.match(/cannot be retrieved: CAS operation timed out after 50ms$/);
+        await requestClosed;
+      } finally {
+        server.closeAllConnections();
+        await new Promise((resolve) => server.close(resolve));
+      }
     });
   });
 

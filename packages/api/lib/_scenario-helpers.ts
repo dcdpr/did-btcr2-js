@@ -656,7 +656,8 @@ export const FAILURE_RULES: Readonly<Record<string, FailureRule>> = {
     error   : 'MISSING_UPDATE_DATA',
     rule    : 'The signed update is not available from the sidecar or from the CAS.',
     section : `${RESOLVE}#find-beacon-signals`,
-    message : /^Signed update (not found in CAS|required but not in sidecar)/,
+    // A CAS read that times out or fails gives the CasApi message (ADR 170).
+    message : /^(Signed update (not found in CAS|required but not in sidecar)|CAS content for \S+ cannot be retrieved)/,
   },
   'update-context-mismatch' : {
     error       : 'INVALID_DID_UPDATE',

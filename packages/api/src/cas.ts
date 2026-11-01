@@ -25,10 +25,18 @@ export const DEFAULT_CAS_GATEWAY = 'https://trustless-gateway.link';
  * @public
  */
 export interface CasExecutor {
-  /** Retrieve raw bytes by base64url SHA-256 hash. Returns null if not found. */
-  retrieve(hash: string): Promise<Uint8Array | null>;
-  /** Publish raw bytes and return the base64url SHA-256 hash. */
-  publish(data: Uint8Array): Promise<string>;
+  /**
+   * Retrieve raw bytes by their base64url SHA-256 hash. Returns `null` if the
+   * executor does not find the content.
+   * @param signal Aborts the read. The built-in executors then reject with the
+   *   reason of the signal. They do not return `null`.
+   */
+  retrieve(hash: string, signal?: AbortSignal): Promise<Uint8Array | null>;
+  /**
+   * Publish raw bytes and return the base64url SHA-256 hash.
+   * @param signal Aborts the write.
+   */
+  publish(data: Uint8Array, signal?: AbortSignal): Promise<string>;
   /**
    * Whether this executor supports publishing. `undefined` MUST be treated as
    * `true`: an executor that does not declare the capability is assumed
@@ -67,6 +75,15 @@ function assertProbeBlock(bytes: Uint8Array): void {
 }
 
 /**
+ * The result of a read that fails: `null`, for content that is not available.
+ * After an abort, the read has no result, so the function throws the reason of the signal.
+ */
+function failedRead(signal: AbortSignal | undefined): null {
+  signal?.throwIfAborted();
+  return null;
+}
+
+/**
  * Derive the CIDv1 (raw codec, SHA-256) for a base64url-encoded content hash.
  * The CID is deterministic in the content hash, so lookups by base64url
  * SHA-256 hash translate directly to CID lookups.
@@ -85,10 +102,13 @@ function cidForHash(hash: string): CID {
  * @public
  */
 export interface BlockstoreLike {
-  /** Retrieve a raw block by CID. Expected to throw if the block is not found. */
-  get(cid: CID): Promise<Uint8Array>;
-  /** Store a raw block under the given CID. */
-  put(cid: CID, block: Uint8Array): Promise<unknown>;
+  /**
+   * Retrieve a raw block by CID. The method must throw if it does not find the block.
+   * `options.signal` aborts the read.
+   */
+  get(cid: CID, options?: { signal?: AbortSignal }): Promise<Uint8Array>;
+  /** Store a raw block under the given CID. `options.signal` aborts the write. */
+  put(cid: CID, block: Uint8Array, options?: { signal?: AbortSignal }): Promise<unknown>;
 }
 
 /**
@@ -115,18 +135,18 @@ export class BlockstoreCasExecutor implements CasExecutor {
     this.#blockstore = 'blockstore' in store ? store.blockstore : store;
   }
 
-  async retrieve(hash: string): Promise<Uint8Array | null> {
+  async retrieve(hash: string, signal?: AbortSignal): Promise<Uint8Array | null> {
     try {
-      return await this.#blockstore.get(cidForHash(hash));
+      return await this.#blockstore.get(cidForHash(hash), { signal });
     } catch {
-      return null;
+      return failedRead(signal);
     }
   }
 
-  async publish(data: Uint8Array): Promise<string> {
+  async publish(data: Uint8Array, signal?: AbortSignal): Promise<string> {
     const digest = await sha256.digest(data);
     const cid = CID.createV1(raw.code, digest);
-    await this.#blockstore.put(cid, data);
+    await this.#blockstore.put(cid, data, { signal });
     return encodeHash(digest.digest, 'base64urlnopad');
   }
 }
@@ -175,11 +195,11 @@ export class IpfsRpcCasExecutor implements CasExecutor {
       : {};
   }
 
-  async retrieve(hash: string): Promise<Uint8Array | null> {
+  async retrieve(hash: string, signal?: AbortSignal): Promise<Uint8Array | null> {
     try {
-      return await this.#blockGet(cidForHash(hash));
+      return await this.#blockGet(cidForHash(hash), signal);
     } catch {
-      return null;
+      return failedRead(signal);
     }
   }
 
@@ -204,7 +224,7 @@ export class IpfsRpcCasExecutor implements CasExecutor {
     return new Uint8Array(await res.arrayBuffer());
   }
 
-  async publish(data: Uint8Array): Promise<string> {
+  async publish(data: Uint8Array, signal?: AbortSignal): Promise<string> {
     const digest = await sha256.digest(data);
     const cid = CID.createV1(raw.code, digest);
     const body = new FormData();
@@ -213,6 +233,7 @@ export class IpfsRpcCasExecutor implements CasExecutor {
       method  : 'POST',
       headers : this.#headers,
       body,
+      signal,
     });
     if (!res.ok) {
       throw new Error(`IPFS RPC block/put failed: ${res.status} ${res.statusText}`);
@@ -248,11 +269,11 @@ export class HttpGatewayCasExecutor implements CasExecutor {
     this.#gatewayUrl = gatewayUrl.replace(/\/+$/, '');
   }
 
-  async retrieve(hash: string): Promise<Uint8Array | null> {
+  async retrieve(hash: string, signal?: AbortSignal): Promise<Uint8Array | null> {
     try {
-      return await this.#getBlock(cidForHash(hash));
+      return await this.#getBlock(cidForHash(hash), signal);
     } catch {
-      return null;
+      return failedRead(signal);
     }
   }
 
@@ -288,8 +309,8 @@ export const DEFAULT_CAS_TIMEOUT_MS = 30_000;
 /**
  * Configuration for the CAS (Content-Addressed Storage) driver.
  *
- * Provide exactly one of `executor`, `blockstore`, `rpcUrl`, or `gateway`.
- * Priority if multiple are set: `executor` > `blockstore` > `rpcUrl` > `gateway`.
+ * Set one of `executor`, `blockstore`, `rpcUrl`, or `gateways`. If a config sets more
+ * than one, `CasApi` uses this priority: `executor` > `blockstore` > `rpcUrl` > `gateways`.
  * @public
  */
 export type CasConfig = {
@@ -304,12 +325,18 @@ export type CasConfig = {
    * that requires authentication. Only `rpcUrl` uses them.
    */
   rpcAuth?: IpfsRpcAuth;
-  /** IPFS HTTP gateway URL for read-only CAS access (e.g. `'https://trustless-gateway.link'`). */
-  gateway?: string;
   /**
-   * Timeout in milliseconds for CAS operations. Prevents indefinite hangs
-   * when a blockstore lookup, RPC call, or gateway request stalls.
-   * Default: 30 000 ms. Set to `0` to disable.
+   * The URLs of IPFS HTTP gateways for read-only CAS access, in the order of the reads.
+   * For example: `['https://trustless-gateway.link']`. `CasApi.retrieve` reads from the
+   * next gateway if a gateway has no content, does not answer in time, or gives bytes
+   * with a different hash. An empty list is not a backend.
+   */
+  gateways?: readonly string[];
+  /**
+   * Timeout in milliseconds for CAS operations. At the timeout, `CasApi` aborts a
+   * blockstore lookup, an RPC call, or a gateway request that does not answer. The
+   * timeout applies to the read of each gateway in `gateways`.
+   * Default: 30 000 ms. If the value is `0`, no timeout applies.
    */
   timeoutMs?: number;
 };
@@ -321,29 +348,33 @@ export type CasConfig = {
  * JCS-canonicalized SHA-256 hash as the content address.
  *
  * The backend is selected from {@link CasConfig}: a custom executor, an
- * in-process blockstore, an IPFS RPC endpoint, or a read-only HTTP gateway.
+ * in-process blockstore, an IPFS RPC endpoint, or a list of read-only HTTP gateways.
  *
  * Lazily initialized by {@link DidBtcr2Api} to avoid startup overhead
  * when CAS features are not used.
  * @public
  */
 export class CasApi {
-  readonly #executor: CasExecutor;
+  /**
+   * The sources, in the order of the reads. Only a list of gateways has more than
+   * one source, and a gateway cannot publish. So `publish` uses only the first source.
+   */
+  readonly #sources: CasSource[];
   readonly #timeoutMs: number;
 
   constructor(config: CasConfig) {
     if (config.executor) {
-      this.#executor = config.executor;
+      this.#sources = [{ name: 'executor', executor: config.executor }];
     } else if (config.blockstore) {
-      this.#executor = new BlockstoreCasExecutor(config.blockstore);
+      this.#sources = [{ name: 'blockstore', executor: new BlockstoreCasExecutor(config.blockstore) }];
     } else if (config.rpcUrl) {
-      this.#executor = new IpfsRpcCasExecutor(config.rpcUrl, { auth: config.rpcAuth });
-    } else if (config.gateway) {
-      this.#executor = new HttpGatewayCasExecutor(config.gateway);
+      this.#sources = [{ name: config.rpcUrl, executor: new IpfsRpcCasExecutor(config.rpcUrl, { auth: config.rpcAuth }) }];
+    } else if (config.gateways?.length) {
+      this.#sources = config.gateways.map((url) => ({ name: url, executor: new HttpGatewayCasExecutor(url) }));
     } else {
       throw new Error(
         'CAS configuration requires an executor, blockstore, RPC URL, or gateway URL. '
-        + 'Example: createApi({ cas: { gateway: \'https://trustless-gateway.link\' } })'
+        + 'Example: createApi({ cas: { gateways: [\'https://trustless-gateway.link\'] } })'
       );
     }
     this.#timeoutMs = config.timeoutMs ?? DEFAULT_CAS_TIMEOUT_MS;
@@ -355,7 +386,7 @@ export class CasApi {
    * not declare the capability is assumed writable, per {@link CasExecutor}).
    */
   get writable(): boolean {
-    return this.#executor.canPublish !== false;
+    return this.#sources[0].executor.canPublish !== false;
   }
 
   /**
@@ -365,35 +396,55 @@ export class CasApi {
    * retrieved content, to compare it to the hash used for the retrieval, and
    * to not use the content if the hashes differ. This method hashes the raw
    * bytes before it parses them.
+   *
+   * With a list of gateways, the method reads from each gateway in order. It stops
+   * at the first bytes with the requested hash. The CAS timeout applies to the read
+   * of each gateway.
    * @param hashBytes Raw SHA-256 hash bytes of the JCS-canonicalized object.
-   * @returns The parsed JSON object, or `null` if not found.
-   * @throws {ResolveError} `MISSING_UPDATE_DATA` if the read times out, or if
-   *         the executor throws or rejects. The content is then not available
-   *         from the CAS.
-   * @throws {ResolveError} `MISSING_UPDATE_DATA` if the retrieved bytes do not
-   *         hash to `hashBytes`, or if they are not UTF-8 JSON text of an object.
+   * @returns The parsed JSON object, or `null` if each source returns `null`.
+   * @throws {ResolveError} `MISSING_UPDATE_DATA` if no source gives bytes with the
+   *         requested hash and one or more reads fail. A read fails if it times out,
+   *         if the executor throws or rejects, or if the bytes do not hash to
+   *         `hashBytes`. The content is then not available from the CAS. For a list
+   *         of gateways, the message names each gateway and its result.
+   * @throws {ResolveError} `MISSING_UPDATE_DATA` if the retrieved bytes are not
+   *         UTF-8 JSON text of an object.
    */
   async retrieve(hashBytes: HashBytes): Promise<object | null> {
     const hash = encodeHash(hashBytes, 'base64urlnopad');
-    let bytes: Uint8Array | null;
-    try {
-      bytes = await this.#withTimeout(this.#executor.retrieve(hash));
-    } catch (error) {
-      // A read that fails gives no content, as a read that finds no content does.
-      const text = error instanceof Error ? error.message : messageText(error);
-      throw new ResolveError(
-        `CAS content for ${hash} cannot be retrieved` + (text === undefined ? '.' : `: ${text}`),
-        MISSING_UPDATE_DATA, { hash, cause: error }
-      );
+    let bytes: Uint8Array | null = null;
+    // The reads that give no bytes with the requested hash, in the order of the sources.
+    const misses: CasMiss[] = [];
+    let failed = false;
+    for (const { name, executor } of this.#sources) {
+      let read: Uint8Array | null;
+      try {
+        read = await this.#withTimeout((signal) => executor.retrieve(hash, signal));
+      } catch (cause) {
+        // The read fails. The next source can give the content.
+        misses.push({ gateway: name, cause });
+        failed = true;
+        continue;
+      }
+      if (!read) {
+        misses.push({ gateway: name });
+        continue;
+      }
+      const actual = (await sha256.digest(read)).digest;
+      if (!equalBytes(actual, hashBytes)) {
+        // The resolver must not use these bytes. The next source can give the content.
+        misses.push({ gateway: name, actual: encodeHash(actual, 'base64urlnopad') });
+        failed = true;
+        continue;
+      }
+      bytes = read;
+      break;
     }
-    if (!bytes) return null;
-    const actual = (await sha256.digest(bytes)).digest;
-    if (!equalBytes(actual, hashBytes)) {
-      throw new ResolveError(
-        `CAS content for ${hash} hashes to ${encodeHash(actual, 'base64urlnopad')}; the resolver must not use it.`,
-        MISSING_UPDATE_DATA, { hash, actual: encodeHash(actual, 'base64urlnopad') }
-      );
+    if (!bytes) {
+      if (!failed) return null;
+      throw readError(hash, misses);
     }
+    // The bytes have the requested hash. Each source that has these bytes gives the same bytes.
     let parsed: unknown;
     try {
       // RFC 8259, section 8.1: JSON text is UTF-8. A byte sequence that is not UTF-8 is not JSON.
@@ -411,14 +462,23 @@ export class CasApi {
    * Check that the CAS backend answers a read, for a health report (for example
    * `btcr2 config doctor`). The executor reads a fixed identity block and compares
    * the bytes. The check aborts at the CAS timeout, and it writes nothing.
+   * With a list of gateways, the method checks each gateway at the same time.
    * @throws {Error} If the executor has no `probe` method, if the backend does not
-   *   answer with the block, or at the timeout.
+   *   answer with the block, or at the timeout. For a list of gateways, the error
+   *   names each gateway that does not answer.
    */
   async probe(): Promise<void> {
-    if (!this.#executor.probe) {
-      throw new Error('The CAS executor has no probe method.');
-    }
-    await this.#executor.probe(this.#timeoutMs ? AbortSignal.timeout(this.#timeoutMs) : undefined);
+    const results = await Promise.allSettled(this.#sources.map(({ executor }) => this.#withTimeout((signal) => {
+      if (!executor.probe) throw new Error('The CAS executor has no probe method.');
+      return executor.probe(signal);
+    })));
+    const failures = results.flatMap((result, index) =>
+      result.status === 'rejected' ? [{ gateway: this.#sources[index].name, cause: result.reason as unknown }] : []
+    );
+    if (!failures.length) return;
+    if (this.#sources.length === 1) throw failures[0].cause;
+    const reasons = failures.map(({ gateway, cause }) => `${gateway}: ${failureText(cause) ?? 'no answer'}`);
+    throw new Error(`One or more CAS gateways do not answer: ${reasons.join('; ')}.`);
   }
 
   /**
@@ -432,23 +492,76 @@ export class CasApi {
    */
   async publish(object: object): Promise<string> {
     const bytes = new TextEncoder().encode(canonicalize(object as Record<string, any>));
-    return await this.#withTimeout(this.#executor.publish(bytes));
+    return await this.#withTimeout((signal) => this.#sources[0].executor.publish(bytes, signal));
   }
 
   /**
-   * Wraps a promise with a timeout. If `#timeoutMs` is 0, no timeout is applied.
+   * Run one CAS operation with the CAS timeout. At the timeout, the method aborts
+   * the signal of the operation and rejects. An executor that uses the signal then
+   * aborts its request. The method also rejects at the timeout if an executor does
+   * not use the signal. If `#timeoutMs` is 0, no timeout applies and the signal is
+   * `undefined`.
    */
-  #withTimeout<T>(promise: Promise<T>): Promise<T> {
-    if (!this.#timeoutMs) return promise;
+  #withTimeout<T>(run: (signal?: AbortSignal) => Promise<T>): Promise<T> {
+    // If `run` throws before it returns a promise, the operation rejects.
+    const start = (signal?: AbortSignal) => new Promise<T>((resolve) => resolve(run(signal)));
+    if (!this.#timeoutMs) return start();
+    const controller = new AbortController();
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error(`CAS operation timed out after ${this.#timeoutMs}ms`)),
-        this.#timeoutMs
-      );
-      promise.then(
+      const timer = setTimeout(() => {
+        const error = new Error(`CAS operation timed out after ${this.#timeoutMs}ms`);
+        controller.abort(error);
+        reject(error);
+      }, this.#timeoutMs);
+      start(controller.signal).then(
         (val) => { clearTimeout(timer); resolve(val); },
         (err) => { clearTimeout(timer); reject(err); },
       );
     });
   }
+}
+
+/** A source of {@link CasApi}. In the errors of a list of gateways, the name is the gateway URL. */
+type CasSource = { name: string; executor: CasExecutor };
+
+/**
+ * A read from one source that gives no bytes with the requested hash. Cases: the executor
+ * returns `null`, the read fails (`cause`), or the bytes have a different hash (`actual`).
+ */
+type CasMiss = { gateway: string; cause?: unknown; actual?: string };
+
+/** The text of a failure, or `undefined` for a cause with no text. */
+function failureText(cause: unknown): string | undefined {
+  return cause instanceof Error ? cause.message : messageText(cause);
+}
+
+/**
+ * The error of a read that gives no bytes with the requested hash. With one source, the
+ * error shows the failure of that source. With a list of gateways, the error names each
+ * gateway and its result.
+ */
+function readError(hash: string, misses: CasMiss[]): ResolveError {
+  if (misses.length === 1) {
+    const [{ cause, actual }] = misses;
+    if (actual !== undefined) {
+      return new ResolveError(
+        `CAS content for ${hash} hashes to ${actual}; the resolver must not use it.`,
+        MISSING_UPDATE_DATA, { hash, actual }
+      );
+    }
+    const text = failureText(cause);
+    return new ResolveError(
+      `CAS content for ${hash} cannot be retrieved` + (text === undefined ? '.' : `: ${text}`),
+      MISSING_UPDATE_DATA, { hash, cause }
+    );
+  }
+  const results = misses.map((miss) => `${miss.gateway}: ${
+    miss.actual !== undefined ? `the content hashes to ${miss.actual}`
+      : 'cause' in miss ? failureText(miss.cause) ?? 'the read fails'
+        : 'no content'
+  }`);
+  return new ResolveError(
+    `CAS content for ${hash} cannot be retrieved from the gateways: ${results.join('; ')}.`,
+    MISSING_UPDATE_DATA, { hash, gateways: misses }
+  );
 }

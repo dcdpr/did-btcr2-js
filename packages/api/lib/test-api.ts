@@ -40,7 +40,7 @@ const resolutionOptions = {
     ]
   }
 };
-const apiConfig = { btc: { network: 'mutinynet' as NetworkName }, cas: { gateway: DEFAULT_CAS_GATEWAY } };
+const apiConfig = { btc: { network: 'mutinynet' as NetworkName }, cas: { gateways: [DEFAULT_CAS_GATEWAY] } };
 const api = new DidBtcr2Api(apiConfig);
 const resolutionResult = await api.resolveDid(did, resolutionOptions as any);
 console.log('resolutionResult', JSON.stringify(resolutionResult, null, 2));

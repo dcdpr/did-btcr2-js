@@ -55,9 +55,9 @@
  *   CAS_GATEWAY   IPFS gateways of the CAS reads, comma-separated, in order
  *                 (default: the Kubo gateway of the Polar stack on regtest,
  *                 ADR 117; on the other networks the nodes that hold the pins,
- *                 then the public gateways as fallbacks). The verify asks the
- *                 gateways in order and takes the first block found. Each
- *                 gateway gets 20 seconds per object.
+ *                 then the public gateways as fallbacks). The api reads from
+ *                 the gateways in order and stops at the first bytes with the
+ *                 requested hash. Each gateway gets 20 seconds per object.
  *
  * Usage:
  *   pnpm scenario:verify:live --network regtest
@@ -71,7 +71,7 @@ import { createApi, type DidBtcr2Api } from '@did-btcr2/api';
 import { canonicalHash, canonicalize } from '@did-btcr2/std';
 import { BeaconSignalDiscovery, DEFAULT_MIN_CONF, type BeaconService, type BeaconSignal } from '@did-btcr2/method';
 
-import { bitcoinConfigFor, CAS_GATEWAY_TIMEOUT_MS, casGatewaysFor, GatewayChainCasExecutor } from './_e2e-helpers.js';
+import { bitcoinConfigFor, CAS_GATEWAY_TIMEOUT_MS, casGatewaysFor } from './_e2e-helpers.js';
 import {
   causeDiff, cohortsOutDir, findCohort, indexScenarioDirs, isMinConfForm, isVersionTimeForm, loadCohorts, loadRecipes,
   parseNetworkArg, readExpected, readJSON, readSignedUpdates, readState, realUpdates, resolveCaseDir, resolveMinConf,
@@ -311,7 +311,7 @@ async function runSet(api: DidBtcr2Api, tip: () => Promise<number>, dir: string,
 }
 
 async function run(): Promise<void> {
-  const api = createApi({ btc: bitcoinConfigFor(network), cas: { executor: new GatewayChainCasExecutor(gateways), timeoutMs: CAS_GATEWAY_TIMEOUT_MS * gateways.length } });
+  const api = createApi({ btc: bitcoinConfigFor(network), cas: { gateways, timeoutMs: CAS_GATEWAY_TIMEOUT_MS } });
   const recipes = loadRecipes(network);
   const idx = indexScenarioDirs(network);
   const cohorts = loadCohorts(network);

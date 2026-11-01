@@ -13,7 +13,7 @@
  */
 import type { BitcoinConnection, HttpExecutor } from '@did-btcr2/bitcoin';
 import { defaultHttpExecutor } from '@did-btcr2/bitcoin';
-import { BitcoinApi, HttpGatewayCasExecutor, NETWORK_PRESETS, explorerAddressUrl, faucetUrl, type BitcoinApiConfig, type CasExecutor } from '../src/index.js';
+import { BitcoinApi, NETWORK_PRESETS, explorerAddressUrl, faucetUrl, type BitcoinApiConfig } from '../src/index.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve as resolvePath } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,7 +46,7 @@ export const PUBLIC_CAS_GATEWAYS: ReadonlyArray<string> = [
   'https://dweb.link',
 ];
 
-/** The time one gateway gets per object. A gateway that does not answer must not hold the chain. */
+/** The time that the api gives one gateway for one object. After this time, the api reads from the next gateway. */
 export const CAS_GATEWAY_TIMEOUT_MS = 20_000;
 
 /**
@@ -60,42 +60,6 @@ export function casGatewaysFor(network: E2ENetwork): string[] {
   const urls = raw.split(',').map((u) => u.trim().replace(/\/+$/, '')).filter((u) => u !== '');
   if (urls.length === 0) throw new Error('CAS_GATEWAY names no gateway');
   return urls;
-}
-
-/**
- * A read-only CAS executor that asks the gateways in order and returns the
- * first block found. Each gateway gets `CAS_GATEWAY_TIMEOUT_MS` per object.
- */
-export class GatewayChainCasExecutor implements CasExecutor {
-  readonly canPublish = false;
-  readonly #gateways: HttpGatewayCasExecutor[];
-
-  constructor(urls: ReadonlyArray<string>) {
-    this.#gateways = urls.map((u) => new HttpGatewayCasExecutor(u));
-  }
-
-  async retrieve(hash: string): Promise<Uint8Array | null> {
-    for (const gateway of this.#gateways) {
-      const bytes = await valueOrNull(gateway.retrieve(hash), CAS_GATEWAY_TIMEOUT_MS);
-      if (bytes) return bytes;
-    }
-    return null;
-  }
-
-  publish(): Promise<string> {
-    return Promise.reject(new Error('GatewayChainCasExecutor is read-only.'));
-  }
-}
-
-/** The value of `promise`, or `null` if `promise` rejects or does not settle in `ms` milliseconds. */
-function valueOrNull<T>(promise: Promise<T>, ms: number): Promise<T | null> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(null), ms);
-    promise.then(
-      (value) => { clearTimeout(timer); resolve(value); },
-      () => { clearTimeout(timer); resolve(null); },
-    );
-  });
 }
 
 /**

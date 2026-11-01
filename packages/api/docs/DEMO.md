@@ -49,13 +49,13 @@ import { createApi, DEFAULT_CAS_GATEWAY } from '@did-btcr2/api';
 
 const api = createApi({
   btc : { network: 'mutinynet' },
-  // A read-only public IPFS gateway. The short timeout makes the
-  // CAS read of Part 4 fail fast if the gateway does not answer.
-  cas : { gateway: DEFAULT_CAS_GATEWAY, timeoutMs: 5_000 },
+  // A list of read-only IPFS gateways. It holds only the public gateway.
+  // If the gateway does not answer, the CAS read of Part 4 fails after 5 seconds.
+  cas : { gateways: [DEFAULT_CAS_GATEWAY], timeoutMs: 5_000 },
 });
 ```
 
-> **Note:** the api makes `api.btc`, `api.cas`, and `api.btcr2` at the first access. `api.btc` throws if `createApi()` got no `btc` config. Mutinynet needs no endpoint config, because its default REST endpoint is `https://mutinynet.com/api`. Without a `cas` config, the api reads through the same public gateway, with a timeout of 30 seconds.
+> **Note:** the api makes `api.btc`, `api.cas`, and `api.btcr2` at the first access. `api.btc` throws if `createApi()` got no `btc` config. Mutinynet needs no endpoint config, because its default REST endpoint is `https://mutinynet.com/api`. Without a `cas` config, the api reads through the same public gateway, with a timeout of 30 seconds. For a fallback gateway, add a second URL to `gateways`. The api reads from the gateways in the order of the list.
 
 ---
 
@@ -410,7 +410,7 @@ await api.updateDid(did, patch, signer, { announce: { publishToCas: 'always' } }
 ```
 
 - Keep the password out of the source code. This example reads it from an environment variable.
-- `rpcAuth` applies only to `rpcUrl`. A `gateway` or a `blockstore` does not use it.
+- `rpcAuth` applies only to `rpcUrl`. A list of gateways or a `blockstore` does not use it.
 - `api.cas.probe()` does not write. So it cannot prove that the node accepts a write.
 - The CLI takes the same credentials from its config file. See [the CLI update page](../../cli/docs/update.md#publish-through-an-ipfs-node-with-http-basic-auth).
 

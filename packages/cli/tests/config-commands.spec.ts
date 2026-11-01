@@ -303,6 +303,7 @@ describe('config and profile commands', () => {
       await start('node');
       const checks = await doctor('--btc-rest', base, '--btc-rpc-url', base, '--cas-gateway', base, 'config', 'doctor', '-n', 'regtest');
       expect(checks.map((c) => [c.endpoint, c.ok])).to.deep.equal([['btc-rest', true], ['btc-rpc', true], ['cas', true]]);
+      expect(checks.find((c) => c.endpoint === 'cas')).to.include({ ok: true, target: base });
       expect(seen).to.include(`GET ${PROBE_PATH}`);
     });
 
