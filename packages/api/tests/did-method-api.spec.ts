@@ -605,7 +605,7 @@ describe('DidMethodApi', () => {
         delete genesis['@context'];
         const methodApi = new DidMethodApi(undefined, casReturning(new TextEncoder().encode(canonicalize(genesis))));
         const did = methodApi.createExternal(canonicalHashBytes(genesis), { network: 'regtest' });
-        const message = `Failed to resolve DID ${did}: Invalid "@context"`;
+        const message = `Failed to resolve DID ${did}: Invalid "@context": @context must be an array`;
         // rejectedWith checks only that the message includes the text. The next line checks equality.
         const error = await expect(methodApi.resolve(did)).to.be.rejectedWith(Error, message);
         expect(error.message).to.equal(message);

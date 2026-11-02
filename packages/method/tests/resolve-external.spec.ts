@@ -128,7 +128,23 @@ describe('Resolve External', () => {
       }
       expect(caught).to.be.instanceOf(DidDocumentError);
       expect(caught).to.have.property('type', INVALID_DID_DOCUMENT);
-      expect(caught.message).to.equal('Invalid "@context"');
+      expect(caught.message).to.equal('Invalid "@context": @context must be an array');
+    });
+
+    it('refuses a genesis document whose first "@context" item is the btcr2 context with INVALID_DID_DOCUMENT (ADR 171)', () => {
+      // DID Core v1.1, section 6.2.3: the first item is "https://www.w3.org/ns/did/v1.1". The DID encodes
+      // the hash of the changed document, so only the document check can fail.
+      const genesisDocument = changedGenesis(document => { document['@context'] = ['https://btcr2.dev/context/v1', 'https://www.w3.org/ns/did/v1.1']; });
+      const resolver = DidBtcr2.resolve(didOf(genesisDocument), { sidecar: { genesisDocument } });
+      let caught: any;
+      try {
+        resolver.resolve();
+      } catch (error: unknown) {
+        caught = error;
+      }
+      expect(caught).to.be.instanceOf(DidDocumentError);
+      expect(caught).to.have.property('type', INVALID_DID_DOCUMENT);
+      expect(caught.message).to.equal('Invalid "@context": @context[0] must be "https://www.w3.org/ns/did/v1.1"');
     });
 
     it('resolves a genesis document without service at version 1 with no beacon signal need', () => {

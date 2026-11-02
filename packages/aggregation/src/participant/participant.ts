@@ -243,8 +243,9 @@ export interface AggregationParticipantParams {
    * able to sign an update of the DID: the type `Multikey`, the DID as the controller, and a
    * BIP340 Multikey key in base58btc text. If it cannot, `resolveBtcr2SenderPk` of
    * `@did-btcr2/method` derives no key from the genesis document, so a service transport
-   * that uses it refuses the opt-in. The genesis document must also have an `@context`
-   * with "https://www.w3.org/ns/did/v1.1" and "https://btcr2.dev/context/v1" (ADR 148).
+   * that uses it refuses the opt-in. The genesis document must also have a `@context`
+   * with "https://www.w3.org/ns/did/v1.1" as its first item and "https://btcr2.dev/context/v1"
+   * as an item. Each item of `@context` must be a string or a JSON object (ADRs 148 and 171).
    * Typed as a plain record to keep the aggregation package DID-method-agnostic.
    */
   genesisDocument?: Record<string, unknown>;

@@ -261,7 +261,7 @@ describe('Validate Identifier', () => {
       delete broken['@context'];
       const report = Identifier.validate(externalDid(broken), { genesisDocument: broken });
       expect(last(report)).to.include({ name: 'genesisDocument', ok: false });
-      expect(last(report).detail).to.equal('Invalid genesis document: Invalid GenesisDocument "@context"');
+      expect(last(report).detail).to.equal('Invalid genesis document: Invalid GenesisDocument "@context": @context must be an array');
     });
 
     describe('optional members and any method controller (ADR 148)', () => {
@@ -291,7 +291,7 @@ describe('Validate Identifier', () => {
         const report = Identifier.validate(externalDid(changed), { genesisDocument: changed });
         expect(report.valid).to.equal(false);
         expect(last(report)).to.include({ name: 'genesisDocument', ok: false });
-        expect(last(report).detail).to.equal('Invalid genesis document: Invalid GenesisDocument "@context"');
+        expect(last(report).detail).to.equal('Invalid genesis document: Invalid GenesisDocument "@context": @context must contain "https://btcr2.dev/context/v1"');
       });
     });
 

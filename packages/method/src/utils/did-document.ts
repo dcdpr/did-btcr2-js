@@ -21,9 +21,10 @@ import { didCoreProblem, isJsonMap, NOT_A_JSON_OBJECT, type ConformanceRole } fr
 import { errorCause } from './error-cause.js';
 
 /**
- * The context URLs that the `@context` array of a did:btcr2 DID document must hold. The array is
- * frozen, because a write to the shared value changes the check of each later document. A caller
- * that builds a document copies the array. See
+ * The context URLs that the `@context` array of a did:btcr2 DID document must hold. The first
+ * context URL must also be the first item of `@context` (DID Core v1.1, section 6.2.3). The array
+ * is frozen, because a write to the shared value changes the check of each later document. A
+ * caller that builds a document copies the array. See
  * {@link https://dcdpr.github.io/did-btcr2/data-structures.html#did-document | DID Document (data structure)}.
  */
 export const BTCR2_DID_DOCUMENT_CONTEXT = Object.freeze([
@@ -252,7 +253,9 @@ export class DidDocument implements Btcr2DidDocument {
    * Validates a DID document. The checks run in this order, and the first check that fails
    * throws:
    * 1. The document is a JSON object.
-   * 2. "@context" is an array that contains the two btcr2 contexts.
+   * 2. "@context" is an array with "https://www.w3.org/ns/did/v1.1" as its first item and
+   *    "https://btcr2.dev/context/v1" as an item. See `contextProblem` for the rules and
+   *    their order. The message is `Invalid "@context": <rule>`.
    * 3. The id is a did:btcr2 identifier.
    * 4. The members conform to DID Core v1.1. See `didCoreProblem` in
    *    `utils/did-core-conformance.ts` for the rules and their order. The message is
@@ -269,8 +272,9 @@ export class DidDocument implements Btcr2DidDocument {
     if (!isJsonMap(didDocument)) {
       throw new DidDocumentError(NOT_A_JSON_OBJECT, INVALID_DID_DOCUMENT, { document: didDocument });
     }
-    if (!this.isValidContext(didDocument['@context'])) {
-      throw new DidDocumentError('Invalid "@context"', INVALID_DID_DOCUMENT, didDocument);
+    const contextRule = this.contextProblem(didDocument['@context']);
+    if (contextRule) {
+      throw new DidDocumentError(`Invalid "@context": ${contextRule}`, INVALID_DID_DOCUMENT, didDocument);
     }
     if (!this.isValidId(didDocument.id)) {
       throw new DidDocumentError('Invalid "id"', INVALID_DID_DOCUMENT, didDocument);
@@ -283,18 +287,30 @@ export class DidDocument implements Btcr2DidDocument {
   }
 
   /**
-   * Validates that "@context" exists and includes correct values.
+   * Returns the first rule that a "@context" value breaks, or `undefined` if the value is valid.
+   * The rules apply to both roles. The checks run in this order:
+   * 1. The value is an array. DID Core v1.1 also allows the string
+   *    "https://www.w3.org/ns/did/v1.1", but a did:btcr2 document also needs the btcr2 context.
+   * 2. The first item is "https://www.w3.org/ns/did/v1.1" (DID Core v1.1, section 6.2.3).
+   * 3. Each item is a string or a JSON object (DID Core v1.1, section 6.2.3).
+   * 4. An item is "https://btcr2.dev/context/v1". It can be at any position.
+   *
+   * The array can hold more contexts, for example a proof suite context (DID Core v1.1,
+   * section 6.2.3). The check does not parse the URL of a string item.
    * @private
-   * @param {DidDocument['@context']} context The context to validate.
-   * @returns {boolean} True if the context is valid.
+   * @param {unknown} context The "@context" value to check.
+   * @returns {string | undefined} The rule that the value breaks, for example
+   *   `@context[0] must be "https://www.w3.org/ns/did/v1.1"`, or `undefined`.
    */
-  private static isValidContext(context: unknown): boolean {
-    // "@context" must be a non-empty array of context entries.
-    if(!Array.isArray(context) || context.length === 0) return false;
-    // The btcr2 base contexts must all be present. Additional proof-suite or
-    // extension contexts (string or inline object) are permitted per W3C DID
-    // Core 4.1 and are no longer rejected by a strict whitelist.
-    return BTCR2_DID_DOCUMENT_CONTEXT.every(required => context.includes(required));
+  private static contextProblem(context: unknown): string | undefined {
+    if(!Array.isArray(context)) return '@context must be an array';
+    const didContext = BTCR2_DID_DOCUMENT_CONTEXT[0];
+    if(context[0] !== didContext) return `@context[0] must be "${didContext}"`;
+    const index = context.findIndex(item => typeof item !== 'string' && !isJsonMap(item));
+    if(index !== -1) return `@context[${index}] must be a string or a JSON object`;
+    const missing = BTCR2_DID_DOCUMENT_CONTEXT.find(required => !context.includes(required));
+    if(missing) return `@context must contain "${missing}"`;
+    return undefined;
   }
 
   /**
@@ -333,7 +349,8 @@ export class DidDocument implements Btcr2DidDocument {
    * Validate the GenesisDocument. The checks run in this order, and the first check that fails
    * throws:
    * 1. The id is the placeholder.
-   * 2. "@context" is an array that contains the two btcr2 contexts.
+   * 2. "@context" conforms to the rules of `contextProblem`. The message is
+   *    `Invalid GenesisDocument "@context": <rule>`.
    * 3. The members conform to DID Core v1.1, with the rules of {@link DidDocument.isValid}
    *    for the role. The message is `Invalid GenesisDocument <member>: <rule>`.
    *
@@ -354,8 +371,9 @@ export class DidDocument implements Btcr2DidDocument {
     if(this.id !== ID_PLACEHOLDER_VALUE) {
       throw new DidDocumentError('Invalid GenesisDocument ID', INVALID_DID_DOCUMENT, this);
     }
-    if(!DidDocument.isValidContext(this['@context'])) {
-      throw new DidDocumentError('Invalid GenesisDocument "@context"', INVALID_DID_DOCUMENT, this);
+    const contextRule = DidDocument.contextProblem(this['@context']);
+    if(contextRule) {
+      throw new DidDocumentError(`Invalid GenesisDocument "@context": ${contextRule}`, INVALID_DID_DOCUMENT, this);
     }
     const problem = didCoreProblem(this as unknown as Record<string, unknown>, role);
     if(problem) {
@@ -379,8 +397,10 @@ export class DidDocument implements Btcr2DidDocument {
 /**
  * A Genesis Document: a DID document whose id is the placeholder `did:btcr2:_`. Its canonical
  * hash is the genesis bytes of an EXTERNAL identifier. The constructor adds no member, so the
- * input must contain "@context" with the two btcr2 contexts. `verificationMethod` and `service`
- * are optional. The constructor runs the genesis checks only if the id is the placeholder.
+ * input must contain "@context" with "https://www.w3.org/ns/did/v1.1" as its first item and
+ * "https://btcr2.dev/context/v1" as an item. Each item of "@context" must be a string or a JSON
+ * object. `verificationMethod` and `service` are optional.
+ * The constructor runs the genesis checks only if the id is the placeholder.
  * `GenesisDocument.create` and `GenesisDocument.fromPublicKey` write the two contexts.
  * @class GenesisDocument
  * @extends {DidDocument}

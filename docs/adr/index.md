@@ -248,3 +248,4 @@ Each ADR captures one significant architectural decision: the context, the alter
 | 168 | 2026-10-31 | [The Aggregation Participant Makes the SMT Nonce and Sends Only the Update Hash](168-the-aggregation-participant-makes-the-smt-nonce-and-sends-only-the-update-hash.md) |
 | 169 | 2026-10-31 | [The Aggregate Beacon Address Is n-of-n by Default, and Each Script Leaf Is Opt-In](169-the-aggregate-beacon-address-is-n-of-n-by-default-and-each-script-leaf-is-opt-in.md) |
 | 170 | 2026-11-01 | [The api Aborts a CAS Operation at the Timeout and Reads From an Ordered List of Gateways](170-the-api-aborts-a-cas-operation-at-the-timeout-and-reads-from-an-ordered-list-of-gateways.md) |
+| 171 | 2026-11-02 | [The DID Document Context Has the DID v1.1 Context as Its First Item on Each Path](171-the-did-document-context-has-the-did-v1-1-context-as-its-first-item-on-each-path.md) |

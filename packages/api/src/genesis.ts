@@ -12,7 +12,6 @@ import type {
 } from '@did-btcr2/method';
 import {
   BeaconUtils,
-  BTCR2_DID_DOCUMENT_CONTEXT,
   deriveSingletonAddress,
   detectSingletonScriptKind,
   GenesisDocument,
@@ -177,8 +176,10 @@ export function buildGenesisDocument(spec: GenesisDocumentSpec): Btcr2DidDocumen
 /**
  * Checks that a genesis document has the shape that the specification
  * requires. The api runs this check before it hashes the document. The
- * document must be a JSON object with the id `did:btcr2:_` and the two
- * required contexts. Its members must follow the DID Core rules of a producer.
+ * document must be a JSON object with the id `did:btcr2:_`. The first item of
+ * its "@context" must be "https://www.w3.org/ns/did/v1.1", and one item must be
+ * "https://btcr2.dev/context/v1". Each item must be a string or a JSON object.
+ * Its members must follow the DID Core rules of a producer.
  * A verification method id or a service id does not need the placeholder.
  * @param genesisDocument The document to check.
  * @throws {DidDocumentError} If the document is not a valid genesis document.
@@ -194,16 +195,10 @@ export function assertGenesisDocument(genesisDocument: unknown): asserts genesis
       { id: document.id },
     );
   }
-  const context = document['@context'];
-  if (!Array.isArray(context) || !BTCR2_DID_DOCUMENT_CONTEXT.every(required => context.includes(required))) {
-    throw invalid(
-      `The genesis document "@context" must include ${BTCR2_DID_DOCUMENT_CONTEXT.map(c => `"${c}"`).join(' and ')}.`,
-      { context },
-    );
-  }
-  // The create path makes the document, so it runs the genesis checks of a
-  // producer: the DID Core member rules with the URL syntax. A verification
-  // method needs a DID as its controller, and the controller can be another DID.
+  // On the create path, the api is the producer of the document, so it runs
+  // the genesis checks of a producer. These checks include the "@context" rules
+  // and the DID Core member rules with the URL syntax. A verification method
+  // needs a DID as its controller, and the controller can be another DID.
   GenesisDocument.fromJSON(document).validateGenesis('producer');
 }
 

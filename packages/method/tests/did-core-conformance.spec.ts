@@ -159,8 +159,8 @@ describe('DID Core v1.1 member rules', () => {
 
     it('checks "@context" first in the constructor, then "id", then the members', () => {
       const cases: Array<[string, Record<string, any>, string]> = [
-        ['no "@context", no id, service null', didDocument(d => { delete d['@context']; delete d.id; d.service = null; }), 'Invalid "@context"'],
-        ['no "@context", verificationMethod null', didDocument(d => { delete d['@context']; d.verificationMethod = null; }), 'Invalid "@context"'],
+        ['no "@context", no id, service null', didDocument(d => { delete d['@context']; delete d.id; d.service = null; }), 'Invalid "@context": @context must be an array'],
+        ['no "@context", verificationMethod null', didDocument(d => { delete d['@context']; d.verificationMethod = null; }), 'Invalid "@context": @context must be an array'],
         ['no id, service null', didDocument(d => { delete d.id; d.service = null; }), 'Invalid "id"'],
         ['an id that is not a DID, service null', didDocument(d => { d.id = 'x'; d.service = null; }), 'Invalid "id"'],
       ];

@@ -1890,7 +1890,21 @@ describe('Updater', () => {
       const thrown = thrownBy(() => Updater.construct(sourceDocument, [{ op: 'remove', path: '/@context' }], 1));
       expect(thrown).to.be.instanceOf(UpdateError);
       expect(thrown.type).to.equal(INVALID_DID_UPDATE);
-      expect(thrown.message).to.equal('Error validating targetDocument: Invalid "@context"');
+      expect(thrown.message).to.equal('Error validating targetDocument: Invalid "@context": @context must be an array');
+    });
+
+    it('Updater.construct refuses a patch that moves the DID v1.1 context from the first position or adds an item of a wrong kind (ADR 171)', () => {
+      expect(sourceDocument['@context']).to.have.length(2);
+      const cases: Array<[PatchOperation, string]> = [
+        [{ op: 'move', from: '/@context/0', path: '/@context/-' }, '@context[0] must be "https://www.w3.org/ns/did/v1.1"'],
+        [{ op: 'add', path: '/@context/-', value: null }, '@context[2] must be a string or a JSON object'],
+      ];
+      for(const [operation, rule] of cases) {
+        const thrown = thrownBy(() => Updater.construct(sourceDocument, [operation], 1));
+        expect(thrown, operation.op).to.be.instanceOf(UpdateError);
+        expect(thrown.type, operation.op).to.equal(INVALID_DID_UPDATE);
+        expect(thrown.message, operation.op).to.equal(`Error validating targetDocument: Invalid "@context": ${rule}`);
+      }
     });
 
     it('Updater.construct accepts a patch that removes /verificationMethod if the relationships embed the method', () => {
