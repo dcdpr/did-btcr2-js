@@ -18,8 +18,9 @@ import externalData from './data/external-data.js';
 /**
  * DID Document validation and the DidVerificationMethod class.
  *
- * The `@context` check accepts each document that has the btcr2 base contexts. W3C DID Core
- * 4.1 allows more contexts, so the check does not refuse them. The `verificationMethod` check
+ * The `@context` check accepts each document whose first `@context` item is the DID v1.1
+ * context and that has the btcr2 context. DID Core v1.1, section 6.2.3, allows more contexts, so the check
+ * does not refuse them. The `verificationMethod` check
  * reads only the structure of each method: a string `id`, `type`, and `controller` (CID 2.2).
  * A method can have any type and any key material. Only the method that signs an update must
  * be a secp256k1 Multikey: signing-method.spec.ts tests that condition.
@@ -27,9 +28,9 @@ import externalData from './data/external-data.js';
 
 /**
  * Build a valid NON-genesis DID document from an external fixture by substituting
- * the `did:btcr2:_` placeholder with the fixture's real identifier. Genesis
- * documents (placeholder id) bypass `isValidContext` via `validateGenesis`, so a
- * real id is required to exercise the context rules through `DidDocument.isValid`.
+ * the `did:btcr2:_` placeholder with the fixture's real identifier. The method checks a
+ * Genesis Document (placeholder id) with `validateGenesis`, not with `DidDocument.isValid`.
+ * So a test of the `@context` rules through `DidDocument.isValid` needs a real id.
  */
 function validDocument(): Record<string, unknown> {
   const fixture = externalData[0]!;
@@ -60,19 +61,19 @@ describe('DidDocument @context validation (extensibility)', () => {
     const doc = validDocument();
     // Drop the btcr2 context, keep only the DID Core context plus an extension.
     doc['@context'] = ['https://www.w3.org/ns/did/v1.1', 'https://w3id.org/security/data-integrity/v2'];
-    expect(() => DidDocument.isValid(doc)).to.throw('Invalid "@context"');
+    expect(() => DidDocument.isValid(doc)).to.throw('Invalid "@context": @context must contain "https://btcr2.dev/context/v1"');
   });
 
   it('rejects a non-array @context', () => {
     const doc = validDocument();
     doc['@context'] = 'https://www.w3.org/ns/did/v1.1';
-    expect(() => DidDocument.isValid(doc)).to.throw('Invalid "@context"');
+    expect(() => DidDocument.isValid(doc)).to.throw('Invalid "@context": @context must be an array');
   });
 
   it('rejects an empty @context array', () => {
     const doc = validDocument();
     doc['@context'] = [];
-    expect(() => DidDocument.isValid(doc)).to.throw('Invalid "@context"');
+    expect(() => DidDocument.isValid(doc)).to.throw('Invalid "@context": @context[0] must be "https://www.w3.org/ns/did/v1.1"');
   });
 
   it('freezes BTCR2_DID_DOCUMENT_CONTEXT, so a caller cannot change the check', () => {
@@ -86,7 +87,7 @@ describe('DidDocument @context validation (extensibility)', () => {
     expect(BTCR2_DID_DOCUMENT_CONTEXT).to.deep.equal(['https://www.w3.org/ns/did/v1.1', 'https://btcr2.dev/context/v1']);
     const doc = validDocument();
     doc['@context'] = ['https://example.com/other'];
-    expect(() => DidDocument.isValid(doc)).to.throw('Invalid "@context"');
+    expect(() => DidDocument.isValid(doc)).to.throw('Invalid "@context": @context[0] must be "https://www.w3.org/ns/did/v1.1"');
   });
 
   it('gives a built document a writable copy of the frozen context', () => {
@@ -95,6 +96,96 @@ describe('DidDocument @context validation (extensibility)', () => {
     expect(document['@context']).to.have.length(3);
     expect(BTCR2_DID_DOCUMENT_CONTEXT).to.have.length(2);
   });
+});
+
+/**
+ * DID Core v1.1, section 6.2.3: the first item of "@context" is "https://www.w3.org/ns/did/v1.1",
+ * and each item is a string or a JSON object. The btcr2 context can be at any position. The
+ * rules apply to both roles and to both document checks (ADR 171).
+ */
+describe('DidDocument "@context" order and item kinds (ADR 171)', () => {
+  const DID_V1_1 = 'https://www.w3.org/ns/did/v1.1';
+  const BTCR2_V1 = 'https://btcr2.dev/context/v1';
+  const OTHER = 'https://x.example/v1';
+  const VOCAB = { '@vocab': 'https://x.example/#' };
+  const ITEM_KIND = 'must be a string or a JSON object';
+  /** A CASES value: the document has no "@context". */
+  const ABSENT = Symbol('no @context');
+
+  /**
+   * The label, the "@context" value, and the rule that the check gives. If the rule is
+   * `undefined`, the check accepts the value.
+   */
+  const CASES: Array<[string, unknown, string | undefined]> = [
+    ['the DID v1.1 context, then the btcr2 context', [DID_V1_1, BTCR2_V1], undefined],
+    ['the btcr2 context first', [BTCR2_V1, DID_V1_1], `@context[0] must be "${DID_V1_1}"`],
+    ['the btcr2 context first and a third context', [BTCR2_V1, DID_V1_1, OTHER], `@context[0] must be "${DID_V1_1}"`],
+    ['a third context between the two contexts', [DID_V1_1, OTHER, BTCR2_V1], undefined],
+    ['the DID v1.1 context as a string', DID_V1_1, '@context must be an array'],
+    ['a JSON object', VOCAB, '@context must be an array'],
+    ['an empty array', [], `@context[0] must be "${DID_V1_1}"`],
+    ['no "@context"', ABSENT, '@context must be an array'],
+    ['only the DID v1.1 context', [DID_V1_1], `@context must contain "${BTCR2_V1}"`],
+    ['the DID v1.0 context first', ['https://www.w3.org/ns/did/v1', DID_V1_1, BTCR2_V1], `@context[0] must be "${DID_V1_1}"`],
+    ['a JSON object first', [VOCAB, DID_V1_1, BTCR2_V1], `@context[0] must be "${DID_V1_1}"`],
+    ['an extra item null', [DID_V1_1, BTCR2_V1, null], `@context[2] ${ITEM_KIND}`],
+    ['an extra item 5', [DID_V1_1, BTCR2_V1, 5], `@context[2] ${ITEM_KIND}`],
+    ['an extra item true', [DID_V1_1, BTCR2_V1, true], `@context[2] ${ITEM_KIND}`],
+    ['an extra item that is an array', [DID_V1_1, BTCR2_V1, [OTHER]], `@context[2] ${ITEM_KIND}`],
+    ['an extra item that is a JSON object', [DID_V1_1, BTCR2_V1, VOCAB], undefined],
+    ['an extra item that is an empty JSON object', [DID_V1_1, BTCR2_V1, {}], undefined],
+    ['an extra item that is not a URL', [DID_V1_1, BTCR2_V1, 'not a url'], undefined],
+    ['null before the btcr2 context', [DID_V1_1, null, BTCR2_V1], `@context[1] ${ITEM_KIND}`],
+    ['null and no btcr2 context', [DID_V1_1, null], `@context[1] ${ITEM_KIND}`],
+    ['no btcr2 context', [DID_V1_1, OTHER], `@context must contain "${BTCR2_V1}"`],
+  ];
+
+  /** Set "@context" of `target` to `context`, or remove "@context" if `context` is ABSENT. */
+  function setContext(target: Record<string, unknown>, context: unknown): void {
+    if(context === ABSENT) {
+      delete target['@context'];
+    } else {
+      target['@context'] = context;
+    }
+  }
+
+  /** The value that `check` returns, or the error that it throws. */
+  function outcome(check: () => boolean): unknown {
+    try {
+      return check();
+    } catch(error) {
+      return error;
+    }
+  }
+
+  /** Expect `true` if `rule` is undefined, else a DidDocumentError with the message `<prefix>: <rule>`. */
+  function expectOutcome(result: unknown, prefix: string, rule: string | undefined, label: string): void {
+    if(rule === undefined) {
+      expect(result, label).to.equal(true);
+      return;
+    }
+    expect(result, label).to.be.instanceOf(DidDocumentError);
+    expect(result, label).to.have.property('type', INVALID_DID_DOCUMENT);
+    expect(result, label).to.have.property('message', `${prefix}: ${rule}`);
+  }
+
+  for(const role of ['consumer', 'producer'] as const) {
+    it(`DidDocument.isValid as a ${role} applies the rules in order`, () => {
+      for(const [label, context, rule] of CASES) {
+        const document = validDocument();
+        setContext(document, context);
+        expectOutcome(outcome(() => DidDocument.isValid(document as DidDocumentLike, role)), 'Invalid "@context"', rule, `${role}: ${label}`);
+      }
+    });
+
+    it(`GenesisDocument.validateGenesis as a ${role} applies the rules in order`, () => {
+      for(const [label, context, rule] of CASES) {
+        const genesis = GenesisDocument.fromJSON(JSON.parse(JSON.stringify(externalData[0]!.genesisDocument)));
+        setContext(genesis as unknown as Record<string, unknown>, context);
+        expectOutcome(outcome(() => genesis.validateGenesis(role)), 'Invalid GenesisDocument "@context"', rule, `${role}: ${label}`);
+      }
+    });
+  }
 });
 
 /** The base58btc multibase (`z` header) of a multicodec prefix and a 32-byte key of `fill` bytes. */
@@ -448,27 +539,31 @@ describe('DidDocument sets no defaults (ADR 148)', () => {
     const document = validDocument();
     delete document['@context'];
     const thrown = expectInvalid(() => new DidDocument(document as DidDocumentLike), 'new DidDocument');
-    expect(thrown.message).to.equal('Invalid "@context"');
+    expect(thrown.message).to.equal('Invalid "@context": @context must be an array');
     const genesis = genesisDocument();
     delete genesis['@context'];
     const genesisThrown = expectInvalid(() => GenesisDocument.fromJSON(genesis), 'GenesisDocument.fromJSON');
-    expect(genesisThrown.message).to.equal('Invalid GenesisDocument "@context"');
+    expect(genesisThrown.message).to.equal('Invalid GenesisDocument "@context": @context must be an array');
   });
 
   it('refuses a DID document and a Genesis Document whose "@context" has only one of the two contexts', () => {
-    for(const context of BTCR2_DID_DOCUMENT_CONTEXT) {
+    const cases: Array<[string, string]> = [
+      ['https://www.w3.org/ns/did/v1.1', '@context must contain "https://btcr2.dev/context/v1"'],
+      ['https://btcr2.dev/context/v1', '@context[0] must be "https://www.w3.org/ns/did/v1.1"'],
+    ];
+    for(const [context, rule] of cases) {
       const constructed = expectInvalid(() => new DidDocument({ ...validDocument(), '@context': [context] } as DidDocumentLike), `new DidDocument with ${context}`);
-      expect(constructed.message, `new DidDocument with ${context}`).to.equal('Invalid "@context"');
+      expect(constructed.message, `new DidDocument with ${context}`).to.equal(`Invalid "@context": ${rule}`);
       const thrown = expectInvalid(() => GenesisDocument.fromJSON({ ...genesisDocument(), '@context': [context] }), `GenesisDocument.fromJSON with ${context}`);
-      expect(thrown.message).to.equal('Invalid GenesisDocument "@context"');
+      expect(thrown.message).to.equal(`Invalid GenesisDocument "@context": ${rule}`);
     }
   });
 
   it('checks "@context" before verificationMethod and service, and verificationMethod before service, in a Genesis Document', () => {
     const noContext = without(genesisDocument(), ['@context']);
     const cases: Array<[string, Record<string, any>, string]> = [
-      ['no "@context" and service null', { ...noContext, service: null }, 'Invalid GenesisDocument "@context"'],
-      ['no "@context" and verificationMethod null', { ...noContext, verificationMethod: null }, 'Invalid GenesisDocument "@context"'],
+      ['no "@context" and service null', { ...noContext, service: null }, 'Invalid GenesisDocument "@context": @context must be an array'],
+      ['no "@context" and verificationMethod null', { ...noContext, verificationMethod: null }, 'Invalid GenesisDocument "@context": @context must be an array'],
       ['verificationMethod null and service null', { ...genesisDocument(), verificationMethod: null, service: null }, 'Invalid GenesisDocument verificationMethod: verificationMethod must be an array'],
     ];
     for(const [label, genesis, message] of cases) {
@@ -547,7 +642,7 @@ describe('DidDocument sets no defaults (ADR 148)', () => {
     const data = validDocument();
     delete data['@context'];
     const thrown = expectInvalid(() => DidDocument.fromExternalIdentifier(data as ExternalData), 'fromExternalIdentifier');
-    expect(thrown.message).to.equal('Invalid "@context"');
+    expect(thrown.message).to.equal('Invalid "@context": @context must be an array');
   });
 
   it('writes id and "@context" first in toJSON for a document with every member (ADR 144)', () => {

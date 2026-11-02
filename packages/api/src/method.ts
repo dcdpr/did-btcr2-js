@@ -476,13 +476,18 @@ export class DidMethodApi {
    * Create an EXTERNAL (`x`) DID from its genesis document, with zero I/O.
    *
    * The document must be a Genesis Document: a JSON object with the id
-   * `did:btcr2:_` and the two required contexts. Its members must follow the
-   * DID Core rules of a producer. A verification method id or a service id
-   * does not need the placeholder, for example `#key-0`. The api hashes the
-   * document as given (JCS canonical form, SHA-256). It encodes the identifier
-   * for the network. Then it derives the initial DID document and checks it as
-   * a DID document. Hash the same JSON that you keep or publish: a document
-   * with one changed byte hashes to a different identifier.
+   * `did:btcr2:_`. The first item of its "@context" must be
+   * "https://www.w3.org/ns/did/v1.1", and one item must be
+   * "https://btcr2.dev/context/v1". Each item must be a string or a JSON
+   * object. Its members must follow the DID Core rules of a producer. A
+   * verification method id or a service id does not need the placeholder, for
+   * example `#key-0`.
+   *
+   * The api hashes the document as given (JCS canonical form, SHA-256). It
+   * encodes the identifier for the network. Then it derives the initial DID
+   * document and checks it as a DID document. Hash the same JSON that you keep
+   * or publish: a document with one changed byte hashes to a different
+   * identifier.
    *
    * When `options.network` is omitted, the DID is minted for the network of the
    * configured Bitcoin connection, else for {@link DidMethodApi.FALLBACK_NETWORK}

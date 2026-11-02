@@ -666,8 +666,10 @@ import { AggregationParticipant, KeyPairAggregationSigner } from '@did-btcr2/agg
 // capabilityInvocation[0] in that document must have the type Multikey and a
 // BIP340 Multikey key in base58btc text. Its controller must be 'did:btcr2:_'
 // (resolution replaces it with the DID). The document must also have
-// "@context" with the two btcr2 contexts (ADR 148). If the document does not
-// agree with these conditions, resolveBtcr2SenderPk returns no key, and the
+// "@context" with "https://www.w3.org/ns/did/v1.1" as its first item and
+// "https://btcr2.dev/context/v1" as an item. Each item of "@context" must be a
+// string or a JSON object (ADRs 148 and 171). If the document does not agree
+// with these conditions, resolveBtcr2SenderPk returns no key, and the
 // transport drops the opt-in. The document can have no service.
 const session = new AggregationParticipant({ did: myDid, signer: new KeyPairAggregationSigner(myKeys) });
 

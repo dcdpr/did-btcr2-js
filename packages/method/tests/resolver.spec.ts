@@ -4526,6 +4526,25 @@ describe('Resolver', () => {
         expect(thrown.data.cause).to.deep.equal({ type: INVALID_DID_DOCUMENT, message: rule });
       });
 
+      it('refuses a patch that moves the DID v1.1 context from the first position or adds an item of a wrong kind (ADR 171)', () => {
+        // DID Core v1.1, section 6.2.3: the first item of "@context" is "https://www.w3.org/ns/did/v1.1",
+        // and each item is a string or a JSON object.
+        const source = resolveDeterministic(fixture.did);
+        expect(source['@context']).to.have.length(2);
+        const cases: Array<[PatchOperation, string]> = [
+          [{ op: 'move', from: '/@context/0', path: '/@context/-' }, '@context[0] must be "https://www.w3.org/ns/did/v1.1"'],
+          [{ op: 'add', path: '/@context/-', value: null }, '@context[2] must be a string or a JSON object'],
+        ];
+        for(const [operation, contextRule] of cases) {
+          const patch: PatchOperation[] = [operation];
+          const thrown = thrownBy([ signWith(unsignedV2(source, patch, JSONPatch.apply(source, patch))) ]);
+          const message = `Invalid "@context": ${contextRule}`;
+          expectInvalidUpdate(thrown, /^Invalid update: the patched document does not conform to DID Core: /);
+          expect(thrown.message, operation.op).to.equal(`Invalid update: the patched document does not conform to DID Core: ${message}`);
+          expect(thrown.data.cause, operation.op).to.deep.equal({ type: INVALID_DID_DOCUMENT, message });
+        }
+      });
+
       // Spec "Apply update": the patched document must conform to DID Core v1.1. The cases
       // are the member rules of did-core-conformance.spec.ts.
       for(const { label, change, member, message } of REFUSAL_CASES) {

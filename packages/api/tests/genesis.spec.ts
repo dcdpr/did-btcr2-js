@@ -197,6 +197,13 @@ describe('genesis document builder', () => {
         ['a service without an endpoint', () => ({ ...base(), services: [{ id: '#x', type: 'T' } as any] }), /serviceEndpoint is required/],
         ['two services with one id', () => ({ ...base(), services: [{ id: '#service-0', type: 'T', serviceEndpoint: 'https://x' }] }), /appears twice/],
         ['two methods with one fragment', () => ({ ...base(), verificationMethods: [{ publicKey: key, fragment: 'a' }, { publicKey: publicKey(), fragment: 'a' }] }), /appears twice/],
+        ['a spec that is not an object', () => null as unknown as GenesisDocumentSpec, /^The genesis document spec must be an object\.$/],
+        ['a key that is not a byte array', () => ({ ...base(), verificationMethods: [{ publicKey: 'ab' as any }] }), /^verificationMethods\[0\]\.publicKey must be a 33-byte compressed secp256k1 public key\.$/],
+        ['relationships that are not an array', () => ({ ...base(), verificationMethods: [{ publicKey: key, relationships: 'authentication' as any }] }), /^verificationMethods\[0\]\.relationships must be an array\.$/],
+        ['an empty beacon address', () => ({ ...base(), beacons: [{ type: 'SingletonBeacon', address: '' }] }), /^beacons\[0\]\.address must be a non-empty string\.$/],
+        ['services that are not an array', () => ({ ...base(), services: {} as any }), /^The genesis document spec "services" must be an array\.$/],
+        ['a service that is not an object', () => ({ ...base(), services: [null as any] }), /^services\[0\] must be an object\.$/],
+        ['an empty service type', () => ({ ...base(), services: [{ id: '#x', type: '', serviceEndpoint: 'https://x' }] }), /^services\[0\]\.type must be a non-empty string\.$/],
       ];
 
       for (const [name, spec, message] of cases) {
@@ -490,10 +497,32 @@ describe('genesis document builder', () => {
       it('refuses a document without the required contexts', () => {
         const missing = valid();
         delete missing['@context'];
-        expect(() => methodApi.createExternalFromDocument(missing)).to.throw(DidDocumentError, /"@context" must include/);
+        expect(() => methodApi.createExternalFromDocument(missing))
+          .to.throw(DidDocumentError, 'Invalid GenesisDocument "@context": @context must be an array')
+          .with.property('type', INVALID_DID_DOCUMENT);
         const partial = valid();
         partial['@context'] = ['https://www.w3.org/ns/did/v1.1'];
-        expect(() => methodApi.createExternalFromDocument(partial)).to.throw(DidDocumentError, /"@context" must include/);
+        expect(() => methodApi.createExternalFromDocument(partial))
+          .to.throw(DidDocumentError, 'Invalid GenesisDocument "@context": @context must contain "https://btcr2.dev/context/v1"')
+          .with.property('type', INVALID_DID_DOCUMENT);
+      });
+
+      it('refuses a document whose first "@context" item is not the DID v1.1 context, or that has an item of a wrong kind (ADR 171)', () => {
+        const reversed = valid();
+        reversed['@context'] = ['https://btcr2.dev/context/v1', 'https://www.w3.org/ns/did/v1.1'];
+        expect(() => methodApi.createExternalFromDocument(reversed))
+          .to.throw(DidDocumentError, 'Invalid GenesisDocument "@context": @context[0] must be "https://www.w3.org/ns/did/v1.1"')
+          .with.property('type', INVALID_DID_DOCUMENT);
+        // The error data is the document, not `{ context }`.
+        expect(() => methodApi.createExternalFromDocument(reversed))
+          .to.throw(DidDocumentError)
+          .with.property('data')
+          .that.deep.includes({ id: 'did:btcr2:_', '@context': reversed['@context'] });
+        const extra = valid();
+        extra['@context'] = ['https://www.w3.org/ns/did/v1.1', 'https://btcr2.dev/context/v1', 5];
+        expect(() => methodApi.createExternalFromDocument(extra))
+          .to.throw(DidDocumentError, 'Invalid GenesisDocument "@context": @context[2] must be a string or a JSON object')
+          .with.property('type', INVALID_DID_DOCUMENT);
       });
 
       it('refuses a service id that is not a URL', () => {

@@ -95,8 +95,9 @@ export interface AggregationParticipantRunnerOptions {
    * genesis document's `capabilityInvocation[0]` verification method, and that method must
    * be able to sign an update of the DID (see
    * {@link AggregationParticipantParams.genesisDocument}). The genesis document must also
-   * have an `@context` with "https://www.w3.org/ns/did/v1.1" and
-   * "https://btcr2.dev/context/v1" (ADR 148).
+   * have a `@context` with "https://www.w3.org/ns/did/v1.1" as its first item and
+   * "https://btcr2.dev/context/v1" as an item. Each item of `@context` must be a string or
+   * a JSON object (ADRs 148 and 171).
    */
   genesisDocument?: Record<string, unknown>;
 
